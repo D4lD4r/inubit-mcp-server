@@ -59,7 +59,7 @@
         <!-- networknt json-schema-validator used by mcp-json-jackson3 2.0.1 -->
         <json-schema-validator.version>3.0.6</json-schema-validator.version>
         <!-- Jackson 3 still uses the Jackson 2 annotations; mcp-core 2.0.1 declares 2.21 -->
-        <jackson-annotations.version>2.21</jackson-annotations.version>
+        <jackson-annotations.version>2.22</jackson-annotations.version>
         <logback.version>1.5.38</logback.version>
         <!-- slf4j-api version that logback-classic 1.5.38 is built against -->
         <slf4j.version>2.0.17</slf4j.version>
