@@ -4,8 +4,31 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # These versions are coupled to the MCP Java SDK and must equal what the SDK itself
+      # resolves (see the comments in pom.xml). Align them by hand in the same change as an
+      # MCP SDK update; Dependabot alerts still report vulnerabilities in them.
+      - dependency-name: "tools.jackson.*"
+      - dependency-name: "com.fasterxml.jackson.core:jackson-annotations"
+      - dependency-name: "com.networknt:json-schema-validator"
+      # slf4j-api must match the version Logback is built against; align it with Logback.
+      - dependency-name: "org.slf4j:slf4j-api"
+      # Logback: patch releases only; minor/major releases are a deliberate upgrade.
+      - dependency-name: "ch.qos.logback:*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+    groups:
+      mcp-sdk:
+        patterns: ["io.modelcontextprotocol.sdk:*"]
+      logging:
+        patterns: ["ch.qos.logback:*"]
+      test-and-build:
+        patterns: ["org.junit*", "org.assertj:*", "org.wiremock*", "org.apache.maven.plugins:*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
