@@ -55,7 +55,7 @@
         <!-- Runtime dependencies (research R-1, R-4, R-16) -->
         <mcp-sdk.version>2.0.1</mcp-sdk.version>
         <!-- Must equal the tools.jackson version resolved by mcp-json-jackson3 2.0.1 -->
-        <jackson3.version>3.1.4</jackson3.version>
+        <jackson3.version>3.2.3</jackson3.version>
         <!-- networknt json-schema-validator used by mcp-json-jackson3 2.0.1 -->
         <json-schema-validator.version>3.0.6</json-schema-validator.version>
         <!-- Jackson 3 still uses the Jackson 2 annotations; mcp-core 2.0.1 declares 2.21 -->
