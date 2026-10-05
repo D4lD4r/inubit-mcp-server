@@ -18,6 +18,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   commits the push target does not have yet, annotated tags and the names of the pushed refs)
   and the working tree (`--all`).
 - An optional local allowlist of exact values (generic words) that the check does not report.
+- Setup guide: how to run the server from the Claude desktop app and other GUI clients on macOS,
+  which do not read `~/.zshrc`, with a start script that loads the credentials from the Keychain.
 
 ### Changed
 

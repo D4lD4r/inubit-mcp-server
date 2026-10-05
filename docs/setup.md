@@ -362,6 +362,55 @@ The variables are read **once, when the server starts**. After changing them, op
 Reconnecting with `/mcp` is not enough: it restarts the server with the environment of the
 running Claude Code process, which still has the old values.
 
+### Claude Desktop and other GUI clients (macOS)
+
+A client started from the Dock, Finder or Spotlight (e.g. the Claude desktop app) does **not**
+read `~/.zshrc`: it gets the environment of `launchd`, without your `export` lines and without
+your shell's `PATH`. The server then stops at startup with "no username variable set" and the
+client only reports "connection closed". Restarting the app does not help.
+
+Instead, keep the credentials in the macOS Keychain and register a small start script that loads
+them. Store each variable as a generic password with the service `inubit-mcp` and the variable
+name as the account (`-w` as the last option prompts for the value, so it does not end up in the
+shell history):
+
+```bash
+security add-generic-password -U -s inubit-mcp -a INUBIT_ACME_DEV_USERNAME -w
+security add-generic-password -U -s inubit-mcp -a INUBIT_ACME_DEV_PASSWORD -w
+```
+
+Start script, e.g. `~/.local/bin/inubit-mcp-acme` (make it executable with `chmod +x`). Write
+out the JAR version and the absolute path of `java` (`command -v java` in your shell), since the
+client's `PATH` does not contain e.g. Homebrew:
+
+```zsh
+#!/bin/zsh
+# Starts the INUBIT MCP server (profile acme) with credentials from the macOS Keychain.
+# Nothing may be written to stdout: it is the MCP channel.
+set -euo pipefail
+
+for var in INUBIT_ACME_DEV_USERNAME INUBIT_ACME_DEV_PASSWORD; do
+  if ! value=$(/usr/bin/security find-generic-password -s inubit-mcp -a "$var" -w 2>/dev/null); then
+    print -u2 "inubit-mcp-acme: Keychain entry missing (service inubit-mcp, account $var)"
+    exit 1
+  fi
+  export "$var=$value"
+done
+
+exec /opt/homebrew/opt/openjdk/bin/java -jar "$HOME/.local/lib/inubit-mcp-server-X.Y.Z.jar" --profile acme "$@"
+```
+
+Register the script instead of `java -jar …`:
+
+```bash
+claude mcp add --scope user inubit-acme -- "$HOME/.local/bin/inubit-mcp-acme"
+```
+
+Claude Code in the terminal uses the same registration, so the `export` lines in `~/.zshrc` are
+no longer needed. Because the script reads the Keychain each time the server starts, a changed
+password takes effect after `/mcp` → reconnect or a restart of the client. On first access macOS
+may ask whether `security` may read the entry; choose "Always Allow".
+
 > **Warning:** do **not** pass credentials through the MCP client's own configuration, e.g.
 > `claude mcp add -e INUBIT_ACME_DEV_PASSWORD=…`. That stores the password in plain text in the
 > client's configuration file. Export the variables in your shell profile instead.
