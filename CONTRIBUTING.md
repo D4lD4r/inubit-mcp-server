@@ -33,14 +33,19 @@ names, user or group names, workflow or module names, log excerpts or other data
 installation into issues, pull requests, commits, tests or fixtures. Use fictitious values
 (`acme`, `globex`, `*.example.test`, `Workflow-0001`, …).
 
-Before a release, the guard test `NoCustomerIdentifiersTest` scans the repository and the built JAR
-against a local, never committed denylist ([docs/release-checks.md](docs/release-checks.md)):
+The guard test `NoCustomerIdentifiersTest` scans the repository and the built JAR against local,
+never committed identifier lists (a denylist and the maps of `tools/neutralize.py` and
+`tools/synthesize_names.py`). With the lists in `~/.config/inubit-mcp/`, every local `mvn verify`
+runs it ([docs/release-checks.md](docs/release-checks.md)). If you work with such lists, install the
+git hooks once per clone; they run the same check (`tools/check-identifiers.py`) before every
+commit and push:
 
 ```bash
-INUBIT_MCP_DENYLIST=/path/to/denylist mvn -q -Dtest=NoCustomerIdentifiersTest test
+git config core.hooksPath .githooks
 ```
 
-Without a denylist the test is skipped, so it does not run in CI.
+CI cannot run the check because the lists are private: there the guard test is skipped. Without
+any list the hooks only print a warning.
 
 ## Security issues
 

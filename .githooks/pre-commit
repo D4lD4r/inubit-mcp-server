@@ -1,0 +1,42 @@
+#!/bin/sh
+# Blocks a commit whose staged changes contain customer identifiers: the added and changed lines,
+# staged archives and the staged file names are checked against the local identifier lists
+# (docs/release-checks.md). Without any list it warns and lets the commit pass.
+#
+# Install once per clone:   git config core.hooksPath .githooks
+# Bypass (discouraged):     git commit --no-verify
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "pre-commit: python3 not found, the identifier check cannot run." >&2
+    echo "pre-commit: install Python 3 or, if you must, bypass with: git commit --no-verify" >&2
+    exit 1
+fi
+
+python3 tools/check-identifiers.py --staged
+status=$?
+case $status in
+    0) ;;
+    1)
+        cat >&2 <<'MSG'
+
+pre-commit: commit blocked, the staged changes contain customer identifiers.
+  Each line above is "file:line: <list> rule <n>: <masked match>".
+  Replace the values by fictitious ones (acme, globex, *.example.test, Workflow-0001, ...;
+  tools/neutralize.py and tools/synthesize_names.py help), stage the files again and commit.
+  A generic word that a map happens to contain belongs in the local allowlist
+  (docs/release-checks.md), not in the commit.
+  Bypass with "git commit --no-verify" only if you are sure (discouraged).
+MSG
+        ;;
+    *)
+        cat >&2 <<'MSG'
+
+pre-commit: commit blocked, the identifier check could not run (see the error above).
+  Fix the identifier list or its environment variable (docs/release-checks.md).
+  Bypass with "git commit --no-verify" only if you are sure (discouraged).
+MSG
+        ;;
+esac
+exit $status

@@ -17,3 +17,4 @@ __pycache__/
 .denylist
 .neutralize-map
 .synthetic-map
+.identifier-allowlist

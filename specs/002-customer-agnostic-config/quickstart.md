@@ -65,12 +65,15 @@ for a fake server (fake `startcli.sh`, fake REST; never a real server).
 ## 5. Neutral product (US4)
 
 ```bash
-# denylist kept locally, never committed (one regex per line)
-INUBIT_MCP_DENYLIST="$HOME/.config/inubit-mcp/denylist.txt" mvn -q -Dtest=NoCustomerIdentifiersTest test
+# identifier lists kept locally, never committed: denylist.txt, neutralize-map and synthetic-map
+# in ~/.config/inubit-mcp/ are found without any variable (INUBIT_MCP_DENYLIST,
+# INUBIT_MCP_NEUTRALIZE_MAP and INUBIT_MCP_SYNTHETIC_MAP point to other files)
+mvn -q -Dtest=NoCustomerIdentifiersTest test
+python3 tools/check-identifiers.py --all
 ```
 
-Expected: guard test green with the user's denylist (the denylist also covers the previous
-namespace); 0 findings.
+Expected: the guard test runs (not skipped) and is green with the user's lists (the denylist also
+covers the previous namespace); 0 findings; the script prints nothing (docs/release-checks.md).
 
 ## 6. Live (read-only, after migrating the user's own profile)
 

@@ -1,0 +1,55 @@
+#!/bin/sh
+# Blocks a push that would publish customer identifiers from the local identifier lists
+# (docs/release-checks.md):
+#   1. everything the push publishes that the push target does not have yet: the added and
+#      changed lines, changed archives and binary files, file names, messages and author and
+#      committer of every such commit, and pushed annotated tags (so a value that was committed
+#      with --no-verify, or added and removed again, is caught too);
+#   2. the working tree: all tracked and untracked, not ignored files, including ZIP entries.
+# Without any list it warns and lets the push pass.
+#
+# Install once per clone:   git config core.hooksPath .githooks
+# Bypass (discouraged):     git push --no-verify
+
+# git passes "<local ref> <local sha> <remote ref> <remote sha>" lines on stdin
+refs=$(cat)
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "pre-push: python3 not found, the identifier check cannot run." >&2
+    echo "pre-push: install Python 3 or, if you must, bypass with: git push --no-verify" >&2
+    exit 1
+fi
+
+# $1: the remote name (or the URL when pushing to a URL), $2: the URL git pushes to
+printf '%s\n' "$refs" | python3 tools/check-identifiers.py --push --remote "$1" --url "$2"
+push_status=$?
+python3 tools/check-identifiers.py --all
+all_status=$?
+
+if [ "$push_status" -eq 0 ] && [ "$all_status" -eq 0 ]; then
+    exit 0
+fi
+if [ "$push_status" -eq 1 ] || [ "$all_status" -eq 1 ]; then
+    cat >&2 <<'MSG'
+
+pre-push: push blocked, customer identifiers found (in the commits to push and/or the working
+  tree). Each line above is "[commit:]file:line: <list> rule <n>: <masked match>".
+  A finding with a commit prefix is in the history: replacing the value in a new commit is not
+  enough, rewrite the unpushed commits (git rebase -i, git commit --amend) so that the value
+  never reaches the remote. Other findings: replace the values by fictitious ones and commit.
+  A generic word that a map happens to contain belongs in the local allowlist
+  (docs/release-checks.md).
+  Bypass with "git push --no-verify" only if you are sure (discouraged).
+MSG
+fi
+if [ "$push_status" -ge 2 ] || [ "$all_status" -ge 2 ]; then
+    cat >&2 <<'MSG'
+
+pre-push: push blocked, the identifier check could not run (see the error above).
+  Fix the identifier list or its environment variable (docs/release-checks.md).
+  Bypass with "git push --no-verify" only if you are sure (discouraged).
+MSG
+fi
+exit 1
