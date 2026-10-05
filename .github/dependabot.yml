@@ -5,10 +5,14 @@ updates:
     schedule:
       interval: weekly
     ignore:
+      # Jackson 3 stays on the minor line the MCP Java SDK resolves (see pom.xml); patch
+      # releases (security fixes) are proposed, minor/major jumps are aligned by hand together
+      # with an MCP SDK update.
+      - dependency-name: "tools.jackson.*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
       # These versions are coupled to the MCP Java SDK and must equal what the SDK itself
       # resolves (see the comments in pom.xml). Align them by hand in the same change as an
       # MCP SDK update; Dependabot alerts still report vulnerabilities in them.
-      - dependency-name: "tools.jackson.*"
       - dependency-name: "com.fasterxml.jackson.core:jackson-annotations"
       - dependency-name: "com.networknt:json-schema-validator"
       # slf4j-api must match the version Logback is built against; align it with Logback.
@@ -21,6 +25,8 @@ updates:
         patterns: ["io.modelcontextprotocol.sdk:*"]
       logging:
         patterns: ["ch.qos.logback:*"]
+      jackson:
+        patterns: ["tools.jackson*"]
       test-and-build:
         patterns: ["org.junit*", "org.assertj:*", "org.wiremock*", "org.apache.maven.plugins:*"]
         update-types: ["minor", "patch"]

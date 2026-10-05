@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-05
+
 ### Added
 
 - `tools/check-identifiers.py`: checks the staged changes (`--staged`) or the whole working tree
@@ -30,6 +32,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `INUBIT_MCP_SYNTHETIC_MAP`. Without any list the test is still skipped, and the skip message
   names the lists it looked for.
 - Findings of the guard test name the list and the rule number and show the match masked.
+- Dependabot proposes Jackson 3 patch releases (security fixes); minor and major updates are still
+  aligned by hand together with an MCP SDK update.
+
+### Security
+
+- Jackson 3 (`jackson-core`, `jackson-databind`, `jackson-dataformat-yaml`) 3.1.4 → 3.1.7, which
+  fixes GHSA-7hhh-6rmp-j9qf, GHSA-p6pp-m3f8-5c89, GHSA-cxp5-3px4-pw24, GHSA-wv8q-qhhj-9h54,
+  GHSA-gx83-3vf8-gh7j, GHSA-q4xh-88c3-wmh7, GHSA-wjgm-6hv5-3cvf, GHSA-vvgp-rfg2-7rr6 and
+  GHSA-5gvw-p9qm-jgwh.
 
 ## [0.1.0] - 2026-10-05
 
@@ -53,5 +64,6 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/D4lD4r/inubit-mcp-server/releases/tag/v0.1.0

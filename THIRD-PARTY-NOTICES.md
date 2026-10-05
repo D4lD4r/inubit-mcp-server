@@ -18,9 +18,9 @@ following libraries (the runtime dependencies of `pom.xml`, as resolved by
 | `io.modelcontextprotocol.sdk:mcp-json-jackson3:2.0.1` | MIT License | https://www.opensource.org/licenses/mit-license.php |
 | `io.projectreactor:reactor-core:3.7.0` | Apache License, Version 2.0 | https://www.apache.org/licenses/LICENSE-2.0.txt |
 | `org.reactivestreams:reactive-streams:1.0.4` | MIT No Attribution (MIT-0) | https://spdx.org/licenses/MIT-0.html |
-| `tools.jackson.core:jackson-core:3.1.4` | Apache License, Version 2.0 | https://www.apache.org/licenses/LICENSE-2.0.txt |
-| `tools.jackson.core:jackson-databind:3.1.4` | Apache License, Version 2.0 | https://www.apache.org/licenses/LICENSE-2.0.txt |
-| `tools.jackson.dataformat:jackson-dataformat-yaml:3.1.4` | Apache License, Version 2.0 | https://www.apache.org/licenses/LICENSE-2.0.txt |
+| `tools.jackson.core:jackson-core:3.1.7` | Apache License, Version 2.0 | https://www.apache.org/licenses/LICENSE-2.0.txt |
+| `tools.jackson.core:jackson-databind:3.1.7` | Apache License, Version 2.0 | https://www.apache.org/licenses/LICENSE-2.0.txt |
+| `tools.jackson.dataformat:jackson-dataformat-yaml:3.1.7` | Apache License, Version 2.0 | https://www.apache.org/licenses/LICENSE-2.0.txt |
 | `com.fasterxml.jackson.core:jackson-annotations:2.21` | Apache License, Version 2.0 | https://www.apache.org/licenses/LICENSE-2.0.txt |
 | `org.snakeyaml:snakeyaml-engine:3.0.1` | Apache License, Version 2.0 | https://www.apache.org/licenses/LICENSE-2.0.txt |
 | `com.networknt:json-schema-validator:3.0.6` | Apache License, Version 2.0 | https://www.apache.org/licenses/LICENSE-2.0 |
