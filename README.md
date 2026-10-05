@@ -110,7 +110,9 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
    ```
 
    Do not pass credentials with `claude mcp add -e …`: that stores them in plain text in the client
-   configuration.
+   configuration. The Claude desktop app and other clients started from the Dock do not read
+   `~/.zshrc`; for them, load the credentials from the macOS Keychain with a start script
+   ([details](docs/setup.md#claude-desktop-and-other-gui-clients-macos)).
 
 5. **Check the configuration** (prints variable names, never values; exit code 0 means OK):
 
