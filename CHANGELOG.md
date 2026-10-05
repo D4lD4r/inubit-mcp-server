@@ -7,6 +7,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `tools/check-identifiers.py`: checks the staged changes (`--staged`) or the whole working tree
+  (`--all`) against the local identifier lists and reports findings as
+  `file:line: <list> rule <n>: <masked match>`, never the full value.
+- Git hooks in `.githooks/` that run this check; install them with
+  `git config core.hooksPath .githooks`. `pre-commit` checks the staged changes; `pre-push` checks
+  what the push publishes (`--push`: diffs, file names, messages and author/committer of the
+  commits the push target does not have yet, annotated tags and the names of the pushed refs)
+  and the working tree (`--all`).
+- An optional local allowlist of exact values (generic words) that the check does not report.
+
+### Changed
+
+- The guard test `NoCustomerIdentifiersTest` also uses the regular expressions of the neutralize
+  map and the synthetic map as forbidden patterns, not only the denylist.
+- The identifier lists are also found in the default directory `~/.config/inubit-mcp/`
+  (`%APPDATA%\inubit-mcp\` on Windows), so a local `mvn verify` runs the guard test; new variable
+  `INUBIT_MCP_SYNTHETIC_MAP`. Without any list the test is still skipped, and the skip message
+  names the lists it looked for.
+- Findings of the guard test name the list and the rule number and show the match masked.
+
 ## [0.1.0] - 2026-10-05
 
 First public release.

@@ -50,7 +50,7 @@ ENV_MAP = "INUBIT_MCP_NEUTRALIZE_MAP"
 LOCAL_MAP = ".neutralize-map"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKIPPED_DIRECTORIES = {".git", "target"}
-LOCAL_FILES = {LOCAL_MAP, ".denylist", ".synthetic-map"}
+LOCAL_FILES = {LOCAL_MAP, ".denylist", ".synthetic-map", ".identifier-allowlist"}
 BINARY_PROBE = 8000
 MAX_ENTRY_BYTES = 64 * 1024 * 1024  # default cap for one ZIP entry (uncompressed)
 

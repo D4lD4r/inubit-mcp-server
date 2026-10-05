@@ -23,6 +23,6 @@ jobs:
           java-version: '21'
           cache: maven
 
-      # Offline test suite; NoCustomerIdentifiersTest is skipped without a denylist.
+      # Offline test suite; NoCustomerIdentifiersTest is skipped (the identifier lists are private).
       - name: Build and test
         run: mvn -B -ntp clean verify
