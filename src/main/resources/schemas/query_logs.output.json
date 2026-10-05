@@ -1,0 +1,192 @@
+{
+  "type": "object",
+  "required": [
+    "results"
+  ],
+  "properties": {
+    "results": {
+      "type": "array",
+      "description": "One entry per resolved {node}, in config order; a failed {node} has only an error",
+      "items": {
+        "type": "object",
+        "required": [
+          "node"
+        ],
+        "properties": {
+          "node": {
+            "type": "string"
+          },
+          "page": {
+            "$ref": "#/$defs/Page"
+          },
+          "error": {
+            "$ref": "#/$defs/ToolError"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Page": {
+      "type": "object",
+      "required": [
+        "items",
+        "offset",
+        "limit",
+        "totalIsLowerBound",
+        "truncated"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LogEntry"
+          }
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "All matches; absent only if INUBIT cannot report it"
+        },
+        "totalIsLowerBound": {
+          "type": "boolean"
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "Items or text inside items were cut"
+        },
+        "nextOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Offset of the next page, if there is one"
+        }
+      },
+      "additionalProperties": false
+    },
+    "LogEntry": {
+      "type": "object",
+      "required": [
+        "node",
+        "logType",
+        "severity",
+        "fields"
+      ],
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "logType": {
+          "enum": [
+            "systemLog",
+            "queueLog",
+            "connectionLog",
+            "schedulerLog",
+            "auditLog",
+            "keyManagerLog",
+            "webserviceManager"
+          ]
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "ISO-8601 value of the log type's time field; absent for webserviceManager"
+        },
+        "severity": {
+          "enum": [
+            "ERROR",
+            "WARN",
+            "INFO",
+            "DEBUG",
+            "OTHER"
+          ],
+          "description": "Derived from success/status (INUBIT has no severity field)"
+        },
+        "rawSeverity": {
+          "type": "string",
+          "description": "The INUBIT value the severity was derived from"
+        },
+        "workflow": {
+          "type": "string"
+        },
+        "module": {
+          "type": "string"
+        },
+        "processId": {
+          "type": "string",
+          "description": "workflowId"
+        },
+        "message": {
+          "type": "string",
+          "description": "At most 2,000 chars"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Remaining non-empty INUBIT columns, each at most 200 chars; a `node` column is INUBIT's own value, not the configured {node}"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ToolError": {
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "likelyCause",
+        "nextStep"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "TARGET_UNKNOWN",
+            "UNREACHABLE",
+            "TIMEOUT",
+            "TLS_ERROR",
+            "AUTH_FAILED",
+            "FORBIDDEN",
+            "MAINTENANCE_MODE",
+            "NOT_FOUND",
+            "INVALID_INPUT",
+            "CLI_UNAVAILABLE",
+            "UNEXPECTED_RESPONSE",
+            "WRITE_DISABLED",
+            "PRODUCTION_PROTECTED",
+            "CONFIRMATION_REQUIRED",
+            "CONFIRMATION_INVALID",
+            "PRECONDITION_FAILED",
+            "UNSUPPORTED_VERSION",
+            "NOT_CONFIGURED",
+            "INTERNAL"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "likelyCause": {
+          "type": "string"
+        },
+        "nextStep": {
+          "type": "string"
+        },
+        "node": {
+          "type": "string"
+        },
+        "excerpt": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

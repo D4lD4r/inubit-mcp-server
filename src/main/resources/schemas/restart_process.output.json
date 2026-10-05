@@ -1,0 +1,164 @@
+{
+  "type": "object",
+  "description": "Either the preview of the first step (challenge) or the result of the execution (result); refusals are tool errors",
+  "properties": {
+    "challenge": {
+      "$ref": "#/$defs/ConfirmationChallenge"
+    },
+    "result": {
+      "$ref": "#/$defs/ProcessControlResult"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "challenge"
+      ]
+    },
+    {
+      "required": [
+        "result"
+      ]
+    }
+  ],
+  "$defs": {
+    "ConfirmationChallenge": {
+      "type": "object",
+      "description": "Nothing was changed; call the tool again with confirmationCode before expiresAt to execute",
+      "required": [
+        "confirmationCode",
+        "expiresAt",
+        "preview",
+        "message"
+      ],
+      "properties": {
+        "confirmationCode": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{22}$",
+          "description": "One-time code, bound to this {node}, action and processId"
+        },
+        "expiresAt": {
+          "type": "string",
+          "description": "ISO-8601 UTC"
+        },
+        "preview": {
+          "$ref": "#/$defs/Preview"
+        },
+        "message": {
+          "type": "string",
+          "description": "What to do next"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Preview": {
+      "type": "object",
+      "required": [
+        "node",
+        "action",
+        "processId",
+        "state",
+        "since"
+      ],
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "RESTART",
+            "KILL"
+          ]
+        },
+        "processId": {
+          "type": "string"
+        },
+        "workflow": {
+          "type": "string"
+        },
+        "module": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "ERROR",
+            "ACTIVE",
+            "WAITING",
+            "QUEUED",
+            "OTHER"
+          ],
+          "description": "Current state in the Queue Manager"
+        },
+        "since": {
+          "type": "string",
+          "description": "ISO-8601 UTC: when the instance entered its state"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProcessControlResult": {
+      "type": "object",
+      "required": [
+        "node",
+        "action",
+        "processId",
+        "outcome",
+        "stateBefore",
+        "message",
+        "auditId"
+      ],
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "RESTART",
+            "KILL"
+          ]
+        },
+        "processId": {
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "EXECUTED",
+            "REFUSED",
+            "FAILED"
+          ],
+          "description": "EXECUTED: INUBIT confirmed the action; FAILED: it did not (see message)"
+        },
+        "stateBefore": {
+          "enum": [
+            "ERROR",
+            "ACTIVE",
+            "WAITING",
+            "QUEUED",
+            "OTHER"
+          ]
+        },
+        "stateAfter": {
+          "enum": [
+            "ERROR",
+            "ACTIVE",
+            "WAITING",
+            "QUEUED",
+            "OTHER",
+            "NOT_IN_QUEUE"
+          ],
+          "description": "Re-read after the action; NOT_IN_QUEUE if the instance left the Queue Manager; absent if the re-read failed"
+        },
+        "message": {
+          "type": "string",
+          "description": "INUBIT's confirmation text, or the failure with likely cause and next step"
+        },
+        "auditId": {
+          "type": "string",
+          "description": "Id of the execution's audit records"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

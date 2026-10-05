@@ -1,0 +1,8 @@
+# Only the required fields: every other setting takes its built-in default.
+profile:
+  name: acme
+groups:
+  - name: dev
+    nodes:
+      - name: node1
+        baseUrl: https://inubit.example.test:8443

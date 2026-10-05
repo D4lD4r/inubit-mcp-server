@@ -1,0 +1,54 @@
+{
+  "webserviceManager": {
+    "total": 175,
+    "success": true,
+    "count": 5,
+    "row": [
+      {
+        "owner": "OWNERS",
+        "moduleType": "Web Services Connector - Input",
+        "moduleName": "Module-0038",
+        "index": 1,
+        "workflowName": "Workflow-0403",
+        "tag": "",
+        "webserviceStatus": true
+      },
+      {
+        "owner": "OWNERS",
+        "moduleType": "Web Services Connector - Input",
+        "moduleName": "Module-0046",
+        "index": 2,
+        "workflowName": "Workflow-0248",
+        "tag": "",
+        "webserviceStatus": true
+      },
+      {
+        "owner": "OWNERS",
+        "moduleType": "Web Services Connector - Input",
+        "moduleName": "Module-0042",
+        "index": 3,
+        "workflowName": "Workflow-0369",
+        "tag": "",
+        "webserviceStatus": "workflowNotActive"
+      },
+      {
+        "owner": "OWNERS",
+        "moduleType": "Web Services Connector - Medium",
+        "moduleName": "Module-0050",
+        "index": 4,
+        "workflowName": "Workflow-0173",
+        "tag": "",
+        "webserviceStatus": true
+      },
+      {
+        "owner": "OWNERS",
+        "moduleType": "Web Services Connector - Output",
+        "moduleName": "Module-0045",
+        "index": 5,
+        "workflowName": "Workflow-0325",
+        "tag": "",
+        "webserviceStatus": true
+      }
+    ]
+  }
+}

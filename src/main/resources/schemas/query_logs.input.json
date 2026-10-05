@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "required": ["target", "logType"],
+  "properties": {
+    "target":    { "type": "string",
+                   "description": "Id of one {group} (all its {nodes}) or of one {node} (`<{group}>/<{node}>`)",
+                   "pattern": "^[a-z0-9][a-z0-9-]{0,31}(/[a-z0-9][a-z0-9-]{0,31})?$" },
+    "logType":   { "enum": ["systemLog", "queueLog", "connectionLog", "schedulerLog",
+                            "auditLog", "keyManagerLog", "webserviceManager"] },
+    "since":     { "type": "string" },
+    "until":     { "type": "string" },
+    "workflow":  { "type": "string", "maxLength": 200 },
+    "processId": { "type": "string", "pattern": "^[0-9A-Za-z_-]{1,64}$" },
+    "severity":  { "type": "array", "items": { "enum": ["ERROR", "WARN", "INFO", "DEBUG"] } },
+    "text":      { "type": "string", "maxLength": 200,
+                   "description": "Case-sensitive substring match on the log type's text field; % and _ are wildcards" },
+    "offset":    { "type": "integer", "minimum": 0, "maximum": 9999, "default": 0 },
+    "limit":     { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+  },
+  "additionalProperties": false
+}

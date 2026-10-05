@@ -1,0 +1,11 @@
+INUBIT MCP Server
+Copyright 2026 Daniel Decker
+
+This product is licensed under the Apache License, Version 2.0 (see the file LICENSE).
+
+INUBIT is a trademark of Virtimo AG. This project is an independent work and is not
+affiliated with, endorsed by or supported by Virtimo AG.
+
+This product bundles third-party software in its executable JAR. Their names, versions,
+licenses and notices are listed in THIRD-PARTY-NOTICES.md (in the JAR:
+META-INF/THIRD-PARTY-NOTICES.md).

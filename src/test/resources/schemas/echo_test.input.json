@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "properties": {
+    "message": { "type": "string", "maxLength": 200 },
+    "mode": { "enum": ["ok", "toolError", "crash", "badOutput", "slow"] }
+  },
+  "additionalProperties": false
+}

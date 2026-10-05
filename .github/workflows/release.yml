@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Check that the tag matches the project version
+        id: version
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          pom_version="$(mvn -B -ntp -q org.apache.maven.plugins:maven-help-plugin:3.5.1:evaluate \
+            -Dexpression=project.version -DforceStdout)"
+          if [ "$pom_version" != "$tag_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the pom version $pom_version"
+            exit 1
+          fi
+          echo "version=$pom_version" >> "$GITHUB_OUTPUT"
+
+      - name: Build and test
+        run: mvn -B -ntp clean verify
+
+      - name: Prepare release assets
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir dist
+          jar="inubit-mcp-server-${VERSION}.jar"
+          cp "target/${jar}" "dist/${jar}"
+          cd dist
+          sha256sum "${jar}" > "${jar}.sha256"
+          cat "${jar}.sha256"
+
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The lines between "## [<version>]" and the next "## [" heading (or the link
+          # reference definitions at the end of the file).
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found && /^\[.*\]: http/ { exit }
+            found { print }
+          ' CHANGELOG.md > dist/release-notes.md
+          if ! grep -q '[^[:space:]]' dist/release-notes.md; then
+            echo "::error::CHANGELOG.md has no entry for version $VERSION"
+            exit 1
+          fi
+          cat dist/release-notes.md
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/inubit-mcp-server-${{ steps.version.outputs.version }}.jar
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/inubit-mcp-server-${VERSION}.jar" \
+            "dist/inubit-mcp-server-${VERSION}.jar.sha256" \
+            --title "INUBIT MCP Server ${VERSION}" \
+            --notes-file dist/release-notes.md \
+            --verify-tag

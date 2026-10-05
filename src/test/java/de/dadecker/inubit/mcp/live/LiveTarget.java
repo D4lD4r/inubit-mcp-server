@@ -1,0 +1,111 @@
+package de.dadecker.inubit.mcp.live;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
+
+import de.dadecker.inubit.mcp.TestWiring;
+import de.dadecker.inubit.mcp.config.ConfigException;
+import de.dadecker.inubit.mcp.config.ConfigLoader;
+import de.dadecker.inubit.mcp.config.ConfigValidator;
+import de.dadecker.inubit.mcp.config.CredentialResolution;
+import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.config.LoadedConfig;
+import de.dadecker.inubit.mcp.config.ValidationReport;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import org.junit.jupiter.api.Assumptions;
+
+/**
+ * The live node of the opt-in live tests (Constitution III; 002 research D-13):
+ * {@code INUBIT_LIVE_NODE} (e.g. {@code test/node1}) from the real configuration, located like
+ * the server locates it without arguments (002 research D-9: {@code INUBIT_MCP_CONFIG}, then
+ * {@code INUBIT_MCP_PROFILE}, then {@code ~/.config/inubit-mcp/config.yaml}), with the
+ * credentials from the profile's environment variables. Skips without the variable; the variable
+ * of feature 001, {@code INUBIT_LIVE_SERVER}, is refused with a hint; a node whose group is
+ * {@code production: true} is refused before anything is contacted.
+ */
+record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credentials,
+    SecretScrubber scrubber, boolean windows) {
+
+    static final String NODE_VARIABLE = "INUBIT_LIVE_NODE";
+    /** The variable of feature 001; refused (002 research D-13). */
+    static final String OLD_SERVER_VARIABLE = "INUBIT_LIVE_SERVER";
+
+    static LiveTarget resolve() {
+        return resolve(System.getenv(), Path.of(System.getProperty("user.home")),
+            System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows"));
+    }
+
+    /**
+     * @param environment the process environment (live target, configuration location,
+     *     credentials)
+     * @param home        the user's home directory
+     * @param windows     whether the tests run on Windows
+     */
+    static LiveTarget resolve(Map<String, String> environment, Path home, boolean windows) {
+        if (isSet(environment.get(OLD_SERVER_VARIABLE))) {
+            fail(OLD_SERVER_VARIABLE + " is no longer supported; use " + NODE_VARIABLE
+                + "=<group>/<node> instead, and select the profile with "
+                + ConfigLoader.PROFILE_ENV + "=<profile> (docs/live-tests.md)");
+        }
+        String target = environment.get(NODE_VARIABLE);
+        Assumptions.assumeTrue(isSet(target), NODE_VARIABLE
+            + " is not set (e.g. test/node1); the live test is skipped");
+        NodeId nodeId;
+        try {
+            nodeId = NodeId.parse(target.strip());
+        } catch (IllegalArgumentException e) {
+            throw new AssertionError(NODE_VARIABLE + " must name one configured node as"
+                + " <group>/<node>: " + e.getMessage(), e);
+        }
+
+        // the same location order, profile checks and validation as the server (Launcher)
+        ConfigLoader loader = new ConfigLoader(environment, home, windows);
+        LoadedConfig loaded;
+        try {
+            loaded = loader.load(null, null);
+        } catch (ConfigException e) {
+            throw new AssertionError(e.getMessage(), e);
+        }
+        List<LoadedConfig> otherProfiles = loader.otherProfiles(loaded.source());
+        Set<String> otherVariables = new HashSet<>();
+        otherProfiles.forEach(other -> otherVariables.addAll(
+            other.config().credentialVariableNames()));
+        SecretScrubber scrubber = new SecretScrubber();
+        CredentialResolution credentials = new CredentialResolver(environment, scrubber,
+            loaded.config().terminology().effectiveOrDefault(),
+            loaded.config().credentialPrefix())
+            .resolve(loaded.config().nodeIds(), otherVariables);
+        ValidationReport report = new ConfigValidator(Files::exists, environment, windows,
+            Path.of(System.getProperty("java.io.tmpdir")), source -> otherProfiles)
+            .validate(loaded, credentials);
+        assertThat(report.errors()).as("configuration errors in " + loaded.source()).isEmpty();
+        EffectiveNodeConfig node = loaded.config().effectiveNodes().stream()
+            .filter(candidate -> candidate.id().equals(nodeId))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError(nodeId + " is not configured in "
+                + loaded.source()));
+        if (node.production()) {
+            fail("Refusing to run live tests against " + nodeId
+                + ": its group is production: true (Constitution III)");
+        }
+        return new LiveTarget(nodeId, loaded, credentials, scrubber, windows);
+    }
+
+    private static boolean isSet(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    /** The production wiring for the real configuration. */
+    TestWiring wiring() {
+        return TestWiring.of(loaded.config(), credentials, scrubber, Files::exists, windows);
+    }
+}

@@ -1,0 +1,19 @@
+# Build output
+target/
+
+# IDEs
+*.iml
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# Local release-check files (never commit: they name customer values)
+.denylist
+.neutralize-map
+.synthetic-map

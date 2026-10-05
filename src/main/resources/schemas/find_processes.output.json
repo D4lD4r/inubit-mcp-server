@@ -1,0 +1,200 @@
+{
+  "type": "object",
+  "required": [
+    "results"
+  ],
+  "properties": {
+    "results": {
+      "type": "array",
+      "description": "One entry per resolved {node}, in config order; a failed {node} has only an error",
+      "items": {
+        "type": "object",
+        "required": [
+          "node"
+        ],
+        "properties": {
+          "node": {
+            "type": "string"
+          },
+          "page": {
+            "$ref": "#/$defs/Page"
+          },
+          "error": {
+            "$ref": "#/$defs/ToolError"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Page": {
+      "type": "object",
+      "required": [
+        "items",
+        "offset",
+        "limit",
+        "totalIsLowerBound",
+        "truncated"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProcessInstance"
+          }
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "All matches; absent only if INUBIT cannot report it"
+        },
+        "totalIsLowerBound": {
+          "type": "boolean"
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "Items or text inside items were cut"
+        },
+        "nextOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Offset of the next page, if there is one"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProcessInstance": {
+      "type": "object",
+      "required": [
+        "node",
+        "processId",
+        "state",
+        "rawState",
+        "since",
+        "timeInState",
+        "hanging"
+      ],
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "processId": {
+          "type": "string",
+          "description": "workflowId: the id restart/kill take and query_logs matches"
+        },
+        "globalProcessId": {
+          "type": "string",
+          "description": "globalPId: the processId for top-level processes, the caller's id or a UUID for sub-workflows"
+        },
+        "state": {
+          "enum": [
+            "ERROR",
+            "ACTIVE",
+            "WAITING",
+            "QUEUED",
+            "OTHER"
+          ]
+        },
+        "rawState": {
+          "type": "string",
+          "description": "INUBIT status, e.g. Error, Waiting, Retry, Queued, Processing"
+        },
+        "since": {
+          "type": "string",
+          "description": "ISO-8601: when the entry entered its current state; for ERROR the time of the error"
+        },
+        "timeInState": {
+          "type": "string",
+          "description": "ISO-8601 duration, e.g. PT2H5M"
+        },
+        "hanging": {
+          "type": "boolean",
+          "description": "Non-final state (ACTIVE, WAITING, QUEUED) longer than the threshold; ERROR is never hanging"
+        },
+        "workflow": {
+          "type": "string"
+        },
+        "module": {
+          "type": "string"
+        },
+        "moduleType": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "inubitNode": {
+          "type": "string",
+          "description": "The INUBIT `node` column of the Queue Manager row"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "priority": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ToolError": {
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "likelyCause",
+        "nextStep"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "TARGET_UNKNOWN",
+            "UNREACHABLE",
+            "TIMEOUT",
+            "TLS_ERROR",
+            "AUTH_FAILED",
+            "FORBIDDEN",
+            "MAINTENANCE_MODE",
+            "NOT_FOUND",
+            "INVALID_INPUT",
+            "CLI_UNAVAILABLE",
+            "UNEXPECTED_RESPONSE",
+            "WRITE_DISABLED",
+            "PRODUCTION_PROTECTED",
+            "CONFIRMATION_REQUIRED",
+            "CONFIRMATION_INVALID",
+            "PRECONDITION_FAILED",
+            "UNSUPPORTED_VERSION",
+            "NOT_CONFIGURED",
+            "INTERNAL"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "likelyCause": {
+          "type": "string"
+        },
+        "nextStep": {
+          "type": "string"
+        },
+        "node": {
+          "type": "string"
+        },
+        "excerpt": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,33 @@
+profile:                           # new: required, one profile per file
+  name: acme
+  description: "ACME – INUBIT integration platform"
+
+terminology:                       # new, optional: keeps the wording of feature 001
+  group: { singular: stage,  plural: stages }
+  node:  { singular: server, plural: servers }
+
+credentials:                       # new, optional: keeps the variables INUBIT_<STAGE>[_<SERVER>]_*
+  envPrefix: INUBIT
+
+logLevel: INFO
+# auditDirectory removed: new audit records go to ~/.inubit-mcp/acme/audit
+
+defaults:
+  timeout: PT5S
+  inventory:
+    owner: INTEGRATION
+
+groups:                            # was: stages
+  - name: dev
+    write:
+      enabled: true
+      confirmation: CLIENT
+    nodes:                         # was: servers
+      - name: node1
+        baseUrl: https://inubit-dev-1.example.test:8443
+  - name: qa
+    nodes:                         # was: servers
+      - name: node1
+        baseUrl: https://inubit-qa-1.example.test:8443
+      - name: node2
+        baseUrl: https://inubit-qa-2.example.test:8443

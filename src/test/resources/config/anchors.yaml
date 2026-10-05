@@ -1,0 +1,24 @@
+# Top-level x-* keys are ignored and can carry YAML anchors shared by several stages.
+profile:
+  name: acme
+x-tls: &sharedTls
+  trustStore: ~/.config/inubit-mcp/truststore.p12
+  disableHostnameVerification: true
+  pinnedCertificateSha256: AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89
+x-notes: free text that is ignored
+x-fast: &fast
+  timeout: PT3S
+
+groups:
+  - name: dev
+    tls: *sharedTls
+    nodes:
+      - name: node1
+        baseUrl: https://inubit-dev-1.example.test:8443
+  - name: qa
+    tls: *sharedTls
+    nodes:
+      - name: node1
+        baseUrl: https://inubit-qa-1.example.test:8443
+      - name: node2
+        baseUrl: https://inubit-qa-2.example.test:8443

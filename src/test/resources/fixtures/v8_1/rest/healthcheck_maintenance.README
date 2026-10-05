@@ -1,0 +1,6 @@
+SYNTHETIC – derived from healthcheck.json
+Hand-written fixture for a server in maintenance mode (tasks.md T052): the recorded
+healthcheck.json with "maintenancemode": 1. Maintenance mode was not switched on for the recorded nodes to
+record it (state-changing). The documented shape (status, maintenancemode 0/1, timestamp in Java
+Date.toString() format) is the same as in the recording; whether INUBIT answers HTTP 200 or 503
+while in maintenance is not known, so the adapter accepts both.

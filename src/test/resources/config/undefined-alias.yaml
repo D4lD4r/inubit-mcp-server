@@ -1,0 +1,8 @@
+profile:
+  name: acme
+groups:
+  - name: dev
+    tls: *missing
+    nodes:
+      - name: node1
+        baseUrl: https://inubit.example.test:8443

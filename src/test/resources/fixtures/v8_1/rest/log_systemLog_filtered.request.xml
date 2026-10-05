@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<logRequest>
+    <startIndex>0</startIndex>
+    <noOfItems>5</noOfItems>
+    <filtering>
+        <field>startTime</field>
+        <comparison>BETWEEN</comparison>
+        <min>1790258322000</min>
+        <max>1790863122000</max>
+    </filtering>
+    <filtering>
+        <field>message</field>
+        <value>error</value>
+        <comparison>LIKE</comparison>
+    </filtering>
+    <sorting>
+        <field>startTime</field>
+        <order>DESCENDING</order>
+    </sorting>
+</logRequest>

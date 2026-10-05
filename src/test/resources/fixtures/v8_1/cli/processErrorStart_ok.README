@@ -1,0 +1,6 @@
+SYNTHETIC – verify in T115
+Hand-written fixture for a successful `processErrorStart 110190387` (tasks.md T009, T103); no state-changing
+command was run to record it. Preamble, stderr line and exit code 0 follow the recorded cases
+(S-2, S-3); the result line follows the "<n>-OK: <text>" pattern that StartCLI prints for
+successful commands (e.g. export: "1-OK: Workflow group exported successfully."). The exact
+text of the result line is unknown. Replace the files with a real recording in T115.

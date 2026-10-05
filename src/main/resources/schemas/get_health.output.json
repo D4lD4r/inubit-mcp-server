@@ -1,0 +1,100 @@
+{
+  "type": "object",
+  "required": ["reports"],
+  "properties": {
+    "reports": {
+      "type": "array",
+      "description": "One HealthReport per resolved {node}, in config order",
+      "items": { "$ref": "#/$defs/HealthReport" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "HealthReport": {
+      "type": "object",
+      "required": ["node", "group", "checkedAt", "reachable", "status", "unavailable",
+        "warnings"],
+      "properties": {
+        "node": { "type": "string" },
+        "group": { "type": "string" },
+        "checkedAt": { "type": "string", "description": "ISO-8601 timestamp" },
+        "reachable": { "type": "boolean" },
+        "status": { "enum": ["OK", "ERROR", "UNKNOWN"] },
+        "ready": { "type": "boolean" },
+        "readyMessage": { "type": "string" },
+        "maintenanceMode": { "type": "boolean" },
+        "version": { "type": "string" },
+        "systemInfo": { "$ref": "#/$defs/SystemInfo" },
+        "load": { "$ref": "#/$defs/LoadFigures" },
+        "unavailable": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["part", "reason"],
+            "properties": {
+              "part": { "enum": ["status", "ready", "version", "systemInfo", "load"] },
+              "reason": { "type": "string", "description": "CODE: message" },
+              "likelyCause": { "type": "string" },
+              "nextStep": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "error": { "$ref": "#/$defs/ToolError" },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "SystemInfo": {
+      "type": "object",
+      "required": ["raw"],
+      "properties": {
+        "version": { "type": "string" },
+        "jdk": { "type": "string" },
+        "os": { "type": "string" },
+        "maxHeap": { "type": "string" },
+        "tracingEnabled": { "type": "boolean" },
+        "schedulerThreads": { "type": "integer" },
+        "raw": { "type": "object", "additionalProperties": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "LoadFigures": {
+      "type": "object",
+      "required": ["usedMemoryMb", "freeMemoryMb", "maxMemoryMb", "threadsInUse",
+        "licensedThreads", "maxThreads", "blockingQueueEntries", "maxBlockingQueueSize"],
+      "properties": {
+        "usedMemoryMb": { "type": "number" },
+        "freeMemoryMb": { "type": "number" },
+        "maxMemoryMb": { "type": "number" },
+        "memoryUsedPercent": { "type": "number" },
+        "threadsInUse": { "type": "integer" },
+        "licensedThreads": { "type": "integer" },
+        "maxThreads": { "type": "integer" },
+        "blockingQueueEntries": { "type": "integer" },
+        "maxBlockingQueueSize": { "type": "integer" },
+        "blockingQueuePercent": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "ToolError": {
+      "type": "object",
+      "required": ["code", "message", "likelyCause", "nextStep"],
+      "properties": {
+        "code": {
+          "enum": ["TARGET_UNKNOWN", "UNREACHABLE", "TIMEOUT", "TLS_ERROR", "AUTH_FAILED",
+            "FORBIDDEN", "MAINTENANCE_MODE", "NOT_FOUND", "INVALID_INPUT", "CLI_UNAVAILABLE",
+            "UNEXPECTED_RESPONSE", "WRITE_DISABLED", "PRODUCTION_PROTECTED",
+            "CONFIRMATION_REQUIRED", "CONFIRMATION_INVALID", "PRECONDITION_FAILED",
+            "UNSUPPORTED_VERSION", "NOT_CONFIGURED", "INTERNAL"]
+        },
+        "message": { "type": "string" },
+        "likelyCause": { "type": "string" },
+        "nextStep": { "type": "string" },
+        "node": { "type": "string" },
+        "excerpt": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

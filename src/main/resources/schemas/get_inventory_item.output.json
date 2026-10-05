@@ -1,0 +1,284 @@
+{
+  "type": "object",
+  "required": [
+    "results"
+  ],
+  "properties": {
+    "results": {
+      "type": "array",
+      "description": "One entry per resolved {node}, in config order; a failed {node} has only an error, a name that does not exist has error NOT_FOUND and an item with similarNames",
+      "items": {
+        "type": "object",
+        "required": [
+          "node"
+        ],
+        "properties": {
+          "node": {
+            "type": "string"
+          },
+          "collectedAt": {
+            "type": "string",
+            "description": "ISO-8601: when the (cached) inventory data was collected; present whenever page/item is"
+          },
+          "item": {
+            "$ref": "#/$defs/InventoryDetail"
+          },
+          "error": {
+            "$ref": "#/$defs/ToolError"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "InventoryDetail": {
+      "type": "object",
+      "required": [
+        "node",
+        "kind",
+        "name",
+        "owner",
+        "unavailable",
+        "truncated"
+      ],
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "DIAGRAM",
+            "MODULE"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "description": "Diagram type, or module plugin type"
+        },
+        "group": {
+          "type": "string",
+          "description": "INUBIT diagram group, or module group (= plugin type); not the configured {group}"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Diagrams: IsActive of the head version; modules: IsActive"
+        },
+        "lastChange": {
+          "type": "string",
+          "description": "ISO-8601. Diagrams: check-in time of the newest version; modules: last content change (LastUpdate)"
+        },
+        "workflows": {
+          "type": "array",
+          "description": "Modules only: all technical workflows that use the module (their workflow nodes name it, or the connector is bound to it), sorted by name; versions come from the diagram group of the first one in the diagram list",
+          "items": {
+            "type": "string"
+          }
+        },
+        "workflowCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Modules only: number of using workflows (also if the list was cut)"
+        },
+        "usageComplete": {
+          "type": "boolean",
+          "description": "Modules only: true if every technical workflow could be read; only then does an empty workflows list mean unused"
+        },
+        "checkinComment": {
+          "type": "string"
+        },
+        "userComment": {
+          "type": "string"
+        },
+        "versions": {
+          "type": "array",
+          "description": "Newest first; absent if unavailable (see unavailable). There is no active version in INUBIT 8.1",
+          "items": {
+            "$ref": "#/$defs/VersionEntry"
+          }
+        },
+        "modules": {
+          "type": "array",
+          "description": "Diagrams only: the modules (workflow nodes) the diagram uses",
+          "items": {
+            "$ref": "#/$defs/ModuleRef"
+          }
+        },
+        "connector": {
+          "type": "object",
+          "description": "Modules only",
+          "required": [
+            "input",
+            "output",
+            "scheduled"
+          ],
+          "properties": {
+            "input": {
+              "type": "boolean"
+            },
+            "output": {
+              "type": "boolean"
+            },
+            "scheduled": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "similarNames": {
+          "type": "array",
+          "maxItems": 5,
+          "description": "Only when not found: similarly named items",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unavailable": {
+          "type": "array",
+          "description": "Parts that could not be obtained",
+          "items": {
+            "type": "object",
+            "required": [
+              "part",
+              "reason"
+            ],
+            "properties": {
+              "part": {
+                "enum": [
+                  "versions"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "description": "CODE: message"
+              },
+              "likelyCause": {
+                "type": "string"
+              },
+              "nextStep": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "Text, versions (oldest first) or list entries were cut to keep the result bounded"
+        }
+      },
+      "additionalProperties": false
+    },
+    "VersionEntry": {
+      "type": "object",
+      "required": [
+        "version",
+        "tags"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "description": "versionNode"
+        },
+        "checkinUser": {
+          "type": "string"
+        },
+        "checkinAt": {
+          "type": "string",
+          "description": "ISO-8601"
+        },
+        "checkinComment": {
+          "type": "string"
+        },
+        "userComment": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "description": "Current tag assignment",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ModuleRef": {
+      "type": "object",
+      "required": [
+        "name",
+        "type",
+        "nodeId"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "nodeId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ToolError": {
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "likelyCause",
+        "nextStep"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "TARGET_UNKNOWN",
+            "UNREACHABLE",
+            "TIMEOUT",
+            "TLS_ERROR",
+            "AUTH_FAILED",
+            "FORBIDDEN",
+            "MAINTENANCE_MODE",
+            "NOT_FOUND",
+            "INVALID_INPUT",
+            "CLI_UNAVAILABLE",
+            "UNEXPECTED_RESPONSE",
+            "WRITE_DISABLED",
+            "PRODUCTION_PROTECTED",
+            "CONFIRMATION_REQUIRED",
+            "CONFIRMATION_INVALID",
+            "PRECONDITION_FAILED",
+            "UNSUPPORTED_VERSION",
+            "NOT_CONFIGURED",
+            "INTERNAL"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "likelyCause": {
+          "type": "string"
+        },
+        "nextStep": {
+          "type": "string"
+        },
+        "node": {
+          "type": "string"
+        },
+        "excerpt": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

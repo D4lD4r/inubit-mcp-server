@@ -1,0 +1,50 @@
+{
+  "serverName": "inubit.example.test",
+  "serverId": "inubit.example.test",
+  "maintenanceMode": 0,
+  "blockingQueueEntries": 0,
+  "maxBlockingQueueSize": 200000,
+  "usedMemoryInMByte": 5500.0,
+  "freeMemoryInMByte": 3716.0,
+  "maxMemoryInMByte": 9216.0,
+  "licensedThreads": 999999,
+  "threadsInUse": 0,
+  "maxThreadSize": 401,
+  "privilegedThreadsInUse": 0,
+  "maxPrivilegedThreads": 0,
+  "licenseExpirationDate": "2053-12-26",
+  "daysUntilLicenseExpiry": 9948,
+  "logsDBDataSourcePool": {
+    "removeAbandonedCount": 1,
+    "active": 0,
+    "idle": 2,
+    "size": 2,
+    "maxActive": 100,
+    "waitCount": 0
+  },
+  "ibisDBDataSourcePool": {
+    "removeAbandonedCount": 2,
+    "active": 0,
+    "idle": 20,
+    "size": 20,
+    "maxActive": 200,
+    "waitCount": 0
+  },
+  "users": {},
+  "groups": {
+    "OWNERS": {
+      "QUEUED": 0,
+      "SUSPENDED": 0,
+      "PROCESSING": 0,
+      "WAITING": 0,
+      "ERROR": 706,
+      "OK": 38382,
+      "RETRY": 0
+    }
+  },
+  "tomcatThreadPool": {
+    "currentThreadCount": 2,
+    "currentThreadsBusy": 0,
+    "maxThread": 100
+  }
+}

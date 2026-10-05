@@ -1,0 +1,9 @@
+JAVA_HOME is set
+Password: 
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+ERROR 15:10:00,760 [main      ] CLI                       ERROR
+com.inubit.ibis.cli.CliConnectionException: @Start@LoginFailure@@@The user does not exist or password does not match.@End@
+	at com.inubit.ibis.cli.CLI.execute(CLI.java:233) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.CLI.main(CLI.java:86) ~[ibis.jar:8.1.17]
+CONNECTION ERROR
+The user does not exist or password does not match.

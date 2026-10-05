@@ -1,0 +1,78 @@
+{
+  "type": "object",
+  "required": ["profile", "terminology", "groups"],
+  "properties": {
+    "profile": {
+      "type": "object",
+      "description": "The profile this MCP server serves; never the credential variable prefix",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "terminology": {
+      "type": "object",
+      "description": "Display names of the two levels: `group` = {group}, `node` = {node}",
+      "required": ["group", "node"],
+      "properties": {
+        "group": { "$ref": "#/$defs/Level" },
+        "node": { "$ref": "#/$defs/Level" }
+      },
+      "additionalProperties": false
+    },
+    "groups": {
+      "description": "The configured {groups} in config order",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "production", "nodes"],
+        "properties": {
+          "name": { "type": "string" },
+          "production": { "type": "boolean" },
+          "nodes": {
+            "description": "The {nodes} of the {group} in config order",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "NodeSummary (data-model.md); never URLs, usernames or credentials",
+              "required": ["id", "group", "node", "production", "writeEnabled",
+                "confirmationMode", "versionLine", "cliAvailable"],
+              "properties": {
+                "id": { "type": "string", "description": "{Node} id `<{group}>/<{node}>`, e.g. test/node1" },
+                "group": { "type": "string" },
+                "node": { "type": "string" },
+                "production": { "type": "boolean" },
+                "writeEnabled": {
+                  "type": "boolean",
+                  "description": "write.enabled && (!production || productionOptIn)"
+                },
+                "confirmationMode": { "enum": ["SERVER", "CLIENT"] },
+                "versionLine": { "enum": ["AUTO", "V8_1", "V9_X"] },
+                "cliAvailable": {
+                  "type": "boolean",
+                  "description": "CLI home configured and startcli script found"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Level": {
+      "type": "object",
+      "required": ["singular", "plural"],
+      "properties": {
+        "singular": { "type": "string" },
+        "plural": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

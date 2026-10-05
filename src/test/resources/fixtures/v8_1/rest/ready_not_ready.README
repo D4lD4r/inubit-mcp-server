@@ -1,0 +1,5 @@
+SYNTHETIC – derived from ready.json
+Hand-written fixture for /ready of a server that is not ready (tasks.md T052): HTTP 503 with the
+shape of the recorded ready.json (status, message). The exact status and message texts of a
+not-ready 8.1.17 server could not be observed; the adapter only relies on the HTTP status
+(200 = ready, 503 = not ready) and passes the message through.

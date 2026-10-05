@@ -1,0 +1,7 @@
+SYNTHETIC – unlicensed /metrics could not be observed (research R-10, S-5)
+Hand-written fixture for GET /ibis/rest/metrics?format=json on a server without the metrics
+license entry (tasks.md T052). The recorded nodes are all licensed, so the real answer is unknown. The
+file is named .json after the requested format, but deliberately holds a non-JSON (HTML) body with
+HTTP 403, the most likely shape. Decision R-10: any /metrics failure other than 401, 503, timeout
+or unreachable (e.g. 402/403/404/500 or a non-JSON body) is reported as
+unavailable {load, METRICS_NOT_LICENSED} with the HTTP status in the reason.

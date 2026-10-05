@@ -1,0 +1,6 @@
+# LF everywhere: tests compare docs and test resources verbatim (e.g. MigrationGuideExampleTest)
+* text=auto eol=lf
+
+*.zip binary
+*.p12 binary
+*.jar binary

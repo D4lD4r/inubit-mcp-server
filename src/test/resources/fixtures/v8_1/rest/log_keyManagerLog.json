@@ -1,0 +1,80 @@
+{
+  "keyManagerLog": {
+    "total": 88,
+    "success": true,
+    "count": 5,
+    "row": [
+      {
+        "owner": "OWNERS",
+        "propertyName": "WS-Security.Server.KeyStore",
+        "subject": "CN=<subject 1>",
+        "name": "Module-0043",
+        "index": 1,
+        "description": "<message 7>",
+        "serial_number": "4d108113",
+        "tag": "",
+        "validity": {
+          "level": 0,
+          "content": 1300703251000
+        },
+        "type": "Web Services Connector",
+        "URL": "http://inubit.example.test:8000/ibis/ws/Service-01"
+      },
+      {
+        "owner": "OWNERS",
+        "propertyName": "WS-Security.Server.KeyStore",
+        "subject": "CN=<subject 2>",
+        "name": "Module-0044",
+        "index": 2,
+        "description": "<message 7>",
+        "serial_number": "a",
+        "tag": "",
+        "validity": {
+          "level": 0,
+          "content": 1398609082000
+        },
+        "type": "Web Services Connector",
+        "URL": "http://inubit.example.test:8000/ibis/ws/Service-02"
+      },
+      {
+        "owner": "OWNERS",
+        "propertyName": "Mime.Sign.Keystore",
+        "subject": "CN=<subject 3>",
+        "name": "Module-0025",
+        "index": 3,
+        "description": "<message 8>",
+        "serial_number": "517005da",
+        "tag": "",
+        "validity": 87766209626000,
+        "type": "AS2 Connector",
+        "URL": ""
+      },
+      {
+        "owner": "OWNERS",
+        "propertyName": "Mime.Encrypt.X509",
+        "subject": "CN=<subject 3>",
+        "name": "Module-0025",
+        "index": 4,
+        "description": "<message 9>",
+        "serial_number": "517005da",
+        "tag": "",
+        "validity": 87766209626000,
+        "type": "AS2 Connector",
+        "URL": ""
+      },
+      {
+        "owner": "OWNERS",
+        "propertyName": "Mime.Verify.X509",
+        "subject": "CN=<subject 3>",
+        "name": "Module-0025",
+        "index": 5,
+        "description": "<message 10>",
+        "serial_number": "517005da",
+        "tag": "",
+        "validity": 87766209626000,
+        "type": "AS2 Connector",
+        "URL": ""
+      }
+    ]
+  }
+}

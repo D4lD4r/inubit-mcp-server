@@ -1,0 +1,9 @@
+# x-* keys are only ignored at the top level.
+profile:
+  name: acme
+groups:
+  - name: dev
+    x-comment: not allowed here
+    nodes:
+      - name: node1
+        baseUrl: https://inubit.example.test:8443

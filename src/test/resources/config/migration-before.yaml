@@ -1,0 +1,22 @@
+logLevel: INFO
+auditDirectory: ~/.inubit-mcp/audit
+
+defaults:
+  timeout: PT5S
+  inventory:
+    owner: INTEGRATION
+
+stages:
+  - name: dev
+    write:
+      enabled: true
+      confirmation: CLIENT
+    servers:
+      - name: node1
+        baseUrl: https://inubit-dev-1.example.test:8443
+  - name: qa
+    servers:
+      - name: node1
+        baseUrl: https://inubit-qa-1.example.test:8443
+      - name: node2
+        baseUrl: https://inubit-qa-2.example.test:8443

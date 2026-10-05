@@ -1,0 +1,83 @@
+# Every setting on every level, with distinct values so that inheritance can be asserted.
+profile:
+  name: acme
+logLevel: DEBUG
+auditDirectory: ~/audit-dir
+resultLimits:
+  maxItems: 20
+  maxChars: 1000
+
+defaults:
+  timeout: PT7S
+  cliTimeout: PT31S
+  hangingThreshold: PT61M
+  confirmationTtl: PT6M
+  cliExportTimeout: PT121S
+  inventory:
+    owner: DEFOWNER
+    cacheTtl: PT11M
+  cliHome: ~/client
+  cliJavaHome: /opt/jdk17
+
+groups:
+  - name: dev
+    write:
+      enabled: true
+      confirmation: CLIENT
+    nodes:
+      - name: inubit01
+        baseUrl: https://inubit-dev-01.example.test:8443
+
+  - name: test
+    versionLine: V8_1
+    timeout: PT8S
+    cliTimeout: PT32S
+    cliExportTimeout: PT122S
+    hangingThreshold: PT62M
+    confirmationTtl: PT7M
+    write:
+      enabled: true
+    tls:
+      trustStore: ~/.config/inubit-mcp/truststore.p12
+    cli:
+      home: /opt/stage-client
+    inventory:
+      owner: STAGEOWNER
+    nodes:
+      - name: inubit01
+        baseUrl: https://inubit-test-01.example.test:8443
+      - name: inubit02
+        baseUrl: https://inubit-test-02.example.test:8443/
+        versionLine: V9_X
+        timeout: PT9S
+        cliTimeout: PT33S
+        cliExportTimeout: PT123S
+        hangingThreshold: PT63M
+        confirmationTtl: PT8M
+        write:
+          enabled: false
+          confirmation: CLIENT
+        tls:
+          disableHostnameVerification: true
+          pinnedCertificateSha256: "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89"
+        cli:
+          url: https://cli.example.test:8443/ibis/servlet/IBISSoapServlet
+          home: /opt/server-client
+          javaHome: /opt/server-jdk
+        inventory:
+          owner: SRVOWNER
+          cacheTtl: PT13M
+
+  - name: prod
+    production: true
+    nodes:
+      - name: inubit01
+        baseUrl: https://inubit-prod-01.example.test:8443
+        write:
+          enabled: true
+          productionOptIn: true
+      - name: inubit02
+        baseUrl: http://inubit-prod-02.example.test:8080
+        allowInsecureHttp: true
+        write:
+          enabled: true

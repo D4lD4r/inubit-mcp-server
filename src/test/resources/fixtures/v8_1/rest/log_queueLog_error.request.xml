@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<logRequest>
+    <startIndex>0</startIndex>
+    <noOfItems>5</noOfItems>
+    <filtering>
+        <field>status</field>
+        <value>Error</value>
+        <comparison>EQUAL</comparison>
+    </filtering>
+    <sorting>
+        <field>startTime</field>
+        <order>DESCENDING</order>
+    </sorting>
+</logRequest>

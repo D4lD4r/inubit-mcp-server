@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "required": ["target", "kind", "name"],
+  "properties": {
+    "target": { "type": "string",
+                "description": "Id of one {group} (all its {nodes}) or of one {node} (`<{group}>/<{node}>`)",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,31}(/[a-z0-9][a-z0-9-]{0,31})?$" },
+    "kind":   { "enum": ["DIAGRAM", "MODULE"] },
+    "name":   { "type": "string", "minLength": 1, "maxLength": 200 },
+    "refresh": { "type": "boolean", "default": false }
+  },
+  "additionalProperties": false
+}

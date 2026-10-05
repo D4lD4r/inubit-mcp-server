@@ -1,0 +1,59 @@
+{
+  "connectionLog": {
+    "total": 6,
+    "success": true,
+    "count": 5,
+    "row": [
+      {
+        "licenceDuration": "",
+        "systemId": "jdbc:postgresql://inubit.example.test:5432/inubit81log",
+        "systemType": "Log DB (PostgreSQL)",
+        "connectionStatus": "",
+        "index": 1,
+        "version": "42.7.7",
+        "licenceLastUpdate": "",
+        "lastConnection": 1790086705826
+      },
+      {
+        "licenceDuration": "",
+        "systemId": "jdbc:postgresql://inubit.example.test:5432/inubit81cache",
+        "systemType": "Repository DB (PostgreSQL)",
+        "connectionStatus": "",
+        "index": 2,
+        "version": "42.7.7",
+        "licenceLastUpdate": "",
+        "lastConnection": 1790086705831
+      },
+      {
+        "licenceDuration": "",
+        "systemId": "jdbc:postgresql://inubit.example.test:5432/inubit81cache",
+        "systemType": "Cache DB (PostgreSQL)",
+        "connectionStatus": "",
+        "index": 3,
+        "version": "42.7.7",
+        "licenceLastUpdate": "",
+        "lastConnection": 1790086705834
+      },
+      {
+        "licenceDuration": "",
+        "systemId": "http://localhost:8181/",
+        "systemType": "Portal (BPC)",
+        "connectionStatus": "",
+        "index": 4,
+        "version": "",
+        "licenceLastUpdate": "",
+        "lastConnection": 1790086705843
+      },
+      {
+        "licenceDuration": "",
+        "systemId": "",
+        "systemType": "Process User Server (inubit)",
+        "connectionStatus": "",
+        "index": 5,
+        "version": "",
+        "licenceLastUpdate": "",
+        "lastConnection": 1790086705847
+      }
+    ]
+  }
+}
