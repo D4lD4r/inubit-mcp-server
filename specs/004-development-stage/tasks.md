@@ -134,7 +134,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   change-set artifact; `CheckoutUser` → `CONFLICT (IN_EDIT_MODE)`; diff to
   `.reports/conflict-<auditId>.diff`; returns the raw archive for D-6 and the fingerprint for D-2.
   **Also (analysis):** also compares scope artifacts outside the change set; returns the target's module list for the referenced-module rule (D-25).
-- [ ] T016 [US1] `main/application/ImportService.java` with tests first in
+- [X] T016 [US1] `main/application/ImportService.java` with tests first in
   `test/application/ImportServiceTest`, `ImportServiceRefusalTest`, `ImportRollbackTest`,
   `ImportConfirmationTest` (D-2, D-5, D-9, D-10, D-12, D-13, D-18, D-20): the full sequence of the plan
   summary; preview (SERVER) returns create/modify/notImported/checkWarnings + code; execute redeems the

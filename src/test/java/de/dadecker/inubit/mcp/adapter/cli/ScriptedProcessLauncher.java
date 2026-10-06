@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -68,6 +69,19 @@ public final class ScriptedProcessLauncher implements ProcessLauncher {
         return this;
     }
 
+    /**
+     * Answers the last expected step with an exit code 0, the usual stderr line and a stdout
+     * computed at launch (after the step's actions), e.g. an import protocol of a fake server.
+     */
+    public ScriptedProcessLauncher replyingWith(Function<LaunchSpec, String> stdout) {
+        Step step = last();
+        step.dynamicStdout = stdout;
+        step.stderr = "Picked up JAVA_TOOL_OPTIONS: -Duser.language=en -Duser.country=US\n"
+            .getBytes(StandardCharsets.UTF_8);
+        step.exitCode = 0;
+        return this;
+    }
+
     /** The last expected step never exits until it is destroyed (timeout cases). */
     public ScriptedProcessLauncher hanging() {
         last().hang = true;
@@ -79,6 +93,16 @@ public final class ScriptedProcessLauncher implements ProcessLauncher {
         Step step = last();
         step.action = step.action.andThen(action);
         return this;
+    }
+
+    /** The file named by {@code --importFile} of a launch (for fake servers). */
+    public static Path importFile(LaunchSpec spec) {
+        return file(IMPORT_FILE, execCommand(spec));
+    }
+
+    /** The file named by {@code --exportFile} of a launch (for fake servers). */
+    public static Path exportFile(LaunchSpec spec) {
+        return file(EXPORT_FILE, execCommand(spec));
     }
 
     /** Writes {@code zip} to the {@code --exportFile} of the launch, as StartCLI does. */
@@ -118,8 +142,10 @@ public final class ScriptedProcessLauncher implements ProcessLauncher {
         }
         step.action.accept(spec);
         byte[] importFile = step.captureImport ? read(file(IMPORT_FILE, line)) : null;
+        byte[] stdout = step.dynamicStdout == null ? step.stdout
+            : step.dynamicStdout.apply(spec).getBytes(StandardCharsets.UTF_8);
         FakeProcessLauncher.FakeProcess process = new FakeProcessLauncher.FakeProcess(spec,
-            step.stdout, step.stderr, step.exitCode, step.hang, false, false, -1);
+            stdout, step.stderr, step.exitCode, step.hang, false, false, -1);
         launches.add(new Launch(spec, line, process, importFile));
         return process;
     }
@@ -212,6 +238,7 @@ public final class ScriptedProcessLauncher implements ProcessLauncher {
         private boolean hang;
         private boolean captureImport;
         private Consumer<LaunchSpec> action = spec -> { };
+        private Function<LaunchSpec, String> dynamicStdout;
 
         Step(String expected, Predicate<String> matcher) {
             this.expected = expected;

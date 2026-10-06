@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.ExportArchive.WorkflowXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.SecretPaths.Artifact;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -35,7 +36,12 @@ public final class SecretValues {
 
     /** The secret values of {@code raw}, an export that was not redacted. */
     public static SecretValues of(ExportArchive raw) {
-        Objects.requireNonNull(raw, "raw");
+        return of(List.of(raw));
+    }
+
+    /** The secret values of several raw exports of one target (e.g. one per module). */
+    public static SecretValues of(List<ExportArchive> raws) {
+        Objects.requireNonNull(raws, "raws");
         Map<Artifact, Map<String, String>> values = new HashMap<>();
         Map<Artifact, Set<String>> ambiguous = new HashMap<>();
         SecretPaths paths = new SecretPaths((artifact, path, kind, value) -> {
@@ -46,13 +52,15 @@ public final class SecretValues {
             }
             return value;
         });
-        for (WorkflowGroupXml group : raw.workflowGroups()) {
-            for (WorkflowXml workflow : group.workflows()) {
-                paths.workflow(workflow.name(), workflow.element());
+        for (ExportArchive raw : raws) {
+            for (WorkflowGroupXml group : raw.workflowGroups()) {
+                for (WorkflowXml workflow : group.workflows()) {
+                    paths.workflow(workflow.name(), workflow.element());
+                }
             }
-        }
-        for (ModuleXml module : raw.moduleFiles().values()) {
-            paths.module(module.name(), module.element());
+            for (ModuleXml module : raw.moduleFiles().values()) {
+                paths.module(module.name(), module.element());
+            }
         }
         return new SecretValues(values, ambiguous);
     }
