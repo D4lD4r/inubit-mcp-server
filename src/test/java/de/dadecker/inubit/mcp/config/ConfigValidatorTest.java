@@ -968,6 +968,28 @@ class ConfigValidatorTest {
         }
 
         @Test
+        void aWorkspaceReachedThroughASymbolicLinkIsTheSameWorkspace() throws IOException {
+            // review M2: real paths, also of a workspace that does not exist yet
+            Files.createSymbolicLink(home.resolve("alias"), home);
+            Path acme = profileFile("acme.yaml", "acme", "workspace: ~/work/shared\n");
+            profileFile("globex.yaml", "globex", "workspace: ~/alias/work/shared\n");
+
+            assertThat(validateFile(acme).errors()).singleElement().asString()
+                .contains("'globex'", "is also the workspace of");
+        }
+
+        @Test
+        void onACaseInsensitiveFileSystemTheCaseOfAWorkspaceDoesNotMatter() throws IOException {
+            Files.createDirectories(home.resolve("Work"));
+            boolean insensitive = Files.exists(home.resolve("work"));
+            Path acme = profileFile("acme.yaml", "acme", "workspace: ~/Work/ws\n");
+            profileFile("globex.yaml", "globex", "workspace: ~/work/WS\n");
+
+            assertThat(validateFile(acme).errors()).as("case-insensitive: %s", insensitive)
+                .hasSize(insensitive ? 1 : 0);
+        }
+
+        @Test
         void siblingWorkspacesWithACommonPrefixAreNoError() throws IOException {
             Path acme = profileFile("acme.yaml", "acme", "workspace: ~/work\n");
             profileFile("globex.yaml", "globex", "workspace: ~/work-globex\n");

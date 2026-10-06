@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import java.net.URI;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -208,8 +209,8 @@ public final class ConfigValidator {
             }
             // feature 003 FR-003: two profiles never share a workspace; a copy of the same
             // profile (same name) may start and shares it by design (002 re-review N1)
-            Path workspace = config.workspace().toAbsolutePath().normalize();
-            Path otherWorkspace = otherConfig.workspace().toAbsolutePath().normalize();
+            Path workspace = canonical(config.workspace());
+            Path otherWorkspace = canonical(otherConfig.workspace());
             boolean nested = workspace.startsWith(otherWorkspace)
                 || otherWorkspace.startsWith(workspace);
             if (nested && copy) {
@@ -217,11 +218,12 @@ public final class ConfigValidator {
             } else if (nested) {
                 String profile = ProfileInfo.isValidName(name) ? "'" + name + "'"
                     : ProfileInfo.INVALID_NAME;
+                Path shown = config.workspace().toAbsolutePath().normalize();
+                Path otherShown = otherConfig.workspace().toAbsolutePath().normalize();
                 String relation = workspace.equals(otherWorkspace) ? "is also the workspace of"
                     : workspace.startsWith(otherWorkspace) ? "is inside the workspace "
-                        + otherWorkspace + " of" : "contains the workspace " + otherWorkspace
-                        + " of";
-                findings.error("The workspace " + workspace + " of profile " + profile + " "
+                        + otherShown + " of" : "contains the workspace " + otherShown + " of";
+                findings.error("The workspace " + shown + " of profile " + profile + " "
                     + relation + " the profile file " + other.source() + " (profile "
                     + (otherName.equals(ProfileInfo.INVALID_NAME) ? otherName : "'" + otherName
                         + "'") + "); profiles need separate workspaces (setting workspace)");
@@ -236,6 +238,50 @@ public final class ConfigValidator {
                     + " by side need their own (credentials.envPrefix, auditDirectory)");
             }
         }
+    }
+
+    /**
+     * {@code path} as compared for FR-003 (review M2): the real path of its nearest existing
+     * ancestor (symbolic links resolved) with the rest appended; lower-case if that file system
+     * ignores case.
+     */
+    static Path canonical(Path path) {
+        Path absolute = path.toAbsolutePath().normalize();
+        Path existing = absolute;
+        while (existing != null && !Files.exists(existing)) {
+            existing = existing.getParent();
+        }
+        if (existing == null) {
+            return absolute;
+        }
+        Path real;
+        try {
+            real = existing.toRealPath();
+        } catch (IOException e) {
+            return absolute;
+        }
+        Path canonical = real.resolve(existing.relativize(absolute)).normalize();
+        return ignoresCase(real) ? Path.of(canonical.toString().toLowerCase(Locale.ROOT))
+            : canonical;
+    }
+
+    /** True if {@code existing} is also found under its name in the other case. */
+    private static boolean ignoresCase(Path existing) {
+        for (Path candidate = existing; candidate != null && candidate.getFileName() != null;
+            candidate = candidate.getParent()) {
+            String name = candidate.getFileName().toString();
+            String swapped = name.equals(name.toUpperCase(Locale.ROOT))
+                ? name.toLowerCase(Locale.ROOT) : name.toUpperCase(Locale.ROOT);
+            if (!swapped.equals(name)) {
+                Path other = candidate.resolveSibling(swapped);
+                try {
+                    return Files.exists(other) && Files.isSameFile(candidate, other);
+                } catch (IOException e) {
+                    return false;
+                }
+            }
+        }
+        return false;
     }
 
     /**
