@@ -78,7 +78,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   `NOT_DEVELOPMENT`; production (defence in depth) → `PRODUCTION_PROTECTED`; CLI unavailable →
   `CLI_UNAVAILABLE`; `e2eTests` checks for `run_e2e_test` → `E2E_FORBIDDEN`. `DevelopmentGuardTest`
   covers every branch.
-- [ ] T006 `main/application/WriteChallengeRegistry.java` with test first (D-2): issue/redeem bound to
+- [X] T006 `main/application/WriteChallengeRegistry.java` with test first (D-2): issue/redeem bound to
   `(capability, node, inputFingerprint, previewState)`; 22-char code, single use, TTL, max 1000
   pending, swept; changed inputs or capability or node → `CONFIRMATION_INVALID`; changed previewState
   → returned to the caller for a `CONFLICT` decision; expired → `CONFIRMATION_INVALID`.
