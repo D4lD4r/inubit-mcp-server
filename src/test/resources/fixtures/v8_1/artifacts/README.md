@@ -90,7 +90,9 @@ customer content, so the fixtures carry synthetic documents of the same structur
   one importing the repository schemas; one with a transport/username-token security policy).
 - `JSONStaticSchema` of `Module-0018`: a synthetic JSON schema (CRLF and tabs, as recorded),
   `documentName` `FixtureSchema.json`, `documentSize` and `JSONStaticSchemaMD5` (the MD5 of the
-  decoded schema) updated.
+  decoded schema) updated; gzip and base64 encoded the way INUBIT encodes InternalDocuments (Java's
+  `GZIPOutputStream`, which reproduces all 9 recorded InternalDocuments of the stage byte for
+  byte).
 - Service names, namespaces and ids used by these documents and by the module properties around
   them: `OrderService`, `orderData`, `urn:example:fixture:*`, `/ibis/ws/1000000000001/Service-01`.
 

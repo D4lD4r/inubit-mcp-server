@@ -184,7 +184,7 @@ from `fixtures/artifacts/README.md`.
 **Independent test**: export recorded fixtures through `FakeProcessLauncher`; check file tree, history,
 unchanged re-export, round trip.
 
-- [ ] T015 [P] [US1] `main/adapter/archive/v81/EmbeddedDocuments.java` with test first: extracts
+- [X] T015 [P] [US1] `main/adapter/archive/v81/EmbeddedDocuments.java` with test first: extracts
   `XmlDocument` properties (entity-escaped XML) and `InternalDocument` properties (gzip+base64,
   "decoded by content, not by the `xslt.base64Zipped` flag") to files with extensions
   `xslt.stylesheet → .xsl`, `WsdlData`/`ValidWsdlData → .wsdl`, InternalDocument by
