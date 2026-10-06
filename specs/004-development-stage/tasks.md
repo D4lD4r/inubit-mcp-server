@@ -116,7 +116,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   which must keep all its tests green) and `SecretValues.java` with tests first (D-6): for every
   synthetic secret form of the feature-003 fixtures, the path derived on the raw archive equals the
   placeholder path written by the redactor; lookup by (artifact, path); values never in `toString`.
-- [ ] T012 [US1] `main/adapter/archive/v81/ImportAssembler.java` with test first (D-6, D-7, D-11):
+- [X] T012 [US1] `main/adapter/archive/v81/ImportAssembler.java` with test first (D-6, D-7, D-11):
   builds the import archive (workflow archive with only changed/new modules, or module-only archive)
   from workspace + `.meta`, replaces placeholders from `SecretValues` (missing → `SECRET_UNRESOLVED`
   naming artifact and path), sets the person-written CheckinComment part to the reason, restores
