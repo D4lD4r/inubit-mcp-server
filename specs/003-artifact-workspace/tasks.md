@@ -58,7 +58,7 @@ are P1, and no export may write a file before redaction exists.
   shaded JAR still builds and that `mvn -q dependency:tree` shows no version conflict; add the Saxon-HE
   row (MPL-2.0) to `THIRD-PARTY-NOTICES.md`; add an ignore rule for `net.sf.saxon:*` minor and major
   updates to `.github/dependabot.yml` (the version must stay on INUBIT's Saxon 10 line).
-- [ ] T002 Record the fixtures (research D-14) from the local spike recordings: a small diagram group
+- [X] T002 Record the fixtures (research D-14) from the local spike recordings: a small diagram group
   with XSLT Converter, Demultiplexer (with condition and `DefaultOutput`) and Assign modules; a
   diagram group with Web Services and AS2 connector modules and at least one embedded WSDL and one
   `InternalDocument`; a module-only export. Neutralize names with `tools/neutralize.py`, replace every
