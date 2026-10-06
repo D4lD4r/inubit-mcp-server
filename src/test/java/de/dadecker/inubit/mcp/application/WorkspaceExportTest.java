@@ -12,11 +12,14 @@ import de.dadecker.inubit.mcp.application.WorkspaceService.ExportResult;
 import de.dadecker.inubit.mcp.application.WorkspaceService.ModuleRef;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.HistoryEntry;
 import de.dadecker.inubit.mcp.domain.model.PathChange;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import de.dadecker.inubit.mcp.domain.port.ArchiveCodecPort;
 import de.dadecker.inubit.mcp.domain.port.ArchiveCodecPort.PreparedExport;
+import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -229,6 +232,52 @@ class WorkspaceExportTest {
         assertThat(harness.snapshot()).isEqualTo(before);
         assertThat(harness.log()).hasSize(1);
         assertThat(harness.history.status()).isEmpty();
+    }
+
+    @Test
+    void aFailureWhileRecordingTheExportAlsoRestoresTheWorkspace() {
+        // review M1: steps 4 and 5 are undone together; otherwise the next export would commit
+        // the server state as "local changes"
+        harness.service().export(diagramGroups("jdoe", "GRP-01"));
+        SortedMap<String, String> before = harness.snapshot();
+        harness.artifacts.exports.put("GRP-01", ExportHarness.withoutModule0009());
+        VersionHistoryPort failingCommit = new VersionHistoryPort() {
+            @Override
+            public void init() {
+                harness.history.init();
+            }
+
+            @Override
+            public List<PathChange> status() {
+                return harness.history.status();
+            }
+
+            @Override
+            public Optional<HistoryEntry> commitAll(String message) {
+                if (message.startsWith("export ")) {
+                    throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+                        "git commit failed", "fake", "fake"));
+                }
+                return harness.history.commitAll(message);
+            }
+
+            @Override
+            public void restore(Path subtree) {
+                harness.history.restore(subtree);
+            }
+        };
+        WorkspaceService service = new WorkspaceService(root, failingCommit, new ArchiveCodec(),
+            node -> harness.artifacts, node -> {
+                throw new AssertionError("not used");
+            });
+
+        assertThatThrownBy(() -> service.export(diagramGroups("jdoe", "GRP-01")))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(e.error().code())
+                .isEqualTo(ErrorCode.PRECONDITION_FAILED));
+
+        assertThat(harness.snapshot()).isEqualTo(before);
+        assertThat(harness.history.status()).isEmpty();
+        assertThat(harness.log()).hasSize(1);
     }
 
     @Test

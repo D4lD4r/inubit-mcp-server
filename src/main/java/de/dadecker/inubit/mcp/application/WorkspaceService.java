@@ -156,11 +156,16 @@ public final class WorkspaceService {
             }
             PreparedExport prepared = withNode(node, () -> codec.prepare(node.group(),
                 request.owner(), archives));
-            write(prepared);
-            List<PathChange> changes = history.status();
-            Optional<HistoryEntry> export = changes.isEmpty() ? Optional.empty()
-                : history.commitAll("export " + node.value() + ": " + what + " ("
-                    + changes.size() + " files)");
+            Optional<HistoryEntry> export;
+            try {
+                prepared.writeTo(root);
+                List<PathChange> changes = history.status();
+                export = changes.isEmpty() ? Optional.empty()
+                    : history.commitAll("export " + node.value() + ": " + what + " ("
+                        + changes.size() + " files)");
+            } catch (RuntimeException e) {
+                throw undo(prepared, e);
+            }
             return new ExportResult(node, request.owner(), root, localChanges, export,
                 prepared.secretsReplaced(), prepared.warnings());
         }
@@ -236,28 +241,34 @@ public final class WorkspaceService {
         return types;
     }
 
-    /** Step 4; a failure restores the owner's directories from the last entry. */
-    private void write(PreparedExport prepared) {
+    /**
+     * Steps 4 and 5 failed (review M1): the owner's directories are restored from the last
+     * entry, so that neither a half-written export nor an unrecorded one remains (the next
+     * export would otherwise record the server state as local changes).
+     */
+    private ToolErrorException undo(PreparedExport prepared, RuntimeException failure) {
         try {
-            prepared.writeTo(root);
-        } catch (RuntimeException e) {
-            try {
-                prepared.scope().forEach(directory -> history.restore(Path.of(directory)));
-            } catch (RuntimeException restoreFailure) {
-                e.addSuppressed(restoreFailure);
-                throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
-                    "The workspace " + root + " could not be written ("
-                        + e.getClass().getSimpleName() + ") and not be restored",
-                    "The file system reported an error",
-                    "Check the workspace with git status and restore it with git restore"));
-            }
-            throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
-                "The workspace " + root + " could not be written (" + e.getClass()
-                    .getSimpleName() + "); the affected directories were restored from the"
-                    + " history",
-                "The file system reported an error (e.g. no space left, no permission)",
-                "Fix the file system problem and export again"));
+            prepared.scope().forEach(directory -> history.restore(Path.of(directory)));
+        } catch (RuntimeException restoreFailure) {
+            failure.addSuppressed(restoreFailure);
+            return new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+                "The export into " + root + " failed (" + failure.getClass().getSimpleName()
+                    + ") and the workspace could not be restored",
+                "The file system or git reported an error",
+                "Check the workspace with git status and restore it with git restore"));
         }
+        if (failure instanceof ToolErrorException tool) {
+            ToolError error = tool.error();
+            return new ToolErrorException(new ToolError(error.code(), error.message()
+                + "; the affected directories were restored from the history",
+                error.likelyCause(), error.nextStep(), error.node(), error.excerpt()));
+        }
+        return new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+            "The workspace " + root + " could not be written (" + failure.getClass()
+                .getSimpleName() + "); the affected directories were restored from the"
+                + " history",
+            "The file system reported an error (e.g. no space left, no permission)",
+            "Fix the file system problem and export again"));
     }
 
     private static <T> T withNode(NodeId node, Supplier<T> action) {
