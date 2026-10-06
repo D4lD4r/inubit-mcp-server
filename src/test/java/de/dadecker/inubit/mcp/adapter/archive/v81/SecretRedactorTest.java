@@ -270,6 +270,41 @@ class SecretRedactorTest {
         return Base64.getEncoder().encodeToString(bytes.toByteArray());
     }
 
+    @Test
+    void thePasswordTypeIsResolvedByNamespaceNotByPrefix() {
+        // review M3: is:password means {http://inubit.com/variables/types}password
+        String renamed = workflowDefault(workflow -> workflow
+            .replace("xmlns:is=\"http://inubit.com/variables/types\"",
+                "xmlns:vt=\"http://inubit.com/variables/types\"")
+            .replace("type=\"is:password\"", "type=\"vt:password\""));
+        String foreign = workflowDefault(workflow -> workflow
+            .replace("xmlns:is=\"http://inubit.com/variables/types\"",
+                "xmlns:is=\"urn:example:fixture:other\""));
+
+        assertThat(renamed).isEqualTo("${secret:Variables/var.fixturePassword}");
+        assertThat(foreign).as("another namespace").isEqualTo("synthetic-default-0001");
+    }
+
+    /** The DefaultValue of var.fixturePassword after redacting grp-b with a changed workflow. */
+    private String workflowDefault(java.util.function.UnaryOperator<String> change) {
+        Map<String, byte[]> entries = new LinkedHashMap<>(ArtifactFixtures.entries("grp-b.zip"));
+        String workflow = new String(entries.get("workflow/workflow.xml"), StandardCharsets.UTF_8);
+        String changed = change.apply(workflow);
+        assertThat(changed).isNotEqualTo(workflow);
+        entries.put("workflow/workflow.xml", changed.getBytes(StandardCharsets.UTF_8));
+        RedactedArchive archive = redactor.redact(reader.read(ArtifactFixtures.zip(entries)));
+        List<String> defaults = new ArrayList<>();
+        archive.archive().workflowGroups().forEach(group -> group.workflows().forEach(w ->
+            FixtureScan.elements(w.element(), e -> {
+                if (e.localName().equals("Variable") && e.attribute("name")
+                    .filter("var.fixturePassword"::equals).isPresent()) {
+                    e.child("DefaultValue").ifPresent(d -> defaults.add(d.text()));
+                }
+            })));
+        assertThat(defaults).hasSize(1);
+        return defaults.get(0);
+    }
+
     /** One of the synthetic certificates of the fixtures (no private key). */
     private static String certificate() {
         List<String> certificates = new ArrayList<>();

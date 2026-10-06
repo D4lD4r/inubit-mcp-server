@@ -14,6 +14,7 @@ import java.security.cert.CertificateFactory;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -45,7 +46,7 @@ import java.util.regex.Pattern;
  *       data, also as {@code InternalDocument});
  *   <li>in workflows, {@link Kind#PASSWORD_LITERAL} a {@code literal isPassword="true"} and
  *       {@link Kind#PASSWORD_DEFAULT} the {@code DefaultValue} of a variable of type
- *       {@code is:password};
+ *       {@code is:password} (the prefix resolved to {@value #VARIABLE_TYPES});
  *   <li>{@link Kind#KEY_MATERIAL} key material in any other property: an {@code InternalDocument}
  *       named like or holding a JKS, JCEKS or PKCS#12 keystore, or a PEM private key
  *       ({@link KeyMaterial}); {@link Kind#REPOSITORY_KEY_MATERIAL} a repository file of that
@@ -97,6 +98,8 @@ public final class SecretRedactor {
     private static final Set<String> SCALAR_TYPES = Set.of("Boolean", "Integer");
     private static final Pattern UNSAFE_PATH_CHARACTERS = Pattern.compile("[{}\\p{Cntrl}]");
     private static final Set<String> CONTENT_VALUES = Set.of("contentSize", "contentMD5");
+    /** The namespace of the variable types ({@code is:password}). */
+    static final String VARIABLE_TYPES = "http://inubit.com/variables/types";
 
     /** The redaction of {@code archive}; the input is not changed. */
     public RedactedArchive redact(ExportArchive archive) {
@@ -106,7 +109,8 @@ public final class SecretRedactor {
             List<WorkflowXml> workflows = new ArrayList<>();
             for (WorkflowXml workflow : group.workflows()) {
                 workflows.add(new WorkflowXml(workflow.name(), workflow.diagramGroup(),
-                    workflowElement(workflow.element(), "", counts), workflow.context()));
+                    workflowElement(workflow.element(), "", Map.of(), counts),
+                    workflow.context()));
             }
             groups.add(new ExportArchive.WorkflowGroupXml(group.name(), group.attributes(),
                 workflows));
@@ -263,7 +267,10 @@ public final class SecretRedactor {
      * Redacts below a workflow element: node properties (prefixed by the node), password
      * literals of assignments and defaults of password variables.
      */
-    private static Element workflowElement(Element element, String prefix, Counts counts) {
+    private static Element workflowElement(Element element, String prefix,
+        Map<String, String> inherited, Counts counts) {
+        Map<String, String> namespaces = new HashMap<>(inherited);
+        element.namespaces().forEach(ns -> namespaces.put(ns.prefix(), ns.uri()));
         String scope = prefix;
         if (element.localName().equals("WorkflowModule")) {
             scope = "WorkflowModule(" + element.child("ModuleId").map(Element::text)
@@ -273,8 +280,8 @@ public final class SecretRedactor {
         return element.withChildren(map(element, child -> switch (child.localName()) {
             case "Property" -> property(child, nodeScope, false, counts);
             case "copy" -> copy(child, nodeScope, counts);
-            case "Variable" -> variable(child, counts);
-            default -> workflowElement(child, nodeScope, counts);
+            case "Variable" -> variable(child, namespaces, counts);
+            default -> workflowElement(child, nodeScope, namespaces, counts);
         }));
     }
 
@@ -289,8 +296,18 @@ public final class SecretRedactor {
             : child));
     }
 
-    private static Element variable(Element variable, Counts counts) {
-        if (variable.attribute("type").filter("is:password"::equals).isEmpty()) {
+    /**
+     * A variable whose type is {@code password} in the namespace {@value #VARIABLE_TYPES}
+     * (usually written {@code is:password}; the prefix is resolved, review M3).
+     */
+    private static Element variable(Element variable, Map<String, String> inherited,
+        Counts counts) {
+        Map<String, String> namespaces = new HashMap<>(inherited);
+        variable.namespaces().forEach(ns -> namespaces.put(ns.prefix(), ns.uri()));
+        String type = variable.attribute("type").orElse("").strip();
+        int colon = type.indexOf(':');
+        if (colon < 0 || !type.substring(colon + 1).equals("password")
+            || !VARIABLE_TYPES.equals(namespaces.get(type.substring(0, colon)))) {
             return variable;
         }
         String name = variable.attribute("name").orElse("?");
