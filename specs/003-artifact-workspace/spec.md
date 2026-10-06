@@ -253,8 +253,9 @@ settings.
 - An export that times out or fails on the INUBIT side (e.g. a diagram group made unexportable by a
   broken workflow): no file in the workspace changes, no history entry is created, and the error says
   which export failed and why.
-- Two exports into the same workspace at the same time: they are serialized; neither leaves a half-
-  written tree.
+- Two exports (or an export and a check) on the same workspace at the same time: the second one is
+  refused at once with a message that another export or check is running; neither leaves a
+  half-written tree.
 - A module name that differs from another only in upper/lower case: both are kept apart, or the export
   stops with a clear error; files are never silently overwritten.
 - Characters in workflow, module or diagram group names that are not valid in file names: they are
@@ -304,15 +305,17 @@ settings.
 - **FR-009**: The assistant MUST be able to export the technical workflows of one or more diagram
   groups of an owner from one group or node; the owner defaults to the configured inventory owner.
   System diagrams and all other diagram types MUST NOT be exported (they configure a stage, and an
-  export is the basis of a later import); a request for them MUST be refused with an explanation.
+  export is the basis of a later import); the tool offers no way to request them, and its
+  description states that only technical workflows are exported.
 - **FR-010**: The assistant MUST be able to export single modules of an owner.
 - **FR-011**: Exports MUST be possible from every configured group, including production groups (they
   are read-only and need neither `development` nor write settings). Without an explicit node, the
   export MUST use the first node of the group and name it in the result.
 - **FR-012**: The export MUST write one file per workflow, one file per module used by the exported
-  workflows (or per exported module), each embedded document (stylesheet, WSDL, schema, configuration
-  document, other embedded XML) as a separate file in its natural format, and every repository file
-  referenced by the exported artifacts.
+  workflows (or per exported module), each document embedded in a module (stylesheet, WSDL, schema,
+  configuration document, other embedded XML) as a separate file in its natural format, and every
+  repository file referenced by the exported artifacts. Stylesheets written inline in a workflow's
+  assignments stay inside the workflow file.
 - **FR-013**: Files MUST be normalized so that exporting unchanged artifacts twice produces no change:
   a canonical layout; values that INUBIT changes on every export or import (the export signature in the
   check-in comment, export metadata, internal unique ids) MUST be kept in a separate metadata area of
@@ -334,7 +337,9 @@ settings.
   first record them as a separate history entry ("local changes", listing the files) and then record
   the exported server state as its own entry; the result MUST name both entries. No change may be
   discarded without a history entry that preserves it.
-- **FR-020**: Exports into the same workspace MUST NOT run concurrently.
+- **FR-020**: Exports and checks on the same workspace MUST NOT run concurrently, also across server
+  processes of the same profile; a second one MUST be refused at once with a message that another
+  export or check is running.
 - **FR-021**: The export result MUST list the added, changed and removed paths and the history entry;
   for large exports it MUST return counts and a path to a file in the workspace with the full list
   (bounded output).
@@ -346,8 +351,8 @@ settings.
 - **FR-023**: Embedded keystores that contain private keys, password literals in workflows, default
   values of password-typed workflow variables and saved test values of stylesheet modules MUST be
   replaced by placeholders.
-- **FR-024**: A placeholder MUST identify the artifact and the property path, so that a later feature
-  can restore the value from the target system; it MUST NOT contain or be derived from the value.
+- **FR-024**: A placeholder MUST identify the property path; together with the file it is in, it
+  identifies the artifact, so that a later feature can restore the value from the target system; it MUST NOT contain or be derived from the value.
 - **FR-025**: No secret value MUST be written to the workspace, its metadata area, its history, a
   temporary file that outlives the export, a tool result, an error message or a log.
 - **FR-026**: Raw exports received from INUBIT MUST be processed in a location only the current user can
@@ -378,7 +383,7 @@ settings.
 - **FR-033**: The assistant MUST be able to check XML documents for well-formedness and against a schema
   from the workspace; findings MUST include the location.
 - **FR-034**: Check results MUST be structured per artifact and finding (severity, location, message),
-  bounded in size, and MUST NOT contain secret values.
+  bounded in size (each message at most 500 characters), and MUST NOT contain secret values.
 - **FR-035**: Checks MUST NOT change any file outside the workspace's test area and MUST NOT change
   anything on an INUBIT system.
 
@@ -420,9 +425,9 @@ settings.
 - **SC-004**: Each structural defect type observed in the spike (dangling edge, missing module, id
   collision) is detected in 100 % of the defect fixtures, and unchanged real workflows produce no
   structural errors.
-- **SC-005**: At least 95 % of the stylesheets in the recorded real exports can be run locally (with
-  stand-ins where needed); every other stylesheet is reported as "not testable locally" or as a genuine
-  error, none as passed.
+- **SC-005**: At least 95 % of the stylesheets of a real owner's export (several hundred, kept as a
+  local corpus outside the repository) can be run locally (with stand-ins where needed); every other
+  stylesheet is reported as "not testable locally" or as a genuine error, none as passed.
 - **SC-006**: Exporting a diagram group with up to 100 modules completes, including history entry, in
   under one minute plus the time INUBIT needs to produce the export.
 - **SC-007**: A person reviewing a change made in the Workbench can see it in the history as a diff of
@@ -443,5 +448,7 @@ settings.
 - Writing to INUBIT (import, activation, tagging, restore), backups, end-to-end tests and deployment
   are features 004 and 005.
 - Script modules were not found in real exports and are out of scope.
+- Inline stylesheets in workflow assignments are not run locally in this feature; they stay in the
+  workflow file and are covered by the structure checks only.
 - Only technical workflows are exported; system diagrams, BPDs, process maps and other diagram types
   are out of scope until a later feature decides otherwise.

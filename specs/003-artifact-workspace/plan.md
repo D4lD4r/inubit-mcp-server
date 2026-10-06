@@ -59,8 +59,8 @@ plus StartCLI time. The archive is processed in memory; the measured owner-wide 
 
 **Scale/Scope**:
 - 2 tools and 4 schemas;
-- about 25 new production classes in 4 new adapter packages, 2 application services, and config and
-  wiring changes;
+- about 25 new production classes in 3 new adapter packages (`archive/v81`, `git`, `xslt`) plus
+  `cli/v81` additions, 2 application services, and config and wiring changes;
 - fixtures from about 3 recorded diagram groups plus defect variants;
 - documentation: `docs/tools.md`, `docs/setup.md` (workspace), `docs/live-tests.md`,
   `THIRD-PARTY-NOTICES.md` (Saxon), `CHANGELOG.md`.

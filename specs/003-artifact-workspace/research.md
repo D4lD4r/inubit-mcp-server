@@ -85,6 +85,8 @@ for imports.
   and gets the text `@file:<file name>`. File extensions: `xslt.stylesheet` → `.xsl`, `WsdlData` /
   `ValidWsdlData` → `.wsdl`, InternalDocument by `documentContentType`/`documentName` (`.xsd`,
   `.xml`, otherwise `.bin`), any other XmlDocument → `.xml`.
+- Inline stylesheets in workflow assignments (`<xsl>` inside `from`) stay in the workflow file; they
+  are not extracted and not run by `check_artifacts` in this feature.
 - Repository: `Repository.zip` entries `<path>.dat` → `repository/<path>`; `<path>.xml` metadata →
   `.meta/…`. Only files referenced by an exported artifact (`inubitrepository:` references,
   repository-path properties) are written (FR-012); the rest of the owner's repository is ignored.
@@ -131,7 +133,8 @@ files (FR-014): `CheckoutUser`, `IsActive`, layout (`StyleSheet`, `Junctures`), 
 
 Placeholder: `${secret:<property path>}` where the path is the property name chain inside the
 artifact (e.g. `${secret:Mime.Sign.Password}`, `${secret:xslt.sourceVariables/ISCurrentTime}`); the
-artifact is identified by the file the placeholder is in. Empty values stay empty. Nothing derived
+artifact is identified by the file the placeholder is in (FR-024), so feature 004 always resolves
+placeholders per file. Empty values stay empty. Nothing derived
 from the value (hash, length) is stored. The redaction runs on the in-memory model; the raw ZIP lives
 only in the private temporary directory of the export and is deleted on every exit path (existing
 `CliExportRunner` rules, FR-026). The global log scrubber is not relied on: tool results and logs
@@ -163,8 +166,9 @@ input validation before StartCLI runs.
 
 **Decision** (`application/WorkspaceService.export`):
 
-1. acquire the workspace lock (`FileChannel.tryLock` on `.lock`; held → `PRECONDITION_FAILED`
-   "another export or check is running"; works across the CLI and desktop instances of one profile);
+1. acquire the workspace lock (`FileChannel.tryLock` on `.lock`; held → refused at once with
+   `PRECONDITION_FAILED` "another export or check is running", no waiting (FR-020); works across the
+   CLI and desktop instances of one profile);
 2. `git status` — if anything is uncommitted, commit it as `local changes: <n> files` (clarification
    1);
 3. run the StartCLI export(s); parse, redact, normalize into memory — any failure here leaves the
@@ -243,4 +247,12 @@ groups with Demultiplexer, Assign, XSLT, WS and AS2 connector modules), neutrali
 (`AES-…`, `AESG…`, legacy base64, plain, keystore base64) — no real ciphertext is ever committed. The
 identifier guard covers the fixture ZIPs (entry names and text entries). Defect fixtures
 (dangling edge, missing module, id collision, broken condition, unknown extension, syntax error) are
-derived from them by small, documented edits.
+derived from them by small, documented edits. The fixtures also hold the StartCLI outputs of an
+export of a non-existent diagram group and of a non-existent module (read-only recordings), as
+required for contract tests (Constitution III).
+
+The stylesheet coverage of SC-005 cannot be proven on committed fixtures (the real stylesheets are
+customer content). A local, opt-in corpus test (`XsltCorpusTest`) runs against a directory given in
+`INUBIT_MCP_XSLT_CORPUS` (for example the spike's extracted stylesheets and repository) and is
+skipped when the variable is not set, like the identifier guard without its lists; CI runs the
+fixture-based `XsltCoverageTest`.

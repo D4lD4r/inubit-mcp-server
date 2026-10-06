@@ -66,7 +66,10 @@ are P1, and no export may write a file before redaction exists.
   base64, plain text, keystore base64, `isPassword` literal, `is:password` default,
   `xslt.sourceVariables` values) and every `CheckinComment` user/host by fixture values; store them as
   `fixtures/artifacts/{grp-a.zip,grp-b.zip,module-one.zip}` plus `fixtures/artifacts/README.md`
-  listing every synthetic secret value (the tests read that list) and the edits made. Run
+  listing every synthetic secret value (the tests read that list) and the edits made. Also record,
+  read-only, the StartCLI output (stdout, stderr, exit code) of an export of a non-existent diagram
+  group and of a non-existent module, neutralized, as `fixtures/artifacts/cli/export-group-missing.txt`
+  and `fixtures/artifacts/cli/export-module-missing.txt` (contract tests, Constitution III). Run
   `python3 tools/check-identifiers.py --staged` before committing.
 - [ ] T003 [P] Derive defect fixtures from `grp-a.zip` as unzipped directories under
   `fixtures/artifacts/defects/` — `dangling-edge`, `id-collision`, `demux-key-unmatched`,
@@ -200,25 +203,31 @@ unchanged re-export, round trip.
   `--exportWorkflowType 'technical'` always; blank or empty diagram group rejected before launch
   (`INVALID_INPUT`, "StartCLI treats an empty group as all"); values outside `CliCommand.VALUE` →
   `INVALID_INPUT`; 128 MiB cap; temporary directory deleted on success, failure and timeout;
-  `TIMEOUT` names `cliExportTimeout`; `NOT_FOUND` when StartCLI reports a missing group/module (message
-  text recorded in T002).
+  `TIMEOUT` names `cliExportTimeout`; `NOT_FOUND` when StartCLI reports a missing group/module,
+  classified from the recordings `fixtures/artifacts/cli/export-*-missing.txt` of T002.
 - [ ] T020 [US1] `main/adapter/cli/v81/V81ArtifactAdapter.java` implementing `ArtifactPort`, wired in the
   v8.1 gateway factory, with `test/adapter/cli/V81ArtifactAdapterTest.java` first.
 - [ ] T021 [US1] `main/application/WorkspaceService.java` with `test/application/WorkspaceExportTest.java`
-  first (D-9): lock → commit uncommitted changes as `local changes: <n> files` → export(s) per diagram
+  first (D-9): lock (a second export or check is refused at once, FR-020) → commit uncommitted changes as `local changes: <n> files` → export(s) per diagram
   group or module (plugin type looked up via `InventoryPort.listModules` if absent) → read → redact →
   write affected sub-trees (deleting artifacts no longer exported, FR-017) → commit
   `export <group>/<node>: <what> (<n> files)` → unlock; second identical export → no commit,
   `unchanged`; a changed stylesheet in a second recording → exactly one `MODIFIED` path; a failing
   export or unreadable archive leaves files and history unchanged (FR-018); a failure while writing
-  restores the sub-trees from `HEAD`; warnings for `CheckoutUser` and for used modules of another owner.
+  restores the sub-trees from `HEAD`; warnings for `CheckoutUser` and for used modules of another owner;
+  performance (SC-006): a synthetic archive with one diagram group, 20 workflows and 100 modules (built
+  from fixture modules by renaming) is read, redacted, written and committed in under 60 s with the
+  fake StartCLI returning at once.
 - [ ] T022 [US1] `test/application/WorkspaceLocalChangesTest.java` first, then the remaining
   `WorkspaceService` behaviour (clarification 1, FR-019): an edited and an added file are committed as
   `local changes` before the export commit; both commits in the result; nothing is discarded.
-- [ ] T023 [US1] `res/schemas/export_artifacts.input.json` and `.output.json` per
+- [ ] T023 [US1] Extend `main/mcp/ToolHints.java` test-first with
+  `readOnly(String title, boolean openWorld, boolean idempotent)` (the existing two-argument factory
+  keeps `idempotent: true`); then `res/schemas/export_artifacts.input.json` and `.output.json` per
   `contracts/mcp-tools-delta.md`, `main/mcp/tools/ExportArtifactsTool.java` and registration in
   `main/Wiring.java` (only if a node has a CLI home) with tests first in `test/mcp/tools/`:
-  description with profile prefix and terminology, `ToolHints.readOnly`, exactly one of
+  description with profile prefix and terminology stating "only technical workflows",
+  `ToolHints.readOnly(title, true, false)` (not idempotent: it writes a history entry), exactly one of
   `diagramGroups`/`modules`, bounded `changes` with `.reports/export-<commit>.txt` when truncated
   (D-10), `TARGET_UNKNOWN` for unknown ids, first node of a group used and named.
 - [ ] T024 [US1] `test/security/SecretLeakTest.java` (SC-003): export all fixtures through the tool,
@@ -252,8 +261,10 @@ unchanged re-export, round trip.
   `main/mcp/tools/CheckArtifactsTool.java`, registration in `main/Wiring.java` (always), tests first in
   `test/mcp/tools/`: paths must stay inside the workspace ("no `..`, no absolute paths, no symlinks
   leaving it") else `INVALID_INPUT`; at least one of `paths`/`xslt`; findings bounded with
-  `.reports/check-<timestamp>.json` when truncated; holds the workspace lock while reading; never
-  writes outside `.tests/` and `.reports/`.
+  `.reports/check-<timestamp>.json` when truncated; every finding message at most 500 characters
+  (longer ones cut with `…`, FR-034); holds the workspace lock while running (a concurrent export or
+  check is refused, FR-020); never writes outside `.tests/` and `.reports/`; `ToolHints.readOnly(title,
+  true, true)`.
 
 ---
 
@@ -284,9 +295,14 @@ unchanged re-export, round trip.
   `NOT_TESTABLE` with reason (never `OK`); `syntax-error.xsl` → `XSLT_STATIC_ERROR` with line/column;
   `repository-import.xsl` resolves from the workspace `repository/`; no network or file access outside
   the workspace.
-- [ ] T031 [US4] `test/adapter/xslt/XsltCoverageTest.java` (SC-005): over all stylesheets of the
-  recorded fixtures, ≥ 95 % run (`OK`) and every other one is `NOT_TESTABLE` or `XSLT_STATIC_ERROR`;
-  none falsely `OK` (assert by a list of known-broken fixture stylesheets).
+- [ ] T031 [US4] `test/adapter/xslt/XsltCoverageTest.java`: over all stylesheets of the committed
+  fixtures, every one is `OK`, `NOT_TESTABLE` or `XSLT_STATIC_ERROR` as listed in
+  `fixtures/artifacts/README.md`, none falsely `OK`. Plus the opt-in
+  `test/adapter/xslt/XsltCorpusTest.java` (SC-005, research D-14): runs every `*.xsl` below
+  `INUBIT_MCP_XSLT_CORPUS` (repository files from its `repository/` sub-directory), asserts ≥ 95 % `OK`
+  and that every other one is `NOT_TESTABLE` or `XSLT_STATIC_ERROR`, prints only counts and the
+  stand-ins used (never stylesheet content or names); skipped when the variable is not set. Run it once
+  locally against the spike corpus and record the counts in the PR description.
 - [ ] T032 [US4] Wire the `xslt` input of `check_artifacts` to `SaxonXsltRunner` in
   `main/mcp/tools/CheckArtifactsTool.java` and `main/application/ArtifactCheckService.java` with a tool
   test first (output path and `xslt` block of the result per contract).

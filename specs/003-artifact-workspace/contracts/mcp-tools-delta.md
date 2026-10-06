@@ -16,7 +16,8 @@ not audited (Constitution VII covers state-changing tools only).
 
 > [acme] Export technical workflows (by diagram group) or single modules from one {group} or {node}
 > into the local workspace as readable files, record the export in the workspace history and list
-> what changed. Secrets are replaced by placeholders. Read-only for INUBIT.
+> what changed. Only technical workflows are exported (no system diagrams or other diagram types).
+> Secrets are replaced by placeholders. Read-only for INUBIT.
 
 Offered when at least one node has a CLI installation.
 
@@ -62,7 +63,7 @@ There is no diagram type parameter: only technical workflows are exported (clari
 case-only path collision, neither/both of `diagramGroups`/`modules`), `NOT_CONFIGURED` (no owner),
 `CLI_UNAVAILABLE`, `AUTH_FAILED`, `TIMEOUT` (names `cliExportTimeout`), `NOT_FOUND` (diagram group
 or module does not exist for the owner), `UNEXPECTED_RESPONSE` (archive cannot be processed — the
-workspace is unchanged), `PRECONDITION_FAILED` (workspace locked by another export or check, or the
+workspace is unchanged), `PRECONDITION_FAILED` (another export or check is running — refused at once, no waiting — or the
 workspace is not usable), `INTERNAL`.
 
 ## `check_artifacts`
