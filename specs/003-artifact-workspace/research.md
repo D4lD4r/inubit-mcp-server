@@ -130,10 +130,16 @@ rejected.
 
 ## D-6 Volatile values
 
-**Decision**: moved to `.meta/` (JSON, sorted keys): `archive.properties`; the export suffix of
-`CheckinComment` (from the first `@@@Deploying User:` up to the end; the person-written part before
-it stays in the file); `WorkflowUId`, `ModuleUId`; repository file metadata. Stay in the reviewed
-files (FR-014): `CheckoutUser`, `IsActive`, layout (`StyleSheet`, `Junctures`), `LastUpdate`,
+**Decision**: moved to `.meta/` (JSON, sorted keys): from `archive.properties` only
+`sourceVersion` (in the export record `.meta/<group>/<owner>/exports/…`, with the entry order); the
+export suffix of `CheckinComment` (from the first `@@@Deploying User:` up to the end, the
+person-written part before it stays in the file) **without** its trailing
+`Export/Deployment: <time>@@@`; `WorkflowUId`, `ModuleUId` (the elements stay in the files, empty);
+repository file metadata. **Dropped** entirely, because they change on every export and would
+break SC-001 (an unchanged re-export changes no file): the export time (the
+`Export/Deployment: <time>` field and the timestamp comment of `archive.properties`) and
+`operationId`; a rebuild writes a new export time and no `operationId`. Stay in the reviewed files
+(FR-014): `CheckoutUser`, `IsActive`, layout (`StyleSheet`, `Junctures`), `LastUpdate`,
 `ExportUser` (stable across exports per spike §3), comments. ZIP entry timestamps are not kept.
 
 ## D-7 Secrets and placeholders

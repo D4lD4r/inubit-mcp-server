@@ -46,16 +46,17 @@ There is no diagram type parameter: only technical workflows are exported (clari
   "counts": {"added": 3, "modified": 1, "deleted": 0},
   "changes": [{"path": "dev/OWNERS/workflows/GRP-41/Order-Intake.xml", "kind": "MODIFIED"}],
   "truncated": false,
-  "fullList": null,
   "secretsReplaced": 4,
   "warnings": []
 }
 ```
 
 - `localChanges` is present only when uncommitted changes were recorded first (clarification 1).
-- `unchanged: true` → `commit` is null and `changes` empty (SC-001).
+- Fields without a value are absent, never `null` (as in every result of this server).
+- `unchanged: true` → `commit` is absent and `changes` empty (SC-001).
 - `changes` holds at most `resultLimits.maxItems` entries; otherwise `truncated: true` and
-  `fullList` is the workspace-relative path of `.reports/export-<commit>.txt`.
+  `fullList` is the workspace-relative path of `.reports/export-<commit>.txt`; `fullList` is absent
+  when not truncated.
 - `warnings` e.g. "workflow X is in edit mode by Y" (CheckoutUser), "N used modules belong to
   another owner and were not exported".
 
