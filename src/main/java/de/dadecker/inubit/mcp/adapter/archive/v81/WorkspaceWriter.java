@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -63,15 +64,57 @@ public final class WorkspaceWriter {
 
     static final String EXPORTS_DIRECTORY = "exports";
 
-    /** The files of one export, by workspace-relative path, and what they replace. */
-    public record Rendered(SortedMap<String, byte[]> files, List<String> subtrees,
-        List<String> warnings) {
+    /**
+     * The files of one export, by workspace-relative path, and what they replace. Only
+     * {@link #render} (from a {@link RedactedArchive}) and {@link #merge} create one, so that
+     * {@link #write} never receives unredacted bytes (review I2).
+     */
+    public static final class Rendered {
 
-        public Rendered {
-            files = new TreeMap<>(files);
-            subtrees = List.copyOf(subtrees);
-            warnings = List.copyOf(warnings);
+        private final SortedMap<String, byte[]> files;
+        private final List<String> subtrees;
+        private final List<String> warnings;
+
+        private Rendered(SortedMap<String, byte[]> files, List<String> subtrees,
+            List<String> warnings) {
+            this.files = Collections.unmodifiableSortedMap(new TreeMap<>(files));
+            this.subtrees = List.copyOf(subtrees);
+            this.warnings = List.copyOf(warnings);
         }
+
+        /** The files by workspace-relative path (unmodifiable). */
+        public SortedMap<String, byte[]> files() {
+            return files;
+        }
+
+        /** The sub-trees the files replace. */
+        public List<String> subtrees() {
+            return subtrees;
+        }
+
+        /** Warnings for the caller. */
+        public List<String> warnings() {
+            return warnings;
+        }
+    }
+
+    /**
+     * The renderings of one request as one: later files win (a module used by two exported
+     * diagram groups is one set of files); sub-trees and warnings without duplicates.
+     *
+     * @throws ToolErrorException {@code INVALID_INPUT} for a case-only collision of two paths
+     */
+    public static Rendered merge(List<Rendered> renderings) {
+        SortedMap<String, byte[]> files = new TreeMap<>();
+        Set<String> subtrees = new LinkedHashSet<>();
+        Set<String> warnings = new LinkedHashSet<>();
+        for (Rendered rendered : renderings) {
+            files.putAll(rendered.files());
+            subtrees.addAll(rendered.subtrees());
+            warnings.addAll(rendered.warnings());
+        }
+        checkCaseCollisions(files.keySet());
+        return new Rendered(files, List.copyOf(subtrees), List.copyOf(warnings));
     }
 
     private WorkspaceWriter() {
@@ -230,7 +273,7 @@ public final class WorkspaceWriter {
         return names;
     }
 
-    static void checkCaseCollisions(Set<String> paths) {
+    private static void checkCaseCollisions(Set<String> paths) {
         Map<String, String> folded = new HashMap<>();
         for (String path : paths) {
             String previous = folded.putIfAbsent(path.toLowerCase(Locale.ROOT), path);

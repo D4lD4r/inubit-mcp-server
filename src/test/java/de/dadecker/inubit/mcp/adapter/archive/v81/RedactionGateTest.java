@@ -74,6 +74,27 @@ class RedactionGateTest {
         assertThat(violations).isEmpty();
     }
 
+    @Test
+    void onlyARedactedArchiveBecomesWritableFiles() {
+        // review I2: write(Path, Rendered) is public, so Rendered must come from render() only
+        for (Constructor<?> constructor : WorkspaceWriter.Rendered.class
+            .getDeclaredConstructors()) {
+            assertThat(Modifier.isPrivate(constructor.getModifiers())).as(constructor.toString())
+                .isTrue();
+        }
+        assertThat(WorkspaceWriter.Rendered.class.isRecord()).as("a record has a public"
+            + " canonical constructor").isFalse();
+        assertThat(Arrays.stream(WorkspaceWriter.class.getDeclaredMethods())
+            .filter(m -> !Modifier.isPrivate(m.getModifiers()))
+            .filter(m -> m.getReturnType().equals(WorkspaceWriter.Rendered.class)))
+            .as("non-private factories of Rendered and what they take")
+            .allSatisfy(m -> assertThat(List.of(m.getParameterTypes()))
+                .containsAnyOf(RedactedArchive.class, List.class));
+        for (Class<?> nested : WorkspaceWriter.Rendered.class.getDeclaredClasses()) {
+            assertThat(Modifier.isPrivate(nested.getModifiers())).as(nested.toString()).isTrue();
+        }
+    }
+
     /** The compiled production classes of the archive package. */
     private static List<Class<?>> packageClasses() throws IOException, URISyntaxException,
         ClassNotFoundException {
