@@ -47,6 +47,7 @@ class ArtifactCheckServiceTest {
 
     ArtifactCheckService service() {
         return new ArtifactCheckService(root, new WorkspaceInspector(),
+            new de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner(root),
             group -> group.equals(DEV) ? Optional.of(NODE) : Optional.empty(),
             node -> server, node -> Optional.of("OWNERS"), ResultLimiter.withDefaults(),
             java.time.Clock.systemUTC());

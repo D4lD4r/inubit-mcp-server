@@ -1,11 +1,25 @@
 {
   "type": "object",
-  "required": ["paths"],
   "properties": {
     "paths": { "type": "array",
                "description": "Workspace-relative files or directories; every workflow, module and repository file below them is checked",
                "minItems": 1, "maxItems": 200,
                "items": { "type": "string", "minLength": 1, "maxLength": 1000 } },
+    "xslt": { "type": "object",
+              "description": "Run a stylesheet of the workspace against an input file of the workspace; the output goes below .tests/",
+              "required": ["stylesheet", "input"],
+              "properties": {
+                "stylesheet": { "type": "string", "minLength": 1, "maxLength": 1000,
+                                "description": "Workspace-relative stylesheet, e.g. `<{group}>/<owner>/modules/XSLT Converter/<module>/xslt.stylesheet.xsl`" },
+                "input": { "type": "string", "minLength": 1, "maxLength": 1000,
+                           "description": "Workspace-relative input document" },
+                "params": { "type": "object", "description": "Stylesheet parameters by name",
+                            "maxProperties": 100,
+                            "additionalProperties": { "type": "string", "maxLength": 10000 } },
+                "now": { "type": "string", "format": "date-time",
+                         "description": "The time the date functions return (default 2000-01-01T00:00:00Z)" }
+              },
+              "additionalProperties": false },
     "verifyOnServer": { "type": "boolean", "default": true,
                         "description": "Look up referenced modules missing in the workspace on the first {node} of the {group}" }
   },

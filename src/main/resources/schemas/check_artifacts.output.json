@@ -30,6 +30,17 @@
         "additionalProperties": false
       }
     },
+    "xslt": {
+      "type": "object",
+      "description": "The stylesheet run, if one was requested",
+      "required": ["outcome", "standInsUsed"],
+      "properties": {
+        "outcome": { "enum": ["OK", "ERROR", "NOT_TESTABLE"] },
+        "output": { "type": "string", "description": "Workspace-relative output below .tests/; present only for OK" },
+        "standInsUsed": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
     "truncated": { "type": "boolean" },
     "fullReport": { "type": "string", "description": "Workspace-relative file with all findings; present only if truncated" }
   },

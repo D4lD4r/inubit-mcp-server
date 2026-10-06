@@ -322,7 +322,7 @@ unchanged re-export, round trip.
   and that every other one is `NOT_TESTABLE` or `XSLT_STATIC_ERROR`, prints only counts and the
   stand-ins used (never stylesheet content or names); skipped when the variable is not set. Run it once
   locally against the spike corpus and record the counts in the PR description.
-- [ ] T032 [US4] Wire the `xslt` input of `check_artifacts` to `SaxonXsltRunner` in
+- [X] T032 [US4] Wire the `xslt` input of `check_artifacts` to `SaxonXsltRunner` in
   `main/mcp/tools/CheckArtifactsTool.java` and `main/application/ArtifactCheckService.java` with a tool
   test first (output path and `xslt` block of the result per contract).
 

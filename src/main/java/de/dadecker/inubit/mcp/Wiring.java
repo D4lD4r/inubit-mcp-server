@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
+import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
 import de.dadecker.inubit.mcp.application.ArtifactCheckService;
 import de.dadecker.inubit.mcp.application.ConfirmationRegistry;
 import de.dadecker.inubit.mcp.application.DiagnosisService;
@@ -161,7 +162,7 @@ final class Wiring implements AutoCloseable {
             new ArchiveCodec(), gateways::artifacts, gateways::inventory), targets,
             id -> byId.get(id).inventory().owner(), limiter);
         this.checkArtifacts = new CheckArtifactsTool(new ArtifactCheckService(workspace,
-            new WorkspaceInspector(), group -> servers.stream().map(EffectiveNodeConfig::id)
+            new WorkspaceInspector(), new SaxonXsltRunner(workspace), group -> servers.stream().map(EffectiveNodeConfig::id)
                 .filter(id -> id.group().equals(group)).findFirst(),
             gateways::inventory, id -> byId.get(id).inventory().owner(), limiter,
             clock.clock()));

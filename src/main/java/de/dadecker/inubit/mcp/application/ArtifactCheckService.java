@@ -15,8 +15,11 @@ import de.dadecker.inubit.mcp.domain.model.WorkflowGraph.Edge;
 import de.dadecker.inubit.mcp.domain.model.WorkflowGraph.Node;
 import de.dadecker.inubit.mcp.domain.model.WorkflowGraph.Reference;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
+import de.dadecker.inubit.mcp.domain.model.XsltRun;
 import de.dadecker.inubit.mcp.domain.port.ArtifactInspectorPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.domain.port.XsltPort;
+import de.dadecker.inubit.mcp.domain.port.XsltPort.XsltRequest;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -24,6 +27,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -85,6 +89,7 @@ public final class ArtifactCheckService {
 
     private final Path root;
     private final ArtifactInspectorPort inspector;
+    private final XsltPort xslt;
     private final ResultLimiter limiter;
     private final Clock clock;
     private final Function<GroupId, Optional<NodeId>> firstNode;
@@ -95,11 +100,12 @@ public final class ArtifactCheckService {
      * @param root      the workspace root
      * @param inspector reads the workspace files
      */
-    public ArtifactCheckService(Path root, ArtifactInspectorPort inspector,
+    public ArtifactCheckService(Path root, ArtifactInspectorPort inspector, XsltPort xslt,
         Function<GroupId, Optional<NodeId>> firstNode, Function<NodeId, InventoryPort> inventory,
         Function<NodeId, Optional<String>> owners, ResultLimiter limiter, Clock clock) {
         this.root = Objects.requireNonNull(root, "root");
         this.inspector = Objects.requireNonNull(inspector, "inspector");
+        this.xslt = Objects.requireNonNull(xslt, "xslt");
         this.firstNode = Objects.requireNonNull(firstNode, "firstNode");
         this.inventory = Objects.requireNonNull(inventory, "inventory");
         this.owners = Objects.requireNonNull(owners, "owners");
@@ -107,17 +113,37 @@ public final class ArtifactCheckService {
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
-    /** What {@code check_artifacts} checks. */
-    public record CheckRequest(List<String> paths, boolean verifyOnServer) {
+    /** What {@code check_artifacts} checks: structure below {@code paths}, a stylesheet run. */
+    public record CheckRequest(List<String> paths, Optional<XsltCheck> xslt,
+        boolean verifyOnServer) {
 
         public CheckRequest {
             paths = List.copyOf(paths);
+            xslt = xslt == null ? Optional.empty() : xslt;
         }
+    }
+
+    /** A stylesheet run of {@code check_artifacts}; paths are workspace-relative. */
+    public record XsltCheck(String stylesheet, String input, Map<String, String> params,
+        Optional<Instant> now) {
+
+        public XsltCheck {
+            Objects.requireNonNull(stylesheet, "stylesheet");
+            Objects.requireNonNull(input, "input");
+            params = params == null ? Map.of() : Map.copyOf(params);
+            now = now == null ? Optional.empty() : now;
+        }
+    }
+
+    /** The report and, if requested, the stylesheet run. */
+    public record CheckOutcome(CheckReport report, Optional<XsltRun> xslt) {
     }
 
     /**
      * Runs {@code request} under the workspace lock (FR-020: a running export or check refuses
-     * it at once): every path must stay inside the workspace (no {@code ..}, no absolute path,
+     * it at once): the structure checks below its paths and its stylesheet run
+     * ({@link XsltPort#run}, output below {@code .tests/}, findings added to the report). Every
+     * path — also stylesheet and input — must stay inside the workspace (no {@code ..}, no absolute path,
      * no symbolic link leaving it) and exist. The findings are sorted by severity, each message
      * cut to {@value #MAX_MESSAGE} characters (FR-034), and bounded by
      * {@code resultLimits.maxItems}; when truncated, all findings go to
@@ -126,13 +152,22 @@ public final class ArtifactCheckService {
      * @throws ToolErrorException {@code INVALID_INPUT} for a path outside the workspace or a
      *     missing one, {@code PRECONDITION_FAILED} if the workspace is locked or not usable
      */
-    public CheckReport check(CheckRequest request) {
-        if (request.paths().isEmpty()) {
-            throw invalid("Give at least one workspace path to check", "paths is empty");
+    public CheckOutcome check(CheckRequest request) {
+        if (request.paths().isEmpty() && request.xslt().isEmpty()) {
+            throw invalid("Give paths to check, a stylesheet run (xslt), or both",
+                "neither paths nor xslt is given");
         }
         List<String> paths = request.paths().stream().map(this::confine).toList();
+        Optional<XsltRequest> run = request.xslt().map(xslt -> new XsltRequest(
+            Path.of(confine(xslt.stylesheet())), Path.of(confine(xslt.input())), xslt.params(),
+            xslt.now()));
         try (WorkspaceLock lock = WorkspaceLock.acquire(root)) {
-            return report(checkPaths(paths, request.verifyOnServer()));
+            List<CheckFinding> findings = new ArrayList<>(checkPaths(paths,
+                request.verifyOnServer()));
+            Optional<XsltRun> result = run.map(xslt::run);
+            result.ifPresent(r -> findings.addAll(r.findings()));
+            return new CheckOutcome(report(findings, result.flatMap(XsltRun::output).stream()
+                .toList()), result);
         }
     }
 
@@ -161,13 +196,13 @@ public final class ArtifactCheckService {
         return relative(resolved);
     }
 
-    private CheckReport report(List<CheckFinding> found) {
+    private CheckReport report(List<CheckFinding> found, List<String> outputs) {
         List<CheckFinding> findings = found.stream().map(ArtifactCheckService::bounded)
             .sorted(Comparator.comparing(CheckFinding::severity)).toList();
         Map<Severity, Integer> counts = new EnumMap<>(Severity.class);
         findings.forEach(f -> counts.merge(f.severity(), 1, Integer::sum));
         if (findings.size() <= limiter.maxItems()) {
-            return new CheckReport(findings, counts, List.of(), false, Optional.empty());
+            return new CheckReport(findings, counts, outputs, false, Optional.empty());
         }
         String name = REPORTS + "/check-" + TIMESTAMP.format(clock.instant()) + ".json";
         try {
@@ -180,7 +215,7 @@ public final class ArtifactCheckService {
                     + ")", "The workspace is not writable",
                 "Check the workspace directory's permissions"));
         }
-        return new CheckReport(findings.subList(0, limiter.maxItems()), counts, List.of(), true,
+        return new CheckReport(findings.subList(0, limiter.maxItems()), counts, outputs, true,
             Optional.of(name));
     }
 

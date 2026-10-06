@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
+import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
 import de.dadecker.inubit.mcp.application.ArtifactCheckService;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.WorkspaceLock;
@@ -56,7 +57,7 @@ class CheckArtifactsToolTest {
 
     private void start(int maxItems) {
         ArtifactCheckService service = new ArtifactCheckService(root, new WorkspaceInspector(),
-            group -> Optional.empty(), node -> {
+            new SaxonXsltRunner(root), group -> Optional.empty(), node -> {
                 throw new AssertionError("no server lookups");
             }, node -> Optional.empty(), new ResultLimiter(maxItems,
                 ResultLimiter.DEFAULT_MAX_CHARS), Clock.fixed(NOW, ZoneOffset.UTC));
@@ -168,6 +169,58 @@ class CheckArtifactsToolTest {
             .asString()).hasSize(500).endsWith("…"));
     }
 
+    private void putFixture(String path, String fixture) throws IOException {
+        Path file = root.resolve(path);
+        Files.createDirectories(file.getParent());
+        Files.write(file, de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures.bytes(
+            "xslt/" + fixture));
+    }
+
+    @Test
+    void aStylesheetRunsAgainstAnInputFile() throws IOException {
+        start(100);
+        String stylesheet = "dev/OWNERS/modules/XSLT Converter/Map-Order/xslt.stylesheet.xsl";
+        putFixture(stylesheet, "standins.xsl");
+        putFixture("inputs/order.xml", "input.xml");
+
+        JsonNode result = call(Map.of("xslt", Map.of("stylesheet", stylesheet,
+            "input", "inputs/order.xml", "params", Map.of("unused", "x"),
+            "now", "2026-10-06T12:34:56Z")));
+
+        assertMatchesOutputSchema("check_artifacts", result);
+        JsonNode report = result.path("structuredContent");
+        JsonNode xslt = report.path("xslt");
+        assertThat(xslt.path("outcome").asString()).isEqualTo("OK");
+        assertThat(xslt.path("output").asString())
+            .isEqualTo(".tests/dev/OWNERS/Map-Order/order.xml.out");
+        assertThat(xslt.path("standInsUsed").toString()).contains("Misc.guid");
+        assertThat(Files.readString(root.resolve(xslt.path("output").asString())))
+            .contains("<createdAt>2026-10-06 12:34:56</createdAt>");
+        assertThat(report.path("findings").get(0).path("code").asString())
+            .isEqualTo("XSLT_STANDINS_USED");
+        assertThat(report.path("counts").path("INFO").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void aStylesheetThatNeedsInubitIsNotTestable() throws IOException {
+        start(100);
+        String stylesheet = "dev/OWNERS/modules/XSLT Converter/Tool/xslt.stylesheet.xsl";
+        putFixture(stylesheet, "unknown-extension.xsl");
+        putFixture("inputs/order.xml", "input.xml");
+
+        JsonNode result = call(Map.of("paths", List.of("dev/jdoe"), "xslt", Map.of(
+            "stylesheet", stylesheet, "input", "inputs/order.xml")));
+
+        assertMatchesOutputSchema("check_artifacts", result);
+        JsonNode report = result.path("structuredContent");
+        assertThat(report.path("xslt").path("outcome").asString()).isEqualTo("NOT_TESTABLE");
+        assertThat(report.path("xslt").has("output")).isFalse();
+        assertThat(report.path("findings").toString()).contains("XSLT_NOT_TESTABLE",
+            "EDGE_TARGET_MISSING");
+        assertThat(toolError(call(Map.of("xslt", Map.of("stylesheet", "../x.xsl",
+            "input", "inputs/order.xml")))).path("code").asString()).isEqualTo("INVALID_INPUT");
+    }
+
     @Test
     void pathsMustStayInsideTheWorkspace() throws IOException {
         start(100);
@@ -180,7 +233,8 @@ class CheckArtifactsToolTest {
                 .as(path).isEqualTo("INVALID_INPUT");
         }
         assertThat(call(Map.of("paths", List.of())).path("isError").asBoolean()).isTrue();
-        assertThat(call(Map.of()).path("isError").asBoolean()).isTrue();
+        assertThat(toolError(call(Map.of())).path("code").asString())
+            .as("neither paths nor xslt").isEqualTo("INVALID_INPUT");
     }
 
     @Test
