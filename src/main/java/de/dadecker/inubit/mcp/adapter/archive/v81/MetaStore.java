@@ -15,6 +15,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.util.DefaultIndenter;
 import tools.jackson.core.util.DefaultPrettyPrinter;
@@ -29,7 +31,9 @@ import tools.jackson.databind.json.JsonMapper;
  * element: the text of {@code WorkflowUId}/{@code ModuleUId} (the element stays, empty, so that
  * its place is kept) and the export suffix of {@code CheckinComment} — from the first
  * {@code @@@Deploying User:} to the end, written by INUBIT at export time; the part written by a
- * person stays. Everything else — {@code CheckoutUser}, {@code IsActive}, layout,
+ * person stays. The export time at its end ({@code Export/Deployment: <time>@@@}) changes on every
+ * export and is not kept at all (SC-001: an unchanged re-export changes no file); a rebuild writes
+ * a new one. Everything else — {@code CheckoutUser}, {@code IsActive}, layout,
  * {@code LastUpdate}, {@code ExportUser} — stays in the reviewed file. {@link #restore} puts
  * the values back. Callers add further records (archive properties, the enclosing XML context,
  * repository metadata).
@@ -40,6 +44,9 @@ public final class MetaStore {
     public static final String CHECKIN_SUFFIX = "CheckinComment.exportSuffix";
     private static final String DEPLOYING_USER = "@@@Deploying User:";
     private static final Set<String> UIDS = Set.of("WorkflowUId", "ModuleUId");
+    private static final String EXPORT_TIME = "Export/Deployment: ";
+    private static final Pattern EXPORT_TIME_FIELD =
+        Pattern.compile("Export/Deployment: ([^@]*)@@@$");
 
     private static final DefaultIndenter LF = new DefaultIndenter("  ", "\n");
     private static final JsonMapper JSON = JsonMapper.builder()
@@ -49,8 +56,12 @@ public final class MetaStore {
             .withArrayIndenter(LF))
         .build();
 
-    /** An element without its volatile values, and those values. */
-    public record Split(Element element, Map<String, Object> values) {
+    /**
+     * An element without its volatile values, those values (for {@code .meta/}) and the export
+     * time (dropped).
+     */
+    public record Split(Element element, Map<String, Object> values,
+        Optional<String> exportTime) {
 
         public Split {
             Objects.requireNonNull(element, "element");
@@ -105,6 +116,7 @@ public final class MetaStore {
     /** Takes the volatile values out of a {@code Workflow} or index {@code Module} element. */
     public static Split split(Element element) {
         Map<String, Object> values = new LinkedHashMap<>();
+        Optional<String> exportTime = Optional.empty();
         List<Node> children = new ArrayList<>();
         for (Node child : element.children()) {
             if (child instanceof Element e && UIDS.contains(e.localName())
@@ -114,17 +126,24 @@ public final class MetaStore {
             } else if (child instanceof Element e && e.localName().equals("CheckinComment")
                 && e.text().contains(DEPLOYING_USER)) {
                 int at = e.text().indexOf(DEPLOYING_USER);
-                values.put(CHECKIN_SUFFIX, e.text().substring(at));
+                String suffix = e.text().substring(at);
+                Matcher time = EXPORT_TIME_FIELD.matcher(suffix);
+                if (time.find()) {
+                    exportTime = Optional.of(time.group(1));
+                    suffix = suffix.substring(0, time.start());
+                }
+                values.put(CHECKIN_SUFFIX, suffix);
                 children.add(e.withText(e.text().substring(0, at)));
             } else {
                 children.add(child);
             }
         }
-        return new Split(element.withChildren(children), values);
+        return new Split(element.withChildren(children), values, exportTime);
     }
 
     /** Puts the values of {@link #split} back into {@code element}. */
-    public static Element restore(Element element, Map<String, Object> values) {
+    public static Element restore(Element element, Map<String, Object> values,
+        Optional<String> exportTime) {
         List<Node> children = new ArrayList<>();
         for (Node child : element.children()) {
             if (child instanceof Element e && UIDS.contains(e.localName())
@@ -132,7 +151,8 @@ public final class MetaStore {
                 children.add(e.withText(String.valueOf(values.get(e.localName()))));
             } else if (child instanceof Element e && e.localName().equals("CheckinComment")
                 && values.containsKey(CHECKIN_SUFFIX)) {
-                children.add(e.withText(e.text() + values.get(CHECKIN_SUFFIX)));
+                children.add(e.withText(e.text() + values.get(CHECKIN_SUFFIX)
+                    + exportTime.map(time -> EXPORT_TIME + time + "@@@").orElse("")));
             } else {
                 children.add(child);
             }

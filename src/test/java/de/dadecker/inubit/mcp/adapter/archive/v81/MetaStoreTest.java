@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -84,12 +85,32 @@ class MetaStoreTest {
         assertThat((String) split.values().get("CheckinComment.exportSuffix"))
             .startsWith("@@@Deploying User: jdoe@@@Server: inubit-dev-1.example.test@@@")
             .endsWith("@@@");
+        assertThat(split.exportTime()).isPresent();
         assertThat(file).contains("<WorkflowUId/>",
             "<CheckinComment>DefaultCommitCommentImport###JD: Fixture",
             "<CheckoutUser>jdoe</CheckoutUser>", "<IsActive>false</IsActive>",
             "<StyleSheet xPos=").doesNotContain("Deploying User", "-7f78");
-        assertThat(MetaStore.restore(split.element(), split.values()))
+        assertThat(MetaStore.restore(split.element(), split.values(), split.exportTime()))
             .isEqualTo(workflow.element());
+    }
+
+    @Test
+    void theExportTimeIsNotKeptSoThatAnUnchangedReExportYieldsTheSameRecord() {
+        // spike §3: INUBIT writes the export time into the suffix on every export (SC-001)
+        Element first = archive("grp-a.zip").workflowGroups().get(0).workflows().get(0).element();
+        Element second = XmlTree.parse(text(first).replace("Export/Deployment: 06.10.2026"
+            + " 08:20:54", "Export/Deployment: 07.10.2026 09:00:00")
+            .getBytes(StandardCharsets.UTF_8)).root();
+
+        Split a = MetaStore.split(first);
+        Split b = MetaStore.split(second);
+
+        assertThat(MetaStore.serialize(a.values())).isEqualTo(MetaStore.serialize(b.values()));
+        assertThat((String) a.values().get(MetaStore.CHECKIN_SUFFIX))
+            .doesNotContain("Export/Deployment");
+        assertThat(a.exportTime()).contains("06.10.2026 08:20:54");
+        assertThat(text(MetaStore.restore(a.element(), a.values(),
+            Optional.of("07.10.2026 09:00:00")))).isEqualTo(text(second));
     }
 
     @Test
@@ -102,7 +123,7 @@ class MetaStoreTest {
         assertThat(split.values()).containsKeys("ModuleUId", "CheckinComment.exportSuffix");
         assertThat(file).contains("<ModuleUId/>", "<LastUpdate>", "<ExportUser>OWNERS</ExportUser>",
             "<IsActive>true</IsActive>");
-        assertThat(MetaStore.restore(split.element(), split.values()))
+        assertThat(MetaStore.restore(split.element(), split.values(), split.exportTime()))
             .isEqualTo(entry.element());
     }
 
@@ -116,6 +137,7 @@ class MetaStoreTest {
 
         assertThat(split.element()).isEqualTo(workflow);
         assertThat(split.values()).isEmpty();
-        assertThat(MetaStore.restore(workflow, Map.of())).isEqualTo(workflow);
+        assertThat(MetaStore.restore(workflow, Map.of(), Optional.empty()))
+            .isEqualTo(workflow);
     }
 }
