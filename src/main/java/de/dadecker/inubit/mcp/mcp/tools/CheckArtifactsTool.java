@@ -79,6 +79,7 @@ public final class CheckArtifactsTool implements ToolHandler {
                 String.valueOf(run.get("input")), params, now));
         }
         return Result.of(checks.check(new CheckRequest(args.strings("paths"), xslt,
+            args.optionalString("schema"),
             !Boolean.FALSE.equals(arguments.get("verifyOnServer")))));
     }
 

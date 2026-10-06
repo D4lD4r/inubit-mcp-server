@@ -20,6 +20,8 @@
                          "description": "The time the date functions return (default 2000-01-01T00:00:00Z)" }
               },
               "additionalProperties": false },
+    "schema": { "type": "string", "minLength": 1, "maxLength": 1000,
+                "description": "Workspace-relative XSD; with paths, each .xml file below them is validated against it" },
     "verifyOnServer": { "type": "boolean", "default": true,
                         "description": "Look up referenced modules missing in the workspace on the first {node} of the {group}" }
   },

@@ -74,10 +74,12 @@ public final class SaxonXsltRunner implements XsltPort {
         Pattern.CASE_INSENSITIVE);
 
     private final Path root;
+    private final XsdValidator validator;
 
     /** @param root the workspace root */
     public SaxonXsltRunner(Path root) {
         this.root = Objects.requireNonNull(root, "root").toAbsolutePath().normalize();
+        this.validator = new XsdValidator(this.root);
     }
 
     @Override
@@ -150,7 +152,7 @@ public final class SaxonXsltRunner implements XsltPort {
 
     @Override
     public List<CheckFinding> validate(Path xml, Optional<Path> xsd) {
-        throw new UnsupportedOperationException("XML validation follows in T033");
+        return validator.validate(xml, xsd);
     }
 
     /** The XPath/XSLT error code of a failed transformation, e.g. {@code FORG0001}. */

@@ -38,6 +38,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -81,6 +82,8 @@ public final class ArtifactCheckService {
         Pattern.compile("inubitrepository:/+([^\"'<>&\\s]+)");
     private static final String SYSTEM_VARIABLE_PREFIX = "IS";
     private static final Set<String> SKIPPED = Set.of(".git", ".meta", ".tests", ".reports");
+    private static final Set<String> XML_EXTENSIONS = Set.of("xml", "xsd", "xsl", "xslt",
+        "wsdl");
     /** The longest finding message (FR-034). */
     static final int MAX_MESSAGE = 500;
     private static final String REPORTS = ".reports";
@@ -115,11 +118,12 @@ public final class ArtifactCheckService {
 
     /** What {@code check_artifacts} checks: structure below {@code paths}, a stylesheet run. */
     public record CheckRequest(List<String> paths, Optional<XsltCheck> xslt,
-        boolean verifyOnServer) {
+        Optional<String> schema, boolean verifyOnServer) {
 
         public CheckRequest {
             paths = List.copyOf(paths);
             xslt = xslt == null ? Optional.empty() : xslt;
+            schema = schema == null ? Optional.empty() : schema;
         }
     }
 
@@ -143,8 +147,8 @@ public final class ArtifactCheckService {
      * Runs {@code request} under the workspace lock (FR-020: a running export or check refuses
      * it at once): the structure checks below its paths and its stylesheet run
      * ({@link XsltPort#run}, output below {@code .tests/}, findings added to the report). Every
-     * path — also stylesheet and input — must stay inside the workspace (no {@code ..}, no absolute path,
-     * no symbolic link leaving it) and exist. The findings are sorted by severity, each message
+     * path — also stylesheet, input and schema — must stay inside the workspace (no
+     * {@code ..}, no absolute path, no symbolic link leaving it) and exist. The findings are sorted by severity, each message
      * cut to {@value #MAX_MESSAGE} characters (FR-034), and bounded by
      * {@code resultLimits.maxItems}; when truncated, all findings go to
      * {@code .reports/check-<timestamp>.json} (research D-10). Nothing else is written.
@@ -157,13 +161,18 @@ public final class ArtifactCheckService {
             throw invalid("Give paths to check, a stylesheet run (xslt), or both",
                 "neither paths nor xslt is given");
         }
+        if (request.schema().isPresent() && request.paths().isEmpty()) {
+            throw invalid("A schema validates the XML files below paths; give paths too",
+                "schema is given without paths");
+        }
         List<String> paths = request.paths().stream().map(this::confine).toList();
+        Optional<Path> schema = request.schema().map(this::confine).map(Path::of);
         Optional<XsltRequest> run = request.xslt().map(xslt -> new XsltRequest(
             Path.of(confine(xslt.stylesheet())), Path.of(confine(xslt.input())), xslt.params(),
             xslt.now()));
         try (WorkspaceLock lock = WorkspaceLock.acquire(root)) {
             List<CheckFinding> findings = new ArrayList<>(checkPaths(paths,
-                request.verifyOnServer()));
+                request.verifyOnServer(), schema));
             Optional<XsltRun> result = run.map(xslt::run);
             result.ifPresent(r -> findings.addAll(r.findings()));
             return new CheckOutcome(report(findings, result.flatMap(XsltRun::output).stream()
@@ -287,9 +296,31 @@ public final class ArtifactCheckService {
      * give {@code MODULE_UNVERIFIED} (FR-028).
      */
     public List<CheckFinding> checkPaths(List<String> paths, boolean verifyOnServer) {
+        return checkPaths(paths, verifyOnServer, Optional.empty());
+    }
+
+    /**
+     * As {@link #checkPaths(List, boolean)}; first every XML document below {@code paths}
+     * ({@code .xml}, {@code .xsd}, {@code .xsl}, {@code .xslt}, {@code .wsdl}) must be
+     * well-formed, and each {@code .xml} file valid against {@code schema} if given
+     * ({@link XsltPort#validate}, research D-12); a document that is not well-formed gets no
+     * structure checks.
+     */
+    public List<CheckFinding> checkPaths(List<String> paths, boolean verifyOnServer,
+        Optional<Path> schema) {
         List<CheckFinding> findings = new ArrayList<>();
         ModuleLists lists = new ModuleLists(verifyOnServer);
         for (String file : files(paths)) {
+            String extension = file.substring(file.lastIndexOf('.') + 1)
+                .toLowerCase(Locale.ROOT);
+            if (XML_EXTENSIONS.contains(extension)) {
+                List<CheckFinding> xml = xslt.validate(Path.of(file),
+                    extension.equals("xml") ? schema : Optional.empty());
+                findings.addAll(xml);
+                if (xml.stream().anyMatch(f -> f.code().equals("XML_NOT_WELL_FORMED"))) {
+                    continue;
+                }
+            }
             WorkspacePath path;
             try {
                 path = WorkspacePath.parse(Path.of(file));

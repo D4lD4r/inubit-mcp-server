@@ -222,6 +222,38 @@ class CheckArtifactsToolTest {
     }
 
     @Test
+    void xmlFilesAreCheckedForWellFormednessAndAgainstASchema() throws IOException {
+        start(100);
+        for (String name : List.of("schema.xsd", "invalid.xml", "valid.xml",
+            "not-well-formed.xml")) {
+            putFixture("docs/" + name, name);
+        }
+
+        JsonNode wellFormed = call(Map.of("paths", List.of("docs/not-well-formed.xml",
+            "docs/valid.xml")));
+        JsonNode validated = call(Map.of("paths", List.of("docs/invalid.xml", "docs/valid.xml"),
+            "schema", "docs/schema.xsd"));
+
+        assertMatchesOutputSchema("check_artifacts", wellFormed);
+        assertThat(wellFormed.path("structuredContent").path("findings")).singleElement()
+            .satisfies(finding -> {
+                assertThat(finding.path("code").asString()).isEqualTo("XML_NOT_WELL_FORMED");
+                assertThat(finding.path("check").asString()).isEqualTo("XML");
+                assertThat(finding.path("location").asString()).startsWith("4:");
+            });
+        assertMatchesOutputSchema("check_artifacts", validated);
+        JsonNode findings = validated.path("structuredContent").path("findings");
+        assertThat(findings).hasSize(2).allSatisfy(finding -> {
+            assertThat(finding.path("code").asString()).isEqualTo("XSD_INVALID");
+            assertThat(finding.path("path").asString()).isEqualTo("docs/invalid.xml");
+        });
+        assertThat(toolError(call(Map.of("schema", "docs/schema.xsd"))).path("code")
+            .asString()).as("a schema needs paths").isEqualTo("INVALID_INPUT");
+        assertThat(toolError(call(Map.of("paths", List.of("docs"), "schema", "../x.xsd")))
+            .path("code").asString()).isEqualTo("INVALID_INPUT");
+    }
+
+    @Test
     void pathsMustStayInsideTheWorkspace() throws IOException {
         start(100);
         Files.writeString(outside.resolve("secret.xml"), "<a/>");

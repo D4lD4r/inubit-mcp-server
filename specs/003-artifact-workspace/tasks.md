@@ -330,7 +330,7 @@ unchanged re-export, round trip.
 
 ## Phase 7: User Story 5 — Validate XML documents (Priority: P3)
 
-- [ ] T033 [US5] `main/adapter/xslt/XsdValidator.java` (implements `XsltPort.validate`) with
+- [X] T033 [US5] `main/adapter/xslt/XsdValidator.java` (implements `XsltPort.validate`) with
   `test/adapter/xslt/XmlValidationTest.java` first (D-12): `not-well-formed.xml` →
   `XML_NOT_WELL_FORMED` with line; `invalid.xml` against `schema.xsd` → `XSD_INVALID` with
   line/column per violation; `valid.xml` → no finding; secure processing on, resolver limited to the
