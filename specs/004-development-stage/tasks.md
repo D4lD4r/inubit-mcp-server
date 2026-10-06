@@ -55,7 +55,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   synthesize `import_nok` (an `n-NOK` line), `import_protocol_mismatch` (an extra artifact),
   `import_timeout`; record the real `/user/users` response read-only and neutralize it into
   `fixtures/rest/user_users.xml` (fictitious names and e-mails, same structure); document all in `fixtures/cli/README.md`. Identifier check before commit.
-- [ ] T002 `test/adapter/cli/ScriptedProcessLauncher.java` with its own test: answers a sequence of
+- [X] T002 `test/adapter/cli/ScriptedProcessLauncher.java` with its own test: answers a sequence of
   StartCLI launches by matching the `--execCommand` line (prefix or regex) to a response
   (`stdout/stderr/exit`) and an optional action (e.g. write the export file); records every launch;
   fails the test on an unexpected command (a write that should not happen).
