@@ -939,6 +939,42 @@ class ConfigValidatorTest {
                 .contains(globex.toString(), "INUBIT_ACME_TEST_USERNAME");
         }
 
+        // --- T035 (feature 003, FR-003): no shared workspace ----------------------------------
+
+        @Test
+        void twoProfilesWithTheSameWorkspaceAreAnErrorNamingBothAndThePath() throws IOException {
+            Path acme = profileFile("acme.yaml", "acme", "workspace: ~/shared-workspace\n");
+            Path globex = profileFile("globex.yaml", "globex",
+                "workspace: ~/shared-workspace\n");
+
+            ValidationReport report = validateFile(acme);
+
+            assertThat(report.errors()).singleElement().asString()
+                .contains("'acme'", "'globex'", globex.toString(),
+                    home.resolve("shared-workspace").toString());
+            assertThat(validateFile(globex).errors()).singleElement().asString()
+                .contains(acme.toString(), "'acme'", "'globex'");
+        }
+
+        @Test
+        void aWorkspaceInsideAnotherIsAnErrorBothWays() throws IOException {
+            Path acme = profileFile("acme.yaml", "acme", "workspace: ~/work\n");
+            Path globex = profileFile("globex.yaml", "globex", "workspace: ~/work/globex\n");
+
+            assertThat(validateFile(acme).errors()).singleElement().asString()
+                .contains("'globex'", home.resolve("work/globex").toString(), "contains");
+            assertThat(validateFile(globex).errors()).singleElement().asString()
+                .contains("'acme'", home.resolve("work").toString(), "inside");
+        }
+
+        @Test
+        void siblingWorkspacesWithACommonPrefixAreNoError() throws IOException {
+            Path acme = profileFile("acme.yaml", "acme", "workspace: ~/work\n");
+            profileFile("globex.yaml", "globex", "workspace: ~/work-globex\n");
+
+            assertThat(validateFile(acme).errors()).isEmpty();
+        }
+
         @Test
         void theSameProfileNameIsAWarningThatNamesEverythingTheCopiesShare() throws IOException {
             Path acme = profileFile("acme.yaml", "acme", "");
@@ -948,7 +984,7 @@ class ConfigValidatorTest {
 
             assertThat(report.warnings()).singleElement().asString()
                 .contains(copy.toString(), "profile name 'acme'", "unique",
-                    "credential variable prefix INUBIT_ACME", "audit directory");
+                    "credential variable prefix INUBIT_ACME", "audit directory", "workspace");
             // re-review N1: a copy of the same profile may start (spec edge case)
             assertThat(report.errors()).isEmpty();
         }

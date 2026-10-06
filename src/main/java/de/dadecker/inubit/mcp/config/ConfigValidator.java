@@ -206,6 +206,26 @@ public final class ConfigValidator {
                 shared.add("the credential variable names " + String.join(", ", sharedVariables)
                     + " (both read them)");
             }
+            // feature 003 FR-003: two profiles never share a workspace; a copy of the same
+            // profile (same name) may start and shares it by design (002 re-review N1)
+            Path workspace = config.workspace().toAbsolutePath().normalize();
+            Path otherWorkspace = otherConfig.workspace().toAbsolutePath().normalize();
+            boolean nested = workspace.startsWith(otherWorkspace)
+                || otherWorkspace.startsWith(workspace);
+            if (nested && copy) {
+                shared.add("the workspace " + config.workspace() + " (one history for both)");
+            } else if (nested) {
+                String profile = ProfileInfo.isValidName(name) ? "'" + name + "'"
+                    : ProfileInfo.INVALID_NAME;
+                String relation = workspace.equals(otherWorkspace) ? "is also the workspace of"
+                    : workspace.startsWith(otherWorkspace) ? "is inside the workspace "
+                        + otherWorkspace + " of" : "contains the workspace " + otherWorkspace
+                        + " of";
+                findings.error("The workspace " + workspace + " of profile " + profile + " "
+                    + relation + " the profile file " + other.source() + " (profile "
+                    + (otherName.equals(ProfileInfo.INVALID_NAME) ? otherName : "'" + otherName
+                        + "'") + "); profiles need separate workspaces (setting workspace)");
+            }
             if (config.auditDirectory().toAbsolutePath().normalize()
                 .equals(otherConfig.auditDirectory().toAbsolutePath().normalize())) {
                 shared.add("the audit directory " + config.auditDirectory()

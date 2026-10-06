@@ -342,7 +342,7 @@ unchanged re-export, round trip.
 
 - [X] T034 [US6] `main/config/ConfigSummary.java` with test first: line
   `Workspace: <path> (ok | created | <error>)` in `--check-config` (FR-004).
-- [ ] T035 [US6] `main/config/ConfigValidator.java` with test first (FR-003): two profiles in the
+- [X] T035 [US6] `main/config/ConfigValidator.java` with test first (FR-003): two profiles in the
   default configuration directory whose workspaces are equal, or one inside the other, → configuration
   error naming both profiles and the path; extend `test/isolation/TwoProfilesTest.java` so two
   profiles export into separate workspaces without interfering.
