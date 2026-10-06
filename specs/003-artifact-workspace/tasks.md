@@ -203,11 +203,16 @@ unchanged re-export, round trip.
   plus meta records, all through `XmlNormalizer` (a module listed twice in the index is written
   once); case-insensitive collision of two target paths →
   `INVALID_INPUT` naming both names; writing the same archive twice yields identical bytes.
+  *Note (review of stage 2)*: the implementation of T017 was written before its test; the test was
+  then run against a skeleton to see it fail. This is a documented deviation from Constitution III
+  (test first); no rework.
 - [X] T018 [US1] `main/adapter/archive/v81/ArchiveAssembler.java` and
   `test/adapter/archive/v81/ArchiveRoundTripTest.java` first: rebuild a ZIP from workspace + `.meta/`
-  (with placeholders still in place); for every fixture, `XmlEquality` holds between the original
-  (redacted the same way) and the rebuilt archive entry by entry, `Repository.zip` content equal after
-  decoding (FR-015, SC-002); repository `contentMD5`/`contentSize` are recomputed from the content.
+  (with placeholders still in place); for every fixture, `XmlEquality` holds between the **recorded**
+  archive and the rebuilt one entry by entry (review I4: a placeholder only where the recording holds a
+  synthetic secret of the fixture README; the D-6 volatile values excepted), `Repository.zip` content
+  equal after decoding (FR-015, SC-002); repository `contentMD5`/`contentSize` are recomputed from the
+  content.
 - [X] T019 [US1] `main/adapter/cli/CliExportRunner.java`: add `exportWorkflowGroup(owner, diagramGroup)`
   and `exportModule(owner, pluginType, name)` (D-8) with tests first in
   `test/adapter/cli/CliExportRunnerTest.java`: exact `--execCommand` strings with
