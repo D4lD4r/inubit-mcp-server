@@ -42,10 +42,13 @@ import java.util.stream.Stream;
  *   <li>The environment is minimal: {@code PATH} of the server plus
  *       {@code GIT_TERMINAL_PROMPT=0}, {@code GIT_CONFIG_NOSYSTEM=1} and
  *       {@code GIT_CONFIG_GLOBAL=/dev/null} (no system or global configuration, e.g. no
- *       {@code core.fsmonitor} or templates of the person) and {@code LC_ALL=C}.
+ *       {@code core.fsmonitor} or templates of the person), {@code GIT_LITERAL_PATHSPECS=1}
+ *       (paths are never patterns) and {@code LC_ALL=C}. Needs git 2.32 or newer
+ *       ({@code GIT_CONFIG_GLOBAL}; {@code init -b} needs 2.28).
  *   <li>Each call is stopped after the timeout (30 s) and reported as {@code TIMEOUT}; a failing
  *       call is {@code PRECONDITION_FAILED} with git's error output as excerpt; a missing
- *       {@code git} is {@code PRECONDITION_FAILED} "git not found".
+ *       {@code git} is {@code PRECONDITION_FAILED} "git not found", any other start failure
+ *       {@code PRECONDITION_FAILED} "git could not be started".
  *   <li>There is no operation that configures a remote or transmits the history (no remote,
  *       push, fetch, pull or clone).
  * </ul>
@@ -73,6 +76,11 @@ public final class GitCli implements VersionHistoryPort {
         this(root, profile, launcher, parentEnvironment, "git", TIMEOUT);
     }
 
+    /** The bound of one git call. */
+    Duration timeout() {
+        return timeout;
+    }
+
     GitCli(Path root, String profile, ProcessLauncher launcher,
         Map<String, String> parentEnvironment, String executable, Duration timeout) {
         this.root = Objects.requireNonNull(root, "root").toAbsolutePath().normalize();
@@ -88,6 +96,7 @@ public final class GitCli implements VersionHistoryPort {
         env.put("GIT_TERMINAL_PROMPT", "0");
         env.put("GIT_CONFIG_NOSYSTEM", "1");
         env.put("GIT_CONFIG_GLOBAL", "/dev/null");
+        env.put("GIT_LITERAL_PATHSPECS", "1");
         env.put("LC_ALL", "C");
         this.environment = Map.copyOf(env);
     }
@@ -216,10 +225,19 @@ public final class GitCli implements VersionHistoryPort {
         try {
             process = launcher.launch(new LaunchSpec(command, environment, root));
         } catch (IOException e) {
+            if (isMissingExecutable(e)) {
+                throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+                    "git not found: the workspace history needs the git command",
+                    "git is not installed or not on the PATH of the MCP server",
+                    "Install git (2.32 or newer) and make it available on the PATH of the MCP"
+                        + " server"));
+            }
             throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
-                "git not found: the workspace history needs the git command",
-                "git is not installed or not on the PATH of the MCP server",
-                "Install git and make it available on the PATH of the MCP server"));
+                "git could not be started in the workspace " + root + " ("
+                    + e.getClass().getSimpleName() + ")",
+                "The git command is not executable, or the workspace directory is missing or"
+                    + " not accessible",
+                "Check the permissions of git and of the workspace directory"));
         }
         Drain stdout = Drain.start(process.stdout());
         Drain stderr = Drain.start(process.stderr());
@@ -252,6 +270,18 @@ public final class GitCli implements VersionHistoryPort {
                 + process.exitValue() + ")", error.strip());
         }
         return stdout.text();
+    }
+
+    /**
+     * The JDK reports a program that does not exist as {@code error=2, No such file or
+     * directory}; other errors (e.g. {@code error=13}) mean it exists but cannot be started.
+     */
+    private boolean isMissingExecutable(IOException e) {
+        String message = String.valueOf(e.getMessage());
+        boolean notFound = message.contains("error=2,") || message.contains("No such file");
+        boolean isPath = executable.indexOf('/') >= 0;
+        return notFound && (!isPath || !Files.exists(Path.of(executable)))
+            && Files.isDirectory(root);
     }
 
     private static void stop(LaunchedProcess process) {

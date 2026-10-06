@@ -222,13 +222,22 @@ class GitCliTest {
             assertThat(spec.environment()).containsEntry("GIT_TERMINAL_PROMPT", "0")
                 .containsEntry("GIT_CONFIG_NOSYSTEM", "1")
                 .containsEntry("GIT_CONFIG_GLOBAL", "/dev/null")
+                .containsEntry("GIT_LITERAL_PATHSPECS", "1")
+                .containsEntry("LC_ALL", "C")
                 .containsEntry("PATH", parentEnvironment.get("PATH"))
                 .doesNotContainKeys("INUBIT_ACME_DEV_PASSWORD", "GIT_DIR", "HOME");
         });
     }
 
     @Test
-    void theHistoryIsNeverTransmitted() {
+    void theHistoryIsNeverTransmitted() throws IOException {
+        git.init();
+        write("dev/a.xml", "a");
+        git.commitAll("export");
+        git.status();
+        git.restore(Path.of("dev"));
+
+        assertThat(launches).hasSizeGreaterThanOrEqualTo(5);
         // FR-007: there is no method for a remote, push, fetch or clone
         assertThat(Arrays.stream(GitCli.class.getDeclaredMethods()).map(Method::getName)
             .map(name -> name.toLowerCase(Locale.ROOT)))
@@ -236,6 +245,24 @@ class GitCliTest {
                 || name.contains("fetch") || name.contains("clone") || name.contains("pull"));
         assertThat(launches).noneMatch(spec -> spec.command().stream().anyMatch(argument ->
             List.of("remote", "push", "fetch", "clone", "pull").contains(argument)));
+    }
+
+    @Test
+    void everyCallIsBoundedByThirtySeconds() {
+        assertThat(git.timeout()).isEqualTo(Duration.ofSeconds(30));
+    }
+
+    @Test
+    void aGitThatCannotBeStartedForAnotherReasonIsNotReportedAsMissing() {
+        GitCli broken = new GitCli(root, "acme", FakeProcessLauncher.of("", "", 0)
+            .failingToLaunch(new IOException("Cannot run program \"git\": error=13, Permission"
+                + " denied")), parentEnvironment, "git", Duration.ofSeconds(30));
+
+        assertThatThrownBy(broken::status).isInstanceOfSatisfying(ToolErrorException.class, e -> {
+            assertThat(e.error().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
+            assertThat(e.error().message()).contains("git could not be started")
+                .doesNotContain("not found");
+        });
     }
 
     @Test

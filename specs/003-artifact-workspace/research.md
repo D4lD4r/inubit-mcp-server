@@ -17,6 +17,15 @@ with argument arrays, a timeout, a minimal environment and these fixed options o
 `-c user.email=inubit-mcp@localhost`, `GIT_TERMINAL_PROMPT=0`, `GIT_CONFIG_NOSYSTEM=1`. The server
 never runs `remote`, `push`, `fetch` or `clone`; `GitCli` has no method for them (FR-007).
 
+Implementation details (T009, review): `core.hooksPath` points to an owner-only empty directory
+below `java.io.tmpdir`; commits also pass `--no-verify`; the environment is `PATH` of the server
+plus the two variables above, `GIT_CONFIG_GLOBAL=/dev/null` (no global configuration of the person,
+e.g. `core.fsmonitor`, templates, filters), `GIT_LITERAL_PATHSPECS=1` (paths are never patterns)
+and `LC_ALL=C`. This needs **git 2.32 or newer** (`GIT_CONFIG_GLOBAL`; `git init -b` needs 2.28).
+git is started through the CLI adapter's `ProcessLauncher`, so only `adapter.cli` starts processes.
+A missing git is `PRECONDITION_FAILED` "git not found", any other start failure "git could not be
+started".
+
 **Rationale**: no new runtime dependency (Constitution "dependencies minimal"); the same execution
 rules as StartCLI (Constitution V: argument arrays, timeout, exit code, tested parser); git is on
 every machine that runs the INUBIT client. Fixed identity and disabled hooks make commits
