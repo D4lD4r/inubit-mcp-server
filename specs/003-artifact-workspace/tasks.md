@@ -242,7 +242,7 @@ unchanged re-export, round trip.
   `ToolHints.readOnly(title, true, false)` (not idempotent: it writes a history entry), exactly one of
   `diagramGroups`/`modules`, bounded `changes` with `.reports/export-<commit>.txt` when truncated
   (D-10), `TARGET_UNKNOWN` for unknown ids, first node of a group used and named.
-- [ ] T024 [US1] `test/security/SecretLeakTest.java` (SC-003): export all fixtures through the tool,
+- [X] T024 [US1] `test/security/SecretLeakTest.java` (SC-003): export all fixtures through the tool,
   then search the workspace files, `.meta/`, every git object (`git cat-file --batch-all-objects`), the
   tool results and the captured log output for every synthetic secret value of
   `fixtures/artifacts/README.md` — zero occurrences; the private temporary export directory no longer
