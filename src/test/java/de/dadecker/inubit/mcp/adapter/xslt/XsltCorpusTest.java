@@ -10,11 +10,17 @@ import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.xml.sax.SAXException;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -25,11 +31,13 @@ import org.junit.jupiter.api.io.TempDir;
  * {@code INUBIT_MCP_XSLT_CORPUS} (real stylesheets, never part of the repository) — except its
  * {@code repository/} sub-directory (files, or the {@code Repository.zip} layout with
  * {@code <path>.dat}), which serves the {@code inubitrepository:} references — on
- * a minimal input ({@code <root/>}, no {@code xslt.params}). At least 95 % must run locally:
- * {@code OK}, or compiled and stopped by a dynamic error of the minimal input
- * ({@code XSLT_RUNTIME_ERROR}, e.g. a required template parameter or a type error — the corpus
- * has neither the real messages nor the module parameters); every other one is
- * {@code NOT_TESTABLE} or {@code XSLT_STATIC_ERROR}. The share of {@code OK} runs is printed.
+ * a minimal input ({@code <root/>}; required top-level parameters get an empty string, as the
+ * corpus has neither the real messages nor the module's {@code xslt.params}). SC-005: at least
+ * 95 % must compile and execute locally with every extension call served by a stand-in —
+ * {@code OK}, or {@code XSLT_RUNTIME_ERROR} on the given input (never passed); every other one is
+ * {@code NOT_TESTABLE} or {@code XSLT_STATIC_ERROR}. The shares of {@code OK} and of executable
+ * runs are printed separately. No {@code OK} run may use a stand-in with assumed behaviour
+ * without the warning {@code XSLT_STANDIN_ASSUMED}.
  * Prints counts, error codes and the stand-ins used only — never names or content of the
  * stylesheets. Skipped when the variable is not set.
  */
@@ -43,6 +51,34 @@ class XsltCorpusTest {
 
     @TempDir
     Path root;
+
+    /**
+     * An empty string for every top-level {@code xsl:param required="yes"}: INUBIT passes the
+     * module's {@code xslt.params}, which the corpus does not have (review M5).
+     */
+    private static Map<String, String> requiredParameters(Path stylesheet) {
+        Map<String, String> parameters = new TreeMap<>();
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            Element top = factory.newDocumentBuilder().parse(stylesheet.toFile())
+                .getDocumentElement();
+            for (Node child = top.getFirstChild(); child != null;
+                child = child.getNextSibling()) {
+                if (child instanceof Element element
+                    && "http://www.w3.org/1999/XSL/Transform".equals(element.getNamespaceURI())
+                    && "param".equals(element.getLocalName())
+                    && "yes".equals(element.getAttribute("required").strip())
+                    && !element.getAttribute("name").contains(":")) {
+                    parameters.put(element.getAttribute("name"), "");
+                }
+            }
+        } catch (ParserConfigurationException | SAXException | IOException e) {
+            // not parseable here: the run reports it
+        }
+        return parameters;
+    }
 
     /** The INUBIT or JDK function a not-testable run misses; other names are never printed. */
     private static String inubitFunction(String message) {
@@ -92,13 +128,20 @@ class XsltCorpusTest {
         Map<String, Integer> outcomes = new TreeMap<>();
         Map<String, Integer> standIns = new TreeMap<>();
         Map<String, Integer> codes = new TreeMap<>();
+        int silentAssumptions = 0;
         for (int i = 0; i < stylesheets.size(); i++) {
             Path module = Path.of("dev/corpus/modules/XSLT Converter/S" + i
                 + "/xslt.stylesheet.xsl");
             Files.createDirectories(root.resolve(module).getParent());
             Files.copy(stylesheets.get(i), root.resolve(module));
             XsltRun run = runner.run(new XsltRequest(module, Path.of("inputs/input.xml"),
-                Map.of(), Optional.empty()));
+                requiredParameters(root.resolve(module)), Optional.empty()));
+            if (run.outcome() == XsltRun.Outcome.OK
+                && run.standInsUsed().stream().anyMatch(InubitStandIns.ASSUMED::contains)
+                && run.findings().stream().noneMatch(f -> f.code().equals(
+                    "XSLT_STANDIN_ASSUMED"))) {
+                silentAssumptions++;
+            }
             outcomes.merge(XsltCoverageTest.label(run), 1, Integer::sum);
             if (run.outcome() != XsltRun.Outcome.OK) {
                 run.findings().forEach(finding -> {
@@ -110,16 +153,19 @@ class XsltCorpusTest {
             run.standInsUsed().forEach(name -> standIns.merge(name, 1, Integer::sum));
         }
         int ok = outcomes.getOrDefault("OK", 0);
-        System.out.println("XsltCorpusTest: " + stylesheets.size() + " stylesheets, outcomes "
-            + outcomes + ", OK " + (stylesheets.isEmpty() ? 0 : 100.0 * ok / stylesheets.size())
-            + " %, stand-ins used (stylesheets) " + standIns + ", other outcomes by code "
-            + codes);
+        int executable = ok + outcomes.getOrDefault("XSLT_RUNTIME_ERROR", 0);
+        int total = Math.max(stylesheets.size(), 1);
+        System.out.printf(Locale.ROOT, "XsltCorpusTest: %d stylesheets, outcomes %s, OK %.1f %%,"
+            + " executable (OK + XSLT_RUNTIME_ERROR) %.1f %%, stand-ins used (stylesheets) %s,"
+            + " other outcomes by code %s%n", stylesheets.size(), outcomes, 100.0 * ok / total,
+            100.0 * executable / total, standIns, codes);
 
         assertThat(stylesheets).as("the corpus has stylesheets").isNotEmpty();
-        int ran = ok + outcomes.getOrDefault("XSLT_RUNTIME_ERROR", 0);
-        assertThat(100.0 * ran / stylesheets.size())
-            .as("SC-005: share of stylesheets that compile and run locally")
+        assertThat(100.0 * executable / stylesheets.size())
+            .as("SC-005: share of stylesheets that compile and execute locally")
             .isGreaterThanOrEqualTo(95.0);
+        assertThat(silentAssumptions).as("OK runs on an assumed stand-in without the warning")
+            .isZero();
         assertThat(outcomes.keySet()).as("no other outcome").isSubsetOf("OK", "NOT_TESTABLE",
             "XSLT_STATIC_ERROR", "XSLT_RUNTIME_ERROR");
     }
