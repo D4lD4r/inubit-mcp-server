@@ -46,9 +46,11 @@ import java.util.regex.Pattern;
  *       data, also as {@code InternalDocument});
  *   <li>in workflows, {@link Kind#PASSWORD_LITERAL} a {@code literal isPassword="true"} and
  *       {@link Kind#PASSWORD_DEFAULT} the {@code DefaultValue} of a variable of type
- *       {@code is:password} (the prefix resolved to {@value #VARIABLE_TYPES});
+ *       {@code is:password} (the prefix resolved to {@value #VARIABLE_TYPES}; an undeclared
+ *       prefix counts as that namespace);
  *   <li>{@link Kind#KEY_MATERIAL} key material in any other property: an {@code InternalDocument}
- *       named like or holding a JKS, JCEKS or PKCS#12 keystore, or a PEM private key
+ *       named like or holding a JKS, JCEKS or PKCS#12 keystore, a base64 value of at least 64
+ *       characters that decodes to one, or a PEM private key
  *       ({@link KeyMaterial}); {@link Kind#REPOSITORY_KEY_MATERIAL} a repository file of that
  *       kind, which is withheld entirely: its content is dropped, its metadata loses
  *       {@code contentSize} and {@code contentMD5}, and it is listed in
@@ -98,6 +100,9 @@ public final class SecretRedactor {
     private static final Set<String> SCALAR_TYPES = Set.of("Boolean", "Integer");
     private static final Pattern UNSAFE_PATH_CHARACTERS = Pattern.compile("[{}\\p{Cntrl}]");
     private static final Set<String> CONTENT_VALUES = Set.of("contentSize", "contentMD5");
+    /** A value long enough to hide a key: at least 64 characters of the base64 alphabet. */
+    private static final Pattern LONG_BASE64 =
+        Pattern.compile("(?:[A-Za-z0-9+/=]\\s*){64,}");
     /** The namespace of the variable types ({@code is:password}). */
     static final String VARIABLE_TYPES = "http://inubit.com/variables/types";
 
@@ -235,7 +240,12 @@ public final class SecretRedactor {
                 return true;
             }
         }
-        return KeyMaterial.isKeyMaterial(value.getBytes(StandardCharsets.ISO_8859_1));
+        if (KeyMaterial.isKeyMaterial(value.getBytes(StandardCharsets.ISO_8859_1))) {
+            return true;
+        }
+        // a keystore can also sit base64-encoded in an untyped property (stage-2 review)
+        return LONG_BASE64.matcher(value.strip()).matches() && KeyMaterial.decodeDocument(value)
+            .filter(KeyMaterial::isKeyMaterial).isPresent();
     }
 
     /** True if {@code value} is one X.509 certificate (base64 DER or PEM) and nothing else. */
@@ -306,8 +316,10 @@ public final class SecretRedactor {
         variable.namespaces().forEach(ns -> namespaces.put(ns.prefix(), ns.uri()));
         String type = variable.attribute("type").orElse("").strip();
         int colon = type.indexOf(':');
+        String uri = colon < 0 ? null : namespaces.get(type.substring(0, colon));
+        // an undeclared prefix cannot be resolved: fail closed (stage-2 review)
         if (colon < 0 || !type.substring(colon + 1).equals("password")
-            || !VARIABLE_TYPES.equals(namespaces.get(type.substring(0, colon)))) {
+            || uri != null && !VARIABLE_TYPES.equals(uri)) {
             return variable;
         }
         String name = variable.attribute("name").orElse("?");

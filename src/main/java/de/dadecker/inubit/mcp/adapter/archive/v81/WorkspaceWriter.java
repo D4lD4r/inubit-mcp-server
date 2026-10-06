@@ -83,14 +83,17 @@ public final class WorkspaceWriter {
 
         private Rendered(SortedMap<String, byte[]> files, List<String> subtrees,
             List<String> warnings) {
-            this.files = Collections.unmodifiableSortedMap(new TreeMap<>(files));
+            this.files = new TreeMap<>();
+            files.forEach((path, content) -> this.files.put(path, content.clone()));
             this.subtrees = List.copyOf(subtrees);
             this.warnings = List.copyOf(warnings);
         }
 
-        /** The files by workspace-relative path (unmodifiable). */
+        /** The files by workspace-relative path: an unmodifiable copy with copied contents. */
         public SortedMap<String, byte[]> files() {
-            return files;
+            SortedMap<String, byte[]> copy = new TreeMap<>();
+            files.forEach((path, content) -> copy.put(path, content.clone()));
+            return Collections.unmodifiableSortedMap(copy);
         }
 
         /** The sub-trees the files replace. */
@@ -115,7 +118,7 @@ public final class WorkspaceWriter {
         Set<String> subtrees = new LinkedHashSet<>();
         Set<String> warnings = new LinkedHashSet<>();
         for (Rendered rendered : renderings) {
-            files.putAll(rendered.files());
+            files.putAll(rendered.files);
             subtrees.addAll(rendered.subtrees());
             warnings.addAll(rendered.warnings());
         }
@@ -331,7 +334,7 @@ public final class WorkspaceWriter {
                 }
                 List<Path> stale;
                 try (Stream<Path> walk = Files.walk(directory)) {
-                    stale = walk.filter(Files::isRegularFile).filter(file -> !rendered.files()
+                    stale = walk.filter(Files::isRegularFile).filter(file -> !rendered.files
                         .containsKey(slash(root.relativize(file)))).toList();
                 }
                 for (Path file : stale) {
@@ -348,7 +351,7 @@ public final class WorkspaceWriter {
                     }
                 }
             }
-            for (Map.Entry<String, byte[]> file : rendered.files().entrySet()) {
+            for (Map.Entry<String, byte[]> file : rendered.files.entrySet()) {
                 Path target = root.resolve(file.getKey());
                 Files.createDirectories(target.getParent());
                 if (!Files.exists(target) || !Arrays.equals(Files.readAllBytes(target),
@@ -368,7 +371,7 @@ public final class WorkspaceWriter {
      */
     private static List<Path> orphanedModules(Path root, Rendered rendered) throws IOException {
         List<Path> orphans = new ArrayList<>();
-        for (Map.Entry<String, byte[]> file : rendered.files().entrySet()) {
+        for (Map.Entry<String, byte[]> file : rendered.files.entrySet()) {
             String path = file.getKey();
             int exports = path.indexOf("/" + EXPORTS_DIRECTORY + "/workflows/");
             Path previous = root.resolve(path);
@@ -384,12 +387,12 @@ public final class WorkspaceWriter {
             String exportsDirectory = path.substring(0, exports + EXPORTS_DIRECTORY.length() + 1);
             try (Stream<Path> records = Files.walk(root.resolve(exportsDirectory))) {
                 for (Path record : records.filter(Files::isRegularFile).toList()) {
-                    if (!rendered.files().containsKey(slash(root.relativize(record)))) {
+                    if (!rendered.files.containsKey(slash(root.relativize(record)))) {
                         dropped.removeAll(exportedModules(Files.readAllBytes(record)));
                     }
                 }
             }
-            rendered.files().entrySet().stream()
+            rendered.files.entrySet().stream()
                 .filter(other -> other.getKey().startsWith(exportsDirectory + "/"))
                 .forEach(other -> dropped.removeAll(exportedModules(other.getValue())));
             String[] owner = path.split("/");

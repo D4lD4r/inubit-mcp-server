@@ -14,7 +14,8 @@ import java.util.zip.GZIPInputStream;
  * Recognizes key material outside {@code type="KeyStore"} properties (review I3, FR-023): JKS
  * ({@code FEEDFEED}), JCEKS ({@code CECECECE}), PKCS#12 (DER {@code PFX} with version 3 and a
  * PKCS#7 content), PEM private keys, and file names ending in {@code .jks}, {@code .jceks},
- * {@code .p12}, {@code .pfx}, {@code .keystore} or {@code .key}.
+ * {@code .p12}, {@code .pfx}, {@code .keystore} or {@code .key}. PKCS#12 is accepted in DER and
+ * in BER with indefinite lengths.
  */
 final class KeyMaterial {
 
@@ -88,7 +89,7 @@ final class KeyMaterial {
             return -1;
         }
         int length = der[at + 1] & 0xff;
-        if (length < 0x80) {
+        if (length <= 0x80) { // short form, or 0x80: BER indefinite length
             return at + 2;
         }
         int bytes = length & 0x7f;

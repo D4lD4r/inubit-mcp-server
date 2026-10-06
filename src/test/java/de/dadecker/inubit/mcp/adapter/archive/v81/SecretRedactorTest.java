@@ -262,6 +262,34 @@ class SecretRedactorTest {
         assertThat(archive.report().counts()).containsEntry(Kind.KEY_MATERIAL, 4);
     }
 
+    @Test
+    void base64KeyMaterialUnderAnUnknownNameIsReplaced() {
+        // stage-2 minor 2: untyped properties are decoded too; BER indefinite-length PKCS#12
+        byte[] jks = ArtifactFixtures.bytes("keystores/fixture-truststore.jks");
+        byte[] ber = new byte[80];
+        System.arraycopy(new byte[] {0x30, (byte) 0x80, 0x02, 0x01, 0x03, 0x30, (byte) 0x80,
+            0x06, 0x09, 0x2a, (byte) 0x86, 0x48, (byte) 0x86, (byte) 0xf7, 0x0d, 0x01, 0x07,
+            0x01}, 0, ber, 0, 18);
+        String text = Base64.getEncoder().encodeToString(
+            "fixture text that is long enough to be decoded as base64 too".repeat(2)
+                .getBytes(StandardCharsets.UTF_8));
+        RedactedArchive archive = redactModule("""
+            <?xml version='1.0' encoding='UTF-8'?>
+            <Properties version="4.1">
+            \t<Property name="partnerBlob">%s</Property>
+            \t<Property name="otherBlob">%s</Property>
+            \t<Property name="plainBlob">%s</Property>
+            </Properties>
+            """.formatted(Base64.getMimeEncoder().encodeToString(jks),
+            Base64.getEncoder().encodeToString(ber), text));
+        Element module = module(archive, "Module-0023").element();
+
+        assertThat(KeyMaterial.isKeyMaterial(ber)).as("BER indefinite length").isTrue();
+        assertThat(property(module, "partnerBlob")).isEqualTo("${secret:partnerBlob}");
+        assertThat(property(module, "otherBlob")).isEqualTo("${secret:otherBlob}");
+        assertThat(property(module, "plainBlob")).isEqualTo(text);
+    }
+
     private static String gzipBase64(byte[] content) throws IOException {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (java.util.zip.GZIPOutputStream gzip = new java.util.zip.GZIPOutputStream(bytes)) {
@@ -281,8 +309,13 @@ class SecretRedactorTest {
             .replace("xmlns:is=\"http://inubit.com/variables/types\"",
                 "xmlns:is=\"urn:example:fixture:other\""));
 
+        String undeclared = workflowDefault(workflow -> workflow
+            .replace(" xmlns:is=\"http://inubit.com/variables/types\"", ""));
+
         assertThat(renamed).isEqualTo("${secret:Variables/var.fixturePassword}");
         assertThat(foreign).as("another namespace").isEqualTo("synthetic-default-0001");
+        assertThat(undeclared).as("an undeclared prefix fails closed")
+            .isEqualTo("${secret:Variables/var.fixturePassword}");
     }
 
     /** The DefaultValue of var.fixturePassword after redacting grp-b with a changed workflow. */

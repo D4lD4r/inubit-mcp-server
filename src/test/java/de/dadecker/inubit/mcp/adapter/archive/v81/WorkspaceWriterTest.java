@@ -105,6 +105,18 @@ class WorkspaceWriterTest {
     }
 
     @Test
+    void theRenderedBytesCannotBeChangedFromOutside() {
+        // stage-2 minor 3: write() must only see what render() produced
+        Rendered rendered = WorkspaceWriter.render(redacted("grp-a.zip"), DEV, "jdoe");
+        String path = "dev/jdoe/workflows/GRP-01/Workflow-0001.xml";
+        byte[] before = rendered.files().get(path).clone();
+
+        rendered.files().get(path)[0] ^= 1;
+
+        assertThat(rendered.files().get(path)).isEqualTo(before);
+    }
+
+    @Test
     void keyMaterialIsNeitherWrittenNorDecoded() {
         // review I3: the repository keystore stays out, .meta holds a placeholder instead
         Rendered rendered = WorkspaceWriter.render(redacted("grp-b.zip"), DEV, "OWNERS");

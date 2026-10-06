@@ -183,8 +183,8 @@ class ArchiveRoundTripTest {
         if (SYNTHETIC.stream().anyMatch(stripped::contains)) {
             return true;
         }
-        return KeyMaterial.decodeDocument(stripped).filter(ArchiveRoundTripTest::isSyntheticKeystore)
-            .isPresent();
+        return KeyMaterial.decodeDocument(stripped)
+            .filter(ArchiveRoundTripTest::isSyntheticKeystore).isPresent();
     }
 
     private static boolean isSyntheticKeystore(byte[] content) {
@@ -210,11 +210,6 @@ class ArchiveRoundTripTest {
         Properties properties = new Properties();
         properties.load(new StringReader(new String(bytes, StandardCharsets.ISO_8859_1)));
         return properties;
-    }
-
-    /** The document without the export time INUBIT writes into every check-in comment. */
-    private static byte[] stable(byte[] xml) {
-        return XmlNormalizer.normalize(strip(XmlTree.parse(xml).root()));
     }
 
     private static Element strip(Element element) {
