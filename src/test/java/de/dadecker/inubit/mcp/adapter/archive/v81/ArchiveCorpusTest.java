@@ -71,6 +71,12 @@ class ArchiveCorpusTest {
                 counts.merge("module files", read.moduleFiles().size(), Integer::sum);
                 counts.merge("module index entries", read.moduleIndex().size(), Integer::sum);
                 counts.merge("repository files", read.repository().size(), Integer::sum);
+                // review I3: key material outside KeyStore properties (counts only)
+                RedactionReport report = new SecretRedactor().redact(read).report();
+                counts.merge("key material in other properties", report.counts()
+                    .getOrDefault(SecretRedactor.Kind.KEY_MATERIAL, 0), Integer::sum);
+                counts.merge("repository files with key material", report.counts()
+                    .getOrDefault(SecretRedactor.Kind.REPOSITORY_KEY_MATERIAL, 0), Integer::sum);
                 read.moduleFiles().keySet().forEach(name -> {
                     if (name.indexOf(' ') >= 0) {
                         counts.merge("module names with a space", 1, Integer::sum);

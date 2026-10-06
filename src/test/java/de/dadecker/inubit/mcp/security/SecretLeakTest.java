@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
+import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures.SyntheticKeystore;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures.SyntheticSecret;
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
@@ -43,6 +44,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -63,6 +65,7 @@ import tools.jackson.databind.JsonNode;
  * production adapters (StartCLI faked); no synthetic secret value of
  * {@code fixtures/v8_1/artifacts/README.md} occurs in the workspace files, {@code .meta/}, any
  * git object, the tool results or the log output, and the private export directory is gone.
+ * The synthetic keystore files (review I3) occur neither raw nor as base64.
  */
 @Timeout(120)
 class SecretLeakTest {
@@ -180,6 +183,19 @@ class SecretLeakTest {
                 }
             });
         }
+        // review I3: key material outside KeyStore properties, raw and as base64
+        for (SyntheticKeystore keystore : ArtifactFixtures.syntheticKeystores()) {
+            String raw = new String(keystore.bytes(), StandardCharsets.ISO_8859_1);
+            String base64 = Base64.getEncoder().encodeToString(keystore.bytes());
+            sources.forEach((source, text) -> {
+                if (text.contains(raw) || text.contains(base64)) {
+                    leaks.add("keystore " + keystore.file() + " in " + source);
+                }
+                if (text.contains(keystore.storePassword())) {
+                    leaks.add("store password of " + keystore.file() + " in " + source);
+                }
+            });
+        }
         assertThat(leaks).as("synthetic secrets found (names only)").isEmpty();
         assertThat(sources.get("git objects")).contains("${secret:");
         assertThat(exportDirectories).hasSize(4)
@@ -193,7 +209,7 @@ class SecretLeakTest {
             for (Path file : walk.filter(Files::isRegularFile).toList()) {
                 String relative = workspace.relativize(file).toString();
                 if (!relative.startsWith(".git/")) {
-                    files.put(relative, Files.readString(file, StandardCharsets.UTF_8));
+                    files.put(relative, Files.readString(file, StandardCharsets.ISO_8859_1));
                 }
             }
         }
@@ -209,7 +225,7 @@ class SecretLeakTest {
             in.transferTo(out);
         }
         assertThat(git.waitFor()).isZero();
-        return out.toString(StandardCharsets.UTF_8);
+        return out.toString(StandardCharsets.ISO_8859_1);
     }
 
     private String logText() {

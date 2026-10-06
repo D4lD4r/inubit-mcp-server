@@ -72,7 +72,8 @@ class EmbeddedDocumentsTest {
         Extracted json = EmbeddedDocuments.extract(modules("grp-b.zip").get("Module-0018")
             .element());
 
-        assertThat(json.documents()).singleElement().satisfies(document -> {
+        assertThat(json.documents()).filteredOn(document -> document.property()
+            .equals("JSONStaticSchema")).singleElement().satisfies(document -> {
             assertThat(document.fileName()).isEqualTo("JSONStaticSchema.bin");
             assertThat(document.encoding()).isEqualTo(Encoding.GZIP_BASE64);
             assertThat(new String(document.content(), StandardCharsets.UTF_8))

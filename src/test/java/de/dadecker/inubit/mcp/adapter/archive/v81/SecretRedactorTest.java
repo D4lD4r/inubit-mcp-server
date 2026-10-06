@@ -207,6 +207,69 @@ class SecretRedactorTest {
         assertThat(first).isEqualTo(second);
     }
 
+    @Test
+    void keyMaterialOutsideKeyStorePropertiesIsReplaced() throws IOException {
+        // review I3 (FR-023): a JKS InternalDocument and a PKCS#12 repository file in grp-b
+        RedactedArchive archive = redact("grp-b.zip");
+
+        assertThat(property(module(archive, "Module-0018").element(), "partnerTrustStore"))
+            .isEqualTo("${secret:partnerTrustStore}");
+        assertThat(property(module(archive, "Module-0018").element(), "JSONStaticSchema"))
+            .as("an ordinary InternalDocument stays").startsWith("H4sI");
+        assertThat(archive.withheldRepositoryFiles())
+            .containsExactly("Root/OWNERS/keys/fixture-client.p12");
+        assertThat(archive.archive().repository().get("Root/OWNERS/keys/fixture-client.p12")
+            .content()).isEmpty();
+        assertThat(archive.archive().repository().get("Root/OWNERS/xsd/msg.xsd").content())
+            .isNotEmpty();
+        assertThat(archive.report().counts()).containsEntry(Kind.KEY_MATERIAL, 1)
+            .containsEntry(Kind.REPOSITORY_KEY_MATERIAL, 1);
+        String all = serialized(archive.archive());
+        for (ArtifactFixtures.SyntheticKeystore keystore : ArtifactFixtures.syntheticKeystores()) {
+            assertThat(all).doesNotContain(Base64.getEncoder().encodeToString(keystore.bytes()));
+        }
+    }
+
+    @Test
+    void keyMaterialIsRecognizedByContentOrName() throws IOException {
+        byte[] p12 = ArtifactFixtures.bytes("keystores/fixture-client.p12");
+        RedactedArchive archive = redactModule("""
+            <?xml version='1.0' encoding='UTF-8'?>
+            <Properties version="4.1">
+            \t<Property name="a" type="InternalDocument" documentName="data">%s</Property>
+            \t<Property name="b" type="InternalDocument" documentName="data">%s</Property>
+            \t<Property name="c" type="InternalDocument" documentName="client.pfx">%s</Property>
+            \t<Property name="d">-----BEGIN EC PRIVATE KEY-----
+            MHcfixture
+            -----END EC PRIVATE KEY-----</Property>
+            \t<Property name="e" type="InternalDocument" documentName="data">%s</Property>
+            \t<Property name="f" type="InternalDocument" documentName="notes.txt">%s</Property>
+            </Properties>
+            """.formatted(gzipBase64(p12),
+            Base64.getEncoder().encodeToString(new byte[] {(byte) 0xce, (byte) 0xce,
+                (byte) 0xce, (byte) 0xce, 0, 0, 0, 2}),
+            Base64.getEncoder().encodeToString("fixture".getBytes(StandardCharsets.UTF_8)),
+            gzipBase64("{\"fixture\": true}".getBytes(StandardCharsets.UTF_8)),
+            Base64.getEncoder().encodeToString("fixture notes".getBytes(StandardCharsets.UTF_8))));
+        Element module = module(archive, "Module-0023").element();
+
+        assertThat(property(module, "a")).as("PKCS#12 by content").isEqualTo("${secret:a}");
+        assertThat(property(module, "b")).as("JCEKS by content").isEqualTo("${secret:b}");
+        assertThat(property(module, "c")).as("by name").isEqualTo("${secret:c}");
+        assertThat(property(module, "d")).as("PEM private key").isEqualTo("${secret:d}");
+        assertThat(property(module, "e")).as("JSON").doesNotContain("${secret:");
+        assertThat(property(module, "f")).as("text").doesNotContain("${secret:");
+        assertThat(archive.report().counts()).containsEntry(Kind.KEY_MATERIAL, 4);
+    }
+
+    private static String gzipBase64(byte[] content) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (java.util.zip.GZIPOutputStream gzip = new java.util.zip.GZIPOutputStream(bytes)) {
+            gzip.write(content);
+        }
+        return Base64.getEncoder().encodeToString(bytes.toByteArray());
+    }
+
     /** One of the synthetic certificates of the fixtures (no private key). */
     private static String certificate() {
         List<String> certificates = new ArrayList<>();

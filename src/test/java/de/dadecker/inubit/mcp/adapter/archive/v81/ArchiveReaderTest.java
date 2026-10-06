@@ -113,7 +113,7 @@ class ArchiveReaderTest {
         ExportArchive archive = reader.read(ArtifactFixtures.bytes("grp-b.zip"));
 
         assertThat(archive.repository()).containsOnlyKeys("Root/OWNERS/xsd/msg.xsd",
-            "Root/OWNERS/xsd/core.xsd");
+            "Root/OWNERS/xsd/core.xsd", "Root/OWNERS/keys/fixture-client.p12");
         RepositoryFile msg = archive.repository().get("Root/OWNERS/xsd/msg.xsd");
         assertThat(new String(msg.content(), StandardCharsets.UTF_8)).startsWith("<?xml")
             .contains("urn:example:fixture:msg");

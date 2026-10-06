@@ -37,6 +37,11 @@ repository, because it contains the customer values it replaces.
 - `Workflow-0006`: three Web Services Connectors with embedded WSDLs (`WsdlData`, `ValidWsdlData`),
   one of them referencing the repository schemas (`inubitrepository:/Root/OWNERS/xsd/msg.xsd`,
   `…/core.xsd`), an Assign node with an inline stylesheet in its assignments.
+- Added for review I3 (not recorded): `Module-0018` carries the property `partnerTrustStore`, an
+  `InternalDocument` holding the synthetic JKS `keystores/fixture-truststore.jks`, and
+  `clientKeyStoreLocation`, which references the repository file
+  `/Root/OWNERS/keys/fixture-client.p12` (the synthetic PKCS#12 `keystores/fixture-client.p12`,
+  added to `Repository.zip` with its metadata).
 
 The recordings were made like the CLI fixtures of feature 001 (password on stdin, English locale,
 stdout and stderr captured separately); they name neither the owner nor the server.
@@ -208,6 +213,20 @@ sourceVariable	grp-b.zip	module/module-0020.xml xslt.sourceVariables/accept	synt
 AES-	grp-b.zip	module/module-0020.xml xslt.sourceVariables/var.userPassword (MaskedString)	AES-U1lOVEgtQUVTLTAwMDAwMDAy
 keystore	module-smime.zip	module/module-0029.xml smime.keystore.data	/u3+7QAAAAIAAAABAAAAAQAHcGFydG5lcgAAAaEQculXAAAAfTB7MAwGCisGAQQBKgIRAQEEa4LMGriVL9mTE3ofAHDEPBQchG2jS3cf4Dx6BS+aBtRXJYz2Fqv8Kq03vmprFvyNkmgS3agNpkOSNJjHf8ZLnU6AwYHv2PAiVKQb2QDtUie8XkZnIXP7MMzQ9+hocKiF5uLP0yIcznheo9WUAAAAAQAFWC41MDkAAAGnMIIBozCCAUigAwIBAgIJAOSOllE6oV0bMAoGCCqGSM49BAMDMEUxCzAJBgNVBAYTAkRFMRcwFQYDVQQKEw5HbG9iZXggRml4dHVyZTEdMBsGA1UEAxMUcGFydG5lci5leGFtcGxlLnRlc3QwHhcNMjYwMTAxMTAwMjA4WhcNMzUxMjMwMTAwMjA4WjBFMQswCQYDVQQGEwJERTEXMBUGA1UEChMOR2xvYmV4IEZpeHR1cmUxHTAbBgNVBAMTFHBhcnRuZXIuZXhhbXBsZS50ZXN0MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfGYdOyPANPBr7lJp5IoT3kc/OlKX5bAmIwuDVwlqCH94ebTEZmWz0/W6pax9nblI5r693UaFdSBYYsqS/evqkqMhMB8wHQYDVR0OBBYEFN+PH/qIUZPbWTfwOGb0b80JUCNZMAoGCCqGSM49BAMDA0kAMEYCIQCl7AJEmF8kaIMesRrZpTr2OFIrWB2Jci1H1+QzUrG/VAIhAKutiHl4F1vPjqAJt0k3lkuGilLGu/NwANeAr+Vke04DAOzH0qVe+y3HVlx6QrlWSrp84gA=
 plain	module-smime.zip	module/module-0029.xml smime.keystore.alias.password	synthetic-plain-0004
+```
+
+## Synthetic keystore files (review I3)
+
+Key material can also arrive outside `type="KeyStore"`: as an `InternalDocument` (decoded, it would
+be written as a file of its own) and as a repository file. Both forms are synthetic, generated with
+`keytool -genkeypair -keyalg EC -groupname secp256r1` (`-storetype JKS` / `PKCS12`, alias
+`fixture-jks` / `fixture-p12`, `CN=fixture-jks.example.test` / `CN=fixture-p12.example.test`,
+`O=Fixture`) and kept in `keystores/`. The leak test (T024) searches their bytes and base64 form.
+One line per file, `<file> TAB <fixture> TAB <location> TAB <store password>`:
+
+```synthetic-keystores
+fixture-truststore.jks	grp-b.zip	module/module-0018.xml partnerTrustStore (InternalDocument)	fixture-storepass-jks-01
+fixture-client.p12	grp-b.zip	Repository.zip Root/OWNERS/keys/fixture-client.p12.dat	fixture-storepass-p12-01
 ```
 
 ## Derived fixtures (T003)

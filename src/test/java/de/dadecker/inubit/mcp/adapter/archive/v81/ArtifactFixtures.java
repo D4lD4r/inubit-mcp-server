@@ -28,6 +28,7 @@ public final class ArtifactFixtures {
 
     private static final String ROOT = "/fixtures/v8_1/artifacts/";
     private static final String SECRETS_START = "```synthetic-secrets\n";
+    private static final String KEYSTORES_START = "```synthetic-keystores\n";
 
     private ArtifactFixtures() {
     }
@@ -106,6 +107,33 @@ public final class ArtifactFixtures {
             secrets.add(new SyntheticSecret(fields[0], fields[1], fields[2], fields[3]));
         }
         return List.copyOf(secrets);
+    }
+
+    /** A synthetic keystore file of {@code keystores/} and where a fixture carries it. */
+    public record SyntheticKeystore(String file, String fixture, String location,
+        String storePassword) {
+
+        /** The bytes of the keystore file. */
+        public byte[] bytes() {
+            return ArtifactFixtures.bytes("keystores/" + file);
+        }
+    }
+
+    /** The synthetic keystore files listed in the fixture README (review I3), in file order. */
+    public static List<SyntheticKeystore> syntheticKeystores() {
+        String readme = new String(bytes("README.md"), StandardCharsets.UTF_8);
+        int start = readme.indexOf(KEYSTORES_START);
+        assertThat(start).as("README.md has a synthetic-keystores block").isNotNegative();
+        int end = readme.indexOf("```", start + KEYSTORES_START.length());
+        List<SyntheticKeystore> keystores = new ArrayList<>();
+        for (String line : readme.substring(start + KEYSTORES_START.length(), end).split("\n")) {
+            if (!line.isBlank()) {
+                String[] fields = line.split("\t", -1);
+                assertThat(fields).as("file, fixture, location and password").hasSize(4);
+                keystores.add(new SyntheticKeystore(fields[0], fields[1], fields[2], fields[3]));
+            }
+        }
+        return List.copyOf(keystores);
     }
 
     /**

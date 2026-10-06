@@ -148,6 +148,8 @@ files (FR-014): `CheckoutUser`, `IsActive`, layout (`StyleSheet`, `Junctures`), 
 | module files | untyped secrets (review of T002, found in the recordings): keystores `SSLKeyStoreRemoteConnector` (Web Services Connector) and `smime.keystore.data` (SMIME); passwords `SSLKeyStorePasswordRemoteConnector` and `smime.keystore.alias.password` |
 | workflow | `literal` with `isPassword="true"`; `DefaultValue` of variables of type `is:password` |
 | XSLT modules | the values of `xslt.sourceVariables` (saved test values) and the saved test messages `xslt.source` and `xslt.target` (also when stored as `InternalDocument`) |
+| any property (review I3) | key material outside `type="KeyStore"`: an `InternalDocument` whose `documentName` ends in `.jks`, `.jceks`, `.p12`, `.pfx`, `.keystore` or `.key`, or whose decoded content is a JKS (`FEEDFEED`), JCEKS (`CECECECE`) or PKCS#12 (DER, version 3, PKCS#7 content) keystore; any value with a PEM private key |
+| repository (review I3) | a referenced repository file with such a name or content is **not written**: its `.meta` record holds `withheld: ${secret:Repository/<path>}` and its metadata without `contentSize`/`contentMD5`; the export reports a count-only warning |
 
 Any property that is still unredacted and whose name contains `password`, `secret`, `keystore` or
 `token` (case-insensitive) is counted and reported as a warning with its count only (never its name
@@ -161,6 +163,13 @@ from the value (hash, length) is stored. The redaction runs on the in-memory mod
 only in the private temporary directory of the export and is deleted on every exit path (existing
 `CliExportRunner` rules, FR-026). The global log scrubber is not relied on: tool results and logs
 only ever see redacted data.
+
+Corpus check (review I3, 2026-10-06, counts only): a scan of every ZIP of the local spike exports
+(77 archives, 45 nested `Repository.zip`, 6319 entries, 24 `InternalDocument`s) found no key
+material outside `type="KeyStore"` and the known untyped keystore properties — no entry or
+`InternalDocument` with a keystore name or JKS/JCEKS/PKCS#12 content and no PEM private key; the
+opt-in `ArchiveCorpusTest` reports 0 for both new kinds. The rules above cover the forms anyway;
+the fixtures carry synthetic examples (`grp-b.zip`, `keystores/`).
 
 **Alternatives**: keeping hashes to detect changes of secrets — leaks information about short
 values; rejected (feature 004 compares secrets on the server side, in memory).

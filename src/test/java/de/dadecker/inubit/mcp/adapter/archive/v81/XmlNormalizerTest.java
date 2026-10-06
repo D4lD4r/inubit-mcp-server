@@ -149,8 +149,11 @@ class XmlNormalizerTest {
             if (name.endsWith(".xml")) {
                 xml.put(name, bytes);
             } else if (name.equals("Repository.zip")) {
-                ArtifactFixtures.entries(bytes).forEach((inner, data) -> xml.put(name + "!"
-                    + inner, data));
+                ArtifactFixtures.entries(bytes).forEach((inner, data) -> {
+                    if (data.length > 0 && data[0] == '<') { // not the keystore of review I3
+                        xml.put(name + "!" + inner, data);
+                    }
+                });
             }
         });
         return xml;

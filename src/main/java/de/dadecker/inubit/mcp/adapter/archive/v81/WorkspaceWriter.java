@@ -13,6 +13,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.NameCodec;
+import de.dadecker.inubit.mcp.domain.model.SecretPlaceholder;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
@@ -47,7 +48,8 @@ import java.util.stream.Stream;
  *       {@code @file:} references, {@link EmbeddedDocuments}), {@code index.xml} (the index
  *       entry; a module listed twice is written once) and one file per embedded document; the
  *       repository files referenced by an exported artifact ({@code inubitrepository:} URIs or
- *       their {@code /Root/…} path in any text), and only those.
+ *       their {@code /Root/…} path in any text), and only those; a file withheld as key material
+ *       is not written, its {@code .meta/} record holds a placeholder (review I3).
  *   <li>Every XML file goes through {@link XmlNormalizer}; embedded documents are written as
  *       decoded. Volatile values go to {@code .meta/} ({@link MetaStore}): UIDs, the export suffix
  *       of check-in comments, the enclosing XML context, module file names and encodings,
@@ -63,6 +65,10 @@ import java.util.stream.Stream;
 public final class WorkspaceWriter {
 
     static final String EXPORTS_DIRECTORY = "exports";
+    /** The {@code .meta/} key of a repository file withheld as key material (review I3). */
+    static final String WITHHELD = "withheld";
+    /** The placeholder path prefix of a withheld repository file. */
+    static final String REPOSITORY_PREFIX = "Repository/";
 
     /**
      * The files of one export, by workspace-relative path, and what they replace. Only
@@ -207,17 +213,28 @@ public final class WorkspaceWriter {
                 + " another owner) and were not written");
         }
 
+        int withheld = 0;
         for (RepositoryFile file : export.repository().values()) {
             String reference = "/" + file.path();
             if (texts.stream().noneMatch(text -> text.contains(reference))) {
                 continue;
             }
             WorkspacePath path = WorkspacePath.repository(group, owner, file.path());
-            files.put(slash(path.toRelativePath()), file.content());
             Map<String, Object> meta = new LinkedHashMap<>();
+            if (archive.withheldRepositoryFiles().contains(file.path())) {
+                withheld++;
+                meta.put(WITHHELD, new SecretPlaceholder(REPOSITORY_PREFIX + file.path())
+                    .render());
+            } else {
+                files.put(slash(path.toRelativePath()), file.content());
+            }
             file.metadata().ifPresent(metadata -> meta.put("metadata",
                 new String(XmlNormalizer.normalize(metadata), StandardCharsets.UTF_8)));
             files.put(slash(path.metaPath()), MetaStore.serialize(meta));
+        }
+        if (withheld > 0) {
+            warnings.add(withheld + " repository file(s) with key material were not written;"
+                + " .meta holds a placeholder");
         }
         checkCaseCollisions(files.keySet());
         return new Rendered(files, List.copyOf(subtrees), warnings);

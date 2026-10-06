@@ -121,6 +121,9 @@ class ArchiveRoundTripTest {
             } else if (name.endsWith(".xml")) {
                 assertThat(XmlEquality.equal(stable(a), stable(b))).as("%s!%s", where, name)
                     .isTrue();
+            } else if (a.length == 0 && new String(b, StandardCharsets.UTF_8)
+                .startsWith("${secret:")) {
+                continue; // a repository file withheld as key material (review I3)
             } else {
                 assertThat(b).as("%s!%s", where, name).isEqualTo(a);
             }

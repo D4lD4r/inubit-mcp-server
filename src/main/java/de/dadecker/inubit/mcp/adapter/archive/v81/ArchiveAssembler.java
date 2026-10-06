@@ -262,6 +262,24 @@ public final class ArchiveAssembler {
                     StandardCharsets.UTF_8)).root(), content));
             files.put(repositoryPath, new RepositoryFile(repositoryPath, content, metadata));
         }
+        // review I3: a file withheld as key material comes back as its placeholder
+        Path records = root.resolve(WorkspacePath.repository(group, owner, "x").metaPath()
+            .getParent());
+        for (Path record : files(records)) {
+            WorkspacePath path = WorkspacePath.parseMeta(root.relativize(record));
+            String repositoryPath = String.join("/", path.segments());
+            Map<String, Object> values = meta.read(path).orElse(Map.of());
+            if (files.containsKey(repositoryPath) || !values.containsKey(WorkspaceWriter.WITHHELD)
+                || texts.stream().noneMatch(text -> text.contains("/" + repositoryPath))) {
+                continue;
+            }
+            Optional<Element> metadata = Optional.ofNullable(values.get("metadata"))
+                .map(String::valueOf)
+                .map(xml -> XmlTree.parse(xml.getBytes(StandardCharsets.UTF_8)).root());
+            files.put(repositoryPath, new RepositoryFile(repositoryPath, String.valueOf(
+                values.get(WorkspaceWriter.WITHHELD)).getBytes(StandardCharsets.UTF_8),
+                metadata));
+        }
         return files;
     }
 

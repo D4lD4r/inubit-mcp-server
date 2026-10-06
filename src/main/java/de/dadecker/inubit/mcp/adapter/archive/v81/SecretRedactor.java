@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.adapter.archive.v81;
 
 import de.dadecker.inubit.mcp.adapter.archive.v81.ExportArchive.ModuleXml;
+import de.dadecker.inubit.mcp.adapter.archive.v81.ExportArchive.RepositoryFile;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ExportArchive.WorkflowGroupXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ExportArchive.WorkflowXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
@@ -14,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -43,7 +45,13 @@ import java.util.regex.Pattern;
  *       data, also as {@code InternalDocument});
  *   <li>in workflows, {@link Kind#PASSWORD_LITERAL} a {@code literal isPassword="true"} and
  *       {@link Kind#PASSWORD_DEFAULT} the {@code DefaultValue} of a variable of type
- *       {@code is:password}.
+ *       {@code is:password};
+ *   <li>{@link Kind#KEY_MATERIAL} key material in any other property: an {@code InternalDocument}
+ *       named like or holding a JKS, JCEKS or PKCS#12 keystore, or a PEM private key
+ *       ({@link KeyMaterial}); {@link Kind#REPOSITORY_KEY_MATERIAL} a repository file of that
+ *       kind, which is withheld entirely: its content is dropped, its metadata loses
+ *       {@code contentSize} and {@code contentMD5}, and it is listed in
+ *       {@link RedactedArchive#withheldRepositoryFiles()} (review I3).
  * </ul>
  *
  * <p>The placeholder is {@code ${secret:<property path>}}: the property names inside the
@@ -67,7 +75,9 @@ public final class SecretRedactor {
         PASSWORD_LITERAL,
         PASSWORD_DEFAULT,
         SOURCE_VARIABLE,
-        SAVED_TEST_MESSAGE
+        SAVED_TEST_MESSAGE,
+        KEY_MATERIAL,
+        REPOSITORY_KEY_MATERIAL
     }
 
     /** Proof of redaction: only this class can create one ({@link RedactedArchive}). */
@@ -86,6 +96,7 @@ public final class SecretRedactor {
         Pattern.compile("password|secret|keystore|token", Pattern.CASE_INSENSITIVE);
     private static final Set<String> SCALAR_TYPES = Set.of("Boolean", "Integer");
     private static final Pattern UNSAFE_PATH_CHARACTERS = Pattern.compile("[{}\\p{Cntrl}]");
+    private static final Set<String> CONTENT_VALUES = Set.of("contentSize", "contentMD5");
 
     /** The redaction of {@code archive}; the input is not changed. */
     public RedactedArchive redact(ExportArchive archive) {
@@ -104,9 +115,41 @@ public final class SecretRedactor {
         archive.moduleFiles().forEach((name, module) -> modules.put(name, new ModuleXml(
             module.name(), module.pluginType(), module.entryName(),
             properties(module.element(), "", counts))));
+        Map<String, RepositoryFile> repository = new LinkedHashMap<>();
+        Set<String> withheld = new LinkedHashSet<>();
+        archive.repository().forEach((path, file) -> {
+            if (isWithheld(file)) {
+                counts.add(Kind.REPOSITORY_KEY_MATERIAL);
+                withheld.add(path);
+                repository.put(path, new RepositoryFile(path, new byte[0], file.metadata()
+                    .map(SecretRedactor::withoutContentValues)));
+            } else {
+                repository.put(path, file);
+            }
+        });
         ExportArchive redacted = new ExportArchive(archive.properties(), archive.entries(), groups,
-            archive.moduleIndex(), modules, archive.repository());
-        return new RedactedArchive(redacted, counts.report(), new Seal());
+            archive.moduleIndex(), modules, repository);
+        return new RedactedArchive(redacted, counts.report(), withheld, new Seal());
+    }
+
+    // --- repository ------------------------------------------------------------------------------
+
+    /**
+     * A repository file with key material (by name or content) is not written at all (review
+     * I3); a placeholder written by a rebuild is no key material.
+     */
+    private static boolean isWithheld(RepositoryFile file) {
+        byte[] content = file.content();
+        if (SecretPlaceholder.isPlaceholder(new String(content, StandardCharsets.UTF_8))) {
+            return false;
+        }
+        return KeyMaterial.hasKeyName(file.path()) || KeyMaterial.isKeyMaterial(content);
+    }
+
+    /** The metadata without {@code contentSize} and {@code contentMD5} (derived from the value). */
+    private static Element withoutContentValues(Element metadata) {
+        return metadata.withAttributes(metadata.attributes().stream()
+            .filter(a -> !CONTENT_VALUES.contains(a.qualifiedName())).toList());
     }
 
     // --- module properties ----------------------------------------------------------------------
@@ -133,6 +176,9 @@ public final class SecretRedactor {
         String type = property.attribute("type").orElse("");
         Kind kind = inSourceVariables ? Kind.SOURCE_VARIABLE : kind(name, type,
             property.attribute("encrypted").filter("true"::equals).isPresent(), value);
+        if (kind == null && isKeyMaterial(property, type, value)) {
+            kind = Kind.KEY_MATERIAL;
+        }
         if (kind == null) {
             if (SUSPICIOUS.matcher(name).find() && !SCALAR_TYPES.contains(type)) {
                 counts.suspicious++;
@@ -166,6 +212,26 @@ public final class SecretRedactor {
             return Kind.PRIVATE_KEY_CERTIFICATE;
         }
         return null;
+    }
+
+    /**
+     * Key material in a property that is not a secret type (review I3): an
+     * {@code InternalDocument} named like a keystore or holding one, or a PEM private key.
+     */
+    private static boolean isKeyMaterial(Element property, String type, String value) {
+        if (SecretPlaceholder.isPlaceholder(value.strip())) {
+            return false;
+        }
+        if (type.equals("InternalDocument")) {
+            if (KeyMaterial.hasKeyName(property.attribute("documentName").orElse(""))) {
+                return true;
+            }
+            if (KeyMaterial.decodeDocument(value).filter(KeyMaterial::isKeyMaterial)
+                .isPresent()) {
+                return true;
+            }
+        }
+        return KeyMaterial.isKeyMaterial(value.getBytes(StandardCharsets.ISO_8859_1));
     }
 
     /** True if {@code value} is one X.509 certificate (base64 DER or PEM) and nothing else. */

@@ -89,18 +89,39 @@ class WorkspaceWriterTest {
             .containsExactlyInAnyOrder("dev/OWNERS/repository/Root/OWNERS/xsd/msg.xsd",
                 "dev/OWNERS/repository/Root/OWNERS/xsd/core.xsd",
                 ".meta/dev/OWNERS/repository/Root/OWNERS/xsd/msg.xsd.json",
-                ".meta/dev/OWNERS/repository/Root/OWNERS/xsd/core.xsd.json");
+                ".meta/dev/OWNERS/repository/Root/OWNERS/xsd/core.xsd.json",
+                ".meta/dev/OWNERS/repository/Root/OWNERS/keys/fixture-client.p12.json");
         assertThat(text(rendered, ".meta/dev/OWNERS/repository/Root/OWNERS/xsd/msg.xsd.json"))
             .contains("contentMD5");
 
         Map<String, byte[]> entries = new LinkedHashMap<>(ArtifactFixtures.entries("grp-b.zip"));
-        for (String module : List.of("module/module-0027.xml")) {
+        for (String module : List.of("module/module-0027.xml", "module/module-0018.xml")) {
             entries.put(module, new String(entries.get(module), StandardCharsets.UTF_8)
-                .replace("inubitrepository:/Root/OWNERS/xsd/", "urn:none:")
+                .replace("inubitrepository:/Root/OWNERS/", "urn:none:")
                 .getBytes(StandardCharsets.UTF_8));
         }
         assertThat(WorkspaceWriter.render(redacted(ArtifactFixtures.zip(entries)), DEV,
             "OWNERS").files().keySet()).noneMatch(p -> p.contains("/repository/"));
+    }
+
+    @Test
+    void keyMaterialIsNeitherWrittenNorDecoded() {
+        // review I3: the repository keystore stays out, .meta holds a placeholder instead
+        Rendered rendered = WorkspaceWriter.render(redacted("grp-b.zip"), DEV, "OWNERS");
+
+        assertThat(rendered.files()).doesNotContainKey(
+            "dev/OWNERS/repository/Root/OWNERS/keys/fixture-client.p12");
+        assertThat(text(rendered,
+            ".meta/dev/OWNERS/repository/Root/OWNERS/keys/fixture-client.p12.json"))
+            .contains("\"withheld\" : \"${secret:Repository/Root/OWNERS/keys/"
+                + "fixture-client.p12}\"")
+            .contains("fixture-client.p12").doesNotContain("contentMD5", "contentSize");
+        assertThat(rendered.warnings()).contains("1 repository file(s) with key material were"
+            + " not written; .meta holds a placeholder");
+        assertThat(rendered.files().keySet()).filteredOn(p -> p.contains("Module-0018/"))
+            .noneMatch(p -> p.contains("partnerTrustStore"));
+        assertThat(text(rendered, "dev/OWNERS/modules/JSON Validator/Module-0018/module.xml"))
+            .contains(">${secret:partnerTrustStore}</Property>");
     }
 
     @Test
