@@ -307,7 +307,7 @@ unchanged re-export, round trip.
   `java:java.net.URLDecoder#decode`, with the arities found in the spike; deterministic
   (clarification 4): GUIDs `00000000-0000-0000-0000-000000000000`, time `2000-01-01T00:00:00Z` or the
   run's `now`, `sleep` returns immediately; each stand-in documents its assumed behaviour in Javadoc.
-- [ ] T030 [US4] `main/adapter/xslt/SaxonXsltRunner.java` (implements `XsltPort.run`) and
+- [X] T030 [US4] `main/adapter/xslt/SaxonXsltRunner.java` (implements `XsltPort.run`) and
   `WorkspaceUriResolver.java` with `test/adapter/xslt/XsltRunnerTest.java` first: `plain.xsl` → `OK`
   and output under `.tests/<group>/<owner>/<module>/<input name>.out`; `standins.xsl` → `OK` with
   `XSLT_STANDINS_USED`, two runs byte-identical, `now` override appears; `unknown-extension.xsl` →
