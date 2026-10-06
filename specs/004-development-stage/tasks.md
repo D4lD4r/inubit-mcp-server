@@ -123,7 +123,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   withheld key material from the target repository; reading the archive back yields exactly the
   change set (guard); an unchanged artifact is never included.
   **Also (analysis):** CheckinComment in the probed export shape `DefaultCommitCommentImport###<reason>###@@@Deploying User: …@@@Server: …@@@Version: …@@@Export/Deployment: …@@@` (D-11); strip `<CheckoutUser>`; omit `Repository.zip` (D-24); default context for new artifacts and a module-index entry from `index.xml`; name collision with another owner/kind on the target → `PRECONDITION_FAILED` (D-25).
-- [ ] T013 [US1] `main/adapter/cli/CliCommand.java` (+ `import`, `tag` options), `CliImportRunner.java`,
+- [X] T013 [US1] `main/adapter/cli/CliCommand.java` (+ `import`, `tag` options), `CliImportRunner.java`,
   `ImportProtocolParser.java` with tests first (D-8, fixtures T001): exact command line incl.
   `--importUser` vs `--importUserGroup`; private temp dir deleted on all paths; protocol parsed into
   entries; NOK → failure; `cliExportTimeout` reused and named on TIMEOUT.

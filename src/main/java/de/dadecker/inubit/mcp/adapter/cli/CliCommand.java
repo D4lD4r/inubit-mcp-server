@@ -18,7 +18,9 @@ import java.util.regex.Pattern;
  * <ul>
  *   <li>Command names come from a fixed allowlist, and each command accepts only its own
  *       options: {@code processErrorStart} and {@code kill} take exactly one process id and no
- *       option, {@code export} takes the export options and no process id.
+ *       option, {@code export} takes the export options and no process id; feature 004 adds
+ *       {@code import} and {@code tag} with their options (research D-8; never a repository
+ *       path, metadata, {@code --tagDiagram} or {@code --tagRemove}).
  *   <li>Process ids are 1–19 decimal digits without leading zero ({@code ^[1-9][0-9]{0,18}$}).
  *   <li>Every other value (workflow, type, group, owner) must match
  *       {@link #VALUE} (no leading {@code -}) and is wrapped in single quotes; a value with
@@ -46,7 +48,13 @@ public final class CliCommand {
         "export", Set.of(
             "--exportWorkflowUser", "--exportWorkflowType", "--exportWorkflowGroup",
             "--includeHistory", "--exportFile",
-            "--exportModule", "--exportModuleGroup", "--exportModuleUser"));
+            "--exportModule", "--exportModuleGroup", "--exportModuleUser"),
+        // feature 004 (research D-8): no repository path, no metadata
+        "import", Set.of("--importFile", "--importWorkflow", "--importWorkflowActive",
+            "--importWorkflowInactive", "--importModule", "--importUser", "--importUserGroup",
+            "--returnProtocol"),
+        "tag", Set.of("--tagMove", "--tagDelete", "--tagWorkflowGroup", "--tagWorkflowType",
+            "--tagUser"));
     /** Commands that take exactly one process id and nothing else. */
     private static final Set<String> PROCESS_COMMANDS = Set.of("processErrorStart", "kill");
 

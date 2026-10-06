@@ -131,4 +131,38 @@ class CliCommandTest {
     void exportTakesNoProcessId() {
         assertInvalidInput(() -> CliCommand.command("export").processId("1"));
     }
+
+    // --- feature 004 (T013, research D-8): import and tag -----------------------------------
+
+    @Test
+    void importTakesItsOwnOptions() {
+        assertThat(CliCommand.command("import").path("--importFile",
+            java.nio.file.Path.of("/tmp/x/import.zip")).flag("--importWorkflow")
+            .flag("--importWorkflowActive").quoted("--importUser", "jdoe")
+            .flag("--returnProtocol").build().commandLine()).isEqualTo("import --importFile"
+                + " '/tmp/x/import.zip' --importWorkflow --importWorkflowActive --importUser"
+                + " 'jdoe' --returnProtocol");
+        assertThat(CliCommand.command("import").flag("--importModule").flag(
+            "--importWorkflowInactive").quoted("--importUserGroup", "OWNERS").build()
+            .commandLine()).contains("--importModule", "--importUserGroup 'OWNERS'");
+        assertInvalidInput(() -> CliCommand.command("import").quoted("--exportFile", "x"));
+        assertInvalidInput(() -> CliCommand.command("import").flag("--importRepositoryPath"));
+        assertInvalidInput(() -> CliCommand.command("import").flag("--importMetadata"));
+        assertInvalidInput(() -> CliCommand.command("export").flag("--importWorkflow"));
+    }
+
+    @Test
+    void tagTakesItsOwnOptions() {
+        assertThat(CliCommand.command("tag").quoted("--tagMove", "REL-1")
+            .quoted("--tagWorkflowGroup", "GRP-01").quoted("--tagWorkflowType", "technical")
+            .quoted("--tagUser", "jdoe").build().commandLine()).isEqualTo("tag --tagMove"
+                + " 'REL-1' --tagWorkflowGroup 'GRP-01' --tagWorkflowType 'technical' --tagUser"
+                + " 'jdoe'");
+        assertThat(CliCommand.command("tag").quoted("--tagDelete", "REL-1")
+            .quoted("--tagUser", "jdoe").build().commandLine())
+            .isEqualTo("tag --tagDelete 'REL-1' --tagUser 'jdoe'");
+        assertInvalidInput(() -> CliCommand.command("tag").quoted("--tagDiagram", "W"));
+        assertInvalidInput(() -> CliCommand.command("tag").flag("--tagRemove"));
+        assertInvalidInput(() -> CliCommand.command("tag").quoted("--tagMove", "a'b"));
+    }
 }
