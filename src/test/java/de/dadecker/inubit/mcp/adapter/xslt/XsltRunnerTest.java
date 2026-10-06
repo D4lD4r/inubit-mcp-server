@@ -162,6 +162,39 @@ class XsltRunnerTest {
             assertThat(finding.message()).contains("document type declaration"));
     }
 
+    static final String ENDLESS = """
+        <xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+          <xsl:template match="/">
+            <xsl:iterate select="1 to 500000000">
+              <xsl:param name="n" select="0"/>
+              <xsl:next-iteration><xsl:with-param name="n" select="$n + 1"/></xsl:next-iteration>
+            </xsl:iterate>
+          </xsl:template>
+        </xsl:stylesheet>
+        """;
+
+    @Test
+    void aRunThatDoesNotFinishInTimeIsAnError() throws IOException {
+        // review I1: the check holds the workspace lock while the stylesheet runs
+        assertThat(SaxonXsltRunner.DEADLINE).isEqualTo(java.time.Duration.ofSeconds(60));
+        put(MODULES + "Module-endless/xslt.stylesheet.xsl", ENDLESS);
+        SaxonXsltRunner limited = new SaxonXsltRunner(root, java.time.Duration.ofSeconds(1));
+        long start = System.nanoTime();
+
+        XsltRun run = limited.run(new XsltRequest(Path.of(MODULES
+            + "Module-endless/xslt.stylesheet.xsl"), Path.of(INPUT), Map.of(), Optional.empty()));
+
+        assertThat(java.time.Duration.ofNanos(System.nanoTime() - start))
+            .isLessThan(java.time.Duration.ofSeconds(20));
+        assertThat(run.outcome()).isEqualTo(Outcome.ERROR);
+        assertThat(run.findings()).singleElement().satisfies(finding -> {
+            assertThat(finding.code()).isEqualTo("XSLT_RUNTIME_ERROR");
+            assertThat(finding.message()).contains("did not finish within 1 s");
+        });
+        assertThat(root.resolve(".tests/dev/OWNERS/Module-endless/input.xml.out"))
+            .doesNotExist();
+    }
+
     @Test
     void theServersEnvironmentAndSystemPropertiesStayHidden() throws IOException {
         // review C1: the server environment holds the INUBIT credential variables

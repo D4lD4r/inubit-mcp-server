@@ -16,13 +16,22 @@ import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.time.Duration;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.xml.transform.TransformerException;
@@ -59,6 +68,9 @@ import net.sf.saxon.value.DateTimeValue;
  *       {@code collection()} is refused; {@code xsl:result-document} may only write next to the
  *       output. The output is
  *       {@code .tests/<group>/<owner>/<module>/<input file name>.out}.
+ *   <li>A run that takes longer than {@link #DEADLINE} is an {@code XSLT_RUNTIME_ERROR}; it runs
+ *       on a daemon thread that is left behind (Saxon-HE cannot be stopped), and its output
+ *       never appears (review I1).
  *   <li>The server's host stays hidden (review C1): no environment variables, no Java system
  *       properties, no reflexive Java calls.
  *   <li>Deterministic (clarification 4): {@code current-dateTime()} and the date stand-ins return
@@ -92,17 +104,64 @@ public final class SaxonXsltRunner implements XsltPort {
 
     private final Path root;
     private final XsdValidator validator;
+    private final Duration deadline;
+
+    /** The longest a stylesheet may run (review I1: a check holds the workspace lock). */
+    public static final Duration DEADLINE = Duration.ofSeconds(60);
 
     /** @param root the workspace root */
     public SaxonXsltRunner(Path root) {
+        this(root, DEADLINE);
+    }
+
+    /**
+     * @param root     the workspace root
+     * @param deadline the longest a run may take ({@link #DEADLINE}; tests use less)
+     */
+    public SaxonXsltRunner(Path root, Duration deadline) {
         this.root = Objects.requireNonNull(root, "root").toAbsolutePath().normalize();
         this.validator = new XsdValidator(this.root);
+        this.deadline = Objects.requireNonNull(deadline, "deadline");
     }
 
     @Override
     public XsltRun run(XsltRequest request) {
         Path stylesheet = workspaceFile(request.stylesheet(), "stylesheet");
         Path input = workspaceFile(request.input(), "input");
+        AtomicBoolean abandoned = new AtomicBoolean();
+        ExecutorService worker = Executors.newSingleThreadExecutor(task -> {
+            Thread thread = new Thread(task, "inubit-mcp-xslt-run");
+            thread.setDaemon(true);
+            return thread;
+        });
+        Future<XsltRun> run = worker.submit(() -> execute(request, stylesheet, input,
+            abandoned));
+        try {
+            return run.get(deadline.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            abandoned.set(true);
+            run.cancel(true); // Saxon-HE cannot be stopped; the daemon thread is left behind
+            String stylesheetPath = relative(stylesheet);
+            return new XsltRun(stylesheetPath, relative(input), Optional.empty(), Outcome.ERROR,
+                List.of(), List.of(finding(Severity.ERROR, stylesheetPath, Optional.empty(),
+                    "XSLT_RUNTIME_ERROR", "the transformation did not finish within "
+                        + deadline.toSeconds() + " s")));
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw new IllegalStateException(e.getCause());
+        } finally {
+            worker.shutdownNow();
+        }
+    }
+
+    /** One run on the worker thread; the output is moved into place only when complete. */
+    private XsltRun execute(XsltRequest request, Path stylesheet, Path input,
+        AtomicBoolean abandoned) {
         String stylesheetPath = relative(stylesheet);
         String inputPath = relative(input);
         Optional<WorkspacePath> artifact = artifact(stylesheetPath);
@@ -139,6 +198,7 @@ public final class SaxonXsltRunner implements XsltPort {
         }
 
         Path output = output(artifact, stylesheet, input);
+        Path partial = output.resolveSibling(output.getFileName() + ".partial");
         try {
             Files.createDirectories(output.getParent());
             XsltTransformer transformer = executable.load();
@@ -154,10 +214,15 @@ public final class SaxonXsltRunner implements XsltPort {
             transformer.setResultDocumentHandler(uri -> resultDocument(processor, directory,
                 uri));
             transformer.setSource(resolver.source(input));
-            transformer.setDestination(processor.newSerializer(output.toFile()));
+            transformer.setDestination(processor.newSerializer(partial.toFile()));
             transformer.transform();
+            if (abandoned.get()) {
+                deleteQuietly(partial);
+            } else {
+                Files.move(partial, output, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (SaxonApiException | SaxonApiUncheckedException | TransformerException e) {
-            deleteQuietly(output);
+            deleteQuietly(partial);
             return new XsltRun(stylesheetPath, inputPath, Optional.empty(), Outcome.ERROR,
                 List.copyOf(standIns.used()), List.of(finding(Severity.ERROR, stylesheetPath,
                     Optional.empty(), "XSLT_RUNTIME_ERROR", "the transformation failed"

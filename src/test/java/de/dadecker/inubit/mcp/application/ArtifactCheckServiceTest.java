@@ -202,6 +202,32 @@ class ArtifactCheckServiceTest {
     }
 
     @Test
+    void anEndlessStylesheetReleasesTheWorkspaceLock() throws IOException {
+        // review I1: a deadline ends the run, the lock is free again
+        Path stylesheet = root.resolve("dev/OWNERS/modules/XSLT Converter/Endless/"
+            + "xslt.stylesheet.xsl");
+        Files.createDirectories(stylesheet.getParent());
+        Files.writeString(stylesheet, de.dadecker.inubit.mcp.adapter.xslt.XsltRunnerTestAccess
+            .endless());
+        Files.writeString(root.resolve("input.xml"), "<a/>");
+        ArtifactCheckService service = new ArtifactCheckService(root, new WorkspaceInspector(),
+            new de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner(root,
+                java.time.Duration.ofSeconds(1)), group -> Optional.empty(), node -> server,
+            node -> Optional.empty(), ResultLimiter.withDefaults(), java.time.Clock.systemUTC());
+
+        ArtifactCheckService.CheckOutcome outcome = service.check(
+            new ArtifactCheckService.CheckRequest(List.of(), Optional.of(
+                new ArtifactCheckService.XsltCheck(root.relativize(stylesheet).toString(),
+                    "input.xml", Map.of(), Optional.empty())), Optional.empty(), false));
+
+        assertThat(outcome.report().findings()).extracting(CheckFinding::code)
+            .containsExactly("XSLT_RUNTIME_ERROR");
+        try (WorkspaceLock lock = WorkspaceLock.acquire(root)) {
+            assertThat(lock).as("released").isNotNull();
+        }
+    }
+
+    @Test
     void aMissingParentIsAnError() throws IOException {
         export(ArtifactFixtures.bytes("grp-b.zip"), "OWNERS");
         rewrite("dev/OWNERS/workflows/GRP-02/Workflow-0005.xml",
