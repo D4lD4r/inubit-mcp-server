@@ -132,9 +132,15 @@ rejected.
 
 **Decision**: moved to `.meta/` (JSON, sorted keys): from `archive.properties` only
 `sourceVersion` (in the export record `.meta/<group>/<owner>/exports/…`, with the entry order); the
-export suffix of `CheckinComment` (from the first `@@@Deploying User:` up to the end, the
-person-written part before it stays in the file) **without** its trailing
-`Export/Deployment: <time>@@@`; `WorkflowUId`, `ModuleUId` (the elements stay in the files, empty);
+export suffix of `CheckinComment` (from the first `@@@Deploying User:` up to the end) **without** its
+trailing `Export/Deployment: <time>@@@`; for **workflows** also the `###`-separated history
+segments of `CheckinComment` (from the first `###` up to the suffix, key
+`CheckinComment.history`), because INUBIT appends to them on every export (correction found by the
+live acceptance; spike §3) — the workflow file keeps only the text before the first `###`, a
+module's comment keeps its text up to the suffix (module comments do not grow). A `.meta` record
+that differs from the stored one only in `CheckinComment.history` is not rewritten, so that an
+unchanged re-export changes no file (SC-001); the history is then the one of the last export that
+changed the workflow, and a rebuild restores that one; `WorkflowUId`, `ModuleUId` (the elements stay in the files, empty);
 repository file metadata. **Dropped** entirely, because they change on every export and would
 break SC-001 (an unchanged re-export changes no file): the export time (the
 `Export/Deployment: <time>` field and the timestamp comment of `archive.properties`) and

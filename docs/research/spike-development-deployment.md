@@ -21,7 +21,7 @@ went to two test workflows in one person's own diagram group**. Names below are 
 | Release export | `export --exportTag <tag>` returns the tagged version, not head | releases can be exported by tag (feature 005) |
 | Active flag | set by the import flags | no separate channel needed |
 | Secrets | encryption is installation-independent; most values are identical across stages, some differ | "secrets come from the target" is mandatory |
-| Volatile values | only `archive.properties`, ZIP entry times and the export suffix of `CheckinComment` (plus UIDs after imports) | normalization is small and well-defined |
+| Volatile values | `archive.properties`, ZIP entry times, the export suffix of `CheckinComment` and, for workflows, its `###` history segments (plus UIDs after imports); see the correction in section 3 | normalization is small and well-defined |
 | XSLT on Saxon-HE 10 | 88 % of the owner's stylesheets compile as they are; the rest needs ~20 INUBIT extension functions | stubs for those functions make local XSLT checks broadly useful |
 | Artifacts in edit mode | export marks them with `<CheckoutUser>`; INUBIT does **not** protect them: an import overwrites the edited workflow and a later publish from the Workbench overwrites the import, both without a warning (last writer wins) | `import_artifacts` must refuse with `CONFLICT` when `CheckoutUser` is set, and re-check right before importing |
 
@@ -75,6 +75,15 @@ Two exports of the same unchanged diagram group, nine seconds apart, differ only
 - `CheckinComment` of every workflow and module: its suffix
   `@@@Deploying User: <exporting user>@@@Server: <host>@@@Version: <n>@@@Export/Deployment: <time>@@@`
   is written **at export time**.
+- **Correction (live acceptance of feature 003, 2026-10-06; confirmed on the raw recordings, counts
+  only):** for **workflows** the part of `CheckinComment` *before* `@@@Deploying User:` grows as
+  well: every export appends `###`-separated history segments at its end (e.g. one more `#`, or one
+  more `###Import from inubit without version history`). Module comments do not grow. The original
+  statement of this section missed it because the comparison above looked at the suffix only.
+
+An export is therefore **not completely side-effect free in INUBIT**: it leaves a trace in the
+check-in comment of every exported workflow. This applies to the StartCLI exports of the
+inventory tools of feature 001 (version histories) as well.
 
 `LastUpdate`, `ExportUser`, module files, repository contents and encrypted values are identical.
 After an import, `WorkflowUId` and `ModuleUId` change as well (section 5).

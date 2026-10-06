@@ -354,13 +354,39 @@ public final class WorkspaceWriter {
             for (Map.Entry<String, byte[]> file : rendered.files.entrySet()) {
                 Path target = root.resolve(file.getKey());
                 Files.createDirectories(target.getParent());
-                if (!Files.exists(target) || !Arrays.equals(Files.readAllBytes(target),
-                    file.getValue())) {
+                if (!Files.exists(target)) {
+                    Files.write(target, file.getValue());
+                    continue;
+                }
+                byte[] existing = Files.readAllBytes(target);
+                if (!Arrays.equals(existing, file.getValue())
+                    && !onlyTheCommentHistoryGrew(file.getKey(), existing, file.getValue())) {
                     Files.write(target, file.getValue());
                 }
             }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * True if {@code path} is a {@code .meta} record whose stored and new versions differ only in
+     * the check-in comment history, which INUBIT extends on every export: the stored record is
+     * kept, so that an unchanged re-export changes no file (SC-001, live acceptance).
+     */
+    private static boolean onlyTheCommentHistoryGrew(String path, byte[] existing,
+        byte[] rendered) {
+        if (!path.startsWith(WorkspacePath.META_DIRECTORY + "/") || !path.endsWith(".json")) {
+            return false;
+        }
+        try {
+            Map<String, Object> before = new HashMap<>(MetaStore.deserialize(existing));
+            Map<String, Object> after = new HashMap<>(MetaStore.deserialize(rendered));
+            before.remove(MetaStore.CHECKIN_HISTORY);
+            after.remove(MetaStore.CHECKIN_HISTORY);
+            return before.equals(after);
+        } catch (IllegalArgumentException e) {
+            return false;
         }
     }
 

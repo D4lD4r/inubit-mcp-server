@@ -196,6 +196,17 @@ public final class ExportHarness {
         return ArtifactFixtures.zip(entries);
     }
 
+    /**
+     * {@code grp-a.zip} as a second export would return it: each workflow's check-in comment has
+     * one more {@code ###} history segment before its {@code @@@Deploying User:} suffix (module
+     * comments do not grow).
+     */
+    public static byte[] grownComments() {
+        return rewrite("grp-a.zip", "workflow/workflow.xml", xml -> xml.replace(
+            "@@@Deploying User:", "###Import from inubit without version history"
+                + "@@@Deploying User:"));
+    }
+
     /** {@code grp-a.zip} without module {@code Module-0009} (a used module of another owner). */
     static byte[] withoutModule0009() {
         Map<String, byte[]> entries = new LinkedHashMap<>(ArtifactFixtures.entries(

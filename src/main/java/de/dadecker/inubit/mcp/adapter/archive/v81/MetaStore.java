@@ -31,8 +31,10 @@ import tools.jackson.databind.json.JsonMapper;
  * element: the text of {@code WorkflowUId}/{@code ModuleUId} (the element stays, empty, so that
  * its place is kept) and the export suffix of {@code CheckinComment} — from the first
  * {@code @@@Deploying User:} to the end, written by INUBIT at export time; the part written by a
- * person stays. The export time at its end ({@code Export/Deployment: <time>@@@}) changes on every
- * export and is not kept at all (SC-001: an unchanged re-export changes no file); a rebuild writes
+ * person stays. A workflow's comment also has history segments separated by {@code ###}, which
+ * INUBIT extends on every export (live acceptance): for workflows only the text before the first
+ * {@code ###} stays, the segments go to {@link #CHECKIN_HISTORY}. The export time at its end
+ * ({@code Export/Deployment: <time>@@@}) changes on every export and is not kept at all (SC-001: an unchanged re-export changes no file); a rebuild writes
  * a new one. Everything else — {@code CheckoutUser}, {@code IsActive}, layout,
  * {@code LastUpdate}, {@code ExportUser} — stays in the reviewed file. {@link #restore} puts
  * the values back. Callers add further records (archive properties, the enclosing XML context,
@@ -42,6 +44,13 @@ public final class MetaStore {
 
     /** The key of the export suffix of {@code CheckinComment}. */
     public static final String CHECKIN_SUFFIX = "CheckinComment.exportSuffix";
+    /**
+     * The key of the history segments of a workflow's {@code CheckinComment}: from the first
+     * {@code ###} up to the export suffix. INUBIT appends to them on every export, so a record
+     * that differs from the stored one only here is not rewritten (SC-001).
+     */
+    public static final String CHECKIN_HISTORY = "CheckinComment.history";
+    private static final String HISTORY_SEPARATOR = "###";
     private static final String DEPLOYING_USER = "@@@Deploying User:";
     private static final Set<String> UIDS = Set.of("WorkflowUId", "ModuleUId");
     private static final String EXPORT_TIME = "Export/Deployment: ";
@@ -127,8 +136,19 @@ public final class MetaStore {
         return (JSON.writeValueAsString(values) + "\n").getBytes(StandardCharsets.UTF_8);
     }
 
+    /**
+     * The start of the history segments of a workflow comment: the first {@code ###} before the
+     * export suffix, or -1.
+     */
+    private static int history(String comment) {
+        int deploying = comment.indexOf(DEPLOYING_USER);
+        int hashes = comment.indexOf(HISTORY_SEPARATOR);
+        return hashes >= 0 && (deploying < 0 || hashes < deploying) ? hashes : -1;
+    }
+
     /** Takes the volatile values out of a {@code Workflow} or index {@code Module} element. */
     public static Split split(Element element) {
+        boolean workflow = element.localName().equals("Workflow");
         Map<String, Object> values = new LinkedHashMap<>();
         Optional<String> exportTime = Optional.empty();
         List<Node> children = new ArrayList<>();
@@ -137,6 +157,24 @@ public final class MetaStore {
                 && !e.text().isEmpty()) {
                 values.put(e.localName(), e.text());
                 children.add(e.withText(""));
+            } else if (child instanceof Element e && e.localName().equals("CheckinComment")
+                && workflow && history(e.text()) >= 0) {
+                // live acceptance: a workflow's history segments grow with every export
+                String text = e.text();
+                int start = history(text);
+                int deploying = text.indexOf(DEPLOYING_USER, start);
+                int end = deploying < 0 ? text.length() : deploying;
+                values.put(CHECKIN_HISTORY, text.substring(start, end));
+                if (deploying >= 0) {
+                    String suffix = text.substring(deploying);
+                    Matcher time = EXPORT_TIME_FIELD.matcher(suffix);
+                    if (time.find()) {
+                        exportTime = Optional.of(time.group(1));
+                        suffix = suffix.substring(0, time.start());
+                    }
+                    values.put(CHECKIN_SUFFIX, suffix);
+                }
+                children.add(e.withText(text.substring(0, start)));
             } else if (child instanceof Element e && e.localName().equals("CheckinComment")
                 && e.text().contains(DEPLOYING_USER)) {
                 int at = e.text().indexOf(DEPLOYING_USER);
@@ -164,9 +202,10 @@ public final class MetaStore {
                 && values.containsKey(e.localName())) {
                 children.add(e.withText(String.valueOf(values.get(e.localName()))));
             } else if (child instanceof Element e && e.localName().equals("CheckinComment")
-                && values.containsKey(CHECKIN_SUFFIX)) {
-                children.add(e.withText(e.text() + values.get(CHECKIN_SUFFIX)
-                    + exportTime.map(time -> EXPORT_TIME + time + "@@@").orElse("")));
+                && (values.containsKey(CHECKIN_SUFFIX) || values.containsKey(CHECKIN_HISTORY))) {
+                children.add(e.withText(e.text() + values.getOrDefault(CHECKIN_HISTORY, "")
+                    + (values.containsKey(CHECKIN_SUFFIX) ? values.get(CHECKIN_SUFFIX)
+                        + exportTime.map(time -> EXPORT_TIME + time + "@@@").orElse("") : "")));
             } else {
                 children.add(child);
             }

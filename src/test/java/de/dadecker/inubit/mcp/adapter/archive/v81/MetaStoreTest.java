@@ -87,9 +87,11 @@ class MetaStoreTest {
             .endsWith("@@@");
         assertThat(split.exportTime()).isPresent();
         assertThat(file).contains("<WorkflowUId/>",
-            "<CheckinComment>DefaultCommitCommentImport###JD: Fixture",
+            "<CheckinComment>DefaultCommitCommentImport</CheckinComment>",
             "<CheckoutUser>jdoe</CheckoutUser>", "<IsActive>false</IsActive>",
-            "<StyleSheet xPos=").doesNotContain("Deploying User", "-7f78");
+            "<StyleSheet xPos=").doesNotContain("Deploying User", "-7f78", "###");
+        assertThat((String) split.values().get(MetaStore.CHECKIN_HISTORY))
+            .startsWith("###JD: Fixture#");
         assertThat(MetaStore.restore(split.element(), split.values(), split.exportTime()))
             .isEqualTo(workflow.element());
     }
@@ -111,6 +113,35 @@ class MetaStoreTest {
         assertThat(a.exportTime()).contains("06.10.2026 08:20:54");
         assertThat(text(MetaStore.restore(a.element(), a.values(),
             Optional.of("07.10.2026 09:00:00")))).isEqualTo(text(second));
+    }
+
+    @Test
+    void theGrowingHistoryOfAWorkflowCommentMovesToMeta() {
+        // live acceptance: every export appends ###-separated segments before the suffix
+        String once = "DD: change###Import from inubit without version history####"
+            + "@@@Deploying User: jdoe@@@Version: 3@@@Export/Deployment: 06.10.2026 08:00:00@@@";
+        String twice = once.replace("####@@@", "####Import from inubit without version"
+            + " history#####@@@");
+        Element first = workflow(once);
+        Element second = workflow(twice);
+
+        Split a = MetaStore.split(first);
+        Split b = MetaStore.split(second);
+
+        assertThat(text(a.element())).contains("<CheckinComment>DD: change</CheckinComment>");
+        assertThat(a.element()).isEqualTo(b.element());
+        assertThat(a.values().get(MetaStore.CHECKIN_SUFFIX))
+            .isEqualTo(b.values().get(MetaStore.CHECKIN_SUFFIX));
+        assertThat((String) a.values().get(MetaStore.CHECKIN_HISTORY))
+            .isEqualTo("###Import from inubit without version history####");
+        assertThat(MetaStore.restore(a.element(), a.values(), a.exportTime())).isEqualTo(first);
+        assertThat(MetaStore.restore(b.element(), b.values(), b.exportTime()))
+            .isEqualTo(second);
+    }
+
+    private static Element workflow(String comment) {
+        return XmlTree.parse(("<Workflow><WorkflowName>W</WorkflowName><CheckinComment>"
+            + comment + "</CheckinComment></Workflow>").getBytes(StandardCharsets.UTF_8)).root();
     }
 
     @Test

@@ -97,6 +97,22 @@ class WorkspaceExportTest {
     }
 
     @Test
+    void aReExportWhoseCheckinCommentsGrewIsUnchanged() {
+        // live acceptance (SC-001): INUBIT appends ### segments to every workflow's check-in
+        // comment on each export, also before the @@@Deploying User suffix
+        WorkspaceService service = harness.service();
+        service.export(diagramGroups("jdoe", "GRP-01"));
+        SortedMap<String, String> before = harness.snapshot();
+        harness.artifacts.exports.put("GRP-01", ExportHarness.grownComments());
+
+        ExportResult second = service.export(diagramGroups("jdoe", "GRP-01"));
+
+        assertThat(second.unchanged()).as(() -> String.valueOf(second.export())).isTrue();
+        assertThat(harness.snapshot()).isEqualTo(before);
+        assertThat(harness.log()).hasSize(1);
+    }
+
+    @Test
     void aChangedStylesheetIsExactlyOneModifiedPath() {
         WorkspaceService service = harness.service();
         service.export(diagramGroups("jdoe", "GRP-01"));

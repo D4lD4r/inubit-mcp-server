@@ -73,6 +73,22 @@ class ArchiveRoundTripTest {
     }
 
     @Test
+    void theGrownCheckinCommentsOfASecondExportAreRestoredExactly() {
+        byte[] grown = de.dadecker.inubit.mcp.application.ExportHarness.grownComments();
+        RedactedArchive redacted = WorkspaceWriterTest.redacted(grown);
+        WorkspaceWriter.write(root, WorkspaceWriter.render(redacted, DEV, "jdoe"));
+        Map<String, byte[]> rebuilt = ArtifactFixtures.entries(ArchiveAssembler
+            .assembleDiagramGroup(root, DEV, "jdoe", "GRP-01", TIME));
+        List<String> differences = new ArrayList<>();
+
+        compareRecorded(ArtifactFixtures.entries(grown), rebuilt, "grown", differences);
+
+        assertThat(differences).isEmpty();
+        assertThat(new String(rebuilt.get("workflow/workflow.xml"), StandardCharsets.UTF_8))
+            .contains("###Import from inubit without version history@@@Deploying User:");
+    }
+
+    @Test
     void repositoryChecksumsAreRecomputedFromTheContent() throws Exception {
         rebuild("grp-b.zip", "OWNERS");
         Path schema = root.resolve("dev/OWNERS/repository/Root/OWNERS/xsd/msg.xsd");
