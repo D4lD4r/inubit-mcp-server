@@ -14,12 +14,14 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 200,
+      "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
       "description": "The owner (user) of the artifacts; default: inventory.owner of the {node}"
     },
     "diagramGroup": {
       "type": "string",
       "minLength": 1,
       "maxLength": 200,
+      "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
       "description": "Import the changed and new workflows of this diagram group with their changed or new modules"
     },
     "modules": {
@@ -36,12 +38,14 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 200
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$"
           },
           "pluginType": {
             "type": "string",
             "minLength": 1,
             "maxLength": 200,
+            "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
             "description": "e.g. XSLT Converter; looked up in the workspace if missing"
           }
         },

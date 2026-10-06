@@ -131,6 +131,50 @@ class ImportRollbackTest {
     }
 
     @Test
+    void aCheckinCommentWithAnotherReasonIsAVerifyMismatch() {
+        // review m2: the person-written segment must be exactly the reason
+        harness.inubit.rewriteNextComments = comment -> comment.replace("###Risky change###",
+            "###Risky change and more###");
+        harness.exportGroup().importApplied().exportGroup().importApplied().exportGroup();
+
+        WriteOutcome outcome = run();
+
+        assertThat(outcome.failure()).hasValueSatisfying(failure -> {
+            assertThat(failure.code()).isEqualTo(ErrorCode.VERIFY_MISMATCH);
+            assertThat(failure.step()).isEqualTo("verify");
+        });
+        assertThat(outcome.rollback()).contains(WriteOutcome.Rollback.SUCCEEDED);
+    }
+
+    @Test
+    void aModuleWhoseCheckinCommentLostTheReasonIsAVerifyMismatch() throws IOException {
+        // review m2: module index entries carry the reason as well
+        String directory = harness.moduleDirectory("Module-0003");
+        String pluginType = directory.split("/")[3];
+        harness.write(directory + "/module.xml", harness.read(directory + "/module.xml")
+            .replace("</Properties>", "<Property name=\"x.added\">1</Property></Properties>"));
+        harness.inubit.rewriteNextComments = comment -> comment.replace("###Module fix###",
+            "###");
+        harness.exportModule(pluginType, "Module-0003")
+            .importApplied("--importModule --importUser 'jdoe' --returnProtocol")
+            .exportModule(pluginType, "Module-0003")
+            .importApplied("--importModule --importUser 'jdoe' --returnProtocol")
+            .exportModule(pluginType, "Module-0003");
+
+        ImportService.Response response = harness.service().importArtifacts(
+            new ImportService.ImportRequest("dev/node1", java.util.Optional.of("jdoe"),
+                java.util.Optional.empty(), java.util.List.of(new de.dadecker.inubit.mcp.domain
+                    .model.ImportScope.Module("Module-0003", java.util.Optional.empty())),
+                "Module fix", java.util.Optional.empty(), java.util.Optional.empty()));
+
+        harness.cli.verifyComplete();
+        WriteOutcome outcome = ((ImportService.Response.Completed) response).outcome();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.FAILED);
+        assertThat(outcome.failure().orElseThrow().code())
+            .isEqualTo(ErrorCode.VERIFY_MISMATCH);
+    }
+
+    @Test
     void aFailingReExportIsAFailureToo() {
         harness.exportGroup().importApplied().exportFails().exportGroup().importApplied()
             .exportGroup();
@@ -190,7 +234,8 @@ class ImportRollbackTest {
     }
 
     @Test
-    void anUnexpectedFailureAfterTheImportIsAuditedAsFailedNotAsRefused() {
+    void anUnexpectedFailureAfterTheImportIsAFailedResultWithRollbackState() {
+        // review m6: once anything was sent the call returns a result, never a tool error
         harness.archives = port -> new de.dadecker.inubit.mcp.domain.port.ImportArchivePort() {
             @Override
             public Archive assemble(Build build) {
@@ -207,15 +252,17 @@ class ImportRollbackTest {
                 return port.checkinComment(file);
             }
         };
-        harness.exportGroup().importApplied().exportGroup();
+        harness.exportGroup().importApplied().exportGroup().exportGroup();
 
-        de.dadecker.inubit.mcp.domain.model.ToolErrorException error =
-            org.assertj.core.api.Assertions.catchThrowableOfType(
-                de.dadecker.inubit.mcp.domain.model.ToolErrorException.class,
-                () -> harness.service().importArtifacts(harness.group("Unexpected")));
+        WriteOutcome outcome = run();
 
-        assertThat(error.error().code()).isEqualTo(ErrorCode.INTERNAL);
-        assertThat(error.error().message()).contains("may have been imported", "backup");
+        assertThat(outcome.failure()).hasValueSatisfying(failure -> {
+            assertThat(failure.code()).isEqualTo(ErrorCode.IMPORT_FAILED);
+            assertThat(failure.step()).isEqualTo("verify");
+            assertThat(failure.message()).contains("unexpected", "IllegalStateException");
+        });
+        assertThat(outcome.rollback()).contains(WriteOutcome.Rollback.FAILED);
+        assertThat(outcome.backupRef()).contains(outcome.auditId().toString());
         assertThat(harness.audit("import_artifacts")).extracting(r -> r.outcome())
             .containsExactly(de.dadecker.inubit.mcp.domain.model.AuditOutcome.PENDING,
                 de.dadecker.inubit.mcp.domain.model.AuditOutcome.FAILED);

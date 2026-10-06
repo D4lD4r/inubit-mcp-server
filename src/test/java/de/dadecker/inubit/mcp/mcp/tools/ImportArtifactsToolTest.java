@@ -97,6 +97,13 @@ class ImportArtifactsToolTest {
         assertThat(properties.path("modules").path("maxItems").asInt()).isEqualTo(50);
         assertThat(properties.path("confirmationCode").path("pattern").asString())
             .isEqualTo("^[A-Za-z0-9_-]{22}$");
+        // review m3: the names StartCLI quoting can carry, as in export_artifacts
+        String value = "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$";
+        assertThat(properties.path("owner").path("pattern").asString()).isEqualTo(value);
+        assertThat(properties.path("diagramGroup").path("pattern").asString()).isEqualTo(value);
+        JsonNode module = properties.path("modules").path("items").path("properties");
+        assertThat(module.path("name").path("pattern").asString()).isEqualTo(value);
+        assertThat(module.path("pluginType").path("pattern").asString()).isEqualTo(value);
     }
 
     @Test
@@ -110,7 +117,12 @@ class ImportArtifactsToolTest {
                 "modules", List.of(Map.of("name", "Module-0001"))),
             Map.of("node", "dev", "reason", "x", "diagramGroup", "GRP-01"),
             Map.of("node", "dev/node1", "reason", "x", "diagramGroup", "GRP-01", "force", true),
-            Map.of("node", "dev/node1", "reason", "a###b", "diagramGroup", "GRP-01"))) {
+            Map.of("node", "dev/node1", "reason", "a###b", "diagramGroup", "GRP-01"),
+            Map.of("node", "dev/node1", "reason", "x", "diagramGroup", "GRP'01"),
+            Map.of("node", "dev/node1", "reason", "x", "diagramGroup", "GRP-01", "owner",
+                "-jdoe"),
+            Map.of("node", "dev/node1", "reason", "x", "modules",
+                List.of(Map.of("name", "Module/0001"))))) {
             assertThat(client.callTool("import_artifacts", arguments).path("isError")
                 .asBoolean()).as(arguments.toString()).isTrue();
         }

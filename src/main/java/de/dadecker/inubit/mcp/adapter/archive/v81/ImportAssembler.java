@@ -64,8 +64,9 @@ import java.util.zip.ZipOutputStream;
  *       must say {@code IsActive} {@code false} in its file ({@code INVALID_INPUT} otherwise,
  *       review I2): INUBIT creates it inactive, and {@code set_active} switches it on. Every workflow's {@code UserOrUserGroupName} is the
  *       owner of the request; a file that names another owner is {@code INVALID_INPUT}.
- *   <li>A created artifact whose name the target uses for another kind or owner is
- *       {@code PRECONDITION_FAILED} (D-25).
+ *   <li>A created artifact whose name the owner uses on the target for another workflow or
+ *       module is {@code PRECONDITION_FAILED} (D-25 and its addendum: the owner's own
+ *       artifacts only).
  *   <li>The archive is read back and must hold exactly the requested artifacts (D-7);
  *       otherwise {@code INTERNAL}.
  * </ul>
@@ -305,9 +306,9 @@ public final class ImportAssembler {
             .filter(request.takenNames()::contains).forEach(collisions::add);
         if (!collisions.isEmpty()) {
             throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
-                "The new artifact name(s) " + String.join(", ", collisions) + " exist on the"
-                    + " target as another kind of artifact or for another owner; nothing was"
-                    + " sent",
+                "The new artifact name(s) " + String.join(", ", collisions) + " are used by"
+                    + " another workflow or module of " + request.owner() + " on the target;"
+                    + " nothing was sent",
                 "INUBIT identifies artifacts by name; the import would not create a new one",
                 "Choose another name for the new artifact"));
         }

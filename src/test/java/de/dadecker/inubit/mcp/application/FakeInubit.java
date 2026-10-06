@@ -38,6 +38,8 @@ public final class FakeInubit {
     public volatile String extraProtocolRow;
     /** The next import changes this text of the workflow file after applying it. */
     public volatile String[] tamperNextImport;
+    /** The next import stores the check-in comments rewritten by this function. */
+    public volatile java.util.function.UnaryOperator<String> rewriteNextComments;
 
     public FakeInubit(byte[] export) {
         this.entries = new LinkedHashMap<>(ArtifactFixtures.entries(export));
@@ -92,6 +94,9 @@ public final class FakeInubit {
         ignoreNextImport = false;
         boolean partial = partialNextImport;
         partialNextImport = false;
+        java.util.function.UnaryOperator<String> comments = rewriteNextComments == null
+            ? java.util.function.UnaryOperator.identity() : rewriteNextComments;
+        rewriteNextComments = null;
         int applied = 0;
         if (archive.containsKey(INDEX)) {
             Element index = root(INDEX);
@@ -107,8 +112,9 @@ public final class FakeInubit {
                     rows.add(new String[] {"Module [" + name + "] was " + (exists ? "modified."
                         : "created."), "/" + name});
                     if (apply && (!partial || applied++ == 0)) {
-                        index = putModule(index, pluginType, name, withValue(withValue(module,
-                            "ModuleUId", "-fake:" + ++uid), "LastUpdate", "07.10.2026 12:00:00"));
+                        index = putModule(index, pluginType, name, comment(withValue(withValue(
+                            module, "ModuleUId", "-fake:" + ++uid), "LastUpdate",
+                            "07.10.2026 12:00:00"), comments));
                         String file = "module/" + name.toLowerCase(Locale.ROOT) + ".xml";
                         entries.put(file, archive.get(file));
                     }
@@ -132,8 +138,8 @@ public final class FakeInubit {
                     rows.add(new String[] {"Diagram [" + name + "] was " + (exists
                         ? "modified." : "created."), name});
                     if (apply && (!partial || applied++ == 0)) {
-                        workflows = putWorkflow(workflows, withValue(workflow, "WorkflowUId",
-                            "-fake:" + ++uid));
+                        workflows = putWorkflow(workflows, comment(withValue(workflow,
+                            "WorkflowUId", "-fake:" + ++uid), comments));
                     }
                 }
             }
@@ -254,6 +260,12 @@ public final class FakeInubit {
         return element.withChildren(element.children().stream().map(node ->
             node instanceof Element e && e.localName().equals(child) ? e.withText(value)
                 : node).toList());
+    }
+
+    private static Element comment(Element element,
+        java.util.function.UnaryOperator<String> rewrite) {
+        return element.child("CheckinComment").map(c -> withValue(element, "CheckinComment",
+            rewrite.apply(c.text()))).orElse(element);
     }
 
     private static Element leaf(String name, String text) {

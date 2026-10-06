@@ -31,7 +31,7 @@ public interface ImportArchivePort {
      * @param user          the INUBIT user of the check-in comment
      * @param server        the INUBIT host of the check-in comment
      * @param time          {@code dd.MM.yyyy HH:mm:ss}
-     * @param takenNames    names the target uses for another kind or owner
+     * @param takenNames    the names of the owner's workflows and modules on the target
      */
     record Build(GroupId group, String owner, Optional<String> diagramGroup,
         List<Artifact> workflows, List<Artifact> modules, SortedMap<String, byte[]> files,

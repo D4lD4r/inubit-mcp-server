@@ -215,6 +215,26 @@ class ImportServiceRefusalTest {
     }
 
     @Test
+    void aNewModuleNamedLikeOneOfTheOwnersDiagramsIsRefused() throws IOException {
+        // review m5: a new module is checked against the owner's diagram names as well
+        ImportHarness harness = ImportHarness.grpA(temp);
+        String source = harness.moduleDirectory("Module-0004");
+        String target = source.replace("Module-0004", "Module-0100");
+        harness.write(target + "/module.xml", harness.read(source + "/module.xml"));
+        harness.write(target + "/index.xml", harness.read(source + "/index.xml")
+            .replace("Module-0004", "Module-0100"));
+        harness.edit(harness.workflow("Workflow-0001"), "<ModuleName>Module-0004</ModuleName>",
+            "<ModuleName>Module-0100</ModuleName>");
+        harness.targetDiagrams.add("Module-0100");
+        harness.exportGroup();
+
+        ToolError error = refusal(harness, harness.group("Name taken"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
+        assertThat(error.message()).contains("Module-0100");
+    }
+
+    @Test
     void aBusyWorkspaceIsRefusedAtOnce() throws IOException {
         ImportHarness harness = edited(ImportHarness.grpA(temp));
 

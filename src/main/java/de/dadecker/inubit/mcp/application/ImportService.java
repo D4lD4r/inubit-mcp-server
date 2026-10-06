@@ -83,12 +83,14 @@ import org.slf4j.LoggerFactory;
  *   <li>the backup (the raw export of the scope and a manifest), then the {@code PENDING}
  *       audit record (fail closed), then the StartCLI import;
  *   <li>the protocol must name exactly the change set; the scope is exported again and every
- *       change-set artifact must equal its workspace file (reviewed content) with the reason
- *       in its check-in comment;
+ *       change-set artifact must equal its workspace file (reviewed content) with exactly the
+ *       reason as the person-written segment of its check-in comment (workflows and module
+ *       index entries);
  *   <li>success: only the change-set files and their {@code .meta/} records are replaced by the
  *       verified state and committed with the {@code Server-State} trailer;
  *   <li>failure after anything was sent (a refused import, a protocol mismatch, a differing or
- *       failing re-export, a timeout whose re-export does not show the intended state): the
+ *       failing re-export, a timeout whose re-export does not show the intended state, or an
+ *       unexpected failure of the server itself, reported at the step it reached): the
  *       state is re-exported; if anything changed, the backup is re-imported with the target's
  *       current secrets and verified. The result is {@code FAILED} with
  *       {@code failure{code, step, message}}, the rollback state and the created artifacts that
@@ -354,15 +356,28 @@ public final class ImportService {
             throw auditFailure(node, e, "nothing was sent");
         }
         call.sent = auditId;
+        try {
+            return send(call, node, changes, auditId, archive, account);
+        } catch (RuntimeException e) {
+            return unexpectedAfterSending(call, node, changes, auditId, account, e);
+        }
+    }
+
+    /** The import, its protocol, the verification, and the commit or the rollback. */
+    private Response send(Call call, NodeId node, ChangeSet changes, UUID auditId,
+        ImportArchivePort.Archive archive, Account account) {
+        ImportScope scope = changes.scope();
         ImportPort.Mode mode = scope.diagramGroup().isPresent() ? ImportPort.Mode.WORKFLOW
             : ImportPort.Mode.MODULE;
         List<String> warnings = new ArrayList<>();
         List<String> reports = new ArrayList<>();
         WriteOutcome.Failure failure = null;
         boolean timedOut = false;
+        call.step = "import";
         try {
             ImportProtocol protocol = d.imports().apply(node).importArchive(archive.zip(), mode,
                 call.owner, call.kind);
+            call.step = "protocol";
             Optional<String> mismatch = protocolMismatch(changes, protocol);
             if (mismatch.isPresent()) {
                 failure = new WriteOutcome.Failure(ErrorCode.IMPORT_FAILED, "protocol",
@@ -379,6 +394,7 @@ public final class ImportService {
                     + ")");
         }
 
+        call.step = "verify";
         Exported current = export(node, changes);
         if (failure == null || timedOut) {
             if (current.failure().isPresent()) {
@@ -415,8 +431,38 @@ public final class ImportService {
             warnings);
     }
 
+    /**
+     * Review m6: an unexpected failure after the import may have been sent is a {@code FAILED}
+     * result like any other — failure {@code IMPORT_FAILED} at the step reached, the state
+     * re-exported and rolled back from the backup if it changed, the backup named. Only if
+     * not even that result can be produced does {@link Call#failedAfterSending} report an
+     * {@code INTERNAL} tool error.
+     */
+    private Response unexpectedAfterSending(Call call, NodeId node, ChangeSet changes,
+        UUID auditId, Account account, RuntimeException e) {
+        LOG.error("import_artifacts on {} failed unexpectedly at {} after sending (audit id {})",
+            node, call.step, auditId, e);
+        WriteOutcome.Failure failure = new WriteOutcome.Failure(ErrorCode.IMPORT_FAILED,
+            call.step, "INTERNAL: an unexpected failure (" + e.getClass().getSimpleName()
+                + ") after the import was sent; the state was re-exported and rolled back from"
+                + " the backup where it had changed");
+        Exported current;
+        try {
+            current = export(node, changes);
+        } catch (RuntimeException again) {
+            LOG.error("The re-export on {} failed unexpectedly", node, again);
+            current = new Exported(List.of(), new TreeMap<>(), Optional.of("INTERNAL: "
+                + again.getClass().getSimpleName()));
+        }
+        WriteOutcome.Rollback rollback = rollback(call, node, changes, auditId, current,
+            account);
+        return failed(call, node, changes, auditId, failure, rollback, current,
+            new ArrayList<>(), new ArrayList<>());
+    }
+
     private Response success(Call call, NodeId node, ChangeSet changes, UUID auditId,
         Exported current, List<String> warnings) {
+        call.step = "commit";
         writeBack(changes, current.files());
         Optional<String> commit = d.history().commitAll("import " + node.value() + ": "
                 + changes.scope().describe() + " (" + changes.artifacts().size()
@@ -609,19 +655,31 @@ public final class ImportService {
                     differences.addAll(diff.toString().lines().toList());
                 }
             }
-            if (artifact.ref().kind() == ArtifactRef.Kind
-                .WORKFLOW) {
-                byte[] file = rendered.get(artifact.paths().get(0));
-                Optional<String> comment = file == null ? Optional.empty()
-                    : d.archives().checkinComment(file);
-                if (file != null && comment.filter(c -> c.contains(COMMENT_PREFIX + reason))
-                    .isEmpty()) {
-                    differences.add("=== " + artifact.paths().get(0)
-                        + ": the check-in comment does not carry the reason");
-                }
+            // review m2: workflows and module index entries, the exact person-written segment
+            Optional<String> commented = artifact.ref().kind() == ArtifactRef.Kind.WORKFLOW
+                ? Optional.of(artifact.paths().get(0))
+                : artifactFiles(rendered, artifact).keySet().stream()
+                    .filter(path -> path.endsWith("/index.xml")).findFirst();
+            byte[] file = commented.map(rendered::get).orElse(null);
+            if (file != null && d.archives().checkinComment(file)
+                .filter(comment -> carriesReason(comment, reason)).isEmpty()) {
+                differences.add("=== " + commented.get()
+                    + ": the check-in comment does not carry exactly the reason");
             }
         }
         return differences;
+    }
+
+    /**
+     * True if the person-written part of a check-in comment is exactly
+     * {@code DefaultCommitCommentImport###<reason>###} (research D-11): the part before the
+     * export suffix ({@code @@@…}), with the copies of the empty last segment that every export
+     * appends ({@code ###…}) counted once.
+     */
+    static boolean carriesReason(String comment, String reason) {
+        int suffix = comment.indexOf("@@@");
+        String head = suffix < 0 ? comment : comment.substring(0, suffix);
+        return head.replaceFirst("(###)+$", "###").equals(COMMENT_PREFIX + reason + "###");
     }
 
     /** Research D-25 (H5): only the change-set files and their .meta records. */
@@ -735,33 +793,52 @@ public final class ImportService {
                 files.put(".meta/" + path + ".json", meta);
             }
         }
-        // the export records name the source version (archive.properties)
-        Path exports = d.root().resolve(".meta").resolve(changes.scope().group().value())
-            .resolve(NameCodec.encode(changes.scope().owner())).resolve("exports");
-        if (Files.isDirectory(exports)) {
-            try (var walk = Files.walk(exports)) {
-                for (Path file : walk.filter(Files::isRegularFile).limit(1).toList()) {
-                    files.put(d.root().relativize(file).toString().replace('\\', '/'),
-                        Files.readAllBytes(file));
-                }
+        // the export record names the source version (archive.properties): the scope's own
+        // record, else the first in path order (review m4: never the walk order)
+        exportRecord(changes).ifPresent(file -> {
+            try {
+                files.put(d.root().relativize(file).toString().replace('\\', '/'),
+                    Files.readAllBytes(file));
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
-        }
+        });
         return files;
     }
 
-    /** Names a new artifact must not use (D-25 H9): the owner's diagrams and modules. */
+    private Optional<Path> exportRecord(ChangeSet changes) {
+        ImportScope scope = changes.scope();
+        Path exports = d.root().resolve(".meta").resolve(scope.group().value())
+            .resolve(NameCodec.encode(scope.owner())).resolve("exports");
+        List<Path> own = new ArrayList<>();
+        scope.diagramGroup().ifPresent(group -> own.add(exports.resolve("workflows")
+            .resolve(NameCodec.encode(group) + ".json")));
+        changes.modules().forEach(module -> own.add(exports.resolve("modules")
+            .resolve(NameCodec.encode(module.ref().pluginType().orElseThrow()))
+            .resolve(NameCodec.encode(module.name()) + ".json")));
+        Optional<Path> found = own.stream().filter(Files::isRegularFile).findFirst();
+        if (found.isPresent() || !Files.isDirectory(exports)) {
+            return found;
+        }
+        try (var walk = Files.walk(exports)) {
+            return walk.filter(Files::isRegularFile).sorted().findFirst();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * Names a new artifact must not use (D-25 H9): the owner's diagrams and modules on the target
+     * — a new workflow or module against both (review m5). Only the owner's own artifacts are
+     * listed (D-25 addendum): INUBIT matches names per owner.
+     */
     private Set<String> takenNames(NodeId node, ChangeSet changes, String owner,
         Set<String> targetModules) {
         if (changes.created().isEmpty()) {
             return Set.of();
         }
         Set<String> taken = new HashSet<>(targetModules);
-        if (changes.workflows().stream().anyMatch(w -> w.kind() == ChangedArtifact.Kind.NEW)) {
-            d.inventory().apply(node).listDiagrams(owner).forEach(item -> taken.add(
-                item.name()));
-        }
+        d.inventory().apply(node).listDiagrams(owner).forEach(item -> taken.add(item.name()));
         return taken;
     }
 
@@ -976,6 +1053,8 @@ public final class ImportService {
         boolean refused;
         /** The audit id of the execution once the import may have been sent. */
         UUID sent;
+        /** The step reached after sending: import, protocol, verify, commit. */
+        String step = "import";
 
         Call(ImportRequest request) {
             this.request = request;
@@ -1026,8 +1105,10 @@ public final class ImportService {
         }
 
         /**
-         * An unexpected failure after the import may have been sent: audited {@code FAILED}
-         * with the same audit id, never as a refusal; the backup holds the state before.
+         * The last resort when not even the {@code FAILED} result of an unexpected failure
+         * after sending can be produced ({@link #unexpectedAfterSending}): audited
+         * {@code FAILED} with the same audit id, never as a refusal, and reported as an
+         * {@code INTERNAL} tool error naming the backup that holds the state before.
          */
         ToolErrorException failedAfterSending(RuntimeException e) {
             LOG.error("import_artifacts failed unexpectedly after sending (audit id {})", sent, e);

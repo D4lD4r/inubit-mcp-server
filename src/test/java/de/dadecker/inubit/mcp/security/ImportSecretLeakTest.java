@@ -97,6 +97,43 @@ class ImportSecretLeakTest {
     }
 
     @Test
+    void aFailedImportWithRollbackLeavesNoSecretInItsReportsAndRollsBackWithTheTargetsValues()
+        throws IOException {
+        // review m1: the verify difference and the rollback archive of a FAILED call
+        ImportHarness harness = new ImportHarness(temp, ArtifactFixtures.bytes("grp-b.zip"),
+            "OWNERS", "GRP-02");
+        harness.owners.put("OWNERS", OwnerKind.USER);
+        harness.edit(harness.workflow("Workflow-0006"), "xPos=\"", "xPos=\"1");
+        String module = harness.moduleDirectory("Module-0028") + "/module.xml";
+        harness.edit(module, "</Properties>",
+            "<Property name=\"x.added\">1</Property></Properties>");
+        harness.inubit.tamperNextImport = new String[] {"xPos=\"1", "xPos=\"9"};
+        String options = "--importWorkflow --importUser 'OWNERS' --returnProtocol";
+        harness.exportGroup().importApplied(options).exportGroup().importApplied(options)
+            .exportGroup();
+
+        ImportService.Response response = harness.service().importArtifacts(
+            harness.group("Secret safe failure"));
+
+        harness.cli.verifyComplete();
+        WriteOutcome outcome = ((ImportService.Response.Completed) response).outcome();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.FAILED);
+        assertThat(outcome.rollback()).contains(WriteOutcome.Rollback.SUCCEEDED);
+        assertThat(outcome.reports()).anyMatch(report -> report.startsWith(".reports/verify-"));
+        assertThat(Files.readString(harness.root.resolve(outcome.reports().get(0))))
+            .contains("xPos");
+        assertNoLeak(harness, "grp-b.zip", outcome);
+        String rollback = archiveText(harness.inubit.imported.get(1));
+        for (SyntheticSecret secret : secrets("grp-b.zip")) {
+            if (secret.location().startsWith("workflow Workflow-0006")
+                || secret.location().startsWith("module/module-0028.xml")) {
+                assertThat(rollback).as("rollback: " + secret.location())
+                    .contains(secret.value());
+            }
+        }
+    }
+
+    @Test
     void aDiagramGroupWithoutSecretsLeavesNothing() throws IOException {
         ImportHarness harness = ImportHarness.grpA(temp);
         harness.edit(harness.workflow("Workflow-0001"), "xPos=\"120\"", "xPos=\"140\"");

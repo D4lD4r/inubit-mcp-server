@@ -114,6 +114,26 @@ class ImportServiceTest {
     }
 
     @Test
+    void theArchivePropertiesComeFromTheExportRecordOfTheScope() throws IOException {
+        // review m4: not from whichever record a directory walk meets first
+        ImportHarness harness = ImportHarness.grpA(temp);
+        harness.edit(harness.workflow("Workflow-0001"), "xPos=\"120\"", "xPos=\"140\"");
+        String exports = ".meta/dev/jdoe/exports/";
+        String decoy = "{\n  \"kind\" : \"workflows\",\n  \"sourceVersion\" : \"9.9.9\"\n}\n";
+        for (String path : List.of("0.json", "modules/Assign/AAA.json", "workflows/A.json",
+            "workflows/GRP-00.json")) {
+            harness.write(exports + path, decoy);
+        }
+        harness.exportGroup().importApplied().exportGroup();
+
+        completed(harness.service().importArtifacts(harness.group("Properties")));
+
+        assertThat(new String(ArtifactFixtures.entries(harness.inubit.imported.get(0))
+            .get("archive.properties"), StandardCharsets.UTF_8))
+            .contains("sourceVersion=8.1.17").doesNotContain("9.9.9");
+    }
+
+    @Test
     void anUnchangedWorkspaceSendsNothing() throws IOException {
         ImportHarness harness = ImportHarness.grpA(temp);
         int entries = harness.exports.log().size();

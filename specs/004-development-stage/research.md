@@ -303,3 +303,30 @@ scenario: export → edit a layout value → import → verify → restore → s
   ("preview again"); `owner` defaults to `inventory.owner` for all tools; the import calls
   `checkPaths` (lock already held); `<CheckoutUser>` is stripped from import archives; artifacts in
   the scope but outside the change set are compared in the conflict check.
+
+### D-25 addendum: review of the import core (T010–T018, 2026-10-07)
+
+- **Identity from the target (I1)**: the UIDs, the module file name and the diagram-group context
+  of a **modified** artifact come from the target's fresh raw export of the call, never from the
+  workspace's `.meta/` records (anyone can edit them); a module file name is accepted only as
+  `module/<name>.xml`. Every workflow is sent with `UserOrUserGroupName` = the owner of the
+  request; a workflow file that names another owner (e.g. copied from another owner's diagram
+  group) is `INVALID_INPUT`. A modified artifact that is missing on the target is
+  `PRECONDITION_FAILED`.
+- **New workflows (I2)**: INUBIT creates a new workflow inactive, so its workspace file must say
+  `IsActive=false`; otherwise `INVALID_INPUT` before anything is sent, pointing to `set_active`.
+- **New modules in a module import (I3)**: StartCLI answers `NOT_FOUND` when exporting a module
+  that does not exist. A module import therefore exports only the **modified** modules for the
+  conflict check and the backup; whether a **new** module exists already is decided by the
+  owner's module list (`CONFLICT` "exists already"). After the import a new module that was not
+  created counts as absent (not as an export failure).
+- **Name collisions (H9, m5)**: a new workflow or module is checked against the names of the
+  **owner's own** workflows and modules on the target (inventory lists of that owner); names of
+  other owners are not checked — an import addresses one owner (`--importUser`) and the inventory
+  lists one owner's artifacts.
+- **Reason (D-11, m2)**: the verification requires the person-written segment to be exactly
+  `DefaultCommitCommentImport###<reason>###` (copies of the empty last segment appended by later
+  exports counted once), for workflows and module index entries.
+- **Unexpected failures after sending (M2, m6)**: they are `FAILED` results like any other
+  (`failure{code: IMPORT_FAILED, step}`, state re-exported, rollback from the backup, backup
+  named); an `INTERNAL` tool error remains only if not even that result can be produced.
