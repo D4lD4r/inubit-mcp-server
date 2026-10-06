@@ -353,6 +353,11 @@ class WorkspaceExportTest {
             public List<PathChange> changedPaths(String fromCommit, String subtree) {
                 return harness.history.changedPaths(fromCommit, subtree);
             }
+
+            @Override
+            public List<LocalChange> localChanges(GroupId group, String subtree) {
+                return harness.history.localChanges(group, subtree);
+            }
         };
         WorkspaceService service = new WorkspaceService(root, failingCommit, new ArchiveCodec(),
             node -> harness.artifacts, node -> {

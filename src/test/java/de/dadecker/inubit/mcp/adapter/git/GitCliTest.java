@@ -13,6 +13,7 @@ import de.dadecker.inubit.mcp.domain.model.HistoryEntry;
 import de.dadecker.inubit.mcp.domain.model.PathChange;
 import de.dadecker.inubit.mcp.domain.model.PathChange.Kind;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -442,6 +443,51 @@ class GitCliTest {
                 assertThat(e.error().message()).contains("dev/OWNERS/a.xml");
                 assertThat(e.error().nextStep()).contains("export the scope first");
             });
+    }
+
+    @Test
+    void localChangesAreTheFilesWhoseNewestEntryIsNoServerStateOfTheGroup() throws IOException {
+        // feature 004 (T010, research D-4, D-25): candidates of a change set with their own base
+        git.init();
+        write("dev/OWNERS/a.xml", "a1");
+        write("dev/OWNERS/b c.xml", "b1");
+        write("dev/OWNERS/same.xml", "s1");
+        write("dev/OWNERS/old.xml", "o1");
+        String first = full(commit("export dev/node1: G (4 files)", Map.of()));
+        write("dev/OWNERS/old.xml", "o2");
+        String second = full(commit("import dev/node1: G (1 artifacts)", DEV_STATE));
+        write("dev/OWNERS/a.xml", "a2");
+        Files.delete(root.resolve("dev/OWNERS/b c.xml"));
+        write("dev/OWNERS/new.xml", "n1");
+        write("dev/OTHER/x.xml", "x1");
+        commit("local changes: 4 files", Map.of());
+
+        List<VersionHistoryPort.LocalChange> changes = git.localChanges(DEV, "dev/OWNERS");
+
+        assertThat(changes).containsExactlyInAnyOrder(
+            new VersionHistoryPort.LocalChange("dev/OWNERS/a.xml", Kind.MODIFIED,
+                Optional.of(first)),
+            new VersionHistoryPort.LocalChange("dev/OWNERS/b c.xml", Kind.DELETED,
+                Optional.of(first)),
+            new VersionHistoryPort.LocalChange("dev/OWNERS/new.xml", Kind.ADDED,
+                Optional.empty()));
+        assertThat(git.lastServerState(DEV, "dev/OWNERS/old.xml")).contains(second);
+        assertThat(git.localChanges(DEV, "dev/OTHER")).containsExactly(
+            new VersionHistoryPort.LocalChange("dev/OTHER/x.xml", Kind.ADDED, Optional.empty()));
+        assertThat(git.localChanges(DEV, "dev/NONE")).isEmpty();
+    }
+
+    @Test
+    void aFileAddedAndDeletedLocallyIsNoChange() throws IOException {
+        git.init();
+        write("dev/OWNERS/a.xml", "a1");
+        commit("export dev/node1: G", DEV_STATE);
+        write("dev/OWNERS/tmp.xml", "t");
+        commit("local changes: 1 files", Map.of());
+        Files.delete(root.resolve("dev/OWNERS/tmp.xml"));
+        commit("local changes: 1 files", Map.of());
+
+        assertThat(git.localChanges(DEV, "dev/OWNERS")).isEmpty();
     }
 
     @Test

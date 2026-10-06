@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -255,15 +256,77 @@ public final class GitCli implements VersionHistoryPort {
             if (fields.length < 3 || fields[0].isEmpty()) {
                 continue;
             }
-            List<String> states = fields[2].isBlank() ? List.of()
-                : Stream.of(fields[2].split("\u001d")).map(String::strip).toList();
-            boolean recorded = states.contains(group.value())
-                || states.isEmpty() && fields[1].startsWith(exportPrefix);
-            if (recorded) {
+            if (isServerState(group, fields[1], fields[2])) {
                 return Optional.of(fields[0]);
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * An entry records a server state of {@code group} if its {@code Server-State} trailer names
+     * the group, or, without any such trailer, its subject is a feature-003 export of the group.
+     */
+    private static boolean isServerState(GroupId group, String subject, String trailers) {
+        List<String> states = trailers.isBlank() ? List.of()
+            : Stream.of(trailers.split("\u001d")).map(String::strip).toList();
+        return states.contains(group.value())
+            || states.isEmpty() && subject.startsWith("export " + group.value() + "/");
+    }
+
+    /**
+     * One walk over the entries that touched {@code subtree}, newest first: a file's newest entry
+     * decides whether it is a local change, its newest server-state entry is its base.
+     */
+    @Override
+    public List<LocalChange> localChanges(GroupId group, String subtree) {
+        Objects.requireNonNull(group, "group");
+        String pathspec = checkPath(subtree);
+        if (!hasCommits()) {
+            return List.of();
+        }
+        String output = run("log", "--format=" + RECORD + "%H" + FIELD + "%s" + FIELD
+            + "%(trailers:key=" + SERVER_STATE + ",valueonly,separator=%x1d)" + FIELD,
+            "--name-status", "-z", "--no-renames", "--", pathspec);
+        Map<String, String> newestStatus = new LinkedHashMap<>();
+        Map<String, Boolean> newestIsState = new HashMap<>();
+        Map<String, String> states = new HashMap<>();
+        for (String record : output.split(RECORD_CHAR)) {
+            String[] fields = record.split(FIELD_CHAR, 4);
+            if (fields.length < 4 || fields[0].isEmpty()) {
+                continue;
+            }
+            boolean state = isServerState(group, fields[1], fields[2]);
+            List<String> tokens = Stream.of(fields[3].split("\0"))
+                .map(token -> token.replaceFirst("^\n+", "")).filter(t -> !t.isEmpty())
+                .toList();
+            for (int i = 0; i + 1 < tokens.size(); i += 2) {
+                String path = tokens.get(i + 1);
+                if (!newestStatus.containsKey(path)) {
+                    newestStatus.put(path, tokens.get(i));
+                    newestIsState.put(path, state);
+                }
+                if (state) {
+                    // a server state that removed the file means: no longer on the server
+                    states.putIfAbsent(path, tokens.get(i).startsWith("D") ? "" : fields[0]);
+                }
+            }
+        }
+        List<LocalChange> changes = new ArrayList<>();
+        newestStatus.forEach((path, status) -> {
+            if (newestIsState.get(path)) {
+                return;
+            }
+            Optional<String> base = Optional.ofNullable(states.get(path))
+                .filter(commit -> !commit.isEmpty());
+            boolean deleted = status.startsWith("D");
+            if (deleted && base.isEmpty()) {
+                return; // added and removed again locally
+            }
+            changes.add(new LocalChange(path, deleted ? PathChange.Kind.DELETED
+                : base.isEmpty() ? PathChange.Kind.ADDED : PathChange.Kind.MODIFIED, base));
+        });
+        return List.copyOf(changes);
     }
 
     /**

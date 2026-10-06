@@ -106,7 +106,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 **Independent test**: scripted StartCLI (export → import → export) on fixture diagram groups.
 
-- [ ] T010 [P] [US1] `main/application/ChangeSetBuilder.java` with test first (D-4): from base
+- [X] T010 [P] [US1] `main/application/ChangeSetBuilder.java` with test first (D-4): from base
   (`lastServerState`) and HEAD (after local-changes commit) for a diagram group scope or a module scope;
   NEW vs MODIFIED; modules of changed workflows only if their files changed or are new; deletions →
   `INVALID_INPUT` with the message of D-4; changes outside the scope → `notImported`; nothing changed

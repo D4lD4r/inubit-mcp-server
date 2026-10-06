@@ -95,4 +95,30 @@ public interface VersionHistoryPort {
      * Read-only.
      */
     List<PathChange> changedPaths(String fromCommit, String subtree);
+
+    /**
+     * A file whose newest entry is not a server state of a group (feature 004, research D-4,
+     * D-25): a candidate of a change set.
+     *
+     * @param kind        {@code ADDED} if no server state of the group ever had the file,
+     *                    {@code DELETED} if the newest entry removed it, else {@code MODIFIED}
+     * @param serverState the newest server-state entry of the group that touched the file (its
+     *                    own base), if any
+     */
+    record LocalChange(String path, PathChange.Kind kind, Optional<String> serverState) {
+
+        public LocalChange {
+            java.util.Objects.requireNonNull(path, "path");
+            java.util.Objects.requireNonNull(kind, "kind");
+            serverState = serverState == null ? Optional.empty() : serverState;
+        }
+    }
+
+    /**
+     * The files below {@code subtree} whose newest entry is not a server state of
+     * {@code group} (see {@link #lastServerState} for what counts as one). A file added and
+     * removed again without ever being a server state is not listed. Whether the content really
+     * differs from the server state is for the caller to compare ({@link #show}). Read-only.
+     */
+    List<LocalChange> localChanges(GroupId group, String subtree);
 }

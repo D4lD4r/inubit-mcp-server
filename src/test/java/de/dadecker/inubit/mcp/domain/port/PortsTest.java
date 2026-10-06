@@ -107,6 +107,6 @@ class PortsTest {
         // methods are init, commitAll and restore, the others read
         assertThat(Arrays.stream(VersionHistoryPort.class.getMethods()).map(Method::getName))
             .containsExactlyInAnyOrder("init", "status", "commitAll", "commitAll", "restore",
-                "lastServerState", "serverStateOf", "show", "changedPaths");
+                "lastServerState", "serverStateOf", "show", "changedPaths", "localChanges");
     }
 }
