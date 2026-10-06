@@ -163,6 +163,44 @@ class XsltRunnerTest {
     }
 
     @Test
+    void theServersEnvironmentAndSystemPropertiesStayHidden() throws IOException {
+        // review C1: the server environment holds the INUBIT credential variables
+        String path = System.getenv("PATH");
+        String home = System.getProperty("user.home");
+        assertThat(path).as("the probe needs a non-empty PATH").isNotBlank();
+        put(MODULES + "Module-host/xslt.stylesheet.xsl", """
+            <xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+              <xsl:output method="text"/>
+              <xsl:template match="/">
+                <xsl:value-of select="'env=' || string(environment-variable('PATH')),
+                    'count=' || count(available-environment-variables()),
+                    'home=' || system-property('user.home'),
+                    'java=' || system-property('java.version')" separator="|"/>
+              </xsl:template>
+            </xsl:stylesheet>
+            """);
+        put(MODULES + "Module-leak/xslt.stylesheet.xsl", """
+            <xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+              <xsl:template match="/">
+                <xsl:sequence select="error((), 'leak ' || environment-variable('PATH')
+                    || ' ' || system-property('user.home'))"/>
+              </xsl:template>
+            </xsl:stylesheet>
+            """);
+
+        XsltRun host = run("host", Optional.empty());
+        XsltRun leak = run("leak", Optional.empty());
+
+        assertThat(host.outcome()).isEqualTo(Outcome.OK);
+        assertThat(output(host)).isEqualTo("env=|count=0|home=|java=");
+        assertThat(leak.outcome()).isEqualTo(Outcome.ERROR);
+        assertThat(leak.findings()).isNotEmpty().allSatisfy(finding -> assertThat(
+            finding.message()).doesNotContain(path).doesNotContain(home));
+        assertThat(output(run("standins", Optional.empty())))
+            .as("the integrated stand-ins still work").contains("00000000-0000");
+    }
+
+    @Test
     void nothingOutsideTheWorkspaceIsReadOrWritten() throws IOException {
         Files.writeString(outside.resolve("secret.xml"), "<secret>outside</secret>");
         String file = outside.resolve("secret.xml").toUri().toString();

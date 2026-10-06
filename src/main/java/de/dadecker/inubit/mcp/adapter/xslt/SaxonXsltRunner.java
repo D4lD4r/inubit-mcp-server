@@ -27,6 +27,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.xml.transform.TransformerException;
 import net.sf.saxon.Configuration;
+import net.sf.saxon.lib.EnvironmentVariableResolver;
+import net.sf.saxon.lib.Feature;
 import net.sf.saxon.s9api.Destination;
 import net.sf.saxon.s9api.Processor;
 import net.sf.saxon.s9api.QName;
@@ -57,6 +59,8 @@ import net.sf.saxon.value.DateTimeValue;
  *       {@code collection()} is refused; {@code xsl:result-document} may only write next to the
  *       output. The output is
  *       {@code .tests/<group>/<owner>/<module>/<input file name>.out}.
+ *   <li>The server's host stays hidden (review C1): no environment variables, no Java system
+ *       properties, no reflexive Java calls.
  *   <li>Deterministic (clarification 4): {@code current-dateTime()} and the date stand-ins return
  *       the request's {@code now} or {@link InubitStandIns#FIXED_NOW}.
  * </ul>
@@ -72,6 +76,19 @@ public final class SaxonXsltRunner implements XsltPort {
     private static final Pattern LICENSED = Pattern.compile(
         "Saxon-(PE|EE)|requires a license|not available in Saxon-HE|Saxon-HE does not",
         Pattern.CASE_INSENSITIVE);
+
+    /** An empty environment for {@code environment-variable()} (review C1). */
+    static final EnvironmentVariableResolver NO_ENVIRONMENT = new EnvironmentVariableResolver() {
+        @Override
+        public Set<String> getAvailableEnvironmentVariables() {
+            return Set.of();
+        }
+
+        @Override
+        public String getEnvironmentVariable(String name) {
+            return null;
+        }
+    };
 
     private final Path root;
     private final XsdValidator validator;
@@ -95,6 +112,13 @@ public final class SaxonXsltRunner implements XsltPort {
         InubitStandIns standIns = new InubitStandIns(request.now());
         Processor processor = new Processor(false);
         Configuration configuration = processor.getUnderlyingConfiguration();
+        // review C1: nothing of the server's host is visible — environment-variable() and
+        // available-environment-variables() see no variables (the environment holds the INUBIT
+        // credentials), system-property() only the xsl:* properties; integrated stand-ins
+        // still work
+        configuration.setConfigurationProperty(Feature.ALLOW_EXTERNAL_FUNCTIONS, false);
+        configuration.setConfigurationProperty(Feature.ENVIRONMENT_VARIABLE_RESOLVER,
+            NO_ENVIRONMENT);
         configuration.setURIResolver(resolver);
         configuration.setUnparsedTextURIResolver(resolver);
         configuration.setCollectionFinder((context, uri) -> {
