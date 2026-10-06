@@ -89,13 +89,21 @@ class ArtifactExportLiveTest {
             JsonNode check = structured(client.callTool("check_artifacts", Map.of("paths",
                 List.of(node.group().value() + "/" + owner + "/workflows")), EXPORT_WAIT));
             assertThat(check.path("counts").path("ERROR").asInt())
-                .as(() -> "structure errors: " + check.path("findings")).isZero();
+                .as(() -> "structure errors by code: " + codes(check)).isZero();
 
             System.err.println("[live] " + node + ": export_artifacts of one diagram group "
                 + first.path("counts") + ", " + first.path("secretsReplaced").asInt()
                 + " secrets replaced, " + firstElapsed.toMillis() + " ms; re-export unchanged;"
                 + " check_artifacts " + check.path("counts"));
         }
+    }
+
+    /** The number of listed findings per code — never paths, names or messages. */
+    private static Map<String, Integer> codes(JsonNode check) {
+        Map<String, Integer> codes = new java.util.TreeMap<>();
+        check.path("findings").forEach(finding -> codes.merge(finding.path("severity")
+            .asString() + " " + finding.path("code").asString(), 1, Integer::sum));
+        return codes;
     }
 
     /** The structured result; a failure shows only the error. */

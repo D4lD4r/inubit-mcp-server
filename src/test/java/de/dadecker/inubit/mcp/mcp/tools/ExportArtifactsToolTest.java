@@ -138,6 +138,86 @@ class ExportArtifactsToolTest {
     }
 
     @Test
+    void aProductionGroupCanBeExportedWithoutAnyWriteSetting() throws Exception {
+        // FR-011: export is read-only and allowed on production groups, like health and logs
+        com.github.tomakehurst.wiremock.WireMockServer prod =
+            de.dadecker.inubit.mcp.adapter.rest.TestCertificates.httpsWireMock(
+                de.dadecker.inubit.mcp.adapter.rest.TestCertificates.get().localhostKeyStore());
+        try {
+            prod.stubFor(com.github.tomakehurst.wiremock.client.WireMock.get(
+                com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo(
+                    "/ibis/rest/system/info")).willReturn(
+                        de.dadecker.inubit.mcp.adapter.rest.RestFixtures.response("system_info",
+                            "xml")));
+            java.nio.file.Path cliHome = Files.createDirectories(root.resolve(
+                ".cli/bin")).getParent();
+            Files.writeString(cliHome.resolve("bin/startcli.sh"), "#!/bin/sh\n");
+            java.nio.file.Path workspace = Files.createDirectories(root.resolve(".prod-ws"));
+            String yaml = """
+                profile:
+                  name: acme
+                workspace: %s
+                groups:
+                  - name: prod
+                    production: true
+                    cli:
+                      home: %s
+                      javaHome: %s
+                    inventory:
+                      owner: jdoe
+                    tls:
+                      trustStore: "%s"
+                    nodes:
+                      - name: node1
+                        baseUrl: https://localhost:%d
+                        versionLine: V8_1
+                """.formatted(workspace, cliHome, System.getProperty("java.home"),
+                de.dadecker.inubit.mcp.adapter.rest.TestCertificates.get().trustStore(),
+                prod.httpsPort());
+            var config = new de.dadecker.inubit.mcp.config.ConfigLoader(Map.of(), root, false)
+                .parse(yaml, root.resolve("acme.yaml")).config();
+            var scrubber = new de.dadecker.inubit.mcp.infra.SecretScrubber();
+            var credentials = new de.dadecker.inubit.mcp.config.CredentialResolver(Map.of(
+                "INUBIT_ACME_PROD_USERNAME", "jdoe", "INUBIT_ACME_PROD_PASSWORD",
+                "prod-fixture-pw"), scrubber, config.credentialPrefix())
+                .resolve(config.nodeIds());
+            java.util.regex.Pattern exportFile =
+                java.util.regex.Pattern.compile("--exportFile '([^']+)'");
+            var startCli = de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher.of(
+                "1-OK: Workflow group exported successfully.\n", "", 0).onLaunch(spec -> {
+                    String command = spec.command().get(spec.command().indexOf("--execCommand")
+                        + 1);
+                    java.util.regex.Matcher file = exportFile.matcher(command);
+                    if (file.find()) {
+                        try {
+                            Files.write(java.nio.file.Path.of(file.group(1)),
+                                ArtifactFixtures.bytes("grp-a.zip"));
+                        } catch (IOException e) {
+                            throw new java.io.UncheckedIOException(e);
+                        }
+                    }
+                });
+            try (var wiring = de.dadecker.inubit.mcp.TestWiring.of(config, credentials,
+                scrubber, Files::exists, false, startCli, Map.of("PATH", "/usr/bin"));
+                McpTestClient production = McpTestClient.start(wiring.toolHandlers(),
+                    scrubber)) {
+                production.initialize();
+
+                JsonNode result = production.callTool("export_artifacts", Map.of("target",
+                    "prod", "diagramGroups", List.of("GRP-01")));
+
+                assertMatchesOutputSchema("export_artifacts", result);
+                assertThat(content(result).path("node").asString()).isEqualTo("prod/node1");
+                assertThat(content(result).path("unchanged").asBoolean()).isFalse();
+                assertThat(workspace.resolve("prod/jdoe/workflows/GRP-01/Workflow-0001.xml"))
+                    .isRegularFile();
+            }
+        } finally {
+            prod.stop();
+        }
+    }
+
+    @Test
     void invalidRequestsAreRefusedBeforeStartCli() {
         assertThat(toolError(call(Map.of("target", "prod", "diagramGroups", List.of("GRP-01"))))
             .path("code").asString()).isEqualTo("TARGET_UNKNOWN");

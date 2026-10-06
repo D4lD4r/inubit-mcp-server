@@ -784,6 +784,11 @@ at once. `NOT_TESTABLE` reasons: an extension function without stand-in (another
 sees no environment variables or system properties of the server and reads only workspace files
 (`inubitrepository:` from the stylesheet owner's `repository/`).
 
+**Known limitation**: Saxon-HE cannot stop a running transformation. A stylesheet run that does
+not finish within 60 s is reported as `XSLT_RUNTIME_ERROR`, its output is discarded and the
+workspace lock is released, but the run keeps one CPU core busy until it ends by itself or the
+server process ends.
+
 **Errors**: `INVALID_INPUT` (a path outside the workspace or missing, neither `paths` nor `xslt`,
 `schema` without `paths`, a malformed `now`); `PRECONDITION_FAILED` (workspace busy or not
 usable); `INTERNAL`. Server lookup failures are findings (`MODULE_UNVERIFIED`), not errors.
