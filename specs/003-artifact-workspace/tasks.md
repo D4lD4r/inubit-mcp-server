@@ -298,7 +298,7 @@ unchanged re-export, round trip.
   called by a stylesheet that declares that namespace, without reflexive binding. If it fails, stop and
   report to the user before continuing (fallback to evaluate: rewrite the namespace URI at compile time
   in an `URIResolver`).
-- [ ] T029 [US4] `main/adapter/xslt/InubitStandIns.java` with test first: integrated functions for
+- [X] T029 [US4] `main/adapter/xslt/InubitStandIns.java` with test first: integrated functions for
   `Formatter` (`changeDateFormat`, `convertDateString`, `trim`, `formatNumber`, `crlf`, `lf`,
   `getDateTime`, `isNumber`, `getDateAsString`, `parseSchemaDateToSQLTimestamp`,
   `calculateDateDifference`), `Misc` (`guid`, `encode`, `decode`, `stringToBranch`,
