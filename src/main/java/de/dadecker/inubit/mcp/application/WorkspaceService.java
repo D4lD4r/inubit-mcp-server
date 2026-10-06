@@ -198,14 +198,14 @@ public final class WorkspaceService {
     /**
      * Step 2: everything uncommitted becomes one entry, so that nothing of the person is lost
      * and a failed write can be undone. The {@code .gitignore} the history has just created is
-     * not a change of the person; it goes into the export entry.
+     * not a change of the person: alone it goes into the export entry; together with changes of
+     * the person it is part of this entry and counted (review M4).
      */
     private Optional<HistoryEntry> commitLocalChanges() {
-        List<PathChange> changes = history.status().stream()
-            .filter(change -> !(change.path().equals(GITIGNORE)
-                && change.kind() == PathChange.Kind.ADDED))
-            .toList();
-        if (changes.isEmpty()) {
+        List<PathChange> changes = history.status();
+        boolean onlyCreatedByTheHistory = changes.stream().allMatch(change -> change.path()
+            .equals(GITIGNORE) && change.kind() == PathChange.Kind.ADDED);
+        if (onlyCreatedByTheHistory) {
             return Optional.empty();
         }
         return history.commitAll("local changes: " + changes.size() + " files");

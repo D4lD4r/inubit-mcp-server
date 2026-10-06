@@ -83,6 +83,21 @@ class WorkspaceLocalChangesTest {
     }
 
     @Test
+    void theCountOfLocalChangesMatchesWhatIsCommitted() throws IOException {
+        // review M4: with other local changes, the new .gitignore is part of the same entry
+        write(NOTES, "notes written before the first export\n");
+
+        ExportResult first = harness.service().export(diagramGroups("jdoe", "GRP-01"));
+
+        HistoryEntry local = first.localChanges().orElseThrow();
+        assertThat(local.changes()).containsExactlyInAnyOrder(
+            new PathChange(NOTES, PathChange.Kind.ADDED),
+            new PathChange(".gitignore", PathChange.Kind.ADDED));
+        assertThat(local.message()).isEqualTo("local changes: " + local.changes().size()
+            + " files");
+    }
+
+    @Test
     void aCleanWorkspaceRecordsNoLocalChanges() {
         WorkspaceService service = harness.service();
         service.export(diagramGroups("jdoe", "GRP-01"));
