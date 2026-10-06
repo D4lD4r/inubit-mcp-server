@@ -369,7 +369,13 @@ unchanged re-export, round trip.
   *Done for A–B (2026-10-06)*: `mvn -q clean verify` green with 1715 tests (0 failures, 2 skipped);
   `NoCustomerIdentifiersTest` without `clean` ran 20 tests, none skipped; `--check-config` of a
   temporary `acme` profile under a temporary home showed `Workspace: … (created)`, then `(ok)`, and
-  `Result: OK`. **C/D pending user approval** (live, development node only).
+  `Result: OK`. **C/D done 2026-10-06** with the user's approval on the development node (read-only
+  exports into a temporary workspace): the live tests are green; a diagram group of the shared owner
+  (323 files, 142 placeholders) re-exports `unchanged`; a personal diagram group exports and checks
+  clean; `check_artifacts` reports no ERROR; no secret value in files, `.meta` or git objects; no
+  remote. The run found and fixed: growing workflow check-in history (SC-001), stale Demultiplexer
+  keys, scope ids, foreign-owner repository references (false ERRORs) and a stack overflow on a huge
+  base64 value.
 
 ---
 
