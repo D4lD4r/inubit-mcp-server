@@ -175,7 +175,12 @@ public final class InubitStandIns {
         define(processor, FORMATTER, "Formatter", "changeDateFormat", 2, 2, false, (c, a) -> {
             String patterns = text(a, 1);
             int bar = patterns.indexOf('|');
-            return bar < 0 ? string(text(a, 0)) : string(convert(
+            if (bar < 0) {
+                fallback("Formatter.changeDateFormat", "the format has no 'input|output'"
+                    + " separator; the date was kept");
+                return string(text(a, 0));
+            }
+            return string(convert(
                 "Formatter.changeDateFormat", text(a, 0),
                 patterns.substring(0, bar), Locale.ROOT, "UTC", patterns.substring(bar + 1),
                 Locale.ROOT, "UTC"));

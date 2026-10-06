@@ -159,6 +159,15 @@ class InubitStandInsTest {
     }
 
     @Test
+    void aDateFormatWithoutBarIsAFallback() throws SaxonApiException {
+        // stage-3 minor 4
+        assertThat(eval("Formatter:changeDateFormat('06.10.2026', 'dd.MM.yyyy')"))
+            .isEqualTo("06.10.2026");
+        assertThat(standIns.fallbacks()).containsExactly("Formatter.changeDateFormat: the"
+            + " format has no 'input|output' separator; the date was kept");
+    }
+
+    @Test
     void sleepReturnsAtOnce() throws SaxonApiException {
         long start = System.nanoTime();
 
