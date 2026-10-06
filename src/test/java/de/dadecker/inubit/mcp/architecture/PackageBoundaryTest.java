@@ -46,7 +46,8 @@ import org.junit.jupiter.api.Test;
  * <p>Rules (Phase 7 review P3): {@code domain} may depend only on {@code java.*} and itself;
  * {@code application} only on {@code java.*}, {@code domain}, itself and SLF4J; only
  * {@code mcp} uses the MCP SDK; {@code mcp} never reaches into {@code adapter} or
- * {@code config}; only {@code adapter.rest} uses {@code java.net.http}; only {@code adapter.cli}
+ * {@code config}; only {@code adapter.rest} uses {@code java.net.http} (feature 004: and
+ * {@code adapter.soap}); only {@code adapter.cli}
  * starts or inspects OS processes ({@code ProcessBuilder}, {@code Process},
  * {@code ProcessHandle}, {@code Runtime.exec}).
  *
@@ -55,6 +56,11 @@ import org.junit.jupiter.api.Test;
  * {@code mcp} nor on {@code application}; {@code application} reaches no adapter at all (only the
  * ports of {@code domain.port}); Saxon ({@code net.sf.saxon}) is used only in
  * {@code adapter.xslt}.
+ *
+ * <p>Feature 004 (T003, research D-17): the SOAP adapter {@code adapter.soap} exists, depends
+ * neither on {@code mcp} nor on {@code application}, and is the only package besides
+ * {@code adapter.rest} that uses {@code java.net.http} (the end-to-end test client); the new
+ * adapters are reached from {@code application} only through ports (rule above).
  */
 class PackageBoundaryTest {
 
@@ -68,6 +74,8 @@ class PackageBoundaryTest {
     /** The adapters of feature 003, each with its own package (T004). */
     private static final List<String> WORKSPACE_ADAPTERS =
         List.of("adapter/archive", "adapter/git", "adapter/xslt");
+    /** The SOAP end-to-end adapter of feature 004 (T003). */
+    private static final String SOAP_ADAPTER = "adapter/soap";
 
     /** Class (internal name) → its type names and member references. */
     private static Map<String, ClassRefs> classes;
@@ -126,9 +134,17 @@ class PackageBoundaryTest {
     }
 
     @Test
-    void onlyTheRestAdapterUsesTheHttpClient() {
-        assertThat(violations(inPackage("adapter/rest").negate(), forbidden(HTTP_CLIENT)))
-            .as("java.net.http outside adapter.rest").isEmpty();
+    void onlyTheRestAndSoapAdaptersUseTheHttpClient() {
+        assertThat(violations(inPackage("adapter/rest").or(inPackage(SOAP_ADAPTER)).negate(),
+            forbidden(HTTP_CLIENT)))
+            .as("java.net.http outside adapter.rest and adapter.soap").isEmpty();
+    }
+
+    @Test
+    void theSoapAdapterReachesNeitherTheMcpLayerNorTheApplication() {
+        assertThat(violations(inPackage(SOAP_ADAPTER), forbidden(BASE + "mcp/",
+            BASE + "application/")))
+            .as("adapter.soap → mcp / application").isEmpty();
     }
 
     @Test
@@ -160,13 +176,14 @@ class PackageBoundaryTest {
     }
 
     /**
-     * The packages of the workspace adapters exist and are documented. A {@code package-info}
+     * The packages of the workspace adapters and of the SOAP adapter exist and are documented. A {@code package-info}
      * without annotations compiles to no class file, so the sources are checked.
      */
     @Test
     void theWorkspaceAdapterPackagesExist() {
         Path sources = Path.of("src", "main", "java");
-        for (String pkg : List.of("adapter/archive/v81", "adapter/git", "adapter/xslt")) {
+        for (String pkg : List.of("adapter/archive/v81", "adapter/git", "adapter/xslt",
+            SOAP_ADAPTER)) {
             assertThat(sources.resolve(BASE + pkg).resolve("package-info.java"))
                 .as("package-info of %s", pkg).isRegularFile();
         }

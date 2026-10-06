@@ -59,7 +59,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   StartCLI launches by matching the `--execCommand` line (prefix or regex) to a response
   (`stdout/stderr/exit`) and an optional action (e.g. write the export file); records every launch;
   fails the test on an unexpected command (a write that should not happen).
-- [ ] T003 [P] `main/domain/model/ErrorCode.java`: add `NOT_DEVELOPMENT`, `CONFLICT`,
+- [X] T003 [P] `main/domain/model/ErrorCode.java`: add `NOT_DEVELOPMENT`, `CONFLICT`,
   `SECRET_UNRESOLVED`, `IMPORT_FAILED`, `VERIFY_MISMATCH`, `E2E_FORBIDDEN` with test updates
   (any exhaustive switch/mapping tests); `PackageBoundaryTest` first: `adapter.soap` exists, may not
   depend on `mcp`/`application`; `application` reaches new adapters only via ports.
