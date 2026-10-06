@@ -97,7 +97,7 @@ are P1, and no export may write a file before redaction exists.
   `CheckReport`, `XsltRun` (outcome `OK|ERROR|NOT_TESTABLE`, standInsUsed), `SecretPlaceholder`
   (`${secret:<propertyPath>}`, "no value-derived data"); tests in `test/domain/model/` for invariants
   (null checks, immutable copies, placeholder rendering and parsing).
-- [ ] T006 [P] Ports in `main/domain/port/`: `ArtifactPort` (`byte[] exportWorkflowGroup(String owner,
+- [X] T006 [P] Ports in `main/domain/port/`: `ArtifactPort` (`byte[] exportWorkflowGroup(String owner,
   String diagramGroup)`, `byte[] exportModule(String owner, String pluginType, String name)`) with
   `Gateway.artifacts()` (default throws `CLI_UNAVAILABLE` in existing test gateways); `VersionHistoryPort`
   (`init`, `status`, `commitAll(String message) → Optional<HistoryEntry>`, `restore(Path subtree)`);
