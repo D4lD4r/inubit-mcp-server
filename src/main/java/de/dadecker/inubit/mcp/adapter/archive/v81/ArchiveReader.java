@@ -37,8 +37,12 @@ import java.util.zip.ZipInputStream;
  *   <li>Known entries only: {@code archive.properties}, {@code Repository.zip},
  *       {@code workflow/workflow.xml}, {@code module/module.xml}, {@code module/<name>.xml} and
  *       the directory entries {@code workflow/} (module-only exports) and {@code module/}.
- *       Anything else, a duplicate, or a module file without index entry is refused, so that
- *       nothing is dropped silently. {@code module/module.xml} is required.
+ *       Anything else (e.g. {@code versionHistory.xml} of a history export or
+ *       {@code usertags.xml} of an export by tag, which feature 003 never requests), a duplicate
+ *       entry, a module file without index entry, or two module names stored as the same file
+ *       is refused, so that nothing is dropped silently. A module listed twice in the index (seen
+ *       in real exports) stays twice in {@link ExportArchive#moduleIndex()}.
+ *       {@code module/module.xml} is required.
  *   <li>Entry names of the export and of the nested {@code Repository.zip} must stay inside the
  *       archive: no absolute names, drive letters, backslashes, empty, {@code .} or {@code ..}
  *       segments.
@@ -255,7 +259,9 @@ public final class ArchiveReader {
         Map<String, ModuleIndexEntry> byFileName = new HashMap<>();
         for (ModuleIndexEntry entry : index) {
             String fileName = "module/" + entry.name().toLowerCase(Locale.ROOT) + ".xml";
-            if (byFileName.put(fileName, entry) != null) {
+            ModuleIndexEntry previous = byFileName.putIfAbsent(fileName, entry);
+            // a module listed twice (seen in real exports) is one module; two names are not
+            if (previous != null && !previous.name().equals(entry.name())) {
                 throw unexpected("The module index names two modules stored as " + fileName);
             }
         }

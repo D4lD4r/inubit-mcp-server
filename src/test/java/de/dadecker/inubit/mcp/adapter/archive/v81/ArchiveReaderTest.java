@@ -162,6 +162,37 @@ class ArchiveReaderTest {
     }
 
     @Test
+    void acceptsAModuleListedTwiceInTheIndex() {
+        // seen in a real diagram group export: the same Module element twice in its group
+        Map<String, byte[]> entries = moduleOnly();
+        String index = new String(entries.get("module/module.xml"), StandardCharsets.UTF_8);
+        String module = index.substring(index.indexOf("<Module "),
+            index.indexOf("</Module>") + "</Module>".length());
+        entries.put("module/module.xml", index.replace(module, module + module)
+            .getBytes(StandardCharsets.UTF_8));
+
+        ExportArchive archive = reader.read(zip(entries));
+
+        assertThat(archive.moduleIndex()).extracting(ModuleIndexEntry::name)
+            .containsExactly("Module-0023", "Module-0023");
+        assertThat(archive.moduleIndex()).extracting(ModuleIndexEntry::position)
+            .containsExactly(0, 1);
+        assertThat(archive.moduleFiles()).containsOnlyKeys("Module-0023");
+    }
+
+    @Test
+    void refusesTwoModulesStoredAsTheSameFile() {
+        Map<String, byte[]> entries = moduleOnly();
+        String index = new String(entries.get("module/module.xml"), StandardCharsets.UTF_8);
+        String module = index.substring(index.indexOf("<Module "),
+            index.indexOf("</Module>") + "</Module>".length());
+        entries.put("module/module.xml", index.replace(module, module
+            + module.replace("Module-0023", "MODULE-0023")).getBytes(StandardCharsets.UTF_8));
+
+        assertUnexpected(() -> reader.read(zip(entries)), "module/module-0023.xml");
+    }
+
+    @Test
     void refusesAModuleFileWithoutIndexEntry() {
         Map<String, byte[]> entries = moduleOnly();
         entries.put("module/module-9999.xml", "<Properties/>".getBytes(StandardCharsets.UTF_8));
