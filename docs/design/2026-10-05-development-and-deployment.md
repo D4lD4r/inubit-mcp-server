@@ -111,8 +111,8 @@ development, deployment and test rights. The existing `write.*` settings for `re
 
 ## 4. Export format (known facts)
 
-From an earlier analysis of INUBIT 8.x diagram exports (format version 8.0.28); items marked
-*spike* are not known yet (section 10).
+From an earlier analysis of INUBIT 8.x diagram exports (format version 8.0.28), confirmed and
+extended on 8.1.17 by the spike ([findings](../research/spike-development-deployment.md)).
 
 - One ZIP per export, entries without directory entries:
   - `archive.properties` — Java properties: a date comment, `sourceVersion`, `operationId`.
@@ -136,8 +136,17 @@ From an earlier analysis of INUBIT 8.x diagram exports (format version 8.0.28); 
   saved test values.
 - Stylesheets are XSLT 1.0, 2.0 and 3.0; INUBIT runs **Saxon 10**. Stylesheets may call INUBIT
   extension functions through `java:` namespaces.
-- *Spike*: layout of a module-only export; whether `AES-…` values are stable across exports and
-  valid on another server; StartCLI import options; export of a tagged version.
+- A diagram-group export contains every module used by its workflows; a module-only export has
+  the same layout with an empty `workflow/` entry.
+- `ModuleId` and `ConnectionId` share one id space per workflow.
+- Artifacts are identified **by name**. `WorkflowUId` and `ModuleUId` are reassigned by every
+  modifying import; they are volatile.
+- Encrypted values are stable across exports and installation-independent: most are identical on
+  two stages, stage-specific ones differ.
+- INUBIT does not validate an imported workflow: dangling edges and references to missing modules
+  are stored, and the latter makes every export of the diagram group fail.
+- Of one owner's 656 stylesheets, 88 % compile on Saxon-HE 10 as they are; the rest need about 20
+  INUBIT extension functions (`com.inubit.ibis.xsltext.Formatter`, `Misc`, `ISFunctions`).
 
 ## 5. Workspace and git mirror (feature 003)
 
@@ -156,7 +165,9 @@ workspace/<group>/
 ```
 
 **Normalization.** XML is written with one canonical indentation and attribute order; volatile
-values move to `.meta/`, so exporting an unchanged artifact twice yields an empty diff. Layout
+values (the export suffix of `CheckinComment`, `archive.properties`, UIDs) move to `.meta/`, so
+exporting an unchanged artifact twice yields an empty diff. Embedded XML is escaped the way INUBIT
+writes it (only `<` and `&`). Layout
 values (`StyleSheet` coordinates, juncture points) stay in place; diffs report layout-only changes
 separately.
 
@@ -176,14 +187,16 @@ the changed paths and the commit; the client edits the files with its own tools.
 
 `check_artifacts` reports per artifact:
 
-- **Structure**: every edge targets an existing `ModuleId`; Demultiplexer condition keys match the
-  outgoing edges; every referenced module exists in the workspace or on the server (including
-  published library modules); `ModuleId` is unique per workflow; variable references resolve;
+- **Structure** (INUBIT itself checks none of this on import): every edge targets an existing
+  `ModuleId`; Demultiplexer condition keys match the outgoing edges; every referenced module exists
+  in the workspace or on the server (including published library modules); `ModuleId` and
+  `ConnectionId` are unique together per workflow; variable references resolve;
   `inubitrepository:` references resolve.
 - **XSLT**: transformation with Saxon-HE 10 of a given input file; output written to `.tests/`.
   Stylesheets that need Saxon-EE features (schema awareness, reflexive extension calls without a
-  stub) are reported as *not testable locally* — never as passed. Stubs for frequently used INUBIT
-  extension functions are an increment inside 003 if the spike shows they are needed.
+  stub) are reported as *not testable locally* — never as passed. Stubs for the INUBIT extension
+  functions found by the spike are part of 003; without them about one stylesheet in nine could
+  not be checked.
 - **XML/XSD**: well-formedness; validation against embedded or repository schemas.
 
 ## 6. Development on a development stage (feature 004)
@@ -204,17 +217,23 @@ The server enforces these steps in this order:
 3. **Back up** — keep that fresh export as `.backups/<auditId>.zip` and commit it.
 4. **Assemble** — build the import archive from the workspace; restore secret placeholders from
    the fresh export, in memory only. A placeholder without a counterpart aborts with
-   `SECRET_UNRESOLVED`. The `reason` of the call becomes the check-in comment.
-5. **Import** — StartCLI import (options: *spike*).
+   `SECRET_UNRESOLVED`. The `reason` of the call becomes the check-in comment. Only changed
+   artifacts go into the archive (every import creates a new version, even an unchanged one):
+   changed workflows as a workflow archive, changed modules alone as a module archive.
+5. **Import** — `import --importFile <zip> --importWorkflow --importUser|--importUserGroup <owner>
+   --returnProtocol` (modules: `--importModule`); the protocol lists every created or modified
+   artifact and must match the archive.
 6. **Verify** — export again and compare with the intended state; on success commit
-   `import <group>: …`, otherwise return `VERIFY_MISMATCH` with the differences.
+   `import <group>: …`, otherwise return `VERIFY_MISMATCH` with the differences. A failing export
+   counts as a failed import: the server re-imports the backup at once and reports
+   `IMPORT_FAILED`.
 
 ### Further tools
 
 | Tool | Purpose |
 |---|---|
-| `set_active` | activate or deactivate one workflow or module |
-| `tag_artifacts` | tag the current version of a set of workflows (with their modules); the tag is the release marker for deployments |
+| `set_active` | activate or deactivate one workflow (re-import with `--importWorkflowActive` / `--importWorkflowInactive`; creates a new version) |
+| `tag_artifacts` | tag the current version of one or more **diagram groups** (with their modules) — the smallest unit INUBIT can tag; always scoped by owner and diagram group, never owner-wide; the tag is the release marker for deployments |
 | `restore_backup` | re-import a backup by `auditId`; same steps as `import_artifacts`, including the conflict check. Also available on a deployment target for the backups its deployments took; there it always requires preview and code |
 | `run_e2e_test` | send a test message and collect the outcome (below) |
 
@@ -233,11 +252,10 @@ preview and code (the preview names endpoint and payload), `FORBIDDEN` refuses w
 
 ## 7. Stage chain and deployment (feature 005)
 
-**What is deployed.** A **release**: a set of workflows with their modules and repository files,
-identified by a tag on the source group. Deployments always come from the target's `deploy.from`
+**What is deployed.** A **release**: one or more diagram groups with their modules and repository
+files, identified by a tag on the source group and exported with `--exportTag`. Deployments always come from the target's `deploy.from`
 group, so what moves on is exactly what was deployed and tested there; content hashes prove it.
-After a successful deployment the same tag is set on the target. *Spike*: if a tagged version
-cannot be exported, the head version is exported and must match the tagged content.
+After a successful deployment the same tag is set on the target.
 
 **Stage-specific values.** Artifacts are expected to be stage-independent: stage-specific
 settings live in system diagrams or are set at runtime. Therefore:
@@ -294,7 +312,9 @@ and the list of affected artifacts (names only — never content or secrets). Ev
 
 ## 10. Spike (before feature 003)
 
-On the development stage, with one throw-away test workflow that may be created there:
+Done on 2026-10-06; findings in
+[docs/research/spike-development-deployment.md](../research/spike-development-deployment.md).
+Still open: behaviour with checked-out artifacts. The questions were:
 
 1. StartCLI import: command, options, behaviour for existing artifacts, check-in and versioning,
    checked-out artifacts, error output.
