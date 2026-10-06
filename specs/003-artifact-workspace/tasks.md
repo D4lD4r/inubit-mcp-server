@@ -216,7 +216,7 @@ unchanged re-export, round trip.
   `INVALID_INPUT`; 128 MiB cap; temporary directory deleted on success, failure and timeout;
   `TIMEOUT` names `cliExportTimeout`; `NOT_FOUND` when StartCLI reports a missing group/module,
   classified from the recordings `fixtures/artifacts/cli/export-*-missing.{stdout,stderr,exit}` of T002.
-- [ ] T020 [US1] `main/adapter/cli/v81/V81ArtifactAdapter.java` implementing `ArtifactPort`, wired in the
+- [X] T020 [US1] `main/adapter/cli/v81/V81ArtifactAdapter.java` implementing `ArtifactPort`, wired in the
   v8.1 gateway factory, with `test/adapter/cli/V81ArtifactAdapterTest.java` first; assert that the
   v8.1 gateway overrides `Gateway.artifacts()` (no `CLI_UNAVAILABLE` default for a node with a CLI).
 - [ ] T021 [US1] `main/application/WorkspaceService.java` with `test/application/WorkspaceExportTest.java`

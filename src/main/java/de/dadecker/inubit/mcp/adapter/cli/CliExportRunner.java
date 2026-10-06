@@ -156,13 +156,7 @@ public final class CliExportRunner {
      *     {@code CLI_UNAVAILABLE}
      */
     public byte[] exportWorkflowGroup(String owner, String diagramGroup) {
-        if (diagramGroup == null || diagramGroup.isBlank()) {
-            throw invalid("The diagram group must not be empty",
-                "StartCLI treats an empty group as all diagram groups of the owner");
-        }
-        quotable("Owner", owner);
-        quotable("Diagram group", diagramGroup);
-        checkPreconditions();
+        checkWorkflowGroupExport(owner, diagramGroup);
         return export("export.zip", this::readArchive, file -> CliCommand.command("export")
             .quoted("--exportWorkflowUser", owner)
             .quoted("--exportWorkflowType", "technical")
@@ -179,14 +173,7 @@ public final class CliExportRunner {
      * @throws ToolErrorException as {@link #exportWorkflowGroup}
      */
     public byte[] exportModule(String owner, String pluginType, String name) {
-        if (name == null || name.isBlank() || pluginType == null || pluginType.isBlank()) {
-            throw invalid("The module name and plugin type must not be empty",
-                "StartCLI treats an empty module or module group as all");
-        }
-        quotable("Owner", owner);
-        quotable("Plugin type", pluginType);
-        quotable("Module", name);
-        checkPreconditions();
+        checkModuleExport(owner, pluginType, name);
         return export("module.zip", this::readArchive, file -> CliCommand.command("export")
             .quoted("--exportModule", name)
             .quoted("--exportModuleGroup", pluginType)
@@ -243,6 +230,29 @@ public final class CliExportRunner {
     public void checkModuleExport(String owner) {
         checkPreconditions();
         checkQuotable("inventory.owner", owner);
+    }
+
+    /** The checks of {@link #exportWorkflowGroup}; see {@link #checkHistoryExport}. */
+    public void checkWorkflowGroupExport(String owner, String diagramGroup) {
+        if (diagramGroup == null || diagramGroup.isBlank()) {
+            throw invalid("The diagram group must not be empty",
+                "StartCLI treats an empty group as all diagram groups of the owner");
+        }
+        quotable("Owner", owner);
+        quotable("Diagram group", diagramGroup);
+        checkPreconditions();
+    }
+
+    /** The checks of {@link #exportModule}; see {@link #checkHistoryExport}. */
+    public void checkModuleExport(String owner, String pluginType, String name) {
+        if (name == null || name.isBlank() || pluginType == null || pluginType.isBlank()) {
+            throw invalid("The module name and plugin type must not be empty",
+                "StartCLI treats an empty module or module group as all");
+        }
+        quotable("Owner", owner);
+        quotable("Plugin type", pluginType);
+        quotable("Module", name);
+        checkPreconditions();
     }
 
     private void checkPreconditions() {

@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.adapter;
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ProcessControlAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81LogAdapter;
@@ -20,6 +21,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
@@ -145,6 +147,12 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
     @Override
     public InventoryPort inventory(NodeId server) {
         return slot(server).ports().inventory();
+    }
+
+    /** Without waiting for a version detection: only the 8.1 adapters exist (feature 003). */
+    @Override
+    public ArtifactPort artifacts(NodeId server) {
+        return slot(server).ports().artifacts();
     }
 
     /** Without waiting for a version detection: only the 8.1 adapters exist (US4). */
@@ -350,14 +358,18 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                         guard);
                     probe = newProbe;
                     monitoring = new V81MonitoringAdapter(server.id(), client, this);
+                    V81InventoryAdapter inventory = new V81InventoryAdapter(server.id(), client,
+                        new CliExportRunner(server, credentials, guard, cliRunner,
+                            new CliOutputClassifier(scrubber, server.credentialVariables())));
                     ports = new V81Gateway.Ports(
                         new V81ProcessQueryAdapter(server.id(), client),
                         new V81LogAdapter(server.id(), client),
-                        new V81InventoryAdapter(server.id(), client, new CliExportRunner(server,
-                            credentials, guard, cliRunner, new CliOutputClassifier(scrubber,
-                                server.credentialVariables()))),
+                        inventory,
                         new V81ProcessControlAdapter(server, credentials, guard, cliRunner,
-                            new CliOutputClassifier(scrubber, server.credentialVariables())));
+                            new CliOutputClassifier(scrubber, server.credentialVariables())),
+                        new V81ArtifactAdapter(new CliExportRunner(server, credentials, guard,
+                            cliRunner, new CliOutputClassifier(scrubber,
+                                server.credentialVariables())), inventory::confirmCredentials));
                 } catch (RuntimeException e) {
                     newProbe.close();
                     throw e;

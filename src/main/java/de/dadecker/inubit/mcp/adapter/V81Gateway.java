@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.adapter;
 
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
@@ -28,6 +29,7 @@ final class V81Gateway implements Gateway {
     private final LogPort logs;
     private final InventoryPort inventory;
     private final ProcessControlPort processControl;
+    private final ArtifactPort artifacts;
     private final CredentialGuard guard;
 
     /**
@@ -48,6 +50,7 @@ final class V81Gateway implements Gateway {
         this.logs = ports.logs();
         this.inventory = ports.inventory();
         this.processControl = ports.processControl();
+        this.artifacts = ports.artifacts();
         this.guard = Objects.requireNonNull(guard, "guard");
     }
 
@@ -96,17 +99,24 @@ final class V81Gateway implements Gateway {
         return processControl;
     }
 
+    @Override
+    public ArtifactPort artifacts() {
+        return artifacts;
+    }
+
     /**
-     * The ports of US2 (REST), US3 (REST and CLI exports) and US4 (CLI), created once per server
+     * The ports of US2 (REST), US3 (REST and CLI exports), US4 (CLI) and feature 003 (CLI
+     * exports), created once per server
      * with its client and credential guard.
      */
     record Ports(ProcessQueryPort processes, LogPort logs, InventoryPort inventory,
-        ProcessControlPort processControl) {
+        ProcessControlPort processControl, ArtifactPort artifacts) {
         Ports {
             Objects.requireNonNull(processes, "processes");
             Objects.requireNonNull(logs, "logs");
             Objects.requireNonNull(inventory, "inventory");
             Objects.requireNonNull(processControl, "processControl");
+            Objects.requireNonNull(artifacts, "artifacts");
         }
     }
 
