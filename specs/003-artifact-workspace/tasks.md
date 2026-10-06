@@ -134,7 +134,7 @@ are P1, and no export may write a file before redaction exists.
   `~/.inubit-mcp/<profile.name>/workspace`, `~` expanded, "must be absolute after expansion",
   created `rwx------` (created parents `rwx------`) at startup, "must be readable and writable" else
   configuration error naming the path.
-- [ ] T012 `main/adapter/archive/v81/ArchiveReader.java` with test first on `fixtures/artifacts/*.zip`:
+- [X] T012 `main/adapter/archive/v81/ArchiveReader.java` with test first on `fixtures/artifacts/*.zip`:
   parses an export ZIP into `ExportArchive` (data-model: properties, workflow groups with `WorkflowXml`
   incl. context, module index entries, module files, repository files from the nested
   `Repository.zip`), bounded to 128 MiB total and per entry, rejects ZIP entries with `..` or absolute

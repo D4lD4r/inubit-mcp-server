@@ -19,41 +19,41 @@ import javax.xml.stream.XMLStreamReader;
  * attributes, text (CDATA merged into text), comments and processing instructions. Document type
  * declarations and entity references are refused; no external resource is ever read.
  */
-final class XmlTree {
+public final class XmlTree {
 
     /** A node of the tree. */
-    sealed interface Node permits Element, Text, Comment, Instruction {
+    public sealed interface Node permits Element, Text, Comment, Instruction {
     }
 
     /** One namespace declaration; {@code prefix} is empty for the default namespace. */
-    record Namespace(String prefix, String uri) {
+    public record Namespace(String prefix, String uri) {
     }
 
     /** One attribute; {@code prefix} and {@code namespaceUri} are empty if it has none. */
-    record Attribute(String prefix, String localName, String namespaceUri, String value) {
+    public record Attribute(String prefix, String localName, String namespaceUri, String value) {
 
-        String qualifiedName() {
+        public String qualifiedName() {
             return prefix.isEmpty() ? localName : prefix + ":" + localName;
         }
     }
 
     /** An element with its children in document order. */
-    record Element(String prefix, String localName, String namespaceUri,
+    public record Element(String prefix, String localName, String namespaceUri,
         List<Namespace> namespaces, List<Attribute> attributes, List<Node> children)
         implements Node {
 
-        Element {
+        public Element {
             namespaces = List.copyOf(namespaces);
             attributes = List.copyOf(attributes);
             children = List.copyOf(children);
         }
 
-        String qualifiedName() {
+        public String qualifiedName() {
             return prefix.isEmpty() ? localName : prefix + ":" + localName;
         }
 
         /** {@code xml:space="preserve"} on this element. */
-        boolean preservesSpace() {
+        public boolean preservesSpace() {
             return attributes.stream().anyMatch(a -> a.localName().equals("space")
                 && a.namespaceUri().equals(XMLConstants.XML_NS_URI)
                 && a.value().equals("preserve"));
@@ -63,7 +63,7 @@ final class XmlTree {
          * Element-only content: at least one child that is not text, and every text child is
          * whitespace only (and the element does not preserve space).
          */
-        boolean elementOnly() {
+        public boolean elementOnly() {
             return !preservesSpace() && children.stream().anyMatch(c -> !(c instanceof Text))
                 && children.stream().allMatch(c -> !(c instanceof Text text)
                     || text.value().isBlank());
@@ -71,21 +71,21 @@ final class XmlTree {
     }
 
     /** Character data (CDATA sections included). */
-    record Text(String value) implements Node {
+    public record Text(String value) implements Node {
     }
 
     /** A comment. */
-    record Comment(String value) implements Node {
+    public record Comment(String value) implements Node {
     }
 
     /** A processing instruction. */
-    record Instruction(String target, String data) implements Node {
+    public record Instruction(String target, String data) implements Node {
     }
 
     /** The document: comments and instructions before and after the root element. */
-    record Document(List<Node> prolog, Element root, List<Node> epilog) {
+    public record Document(List<Node> prolog, Element root, List<Node> epilog) {
 
-        Document {
+        public Document {
             prolog = List.copyOf(prolog);
             Objects.requireNonNull(root, "root");
             epilog = List.copyOf(epilog);
@@ -103,7 +103,7 @@ final class XmlTree {
      * @throws IllegalArgumentException if it is not well-formed, empty, or has a document type
      *     declaration or entity references
      */
-    static Document parse(byte[] xml) {
+    public static Document parse(byte[] xml) {
         Objects.requireNonNull(xml, "xml");
         XMLStreamReader reader = null;
         try {
