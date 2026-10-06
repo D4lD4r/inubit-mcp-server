@@ -94,6 +94,17 @@ public final class ImportHarness {
      */
     public ImportHarness(Path temp, byte[] fixture, String owner, String diagramGroup)
         throws IOException {
+        this(temp, fixture, owner, diagramGroup, null, null);
+    }
+
+    /** The harness on a module-only export of {@code module} (plugin type {@code pluginType}). */
+    public static ImportHarness module(Path temp, byte[] fixture, String owner, String module,
+        String pluginType) throws IOException {
+        return new ImportHarness(temp, fixture, owner, "-", module, pluginType);
+    }
+
+    private ImportHarness(Path temp, byte[] fixture, String owner, String diagramGroup,
+        String module, String pluginType) throws IOException {
         this.root = Files.createDirectories(temp.resolve("workspace"));
         this.cliHome = Files.createDirectories(temp.resolve("client"));
         Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
@@ -101,9 +112,15 @@ public final class ImportHarness {
         this.owner = owner;
         this.diagramGroup = diagramGroup;
         this.exports = new ExportHarness(root);
-        exports.artifacts.exports.put(diagramGroup, fixture);
-        exports.service().export(new WorkspaceService.ExportRequest(DEV, owner,
-            List.of(diagramGroup), List.of()));
+        if (module == null) {
+            exports.artifacts.exports.put(diagramGroup, fixture);
+            exports.service().export(new WorkspaceService.ExportRequest(DEV, owner,
+                List.of(diagramGroup), List.of()));
+        } else {
+            exports.artifacts.exports.put(module, fixture);
+            exports.service().export(new WorkspaceService.ExportRequest(DEV, owner, List.of(),
+                List.of(new WorkspaceService.ModuleRef(module, Optional.of(pluginType)))));
+        }
         this.inubit = new FakeInubit(fixture);
         this.backups = new BackupStore(temp.resolve("backups"), clock);
         this.server = TestNodeConfig.node().id(DEV.value()).cliHome(cliHome)

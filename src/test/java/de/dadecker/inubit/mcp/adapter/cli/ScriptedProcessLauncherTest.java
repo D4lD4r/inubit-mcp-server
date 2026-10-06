@@ -91,6 +91,19 @@ class ScriptedProcessLauncherTest {
     }
 
     @Test
+    void aReplyCanBeComputedAtLaunch() throws Exception {
+        ScriptedProcessLauncher cli = new ScriptedProcessLauncher()
+            .expect("import ").replyingWith(spec -> "protocol for "
+                + ScriptedProcessLauncher.importFile(spec).getFileName() + "\n");
+
+        CliResult result = run(cli, "import --importFile '/tmp/x/import.zip' --importWorkflow");
+
+        assertThat(result.stdout()).isEqualTo("protocol for import.zip\n");
+        assertThat(result.stderr()).startsWith("Picked up JAVA_TOOL_OPTIONS");
+        assertThat(result.exitCode()).isZero();
+    }
+
+    @Test
     void anUnexpectedCommandFailsTheTestAndIsRecorded() {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher()
             .expect("export ").replying("export_modules_sample");

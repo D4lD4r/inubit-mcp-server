@@ -146,7 +146,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   EXECUTE/PENDING, EXECUTED/FAILED, REFUSED) with the inputs of data-model; backup retention sweep at
   start, audited; SC-007 performance test (20 workflows, 100 modules, scripted StartCLI) < 2 min.
   **Also (analysis):** reason validated (no `###`, `@@@`, control characters); referenced modules must be in the archive or the target's module list; calls `checkPaths` (lock already held); `USER_GROUP` owners refused; rollback built from the backup through `ImportAssembler` with secrets from the target's CURRENT export; failure result `failure{code, step, message}`; after a StartCLI TIMEOUT re-export before deciding; write-back replaces only change-set files; workspace changed between preview and execute → `CONFIRMATION_INVALID`; `DevelopmentAuditTest` covers every tool's audit records; concurrent workspace operation refused (FR-027) (D-25).
-- [ ] T017 [US1] `test/security/ImportSecretLeakTest.java` (FR-012, SC-004): run imports of all
+- [X] T017 [US1] `test/security/ImportSecretLeakTest.java` (FR-012, SC-004): run imports of all
   feature-003 fixtures; search workspace, history objects, backup index, audit file, tool results and
   captured logs for every synthetic secret value — zero; the import ZIP temp dir no longer exists; the
   values inside the (captured) import archive equal the target's values.
