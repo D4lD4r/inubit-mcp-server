@@ -88,7 +88,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   delete+add); `WorkspaceService` export commits now carry the trailer (test in
   `WorkspaceExportTest`); no write method beyond `commitAll`/`restore`.
   **Also (analysis):** trailer names the **group**; without any trailer fall back to the last `export <node>:` subject; no base → `PRECONDITION_FAILED` "export the scope first"; `changedPaths` per artifact path (D-25).
-- [ ] T008 `main/application/BackupStore.java` (+ `BackupPort` if needed) with test first (D-13):
+- [X] T008 `main/application/BackupStore.java` (+ `BackupPort` if needed) with test first (D-13):
   write `<auditId>.zip` + `.json` under `~/.inubit-mcp/<profile>/backups` (injectable root),
   `rwx------`/`rw-------`; index has no secrets (assert); `find(auditId)`; retention sweep: older than
   30 days removed unless newest of `(node, owner, scope)`, returns removed refs for auditing.
