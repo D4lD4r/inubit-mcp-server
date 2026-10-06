@@ -23,7 +23,7 @@ went to two test workflows in one person's own diagram group**. Names below are 
 | Secrets | encryption is installation-independent; most values are identical across stages, some differ | "secrets come from the target" is mandatory |
 | Volatile values | only `archive.properties`, ZIP entry times and the export suffix of `CheckinComment` (plus UIDs after imports) | normalization is small and well-defined |
 | XSLT on Saxon-HE 10 | 88 % of the owner's stylesheets compile as they are; the rest needs ~20 INUBIT extension functions | stubs for those functions make local XSLT checks broadly useful |
-| Checked-out artifacts | **not probed yet** (needs a person in the Workbench) | open |
+| Artifacts in edit mode | export marks them with `<CheckoutUser>`; INUBIT does **not** protect them: an import overwrites the edited workflow and a later publish from the Workbench overwrites the import, both without a warning (last writer wins) | `import_artifacts` must refuse with `CONFLICT` when `CheckoutUser` is set, and re-check right before importing |
 
 ## 1. StartCLI
 
@@ -147,8 +147,23 @@ Extension functions in use: `com.inubit.ibis.xsltext.Formatter` (80 calls: `chan
 `deserialize`), `java.lang.Thread#sleep`, `java.util.UUID#randomUUID`,
 `java.net.URLDecoder#decode`, and one installation-specific class.
 
-## 8. Open
+## 8. Artifacts in edit mode
 
-- Behaviour of export and import while an artifact is checked out in the Workbench.
-- Visual check of the structurally changed workflow in the Workbench (the export proves the XML;
-  the Workbench rendering was not checked).
+In the Workbench a workflow is put into edit mode ("Edit", German "Editieren"; elsewhere called
+check-out) and saved as a new version by "Publish" ("Publizieren"; check-in). Probe with the copy
+in edit mode by the person:
+
+- The export marks the workflow with `<CheckoutUser><user></CheckoutUser>`; the element is absent
+  otherwise. Modules in the index carried no marker.
+- An import of the workflow during edit mode succeeded (`was modified`, new version) and the
+  export afterwards showed no `CheckoutUser` any more; the Workbench, however, still showed the
+  workflow in edit mode and no lock or notice.
+- Publishing from the Workbench afterwards gave no warning and created the next version with the
+  Workbench state: the imported change was lost.
+
+Both directions are silent lost updates. The server is the only place that can prevent them.
+
+## 9. Workbench rendering
+
+The person opened the structurally changed copy in the Workbench: the new node, the rewired
+default branch and the Demultiplexer condition are shown as intended.

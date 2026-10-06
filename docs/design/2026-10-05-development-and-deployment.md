@@ -213,7 +213,9 @@ The server enforces these steps in this order:
 1. **Check** — run `check_artifacts`; errors abort, warnings are passed through.
 2. **Detect conflicts** — export the affected artifacts from the node and compare them with the
    export commit the workspace is based on. A change made in the meantime (e.g. in the Workbench)
-   or a checked-out artifact aborts with `CONFLICT` and returns the diff.
+   or an artifact in edit mode (`<CheckoutUser>` set; Workbench "Edit", not yet "Publish") aborts
+   with `CONFLICT` and returns the diff. INUBIT itself does not protect an artifact in edit mode:
+   an import overwrites it and a later publish overwrites the import, both silently.
 3. **Back up** — keep that fresh export as `.backups/<auditId>.zip` and commit it.
 4. **Assemble** — build the import archive from the workspace; restore secret placeholders from
    the fresh export, in memory only. A placeholder without a counterpart aborts with
@@ -314,7 +316,7 @@ and the list of affected artifacts (names only — never content or secrets). Ev
 
 Done on 2026-10-06; findings in
 [docs/research/spike-development-deployment.md](../research/spike-development-deployment.md).
-Still open: behaviour with checked-out artifacts. The questions were:
+The questions were:
 
 1. StartCLI import: command, options, behaviour for existing artifacts, check-in and versioning,
    checked-out artifacts, error output.
