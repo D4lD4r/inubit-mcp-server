@@ -93,7 +93,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   `rwx------`/`rw-------`; index has no secrets (assert); `find(auditId)`; retention sweep: older than
   30 days removed unless newest of `(node, owner, scope)`, returns removed refs for auditing.
   **Also (analysis):** backup = manifest `<auditId>.json` (scope, change set, created, intended-state hashes, outcome; no secrets) + one raw ZIP per scope export `<auditId>-<n>.zip` (D-25).
-- [ ] T009 `main/application/OwnerKindResolver.java` + `main/domain/port/UserDirectoryPort.java` +
+- [X] T009 `main/application/OwnerKindResolver.java` + `main/domain/port/UserDirectoryPort.java` +
   `main/adapter/rest/v81/V81UserDirectory.java` (GET `/user/users?type=processEngineUser` through the
   existing REST client and credential guard) with tests first (D-21, WireMock + fixture XML): profile
   override wins; listed user → `USER`; not listed but owner has artifacts → `USER_GROUP`; neither →
