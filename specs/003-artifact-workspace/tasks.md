@@ -79,7 +79,7 @@ are P1, and no export may write a file before redaction exists.
   `UUID:randomUUID()`, `Thread:sleep(…)`), `unknown-extension.xsl`, `syntax-error.xsl`,
   `repository-import.xsl` (imports `inubitrepository:/Root/OWNERS/xsl/common.xsl`), `input.xml`,
   `schema.xsd`, `valid.xml`, `invalid.xml`, `not-well-formed.xml`.
-- [ ] T004 Create the packages `main/adapter/archive/v81/`, `main/adapter/git/`,
+- [X] T004 Create the packages `main/adapter/archive/v81/`, `main/adapter/git/`,
   `main/adapter/xslt/` with `package-info.java`, and extend `test/architecture/PackageBoundaryTest.java`
   first (failing): `adapter.archive`, `adapter.git`, `adapter.xslt` may not depend on `mcp` or
   `application`; `application` reaches them only through `domain.port`; `net.sf.saxon` is used only in
