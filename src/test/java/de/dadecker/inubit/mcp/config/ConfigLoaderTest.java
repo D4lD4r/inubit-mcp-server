@@ -3,8 +3,12 @@ package de.dadecker.inubit.mcp.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
+import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
+import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -750,9 +754,9 @@ class ConfigLoaderTest {
         void effectiveConfigRejectsUrlsWithUserInfo() {
             NodeConfig entry = new NodeConfig("node1",
                 java.util.Optional.of(URI.create("https://u:secretpw@h.example.test")), false, null,
-                null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null);
             GroupConfig stage = new GroupConfig("dev", false, List.of(entry), null, null, null,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null);
 
             assertThatThrownBy(() -> EffectiveNodeConfig.resolve(Defaults.EMPTY, stage, entry,
                 "INUBIT_ACME"))
@@ -766,9 +770,9 @@ class ConfigLoaderTest {
         void effectiveConfigRejectsUrlsWithAnyAtSign(String url) {
             NodeConfig entry = new NodeConfig("node1",
                 java.util.Optional.of(URI.create(url)), false, null,
-                null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null);
             GroupConfig stage = new GroupConfig("dev", false, List.of(entry), null, null, null,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null);
 
             assertThatThrownBy(() -> EffectiveNodeConfig.resolve(Defaults.EMPTY, stage, entry,
                 "INUBIT_ACME"))
@@ -900,6 +904,146 @@ class ConfigLoaderTest {
                 .isInstanceOf(ConfigException.class)
                 .hasMessageContaining("workspace")
                 .hasMessageContaining("a file system path");
+        }
+    }
+
+    /** Feature 004 (T004, research D-1, D-21, contracts/configuration-delta.md). */
+    @Nested
+    class Development {
+
+        private static final String LAYERED = """
+            profile:
+              name: acme
+            owners:
+              OWNERS: USER_GROUP
+              jdoe: USER
+            defaults:
+              development:
+                confirmation: CLIENT
+              e2eTests: CONFIRM
+            groups:
+              - name: dev
+                development:
+                  enabled: true
+                e2eTests: FREE
+                e2e:
+                  soap:
+                    baseUrl: https://inubit-dev.example.test:8443
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit-dev.example.test:8443
+                  - name: node2
+                    baseUrl: https://inubit-dev-2.example.test:8443
+                    development:
+                      enabled: false
+                      confirmation: SERVER
+                    e2eTests: FORBIDDEN
+                    e2e:
+                      soap:
+                        baseUrl: http://inubit-dev-2.example.test:8080
+              - name: test
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit-test.example.test:8443
+            """;
+
+        private LoadedConfig parse(String yaml) {
+            return loader().parse(yaml, home.resolve("dev.yaml"));
+        }
+
+        @Test
+        void withoutSettingsNothingIsADevelopmentNode() {
+            LoadedConfig loaded = load("minimal.yaml");
+            EffectiveNodeConfig server = server(loaded, "dev/node1");
+
+            assertThat(server.development().enabled()).isFalse();
+            assertThat(server.development().confirmation()).isEqualTo(ConfirmationMode.SERVER);
+            assertThat(server.development().e2eTests()).isEqualTo(E2ePolicy.FORBIDDEN);
+            assertThat(server.development().soapBaseUrl()).isEmpty();
+            assertThat(loaded.config().owners()).isEmpty();
+        }
+
+        @Test
+        void theNodeWinsOverItsGroupAndTheGroupOverTheDefaults() {
+            LoadedConfig loaded = parse(LAYERED);
+            EffectiveNodeConfig fromGroup = server(loaded, "dev/node1");
+            EffectiveNodeConfig fromNode = server(loaded, "dev/node2");
+            EffectiveNodeConfig fromDefaults = server(loaded, "test/node1");
+
+            assertThat(fromGroup.development().enabled()).isTrue();
+            assertThat(fromGroup.development().confirmation())
+                .isEqualTo(ConfirmationMode.CLIENT);
+            assertThat(fromGroup.development().e2eTests()).isEqualTo(E2ePolicy.FREE);
+            assertThat(fromGroup.development().soapBaseUrl())
+                .contains(URI.create("https://inubit-dev.example.test:8443"));
+            assertThat(fromNode.development().enabled()).isFalse();
+            assertThat(fromNode.development().confirmation()).isEqualTo(ConfirmationMode.SERVER);
+            assertThat(fromNode.development().e2eTests()).isEqualTo(E2ePolicy.FORBIDDEN);
+            assertThat(fromNode.development().soapBaseUrl())
+                .contains(URI.create("http://inubit-dev-2.example.test:8080"));
+            assertThat(fromDefaults.development().enabled()).isFalse();
+            assertThat(fromDefaults.development().confirmation())
+                .isEqualTo(ConfirmationMode.CLIENT);
+            assertThat(fromDefaults.development().e2eTests()).isEqualTo(E2ePolicy.CONFIRM);
+            assertThat(fromDefaults.development().soapBaseUrl()).isEmpty();
+        }
+
+        @Test
+        void theDevelopmentPolicyCarriesTheEffectiveSettings() {
+            EffectiveNodeConfig server = server(parse(LAYERED), "dev/node1");
+
+            DevelopmentPolicy policy = server.developmentPolicy();
+
+            assertThat(policy.node()).isEqualTo(NodeId.parse("dev/node1"));
+            assertThat(policy.enabled()).isTrue();
+            assertThat(policy.production()).isFalse();
+            assertThat(policy.confirmation()).isEqualTo(WritePolicy.Confirmation.CLIENT);
+            assertThat(policy.confirmationTtl()).isEqualTo(Duration.parse("PT5M"));
+            assertThat(policy.e2eTests()).isEqualTo(E2ePolicy.FREE);
+            assertThat(policy.soapBaseUrl())
+                .contains(URI.create("https://inubit-dev.example.test:8443"));
+        }
+
+        @Test
+        void ownerKindsAreReadFromTheProfile() {
+            assertThat(parse(LAYERED).config().owners()).containsExactlyInAnyOrderEntriesOf(
+                Map.of("OWNERS", OwnerKind.USER_GROUP, "jdoe", OwnerKind.USER));
+        }
+
+        @Test
+        void anUnknownOwnerKindIsRefusedNamingTheAllowedKinds() {
+            assertThatThrownBy(() -> parse(MINIMAL + "owners:\n  OWNERS: GROUP\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("owners.OWNERS")
+                .hasMessageContaining("USER, USER_GROUP");
+        }
+
+        @Test
+        void unknownKeysOfTheNewSectionsAreStillRejected() {
+            assertThatThrownBy(() -> parse(MINIMAL.replace("    nodes:",
+                "    development:\n      enable: true\n    nodes:")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'enable'");
+            assertThatThrownBy(() -> parse(MINIMAL.replace("    nodes:",
+                "    e2e:\n      soap:\n        url: https://x.example.test\n    nodes:")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'url'");
+            assertThatThrownBy(() -> parse(MINIMAL.replace("    nodes:",
+                "    e2eTests: SOMETIMES\n    nodes:")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("FREE, CONFIRM, FORBIDDEN");
+        }
+
+        @Test
+        void userInfoInTheSoapBaseUrlIsDroppedAndReportedWithoutTheValue() {
+            LoadedConfig loaded = parse(MINIMAL.replace("    nodes:",
+                "    e2e:\n      soap:\n        baseUrl: https://u:soap-secret@x.example.test\n"
+                    + "    nodes:"));
+
+            assertThat(loaded.urlProblems()).singleElement().asString()
+                .contains("e2e.soap.baseUrl").doesNotContain("soap-secret");
+            assertThat(server(loaded, "dev/node1").development().soapBaseUrl()).isEmpty();
+            assertThat(loaded.toString()).doesNotContain("soap-secret");
         }
     }
 }

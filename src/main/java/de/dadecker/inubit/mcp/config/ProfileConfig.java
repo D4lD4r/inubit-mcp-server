@@ -2,12 +2,16 @@ package de.dadecker.inubit.mcp.config;
 
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 
 /**
@@ -17,6 +21,8 @@ import java.util.TreeSet;
  * @param workspace the artifact workspace of feature 003 (contracts/configuration-delta.md);
  *                  {@link ConfigLoader} sets the default {@code ~/.inubit-mcp/<profile>/workspace},
  *                  {@link ConfigValidator} checks it and creates it if missing
+ * @param owners    the owner kind overrides of feature 004 ({@code owners.<name>: USER |
+ *                  USER_GROUP}, research D-21), sorted by name; empty if not configured
  */
 public record ProfileConfig(
     ProfileSection profile,
@@ -27,7 +33,8 @@ public record ProfileConfig(
     Path auditDirectory,
     LogLevel logLevel,
     ResultLimits resultLimits,
-    Path workspace) {
+    Path workspace,
+    Map<String, OwnerKind> owners) {
 
     public ProfileConfig {
         profile = Optionals.orDefault(profile, ProfileSection.EMPTY);
@@ -39,6 +46,7 @@ public record ProfileConfig(
         logLevel = Optionals.orDefault(logLevel, LogLevel.INFO);
         resultLimits = Optionals.orDefault(resultLimits, ResultLimits.DEFAULT);
         Objects.requireNonNull(workspace, "workspace");
+        owners = owners == null ? Map.of() : Collections.unmodifiableMap(new TreeMap<>(owners));
     }
 
     /**

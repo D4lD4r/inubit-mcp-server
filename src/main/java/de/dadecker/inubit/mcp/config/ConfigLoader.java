@@ -446,6 +446,8 @@ public final class ConfigLoader {
             String groupName = nameOf(group, groupPath);
             sanitizeCliUrl(group, groupPath, groupPath + " '" + groupName + "'", source,
                 problems);
+            sanitizeSoapUrl(group, groupPath, groupPath + " '" + groupName + "'", source,
+                problems);
             JsonNode nodes = group.get("nodes");
             if (nodes == null || !nodes.isArray()) {
                 continue;
@@ -459,6 +461,7 @@ public final class ConfigLoader {
                 sanitizeUrl(node, "baseUrl", nodePath + ".baseUrl", label, "baseUrl", true,
                     source, problems);
                 sanitizeCliUrl(node, nodePath, label, source, problems);
+                sanitizeSoapUrl(node, nodePath, label, source, problems);
             }
         }
     }
@@ -468,6 +471,16 @@ public final class ConfigLoader {
         if (owner.get("cli") instanceof ObjectNode cli) {
             sanitizeUrl(cli, "url", ownerPath + ".cli.url", label, "cli.url", false, source,
                 problems);
+        }
+    }
+
+    /** {@code e2e.soap.baseUrl} (feature 004): like {@code baseUrl}, no user info or query. */
+    private static void sanitizeSoapUrl(ObjectNode owner, String ownerPath, String label,
+        Path source, List<String> problems) {
+        if (owner.get("e2e") instanceof ObjectNode e2e
+            && e2e.get("soap") instanceof ObjectNode soap) {
+            sanitizeUrl(soap, "baseUrl", ownerPath + ".e2e.soap.baseUrl", label,
+                "e2e.soap.baseUrl", true, source, problems);
         }
     }
 

@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Optional;
@@ -18,7 +19,10 @@ public record NodeConfig(
     Optional<Duration> cliTimeout,
     Optional<Duration> cliExportTimeout,
     Optional<Duration> hangingThreshold,
-    Optional<Duration> confirmationTtl) {
+    Optional<Duration> confirmationTtl,
+    DevelopmentConfig development,
+    Optional<E2ePolicy> e2eTests,
+    E2eConfig e2e) {
 
     public NodeConfig {
         name = Optionals.orDefault(name, "");
@@ -33,5 +37,8 @@ public record NodeConfig(
         cliExportTimeout = Optionals.orEmpty(cliExportTimeout);
         hangingThreshold = Optionals.orEmpty(hangingThreshold);
         confirmationTtl = Optionals.orEmpty(confirmationTtl);
+        development = Optionals.orDefault(development, DevelopmentConfig.EMPTY);
+        e2eTests = Optionals.orEmpty(e2eTests);
+        e2e = Optionals.orDefault(e2e, E2eConfig.EMPTY);
     }
 }

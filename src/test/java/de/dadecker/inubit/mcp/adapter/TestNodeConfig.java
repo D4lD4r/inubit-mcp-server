@@ -31,6 +31,7 @@ public final class TestNodeConfig {
 
     /** {@code credentials.envPrefix: INUBIT}: the variable names of feature 001. */
     private String credentialPrefix = "INUBIT";
+    private EffectiveNodeConfig.Development development = EffectiveNodeConfig.NO_DEVELOPMENT;
 
     private TestNodeConfig() {
     }
@@ -116,6 +117,12 @@ public final class TestNodeConfig {
         return this;
     }
 
+    /** The development settings of feature 004 (default: none). */
+    public TestNodeConfig development(EffectiveNodeConfig.Development value) {
+        this.development = value;
+        return this;
+    }
+
     public TestNodeConfig credentialPrefix(String value) {
         this.credentialPrefix = value;
         return this;
@@ -140,6 +147,7 @@ public final class TestNodeConfig {
             cliExportTimeout,
             Duration.ofMinutes(60),
             Duration.ofMinutes(5),
-            credentialPrefix);
+            credentialPrefix,
+            development);
     }
 }

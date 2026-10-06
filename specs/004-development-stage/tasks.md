@@ -66,7 +66,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 2: Foundational
 
-- [ ] T004 Configuration (D-1, contract): `DevelopmentConfig`, `E2eConfig`, `OwnerKind`,
+- [X] T004 Configuration (D-1, contract): `DevelopmentConfig`, `E2eConfig`, `OwnerKind`,
   profile `owners` in `main/config/*`; node-wins resolution into `EffectiveNodeConfig.development()` →
   `DevelopmentPolicy`; defaults `enabled false`, `confirmation SERVER`, `e2eTests FORBIDDEN`; tests
   first in `test/config/ConfigLoaderTest` and `ConfigValidatorTest`: production + development →

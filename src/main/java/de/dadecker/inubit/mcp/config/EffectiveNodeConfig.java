@@ -1,7 +1,10 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
+import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
+import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -32,7 +35,8 @@ public record EffectiveNodeConfig(
     Duration cliExportTimeout,
     Duration hangingThreshold,
     Duration confirmationTtl,
-    String credentialPrefix) {
+    String credentialPrefix,
+    Development development) {
 
     /** Path of the StartCLI SOAP endpoint relative to the base URL (8.1). */
     public static final String DEFAULT_CLI_PATH = "/ibis/servlet/IBISSoapServlet";
@@ -54,6 +58,7 @@ public record EffectiveNodeConfig(
         Objects.requireNonNull(hangingThreshold, "hangingThreshold");
         Objects.requireNonNull(confirmationTtl, "confirmationTtl");
         Objects.requireNonNull(credentialPrefix, "credentialPrefix");
+        Objects.requireNonNull(development, "development");
     }
 
     public record Write(boolean enabled, boolean productionOptIn, ConfirmationMode confirmation) {
@@ -98,11 +103,41 @@ public record EffectiveNodeConfig(
         }
     }
 
+    /**
+     * The development settings of feature 004 (research D-1, contracts/configuration-delta.md),
+     * resolved node → group → {@code defaults} → built-in; {@code e2e.soap.baseUrl} node → group.
+     *
+     * @param enabled      {@code development.enabled} (built-in {@code false})
+     * @param confirmation {@code development.confirmation} (built-in {@code SERVER})
+     * @param e2eTests     {@code e2eTests} (built-in {@code FORBIDDEN})
+     * @param soapBaseUrl  {@code e2e.soap.baseUrl}, if set
+     */
+    public record Development(boolean enabled, ConfirmationMode confirmation,
+        E2ePolicy e2eTests, Optional<URI> soapBaseUrl) {
+        public Development {
+            Objects.requireNonNull(confirmation, "confirmation");
+            Objects.requireNonNull(e2eTests, "e2eTests");
+            Objects.requireNonNull(soapBaseUrl, "soapBaseUrl");
+        }
+    }
+
+    /** No development settings: the built-in defaults. */
+    public static final Development NO_DEVELOPMENT = new Development(
+        Defaults.BUILTIN_DEVELOPMENT_ENABLED, Defaults.BUILTIN_DEVELOPMENT_CONFIRMATION,
+        Defaults.BUILTIN_E2E_TESTS, Optional.empty());
+
+    /** The development settings as the guard and the writing services see them. */
+    public DevelopmentPolicy developmentPolicy() {
+        return new DevelopmentPolicy(id, production, development.enabled(),
+            WritePolicy.Confirmation.valueOf(development.confirmation().name()), confirmationTtl,
+            development.e2eTests(), development.soapBaseUrl());
+    }
+
     /** The same settings with another REST {@code timeout} (e.g. for short probes). */
     public EffectiveNodeConfig withTimeout(Duration newTimeout) {
         return new EffectiveNodeConfig(id, production, baseUrl, allowInsecureHttp, versionLine,
             write, tls, cli, inventory, newTimeout, cliTimeout, cliExportTimeout, hangingThreshold,
-            confirmationTtl, credentialPrefix);
+            confirmationTtl, credentialPrefix, development);
     }
 
     /** The credential environment variables of this node. */
@@ -191,6 +226,17 @@ public record EffectiveNodeConfig(
                 .orElse(Defaults.BUILTIN_HANGING_THRESHOLD),
             node.confirmationTtl().or(group::confirmationTtl).or(defaults::confirmationTtl)
                 .orElse(Defaults.BUILTIN_CONFIRMATION_TTL),
-            credentialPrefix);
+            credentialPrefix,
+            new Development(
+                node.development().enabled().or(group.development()::enabled)
+                    .or(defaults.development()::enabled)
+                    .orElse(Defaults.BUILTIN_DEVELOPMENT_ENABLED),
+                node.development().confirmation().or(group.development()::confirmation)
+                    .or(defaults.development()::confirmation)
+                    .orElse(Defaults.BUILTIN_DEVELOPMENT_CONFIRMATION),
+                node.e2eTests().or(group::e2eTests).or(defaults::e2eTests)
+                    .orElse(Defaults.BUILTIN_E2E_TESTS),
+                node.e2e().soap().baseUrl().or(group.e2e().soap()::baseUrl)
+                    .map(Urls::withoutTrailingSlash)));
     }
 }

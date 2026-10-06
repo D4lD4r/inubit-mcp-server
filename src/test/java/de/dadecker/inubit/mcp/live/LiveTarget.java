@@ -121,7 +121,7 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
         ProfileConfig config = loaded.config();
         return TestWiring.of(new ProfileConfig(config.profile(), config.terminology(),
             config.credentials(), config.groups(), config.defaults(), config.auditDirectory(),
-            config.logLevel(), config.resultLimits(), workspace), credentials, scrubber,
+            config.logLevel(), config.resultLimits(), workspace, config.owners()), credentials, scrubber,
             Files::exists, windows);
     }
 }

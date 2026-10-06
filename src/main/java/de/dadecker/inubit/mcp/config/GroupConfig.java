@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -21,7 +22,10 @@ public record GroupConfig(
     Optional<Duration> cliTimeout,
     Optional<Duration> cliExportTimeout,
     Optional<Duration> hangingThreshold,
-    Optional<Duration> confirmationTtl) {
+    Optional<Duration> confirmationTtl,
+    DevelopmentConfig development,
+    Optional<E2ePolicy> e2eTests,
+    E2eConfig e2e) {
 
     public GroupConfig {
         name = Optionals.orDefault(name, "");
@@ -36,5 +40,8 @@ public record GroupConfig(
         cliExportTimeout = Optionals.orEmpty(cliExportTimeout);
         hangingThreshold = Optionals.orEmpty(hangingThreshold);
         confirmationTtl = Optionals.orEmpty(confirmationTtl);
+        development = Optionals.orDefault(development, DevelopmentConfig.EMPTY);
+        e2eTests = Optionals.orEmpty(e2eTests);
+        e2e = Optionals.orDefault(e2e, E2eConfig.EMPTY);
     }
 }
