@@ -40,8 +40,9 @@ import java.util.zip.ZipInputStream;
  *       Anything else (e.g. {@code versionHistory.xml} of a history export or
  *       {@code usertags.xml} of an export by tag, which feature 003 never requests), a duplicate
  *       entry, a module file without index entry, or two module names stored as the same file
- *       is refused, so that nothing is dropped silently. A module listed twice in the index (seen
- *       in real exports) stays twice in {@link ExportArchive#moduleIndex()}.
+ *       is refused, so that nothing is dropped silently. A module listed twice in the index with an
+ *       identical entry and plugin type (seen in real exports) stays twice in
+ *       {@link ExportArchive#moduleIndex()}; differing duplicates are refused.
  *       {@code module/module.xml} is required.
  *   <li>Entry names of the export and of the nested {@code Repository.zip} must stay inside the
  *       archive: no absolute names, drive letters, backslashes, empty, {@code .} or {@code ..}
@@ -260,8 +261,11 @@ public final class ArchiveReader {
         for (ModuleIndexEntry entry : index) {
             String fileName = "module/" + entry.name().toLowerCase(Locale.ROOT) + ".xml";
             ModuleIndexEntry previous = byFileName.putIfAbsent(fileName, entry);
-            // a module listed twice (seen in real exports) is one module; two names are not
-            if (previous != null && !previous.name().equals(entry.name())) {
+            // a module listed twice identically (seen in real exports) is one module; two
+            // names, two plugin types or two different index entries are not
+            if (previous != null && (!previous.name().equals(entry.name())
+                || !previous.pluginType().equals(entry.pluginType())
+                || !previous.element().equals(entry.element()))) {
                 throw unexpected("The module index names two modules stored as " + fileName);
             }
         }

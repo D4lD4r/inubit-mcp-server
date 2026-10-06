@@ -200,7 +200,8 @@ unchanged re-export, round trip.
 - [ ] T017 [US1] `main/adapter/archive/v81/WorkspaceWriter.java` with test first: turns a
   `RedactedArchive` into a set of files under `<group>/<owner>/` (one file per workflow with root
   `Workflow`, `module.xml` + `index.xml` + embedded files per module, referenced repository files only)
-  plus meta records, all through `XmlNormalizer`; case-insensitive collision of two target paths →
+  plus meta records, all through `XmlNormalizer` (a module listed twice in the index is written
+  once); case-insensitive collision of two target paths →
   `INVALID_INPUT` naming both names; writing the same archive twice yields identical bytes.
 - [ ] T018 [US1] `main/adapter/archive/v81/ArchiveAssembler.java` and
   `test/adapter/archive/v81/ArchiveRoundTripTest.java` first: rebuild a ZIP from workspace + `.meta/`

@@ -181,6 +181,34 @@ class ArchiveReaderTest {
     }
 
     @Test
+    void refusesAModuleListedTwiceWithDifferentEntries() {
+        Map<String, byte[]> entries = moduleOnly();
+        String index = new String(entries.get("module/module.xml"), StandardCharsets.UTF_8);
+        String module = index.substring(index.indexOf("<Module "),
+            index.indexOf("</Module>") + "</Module>".length());
+        String other = module.replaceFirst("<IsActive>[^<]*</IsActive>",
+            "<IsActive>other</IsActive>");
+        entries.put("module/module.xml", index.replace(module, module + other)
+            .getBytes(StandardCharsets.UTF_8));
+
+        assertUnexpected(() -> reader.read(zip(entries)), "module/module-0023.xml");
+    }
+
+    @Test
+    void refusesAModuleListedUnderTwoPluginTypes() {
+        Map<String, byte[]> entries = moduleOnly();
+        String index = new String(entries.get("module/module.xml"), StandardCharsets.UTF_8);
+        String group = index.substring(index.indexOf("<ModuleGroup>"),
+            index.indexOf("</ModuleGroup>") + "</ModuleGroup>".length());
+        String otherGroup = group.replaceFirst("<ModuleGroupName>[^<]*</ModuleGroupName>",
+            "<ModuleGroupName>Assign</ModuleGroupName>");
+        entries.put("module/module.xml", index.replace(group, group + otherGroup)
+            .getBytes(StandardCharsets.UTF_8));
+
+        assertUnexpected(() -> reader.read(zip(entries)), "module/module-0023.xml");
+    }
+
+    @Test
     void refusesTwoModulesStoredAsTheSameFile() {
         Map<String, byte[]> entries = moduleOnly();
         String index = new String(entries.get("module/module.xml"), StandardCharsets.UTF_8);

@@ -5,7 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures.CliRecording;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures.SyntheticSecret;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -33,29 +36,20 @@ class ArtifactFixturesTest {
     private static final Pattern AES_VALUE =
         Pattern.compile("AES(?:-[A-Za-z0-9+/=]{8,}|G[A-Za-z0-9+/=:\\-]{8,})");
     private static final Pattern MODULE_NAME = Pattern.compile("<ModuleName>([^<]*)</ModuleName>");
-    /** Any property marked encrypted (Password, MaskedString, ...). */
-    private static final Pattern ENCRYPTED = Pattern.compile(
-        "<Property name=\"([^\"]*)\"[^>]*encrypted=\"true\"[^>]*>([^<]+)</Property>");
     /** Secrets without a type attribute (spike recordings of the development stage). */
-    private static final Pattern UNTYPED_SECRET = Pattern.compile("<Property name=\"(SSLKeyStore"
-        + "[A-Za-z]*|smime\\.keystore\\.data|smime\\.keystore\\.alias\\.password)\"[^>]*>([^<]+)"
-        + "</Property>");
-    private static final Pattern PASSWORD_LITERAL =
-        Pattern.compile("<literal[^>]*isPassword=\"true\"[^>]*>([^<]+)</literal>");
-    private static final Pattern PASSWORD_DEFAULT = Pattern.compile(
-        "<Variable[^>]*type=\"is:password\"[^>]*>\\s*<DefaultValue>([^<]+)</DefaultValue>");
-    private static final Pattern SOURCE_VARIABLES = Pattern.compile(
-        "<Property name=\"xslt\\.sourceVariables\" type=\"Map\">(.*?)\n\t</Property>",
-        Pattern.DOTALL);
-    private static final Pattern LEAF = Pattern.compile(
-        "<Property name=\"([^\"]*)\"[^>]*>([^<]+)</Property>");
-    private static final Pattern LITERAL = Pattern.compile("<literal[^>]*>(.*?)</literal>",
-        Pattern.DOTALL);
-    private static final Pattern SAVED_MESSAGE = Pattern.compile(
-        "<Property name=\"(xslt\\.source|xslt\\.target)\"[^>]*>(.*?)</Property>",
-        Pattern.DOTALL);
+    private static final Set<String> UNTYPED_SECRETS = Set.of("SSLKeyStoreRemoteConnector",
+        "SSLKeyStorePasswordRemoteConnector", "SSLKeyStore", "smime.keystore.data",
+        "smime.keystore.alias.password");
     /** Upper bound of a literal or saved test message in a fixture. */
     private static final int MAX_SAMPLE_CHARS = 2048;
+    /**
+     * SHA-256 of approved synthetic samples whose text carries no marker: the saved test
+     * messages {@code <fixture>xslt.source</fixture>} and {@code <fixture>xslt.target</fixture>}
+     * of {@code Module-0020}.
+     */
+    private static final Set<String> APPROVED_SAMPLES = Set.of(
+        "d094a3401b52dc91ebde4f3bf54b7219872ff8b9d2168af96fbb7b0074a41504",
+        "c6e6d26991b26b34292ff1698c09f23d4e5ef9a1d09b5bc9093f6dcb2eb856f9");
 
     @Test
     void theReadmeListsEveryKindOfSecretForm() {
@@ -75,65 +69,188 @@ class ArtifactFixturesTest {
         }
     }
 
+    /**
+     * Every secret-bearing value — in ZIP entries, the nested {@code Repository.zip}, decoded
+     * InternalDocuments and XML embedded in property values — is one of the README's synthetic
+     * values. The XML is parsed, and the parsed declarations are counted against the raw texts, so
+     * that a different formatting cannot make the guard pass without checking anything.
+     */
     @Test
     void everySecretValueIsSynthetic() {
         Set<String> synthetic = ArtifactFixtures.syntheticSecrets().stream()
             .map(SyntheticSecret::value).collect(Collectors.toSet());
         List<String> unlisted = new ArrayList<>();
+        int[] parsed = new int[3]; // sourceVariables maps, is:password variables, checked leaves
+        int[] raw = new int[2];
         for (String fixture : ArtifactFixtures.EXPORTS) {
-            ArtifactFixtures.entries(fixture).forEach((entry, bytes) -> {
-                String text = new String(bytes, StandardCharsets.UTF_8);
-                String at = fixture + "!" + entry;
-                for (Pattern pattern : List.of(PASSWORD, KEYSTORE, ENCRYPTED, UNTYPED_SECRET)) {
-                    pattern.matcher(text).results().filter(m -> !synthetic.contains(m.group(2)))
-                        .forEach(m -> unlisted.add(at + " " + m.group(1)));
-                }
-                for (Pattern pattern : List.of(PASSWORD_LITERAL, PASSWORD_DEFAULT)) {
-                    pattern.matcher(text).results().filter(m -> !synthetic.contains(m.group(1)))
-                        .forEach(m -> unlisted.add(at + " " + pattern.pattern()));
-                }
-                SOURCE_VARIABLES.matcher(text).results().forEach(map -> LEAF.matcher(map.group(1))
-                    .results().filter(leaf -> synthetic.stream().noneMatch(leaf.group(2)::contains))
-                    .forEach(leaf -> unlisted.add(at + " xslt.sourceVariables/" + leaf.group(1))));
-                Matcher aes = AES_VALUE.matcher(text);
+            FixtureScan scan = FixtureScan.of(fixture);
+            for (FixtureScan.Source source : scan.sources()) {
+                raw[0] += count(source.text(), "name=\"xslt.sourceVariables\"");
+                raw[1] += count(source.text(), "type=\"is:password\"");
+                Matcher aes = AES_VALUE.matcher(source.text());
                 while (aes.find()) {
                     if (!synthetic.contains(aes.group())) {
-                        unlisted.add(at + " AES value");
+                        unlisted.add(source.location() + " AES value");
                     }
                 }
-            });
+            }
+            for (FixtureScan.Doc doc : scan.documents()) {
+                FixtureScan.elements(doc.document().root(), element -> {
+                    String name = FixtureScan.attribute(element, "name").orElse("");
+                    String value = FixtureScan.value(element).orElse("").strip();
+                    String at = doc.location() + " " + element.localName() + " " + name;
+                    switch (element.localName()) {
+                        case "Property" -> {
+                            String type = FixtureScan.attribute(element, "type").orElse("");
+                            boolean secret = type.equals("Password") || type.equals("KeyStore")
+                                || FixtureScan.attribute(element, "encrypted")
+                                    .filter("true"::equals).isPresent()
+                                || UNTYPED_SECRETS.contains(name);
+                            if (secret && !value.isEmpty() && !synthetic.contains(value)) {
+                                unlisted.add(at);
+                            }
+                            if (name.equals("xslt.sourceVariables")) {
+                                parsed[0]++;
+                                FixtureScan.elements(element, leaf -> FixtureScan.value(leaf)
+                                    .filter(v -> leaf != element && !v.isBlank())
+                                    .ifPresent(v -> {
+                                        parsed[2]++;
+                                        if (synthetic.stream().noneMatch(v::contains)) {
+                                            unlisted.add(at + "/" + FixtureScan
+                                                .attribute(leaf, "name").orElse("?"));
+                                        }
+                                    }));
+                            }
+                        }
+                        case "literal" -> {
+                            if (FixtureScan.attribute(element, "isPassword")
+                                .filter("true"::equals).isPresent() && !value.isEmpty()
+                                && !synthetic.contains(value)) {
+                                unlisted.add(at);
+                            }
+                        }
+                        case "Variable" -> {
+                            if (FixtureScan.attribute(element, "type")
+                                .filter("is:password"::equals).isPresent()) {
+                                parsed[1]++;
+                                element.children().stream()
+                                    .filter(c -> c instanceof XmlTree.Element e
+                                        && e.localName().equals("DefaultValue"))
+                                    .map(c -> FixtureScan.value((XmlTree.Element) c).orElse(""))
+                                    .filter(v -> !v.isBlank() && !synthetic.contains(v.strip()))
+                                    .forEach(v -> unlisted.add(at + " DefaultValue"));
+                            }
+                        }
+                        default -> {
+                            // no secret form
+                        }
+                    }
+                });
+            }
         }
         assertThat(unlisted).as("secret values not listed as synthetic").isEmpty();
+        assertThat(parsed[0]).as("xslt.sourceVariables maps checked").isEqualTo(raw[0])
+            .isPositive();
+        assertThat(parsed[1]).as("is:password variables checked").isEqualTo(raw[1]).isPositive();
+        assertThat(parsed[2]).as("sourceVariables values checked").isPositive();
+    }
+
+    private static int count(String text, String needle) {
+        int count = 0;
+        for (int i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + 1)) {
+            count++;
+        }
+        return count;
     }
 
     /**
      * Literals and saved test messages are where recorded business messages hide: each one in
-     * the exports is small and visibly synthetic ({@code fixture}, {@code synthetic} or an
-     * {@code example.test} host).
+     * the exports is small and approved ({@link #isApprovedSample}).
      */
     @Test
     void literalsAndSavedTestMessagesAreSmallAndSynthetic() {
         List<String> suspicious = new ArrayList<>();
+        int[] checked = {0};
         for (String fixture : ArtifactFixtures.EXPORTS) {
-            ArtifactFixtures.entries(fixture).forEach((entry, bytes) -> {
-                String text = new String(bytes, StandardCharsets.UTF_8);
-                LITERAL.matcher(text).results().map(m -> m.group(1))
-                    .filter(value -> !isSmallAndSynthetic(value))
-                    .forEach(value -> suspicious.add(fixture + "!" + entry + " literal ("
-                        + value.length() + " chars)"));
-                SAVED_MESSAGE.matcher(text).results()
-                    .filter(m -> !m.group(2).isEmpty() && !isSmallAndSynthetic(m.group(2)))
-                    .forEach(m -> suspicious.add(fixture + "!" + entry + " " + m.group(1) + " ("
-                        + m.group(2).length() + " chars)"));
-            });
+            for (FixtureScan.Doc doc : FixtureScan.of(fixture).documents()) {
+                FixtureScan.elements(doc.document().root(), element -> {
+                    String name = FixtureScan.attribute(element, "name").orElse("");
+                    boolean sample = element.localName().equals("literal")
+                        || element.localName().equals("Property")
+                        && (name.equals("xslt.source") || name.equals("xslt.target"));
+                    String value = FixtureScan.value(element).orElse("");
+                    if (sample && !value.isEmpty()) {
+                        checked[0]++;
+                        if (!isApprovedSample(value)) {
+                            suspicious.add(doc.location() + " " + element.localName() + " "
+                                + name + " (" + value.length() + " chars)");
+                        }
+                    }
+                });
+            }
         }
         assertThat(suspicious).isEmpty();
+        assertThat(checked[0]).isPositive();
     }
 
-    private static boolean isSmallAndSynthetic(String value) {
-        String lower = value.toLowerCase(Locale.ROOT);
-        return value.length() <= MAX_SAMPLE_CHARS && (lower.contains("fixture")
-            || lower.contains("synthetic") || lower.contains("example.test"));
+    @Test
+    void aShortNeutralizedRealisticMessageIsNotApproved() {
+        // review: neutral hosts and namespaces are no proof that a message is synthetic
+        String neutralized = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<isns:Envelope xmlns:isns=\"http://schemas.xmlsoap.org/soap/envelope/\">"
+            + "<isns:Body><ns:notification xmlns:ns=\"urn:example:fixture:msg\""
+            + " source=\"https://host01.example.test/fixture\">"
+            + "<ns:id>00000000-0000-0000-0000-000000000001</ns:id><ns:price>1.00</ns:price>"
+            + "<ns:quantity>1</ns:quantity></ns:notification></isns:Body></isns:Envelope>";
+
+        assertThat(isApprovedSample(neutralized)).isFalse();
+        assertThat(isApprovedSample(neutralized.replace("<ns:price>",
+            "<ns:note>fixture</ns:note><ns:price>"))).isTrue();
+        assertThat(isApprovedSample("<a>" + "fixture ".repeat(300) + "</a>")).as("too large")
+            .isFalse();
+        assertThat(isApprovedSample("a plain sentence of a real message")).isFalse();
+        assertThat(isApprovedSample("sftp://host02.example.test:2222")).isTrue();
+    }
+
+    /**
+     * Approved: at most {@value #MAX_SAMPLE_CHARS} characters, and either an XML document whose
+     * <em>text content</em> (not names, namespaces or attributes) says {@code fixture} or
+     * {@code synthetic}, a sample listed in {@link #APPROVED_SAMPLES}, or a single short token
+     * (a value, never a message).
+     */
+    static boolean isApprovedSample(String value) {
+        if (value.length() > MAX_SAMPLE_CHARS) {
+            return false;
+        }
+        if (APPROVED_SAMPLES.contains(sha256(value))) {
+            return true;
+        }
+        XmlTree.Document document;
+        try {
+            document = XmlTree.parse(value.getBytes(StandardCharsets.UTF_8));
+        } catch (IllegalArgumentException e) {
+            String plain = value.strip();
+            return plain.length() <= 100 && plain.chars().noneMatch(Character::isWhitespace)
+                || plain.toLowerCase(Locale.ROOT).contains("fixture")
+                || plain.toLowerCase(Locale.ROOT).contains("synthetic");
+        }
+        StringBuilder text = new StringBuilder();
+        FixtureScan.elements(document.root(), element -> element.children().forEach(child -> {
+            if (child instanceof XmlTree.Text t) {
+                text.append(t.value()).append(' ');
+            }
+        }));
+        String lower = text.toString().toLowerCase(Locale.ROOT);
+        return lower.contains("fixture") || lower.contains("synthetic");
+    }
+
+    private static String sha256(String value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @ParameterizedTest
@@ -150,7 +267,8 @@ class ArtifactFixturesTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"module-one.zip, module/module-0023.xml", "module-smime.zip, module/module-0029.xml"})
+    @CsvSource({"module-one.zip, module/module-0023.xml",
+        "module-smime.zip, module/module-0029.xml"})
     void theModuleOnlyExportsHaveTheEmptyWorkflowDirectoryEntry(String fixture, String module) {
         Map<String, byte[]> entries = ArtifactFixtures.entries(fixture);
 
