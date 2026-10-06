@@ -12,7 +12,8 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * T008 (research D-4): "treated as identical" — comments kept, whitespace-only text between
- * elements ignored, all other text exact.
+ * elements ignored, all other text exact, prefixes and in-scope namespace bindings compared (they
+ * can be used inside attribute values and text, e.g. in XPath expressions, review I3).
  */
 class XmlEqualityTest {
 
@@ -29,7 +30,8 @@ class XmlEqualityTest {
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<a/>"),
             arguments("<a><![CDATA[1 < 2]]></a>", "<a>1 &lt; 2</a>"),
             arguments("<a>x&gt;y</a>", "<a>x>y</a>"),
-            arguments("<p:a xmlns:p='urn:x'/>", "<q:a xmlns:q='urn:x'/>"),
+            arguments("<r xmlns:p='urn:x'><p:a/></r>",
+                "<r xmlns:p='urn:x'><p:a xmlns:p='urn:x'/></r>"),
             arguments("<a>\r\n<b/>\r\n</a>", "<a><b/></a>"),
             arguments("<a><!-- c --> <b/></a>", "<a>\n<!-- c -->\n<b/>\n</a>"),
             arguments("<a><b>x</b>\n</a>", "<a>\n\t<b>x</b></a>"));
@@ -56,7 +58,12 @@ class XmlEqualityTest {
             arguments("<a><!-- c --></a>", "<a><!-- d --></a>"),
             arguments("<a>p <b/> q</a>", "<a>p <b/>q</a>"),
             arguments("<a xmlns='urn:x'/>", "<a/>"),
-            arguments("<a><?pi x?></a>", "<a/>"));
+            arguments("<a><?pi x?></a>", "<a/>"),
+            arguments("<p:a xmlns:p='urn:x'/>", "<q:a xmlns:q='urn:x'/>"),
+            arguments("<a xmlns:p='urn:x' s='p:b'/>", "<a s='p:b'/>"),
+            arguments("<a xmlns:p='urn:x' s='p:b'/>", "<a xmlns:p='urn:y' s='p:b'/>"),
+            arguments("<r xmlns:p='urn:x'><a/></r>", "<r><a xmlns:p='urn:x'/></r>"),
+            arguments("<a p:x='1' xmlns:p='urn:x'/>", "<a q:x='1' xmlns:q='urn:x'/>"));
     }
 
     @ParameterizedTest

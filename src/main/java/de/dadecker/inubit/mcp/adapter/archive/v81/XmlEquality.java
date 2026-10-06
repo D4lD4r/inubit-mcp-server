@@ -14,8 +14,12 @@ import java.util.Map;
  * tests: two documents are equal when
  *
  * <ul>
- *   <li>their elements have the same namespace URIs and local names (prefixes and the place of
- *       namespace declarations do not matter) and the same attributes, in any order;
+ *   <li>their elements have the same prefixes, namespace URIs and local names, the same in-scope
+ *       namespace bindings (prefixes can be used inside attribute values and text, e.g. in XPath
+ *       expressions or Demultiplexer conditions, so a binding is content even if no element name
+ *       uses it; where a declaration is written does not matter as long as the bindings in scope
+ *       are the same) and the same attributes (qualified name, namespace URI and value), in any
+ *       order;
  *   <li>their children are equal in order: comments and processing instructions are kept and
  *       compared, text is compared exactly — except that whitespace-only text in element-only
  *       content (between elements, comments or processing instructions) is ignored, unless
@@ -39,11 +43,15 @@ public final class XmlEquality {
         Document first = XmlTree.parse(a);
         Document second = XmlTree.parse(b);
         return first.prolog().equals(second.prolog()) && first.epilog().equals(second.epilog())
-            && equal(first.root(), second.root(), false);
+            && equal(first.root(), second.root(), false, Map.of(), Map.of());
     }
 
-    private static boolean equal(Element a, Element b, boolean preserve) {
+    private static boolean equal(Element a, Element b, boolean preserve,
+        Map<String, String> outerA, Map<String, String> outerB) {
+        Map<String, String> scopeA = scope(outerA, a);
+        Map<String, String> scopeB = scope(outerB, b);
         if (!a.localName().equals(b.localName()) || !a.namespaceUri().equals(b.namespaceUri())
+            || !a.prefix().equals(b.prefix()) || !scopeA.equals(scopeB)
             || !attributes(a).equals(attributes(b))) {
             return false;
         }
@@ -57,7 +65,7 @@ public final class XmlEquality {
             Node x = left.get(i);
             Node y = right.get(i);
             boolean same = x instanceof Element ex
-                ? y instanceof Element ey && equal(ex, ey, keepSpace)
+                ? y instanceof Element ey && equal(ex, ey, keepSpace, scopeA, scopeB)
                 : x.equals(y);
             if (!same) {
                 return false;
@@ -74,10 +82,20 @@ public final class XmlEquality {
         return element.children().stream().filter(child -> !(child instanceof Text)).toList();
     }
 
+    /** The namespace bindings in scope at {@code element}: the outer ones plus its own. */
+    private static Map<String, String> scope(Map<String, String> outer, Element element) {
+        if (element.namespaces().isEmpty()) {
+            return outer;
+        }
+        Map<String, String> scope = new HashMap<>(outer);
+        element.namespaces().forEach(ns -> scope.put(ns.prefix(), ns.uri()));
+        return scope;
+    }
+
     private static Map<String, String> attributes(Element element) {
         Map<String, String> attributes = new HashMap<>();
         for (Attribute attribute : element.attributes()) {
-            attributes.put("{" + attribute.namespaceUri() + "}" + attribute.localName(),
+            attributes.put(attribute.qualifiedName() + "{" + attribute.namespaceUri() + "}",
                 attribute.value());
         }
         return attributes;
