@@ -45,7 +45,11 @@ public final class WorkspaceInspector implements ArtifactInspectorPort {
     /** {@code inubitrepository:/Root/…} up to a quote, bracket, ampersand or white space. */
     static final Pattern REPOSITORY_REFERENCE =
         Pattern.compile("inubitrepository:/+([^\"'<>&\\s]+)");
-    private static final Set<String> PARENT_NAMES = Set.of("EndLoopId", "scopeChildId");
+    /**
+     * Elements and attributes that name another node. {@code Connection@scopeChildId} is not one:
+     * real exports name internal ids of a scope there, which are no nodes of the workflow.
+     */
+    private static final Set<String> PARENT_NAMES = Set.of("EndLoopId");
     private static final String MD5 = "MD5";
     private static final String FILE_REFERENCE = "@file:";
 
@@ -127,7 +131,7 @@ public final class WorkspaceInspector implements ArtifactInspectorPort {
             parents);
     }
 
-    /** {@code EndLoopId}/{@code scopeChildId} elements and attributes, not of nested nodes. */
+    /** {@code EndLoopId} elements and attributes, not of nested nodes. */
     private static void parentReferences(Element element, String location,
         List<Reference> parents, boolean top) {
         if (!top && element.localName().equals("WorkflowModule")) {

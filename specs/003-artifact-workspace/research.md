@@ -300,15 +300,19 @@ the workspace. No new dependency (Saxon-HE has no schema validation).
 - Demultiplexer keys `<Name>(<id>)@@@…` and `DefaultOutput` refer to an outgoing edge of that node
   whose target has that name and id → ERROR; a key whose id is no node of the workflow at all is a
   leftover the Workbench keeps after deleting a node, which INUBIT ignores → WARNING
-  `DEMUX_KEY_STALE` (found by the live acceptance);
-- `ParentModule`, `EndLoopId`, `scopeChildId` refer to existing ids → ERROR;
+  `DEMUX_KEY_STALE` (found by the live acceptance); so is a key under the old name of a renamed node
+  that also has a key under its current name (found by the structure corpus);
+- `ParentModule`, `EndLoopId` refer to existing ids → ERROR (`Connection@scopeChildId` names internal
+  ids of a scope, no node of the workflow — found on real exports, not checked);
 - referenced module names exist in the workspace (any owner of the same group) or in the server's
   module list of the artifact's owner or of `inventory.owner` (read via `InventoryPort`, cached) →
   otherwise ERROR; server unreachable → WARNING "could not verify" (FR-028);
 - variable references in assignments and conditions (`WFSP` operands, `@variable`) resolve to
   declared variables → WARNING (INUBIT also has implicit system variables; names starting with `IS`
   are taken as such and not reported — an assumption, as INUBIT's list is not documented);
-- `inubitrepository:` references resolve in `repository/` → ERROR.
+- `inubitrepository:` references resolve in `repository/` → ERROR; a path in another owner's
+  repository (`Root/<owner>/…`), which an export does not include, → WARNING
+  `REPOSITORY_REF_UNVERIFIED` (found on real exports).
 
 ## D-14 Fixtures
 

@@ -760,11 +760,12 @@ findings), `findings` (most severe first, at most `resultLimits.maxItems`, each
 | `EDGE_TARGET_MISSING` | ERROR | a `Connection` targets a node that does not exist |
 | `ID_COLLISION` | ERROR | a `ModuleId` or `ConnectionId` is used twice (one id space) |
 | `DEMUX_KEY_UNMATCHED` | ERROR | a Demultiplexer key `<Name>(<id>)@@@…` or `DefaultOutput` names an existing node that is not an outgoing edge of this node, or one with another name |
-| `DEMUX_KEY_STALE` | WARNING | a Demultiplexer key or `DefaultOutput` names a node that no longer exists in the workflow (kept by the Workbench after the node was deleted; INUBIT ignores it) |
-| `PARENT_REF_MISSING` | ERROR | `ParentModule`, `EndLoopId` or `scopeChildId` names a node that does not exist |
+| `DEMUX_KEY_STALE` | WARNING | a Demultiplexer key or `DefaultOutput` names a node that no longer exists in the workflow, or an old name of a renamed node that also has a key under its current name (leftovers the Workbench keeps; INUBIT ignores them) |
+| `PARENT_REF_MISSING` | ERROR | `ParentModule` or `EndLoopId` names a node that does not exist (`Connection@scopeChildId` names internal ids of a scope and is not checked) |
 | `MODULE_MISSING` | ERROR | a module is neither in the workspace (any owner of the group) nor in the module list of the artifact's owner or of `inventory.owner` |
 | `MODULE_UNVERIFIED` | WARNING | not in the workspace, and the module list could not be read or `verifyOnServer` is `false` |
 | `REPOSITORY_REF_MISSING` | ERROR | an `inubitrepository:` reference is not in the workspace repository |
+| `REPOSITORY_REF_UNVERIFIED` | WARNING | the reference lies in another owner's repository (`Root/<owner>/…`), which an export does not include |
 | `VARIABLE_UNRESOLVED` | WARNING | a variable reference names no declared variable (names starting with `IS` are taken as INUBIT system variables) |
 | `DERIVED_VALUE_MISMATCH` | WARNING | `<property>MD5` of an embedded document or `contentMD5`/`contentSize` of a repository file no longer matches the content (a rebuild recomputes them) |
 | `XML_NOT_WELL_FORMED` | ERROR | with `line:column`; a document type declaration counts (DTDs and entities are never read) |

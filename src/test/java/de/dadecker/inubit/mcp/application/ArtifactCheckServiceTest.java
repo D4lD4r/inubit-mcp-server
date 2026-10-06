@@ -245,6 +245,51 @@ class ArtifactCheckServiceTest {
         });
     }
 
+    // --- false positives found on real exports (structure corpus) -------------------------------
+
+    @Test
+    void aScopeChildIdOfAConnectionIsNoNodeReference() throws IOException {
+        // real exports: Connection@scopeChildId names an internal id of a scope, not a node
+        export(ArtifactFixtures.bytes("grp-a.zip"), "jdoe");
+        rewrite("dev/jdoe/workflows/GRP-01/Workflow-0001.xml", xml -> xml.replace(
+            "<Connection moduleOutId=\"2\">",
+            "<Connection moduleOutId=\"2\" scopeChildId=\"373\">"));
+
+        assertThat(service().checkPaths(List.of("dev/jdoe"), false)).isEmpty();
+    }
+
+    @Test
+    void aConditionUnderTheOldNameOfARenamedNodeIsStale() throws IOException {
+        // real exports: after a rename the Workbench keeps the old key next to the new one
+        export(ArtifactFixtures.bytes("grp-a.zip"), "jdoe");
+        rewrite("dev/jdoe/workflows/GRP-01/Workflow-0002.xml", xml -> xml.replace(
+            "<Property name=\"DefaultOutput\">", "<Property name=\"Module-0008-old(4)@@@"
+                + "DeMuxInput\">/*/@type@@@=@@@a</Property><Property name=\"DefaultOutput\">"));
+
+        assertThat(service().checkPaths(List.of("dev/jdoe"), false)).singleElement()
+            .satisfies(finding -> {
+                assertThat(finding.code()).isEqualTo("DEMUX_KEY_STALE");
+                assertThat(finding.severity()).isEqualTo(Severity.WARNING);
+                assertThat(finding.message()).contains("Module-0008-old(4)", "old name");
+            });
+    }
+
+    @Test
+    void aReferenceIntoTheRepositoryOfAnotherOwnerIsUnverified() throws IOException {
+        // real exports: an export holds only its owner's repository files
+        export(defect("repository-ref-missing"), "jdoe");
+        rewrite("dev/jdoe/workflows/GRP-01/Workflow-0001.xml", xml -> xml.replace(
+            "Root/jdoe/xsl/missing.xsl", "Root/OTHERS/xsl/shared.xsl"));
+
+        assertThat(service().checkPaths(List.of("dev/jdoe"), false)).singleElement()
+            .satisfies(finding -> {
+                assertThat(finding.code()).isEqualTo("REPOSITORY_REF_UNVERIFIED");
+                assertThat(finding.severity()).isEqualTo(Severity.WARNING);
+                assertThat(finding.message()).contains("Root/OTHERS/xsl/shared.xsl",
+                    "another owner");
+            });
+    }
+
     @Test
     void aMissingParentIsAnError() throws IOException {
         export(ArtifactFixtures.bytes("grp-b.zip"), "OWNERS");

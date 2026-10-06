@@ -29,8 +29,7 @@ public record WorkflowGraph(List<Node> nodes, Set<String> variables,
      *
      * @param moduleType       {@code technical}, {@code Comment}, {@code PartnerManagement}, …
      * @param properties       the node's own {@code Property} values by name (top level)
-     * @param parentReferences ids named by {@code ParentModule}, {@code EndLoopId} and
-     *                         {@code scopeChildId}
+     * @param parentReferences ids named by {@code ParentModule} and {@code EndLoopId}
      */
     public record Node(String moduleId, String moduleName, String moduleType, List<Edge> edges,
         Map<String, String> properties, List<Reference> parentReferences) {

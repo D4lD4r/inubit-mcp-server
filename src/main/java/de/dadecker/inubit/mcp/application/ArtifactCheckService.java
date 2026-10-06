@@ -63,10 +63,12 @@ import java.util.stream.Stream;
  *       to a node with that name and id; {@code DEMUX_KEY_STALE} (WARNING) if no node of the
  *       workflow has that id at all (a condition the Workbench kept after the node was deleted;
  *       INUBIT ignores it);
- *   <li>{@code PARENT_REF_MISSING} (ERROR): {@code ParentModule}, {@code EndLoopId} or
- *       {@code scopeChildId} names a node that does not exist;
+ *   <li>{@code PARENT_REF_MISSING} (ERROR): {@code ParentModule} or {@code EndLoopId} names a
+ *       node that does not exist;
  *   <li>{@code REPOSITORY_REF_MISSING} (ERROR): an {@code inubitrepository:} path is neither a
  *       repository file of the group (any owner) nor withheld as key material ({@code .meta});
+ *       {@code REPOSITORY_REF_UNVERIFIED} (WARNING) if it lies in another owner's repository
+ *       ({@code Root/<owner>/…}), which an export does not include;
  *   <li>{@code MODULE_MISSING} (ERROR) / {@code MODULE_UNVERIFIED} (WARNING): see
  *       {@link #checkPaths};
  *   <li>{@code VARIABLE_UNRESOLVED} (WARNING): a variable reference names no declared variable;
@@ -150,8 +152,9 @@ public final class ArtifactCheckService {
      * it at once): the structure checks below its paths and its stylesheet run
      * ({@link XsltPort#run}, output below {@code .tests/}, findings added to the report). Every
      * path — also stylesheet, input and schema — must stay inside the workspace (no
-     * {@code ..}, no absolute path, no symbolic link leaving it) and exist. The findings are sorted by severity, each message
-     * cut to {@value #MAX_MESSAGE} characters (FR-034), and bounded by
+     * {@code ..}, no absolute path, no symbolic link leaving it) and exist. The findings are
+     * sorted by severity, each message cut to {@value #MAX_MESSAGE} characters (FR-034), and
+     * bounded by
      * {@code resultLimits.maxItems}; when truncated, all findings go to
      * {@code .reports/check-<timestamp>.json} (research D-10). Nothing else is written.
      *
@@ -408,9 +411,8 @@ public final class ArtifactCheckService {
         for (Reference reference : graph.repositoryReferences()) {
             if (!repositoryFileExists(path, reference.value())
                 && missing.add(reference.value())) {
-                findings.add(error(file, reference.location(), "REPOSITORY_REF_MISSING",
-                    "inubitrepository:/" + reference.value()
-                        + " is not in the repository of the workspace"));
+                findings.add(missingRepositoryFile(file, path, Optional.of(reference.location()),
+                    reference.value()));
             }
         }
     }
@@ -562,7 +564,15 @@ public final class ArtifactCheckService {
             String id = key.get(1);
             boolean edge = node.edges().stream().anyMatch(e -> e.target().equals(id));
             Node target = byId.get(id);
-            if (target == null && !edge) {
+            boolean renamed = target != null && edge && !target.moduleName().equals(name)
+                && keys.contains(List.of(target.moduleName(), id));
+            if (renamed) {
+                // real exports: after a rename the Workbench keeps the old key next to the new
+                findings.add(new CheckFinding(Severity.WARNING, Check.STRUCTURE, file,
+                    Optional.of(node.location() + "/Properties"), "DEMUX_KEY_STALE",
+                    "the condition key " + name + "(" + id + ") uses an old name of node " + id
+                        + ", which has a condition under its current name; INUBIT ignores it"));
+            } else if (target == null && !edge) {
                 // live acceptance: the Workbench keeps conditions of deleted nodes
                 findings.add(new CheckFinding(Severity.WARNING, Check.STRUCTURE, file,
                     Optional.of(node.location() + "/Properties"), "DEMUX_KEY_STALE",
@@ -588,11 +598,31 @@ public final class ArtifactCheckService {
         Matcher matcher = REPOSITORY_REFERENCE.matcher(text);
         while (matcher.find()) {
             if (!repositoryFileExists(path, matcher.group(1)) && missing.add(matcher.group(1))) {
-                findings.add(new CheckFinding(Severity.ERROR, Check.STRUCTURE, file,
-                    Optional.empty(), "REPOSITORY_REF_MISSING", "inubitrepository:/"
-                        + matcher.group(1) + " is not in the repository of the workspace"));
+                findings.add(missingRepositoryFile(file, path, Optional.empty(),
+                    matcher.group(1)));
             }
         }
+    }
+
+    /**
+     * {@code REPOSITORY_REF_MISSING} (ERROR), or {@code REPOSITORY_REF_UNVERIFIED} (WARNING) for
+     * a path in the repository of another owner ({@code Root/<owner>/…}): an export holds only
+     * its owner's repository files.
+     */
+    private static CheckFinding missingRepositoryFile(String file, WorkspacePath artifact,
+        Optional<String> location, String reference) {
+        String[] segments = java.net.URLDecoder.decode(reference.replace("+", "%2B"),
+            StandardCharsets.UTF_8).split("/");
+        if (segments.length > 2 && segments[0].equals("Root")
+            && !segments[1].equals(artifact.owner())) {
+            return new CheckFinding(Severity.WARNING, Check.STRUCTURE, file, location,
+                "REPOSITORY_REF_UNVERIFIED", "inubitrepository:/" + reference + " belongs to"
+                    + " the repository of another owner, which is not part of this export;"
+                    + " export that owner's artifacts to verify it");
+        }
+        return new CheckFinding(Severity.ERROR, Check.STRUCTURE, file, location,
+            "REPOSITORY_REF_MISSING", "inubitrepository:/" + reference
+                + " is not in the repository of the workspace");
     }
 
     /** A repository file of any owner of the group, or withheld as key material. */
