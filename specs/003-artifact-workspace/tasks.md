@@ -357,7 +357,7 @@ unchanged re-export, round trip.
   inputs, outputs, errors, finding codes), tool table updated (10 tools).
 - [X] T037 [P] `docs/setup.md`: `workspace` setting, git requirement, workspace layout, local-changes
   behaviour, "never pushed"; `README.md` feature list.
-- [ ] T038 [P] Live test `test/live/ArtifactExportLiveTest.java` and `docs/live-tests.md`
+- [X] T038 [P] Live test `test/live/ArtifactExportLiveTest.java` and `docs/live-tests.md`
   (`INUBIT_LIVE_DIAGRAM_GROUP`): read-only export of one diagram group twice → second `unchanged`;
   no `AES-` value and no non-placeholder `type="Password"` value in the workspace; `check_artifacts`
   on the exported workflows → no ERROR. Never runs against `production` groups.

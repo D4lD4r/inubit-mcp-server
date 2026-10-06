@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
+import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.ValidationReport;
 import de.dadecker.inubit.mcp.config.WorkspaceDirectory;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -110,5 +111,17 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
     /** The production wiring for the real configuration. */
     TestWiring wiring() {
         return TestWiring.of(loaded.config(), credentials, scrubber, Files::exists, windows);
+    }
+
+    /**
+     * The production wiring with {@code workspace} instead of the configured one (feature 003):
+     * a live test never writes into the person's real workspace.
+     */
+    TestWiring wiring(Path workspace) {
+        ProfileConfig config = loaded.config();
+        return TestWiring.of(new ProfileConfig(config.profile(), config.terminology(),
+            config.credentials(), config.groups(), config.defaults(), config.auditDirectory(),
+            config.logLevel(), config.resultLimits(), workspace), credentials, scrubber,
+            Files::exists, windows);
     }
 }
