@@ -162,6 +162,149 @@ class CliExportRunnerTest {
         throw new AssertionError("expected a ToolErrorException");
     }
 
+    // --- artifact exports (feature 003, T019, research D-8) --------------------------------
+
+    private static final String WORKFLOW_GROUP_OK = "JAVA_HOME is set\nPassword: \n"
+        + "1-OK: Workflow group exported successfully.\n";
+    private static final String MODULE_OK = "JAVA_HOME is set\nPassword: \n"
+        + "1-OK: Module exported successfully.\n";
+
+    /** StartCLI that prints {@code stdout}, exits 0 and writes {@code zip} as the export. */
+    private FakeProcessLauncher exporting(String stdout, byte[] zip) {
+        return FakeProcessLauncher.of(stdout, "Picked up JAVA_TOOL_OPTIONS: -Duser.language=en"
+            + " -Duser.country=US\n", 0).onLaunch(spec -> {
+                try {
+                    launchPermissions.add(Files.getPosixFilePermissions(exportFile(spec)
+                        .getParent()));
+                    Files.write(exportFile(spec), zip);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
+    }
+
+    private static FakeProcessLauncher recorded(String name) {
+        var recording = de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures
+            .cliRecording(name);
+        return FakeProcessLauncher.of(recording.stdout(), recording.stderr(),
+            recording.exitCode());
+    }
+
+    @Test
+    void aDiagramGroupIsExportedTechnicalOnlyAndReturnedWhole() throws IOException {
+        byte[] zip = de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures
+            .bytes("grp-a.zip");
+        FakeProcessLauncher launcher = exporting(WORKFLOW_GROUP_OK, zip);
+
+        byte[] archive = exports(launcher, server().build()).exportWorkflowGroup("jdoe",
+            "GRP-01");
+
+        assertThat(archive).isEqualTo(zip);
+        Path file = exportFile(launcher.last().spec());
+        assertThat(execCommand(launcher.last().spec())).isEqualTo("export --exportWorkflowUser"
+            + " 'jdoe' --exportWorkflowType 'technical' --exportWorkflowGroup 'GRP-01'"
+            + " --exportFile '" + file + "'");
+        assertThat(file.getFileName()).hasToString("export.zip");
+        assertThat(launchPermissions).containsExactly(PosixFilePermissions.fromString(
+            "rwx------"));
+        assertThat(leftovers()).isEmpty();
+    }
+
+    @Test
+    void aModuleIsExportedByNamePluginTypeAndOwner() throws IOException {
+        byte[] zip = de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures
+            .bytes("module-one.zip");
+        FakeProcessLauncher launcher = exporting(MODULE_OK, zip);
+
+        byte[] archive = exports(launcher, server().build()).exportModule("OWNERS",
+            "XSLT Converter", "Module-0023");
+
+        assertThat(archive).isEqualTo(zip);
+        Path file = exportFile(launcher.last().spec());
+        assertThat(execCommand(launcher.last().spec())).isEqualTo("export --exportModule"
+            + " 'Module-0023' --exportModuleGroup 'XSLT Converter' --exportModuleUser 'OWNERS'"
+            + " --exportFile '" + file + "'");
+        assertThat(file.getFileName()).hasToString("module.zip");
+        assertThat(leftovers()).isEmpty();
+    }
+
+    @Test
+    void aBlankDiagramGroupIsRejectedBeforeLaunchBecauseStartCliWouldExportAll() {
+        for (String group : new String[] {"", " ", "\t"}) {
+            FakeProcessLauncher launcher = exporting(WORKFLOW_GROUP_OK, new byte[0]);
+
+            ToolError error = errorOf(() -> exports(launcher, server().build())
+                .exportWorkflowGroup("jdoe", group));
+
+            assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+            assertThat(error.likelyCause()).contains("StartCLI treats an empty group as all");
+            assertThat(launcher.launchCount()).isZero();
+        }
+    }
+
+    @Test
+    void namesStartCliQuotingCannotCarryAreInvalidInputWithoutLaunch() {
+        FakeProcessLauncher launcher = exporting(MODULE_OK, new byte[0]);
+        CliExportRunner runner = exports(launcher, server().build());
+
+        for (Runnable call : List.<Runnable>of(
+            () -> runner.exportWorkflowGroup("jdoe", "GRP'01"),
+            () -> runner.exportWorkflowGroup("o'wner", "GRP-01"),
+            () -> runner.exportModule("OWNERS", "XSLT Converter", "Module/0023"),
+            () -> runner.exportModule("OWNERS", "-x", "Module-0023"))) {
+            ToolError error = errorOf(call);
+            assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+            assertThat(error.message()).contains("not supported by StartCLI quoting");
+        }
+        assertThat(launcher.launchCount()).isZero();
+    }
+
+    @Test
+    void aMissingDiagramGroupOrModuleIsNotFound() throws IOException {
+        ToolError group = errorOf(() -> exports(recorded("export-group-missing"),
+            server().build()).exportWorkflowGroup("OWNERS", "MCP-FIXTURE-NO-SUCH-GROUP"));
+        ToolError module = errorOf(() -> exports(recorded("export-module-missing"),
+            server().build()).exportModule("OWNERS", "XSLT Converter",
+                "MCP-FIXTURE-NO-SUCH-MODULE"));
+
+        assertThat(group.code()).isEqualTo(ErrorCode.NOT_FOUND);
+        assertThat(group.message()).contains("Workflow group not found:"
+            + " MCP-FIXTURE-NO-SUCH-GROUP");
+        assertThat(group.node()).contains(DEV);
+        assertThat(module.code()).isEqualTo(ErrorCode.NOT_FOUND);
+        assertThat(module.message()).contains("The module MCP-FIXTURE-NO-SUCH-MODULE not found");
+        assertThat(leftovers()).isEmpty();
+    }
+
+    @Test
+    void anArchiveAboveTheCapIsAnUnexpectedResponse() throws IOException {
+        FakeProcessLauncher launcher = exporting(WORKFLOW_GROUP_OK, new byte[2048]);
+        CliRunner runner = new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false,
+            new CliResources("acme"));
+        CliExportRunner small = new CliExportRunner(server().build(), credentials(), guard,
+            runner, new CliOutputClassifier(new SecretScrubber()), tempRoot, 1024);
+
+        ToolError error = errorOf(() -> small.exportWorkflowGroup("jdoe", "GRP-01"));
+
+        assertThat(CliExportRunner.MAX_ARCHIVE_BYTES).isEqualTo(128L << 20);
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message()).contains("too large");
+        assertThat(leftovers()).isEmpty();
+    }
+
+    @Test
+    void theArtifactExportTimesOutWithCliExportTimeoutAndCleansUp() throws IOException {
+        FakeProcessLauncher launcher = exporting(WORKFLOW_GROUP_OK, new byte[] {1}).hanging();
+        EffectiveNodeConfig config = server().cliExportTimeout(Duration.ofMillis(300)).build();
+
+        ToolError error = errorOf(() -> exports(launcher, config).exportWorkflowGroup("jdoe",
+            "GRP-01"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(error.nextStep()).contains("cliExportTimeout");
+        assertThat(leftovers()).isEmpty();
+    }
+
     @Test
     void theHistoryExportRunsTheQuotedCommandAndReturnsVersionHistoryXml() throws IOException {
         byte[] zip = FakeProcessLauncher.fixture("export_history_sample.zip");

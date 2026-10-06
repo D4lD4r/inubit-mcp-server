@@ -208,7 +208,7 @@ unchanged re-export, round trip.
   (with placeholders still in place); for every fixture, `XmlEquality` holds between the original
   (redacted the same way) and the rebuilt archive entry by entry, `Repository.zip` content equal after
   decoding (FR-015, SC-002); repository `contentMD5`/`contentSize` are recomputed from the content.
-- [ ] T019 [US1] `main/adapter/cli/CliExportRunner.java`: add `exportWorkflowGroup(owner, diagramGroup)`
+- [X] T019 [US1] `main/adapter/cli/CliExportRunner.java`: add `exportWorkflowGroup(owner, diagramGroup)`
   and `exportModule(owner, pluginType, name)` (D-8) with tests first in
   `test/adapter/cli/CliExportRunnerTest.java`: exact `--execCommand` strings with
   `--exportWorkflowType 'technical'` always; blank or empty diagram group rejected before launch

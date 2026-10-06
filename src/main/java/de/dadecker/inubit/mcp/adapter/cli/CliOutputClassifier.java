@@ -51,6 +51,7 @@ public final class CliOutputClassifier {
         "@Start@((?:(?!@@@|@End@).)*)(?:@@@(.*?))?@End@", Pattern.DOTALL);
     private static final Pattern LOGIN_FAILURE = Pattern.compile("@Start@\\s*LoginFailure\\b");
     private static final Pattern MESSAGE = Pattern.compile("^(\\d+)-(OK|NOK):\\s?(.*)$");
+    private static final Pattern MISSING_MODULE = Pattern.compile("^The module .+ not found$");
 
     private static final String PASSWORD_PROMPT = "Password:";
     private static final String INVALID_FILTER =
@@ -132,6 +133,7 @@ public final class CliOutputClassifier {
         String all = String.join("\n", output.logLines()) + "\n"
             + String.join("\n", output.outputLines());
         return new CliOutcome.Failure(byMarker(output, all)
+            .or(() -> missingArtifact(output))
             .or(() -> byText(all))
             .orElseGet(() -> unexpected(result, output)));
     }
@@ -158,6 +160,24 @@ public final class CliOutputClassifier {
             }
             if (code.equals(INVALID_FILTER)) {
                 return Optional.of(invalidFilter());
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * An export of a diagram group or module that does not exist (feature 003, recorded:
+     * {@code 2-NOK: Workflow group not found: <group>}, {@code 2-NOK: The module <name> not
+     * found}).
+     */
+    private Optional<ToolError> missingArtifact(CliOutput output) {
+        for (String message : output.nokMessages()) {
+            if (message.startsWith("Workflow group not found:")
+                || MISSING_MODULE.matcher(message).matches()) {
+                return Optional.of(error(ErrorCode.NOT_FOUND, "StartCLI: " + message,
+                    "The diagram group or module does not exist for this owner (names are"
+                        + " case-sensitive), or it belongs to another owner",
+                    "Check the name and owner with list_inventory, then retry"));
             }
         }
         return Optional.empty();
