@@ -103,8 +103,10 @@ class PortsTest {
 
     @Test
     void theHistoryPortOffersNoWayToTransmitTheHistory() {
-        // FR-007: never a remote, push, fetch or clone
+        // FR-007: never a remote, push, fetch or clone; feature 004 (T007): the only writing
+        // methods are init, commitAll and restore, the others read
         assertThat(Arrays.stream(VersionHistoryPort.class.getMethods()).map(Method::getName))
-            .containsExactlyInAnyOrder("init", "status", "commitAll", "restore");
+            .containsExactlyInAnyOrder("init", "status", "commitAll", "commitAll", "restore",
+                "lastServerState", "serverStateOf", "show", "changedPaths");
     }
 }

@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.HistoryEntry;
 import de.dadecker.inubit.mcp.domain.model.PathChange;
 import de.dadecker.inubit.mcp.domain.model.PathChange.Kind;
@@ -299,5 +300,194 @@ class GitCliTest {
                 assertThat(e.error().message()).contains("git status", root.toString());
                 assertThat(e.error().excerpt()).contains("fatal: not a git repository");
             });
+    }
+
+    // --- feature 004 (T007, research D-3, D-25): server-state trailer and read methods ------
+
+    private static final GroupId DEV = new GroupId("dev");
+    private static final Map<String, String> DEV_STATE = Map.of("Server-State", "dev");
+
+    private String commit(String message, Map<String, String> trailers) {
+        return git.commitAll(message, trailers).orElseThrow().commit();
+    }
+
+    @Test
+    void commitAllWritesTheServerStateTrailerAfterTheMessage()
+        throws IOException, InterruptedException {
+        git.init();
+        write("dev/a.xml", "a");
+
+        HistoryEntry entry = git.commitAll("export dev/node1: diagram group G (2 files)",
+            DEV_STATE).orElseThrow();
+
+        assertThat(entry.message()).isEqualTo("export dev/node1: diagram group G (2 files)");
+        assertThat(inspect("log", "-1", "--format=%s").strip())
+            .isEqualTo("export dev/node1: diagram group G (2 files)");
+        assertThat(inspect("log", "-1", "--format=%(trailers:key=Server-State,valueonly)")
+            .strip()).isEqualTo("dev");
+        assertThat(inspect("log", "-1", "--format=%B").strip()).isEqualTo(
+            "export dev/node1: diagram group G (2 files)\n\nServer-State: dev");
+    }
+
+    @Test
+    void aCommitWithoutTrailersHasNone() throws IOException, InterruptedException {
+        git.init();
+        write("dev/a.xml", "a");
+
+        git.commitAll("local changes: 2 files");
+
+        assertThat(inspect("log", "-1", "--format=%B").strip())
+            .isEqualTo("local changes: 2 files");
+    }
+
+    @Test
+    void trailersAreValidated() {
+        git.init();
+        for (Map<String, String> trailers : List.of(Map.of("Server-State", "dev\nInjected: x"),
+            Map.of("Server State", "dev"), Map.of("Server-State", ""),
+            Map.of("Server-State", "dev\u0000"))) {
+            assertThatIllegalArgumentException().as(trailers.toString())
+                .isThrownBy(() -> git.commitAll("export", trailers));
+        }
+    }
+
+    @Test
+    void theLastServerStateIsTheNewestCommitWithTheGroupsTrailerThatTouchedThePath()
+        throws IOException, InterruptedException {
+        git.init();
+        write("dev/OWNERS/a.xml", "a1");
+        write("dev/OWNERS/b.xml", "b1");
+        String first = commit("export dev/node1: diagram group G (3 files)", DEV_STATE);
+        write("dev/OWNERS/a.xml", "a2");
+        commit("local changes: 1 files", Map.of());
+        write("dev/OWNERS/b.xml", "b2");
+        String second = commit("export dev/node1: diagram group G (1 files)", DEV_STATE);
+        write("dev/OWNERS/a.xml", "a3");
+        String other = commit("import test/node1: G (1 artifacts)",
+            Map.of("Server-State", "test"));
+
+        assertThat(git.lastServerState(DEV, "dev/OWNERS/a.xml")).contains(full(first));
+        assertThat(git.lastServerState(DEV, "dev/OWNERS/b.xml")).contains(full(second));
+        assertThat(git.lastServerState(new GroupId("test"), "dev/OWNERS/a.xml"))
+            .contains(full(other));
+        assertThat(git.lastServerState(DEV, "dev/OWNERS")).contains(full(second));
+        assertThat(git.lastServerState(DEV, "dev/OWNERS/never.xml")).isEmpty();
+    }
+
+    @Test
+    void withoutAnyTrailerTheLastExportOfTheGroupIsTheServerState()
+        throws IOException, InterruptedException {
+        // research D-25 (H3): histories of feature 003 have no trailer yet
+        git.init();
+        write("dev/OWNERS/a.xml", "a1");
+        String export = commit("export dev/node1: diagram group G (2 files)", Map.of());
+        write("dev/OWNERS/a.xml", "a2");
+        commit("local changes: 1 files", Map.of());
+        write("dev/OWNERS/a.xml", "a3");
+        commit("export dev-2/node1: diagram group G (1 files)", Map.of());
+        write("dev/OWNERS/a.xml", "a4");
+        commit("export test/node1: diagram group G (1 files)", Map.of());
+
+        assertThat(git.lastServerState(DEV, "dev/OWNERS/a.xml")).contains(full(export));
+    }
+
+    @Test
+    void aTrailerOfAnotherGroupIsNoFallback() throws IOException {
+        git.init();
+        write("dev/OWNERS/a.xml", "a1");
+        commit("export dev/node1: diagram group G (2 files)", Map.of("Server-State", "test"));
+
+        assertThat(git.lastServerState(DEV, "dev/OWNERS/a.xml")).isEmpty();
+    }
+
+    @Test
+    void withoutABaseTheScopeMustBeExportedFirst() throws IOException {
+        git.init();
+        assertThat(git.lastServerState(DEV, "dev/OWNERS/a.xml")).as("no commit yet").isEmpty();
+        write("dev/OWNERS/a.xml", "a1");
+        commit("local changes: 2 files", Map.of());
+
+        assertThatThrownBy(() -> git.serverStateOf(DEV, "dev/OWNERS/a.xml"))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
+                assertThat(e.error().message()).contains("dev/OWNERS/a.xml");
+                assertThat(e.error().nextStep()).contains("export the scope first");
+            });
+    }
+
+    @Test
+    void showReturnsTheContentOfAFileAtARevision() throws IOException {
+        git.init();
+        write("dev/OWNERS/a.xml", "<a>1</a>\n");
+        String first = commit("export dev/node1: G", DEV_STATE);
+        write("dev/OWNERS/a.xml", "<a>Größe 2</a>\n");
+        String second = commit("local changes: 1 files", Map.of());
+
+        assertThat(git.show(first, "dev/OWNERS/a.xml"))
+            .hasValueSatisfying(bytes -> assertThat(new String(bytes, StandardCharsets.UTF_8))
+                .isEqualTo("<a>1</a>\n"));
+        assertThat(git.show(second, "dev/OWNERS/a.xml"))
+            .hasValueSatisfying(bytes -> assertThat(new String(bytes, StandardCharsets.UTF_8))
+                .isEqualTo("<a>Größe 2</a>\n"));
+        assertThat(git.show(first, "dev/OWNERS/missing.xml")).isEmpty();
+        assertThat(git.show(first, "dev/OWNERS")).as("a directory is no file").isEmpty();
+    }
+
+    @Test
+    void showAndChangedPathsTakeOnlyCommitIdsAndPathsInsideTheWorkspace() throws IOException {
+        git.init();
+        write("dev/a.xml", "a");
+        String first = commit("export", DEV_STATE);
+        for (String rev : List.of("--output=/tmp/x", "HEAD~1", "main", "", "abc")) {
+            assertThatIllegalArgumentException().as(rev)
+                .isThrownBy(() -> git.show(rev, "dev/a.xml"));
+            assertThatIllegalArgumentException().as(rev)
+                .isThrownBy(() -> git.changedPaths(rev, "dev"));
+        }
+        for (String path : List.of("", "/etc/passwd", "../outside", ".git/config")) {
+            assertThatIllegalArgumentException().as(path)
+                .isThrownBy(() -> git.show(first, path));
+            assertThatIllegalArgumentException().as(path)
+                .isThrownBy(() -> git.changedPaths(first, path));
+            assertThatIllegalArgumentException().as(path)
+                .isThrownBy(() -> git.lastServerState(DEV, path));
+        }
+    }
+
+    @Test
+    void changedPathsListsAddedModifiedDeletedAndRenamedFilesBelowTheSubtree()
+        throws IOException {
+        git.init();
+        write("dev/OWNERS/workflows/G/a.xml", "a1");
+        write("dev/OWNERS/workflows/G/b.xml", "b1");
+        write("dev/OWNERS/workflows/G/d.xml", "d1");
+        write("dev/OWNERS/workflows/H/x.xml", "x1");
+        String base = commit("export dev/node1: G", DEV_STATE);
+        write("dev/OWNERS/workflows/G/a.xml", "a2");
+        Files.delete(root.resolve("dev/OWNERS/workflows/G/b.xml"));
+        write("dev/OWNERS/workflows/G/c new.xml", "c1");
+        Files.move(root.resolve("dev/OWNERS/workflows/G/d.xml"),
+            root.resolve("dev/OWNERS/workflows/G/e.xml"));
+        write("dev/OWNERS/workflows/H/x.xml", "x2");
+        commit("local changes: 6 files", Map.of());
+
+        assertThat(git.changedPaths(base, "dev/OWNERS/workflows/G")).containsExactlyInAnyOrder(
+            new PathChange("dev/OWNERS/workflows/G/a.xml", Kind.MODIFIED),
+            new PathChange("dev/OWNERS/workflows/G/b.xml", Kind.DELETED),
+            new PathChange("dev/OWNERS/workflows/G/c new.xml", Kind.ADDED),
+            new PathChange("dev/OWNERS/workflows/G/d.xml", Kind.DELETED),
+            new PathChange("dev/OWNERS/workflows/G/e.xml", Kind.ADDED));
+        assertThat(git.changedPaths(base, "dev/OWNERS/workflows/H")).containsExactly(
+            new PathChange("dev/OWNERS/workflows/H/x.xml", Kind.MODIFIED));
+        assertThat(git.changedPaths(full(base), "dev/OWNERS/workflows/G/a.xml")).containsExactly(
+            new PathChange("dev/OWNERS/workflows/G/a.xml", Kind.MODIFIED));
+    }
+
+    private String full(String commit) {
+        try {
+            return inspect("rev-parse", commit).strip();
+        } catch (IOException | InterruptedException e) {
+            throw new AssertionError(e);
+        }
     }
 }

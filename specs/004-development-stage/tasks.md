@@ -82,7 +82,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   `(capability, node, inputFingerprint, previewState)`; 22-char code, single use, TTL, max 1000
   pending, swept; changed inputs or capability or node → `CONFIRMATION_INVALID`; changed previewState
   → returned to the caller for a `CONFLICT` decision; expired → `CONFIRMATION_INVALID`.
-- [ ] T007 `main/adapter/git/GitCli.java` + `VersionHistoryPort` (D-3) with tests first (real git):
+- [X] T007 `main/adapter/git/GitCli.java` + `VersionHistoryPort` (D-3) with tests first (real git):
   `commitAll(message, trailers)` writes `Server-State: <node>`; `lastServerState(node, path)`,
   `show(rev, path)`, `changedPaths(fromRev, subtree)` (incl. added, modified, deleted, renamed as
   delete+add); `WorkspaceService` export commits now carry the trailer (test in

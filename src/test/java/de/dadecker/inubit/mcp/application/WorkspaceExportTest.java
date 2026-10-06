@@ -27,6 +27,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.SortedMap;
 import org.junit.jupiter.api.BeforeEach;
@@ -80,6 +81,37 @@ class WorkspaceExportTest {
         try (WorkspaceLock lock = WorkspaceLock.acquire(root)) {
             assertThat(lock).as("the lock is released").isNotNull();
         }
+    }
+
+    @Test
+    void anExportEntryCarriesTheServerStateTrailerOfItsGroup() {
+        // feature 004 (T007, research D-3, D-25): the base of a later import
+        harness.service().export(diagramGroups("OWNERS", "GRP-02"));
+        String workflow = workflow("OWNERS", "GRP-02", "Workflow-0003");
+
+        assertThat(harness.git("log", "-1", "--format=%(trailers:key=Server-State,valueonly)")
+            .strip()).isEqualTo("dev");
+        assertThat(harness.history.lastServerState(GROUP, workflow)).contains(
+            harness.git("rev-parse", "HEAD").strip());
+    }
+
+    @Test
+    void localChangesCarryNoServerState() throws IOException {
+        harness.service().export(diagramGroups("OWNERS", "GRP-02"));
+        String exported = harness.git("rev-parse", "HEAD").strip();
+        String workflow = workflow("OWNERS", "GRP-02", "Workflow-0003");
+        Files.writeString(root.resolve(workflow), Files.readString(root.resolve(workflow))
+            + "<!-- edited -->\n");
+        harness.artifacts.exports.put("GRP-02", ArtifactFixtures.bytes("grp-b.zip"));
+
+        harness.service().export(diagramGroups("OWNERS", "GRP-02"));
+
+        assertThat(harness.log()).hasSize(3).element(1).asString().startsWith("local changes");
+        assertThat(harness.git("log", "-1", "--skip=1",
+            "--format=%(trailers:key=Server-State,valueonly)").strip()).isEmpty();
+        assertThat(harness.history.lastServerState(GROUP, workflow))
+            .contains(harness.git("rev-parse", "HEAD").strip())
+            .isNotEqualTo(Optional.of(exported));
     }
 
     @Test
@@ -293,17 +325,33 @@ class WorkspaceExportTest {
             }
 
             @Override
-            public Optional<HistoryEntry> commitAll(String message) {
+            public Optional<HistoryEntry> commitAll(String message,
+                Map<String, String> trailers) {
                 if (message.startsWith("export ")) {
                     throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
                         "git commit failed", "fake", "fake"));
                 }
-                return harness.history.commitAll(message);
+                return harness.history.commitAll(message, trailers);
             }
 
             @Override
             public void restore(Path subtree) {
                 harness.history.restore(subtree);
+            }
+
+            @Override
+            public Optional<String> lastServerState(GroupId group, String path) {
+                return harness.history.lastServerState(group, path);
+            }
+
+            @Override
+            public Optional<byte[]> show(String commit, String path) {
+                return harness.history.show(commit, path);
+            }
+
+            @Override
+            public List<PathChange> changedPaths(String fromCommit, String subtree) {
+                return harness.history.changedPaths(fromCommit, subtree);
             }
         };
         WorkspaceService service = new WorkspaceService(root, failingCommit, new ArchiveCodec(),
