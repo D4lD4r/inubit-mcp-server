@@ -759,7 +759,8 @@ findings), `findings` (most severe first, at most `resultLimits.maxItems`, each
 |---|---|---|
 | `EDGE_TARGET_MISSING` | ERROR | a `Connection` targets a node that does not exist |
 | `ID_COLLISION` | ERROR | a `ModuleId` or `ConnectionId` is used twice (one id space) |
-| `DEMUX_KEY_UNMATCHED` | ERROR | a Demultiplexer key `<Name>(<id>)@@@…` or `DefaultOutput` names no outgoing edge to that node |
+| `DEMUX_KEY_UNMATCHED` | ERROR | a Demultiplexer key `<Name>(<id>)@@@…` or `DefaultOutput` names an existing node that is not an outgoing edge of this node, or one with another name |
+| `DEMUX_KEY_STALE` | WARNING | a Demultiplexer key or `DefaultOutput` names a node that no longer exists in the workflow (kept by the Workbench after the node was deleted; INUBIT ignores it) |
 | `PARENT_REF_MISSING` | ERROR | `ParentModule`, `EndLoopId` or `scopeChildId` names a node that does not exist |
 | `MODULE_MISSING` | ERROR | a module is neither in the workspace (any owner of the group) nor in the module list of the artifact's owner or of `inventory.owner` |
 | `MODULE_UNVERIFIED` | WARNING | not in the workspace, and the module list could not be read or `verifyOnServer` is `false` |

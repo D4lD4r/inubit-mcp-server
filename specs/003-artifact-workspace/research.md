@@ -298,7 +298,9 @@ the workspace. No new dependency (Saxon-HE has no schema validation).
 - edges (`Connection@moduleOutId`) target an existing `ModuleId` → ERROR;
 - `ModuleId` and `ConnectionId` unique together → ERROR;
 - Demultiplexer keys `<Name>(<id>)@@@…` and `DefaultOutput` refer to an outgoing edge of that node
-  whose target has that name and id → ERROR;
+  whose target has that name and id → ERROR; a key whose id is no node of the workflow at all is a
+  leftover the Workbench keeps after deleting a node, which INUBIT ignores → WARNING
+  `DEMUX_KEY_STALE` (found by the live acceptance);
 - `ParentModule`, `EndLoopId`, `scopeChildId` refer to existing ids → ERROR;
 - referenced module names exist in the workspace (any owner of the same group) or in the server's
   module list of the artifact's owner or of `inventory.owner` (read via `InventoryPort`, cached) →

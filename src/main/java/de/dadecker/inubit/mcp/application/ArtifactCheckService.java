@@ -60,7 +60,9 @@ import java.util.stream.Stream;
  *       (both share one id space);
  *   <li>{@code DEMUX_KEY_UNMATCHED} (ERROR): a condition key {@code <Name>(<id>)@@@…} or a
  *       {@code DefaultOutput} {@code <Name>(<id>)} does not name an outgoing edge of that node
- *       to a node with that name and id;
+ *       to a node with that name and id; {@code DEMUX_KEY_STALE} (WARNING) if no node of the
+ *       workflow has that id at all (a condition the Workbench kept after the node was deleted;
+ *       INUBIT ignores it);
  *   <li>{@code PARENT_REF_MISSING} (ERROR): {@code ParentModule}, {@code EndLoopId} or
  *       {@code scopeChildId} names a node that does not exist;
  *   <li>{@code REPOSITORY_REF_MISSING} (ERROR): an {@code inubitrepository:} path is neither a
@@ -560,7 +562,13 @@ public final class ArtifactCheckService {
             String id = key.get(1);
             boolean edge = node.edges().stream().anyMatch(e -> e.target().equals(id));
             Node target = byId.get(id);
-            if (!edge || target == null || !target.moduleName().equals(name)) {
+            if (target == null && !edge) {
+                // live acceptance: the Workbench keeps conditions of deleted nodes
+                findings.add(new CheckFinding(Severity.WARNING, Check.STRUCTURE, file,
+                    Optional.of(node.location() + "/Properties"), "DEMUX_KEY_STALE",
+                    "the condition key " + name + "(" + id + ") is for a node that no longer"
+                        + " exists; INUBIT ignores it"));
+            } else if (!edge || target == null || !target.moduleName().equals(name)) {
                 findings.add(error(file, node.location() + "/Properties",
                     "DEMUX_KEY_UNMATCHED", "the condition key " + name + "(" + id + ") is not"
                         + " an outgoing edge of this node to a node of that name and id"));

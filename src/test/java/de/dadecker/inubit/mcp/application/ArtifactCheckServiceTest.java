@@ -228,6 +228,24 @@ class ArtifactCheckServiceTest {
     }
 
     @Test
+    void aConditionForADeletedNodeIsAStaleWarningNotAnError() throws IOException {
+        // live acceptance: the Workbench keeps conditions of deleted nodes; INUBIT ignores them
+        export(ArtifactFixtures.bytes("grp-a.zip"), "jdoe");
+        rewrite("dev/jdoe/workflows/GRP-01/Workflow-0002.xml", xml -> xml.replace(
+            "<Property name=\"DefaultOutput\">", "<Property name=\"Module-0404(77)@@@DeMuxInput\">"
+                + "/*/@type@@@=@@@b</Property><Property name=\"Module-0404(77)@@@ProcessingOrder"
+                + "\">2</Property><Property name=\"DefaultOutput\">"));
+
+        List<CheckFinding> findings = service().checkPaths(List.of("dev/jdoe"), false);
+
+        assertThat(findings).singleElement().satisfies(finding -> {
+            assertThat(finding.code()).isEqualTo("DEMUX_KEY_STALE");
+            assertThat(finding.severity()).isEqualTo(Severity.WARNING);
+            assertThat(finding.message()).contains("Module-0404(77)", "no longer exists");
+        });
+    }
+
+    @Test
     void aMissingParentIsAnError() throws IOException {
         export(ArtifactFixtures.bytes("grp-b.zip"), "OWNERS");
         rewrite("dev/OWNERS/workflows/GRP-02/Workflow-0005.xml",
