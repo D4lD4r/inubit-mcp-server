@@ -64,12 +64,15 @@ are P1, and no export may write a file before redaction exists.
   `InternalDocument`; a module-only export. Neutralize names with `tools/neutralize.py`, replace every
   secret value by a synthetic value of the same shape (`AES-` + base64, `AESG` + base64, legacy
   base64, plain text, keystore base64, `isPassword` literal, `is:password` default,
-  `xslt.sourceVariables` values) and every `CheckinComment` user/host by fixture values; store them as
-  `fixtures/artifacts/{grp-a.zip,grp-b.zip,module-one.zip}` plus `fixtures/artifacts/README.md`
+  `xslt.sourceVariables` values, plus synthetic SMIME and `MaskedString` forms) and every
+  `CheckinComment` user/host by fixture values; store them as
+  `fixtures/artifacts/{grp-a.zip,grp-b.zip,module-one.zip,module-smime.zip}` plus `fixtures/artifacts/README.md`
   listing every synthetic secret value (the tests read that list) and the edits made. Also record,
   read-only, the StartCLI output (stdout, stderr, exit code) of an export of a non-existent diagram
-  group and of a non-existent module, neutralized, as `fixtures/artifacts/cli/export-group-missing.txt`
-  and `fixtures/artifacts/cli/export-module-missing.txt` (contract tests, Constitution III). Run
+  group and of a non-existent module, neutralized, as
+  `fixtures/artifacts/cli/export-{group,module}-missing.{stdout,stderr,exit}` (contract tests,
+  Constitution III). Saved test messages, literals, stylesheets and WSDLs become synthetic documents
+  of the same structure (research D-14). Run
   `python3 tools/check-identifiers.py --staged` before committing.
 - [X] T003 [P] Derive defect fixtures from `grp-a.zip` as unzipped directories under
   `fixtures/artifacts/defects/` — `dangling-edge`, `id-collision`, `demux-key-unmatched`,
@@ -154,11 +157,17 @@ from `fixtures/artifacts/README.md`.
 - [ ] T013 [US2] `test/adapter/archive/v81/SecretRedactorTest.java` first, then
   `main/adapter/archive/v81/SecretRedactor.java` (D-7): replaces "every `Property` with
   `type=\"Password\"`, any value, with or without `encrypted`" (module files and workflow instance
-  properties), `type="KeyStore"` values, certificate properties only if they contain a private key,
-  `literal isPassword="true"`, `DefaultValue` of `is:password` variables, all values under
-  `xslt.sourceVariables`; placeholder `${secret:<property path>}` (nested map properties as
-  `a/b`), empty values stay empty; returns a `RedactionReport` with counts per kind only; after
-  redaction none of the README's synthetic values occurs in any serialized part of the model.
+  properties), every `Property` with `encrypted="true"` whatever its type (`MaskedString`),
+  `type="KeyStore"` values, the untyped secrets `SSLKeyStoreRemoteConnector`,
+  `smime.keystore.data`, `SSLKeyStorePasswordRemoteConnector` and `smime.keystore.alias.password`,
+  certificate properties only if they contain a private key, `literal isPassword="true"`,
+  `DefaultValue` of `is:password` variables, all values under `xslt.sourceVariables` and the saved
+  test messages `xslt.source`/`xslt.target` (also as `InternalDocument`); placeholder
+  `${secret:<property path>}` (nested map properties as `a/b`), empty values stay empty; returns a
+  `RedactionReport` with counts per kind only, plus a warning count of unredacted properties whose
+  name contains `password`, `secret`, `keystore` or `token` (case-insensitive, count only); after
+  redaction none of the README's synthetic values occurs in any serialized part of the model
+  (fixtures include synthetic SMIME and `MaskedString` forms, `module-smime.zip`).
 - [ ] T014 [US2] Test that redaction cannot be bypassed: `ArchiveReader` output is only reachable by
   the writer through `SecretRedactor.redact(...)` (the writer accepts a `RedactedArchive` type that only
   the redactor can construct) — compile-time guarantee plus a test in
@@ -181,7 +190,8 @@ unchanged re-export, round trip.
   `xslt.stylesheet → .xsl`, `WsdlData`/`ValidWsdlData → .wsdl`, InternalDocument by
   `documentContentType`/`documentName` (`.xsd`, `.xml`, else `.bin`), other XmlDocument → `.xml`; the
   property text becomes `@file:<file name>`; re-embedding escapes `&`, `<`, and `>` only after `]]`,
-  and re-encodes InternalDocuments; decode(encode(x)) == x on all fixture modules.
+  and re-encodes InternalDocuments, recomputing derived values (`JSONStaticSchemaMD5`,
+  `documentSize`); decode(encode(x)) == x on all fixture modules.
 - [ ] T016 [P] [US1] `main/adapter/archive/v81/MetaStore.java` with test first (D-6): writes and reads
   `.meta/<same path>.json` (sorted keys) holding enclosing XML context, `WorkflowUId`/`ModuleUId`, the
   `CheckinComment` export suffix ("from the first `@@@Deploying User:` to the end"), archive
@@ -196,7 +206,7 @@ unchanged re-export, round trip.
   `test/adapter/archive/v81/ArchiveRoundTripTest.java` first: rebuild a ZIP from workspace + `.meta/`
   (with placeholders still in place); for every fixture, `XmlEquality` holds between the original
   (redacted the same way) and the rebuilt archive entry by entry, `Repository.zip` content equal after
-  decoding (FR-015, SC-002).
+  decoding (FR-015, SC-002); repository `contentMD5`/`contentSize` are recomputed from the content.
 - [ ] T019 [US1] `main/adapter/cli/CliExportRunner.java`: add `exportWorkflowGroup(owner, diagramGroup)`
   and `exportModule(owner, pluginType, name)` (D-8) with tests first in
   `test/adapter/cli/CliExportRunnerTest.java`: exact `--execCommand` strings with
@@ -204,9 +214,10 @@ unchanged re-export, round trip.
   (`INVALID_INPUT`, "StartCLI treats an empty group as all"); values outside `CliCommand.VALUE` →
   `INVALID_INPUT`; 128 MiB cap; temporary directory deleted on success, failure and timeout;
   `TIMEOUT` names `cliExportTimeout`; `NOT_FOUND` when StartCLI reports a missing group/module,
-  classified from the recordings `fixtures/artifacts/cli/export-*-missing.txt` of T002.
+  classified from the recordings `fixtures/artifacts/cli/export-*-missing.{stdout,stderr,exit}` of T002.
 - [ ] T020 [US1] `main/adapter/cli/v81/V81ArtifactAdapter.java` implementing `ArtifactPort`, wired in the
-  v8.1 gateway factory, with `test/adapter/cli/V81ArtifactAdapterTest.java` first.
+  v8.1 gateway factory, with `test/adapter/cli/V81ArtifactAdapterTest.java` first; assert that the
+  v8.1 gateway overrides `Gateway.artifacts()` (no `CLI_UNAVAILABLE` default for a node with a CLI).
 - [ ] T021 [US1] `main/application/WorkspaceService.java` with `test/application/WorkspaceExportTest.java`
   first (D-9): lock (a second export or check is refused at once, FR-020) → commit uncommitted changes as `local changes: <n> files` → export(s) per diagram
   group or module (plugin type looked up via `InventoryPort.listModules` if absent) → read → redact →
@@ -251,7 +262,9 @@ unchanged re-export, round trip.
   `ID_COLLISION` (ModuleId and ConnectionId together), `DEMUX_KEY_UNMATCHED` (keys
   `<Name>(<id>)@@@…` and `DefaultOutput`), `PARENT_REF_MISSING` (`ParentModule`, `EndLoopId`,
   `scopeChildId`), `REPOSITORY_REF_MISSING`, `VARIABLE_UNRESOLVED` (WARNING); each defect fixture of
-  T003 yields exactly its finding; unchanged fixtures yield no ERROR (SC-004).
+  T003 yields exactly its finding; unchanged fixtures yield no ERROR (SC-004); may add a WARNING
+  when a derived value (`JSONStaticSchemaMD5`, repository `contentMD5`/`contentSize`) does not match
+  its content (research D-4).
 - [ ] T026 [US3] Module existence (FR-027, FR-028) in `ArtifactCheckService` with tests first: found in
   the workspace (any owner of the same group) → ok; else the server module lists of the artifact's
   owner and of `inventory.owner` via `InventoryPort` (cached) → ok; else `MODULE_MISSING` ERROR;

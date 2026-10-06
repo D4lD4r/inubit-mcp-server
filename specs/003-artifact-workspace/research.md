@@ -101,6 +101,13 @@ for imports.
   repository-path properties) are written (FR-012); the rest of the owner's repository is ignored.
 - On rebuild, embedded XML is escaped like INUBIT writes it: `&` and `<`, and `>` only after `]]`
   (spike §5); InternalDocuments are gzipped and base64-encoded again.
+- Values derived from embedded content are recomputed on re-embedding (review of T002): the
+  `JSONStaticSchemaMD5` of a JSON Validator is the MD5 of the decoded `JSONStaticSchema`, and the
+  repository metadata `contentMD5`/`contentSize` describe the `.dat` content; an edited document
+  must not keep the old values. `check_artifacts` may warn about a mismatch (T025).
+- The module index may list the same module twice (seen in a real export); both index entries are
+  kept, the module file is read once. Exports by tag (`usertags.xml`) and with history
+  (`versionHistory.xml`) are not produced by this feature and are refused by the reader.
 
 **Rationale**: the spike showed INUBIT accepts reformatted XML on import (the probes rewrote
 `workflow.xml` with another serializer) and identifies artifacts by name, so element order and
@@ -136,9 +143,15 @@ files (FR-014): `CheckoutUser`, `IsActive`, layout (`StyleSheet`, `Junctures`), 
 | Where | Rule |
 |---|---|
 | module files, workflow instance properties | every `Property` with `type="Password"`, any value, with or without `encrypted` |
+| module files, workflow instance properties | every `Property` with `encrypted="true"`, whatever its type (e.g. `type="MaskedString"`) |
 | module files | `type="KeyStore"` values; `type="X509"` and certificate properties only if they contain a private key |
+| module files | untyped secrets (review of T002, found in the recordings): keystores `SSLKeyStoreRemoteConnector` (Web Services Connector) and `smime.keystore.data` (SMIME); passwords `SSLKeyStorePasswordRemoteConnector` and `smime.keystore.alias.password` |
 | workflow | `literal` with `isPassword="true"`; `DefaultValue` of variables of type `is:password` |
-| XSLT modules | the values of `xslt.sourceVariables` (saved test values) |
+| XSLT modules | the values of `xslt.sourceVariables` (saved test values) and the saved test messages `xslt.source` and `xslt.target` (also when stored as `InternalDocument`) |
+
+Any property that is still unredacted and whose name contains `password`, `secret`, `keystore` or
+`token` (case-insensitive) is counted and reported as a warning with its count only (never its name
+or value), so that a new secret form shows up without leaking.
 
 Placeholder: `${secret:<property path>}` where the path is the property name chain inside the
 artifact (e.g. `${secret:Mime.Sign.Password}`, `${secret:xslt.sourceVariables/ISCurrentTime}`); the
@@ -214,6 +227,11 @@ returns at once. Behaviour of the date/number formatting stand-ins follows the I
 of `Formatter`; where the documentation is silent, each stand-in documents its assumption and the
 result marks the run as "used stand-ins".
 
+The `xslt.transformer` of a module (recorded: `net.sf.saxon.TransformerFactoryImpl` and the Saxon-EE
+factory of `com.saxonica.config`) does not select the engine: every `com.saxonica.*` factory is
+treated the same way (runs on Saxon-HE, EE-only constructs are `NOT_TESTABLE`), never keyed on an
+exact class name; the fixtures use `com.saxonica.config.ProfessionalTransformerFactory`.
+
 Any other `Q{java:…}` or `saxon:`/EE-only construct found at compile time → `NOT_TESTABLE` with
 reason; a static error → `ERROR` with line/column. `inubitrepository:` resolves from the workspace
 `repository/` of the same group and owner (FR-032).
@@ -257,8 +275,17 @@ groups with Demultiplexer, Assign, XSLT, WS and AS2 connector modules), neutrali
 identifier guard covers the fixture ZIPs (entry names and text entries). Defect fixtures
 (dangling edge, missing module, id collision, broken condition, unknown extension, syntax error) are
 derived from them by small, documented edits. The fixtures also hold the StartCLI outputs of an
-export of a non-existent diagram group and of a non-existent module (read-only recordings), as
-required for contract tests (Constitution III).
+export of a non-existent diagram group and of a non-existent module (read-only recordings, stdout,
+stderr and exit code separately), as required for contract tests (Constitution III).
+
+Saved test messages, assignment literals, stylesheets, WSDLs and embedded schemas are customer
+content: in the fixtures they are always **synthetic** documents of the same structure (same XSLT
+constructs, escaping, namespaces, binding style), never recorded content; `ArtifactFixturesTest`
+refuses literals and saved test messages that are large or not visibly synthetic. The synthetic
+secret forms include SMIME (`module-smime.zip`) and `MaskedString`.
+
+The archive layout is also checked against local, real exports by the opt-in
+`ArchiveCorpusTest` (`INUBIT_MCP_ARCHIVE_CORPUS`, skipped when unset, prints counts only).
 
 The stylesheet coverage of SC-005 cannot be proven on committed fixtures (the real stylesheets are
 customer content). A local, opt-in corpus test (`XsltCorpusTest`) runs against a directory given in
