@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.domain.model.XsltRun;
 import de.dadecker.inubit.mcp.domain.model.XsltRun.Outcome;
 import de.dadecker.inubit.mcp.domain.port.XsltPort;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -108,9 +109,12 @@ public final class SaxonXsltRunner implements XsltPort {
     private final Path root;
     private final XsdValidator validator;
     private final Duration deadline;
+    private final long maxOutputBytes;
 
     /** The longest a stylesheet may run (review I1: a check holds the workspace lock). */
     public static final Duration DEADLINE = Duration.ofSeconds(60);
+    /** The largest output of a run (64 MiB); a larger one is an {@code XSLT_RUNTIME_ERROR}. */
+    public static final long MAX_OUTPUT_BYTES = 64L << 20;
 
     /** @param root the workspace root */
     public SaxonXsltRunner(Path root) {
@@ -122,9 +126,19 @@ public final class SaxonXsltRunner implements XsltPort {
      * @param deadline the longest a run may take ({@link #DEADLINE}; tests use less)
      */
     public SaxonXsltRunner(Path root, Duration deadline) {
+        this(root, deadline, MAX_OUTPUT_BYTES);
+    }
+
+    /**
+     * @param root           the workspace root
+     * @param deadline       the longest a run may take
+     * @param maxOutputBytes the largest output of a run ({@link #MAX_OUTPUT_BYTES})
+     */
+    public SaxonXsltRunner(Path root, Duration deadline, long maxOutputBytes) {
         this.root = Objects.requireNonNull(root, "root").toAbsolutePath().normalize();
         this.validator = new XsdValidator(this.root);
         this.deadline = Objects.requireNonNull(deadline, "deadline");
+        this.maxOutputBytes = maxOutputBytes;
     }
 
     @Override
@@ -211,9 +225,13 @@ public final class SaxonXsltRunner implements XsltPort {
                         + " without a seed gives other numbers on every run")));
         }
         Path output = output(artifact, stylesheet, input);
-        Path partial = output.resolveSibling(output.getFileName() + ".partial");
+        Path partial = null;
+        GuardedOutput guarded = null;
         try {
             Files.createDirectories(output.getParent());
+            // one temporary file per run: an abandoned run never touches a later run's file
+            partial = Files.createTempFile(output.getParent(), output.getFileName() + ".",
+                ".partial");
             XsltTransformer transformer = executable.load();
             transformer.setURIResolver(resolver);
             transformer.getUnderlyingController().setCurrentDateTime(DateTimeValue.fromJavaDate(
@@ -223,8 +241,11 @@ public final class SaxonXsltRunner implements XsltPort {
                     new XdmAtomicValue(parameter.getValue()));
             }
             transformer.setSource(resolver.source(input));
-            transformer.setDestination(processor.newSerializer(partial.toFile()));
-            transformer.transform();
+            try (OutputStream file = Files.newOutputStream(partial)) {
+                guarded = new GuardedOutput(file, abandoned, maxOutputBytes);
+                transformer.setDestination(processor.newSerializer(guarded));
+                transformer.transform();
+            }
             if (abandoned.get()) {
                 deleteQuietly(partial);
             } else {
@@ -232,12 +253,19 @@ public final class SaxonXsltRunner implements XsltPort {
             }
         } catch (SaxonApiException | SaxonApiUncheckedException | TransformerException e) {
             deleteQuietly(partial);
+            if (guarded != null && guarded.exceeded()) {
+                return new XsltRun(stylesheetPath, inputPath, Optional.empty(), Outcome.ERROR,
+                    List.copyOf(standIns.used()), List.of(finding(Severity.ERROR,
+                        stylesheetPath, Optional.empty(), "XSLT_RUNTIME_ERROR",
+                        "the output exceeds " + maxOutputBytes + " bytes")));
+            }
             return new XsltRun(stylesheetPath, inputPath, Optional.empty(), Outcome.ERROR,
                 List.copyOf(standIns.used()), List.of(finding(Severity.ERROR, stylesheetPath,
                     Optional.empty(), "XSLT_RUNTIME_ERROR", "the transformation failed"
                         + errorCode(e).map(code -> " (" + code + ")").orElse("") + ": "
                         + e.getMessage())));
         } catch (IOException e) {
+            deleteQuietly(partial);
             throw new UncheckedIOException(e);
         }
         List<String> used = List.copyOf(standIns.used());
@@ -412,6 +440,9 @@ public final class SaxonXsltRunner implements XsltPort {
     }
 
     private static void deleteQuietly(Path file) {
+        if (file == null) {
+            return;
+        }
         try {
             Files.deleteIfExists(file);
         } catch (IOException e) {

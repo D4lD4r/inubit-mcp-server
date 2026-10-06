@@ -272,6 +272,67 @@ class XsltRunnerTest {
             .doesNotExist();
     }
 
+    static final String FLOOD = """
+        <xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+          <xsl:output method="text"/>
+          <xsl:template match="/">
+            <xsl:for-each select="1 to 400000000">
+              <xsl:value-of select="'fixture output line ', ., '&#10;'"/>
+            </xsl:for-each>
+          </xsl:template>
+        </xsl:stylesheet>
+        """;
+
+    private static long files(Path directory) throws IOException {
+        if (!Files.isDirectory(directory)) {
+            return 0;
+        }
+        try (Stream<Path> files = Files.list(directory)) {
+            return files.count();
+        }
+    }
+
+    @Test
+    void anAbandonedRunWritesNothingMoreAndANewRunIsUnaffected() throws Exception {
+        // stage-3 minor 1: no shared temporary file, no writing after the deadline
+        put(MODULES + "Module-flood/xslt.stylesheet.xsl", FLOOD);
+        XsltRequest request = new XsltRequest(Path.of(MODULES
+            + "Module-flood/xslt.stylesheet.xsl"), Path.of(INPUT), Map.of(), Optional.empty());
+        Path directory = root.resolve(".tests/dev/OWNERS/Module-flood");
+
+        XsltRun abandoned = new SaxonXsltRunner(root, java.time.Duration.ofSeconds(1))
+            .run(request);
+        assertThat(abandoned.outcome()).isEqualTo(Outcome.ERROR);
+        put(MODULES + "Module-flood/xslt.stylesheet.xsl", fixture("plain.xsl"));
+        XsltRun next = runner.run(request);
+        Thread.sleep(2000);
+
+        assertThat(next.outcome()).isEqualTo(Outcome.OK);
+        String written = output(next);
+        assertThat(written).contains("<total currency=\"EUR\">25.25</total>")
+            .as("nothing of the abandoned run").doesNotContain("fixture output line");
+        Thread.sleep(1000);
+        assertThat(output(next)).as("unchanged afterwards").isEqualTo(written);
+        assertThat(files(directory)).as("only the new output, no temporary file").isEqualTo(1);
+    }
+
+    @Test
+    void theOutputIsCapped() throws IOException {
+        put(MODULES + "Module-flood/xslt.stylesheet.xsl", FLOOD.replace("400000000", "1000"));
+
+        XsltRun run = new SaxonXsltRunner(root, java.time.Duration.ofSeconds(30), 1024)
+            .run(new XsltRequest(Path.of(MODULES + "Module-flood/xslt.stylesheet.xsl"),
+                Path.of(INPUT), Map.of(), Optional.empty()));
+
+        assertThat(run.outcome()).isEqualTo(Outcome.ERROR);
+        assertThat(run.findings()).singleElement().satisfies(finding -> {
+            assertThat(finding.code()).isEqualTo("XSLT_RUNTIME_ERROR");
+            assertThat(finding.message()).contains("the output exceeds 1024 bytes");
+        });
+        assertThat(files(root.resolve(".tests/dev/OWNERS/Module-flood"))).isZero();
+        assertThat(SaxonXsltRunner.MAX_OUTPUT_BYTES).isEqualTo(64L << 20);
+    }
+
     @Test
     void theServersEnvironmentAndSystemPropertiesStayHidden() throws IOException {
         // review C1: the server environment holds the INUBIT credential variables
