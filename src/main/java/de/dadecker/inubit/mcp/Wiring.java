@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp;
 
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
+import de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
@@ -10,22 +11,28 @@ import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
 import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
 import de.dadecker.inubit.mcp.application.ArtifactCheckService;
+import de.dadecker.inubit.mcp.application.BackupStore;
 import de.dadecker.inubit.mcp.application.ConfirmationRegistry;
+import de.dadecker.inubit.mcp.application.DevelopmentGuard;
 import de.dadecker.inubit.mcp.application.DiagnosisService;
 import de.dadecker.inubit.mcp.application.FanOut;
 import de.dadecker.inubit.mcp.application.HealthService;
+import de.dadecker.inubit.mcp.application.ImportService;
 import de.dadecker.inubit.mcp.application.InventoryCache;
 import de.dadecker.inubit.mcp.application.InventoryService;
+import de.dadecker.inubit.mcp.application.OwnerKindResolver;
 import de.dadecker.inubit.mcp.application.ProcessControlService;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.WorkspaceService;
+import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
 import de.dadecker.inubit.mcp.application.WriteGuard;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.SourcedValue;
+import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
@@ -45,6 +52,7 @@ import de.dadecker.inubit.mcp.mcp.tools.ExportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.FindProcessesTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetHealthTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetInventoryItemTool;
+import de.dadecker.inubit.mcp.mcp.tools.ImportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListInventoryTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
@@ -72,7 +80,9 @@ import java.util.function.Predicate;
  * of US4 ({@code restart_process}, {@code kill_process}) are added only if
  * {@link #anyWriteEnabled()} (contracts/mcp-tools.md, Story 4 / AS 6); their service, the write
  * guard and the audit log ({@code auditDirectory}, written only on a write call) are built in any
- * case.
+ * case. Feature 004: {@code import_artifacts} only if {@link #anyDevelopmentNode()}; its service
+ * shares the audit log and the check service, and keeps its backups in
+ * {@code ~/.inubit-mcp/<profile>/backups} (created on the first import).
  *
  * <p>The JVM shutdown hook that stops StartCLI work is registered as the last step of the
  * constructor, so that a failing constructor leaves no hook behind (US3 re-review N2).
@@ -94,6 +104,7 @@ final class Wiring implements AutoCloseable {
     private final ProcessControlService processControl;
     private final ExportArtifactsTool exportArtifacts;
     private final CheckArtifactsTool checkArtifacts;
+    private final ImportArtifactsTool importArtifacts;
     private final CliResources cliResources;
     private final Thread cleanupHook;
 
@@ -150,10 +161,10 @@ final class Wiring implements AutoCloseable {
         // services; lookups of unknown ids return null, which the guard treats as no write access
         Map<NodeId, WritePolicy> policies = new HashMap<>();
         servers.forEach(server -> policies.put(server.id(), policy(server, credentials)));
+        AuditLog audit = new AuditLog(config.auditDirectory(), scrubber);
         this.processControl = new ProcessControlService(
             new WriteGuard(targets, policies::get, gateways), policies::get, gateways,
-            new ConfirmationRegistry(clock.clock()),
-            new AuditLog(config.auditDirectory(), scrubber), clock.clock(), UUID::randomUUID,
+            new ConfirmationRegistry(clock.clock()), audit, clock.clock(), UUID::randomUUID,
             profile.name());
         // feature 003: the workspace history uses the system git (not the StartCLI launcher)
         Path workspace = config.workspace();
@@ -161,11 +172,31 @@ final class Wiring implements AutoCloseable {
             new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
             new ArchiveCodec(), gateways::artifacts, gateways::inventory), targets,
             id -> byId.get(id).inventory().owner(), limiter);
-        this.checkArtifacts = new CheckArtifactsTool(new ArtifactCheckService(workspace,
-            new WorkspaceInspector(), new SaxonXsltRunner(workspace), group -> servers.stream().map(EffectiveNodeConfig::id)
-                .filter(id -> id.group().equals(group)).findFirst(),
+        ArtifactCheckService checks = new ArtifactCheckService(workspace,
+            new WorkspaceInspector(), new SaxonXsltRunner(workspace), group -> servers.stream()
+                .map(EffectiveNodeConfig::id).filter(id -> id.group().equals(group)).findFirst(),
             gateways::inventory, id -> byId.get(id).inventory().owner(), limiter,
-            clock.clock()));
+            clock.clock());
+        this.checkArtifacts = new CheckArtifactsTool(checks);
+        // feature 004: the development tools (offered only with a development node)
+        Map<NodeId, DevelopmentPolicy> development = new HashMap<>();
+        servers.forEach(server -> development.put(server.id(), server.developmentPolicy()));
+        this.importArtifacts = new ImportArtifactsTool(new ImportService(
+            new ImportService.Dependencies(workspace, profile.name(),
+                new DevelopmentGuard(targets, development::get,
+                    node -> gateways.imports(node).checkAvailable()),
+                development::get,
+                new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
+                new WorkspaceInspector(), checks, new ArchiveCodec(), new V81ImportArchives(),
+                gateways::artifacts, gateways::imports, gateways::inventory,
+                new OwnerKindResolver(config.owners(), gateways::users),
+                id -> byId.get(id).inventory().owner(),
+                id -> new ImportService.Account(policies.get(id).account().orElse("unknown"),
+                    byId.get(id).baseUrl().getHost()),
+                new WriteChallengeRegistry(clock.clock()),
+                new BackupStore(BackupStore.defaultRoot(Path.of(System.getProperty(
+                    "user.home")), profile.name()), clock.clock()),
+                audit, clock.clock(), UUID::randomUUID)));
         // last step (N2): SIGTERM (and System.exit) stop running StartCLI work and delete the
         // export directories
         Runtime.getRuntime().addShutdownHook(cleanupHook);
@@ -201,6 +232,9 @@ final class Wiring implements AutoCloseable {
         if (anyWriteEnabled()) {
             handlers.add(new RestartProcessTool(processControl));
             handlers.add(new KillProcessTool(processControl));
+        }
+        if (anyDevelopmentNode()) {
+            handlers.add(importArtifacts);
         }
         return List.copyOf(handlers);
     }
@@ -238,6 +272,11 @@ final class Wiring implements AutoCloseable {
 
     ClockProvider clock() {
         return clock;
+    }
+
+    /** True if at least one node is a development stage (feature 004, FR-001). */
+    boolean anyDevelopmentNode() {
+        return servers.stream().anyMatch(server -> server.development().enabled());
     }
 
     /** True if at least one server has effective write access (Story 4 / AS 6). */

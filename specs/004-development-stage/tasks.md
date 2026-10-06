@@ -150,7 +150,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   feature-003 fixtures; search workspace, history objects, backup index, audit file, tool results and
   captured logs for every synthetic secret value — zero; the import ZIP temp dir no longer exists; the
   values inside the (captured) import archive equal the target's values.
-- [ ] T018 [US1] Schemas `res/schemas/import_artifacts.{input,output}.json`,
+- [X] T018 [US1] Schemas `res/schemas/import_artifacts.{input,output}.json`,
   `main/mcp/tools/ImportArtifactsTool.java` (destructive hints, challenge/result mapping like
   `ProcessControlTool`), registration in `main/Wiring.java` only if a development node exists, with
   tests first (`ImportArtifactsToolTest`, `DevelopmentWiringTest`).
