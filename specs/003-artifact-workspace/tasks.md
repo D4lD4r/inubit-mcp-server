@@ -318,10 +318,12 @@ unchanged re-export, round trip.
   fixtures, every one is `OK`, `NOT_TESTABLE` or `XSLT_STATIC_ERROR` as listed in
   `fixtures/artifacts/README.md`, none falsely `OK`. Plus the opt-in
   `test/adapter/xslt/XsltCorpusTest.java` (SC-005, research D-14): runs every `*.xsl` below
-  `INUBIT_MCP_XSLT_CORPUS` (repository files from its `repository/` sub-directory), asserts ≥ 95 % `OK`
-  and that every other one is `NOT_TESTABLE` or `XSLT_STATIC_ERROR`, prints only counts and the
-  stand-ins used (never stylesheet content or names); skipped when the variable is not set. Run it once
-  locally against the spike corpus and record the counts in the PR description.
+  `INUBIT_MCP_XSLT_CORPUS` (repository files from its `repository/` sub-directory), asserts that ≥ 95 %
+  compile and execute locally with every extension call served by a stand-in (`OK` or
+  `XSLT_RUNTIME_ERROR` on the given input, never passed) and that every other one is `NOT_TESTABLE` or
+  `XSLT_STATIC_ERROR`, reports the share of fully successful (`OK`) runs separately, prints only counts
+  and the stand-ins used (never stylesheet content or names); skipped when the variable is not set.
+  Run it once locally against the spike corpus and record the counts in research D-11.
 - [X] T032 [US4] Wire the `xslt` input of `check_artifacts` to `SaxonXsltRunner` in
   `main/mcp/tools/CheckArtifactsTool.java` and `main/application/ArtifactCheckService.java` with a tool
   test first (output path and `xslt` block of the result per contract).

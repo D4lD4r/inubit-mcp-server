@@ -76,6 +76,7 @@ must allow feature 004 to rebuild an import archive that INUBIT treats as identi
 - Q: Which diagram types can `export_artifacts` export? → A: Only technical workflows (with their modules) for now; system diagrams and other diagram types are excluded, so that they cannot become part of a later import and be overwritten unintentionally.
 - Q: From which groups may `export_artifacts` read? → A: From every configured group without restriction, including production groups; an export is read-only, like health, logs and inventory.
 - Q: How should the local stand-ins for INUBIT's non-deterministic extension functions (GUIDs, current time, sleep) behave? → A: Deterministically: fixed, recognizable values (e.g. an all-zero GUID, a fixed time that a run may override), sleep does not wait; the result names the stand-ins used.
+- Q: How is SC-005 measured on a corpus without real input messages? → A: As "compiles and executes locally with every extension call served by a stand-in"; a run that fails on the given input is XSLT_RUNTIME_ERROR and never passed; fully successful runs are reported separately.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -426,8 +427,10 @@ settings.
   collision) is detected in 100 % of the defect fixtures, and unchanged real workflows produce no
   structural errors.
 - **SC-005**: At least 95 % of the stylesheets of a real owner's export (several hundred, kept as a
-  local corpus outside the repository) can be run locally (with stand-ins where needed); every other
-  stylesheet is reported as "not testable locally" or as a genuine error, none as passed.
+  local corpus outside the repository) compile and execute locally with every extension call served
+  by a stand-in; a run that fails on the given input is reported as `XSLT_RUNTIME_ERROR` and never as
+  passed, and the share of fully successful runs is reported separately. Every other stylesheet is
+  reported as "not testable locally" or as a genuine error, none as passed.
 - **SC-006**: Exporting a diagram group with up to 100 modules completes, including history entry, in
   under one minute plus the time INUBIT needs to produce the export.
 - **SC-007**: A person reviewing a change made in the Workbench can see it in the history as a diff of

@@ -96,13 +96,15 @@ Always offered.
      "location": "WorkflowModule[ModuleId=5]/Connection", "message": "edge to node 99, which does not exist"},
     {"severity": "INFO", "check": "XSLT", "code": "XSLT_STANDINS_USED",
      "path": "dev/OWNERS/modules/XSLT Converter/Map-Order/xslt.stylesheet.xsl",
-     "location": null, "message": "stand-ins used: Misc.guid, Formatter.changeDateFormat"}
+     "message": "stand-ins used: Misc.guid, Formatter.changeDateFormat"}
   ],
   "xslt": {"outcome": "OK", "output": ".tests/dev/OWNERS/Map-Order/order.xml.out", "standInsUsed": ["Misc.guid"]},
-  "truncated": false,
-  "fullReport": null
+  "truncated": false
 }
 ```
+
+Fields without a value (`location`, `fullReport`, `xslt` without a run, `xslt.output` unless `OK`)
+are absent, never `null`. `fullReport` is present only when `truncated` is true.
 
 Finding codes: see [data-model.md](../data-model.md) (`CheckFinding`). Findings and messages never
 contain secret values.

@@ -253,7 +253,25 @@ reason; a static error → `ERROR` with line/column. `inubitrepository:` resolve
 
 **Risk / first test**: Saxon-HE must accept an integrated function in a `java:` namespace without
 attempting reflexive binding — verified by the first test of the XSLT task before anything else is
-built on it.
+built on it (T028: passed).
+
+Stand-ins whose behaviour the INUBIT documentation does not state (e.g. `Misc:encode`, the variable
+storage, `convertDateString`, `formatNumber`) and fallbacks (an unreadable date or number kept,
+malformed XML parsed to nothing) add the WARNING `XSLT_STANDIN_ASSUMED`, so that an `OK` run never
+rests silently on an invented result; `Formatter:calculateDateDifference` (eleven undocumented
+parameters) and an unseeded `random-number-generator()` are `NOT_TESTABLE`. A run sees nothing of the
+server's host (no environment variables, no Java system properties, no `xsl:result-document`) and
+ends after 60 s (`XSLT_RUNTIME_ERROR`), so that it cannot hold the workspace lock indefinitely.
+
+**SC-005 measurement** (clarification of 2026-10-06): on a corpus without real input messages,
+SC-005 counts the stylesheets that compile and execute locally with every extension call served by
+a stand-in — `OK`, or `XSLT_RUNTIME_ERROR` on the given input (never passed); the share of fully
+successful runs is reported separately. Local run of `XsltCorpusTest` on the spike corpus
+(2026-10-06; minimal input `<root/>`, required top-level parameters as empty strings; counts only):
+656 stylesheets — `OK` 599 (**91.3 %**), `XSLT_RUNTIME_ERROR` 50, so **executable 649 (98.9 %)**;
+`NOT_TESTABLE` 4 (two customer Java extensions, one document type declaration,
+`calculateDateDifference`), `XSLT_STATIC_ERROR` 3. The runtime errors come from the minimal input
+(required template parameters XTDE0700 32, type errors XPTY0004/XPTY0019/FORG0001 16, other 2).
 
 **Alternatives**: Saxon-HE 12 — different defaults (e.g. XSLT 3.0 features, error codes) than
 INUBIT's Saxon 10; rejected. Xalan — wrong engine; rejected.
@@ -278,7 +296,8 @@ the workspace. No new dependency (Saxon-HE has no schema validation).
   module list of the artifact's owner or of `inventory.owner` (read via `InventoryPort`, cached) →
   otherwise ERROR; server unreachable → WARNING "could not verify" (FR-028);
 - variable references in assignments and conditions (`WFSP` operands, `@variable`) resolve to
-  declared variables → WARNING (INUBIT also has implicit system variables);
+  declared variables → WARNING (INUBIT also has implicit system variables; names starting with `IS`
+  are taken as such and not reported — an assumption, as INUBIT's list is not documented);
 - `inubitrepository:` references resolve in `repository/` → ERROR.
 
 ## D-14 Fixtures
