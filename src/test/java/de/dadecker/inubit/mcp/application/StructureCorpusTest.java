@@ -44,6 +44,15 @@ class StructureCorpusTest {
     @TempDir
     Path temp;
 
+    /** The owner of the first workflow of an export ({@code UserOrUserGroupName}). */
+    private static String owner(byte[] archive) {
+        java.util.regex.Matcher owner = java.util.regex.Pattern.compile(
+            "<UserOrUserGroupName>([^<]+)</UserOrUserGroupName>").matcher(new String(
+                ArtifactFixtures.entries(archive).get("workflow/workflow.xml"),
+                java.nio.charset.StandardCharsets.UTF_8));
+        return owner.find() ? owner.group(1).strip() : "corpus";
+    }
+
     @Test
     void unchangedRealWorkflowsHaveNoStructuralError() throws IOException {
         String corpus = System.getenv(VARIABLE);
@@ -84,7 +93,9 @@ class StructureCorpusTest {
             }
             Path root = Files.createDirectories(temp.resolve("w" + i));
             try {
-                new ArchiveCodec().prepare(new GroupId("dev"), "corpus", List.of(bytes))
+                // the archive's own owner, so that its repository references resolve as in a
+                // real workspace (review M1)
+                new ArchiveCodec().prepare(new GroupId("dev"), owner(bytes), List.of(bytes))
                     .writeTo(root);
             } catch (ToolErrorException e) {
                 archivesChecked.merge("skipped: not processable", 1, Integer::sum);
