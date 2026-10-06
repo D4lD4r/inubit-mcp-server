@@ -141,6 +141,7 @@ redaction and leak tests (T013, T024) read the block below: one line per replace
 | `keystore` | base64 of a JKS keystore with an EC private key (alias `partner`, store and key password `changeit`) | `type="KeyStore"` and the **untyped** properties `SSLKeyStoreRemoteConnector` and `smime.keystore.data` |
 | `literal` | `synthetic-literal-NNNN` | `<literal isPassword="true">` in an assignment (edit) |
 | `default` | `synthetic-default-NNNN` | `<DefaultValue>` of a variable of type `is:password` (edit) |
+| `savedTestMessage` | the distinctive part `fixture>xslt.source` / `fixture>xslt.target` of a small fixture document (it occurs escaped in the module file and parsed in the model) | `xslt.source` / `xslt.target` (saved test messages, replaced like secrets; listed for the round-trip test of review I4) |
 | `sourceVariable` | `synthetic-sv-NNNN` (in `XmlDocument` values inside a small escaped document) | values below `xslt.sourceVariables` (saved test values; empty values stay empty) |
 
 Secret forms that `type="Password"` alone does not cover, and that the redaction must therefore
@@ -210,6 +211,8 @@ sourceVariable	grp-b.zip	module/module-0020.xml xslt.sourceVariables/ASMessageMD
 sourceVariable	grp-b.zip	module/module-0020.xml xslt.sourceVariables/disposition-notification-options	synthetic-sv-0039
 sourceVariable	grp-b.zip	module/module-0020.xml xslt.sourceVariables/ISModuleName	synthetic-sv-0040
 sourceVariable	grp-b.zip	module/module-0020.xml xslt.sourceVariables/accept	synthetic-sv-0041
+savedTestMessage	grp-b.zip	module/module-0020.xml xslt.source	fixture>xslt.source
+savedTestMessage	grp-b.zip	module/module-0020.xml xslt.target	fixture>xslt.target
 AES-	grp-b.zip	module/module-0020.xml xslt.sourceVariables/var.userPassword (MaskedString)	AES-U1lOVEgtQUVTLTAwMDAwMDAy
 keystore	module-smime.zip	module/module-0029.xml smime.keystore.data	/u3+7QAAAAIAAAABAAAAAQAHcGFydG5lcgAAAaEQculXAAAAfTB7MAwGCisGAQQBKgIRAQEEa4LMGriVL9mTE3ofAHDEPBQchG2jS3cf4Dx6BS+aBtRXJYz2Fqv8Kq03vmprFvyNkmgS3agNpkOSNJjHf8ZLnU6AwYHv2PAiVKQb2QDtUie8XkZnIXP7MMzQ9+hocKiF5uLP0yIcznheo9WUAAAAAQAFWC41MDkAAAGnMIIBozCCAUigAwIBAgIJAOSOllE6oV0bMAoGCCqGSM49BAMDMEUxCzAJBgNVBAYTAkRFMRcwFQYDVQQKEw5HbG9iZXggRml4dHVyZTEdMBsGA1UEAxMUcGFydG5lci5leGFtcGxlLnRlc3QwHhcNMjYwMTAxMTAwMjA4WhcNMzUxMjMwMTAwMjA4WjBFMQswCQYDVQQGEwJERTEXMBUGA1UEChMOR2xvYmV4IEZpeHR1cmUxHTAbBgNVBAMTFHBhcnRuZXIuZXhhbXBsZS50ZXN0MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfGYdOyPANPBr7lJp5IoT3kc/OlKX5bAmIwuDVwlqCH94ebTEZmWz0/W6pax9nblI5r693UaFdSBYYsqS/evqkqMhMB8wHQYDVR0OBBYEFN+PH/qIUZPbWTfwOGb0b80JUCNZMAoGCCqGSM49BAMDA0kAMEYCIQCl7AJEmF8kaIMesRrZpTr2OFIrWB2Jci1H1+QzUrG/VAIhAKutiHl4F1vPjqAJt0k3lkuGilLGu/NwANeAr+Vke04DAOzH0qVe+y3HVlx6QrlWSrp84gA=
 plain	module-smime.zip	module/module-0029.xml smime.keystore.alias.password	synthetic-plain-0004
