@@ -96,6 +96,15 @@ public final class DevelopmentGuard {
         NodeId id = targets.resolveSingleServer(node);
         Terminology terms = targets.terms();
         DevelopmentPolicy policy = policies.apply(id);
+        if (policy != null && policy.production() && !policy.enabled()) {
+            throw refused(ErrorCode.NOT_DEVELOPMENT, id,
+                id + terms.render(" belongs to the production {group} ") + id.group() + "; "
+                    + capability.toolName() + " is refused there and nothing was sent",
+                terms.render("The {group} is classified production: true, and production {groups}"
+                    + " are never development stages"),
+                terms.render("Use a development {node} (list_nodes) and deploy to production"
+                    + " through the stage chain"));
+        }
         if (policy == null || !policy.enabled()) {
             throw refused(ErrorCode.NOT_DEVELOPMENT, id,
                 id + terms.render(" is not a development {node}; ") + capability.toolName()

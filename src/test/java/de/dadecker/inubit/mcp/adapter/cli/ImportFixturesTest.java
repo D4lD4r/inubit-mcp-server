@@ -59,6 +59,8 @@ class ImportFixturesTest {
         assertThat(exit(fixtureCase)).isZero();
         assertThat(stdout).doesNotContain("-NOK");
         assertThat(rows).allSatisfy(row -> assertThat(row).endsWith(" jdoe"));
+        // review M2: INUBIT's CRLF survives git (.gitattributes -text)
+        assertThat(stdout).contains("GROUP/USER\r\n").contains("\r\nTotal: ");
     }
 
     @Test

@@ -83,6 +83,9 @@ public final class WriteChallengeRegistry {
         Objects.requireNonNull(inputFingerprint, "inputFingerprint");
         Objects.requireNonNull(previewState, "previewState");
         Objects.requireNonNull(ttl, "ttl");
+        if (ttl.isZero() || ttl.isNegative()) {
+            throw new IllegalArgumentException("A confirmation TTL must be positive");
+        }
         Instant now = clock.instant();
         sweep(now);
         if (pending.size() >= MAX_PENDING) {

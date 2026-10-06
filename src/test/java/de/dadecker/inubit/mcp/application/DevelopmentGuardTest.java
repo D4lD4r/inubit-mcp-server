@@ -108,9 +108,14 @@ class DevelopmentGuardTest {
     }
 
     @Test
-    void aProductionNodeWithoutDevelopmentIsNotDevelopment() {
-        assertThat(refusal("prod/node1", Capability.IMPORT_ARTIFACTS).code())
-            .isEqualTo(ErrorCode.NOT_DEVELOPMENT);
+    void aProductionNodeWithoutDevelopmentIsNotDevelopmentWithItsOwnNextStep() {
+        // review M1: never advise development.enabled for a production node
+        ToolError error = refusal("prod/node1", Capability.IMPORT_ARTIFACTS);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.NOT_DEVELOPMENT);
+        assertThat(error.likelyCause()).contains("production");
+        assertThat(error.nextStep()).doesNotContain("development.enabled")
+            .contains("development {node}".replace(" {node}", " node"));
     }
 
     @Test

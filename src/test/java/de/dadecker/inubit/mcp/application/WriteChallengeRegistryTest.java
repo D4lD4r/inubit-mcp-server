@@ -73,6 +73,17 @@ class WriteChallengeRegistryTest {
     }
 
     @Test
+    void aTtlMustBePositive() {
+        // review M6
+        for (Duration ttl : List.of(Duration.ZERO, Duration.ofSeconds(-1))) {
+            org.assertj.core.api.Assertions.assertThatIllegalArgumentException().as(ttl.toString())
+                .isThrownBy(() -> registry.issue(Capability.IMPORT_ARTIFACTS, DEV, INPUTS, STATE,
+                    ttl));
+        }
+        assertThat(registry.pending()).isZero();
+    }
+
+    @Test
     void codesAreRandomAndUnique() {
         Set<String> codes = new HashSet<>();
         for (int i = 0; i < 200; i++) {

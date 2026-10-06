@@ -46,7 +46,8 @@ import java.util.stream.Stream;
  *   <li>{@link #sweep} removes backups taken more than {@link #RETENTION} ago, except the newest
  *       of each {@code (node, owner, scope)} (clarification 3), and returns what it removed for
  *       the audit log ({@code backup_retention}). A manifest that cannot be read is never
- *       removed automatically.
+ *       removed automatically, nor is one whose audit id differs from its file name or that
+ *       names a file other than {@code <auditId>-<n>.zip} (counted in {@link Sweep#skipped}).
  * </ul>
  *
  * <p>Not thread-safe across processes; the workspace lock serializes the writing calls.
@@ -106,6 +107,16 @@ public final class BackupStore {
         }
     }
 
+    /**
+     * The outcome of {@link #sweep}: the removed backups (oldest first) and the number of
+     * manifests that were skipped because they cannot be trusted (count only).
+     */
+    public record Sweep(List<Removed> removed, int skipped) {
+        public Sweep {
+            removed = List.copyOf(removed);
+        }
+    }
+
     /** A backup removed by {@link #sweep}, for its audit record. */
     public record Removed(String auditId, NodeId node, String owner, String scope,
         Instant takenAt) {
@@ -147,9 +158,9 @@ public final class BackupStore {
         if (Files.exists(manifestFile(id))) {
             throw new IllegalStateException("A backup with this audit id exists already");
         }
+        List<String> zips = new ArrayList<>();
         try {
             prepareDirectory();
-            List<String> zips = new ArrayList<>();
             for (int i = 0; i < exports.size(); i++) {
                 String name = id + "-" + (i + 1) + ".zip";
                 writeNew(root.resolve(name), exports.get(i));
@@ -160,9 +171,26 @@ public final class BackupStore {
                 .getBytes(StandardCharsets.UTF_8));
             return complete;
         } catch (FileAlreadyExistsException e) {
+            discard(zips);
             throw new IllegalStateException("A backup file of this audit id exists already");
-        } catch (IOException e) {
-            throw new UncheckedIOException("The backup cannot be written to " + root, e);
+        } catch (IOException | RuntimeException e) {
+            discard(zips);
+            if (e instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw new UncheckedIOException("The backup cannot be written to " + root,
+                (IOException) e);
+        }
+    }
+
+    /** Removes the ZIPs this call wrote before it failed (review M3); best effort. */
+    private void discard(List<String> written) {
+        for (String zip : written) {
+            try {
+                Files.deleteIfExists(root.resolve(zip));
+            } catch (IOException e) {
+                // the manifest was not written, so the backup is never found
+            }
         }
     }
 
@@ -229,17 +257,26 @@ public final class BackupStore {
      *
      * @return the removed backups, oldest first
      */
-    public List<Removed> sweep() {
+    public Sweep sweep() {
         if (!Files.isDirectory(root)) {
-            return List.of();
+            return new Sweep(List.of(), 0);
         }
         List<Manifest> manifests = new ArrayList<>();
+        int skipped = 0;
+        List<Path> candidates;
         try (Stream<Path> files = Files.list(root)) {
-            files.filter(file -> file.getFileName().toString().endsWith(MANIFEST))
-                .filter(file -> AUDIT_ID.matcher(idOf(file)).matches())
-                .forEach(file -> read(file).ifPresent(manifests::add));
+            candidates = files.filter(file -> file.getFileName().toString().endsWith(MANIFEST))
+                .filter(file -> AUDIT_ID.matcher(idOf(file)).matches()).toList();
         } catch (IOException e) {
             throw new UncheckedIOException("The backup directory cannot be read", e);
+        }
+        for (Path file : candidates) {
+            Optional<Manifest> manifest = read(file);
+            if (manifest.isPresent()) {
+                manifests.add(manifest.get());
+            } else {
+                skipped++;
+            }
         }
         Comparator<Manifest> newestFirst = Comparator.comparing(Manifest::takenAt)
             .thenComparing(Manifest::auditId).reversed();
@@ -259,7 +296,7 @@ public final class BackupStore {
                 removed.add(new Removed(manifest.auditId(), manifest.node(), manifest.owner(),
                     manifest.scope(), manifest.takenAt()));
             });
-        return List.copyOf(removed);
+        return new Sweep(removed, skipped);
     }
 
     /** The manifest first, so that a half-removed backup is never found. */
@@ -274,9 +311,18 @@ public final class BackupStore {
         }
     }
 
+    /**
+     * The manifest of {@code file}, only if it can be trusted (review I2): its audit id is the
+     * file's, and every ZIP it names is {@code <auditId>-<n>.zip} in this directory.
+     */
     private Optional<Manifest> read(Path file) {
         try {
-            return Optional.of(ManifestJson.read(Files.readString(file, StandardCharsets.UTF_8)));
+            Manifest manifest = ManifestJson.read(Files.readString(file, StandardCharsets.UTF_8));
+            Pattern zip = Pattern.compile("^" + Pattern.quote(manifest.auditId())
+                + "-[1-9][0-9]{0,5}\\.zip$");
+            boolean trusted = manifest.auditId().equals(idOf(file))
+                && manifest.zips().stream().allMatch(name -> zip.matcher(name).matches());
+            return trusted ? Optional.of(manifest) : Optional.empty();
         } catch (IOException | RuntimeException e) {
             return Optional.empty();
         }
@@ -355,6 +401,9 @@ public final class BackupStore {
             Parser parser = new Parser(text);
             Map<String, Object> object = parser.object();
             parser.end();
+            if (!AUDIT_ID.matcher(text(object, "auditId")).matches()) {
+                throw new IllegalArgumentException("Not a backup manifest");
+            }
             try {
                 return new Manifest(text(object, "auditId"), NodeId.parse(text(object, "node")),
                     text(object, "owner"), text(object, "scope"), texts(object, "changeSet"),

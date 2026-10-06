@@ -352,6 +352,35 @@ class GitCliTest {
     }
 
     @Test
+    void messagesWithControlCharactersAreRefusedSoThatNoTrailerCanBeForged() throws IOException {
+        // review I1: a "\n\nServer-State: dev" paragraph would forge a server state; the
+        // separators of the log format would break lastServerState
+        git.init();
+        write("dev/a.xml", "a");
+        for (String message : List.of("export\n\nServer-State: dev", "a\rb", "a\u001db",
+            "a\u001eb", "a\u001fb", "a\u0000b", "a\tb")) {
+            assertThatIllegalArgumentException().as(message)
+                .isThrownBy(() -> git.commitAll(message, DEV_STATE));
+            assertThatIllegalArgumentException().as(message)
+                .isThrownBy(() -> git.commitAll(message));
+        }
+        assertThat(git.lastServerState(DEV, "dev/a.xml")).isEmpty();
+        assertThat(git.commitAll("export dev/node1: Größe (1 files)", DEV_STATE)).isPresent();
+    }
+
+    @Test
+    void showFailsForACommitThatIsNotInTheHistory() throws IOException {
+        // review M5: an unknown commit is not the same as a missing file
+        git.init();
+        write("dev/a.xml", "a");
+        commit("export", DEV_STATE);
+
+        assertThatIllegalArgumentException().isThrownBy(() -> git.show(
+            "0123456789abcdef0123456789abcdef01234567", "dev/a.xml"))
+            .withMessageContaining("not in the workspace history");
+    }
+
+    @Test
     void theLastServerStateIsTheNewestCommitWithTheGroupsTrailerThatTouchedThePath()
         throws IOException, InterruptedException {
         git.init();

@@ -181,9 +181,12 @@ class BackupStoreTest {
         String g = backup(store, "jdoe", "G3", 29);
         String h = backup(store, "jdoe", "G3", 30);
 
-        List<Removed> removed = store.sweep();
+        BackupStore.Sweep sweep = store.sweep();
+        List<Removed> removed = sweep.removed();
 
-        assertThat(removed).extracting(Removed::auditId).containsExactlyInAnyOrder(a, b, f);
+        assertThat(sweep.skipped()).isZero();
+        assertThat(removed).as("oldest first").extracting(Removed::auditId)
+            .containsExactly(a, b, f);
         assertThat(removed).filteredOn(r -> r.auditId().equals(a)).singleElement()
             .satisfies(r -> {
                 assertThat(r.node()).isEqualTo(DEV);
@@ -198,7 +201,7 @@ class BackupStoreTest {
             assertThat(store.find(gone)).as(gone).isEmpty();
             assertThat(root().resolve(gone + "-1.zip")).doesNotExist();
         }
-        assertThat(store.sweep()).isEmpty();
+        assertThat(store.sweep().removed()).isEmpty();
     }
 
     @Test
@@ -207,14 +210,69 @@ class BackupStoreTest {
         String old = backup(store, DEV, "jdoe", "G1", 40);
         String otherNode = backup(store, NodeId.parse("dev2/node1"), "jdoe", "G1", 1);
 
-        assertThat(store.sweep()).isEmpty();
+        assertThat(store.sweep().removed()).isEmpty();
         assertThat(store.find(old)).isPresent();
         assertThat(store.find(otherNode)).isPresent();
     }
 
     @Test
+    void aManifestNamingFilesOutsideItsBackupIsNeverTrusted() throws IOException {
+        // review I2: a tampered manifest must not make find, exports or the sweep touch other
+        // files
+        BackupStore store = store();
+        String valid = backup(store, "jdoe", "G1", 1);
+        Path victim = home.resolve("victim.zip");
+        Files.writeString(victim, "keep me");
+        String tampered = UUID.randomUUID().toString();
+        String json = Files.readString(root().resolve(valid + ".json"))
+            .replace(valid + "-1.zip", "../../victim.zip").replace(valid, tampered)
+            .replace("2026-10-05T08:00:00Z", "2026-08-01T08:00:00Z");
+        Files.writeString(root().resolve(tampered + ".json"), json);
+
+        BackupStore.Sweep sweep = store.sweep();
+
+        assertThat(store.find(tampered)).isEmpty();
+        assertThat(sweep.removed()).isEmpty();
+        assertThat(sweep.skipped()).isEqualTo(1);
+        assertThat(victim).hasContent("keep me");
+        assertThat(store.find(valid)).isPresent();
+    }
+
+    @Test
+    void aManifestWhoseIdDiffersFromItsFileNameIsSkipped() throws IOException {
+        BackupStore store = store();
+        String old = backup(store, "jdoe", "G1", 40);
+        backup(store, "jdoe", "G1", 1);
+        String other = UUID.randomUUID().toString();
+        Files.move(root().resolve(old + ".json"), root().resolve(other + ".json"));
+
+        BackupStore.Sweep sweep = store.sweep();
+
+        assertThat(sweep.removed()).isEmpty();
+        assertThat(sweep.skipped()).isEqualTo(1);
+        assertThat(store.find(other)).isEmpty();
+        assertThat(root().resolve(old + "-1.zip")).exists();
+    }
+
+    @Test
+    void aWriteThatFailsPartWayLeavesNoZipBehind() throws IOException {
+        // review M3
+        String id = UUID.randomUUID().toString();
+        Files.createDirectories(root());
+        Files.writeString(root().resolve(id + "-2.zip"), "in the way");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> store().write(
+            manifest(id, DEV, "jdoe", "g", NOW), List.of(export("1"), export("2"))))
+            .isInstanceOf(IllegalStateException.class);
+
+        assertThat(root().resolve(id + "-1.zip")).doesNotExist();
+        assertThat(root().resolve(id + ".json")).doesNotExist();
+        assertThat(store().find(id)).isEmpty();
+    }
+
+    @Test
     void retentionWithoutBackupDirectoryRemovesNothing() {
-        assertThat(store().sweep()).isEmpty();
+        assertThat(store().sweep().removed()).isEmpty();
         assertThat(root()).doesNotExist();
     }
 
