@@ -272,6 +272,8 @@ successful runs is reported separately. Local run of `XsltCorpusTest` on the spi
 `NOT_TESTABLE` 4 (two customer Java extensions, one document type declaration,
 `calculateDateDifference`), `XSLT_STATIC_ERROR` 3. The runtime errors come from the minimal input
 (required template parameters XTDE0700 32, type errors XPTY0004/XPTY0019/FORG0001 16, other 2).
+A run stopped by the 60 s deadline would count as `TIMEOUT` and not as executable; the rerun
+had none, the numbers are unchanged.
 
 **Alternatives**: Saxon-HE 12 — different defaults (e.g. XSLT 3.0 features, error codes) than
 INUBIT's Saxon 10; rejected. Xalan — wrong engine; rejected.

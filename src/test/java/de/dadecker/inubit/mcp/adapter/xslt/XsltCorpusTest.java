@@ -36,7 +36,8 @@ import org.junit.jupiter.api.io.TempDir;
  * 95 % must compile and execute locally with every extension call served by a stand-in —
  * {@code OK}, or {@code XSLT_RUNTIME_ERROR} on the given input (never passed); every other one is
  * {@code NOT_TESTABLE} or {@code XSLT_STATIC_ERROR}. The shares of {@code OK} and of executable
- * runs are printed separately. No {@code OK} run may use a stand-in with assumed behaviour
+ * runs are printed separately; a run stopped by the 60 s deadline counts as {@code TIMEOUT}, not as
+ * executable. No {@code OK} run may use a stand-in with assumed behaviour
  * without the warning {@code XSLT_STANDIN_ASSUMED}.
  * Prints counts, error codes and the stand-ins used only — never names or content of the
  * stylesheets. Skipped when the variable is not set.
@@ -142,7 +143,10 @@ class XsltCorpusTest {
                     "XSLT_STANDIN_ASSUMED"))) {
                 silentAssumptions++;
             }
-            outcomes.merge(XsltCoverageTest.label(run), 1, Integer::sum);
+            // a run stopped by the deadline did not execute: counted on its own (stage-3 minor 3)
+            boolean timedOut = run.findings().stream().anyMatch(f -> f.message().contains(
+                "did not finish within"));
+            outcomes.merge(timedOut ? "TIMEOUT" : XsltCoverageTest.label(run), 1, Integer::sum);
             if (run.outcome() != XsltRun.Outcome.OK) {
                 run.findings().forEach(finding -> {
                     Matcher code = ERROR_CODE.matcher(finding.message());
@@ -167,6 +171,6 @@ class XsltCorpusTest {
         assertThat(silentAssumptions).as("OK runs on an assumed stand-in without the warning")
             .isZero();
         assertThat(outcomes.keySet()).as("no other outcome").isSubsetOf("OK", "NOT_TESTABLE",
-            "XSLT_STATIC_ERROR", "XSLT_RUNTIME_ERROR");
+            "XSLT_STATIC_ERROR", "XSLT_RUNTIME_ERROR", "TIMEOUT");
     }
 }
