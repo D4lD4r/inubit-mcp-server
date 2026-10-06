@@ -293,7 +293,7 @@ unchanged re-export, round trip.
 
 **Independent test**: the XSLT fixtures of T003 and the coverage test over all recorded stylesheets.
 
-- [ ] T028 [US4] Risk test first (D-11): `test/adapter/xslt/IntegratedFunctionNamespaceTest.java` — a
+- [X] T028 [US4] Risk test first (D-11): `test/adapter/xslt/IntegratedFunctionNamespaceTest.java` — a
   Saxon-HE 10.9 integrated extension function registered under `java:com.inubit.ibis.xsltext.Misc` is
   called by a stylesheet that declares that namespace, without reflexive binding. If it fails, stop and
   report to the user before continuing (fallback to evaluate: rewrite the namespace URI at compile time
