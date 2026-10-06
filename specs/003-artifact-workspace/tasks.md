@@ -115,7 +115,7 @@ are P1, and no export may write a file before redaction exists.
   sorted by name, `<x/>` for empty elements, fixed XML declaration; normalizing twice is idempotent;
   canonical equality helper `XmlEquality.equal(a, b)` (D-4: comments kept, whitespace-only text
   between elements ignored, all other text exact) used by later round-trip tests.
-- [ ] T009 [P] `main/adapter/git/GitCli.java` (implements `VersionHistoryPort`) with
+- [X] T009 [P] `main/adapter/git/GitCli.java` (implements `VersionHistoryPort`) with
   `test/adapter/git/GitCliTest.java` first, using real `git` in a `@TempDir`: argument arrays only;
   every call carries `-c core.hooksPath=<empty dir> -c commit.gpgsign=false -c core.autocrlf=false
   -c core.quotepath=false -c user.name=INUBIT MCP (<profile>) -c user.email=inubit-mcp@localhost`,
