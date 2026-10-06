@@ -57,9 +57,12 @@ import java.util.zip.ZipOutputStream;
  *       {@code DefaultCommitCommentImport###<reason>###@@@Deploying User: <user>@@@Server:
  *       <host>@@@Version: <current + 1>@@@Export/Deployment: <time>@@@} (D-11);
  *       {@code CheckoutUser} is removed.
- *   <li>A modified artifact gets its UIDs and context back from {@code .meta/}; a new one has no
- *       UID (INUBIT assigns them), the diagram group of the scope, the default context and, for
- *       a workflow, {@code IsActive} {@code false}.
+ *   <li>A modified artifact gets its UIDs, its module file name and the context of its diagram
+ *       group from the target's fresh export ({@link Target}), never from the editable
+ *       {@code .meta/} records (review I1); a new one has no UID (INUBIT assigns them), the
+ *       diagram group of the scope, the target's (or the default) context and, for a workflow,
+ *       {@code IsActive} {@code false}. Every workflow's {@code UserOrUserGroupName} is the
+ *       owner of the request; a file that names another owner is {@code INVALID_INPUT}.
  *   <li>A created artifact whose name the target uses for another kind or owner is
  *       {@code PRECONDITION_FAILED} (D-25).
  *   <li>The archive is read back and must hold exactly the requested artifacts (D-7);
@@ -79,6 +82,8 @@ public final class ImportAssembler {
     private static final Pattern VERSION = Pattern.compile("@@@Version: (\\d+)@@@");
     private static final Pattern REASON = Pattern.compile("^[^#@\\p{Cntrl}]{1,500}$");
     private static final Pattern FIELD = Pattern.compile("^[^#@\\p{Cntrl}]{1,200}$");
+    private static final Pattern ENTRY_NAME = Pattern.compile("^module/[^/]+\\.xml$");
+    private static final String OWNER = "UserOrUserGroupName";
 
     /**
      * One artifact to import.
@@ -206,18 +211,92 @@ public final class ImportAssembler {
     }
 
     /**
+     * What the target holds now: its raw exports of the scope (in memory only). The identity of
+     * a modified artifact — its UIDs, its module file name and the context of its diagram group
+     * — and the secret values come from here, never from the workspace's {@code .meta/} records,
+     * which anyone can edit (review I1).
+     */
+    public static final class Target {
+
+        private final List<ExportArchive> exports;
+        private final SecretValues secrets;
+
+        private Target(List<ExportArchive> exports) {
+            this.exports = List.copyOf(exports);
+            this.secrets = SecretValues.of(this.exports);
+        }
+
+        /** The target of the raw exports {@code exports} (read by {@link ArchiveReader}). */
+        public static Target of(List<ExportArchive> exports) {
+            return new Target(exports);
+        }
+
+        SecretValues secrets() {
+            return secrets;
+        }
+
+        // loops, not lambdas: no method of this package outside the gate takes an ExportArchive
+        // (RedactionGateTest)
+        Optional<WorkflowGroupXml> diagramGroup(String name) {
+            for (ExportArchive export : exports) {
+                for (WorkflowGroupXml group : export.workflowGroups()) {
+                    if (group.name().equals(name)) {
+                        return Optional.of(group);
+                    }
+                }
+            }
+            return Optional.empty();
+        }
+
+        Optional<WorkflowXml> workflow(String diagramGroup, String name) {
+            return diagramGroup(diagramGroup).flatMap(group -> group.workflows().stream()
+                .filter(workflow -> workflow.name().equals(name)).findFirst());
+        }
+
+        Optional<ModuleIndexEntry> indexEntry(String name, String pluginType) {
+            for (ExportArchive export : exports) {
+                for (ModuleIndexEntry entry : export.moduleIndex()) {
+                    if (entry.name().equals(name) && entry.pluginType().equals(pluginType)) {
+                        return Optional.of(entry);
+                    }
+                }
+            }
+            return Optional.empty();
+        }
+
+        Optional<String> entryName(String name) {
+            for (ExportArchive export : exports) {
+                ExportArchive.ModuleXml module = export.moduleFiles().get(name);
+                if (module != null) {
+                    return Optional.of(module.entryName());
+                }
+            }
+            return Optional.empty();
+        }
+
+        @Override
+        public String toString() {
+            return "Target[" + exports.size() + " exports]";
+        }
+    }
+
+    /**
      * The import archive of {@code request}.
      *
-     * @param files workspace-relative path → content: the artifact files and their
-     *              {@code .meta/} records (more files do no harm)
+     * @param files  workspace-relative path → content: the artifact files and their
+     *               {@code .meta/} records (more files do no harm)
+     * @param target the target's raw exports of the scope
      * @throws ToolErrorException {@code PRECONDITION_FAILED} if a requested artifact is not in
-     *     {@code files}, {@code SECRET_UNRESOLVED} for a placeholder without a value on the
-     *     target, {@code INTERNAL} if the archive does not hold exactly the request
+     *     {@code files} or a modified one is not on the target, {@code INVALID_INPUT} for a
+     *     workflow file that names another owner, {@code SECRET_UNRESOLVED} for a placeholder
+     *     without a value on the target, {@code INTERNAL} if the archive does not hold exactly
+     *     the request
      */
     public static Assembled assemble(SortedMap<String, byte[]> files, Request request,
-        SecretValues secrets) {
+        Target target) {
         Objects.requireNonNull(files, "files");
-        Objects.requireNonNull(secrets, "secrets");
+        Objects.requireNonNull(target, "target");
+        SecretValues secrets = target.secrets();
         List<String> collisions = new ArrayList<>();
         request.workflows().stream().filter(Artifact::created).map(Artifact::name)
             .filter(request.takenNames()::contains).forEach(collisions::add);
@@ -231,26 +310,46 @@ public final class ImportAssembler {
                 "INUBIT identifies artifacts by name; the import would not create a new one",
                 "Choose another name for the new artifact"));
         }
+        List<String> absent = new ArrayList<>();
+        request.workflows().stream().filter(artifact -> !artifact.created())
+            .filter(artifact -> target.workflow(request.diagramGroup().orElseThrow(),
+                artifact.name()).isEmpty())
+            .forEach(artifact -> absent.add(artifact.name()));
+        request.modules().stream().filter(artifact -> !artifact.created())
+            .filter(artifact -> target.indexEntry(artifact.name(), artifact.pluginType()
+                .orElseThrow()).isEmpty())
+            .forEach(artifact -> absent.add(artifact.name()));
+        if (!absent.isEmpty()) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+                "The modified artifact(s) " + String.join(", ", absent) + " are not on the"
+                    + " target; nothing was sent",
+                "They were removed or renamed on the server since the export",
+                "Export the scope again (export_artifacts) and redo the change"));
+        }
         List<String> unresolved = new ArrayList<>();
+        List<String> foreign = new ArrayList<>();
         List<Element> workflows = new ArrayList<>();
-        List<Attribute> groupAttributes = List.of(new Attribute("", "workflowType", "",
-            "technical"));
-        String documentVersion = DEFAULT_DOCUMENT_VERSION;
+        // the context of the diagram group on the target (review I1), else the default
+        Optional<WorkflowGroupXml> targetGroup = request.diagramGroup()
+            .flatMap(target::diagramGroup);
+        List<Attribute> groupAttributes = targetGroup.map(WorkflowGroupXml::attributes)
+            .filter(attributes -> !attributes.isEmpty())
+            .orElse(List.of(new Attribute("", "workflowType", "", "technical")));
+        String documentVersion = targetGroup.flatMap(group -> group.workflows().stream()
+            .findFirst()).map(workflow -> workflow.context().documentVersion())
+            .orElse(DEFAULT_DOCUMENT_VERSION);
         for (Artifact artifact : request.workflows()) {
             WorkspacePath path = WorkspacePath.workflow(request.group(), request.owner(),
                 request.diagramGroup().orElseThrow(), artifact.name());
             Element element = parse(files, path, artifact.name());
-            Map<String, Object> meta = artifact.created() ? Map.of() : meta(files, path);
-            if (meta.get("context") instanceof Map<?, ?> context) {
-                documentVersion = String.valueOf(context.get("documentVersion") == null
-                    ? DEFAULT_DOCUMENT_VERSION : context.get("documentVersion"));
-                List<Attribute> recorded = attributes(context.get("groupAttributes"));
-                if (!recorded.isEmpty()) {
-                    groupAttributes = recorded;
-                }
+            Optional<String> named = element.child(OWNER).map(Element::text);
+            if (named.filter(owner -> !owner.equals(request.owner())).isPresent()) {
+                foreign.add(artifact.name() + " (" + named.get() + ")");
             }
+            element = withOwner(element, request.owner());
             element = artifact.created() ? without(element, "WorkflowUId")
-                : MetaStore.restore(element, meta, Optional.empty());
+                : withUid(element, "WorkflowUId", target.workflow(request.diagramGroup()
+                    .orElseThrow(), artifact.name()).orElseThrow().element());
             element = without(element, "CheckoutUser");
             if (artifact.created()) {
                 // research D-25 (H9): a new workflow starts inactive; set_active switches it on
@@ -260,6 +359,15 @@ public final class ImportAssembler {
                 request.currentVersions().getOrDefault(artifact.name(), 0) + 1));
             workflows.add(secrets(element, artifact.name(), (name, secret) ->
                 secrets.workflow(name, secret), unresolved));
+        }
+        if (!foreign.isEmpty()) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
+                "The workflow file(s) of " + String.join(", ", foreign) + " name another owner"
+                    + " than " + request.owner() + " in UserOrUserGroupName; nothing was sent",
+                "The file was copied from another owner's diagram group or edited; an import"
+                    + " addresses one owner only",
+                "Set UserOrUserGroupName to " + request.owner() + " (or remove it) in the"
+                    + " workspace file, or import into the other owner's scope"));
         }
 
         Map<String, List<Element>> index = new LinkedHashMap<>();
@@ -273,7 +381,8 @@ public final class ImportAssembler {
                 pluginType, artifact.name());
             Element entry = parse(files, indexPath, artifact.name());
             entry = artifact.created() ? without(entry, "ModuleUId")
-                : MetaStore.restore(entry, meta(files, indexPath), Optional.empty());
+                : withUid(entry, "ModuleUId", target.indexEntry(artifact.name(), pluginType)
+                    .orElseThrow().element());
             entry = withChild(entry, "CheckinComment", request.comment().render(
                 request.currentVersions().getOrDefault(artifact.name(), 0) + 1));
             index.computeIfAbsent(pluginType, type -> new ArrayList<>()).add(entry);
@@ -282,9 +391,11 @@ public final class ImportAssembler {
                 artifact.name(), (name, secret) -> secrets.module(name, secret), unresolved);
             moduleFiles.put(artifact.name(), embed(files, modulePath, properties, moduleMeta,
                 artifact.name()));
+            // review I1: the module file name of the target, and only a plain module/<x>.xml
             String defaultEntry = "module/" + artifact.name().toLowerCase(Locale.ROOT) + ".xml";
             entryNames.put(artifact.name(), artifact.created() ? defaultEntry
-                : String.valueOf(moduleMeta.getOrDefault("entryName", defaultEntry)));
+                : target.entryName(artifact.name()).filter(name -> ENTRY_NAME.matcher(name)
+                    .matches()).orElse(defaultEntry));
         }
         if (!unresolved.isEmpty()) {
             throw new ToolErrorException(ToolError.of(ErrorCode.SECRET_UNRESOLVED,
@@ -412,6 +523,33 @@ public final class ImportAssembler {
         });
         return element("IBISWorkflow", List.of(new Attribute("", "version", "",
             DEFAULT_DOCUMENT_VERSION)), List.of(element("Modules", List.of(), groups)));
+    }
+
+    /** {@code UserOrUserGroupName} set to {@code owner}, added after the name if missing. */
+    private static Element withOwner(Element element, String owner) {
+        if (element.child(OWNER).isPresent()) {
+            return withChild(element, OWNER, owner);
+        }
+        List<Node> children = new ArrayList<>();
+        boolean placed = false;
+        for (Node child : element.children()) {
+            children.add(child);
+            if (!placed && child instanceof Element e && e.localName().equals("WorkflowName")) {
+                children.add(leaf(OWNER, owner));
+                placed = true;
+            }
+        }
+        if (!placed) {
+            children.add(0, leaf(OWNER, owner));
+        }
+        return element.withChildren(children);
+    }
+
+    /** The UID {@code name} of {@code current} (the target's element), or none. */
+    private static Element withUid(Element element, String name, Element current) {
+        Optional<String> uid = current.child(name).map(Element::text).filter(t -> !t.isEmpty());
+        return uid.map(text -> withChild(element, name, text))
+            .orElseGet(() -> without(element, name));
     }
 
     private static Element without(Element element, String name) {

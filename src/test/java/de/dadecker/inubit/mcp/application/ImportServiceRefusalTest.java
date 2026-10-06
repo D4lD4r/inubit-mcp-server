@@ -162,6 +162,21 @@ class ImportServiceRefusalTest {
     }
 
     @Test
+    void aCopiedWorkflowOfAnotherOwnerIsRefused() throws IOException {
+        // review I1: the owner of the request, never the one a copied file names
+        ImportHarness harness = ImportHarness.grpA(temp);
+        harness.write(harness.workflow("Workflow-0100"), harness.read(harness.workflow(
+            "Workflow-0001")).replace("Workflow-0001", "Workflow-0100")
+            .replace("<UserOrUserGroupName>jdoe<", "<UserOrUserGroupName>OWNERS<"));
+        harness.exportGroup();
+
+        ToolError error = refusal(harness, harness.group("Copied"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(error.message()).contains("Workflow-0100", "OWNERS");
+    }
+
+    @Test
     void aBusyWorkspaceIsRefusedAtOnce() throws IOException {
         ImportHarness harness = edited(ImportHarness.grpA(temp));
 

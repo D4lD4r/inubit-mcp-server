@@ -15,7 +15,8 @@ import java.util.TreeMap;
 
 /**
  * The 8.1 {@link ImportArchivePort} (feature 004): {@link ImportAssembler} with the secret
- * values and versions of the target's raw exports, and the comparison of reviewed content.
+ * values, identities (UIDs, module file names, diagram group context) and versions of the
+ * target's raw exports, and the comparison of reviewed content.
  */
 public final class V81ImportArchives implements ImportArchivePort {
 
@@ -34,7 +35,7 @@ public final class V81ImportArchives implements ImportArchivePort {
             new CheckinComment(build.reason(), build.user(), build.server(), build.time()),
             ImportAssembler.currentVersions(build.targetExports()), build.takenNames());
         Assembled assembled = ImportAssembler.assemble(new TreeMap<>(build.files()), request,
-            SecretValues.of(raws));
+            ImportAssembler.Target.of(raws));
         return new Archive(assembled.zip(), assembled.workflows(), assembled.modules());
     }
 

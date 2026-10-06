@@ -95,6 +95,25 @@ class ImportServiceTest {
     }
 
     @Test
+    void aHandEditedMetaRecordDoesNotReachTheArchive() throws IOException {
+        // review I1: UIDs come from the target's fresh export, not from .meta
+        ImportHarness harness = ImportHarness.grpA(temp);
+        harness.edit(harness.workflow("Workflow-0001"), "xPos=\"120\"", "xPos=\"140\"");
+        harness.edit(".meta/" + harness.workflow("Workflow-0001") + ".json",
+            "-6f1dbb5:1a10fc4fb59:-7fff", "-forged:1");
+        harness.exportGroup().importApplied().exportGroup();
+
+        WriteOutcome outcome = completed(harness.service().importArtifacts(
+            harness.group("Forged meta")));
+
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        String workflow = new String(ArtifactFixtures.entries(harness.inubit.imported.get(0))
+            .get("workflow/workflow.xml"), StandardCharsets.UTF_8);
+        assertThat(workflow).contains("<WorkflowUId>-6f1dbb5:1a10fc4fb59:-7fff</WorkflowUId>")
+            .doesNotContain("forged");
+    }
+
+    @Test
     void anUnchangedWorkspaceSendsNothing() throws IOException {
         ImportHarness harness = ImportHarness.grpA(temp);
         int entries = harness.exports.log().size();

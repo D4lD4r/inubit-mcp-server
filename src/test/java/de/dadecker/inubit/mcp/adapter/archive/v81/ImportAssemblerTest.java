@@ -37,7 +37,7 @@ class ImportAssemblerTest {
 
     private final ArchiveReader reader = new ArchiveReader();
     private final ExportArchive raw = reader.read(ArtifactFixtures.bytes("grp-b.zip"));
-    private final SecretValues secrets = SecretValues.of(raw);
+    private final ImportAssembler.Target target = ImportAssembler.Target.of(List.of(raw));
     private final SortedMap<String, byte[]> files = new TreeMap<>(WorkspaceWriter.render(
         new SecretRedactor().redact(raw), GROUP, OWNER).files());
     private final Map<String, Integer> versions = ImportAssembler.currentVersions(
@@ -72,7 +72,7 @@ class ImportAssemblerTest {
     @Test
     void aWorkflowImportHoldsOnlyThatWorkflowWithAnEmptyModuleIndex() {
         Assembled assembled = ImportAssembler.assemble(files, group(
-            List.of(workflow("Workflow-0006", false)), List.of()), secrets);
+            List.of(workflow("Workflow-0006", false)), List.of()), target);
 
         assertThat(ArtifactFixtures.entries(assembled.zip()).keySet()).containsExactly(
             "archive.properties", "workflow/workflow.xml", "module/module.xml");
@@ -94,7 +94,7 @@ class ImportAssemblerTest {
     void theTargetsSecretsAreBackInPlaceOfThePlaceholders() {
         Assembled assembled = ImportAssembler.assemble(files, group(
             List.of(workflow("Workflow-0006", false)), List.of(module("Module-0028",
-                pluginType("Module-0028"), false))), secrets);
+                pluginType("Module-0028"), false))), target);
 
         String workflow = entryText(assembled.zip(), "workflow/workflow.xml");
         String module = entryText(assembled.zip(), "module/module-0028.xml");
@@ -110,7 +110,7 @@ class ImportAssemblerTest {
     void theCheckinCommentHasTheProbedShapeWithTheNextVersion() {
         Assembled assembled = ImportAssembler.assemble(files, group(
             List.of(workflow("Workflow-0006", false)), List.of(module("Module-0028",
-                pluginType("Module-0028"), false))), secrets);
+                pluginType("Module-0028"), false))), target);
 
         ExportArchive back = reader.read(assembled.zip());
         Element workflow = back.workflowGroups().get(0).workflows().get(0).element();
@@ -127,14 +127,140 @@ class ImportAssemblerTest {
     }
 
     @Test
-    void checkoutUserIsStrippedAndUidsComeFromMeta() {
+    void uidsEntryNamesAndContextComeFromTheTargetNotFromMeta() {
+        // review I1: a hand-edited .meta record must not choose the identity of what is sent
+        String type = pluginType("Module-0028");
+        editMeta(slash(WorkspacePath.workflow(GROUP, OWNER, "GRP-02", "Workflow-0006")
+            .metaPath()), meta -> {
+                meta.put("WorkflowUId", "-forged:workflow");
+                meta.put("context", Map.of("documentVersion", "9.9", "groupAttributes",
+                    List.of(Map.of("name", "workflowType", "namespace", "",
+                        "value", "organigram")), "groupPosition", 0, "position", 0));
+            });
+        editMeta(slash(WorkspacePath.moduleIndex(GROUP, OWNER, type, "Module-0028").metaPath()),
+            meta -> meta.put("ModuleUId", "-forged:module"));
+
+        Assembled assembled = ImportAssembler.assemble(files, group(
+            List.of(workflow("Workflow-0006", false)), List.of(module("Module-0028", type,
+                false))), target);
+
+        ExportArchive back = reader.read(assembled.zip());
+        Element workflow = back.workflowGroups().get(0).workflows().get(0).element();
+        assertThat(workflow.child("WorkflowUId").map(Element::text))
+            .isEqualTo(rawWorkflow("Workflow-0006").child("WorkflowUId").map(Element::text))
+            .isNotEqualTo(Optional.of("-forged:workflow"));
+        assertThat(back.workflowGroups().get(0).attributes())
+            .isEqualTo(raw.workflowGroups().get(0).attributes());
+        assertThat(back.workflowGroups().get(0).workflows().get(0).context().documentVersion())
+            .isEqualTo(raw.workflowGroups().get(0).workflows().get(0).context()
+                .documentVersion());
+        assertThat(back.moduleIndex().get(0).element().child("ModuleUId").map(Element::text))
+            .isEqualTo(raw.moduleIndex().stream().filter(e -> e.name().equals("Module-0028"))
+                .findFirst().orElseThrow().element().child("ModuleUId").map(Element::text));
+        assertThat(ArtifactFixtures.entries(assembled.zip()).keySet())
+            .contains(raw.moduleFiles().get("Module-0028").entryName());
+    }
+
+    @Test
+    void aHandEditedEntryNameIsIgnored() {
+        String type = pluginType("Module-0028");
+        editMeta(slash(WorkspacePath.module(GROUP, OWNER, type, "Module-0028").metaPath()),
+            meta -> meta.put("entryName", "module/evil.xml"));
+
+        Assembled assembled = ImportAssembler.assemble(files, group(List.of(), List.of(
+            module("Module-0028", type, false))), target);
+
+        assertThat(ArtifactFixtures.entries(assembled.zip()).keySet())
+            .contains(raw.moduleFiles().get("Module-0028").entryName())
+            .noneMatch(name -> name.contains("evil"));
+    }
+
+    @Test
+    void aWorkflowFileThatNamesAnotherOwnerIsRefused() {
+        // review I1: e.g. a workflow copied from another owner's diagram group
+        String path = slash(WorkspacePath.workflow(GROUP, OWNER, "GRP-02", "Workflow-0006"));
+        files.put(path, new String(files.get(path), StandardCharsets.UTF_8).replace(
+            "<UserOrUserGroupName>OWNERS<", "<UserOrUserGroupName>jdoe<")
+            .getBytes(StandardCharsets.UTF_8));
+
+        assertThatThrownBy(() -> ImportAssembler.assemble(files, group(
+            List.of(workflow("Workflow-0006", false)), List.of()), target))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT);
+                assertThat(e.error().message()).contains("Workflow-0006", "jdoe", OWNER);
+            });
+    }
+
+    @Test
+    void aNewWorkflowWithoutOwnerGetsTheOwnerOfTheRequest() {
+        String source = slash(WorkspacePath.workflow(GROUP, OWNER, "GRP-02", "Workflow-0004"));
+        files.put(slash(WorkspacePath.workflow(GROUP, OWNER, "GRP-02", "Workflow-0100")),
+            new String(files.get(source), StandardCharsets.UTF_8)
+                .replace("Workflow-0004", "Workflow-0100")
+                .replace("<UserOrUserGroupName>OWNERS</UserOrUserGroupName>", "")
+                .getBytes(StandardCharsets.UTF_8));
+
+        Assembled assembled = ImportAssembler.assemble(files, group(
+            List.of(workflow("Workflow-0100", true)), List.of()), target);
+
+        Element workflow = reader.read(assembled.zip()).workflowGroups().get(0).workflows()
+            .get(0).element();
+        List<String> children = workflow.elements().stream().map(Element::localName).toList();
+        assertThat(workflow.child("UserOrUserGroupName").map(Element::text)).contains(OWNER);
+        assertThat(children.indexOf("UserOrUserGroupName"))
+            .isEqualTo(children.indexOf("WorkflowName") + 1);
+    }
+
+    @Test
+    void anEntryNameOutsideTheModuleDirectoryIsNotAccepted() {
+        ExportArchive.ModuleXml original = raw.moduleFiles().get("Module-0028");
+        java.util.Map<String, ExportArchive.ModuleXml> moduleFiles =
+            new java.util.LinkedHashMap<>(raw.moduleFiles());
+        moduleFiles.put("Module-0028", new ExportArchive.ModuleXml(original.name(),
+            original.pluginType(), "module/sub/../../evil.xml", original.element()));
+        ImportAssembler.Target odd = ImportAssembler.Target.of(List.of(new ExportArchive(
+            raw.properties(), raw.entries(), raw.workflowGroups(), raw.moduleIndex(),
+            moduleFiles, raw.repository())));
+
+        Assembled assembled = ImportAssembler.assemble(files, group(List.of(), List.of(
+            module("Module-0028", pluginType("Module-0028"), false))), odd);
+
+        assertThat(ArtifactFixtures.entries(assembled.zip()).keySet())
+            .contains("module/module-0028.xml").noneMatch(name -> name.contains("evil"));
+    }
+
+    @Test
+    void aModifiedArtifactThatIsNotOnTheTargetIsRefused() {
+        assertThatThrownBy(() -> ImportAssembler.assemble(files, group(
+            List.of(workflow("Workflow-0006", false)), List.of()),
+            ImportAssembler.Target.of(List.of())))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
+                assertThat(e.error().message()).contains("Workflow-0006", "not on the target");
+            });
+    }
+
+    private void editMeta(String path, java.util.function.Consumer<Map<String, Object>> edit) {
+        Map<String, Object> meta = new java.util.LinkedHashMap<>(MetaStore.deserialize(
+            files.get(path)));
+        edit.accept(meta);
+        files.put(path, MetaStore.serialize(meta));
+    }
+
+    private Element rawWorkflow(String name) {
+        return raw.workflowGroups().get(0).workflows().stream()
+            .filter(w -> w.name().equals(name)).findFirst().orElseThrow().element();
+    }
+
+    @Test
+    void checkoutUserIsStrippedAndUidsComeFromTheTarget() {
         String path = slash(WorkspacePath.workflow(GROUP, OWNER, "GRP-02", "Workflow-0006"));
         String file = new String(files.get(path), StandardCharsets.UTF_8);
         files.put(path, file.replace("<IsActive>", "<CheckoutUser>jdoe</CheckoutUser><IsActive>")
             .getBytes(StandardCharsets.UTF_8));
 
         Assembled assembled = ImportAssembler.assemble(files, group(
-            List.of(workflow("Workflow-0006", false)), List.of()), secrets);
+            List.of(workflow("Workflow-0006", false)), List.of()), target);
 
         Element workflow = reader.read(assembled.zip()).workflowGroups().get(0).workflows()
             .get(0).element();
@@ -149,7 +275,7 @@ class ImportAssemblerTest {
     void aModuleImportIsAModuleOnlyArchive() {
         Assembled assembled = ImportAssembler.assemble(files, new Request(GROUP, OWNER,
             Optional.empty(), List.of(), List.of(module("Module-0028", pluginType("Module-0028"),
-                false)), COMMENT, versions, java.util.Set.of()), secrets);
+                false)), COMMENT, versions, java.util.Set.of()), target);
 
         assertThat(ArtifactFixtures.entries(assembled.zip()).keySet()).containsExactly(
             "archive.properties", "module/module.xml", "module/module-0028.xml",
@@ -180,7 +306,7 @@ class ImportAssemblerTest {
 
         Assembled assembled = ImportAssembler.assemble(files, group(
             List.of(workflow("Workflow-0100", true)), List.of(module("Module-0100", type, true))),
-            secrets);
+            target);
 
         ExportArchive back = reader.read(assembled.zip());
         Element workflow = back.workflowGroups().get(0).workflows().get(0).element();
@@ -209,7 +335,7 @@ class ImportAssemblerTest {
         embedded(type, "Module-0028", "Module-0101");
 
         assertThatThrownBy(() -> ImportAssembler.assemble(files, group(List.of(),
-            List.of(module("Module-0101", type, true))), secrets))
+            List.of(module("Module-0101", type, true))), target))
             .isInstanceOfSatisfying(ToolErrorException.class, e -> {
                 assertThat(e.error().code()).isEqualTo(ErrorCode.SECRET_UNRESOLVED);
                 assertThat(e.error().message()).contains("Module-0101", "Password");
@@ -227,7 +353,7 @@ class ImportAssemblerTest {
 
         assertThatThrownBy(() -> ImportAssembler.assemble(files, new Request(GROUP, OWNER,
             Optional.of("GRP-02"), List.of(workflow("Module-0028", true)), List.of(), COMMENT,
-            versions, java.util.Set.of("Module-0028")), secrets))
+            versions, java.util.Set.of("Module-0028")), target))
             .isInstanceOfSatisfying(ToolErrorException.class, e -> {
                 assertThat(e.error().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
                 assertThat(e.error().message()).contains("Module-0028");
@@ -237,7 +363,7 @@ class ImportAssemblerTest {
     @Test
     void anArtifactThatIsNotInTheFilesIsRefusedBeforeAnythingIsBuilt() {
         assertThatThrownBy(() -> ImportAssembler.assemble(files, group(
-            List.of(workflow("Workflow-0999", false)), List.of()), secrets))
+            List.of(workflow("Workflow-0999", false)), List.of()), target))
             .isInstanceOfSatisfying(ToolErrorException.class, e ->
                 assertThat(e.error().message()).contains("Workflow-0999"));
     }
