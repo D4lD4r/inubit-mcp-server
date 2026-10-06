@@ -12,6 +12,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Stream;
@@ -54,6 +55,7 @@ public final class WorkspaceUriResolver implements URIResolver, UnparsedTextURIR
     private final Path realRoot;
     private final GroupId group;
     private final String owner;
+    private final List<Path> loaded = new ArrayList<>();
 
     /**
      * @param root  the workspace root
@@ -73,7 +75,18 @@ public final class WorkspaceUriResolver implements URIResolver, UnparsedTextURIR
 
     @Override
     public Source resolve(String href, String base) throws TransformerException {
-        return source(file(href, base));
+        Path file = file(href, base);
+        synchronized (loaded) {
+            loaded.add(file);
+        }
+        return source(file);
+    }
+
+    /** The documents resolved so far (imports, includes, {@code doc()}), in order. */
+    List<Path> loaded() {
+        synchronized (loaded) {
+            return List.copyOf(loaded);
+        }
     }
 
     @Override

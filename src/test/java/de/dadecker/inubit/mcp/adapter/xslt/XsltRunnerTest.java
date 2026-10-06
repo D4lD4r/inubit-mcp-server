@@ -145,6 +145,38 @@ class XsltRunnerTest {
     }
 
     @Test
+    void randomNumbersAreDeterministicOrNotTestable() throws IOException {
+        // review M4 (clarification 4): a seed gives the same numbers, no seed cannot be tested
+        put(MODULES + "Module-seeded/xslt.stylesheet.xsl", """
+            <xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+              <xsl:output method="text"/>
+              <xsl:template match="/">
+                <xsl:value-of select="random-number-generator('seed')?number,
+                    random-number-generator(42)?permute(1 to 10)" separator="|"/>
+              </xsl:template>
+            </xsl:stylesheet>
+            """);
+        put(MODULES + "Module-unseeded/xslt.stylesheet.xsl", """
+            <xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+              <xsl:import href="../Module-seeded/xslt.stylesheet.xsl"/>
+              <xsl:output method="text"/>
+              <xsl:template match="/">
+                <xsl:value-of select="random-number-generator ( )?number"/>
+              </xsl:template>
+            </xsl:stylesheet>
+            """);
+
+        XsltRun seeded = run("seeded", Optional.empty());
+        XsltRun unseeded = run("unseeded", Optional.empty());
+
+        assertThat(seeded.outcome()).isEqualTo(Outcome.OK);
+        assertThat(output(run("seeded", Optional.empty()))).isEqualTo(output(seeded));
+        assertThat(unseeded.outcome()).isEqualTo(Outcome.NOT_TESTABLE);
+        assertThat(unseeded.findings().get(0).message())
+            .contains("random-number-generator() without a seed");
+    }
+
+    @Test
     void anUnknownExtensionIsNotTestableNeverOk() {
         XsltRun run = run("unknown-extension", Optional.empty());
 

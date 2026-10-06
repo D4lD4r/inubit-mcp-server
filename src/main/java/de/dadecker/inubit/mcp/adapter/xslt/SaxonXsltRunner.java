@@ -72,13 +72,17 @@ import net.sf.saxon.value.DateTimeValue;
  *       never appears (review I1).
  *   <li>The server's host stays hidden (review C1): no environment variables, no Java system
  *       properties, no reflexive Java calls.
- *   <li>Deterministic (clarification 4): {@code current-dateTime()} and the date stand-ins return
- *       the request's {@code now} or {@link InubitStandIns#FIXED_NOW}.
+ *   <li>Deterministic (clarification 4): a stylesheet (or a module it imports) that calls
+ *       {@code random-number-generator()} without a seed is {@link Outcome#NOT_TESTABLE};
+ *       {@code current-dateTime()} and the date stand-ins return the request's {@code now} or
+ *       {@link InubitStandIns#FIXED_NOW}.
  * </ul>
  */
 public final class SaxonXsltRunner implements XsltPort {
 
     static final String TESTS = ".tests";
+    private static final Pattern UNSEEDED_RANDOM =
+        Pattern.compile("random-number-generator\\s*\\(\\s*\\)");
     private static final Pattern FUNCTION = Pattern.compile("Q\\{([^}]*)\\}([\\w.-]+)");
     private static final Set<String> STANDARD_NAMESPACES = Set.of(
         "http://www.w3.org/2005/xpath-functions", "http://www.w3.org/2001/XMLSchema",
@@ -196,6 +200,16 @@ public final class SaxonXsltRunner implements XsltPort {
             return compileFailure(stylesheetPath, inputPath, errors, e);
         }
 
+        // review M4 (clarification 4): an unseeded random number generator is not
+        // deterministic, and Saxon-HE has no way to seed it from outside
+        List<Path> modules = new ArrayList<>(List.of(stylesheet));
+        modules.addAll(resolver.loaded());
+        if (modules.stream().anyMatch(SaxonXsltRunner::unseededRandom)) {
+            return new XsltRun(stylesheetPath, inputPath, Optional.empty(), Outcome.NOT_TESTABLE,
+                List.of(), List.of(finding(Severity.WARNING, stylesheetPath, Optional.empty(),
+                    "XSLT_NOT_TESTABLE", "not testable locally: random-number-generator()"
+                        + " without a seed gives other numbers on every run")));
+        }
         Path output = output(artifact, stylesheet, input);
         Path partial = output.resolveSibling(output.getFileName() + ".partial");
         try {
@@ -253,6 +267,15 @@ public final class SaxonXsltRunner implements XsltPort {
     @Override
     public List<CheckFinding> validate(Path xml, Optional<Path> xsd) {
         return validator.validate(xml, xsd);
+    }
+
+    /** True if {@code module} calls {@code random-number-generator()} without a seed. */
+    private static boolean unseededRandom(Path module) {
+        try {
+            return UNSEEDED_RANDOM.matcher(Files.readString(module)).find();
+        } catch (IOException | UncheckedIOException e) {
+            return false;
+        }
     }
 
     /** The XPath/XSLT error code of a failed transformation, e.g. {@code FORG0001}. */
