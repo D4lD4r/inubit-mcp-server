@@ -177,6 +177,22 @@ class ImportServiceRefusalTest {
     }
 
     @Test
+    void aNewWorkflowThatIsActiveInItsFileIsRefusedBeforeAnythingIsSent() throws IOException {
+        // review I2: INUBIT would create it inactive and the verification would fail
+        ImportHarness harness = ImportHarness.grpA(temp);
+        harness.write(harness.workflow("Workflow-0100"), harness.read(harness.workflow(
+            "Workflow-0001")).replace("Workflow-0001", "Workflow-0100")
+            .replace("<IsActive>false</IsActive>", "<IsActive>true</IsActive>"));
+        harness.exportGroup();
+
+        ToolError error = refusal(harness, harness.group("Active copy"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(error.message()).contains("Workflow-0100", "IsActive");
+        assertThat(error.nextStep()).contains("set_active");
+    }
+
+    @Test
     void aBusyWorkspaceIsRefusedAtOnce() throws IOException {
         ImportHarness harness = edited(ImportHarness.grpA(temp));
 

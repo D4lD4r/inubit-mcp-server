@@ -60,8 +60,9 @@ import java.util.zip.ZipOutputStream;
  *   <li>A modified artifact gets its UIDs, its module file name and the context of its diagram
  *       group from the target's fresh export ({@link Target}), never from the editable
  *       {@code .meta/} records (review I1); a new one has no UID (INUBIT assigns them), the
- *       diagram group of the scope, the target's (or the default) context and, for a workflow,
- *       {@code IsActive} {@code false}. Every workflow's {@code UserOrUserGroupName} is the
+ *       diagram group of the scope and the target's (or the default) context. A new workflow
+ *       must say {@code IsActive} {@code false} in its file ({@code INVALID_INPUT} otherwise,
+ *       review I2): INUBIT creates it inactive, and {@code set_active} switches it on. Every workflow's {@code UserOrUserGroupName} is the
  *       owner of the request; a file that names another owner is {@code INVALID_INPUT}.
  *   <li>A created artifact whose name the target uses for another kind or owner is
  *       {@code PRECONDITION_FAILED} (D-25).
@@ -328,6 +329,7 @@ public final class ImportAssembler {
         }
         List<String> unresolved = new ArrayList<>();
         List<String> foreign = new ArrayList<>();
+        List<String> active = new ArrayList<>();
         List<Element> workflows = new ArrayList<>();
         // the context of the diagram group on the target (review I1), else the default
         Optional<WorkflowGroupXml> targetGroup = request.diagramGroup()
@@ -351,9 +353,10 @@ public final class ImportAssembler {
                 : withUid(element, "WorkflowUId", target.workflow(request.diagramGroup()
                     .orElseThrow(), artifact.name()).orElseThrow().element());
             element = without(element, "CheckoutUser");
-            if (artifact.created()) {
-                // research D-25 (H9): a new workflow starts inactive; set_active switches it on
-                element = withChild(element, "IsActive", "false");
+            if (artifact.created() && element.child("IsActive").map(Element::text)
+                .filter("false"::equals).isEmpty()) {
+                // research D-25 (H9), review I2: INUBIT creates a new workflow inactive
+                active.add(artifact.name());
             }
             element = withChild(element, "CheckinComment", request.comment().render(
                 request.currentVersions().getOrDefault(artifact.name(), 0) + 1));
@@ -368,6 +371,15 @@ public final class ImportAssembler {
                     + " addresses one owner only",
                 "Set UserOrUserGroupName to " + request.owner() + " (or remove it) in the"
                     + " workspace file, or import into the other owner's scope"));
+        }
+        if (!active.isEmpty()) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
+                "The new workflow(s) " + String.join(", ", active) + " must be inactive in the"
+                    + " workspace file (<IsActive>false</IsActive>); nothing was sent",
+                "INUBIT creates a new workflow inactive, so the verification after the import"
+                    + " would fail for a file that says otherwise",
+                "Set IsActive to false in the file, import, then switch the workflow on with"
+                    + " set_active"));
         }
 
         Map<String, List<Element>> index = new LinkedHashMap<>();

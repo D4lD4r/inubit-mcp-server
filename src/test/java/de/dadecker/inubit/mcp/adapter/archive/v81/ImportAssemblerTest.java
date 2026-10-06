@@ -198,6 +198,7 @@ class ImportAssemblerTest {
             new String(files.get(source), StandardCharsets.UTF_8)
                 .replace("Workflow-0004", "Workflow-0100")
                 .replace("<UserOrUserGroupName>OWNERS</UserOrUserGroupName>", "")
+                .replace("<IsActive>true</IsActive>", "<IsActive>false</IsActive>")
                 .getBytes(StandardCharsets.UTF_8));
 
         Assembled assembled = ImportAssembler.assemble(files, group(
@@ -291,7 +292,8 @@ class ImportAssemblerTest {
     void aNewWorkflowAndModuleGetTheDefaultContextWithoutUids() {
         String source = slash(WorkspacePath.workflow(GROUP, OWNER, "GRP-02", "Workflow-0004"));
         String copy = new String(files.get(source), StandardCharsets.UTF_8)
-            .replace("Workflow-0004", "Workflow-0100");
+            .replace("Workflow-0004", "Workflow-0100")
+            .replace("<IsActive>true</IsActive>", "<IsActive>false</IsActive>");
         files.put(slash(WorkspacePath.workflow(GROUP, OWNER, "GRP-02", "Workflow-0100")),
             copy.getBytes(StandardCharsets.UTF_8));
         String type = pluginType("Module-0023");
@@ -321,6 +323,26 @@ class ImportAssemblerTest {
         assertThat(index.child("ModuleUId")).isEmpty();
         assertThat(back.moduleFiles()).containsKey("Module-0100");
         assertThat(assembled.modules()).containsExactly("Module-0100");
+    }
+
+    @Test
+    void aNewWorkflowThatIsNotInactiveInItsFileIsRefused() {
+        // review I2: INUBIT creates it inactive; the verification would then fail after sending
+        String source = slash(WorkspacePath.workflow(GROUP, OWNER, "GRP-02", "Workflow-0004"));
+        String copy = new String(files.get(source), StandardCharsets.UTF_8)
+            .replace("Workflow-0004", "Workflow-0100");
+        String path = slash(WorkspacePath.workflow(GROUP, OWNER, "GRP-02", "Workflow-0100"));
+        for (String file : List.of(copy, copy.replace("<IsActive>true</IsActive>", ""))) {
+            files.put(path, file.getBytes(StandardCharsets.UTF_8));
+
+            assertThatThrownBy(() -> ImportAssembler.assemble(files, group(
+                List.of(workflow("Workflow-0100", true)), List.of()), target))
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT);
+                    assertThat(e.error().message()).contains("Workflow-0100", "IsActive");
+                    assertThat(e.error().nextStep()).contains("set_active");
+                });
+        }
     }
 
     @Test

@@ -175,7 +175,8 @@ class ImportServiceTest {
 
         assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
         assertThat(outcome.created()).containsExactly("Workflow-0100", "Module-0100");
-        assertThat(harness.inubit.workflowXml()).contains("Workflow-0100");
+        assertThat(harness.inubit.workflowXml()).containsPattern("(?s)<WorkflowName>"
+            + "Workflow-0100</WorkflowName>((?!</Workflow>).)*<IsActive>false</IsActive>");
         assertThat(harness.exports.history.status()).isEmpty();
     }
 
