@@ -314,7 +314,7 @@ unchanged re-export, round trip.
   `NOT_TESTABLE` with reason (never `OK`); `syntax-error.xsl` → `XSLT_STATIC_ERROR` with line/column;
   `repository-import.xsl` resolves from the workspace `repository/`; no network or file access outside
   the workspace.
-- [ ] T031 [US4] `test/adapter/xslt/XsltCoverageTest.java`: over all stylesheets of the committed
+- [X] T031 [US4] `test/adapter/xslt/XsltCoverageTest.java`: over all stylesheets of the committed
   fixtures, every one is `OK`, `NOT_TESTABLE` or `XSLT_STATIC_ERROR` as listed in
   `fixtures/artifacts/README.md`, none falsely `OK`. Plus the opt-in
   `test/adapter/xslt/XsltCorpusTest.java` (SC-005, research D-14): runs every `*.xsl` below

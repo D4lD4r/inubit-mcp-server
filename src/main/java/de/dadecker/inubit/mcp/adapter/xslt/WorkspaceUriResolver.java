@@ -7,12 +7,14 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URLDecoder;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Stream;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.parsers.SAXParserFactory;
@@ -34,7 +36,8 @@ import org.xml.sax.XMLReader;
  *
  * <ul>
  *   <li>{@code inubitrepository:/<path>} → {@code <group>/<owner>/repository/<path>} of the
- *       stylesheet's group and owner;
+ *       stylesheet's group and owner ({@code %XX} escapes decoded, the names stored like the
+ *       workspace writer stores them);
  *   <li>other references must be {@code file:} URIs (also relative ones, resolved against the
  *       referring document) of existing files whose real path is inside the workspace;
  *   <li>everything else (other schemes, network, files outside, symbolic links leaving the
@@ -97,8 +100,8 @@ public final class WorkspaceUriResolver implements URIResolver, UnparsedTextURIR
             if (group == null || owner == null) {
                 throw refused(href, "the stylesheet belongs to no group and owner");
             }
-            List<String> segments = List.of(href.substring(REPOSITORY_SCHEME.length())
-                .replaceFirst("^/+", "").split("/"));
+            List<String> segments = Stream.of(href.substring(REPOSITORY_SCHEME.length())
+                .replaceFirst("^/+", "").split("/")).map(WorkspaceUriResolver::unescape).toList();
             if (segments.stream().anyMatch(s -> s.isEmpty() || s.equals("..") || s.equals("."))) {
                 throw refused(href, "not a repository path");
             }
@@ -117,6 +120,18 @@ public final class WorkspaceUriResolver implements URIResolver, UnparsedTextURIR
             throw refused(href, "only files of the workspace can be read");
         }
         return inside(href, Path.of(uri));
+    }
+
+    /** {@code %XX} escapes decoded as UTF-8 (a {@code +} stays a plus). */
+    static String unescape(String segment) {
+        if (segment.indexOf('%') < 0) {
+            return segment;
+        }
+        try {
+            return URLDecoder.decode(segment.replace("+", "%2B"), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            return segment;
+        }
     }
 
     /** {@code href} as URI; a reference with spaces is encoded as a path. */

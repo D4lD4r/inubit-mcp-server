@@ -248,6 +248,31 @@ content is `common.xsl`), `input.xml`, `schema.xsd`, `valid.xml`, `invalid.xml` 
 lines 5 and 6) and `not-well-formed.xml` (fails on line 4). Saxon-HE 10.9 without stand-ins rejects
 `standins.xsl` and `unknown-extension.xsl` with `XPST0017` (no reflexive Java calls in HE).
 
+## Stylesheet coverage (T031)
+
+`XsltCoverageTest` runs every stylesheet of the fixtures on Saxon-HE with the stand-ins (input
+`xslt/input.xml`) and expects the outcome listed here: `OK`, `NOT_TESTABLE` (needs something only
+INUBIT has) or `XSLT_STATIC_ERROR`. The module stylesheets name `ProfessionalTransformerFactory` or
+`net.sf.saxon.TransformerFactoryImpl`; both run on Saxon-HE. `common.xsl` is a library (no
+template of its own: the built-in templates copy the text). Inline stylesheets of assignments are
+not run (research D-4).
+
+```xslt-coverage
+xslt/plain.xsl	OK
+xslt/standins.xsl	OK
+xslt/unknown-extension.xsl	NOT_TESTABLE
+xslt/syntax-error.xsl	XSLT_STATIC_ERROR
+xslt/repository-import.xsl	OK
+xslt/common.xsl	OK
+grp-a.zip Module-0001	OK
+grp-a.zip Module-0005	OK
+grp-b.zip Module-0010	OK
+grp-b.zip Module-0019	OK
+grp-b.zip Module-0020	OK
+grp-b.zip Module-0023	OK
+module-one.zip Module-0023	OK
+```
+
 ## Observations for later tasks
 
 - `JSONStaticSchemaMD5` of the JSON Validator (`Module-0018`) is the MD5 of the decoded

@@ -47,8 +47,9 @@ import net.sf.saxon.value.DateTimeValue;
  * <ul>
  *   <li>The {@code xslt.transformer} of a module does not select the engine: everything runs on
  *       Saxon-HE; a call of an extension function without a stand-in (a {@code java:} class, the
- *       Saxon namespace) or a construct only Saxon-PE/EE has is {@link Outcome#NOT_TESTABLE}
- *       with the reason, never {@link Outcome#OK}.
+ *       Saxon namespace), a construct only Saxon-PE/EE has, or a document type declaration
+ *       (never read locally) is {@link Outcome#NOT_TESTABLE} with the reason, never
+ *       {@link Outcome#OK}.
  *   <li>A static error is {@link Outcome#ERROR} with one {@code XSLT_STATIC_ERROR} per error and
  *       its {@code line:column}; a dynamic error is {@link Outcome#ERROR} with
  *       {@code XSLT_RUNTIME_ERROR}.
@@ -133,7 +134,8 @@ public final class SaxonXsltRunner implements XsltPort {
             deleteQuietly(output);
             return new XsltRun(stylesheetPath, inputPath, Optional.empty(), Outcome.ERROR,
                 List.copyOf(standIns.used()), List.of(finding(Severity.ERROR, stylesheetPath,
-                    Optional.empty(), "XSLT_RUNTIME_ERROR", "the transformation failed: "
+                    Optional.empty(), "XSLT_RUNTIME_ERROR", "the transformation failed"
+                        + errorCode(e).map(code -> " (" + code + ")").orElse("") + ": "
                         + e.getMessage())));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
@@ -151,6 +153,21 @@ public final class SaxonXsltRunner implements XsltPort {
         throw new UnsupportedOperationException("XML validation follows in T033");
     }
 
+    /** The XPath/XSLT error code of a failed transformation, e.g. {@code FORG0001}. */
+    static Optional<String> errorCode(Exception failure) {
+        Throwable cause = failure;
+        while (cause != null) {
+            if (cause instanceof SaxonApiException api && api.getErrorCode() != null) {
+                return Optional.of(api.getErrorCode().getLocalName());
+            }
+            if (cause instanceof XPathException xpath && xpath.getErrorCodeLocalPart() != null) {
+                return Optional.of(xpath.getErrorCodeLocalPart());
+            }
+            cause = cause.getCause();
+        }
+        return Optional.empty();
+    }
+
     /** NOT_TESTABLE if every error is a missing extension or a licensed feature; else ERROR. */
     private XsltRun compileFailure(String stylesheet, String input,
         List<StaticError> errors, Exception failure) {
@@ -165,7 +182,9 @@ public final class SaxonXsltRunner implements XsltPort {
                 reasons.add(reason.get());
             } else {
                 staticErrors.add(finding(Severity.ERROR, stylesheet, location(error),
-                    "XSLT_STATIC_ERROR", error.getMessage()));
+                    "XSLT_STATIC_ERROR", (error.getErrorCode() == null ? ""
+                        : "(" + error.getErrorCode().getLocalName() + ") ")
+                        + error.getMessage()));
             }
         }
         if (staticErrors.isEmpty() && !reasons.isEmpty()) {
@@ -191,6 +210,10 @@ public final class SaxonXsltRunner implements XsltPort {
             && !STANDARD_NAMESPACES.contains(function.group(1))) {
             return Optional.of("the extension function " + function.group(1) + " "
                 + function.group(2) + " has no local stand-in (only available in INUBIT)");
+        }
+        if (message.contains("DOCTYPE")) {
+            return Optional.of("a document type declaration (DTDs and entities are not read"
+                + " locally)");
         }
         if (LICENSED.matcher(message).find()) {
             return Optional.of("a feature of a licensed Saxon edition (Saxon-HE runs locally)");

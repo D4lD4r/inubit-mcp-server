@@ -135,6 +135,34 @@ class XsltRunnerTest {
     }
 
     @Test
+    void repositoryNamesAreDecodedAndEncodedLikeTheWorkspace() throws IOException {
+        // the writer stores repository paths with NameCodec; references may be %-escaped
+        put("dev/OWNERS/repository/Root/OWNERS/xsl/" + de.dadecker.inubit.mcp.domain.model
+            .NameCodec.encode("shared lib.xsl"), fixture("common.xsl"));
+        put(MODULES + "Module-spaces/xslt.stylesheet.xsl", fixture("repository-import.xsl")
+            .replace("xsl/common.xsl", "xsl/shared%20lib.xsl"));
+
+        XsltRun run = run("spaces", Optional.empty());
+
+        assertThat(run.outcome()).isEqualTo(Outcome.OK);
+        assertThat(output(run)).contains("ORDER-A-1001");
+    }
+
+    @Test
+    void aDocumentTypeDeclarationIsNotTestableLocally() throws IOException {
+        // DTDs are never read (no external entities); that is not an error of the stylesheet
+        put(MODULES + "Module-doctype/xslt.stylesheet.xsl", "<!DOCTYPE xsl:stylesheet [\n"
+            + "  <!ENTITY nbsp \"&#160;\">\n]>\n" + fixture("plain.xsl")
+                .replaceFirst("<\\?xml[^>]*>\\s*", ""));
+
+        XsltRun run = run("doctype", Optional.empty());
+
+        assertThat(run.outcome()).isEqualTo(Outcome.NOT_TESTABLE);
+        assertThat(run.findings()).singleElement().satisfies(finding ->
+            assertThat(finding.message()).contains("document type declaration"));
+    }
+
+    @Test
     void nothingOutsideTheWorkspaceIsReadOrWritten() throws IOException {
         Files.writeString(outside.resolve("secret.xml"), "<secret>outside</secret>");
         String file = outside.resolve("secret.xml").toUri().toString();
