@@ -288,6 +288,16 @@ class WorkspaceExportTest {
                 }
 
                 @Override
+                public java.util.SortedMap<String, byte[]> files() {
+                    return prepared.files();
+                }
+
+                @Override
+                public java.util.Map<String, String> inEditMode() {
+                    return prepared.inEditMode();
+                }
+
+                @Override
                 public void writeTo(Path workspace) {
                     prepared.writeTo(workspace);
                     throw new UncheckedIOException(new IOException("No space left on device"));

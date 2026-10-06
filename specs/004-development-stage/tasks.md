@@ -129,7 +129,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   entries; NOK → failure; `cliExportTimeout` reused and named on TIMEOUT.
 - [X] T014 [US1] `main/adapter/cli/v81/V81ImportAdapter.java` (`ImportPort` via `Gateway`) with test
   first; the v8.1 gateway overrides the default.
-- [ ] T015 [US1] `main/application/ConflictDetector.java` with test first (D-5): fresh export rendered
+- [X] T015 [US1] `main/application/ConflictDetector.java` with test first (D-5): fresh export rendered
   in memory (new read-only `PreparedExport.files()`), compared with `show(base, path)` for every
   change-set artifact; `CheckoutUser` → `CONFLICT (IN_EDIT_MODE)`; diff to
   `.reports/conflict-<auditId>.diff`; returns the raw archive for D-6 and the fingerprint for D-2.
