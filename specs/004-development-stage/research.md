@@ -125,9 +125,14 @@ needed". A failed rollback keeps the backup and names it.
 
 ## D-11 Reason as check-in comment
 
-**Decision**: the person-written part of each change-set artifact's `CheckinComment` in the import
-archive is set to the reason; INUBIT prefixes it (`DefaultCommitCommentImport###<reason>###…`, spike
-§5). The verification checks that the reason appears.
+**Decision** (probed live on the personal test workflow, 2026-10-06): INUBIT takes the check-in
+comment of an **update** from the archive only if it has the export shape
+`DefaultCommitCommentImport###<reason>###@@@Deploying User: <user>@@@Server: <host>@@@Version: <n>@@@Export/Deployment: <dd.MM.yyyy HH:mm:ss>@@@`
+(a free text or a `###`-segment without the `@@@` suffix is replaced by `DefaultCommitCommentImport###`).
+The assembler writes exactly that shape (user = the node's username, server = node host, version =
+the server's current version + 1 as seen in the conflict export, time = now). The reason must match
+`[^#@\p{Cntrl}]{1,500}` (no `###`, no `@@@`, no control characters) — `INVALID_INPUT` otherwise.
+Verification checks that the head comment's person-written segment equals the reason.
 
 ## D-12 Workspace after success
 
@@ -226,3 +231,75 @@ answers a sequence of StartCLI calls (export → import → export) by matching 
 refused unless the node is a development node and the owner is a **user** (personal diagram group);
 scenario: export → edit a layout value → import → verify → restore → set_active → tag with a unique
 `LIVE-<timestamp>` tag → remove the tag. Never on shared owners or production.
+
+## D-24 Live probes for archive shapes (2026-10-06, personal test workflow only)
+
+- A workflow archive with **only** `workflow/workflow.xml` and an **empty** module index (no module
+  files, no `Repository.zip`) is accepted: only the diagram gets a new version; nodes, edges and
+  Demultiplexer conditions stay; referenced modules on the server are untouched (no new versions).
+  → Import archives contain only the changed workflows and the changed/new modules; `Repository.zip`
+  is omitted (repository changes are out of scope of this feature; a change below `repository/`
+  aborts with `INVALID_INPUT`).
+- The same workflow-only archive with `--importWorkflowActive` / `--importWorkflowInactive` sets the
+  active flag → `set_active` is built from the **fresh server export** of that workflow (not from the
+  workspace), so unimported workspace edits are never shipped; it refuses if the workspace file of
+  that workflow differs from its base (unimported edits).
+- Recorded outputs of these probes go into the fixtures (T001).
+
+## D-25 Resolutions of the pre-implementation analysis
+
+- **Owner kinds (C1, M5)**: positive evidence only — profile `owners.<name>` or presence in the REST
+  user list → `USER`; profile `USER_GROUP` → `USER_GROUP`. Writes for `USER_GROUP` owners are
+  **refused** (`PRECONDITION_FAILED`, "imports for user-group owners are not yet verified") until a
+  live probe on a disposable diagram group of a user group has been approved by the user and recorded;
+  the refusal is a single guard to lift then. The REST fixture is a neutralized **recording** of
+  `/user/users` (read-only GET), not synthetic. `finger` is not used.
+- **Rollback builder (H2, M7)**: a backup is a manifest `<auditId>.json` plus one raw ZIP per StartCLI
+  export of the scope (`<auditId>-<n>.zip`). The rollback is built like an import: the backup is
+  rendered in memory (feature-003 codec), `ImportAssembler` assembles the change-set artifacts that
+  existed before, and `SecretValues` is taken from the **target's current export** (not the backup),
+  so a restore never brings back old passwords (M4). Backups keep only the scope exports (no other
+  owner data); key material stays withheld from any file except the raw backup ZIP itself.
+- **Base without trailer (H3)**: `lastServerState` falls back to the last commit whose subject starts
+  with `export <node>:` (feature 003 subject) when no trailer exists; no base at all → `PRECONDITION_FAILED`
+  "export the scope first".
+- **Per-artifact base (H4)**: each change-set candidate is diffed against its **own**
+  `lastServerState(node, path)`; module directories shared by several diagram groups are compared per
+  module.
+- **Write-back (H5)**: after success only the change-set files and their `.meta` are replaced with
+  the verified server state; other workspace files are untouched.
+- **Referenced modules (H6)**: an additional import rule (not a `check_artifacts` change): every
+  module referenced by an imported workflow must be in the archive or in the **target node's** module
+  list for that owner (the conflict export shows it) — otherwise `PRECONDITION_FAILED` with the names
+  (prevents the spike's broken-group case). Unchanged referenced modules are not imported.
+- **Restore base and backup (H7)**: restore compares the server with the **intended state** recorded in
+  the referenced call's manifest (rendered hashes of the change set after the call, or, for a failed
+  call, the state the verification saw); restore takes its own backup and has its own rollback.
+- **SOAP envelope (H8)**: the envelope path is confined like `check_artifacts` paths (real path inside
+  the workspace, not below `.git`, `.meta`, `.reports`, backups); redirects are never followed; an
+  optional e2e basic-auth comes only from configuration variables (`<PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME`/`_PASSWORD`,
+  same rules as credentials); envelopes containing a `wsse:Password` with a non-placeholder value are
+  refused.
+- **New artifacts (H9)**: a new workflow or module needs a workspace file only; the assembler writes
+  default context (`WorkflowGroup` = scope, `IsActive=false`, fresh UID placeholders omitted — INUBIT
+  assigns them) and a module-index entry from the module's `index.xml`; a name that exists on the
+  target for another owner or kind → `PRECONDITION_FAILED`.
+- **All-groups history export (M1)**: new `CliExportRunner.exportHistoryAllGroups(owner)` with
+  `--exportWorkflowGroup ''` (emptyQuoted) and `--exportWorkflowType 'all'`, tested; the tag
+  pre-check covers workflows and modules of all diagram types; note: every export appends to
+  check-in histories (spike §3).
+- **Failure model (M2)**: refusals before anything is sent are tool errors (`NOT_DEVELOPMENT`,
+  `INVALID_INPUT`, `CONFLICT`, `SECRET_UNRESOLVED`, `PRECONDITION_FAILED` incl. check errors with a
+  findings report path, `CONFIRMATION_INVALID`); once anything was sent, the call returns a result
+  with `outcome: FAILED`, `failure: {code: IMPORT_FAILED|VERIFY_MISMATCH, step, message}` and the
+  rollback state. Tag verification failures use the same result shape.
+- **Timeout race (M6)**: after a StartCLI `TIMEOUT` the server re-exports the scope to determine the
+  state before deciding on rollback.
+- **Multiple development nodes (M8)**: the `Server-State` trailer names the **group**; the validator
+  allows at most one development-enabled node per group (startup error otherwise).
+- **E2E data (M9)**: the response excerpt is returned only with `includeExcerpt: true` (default
+  false); `.tests/e2e` files older than 30 days are removed at the next e2e run.
+- **Small items (L1–L3)**: workspace changed between preview and execute → `CONFIRMATION_INVALID`
+  ("preview again"); `owner` defaults to `inventory.owner` for all tools; the import calls
+  `checkPaths` (lock already held); `<CheckoutUser>` is stripped from import archives; artifacts in
+  the scope but outside the change set are compared in the conflict check.
