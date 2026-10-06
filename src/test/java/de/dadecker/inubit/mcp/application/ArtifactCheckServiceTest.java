@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
 import de.dadecker.inubit.mcp.domain.model.CheckFinding;
 import de.dadecker.inubit.mcp.domain.model.CheckFinding.Severity;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URISyntaxException;
@@ -17,6 +18,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -40,8 +42,13 @@ class ArtifactCheckServiceTest {
         new ArchiveCodec().prepare(DEV, owner, List.of(zip)).writeTo(root);
     }
 
+    static final NodeId NODE = NodeId.parse("dev/node1");
+    final FakeModuleLists server = new FakeModuleLists(NODE);
+
     ArtifactCheckService service() {
-        return new ArtifactCheckService(root, new WorkspaceInspector());
+        return new ArtifactCheckService(root, new WorkspaceInspector(),
+            group -> group.equals(DEV) ? Optional.of(NODE) : Optional.empty(),
+            node -> server, node -> Optional.of("OWNERS"));
     }
 
     /** The defect fixture {@code defects/<name>/} as an export ZIP. */
@@ -80,10 +87,10 @@ class ArtifactCheckServiceTest {
         export(ArtifactFixtures.bytes("grp-a.zip"), "jdoe");
         export(ArtifactFixtures.bytes("grp-b.zip"), "OWNERS");
 
-        List<CheckFinding> findings = service().checkPaths(List.of("dev"));
+        List<CheckFinding> findings = service().checkPaths(List.of("dev"), true);
 
         assertThat(findings).noneMatch(f -> f.severity() == Severity.ERROR);
-        assertThat(service().checkPaths(List.of("dev/jdoe"))).isEmpty();
+        assertThat(service().checkPaths(List.of("dev/jdoe"), true)).isEmpty();
     }
 
     @ParameterizedTest
@@ -97,7 +104,7 @@ class ArtifactCheckServiceTest {
         String workflow) {
         export(defect(defect), "jdoe");
 
-        List<CheckFinding> findings = service().checkPaths(List.of("dev/jdoe/workflows"));
+        List<CheckFinding> findings = service().checkPaths(List.of("dev/jdoe/workflows"), true);
 
         assertThat(findings).singleElement().satisfies(finding -> {
             assertThat(finding.code()).isEqualTo(code);
@@ -113,10 +120,83 @@ class ArtifactCheckServiceTest {
     void theFindingsNameTheProblem() {
         export(defect("dangling-edge"), "jdoe");
 
-        CheckFinding finding = service().checkPaths(List.of("dev")).get(0);
+        CheckFinding finding = service().checkPaths(List.of("dev"), true).get(0);
 
         assertThat(finding.location()).contains("WorkflowModule[ModuleId=2]/Connection");
         assertThat(finding.message()).contains("99");
+    }
+
+    // --- T026: module existence (FR-027, FR-028) ------------------------------------------------
+
+    @Test
+    void aModuleNeitherInTheWorkspaceNorOnTheServerIsMissing() {
+        export(defect("missing-module"), "jdoe");
+        server.modules.put("jdoe", List.of("Module-0001"));
+        server.modules.put("OWNERS", List.of("Module-0002"));
+
+        List<CheckFinding> findings = service().checkPaths(List.of("dev/jdoe/workflows"), true);
+
+        assertThat(findings).singleElement().satisfies(finding -> {
+            assertThat(finding.code()).isEqualTo("MODULE_MISSING");
+            assertThat(finding.severity()).isEqualTo(Severity.ERROR);
+            assertThat(finding.location()).contains("WorkflowModule[ModuleId=4]");
+            assertThat(finding.message()).contains("Module-0404", "jdoe", "OWNERS");
+        });
+        assertThat(server.calls).containsExactlyInAnyOrder("jdoe", "OWNERS");
+    }
+
+    @Test
+    void aModuleOnTheServerOfTheInventoryOwnerIsFound() {
+        export(defect("missing-module"), "jdoe");
+        server.modules.put("OWNERS", List.of("Module-0404"));
+
+        assertThat(service().checkPaths(List.of("dev"), true)).isEmpty();
+    }
+
+    @Test
+    void aModuleOfAnotherOwnerInTheWorkspaceNeedsNoServer() throws IOException {
+        export(defect("missing-module"), "jdoe");
+        export(ArtifactFixtures.bytes("module-one.zip"), "OWNERS");
+        rewrite("dev/jdoe/workflows/GRP-01/Workflow-0001.xml",
+            xml -> xml.replace("<ModuleName>Module-0404</ModuleName>",
+                "<ModuleName>Module-0023</ModuleName>"));
+
+        assertThat(service().checkPaths(List.of("dev/jdoe"), true)).isEmpty();
+        assertThat(server.calls).isEmpty();
+    }
+
+    @Test
+    void anUnreachableServerLeavesTheModuleUnverified() {
+        export(defect("missing-module"), "jdoe");
+        server.unreachable = true;
+
+        assertThat(service().checkPaths(List.of("dev"), true)).singleElement()
+            .satisfies(finding -> {
+                assertThat(finding.code()).isEqualTo("MODULE_UNVERIFIED");
+                assertThat(finding.severity()).isEqualTo(Severity.WARNING);
+                assertThat(finding.message()).contains("Module-0404", "dev/node1");
+            });
+    }
+
+    @Test
+    void withoutServerLookupsMissingModulesAreUnverified() {
+        export(defect("missing-module"), "jdoe");
+
+        assertThat(service().checkPaths(List.of("dev"), false)).singleElement()
+            .satisfies(f -> assertThat(f.code()).isEqualTo("MODULE_UNVERIFIED"));
+        assertThat(server.calls).isEmpty();
+    }
+
+    @Test
+    void theModuleListsAreReadOncePerCheck() throws IOException {
+        export(defect("missing-module"), "jdoe");
+        rewrite("dev/jdoe/workflows/GRP-01/Workflow-0002.xml",
+            xml -> xml.replace("<ModuleName>Module-0005</ModuleName>",
+                "<ModuleName>Module-0405</ModuleName>"));
+
+        assertThat(service().checkPaths(List.of("dev"), true))
+            .extracting(CheckFinding::code).containsExactly("MODULE_MISSING", "MODULE_MISSING");
+        assertThat(server.calls).containsExactlyInAnyOrder("jdoe", "OWNERS");
     }
 
     @Test
@@ -126,7 +206,7 @@ class ArtifactCheckServiceTest {
             xml -> xml.replace("<ParentModule moduleId=\"25008718\"/>",
                 "<ParentModule moduleId=\"99999999\"/>"));
 
-        List<CheckFinding> errors = service().checkPaths(List.of("dev")).stream()
+        List<CheckFinding> errors = service().checkPaths(List.of("dev"), true).stream()
             .filter(f -> f.severity() == Severity.ERROR).toList();
 
         assertThat(errors).isNotEmpty().allSatisfy(f -> {
@@ -143,7 +223,7 @@ class ArtifactCheckServiceTest {
         rewrite("dev/OWNERS/repository/Root/OWNERS/xsd/msg.xsd",
             xsd -> xsd.replace("<xs:schema", "<xs:schema "));
 
-        List<CheckFinding> mismatches = service().checkPaths(List.of("dev")).stream()
+        List<CheckFinding> mismatches = service().checkPaths(List.of("dev"), true).stream()
             .filter(f -> f.code().equals("DERIVED_VALUE_MISMATCH")).toList();
 
         assertThat(mismatches).extracting(CheckFinding::path).containsExactlyInAnyOrder(

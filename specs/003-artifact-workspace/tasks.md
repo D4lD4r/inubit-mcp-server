@@ -271,7 +271,7 @@ unchanged re-export, round trip.
   T003 yields exactly its finding; unchanged fixtures yield no ERROR (SC-004); may add a WARNING
   when a derived value (`JSONStaticSchemaMD5`, repository `contentMD5`/`contentSize`) does not match
   its content (research D-4).
-- [ ] T026 [US3] Module existence (FR-027, FR-028) in `ArtifactCheckService` with tests first: found in
+- [X] T026 [US3] Module existence (FR-027, FR-028) in `ArtifactCheckService` with tests first: found in
   the workspace (any owner of the same group) → ok; else the server module lists of the artifact's
   owner and of `inventory.owner` via `InventoryPort` (cached) → ok; else `MODULE_MISSING` ERROR;
   server unreachable → `MODULE_UNVERIFIED` WARNING; `verifyOnServer: false` → `MODULE_UNVERIFIED` for
