@@ -7,6 +7,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `export_artifacts` (feature 003): exports technical workflows by diagram group, or single
+  modules, through StartCLI into a local **workspace** as readable files — one file per workflow,
+  per module the module and index files plus every embedded document (stylesheets, WSDLs,
+  schemas), the referenced repository files, volatile values under `.meta/` — and records the
+  export in the workspace's own git history (never pushed). Uncommitted changes are recorded
+  first as `local changes`; an unchanged re-export records nothing. Every secret is replaced by
+  `${secret:<property path>}` in memory before anything is written. Offered only if a node has a
+  StartCLI installation.
+- `check_artifacts`: offline checks of workspace files — workflow structure (edges, ids,
+  Demultiplexer keys, parent references, referenced modules with a module-list lookup,
+  variables, repository references, derived checksums), stylesheet runs on Saxon-HE 10 with
+  deterministic stand-ins for INUBIT's XSLT functions (fixed GUIDs and time, 60 s deadline, no
+  access to the server's environment or files outside the workspace), well-formedness and XSD
+  validation; findings bounded by `resultLimits` with a full report under `.reports/`.
+- Setting `workspace` (default `~/.inubit-mcp/<profile>/workspace`, created `rwx------`);
+  `--check-config` shows `Workspace: <path> (ok | created | <problem>)`; two profiles may not
+  share or nest their workspaces.
+- Requirement for the workspace: `git` 2.32 or newer.
+
+### Dependencies
+
+- `net.sf.saxon:Saxon-HE:10.9` (MPL-2.0) for local stylesheet runs; listed in
+  `THIRD-PARTY-NOTICES.md`.
+
 ## [0.1.1] - 2026-10-05
 
 ### Added

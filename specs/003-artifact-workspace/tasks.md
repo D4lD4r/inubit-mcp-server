@@ -361,7 +361,7 @@ unchanged re-export, round trip.
   (`INUBIT_LIVE_DIAGRAM_GROUP`): read-only export of one diagram group twice → second `unchanged`;
   no `AES-` value and no non-placeholder `type="Password"` value in the workspace; `check_artifacts`
   on the exported workflows → no ERROR. Never runs against `production` groups.
-- [ ] T039 `CHANGELOG.md` (Unreleased: Added export_artifacts, check_artifacts, workspace setting;
+- [X] T039 `CHANGELOG.md` (Unreleased: Added export_artifacts, check_artifacts, workspace setting;
   dependency Saxon-HE 10.9) and `THIRD-PARTY-NOTICES.md` check.
 - [ ] T040 Validation per `quickstart.md` A–B: `mvn -q clean verify`, then
   `mvn -q -Dtest=NoCustomerIdentifiersTest test` without `clean`, `--check-config` with a test
