@@ -176,6 +176,43 @@ class XsltRunnerTest {
             .contains("random-number-generator() without a seed");
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+        "random-number-generator(())?number",
+        "fn:random-number-generator( )?number",
+        "Q{http://www.w3.org/2005/xpath-functions}random-number-generator()?number",
+        "random-number-generator#0()?number",
+        "function-lookup(xs:QName('fn:random-number-generator'), 0)()?number"})
+    void everyFormOfAnUnseededGeneratorIsNotTestable(String call) throws IOException {
+        // stage-3 minor 2
+        put(MODULES + "Module-form/xslt.stylesheet.xsl", """
+            <xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+                xmlns:fn="http://www.w3.org/2005/xpath-functions"
+                xmlns:xs="http://www.w3.org/2001/XMLSchema">
+              <xsl:output method="text"/>
+              <xsl:template match="/"><xsl:value-of select="%s"/></xsl:template>
+            </xsl:stylesheet>
+            """.formatted(call));
+
+        assertThat(run("form", Optional.empty()).outcome()).as(call)
+            .isEqualTo(Outcome.NOT_TESTABLE);
+    }
+
+    @Test
+    void aMentionInACommentIsNoCall() throws IOException {
+        put(MODULES + "Module-comment/xslt.stylesheet.xsl", """
+            <xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+              <!-- never random-number-generator() here -->
+              <xsl:output method="text"/>
+              <xsl:template match="/">
+                <xsl:value-of select="(: not random-number-generator() :) 'ok'"/>
+              </xsl:template>
+            </xsl:stylesheet>
+            """);
+
+        assertThat(run("comment", Optional.empty()).outcome()).isEqualTo(Outcome.OK);
+    }
+
     @Test
     void anUnknownExtensionIsNotTestableNeverOk() {
         XsltRun run = run("unknown-extension", Optional.empty());

@@ -82,8 +82,10 @@ import net.sf.saxon.value.DateTimeValue;
 public final class SaxonXsltRunner implements XsltPort {
 
     static final String TESTS = ".tests";
-    private static final Pattern UNSEEDED_RANDOM =
-        Pattern.compile("random-number-generator\\s*\\(\\s*\\)");
+    private static final Pattern RANDOM = Pattern.compile("random-number-generator");
+    private static final Pattern EMPTY_SEQUENCE = Pattern.compile("\\(\\s*\\)\\s*\\)");
+    private static final Pattern XML_COMMENT = Pattern.compile("(?s)<!--.*?-->");
+    private static final Pattern XPATH_COMMENT = Pattern.compile("(?s)\\(:.*?:\\)");
     private static final Pattern FUNCTION = Pattern.compile("Q\\{([^}]*)\\}([\\w.-]+)");
     private static final Set<String> STANDARD_NAMESPACES = Set.of(
         "http://www.w3.org/2005/xpath-functions", "http://www.w3.org/2001/XMLSchema",
@@ -297,13 +299,33 @@ public final class SaxonXsltRunner implements XsltPort {
         return validator.validate(xml, xsd);
     }
 
-    /** True if {@code module} calls {@code random-number-generator()} without a seed. */
-    private static boolean unseededRandom(Path module) {
+    /**
+     * True if {@code module} may call {@code random-number-generator} without a seed: outside XML
+     * and XPath comments, a call with no argument or the empty sequence {@code (())}, a function
+     * reference ({@code #0}/{@code #1}), or the name as text (e.g. for {@code function-lookup}).
+     * A call with any other argument counts as seeded.
+     */
+    static boolean unseededRandom(Path module) {
+        String text;
         try {
-            return UNSEEDED_RANDOM.matcher(Files.readString(module)).find();
+            text = Files.readString(module);
         } catch (IOException | UncheckedIOException e) {
             return false;
         }
+        String code = XPATH_COMMENT.matcher(XML_COMMENT.matcher(text).replaceAll(" "))
+            .replaceAll(" ");
+        Matcher name = RANDOM.matcher(code);
+        while (name.find()) {
+            String rest = code.substring(name.end()).stripLeading();
+            if (!rest.startsWith("(")) {
+                return true; // a function reference or the name as a string
+            }
+            String argument = rest.substring(1).stripLeading();
+            if (argument.startsWith(")") || EMPTY_SEQUENCE.matcher(argument).lookingAt()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The XPath/XSLT error code of a failed transformation, e.g. {@code FORG0001}. */
