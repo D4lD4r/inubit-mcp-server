@@ -167,7 +167,8 @@ class SecretRedactorTest {
             \t<Property name="smime.certificate.data">-----BEGIN PRIVATE KEY-----
             MIIBfixture
             -----END PRIVATE KEY-----</Property>
-            \t<Property name="var.userPassword" type="MaskedString" encrypted="true">AES-x</Property>
+            \t<Property name="var.userPassword" type="MaskedString" encrypted="true">\
+            AES-x</Property>
             \t<Property name="xslt.sourceVariables" type="Map">
             \t\t<Property name="empty"></Property>
             \t</Property>

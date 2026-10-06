@@ -168,7 +168,7 @@ from `fixtures/artifacts/README.md`.
   name contains `password`, `secret`, `keystore` or `token` (case-insensitive, count only); after
   redaction none of the README's synthetic values occurs in any serialized part of the model
   (fixtures include synthetic SMIME and `MaskedString` forms, `module-smime.zip`).
-- [ ] T014 [US2] Test that redaction cannot be bypassed: `ArchiveReader` output is only reachable by
+- [X] T014 [US2] Test that redaction cannot be bypassed: `ArchiveReader` output is only reachable by
   the writer through `SecretRedactor.redact(...)` (the writer accepts a `RedactedArchive` type that only
   the redactor can construct) — compile-time guarantee plus a test in
   `test/adapter/archive/v81/RedactionGateTest.java`.
