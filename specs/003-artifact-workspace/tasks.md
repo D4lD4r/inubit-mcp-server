@@ -363,9 +363,13 @@ unchanged re-export, round trip.
   on the exported workflows → no ERROR. Never runs against `production` groups.
 - [X] T039 `CHANGELOG.md` (Unreleased: Added export_artifacts, check_artifacts, workspace setting;
   dependency Saxon-HE 10.9) and `THIRD-PARTY-NOTICES.md` check.
-- [ ] T040 Validation per `quickstart.md` A–B: `mvn -q clean verify`, then
+- [X] T040 Validation per `quickstart.md` A–B: `mvn -q clean verify`, then
   `mvn -q -Dtest=NoCustomerIdentifiersTest test` without `clean`, `--check-config` with a test
   profile; record the test count; quickstart C/D with the user's approval on the development node.
+  *Done for A–B (2026-10-06)*: `mvn -q clean verify` green with 1715 tests (0 failures, 2 skipped);
+  `NoCustomerIdentifiersTest` without `clean` ran 20 tests, none skipped; `--check-config` of a
+  temporary `acme` profile under a temporary home showed `Workspace: … (created)`, then `(ok)`, and
+  `Result: OK`. **C/D pending user approval** (live, development node only).
 
 ---
 

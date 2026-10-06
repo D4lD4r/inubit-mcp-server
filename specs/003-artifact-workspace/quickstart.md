@@ -27,14 +27,14 @@ Expected, among the existing tests:
 | Changed stylesheet in a second recording → exactly one modified file | `WorkspaceExportTest` | US1-3 |
 | Uncommitted edits → `local changes` commit, then export commit | `WorkspaceLocalChangesTest` | clarification 1, FR-019 |
 | Rebuild from workspace equals the recorded archive (D-4 equality) for every fixture | `ArchiveRoundTripTest` | FR-015, SC-002 |
-| No synthetic secret value appears in workspace, `.meta/`, git objects, tool results or captured logs | `SecretRedactionTest` | US2, SC-003 |
+| No synthetic secret value appears in workspace, `.meta/`, git objects, tool results or captured logs | `SecretLeakTest`, `SecretRedactorTest` | US2, SC-003 |
 | Dangling edge, id collision, unmatched Demultiplexer key, missing module, unresolved repository reference detected; unchanged fixtures clean | `ArtifactCheckServiceTest` | US3, SC-004 |
 | Stylesheets with stand-ins run; two runs identical; `now` override appears; unknown extension → `NOT_TESTABLE`; syntax error → `XSLT_STATIC_ERROR` | `XsltRunnerTest` | US4, clarification 4 |
 | Every fixture stylesheet classified as listed, none falsely passed | `XsltCoverageTest` | US4 |
 | ≥ 95 % of a real owner's stylesheets compile and execute locally with every extension call served by a stand-in (`OK` or `XSLT_RUNTIME_ERROR` on the given input, never passed); the `OK` share is reported separately (local opt-in corpus, `INUBIT_MCP_XSLT_CORPUS`; skipped in CI) | `XsltCorpusTest` | SC-005 |
 | Synthetic archive with 100 modules processed in under 60 s | `WorkspaceExportTest` | SC-006 |
 | XML not well-formed / XSD violations reported with location | `XmlValidationTest` | US5 |
-| Default/custom/unusable/shared workspace at startup and in `--check-config` | `WorkspaceConfigTest` | US6 |
+| Default/custom/unusable/shared workspace at startup and in `--check-config` | `ConfigLoaderTest`, `ConfigValidatorTest`, `ConfigSummaryTest`, `TwoProfilesTest` | US6 |
 | Git is called without remotes, hooks or signing; never push | `GitCliTest` | FR-007 |
 | Only `technical` is ever passed to StartCLI; blank diagram group rejected | `CliExportRunnerTest` | clarification 2, D-8 |
 
