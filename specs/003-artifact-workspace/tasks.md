@@ -110,7 +110,7 @@ are P1, and no export may write a file before redaction exists.
   `<group>/<owner>/workflows/<diagram group>/<workflow>.xml`,
   `<group>/<owner>/modules/<plugin type>/<module>/{module.xml,index.xml,<property>.<ext>}`,
   `<group>/<owner>/repository/<path>` and the mirrored `.meta/…json` path; `parse(Path)` inverts it.
-- [ ] T008 [P] `main/adapter/archive/v81/XmlNormalizer.java` with test first (D-5): UTF-8, LF,
+- [X] T008 [P] `main/adapter/archive/v81/XmlNormalizer.java` with test first (D-5): UTF-8, LF,
   two-space indentation for element-only content, text and mixed content byte-exact, attributes
   sorted by name, `<x/>` for empty elements, fixed XML declaration; normalizing twice is idempotent;
   canonical equality helper `XmlEquality.equal(a, b)` (D-4: comments kept, whitespace-only text
