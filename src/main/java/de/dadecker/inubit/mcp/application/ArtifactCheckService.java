@@ -1,11 +1,14 @@
 package de.dadecker.inubit.mcp.application;
 
 import de.dadecker.inubit.mcp.domain.model.CheckFinding;
+import de.dadecker.inubit.mcp.domain.model.CheckReport;
 import de.dadecker.inubit.mcp.domain.model.CheckFinding.Check;
 import de.dadecker.inubit.mcp.domain.model.CheckFinding.Severity;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.NameCodec;
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WorkflowGraph;
 import de.dadecker.inubit.mcp.domain.model.WorkflowGraph.Edge;
@@ -18,8 +21,14 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -68,9 +77,16 @@ public final class ArtifactCheckService {
         Pattern.compile("inubitrepository:/+([^\"'<>&\\s]+)");
     private static final String SYSTEM_VARIABLE_PREFIX = "IS";
     private static final Set<String> SKIPPED = Set.of(".git", ".meta", ".tests", ".reports");
+    /** The longest finding message (FR-034). */
+    static final int MAX_MESSAGE = 500;
+    private static final String REPORTS = ".reports";
+    private static final DateTimeFormatter TIMESTAMP =
+        DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssSSS'Z'").withZone(ZoneOffset.UTC);
 
     private final Path root;
     private final ArtifactInspectorPort inspector;
+    private final ResultLimiter limiter;
+    private final Clock clock;
     private final Function<GroupId, Optional<NodeId>> firstNode;
     private final Function<NodeId, InventoryPort> inventory;
     private final Function<NodeId, Optional<String>> owners;
@@ -81,12 +97,150 @@ public final class ArtifactCheckService {
      */
     public ArtifactCheckService(Path root, ArtifactInspectorPort inspector,
         Function<GroupId, Optional<NodeId>> firstNode, Function<NodeId, InventoryPort> inventory,
-        Function<NodeId, Optional<String>> owners) {
+        Function<NodeId, Optional<String>> owners, ResultLimiter limiter, Clock clock) {
         this.root = Objects.requireNonNull(root, "root");
         this.inspector = Objects.requireNonNull(inspector, "inspector");
         this.firstNode = Objects.requireNonNull(firstNode, "firstNode");
         this.inventory = Objects.requireNonNull(inventory, "inventory");
         this.owners = Objects.requireNonNull(owners, "owners");
+        this.limiter = Objects.requireNonNull(limiter, "limiter");
+        this.clock = Objects.requireNonNull(clock, "clock");
+    }
+
+    /** What {@code check_artifacts} checks. */
+    public record CheckRequest(List<String> paths, boolean verifyOnServer) {
+
+        public CheckRequest {
+            paths = List.copyOf(paths);
+        }
+    }
+
+    /**
+     * Runs {@code request} under the workspace lock (FR-020: a running export or check refuses
+     * it at once): every path must stay inside the workspace (no {@code ..}, no absolute path,
+     * no symbolic link leaving it) and exist. The findings are sorted by severity, each message
+     * cut to {@value #MAX_MESSAGE} characters (FR-034), and bounded by
+     * {@code resultLimits.maxItems}; when truncated, all findings go to
+     * {@code .reports/check-<timestamp>.json} (research D-10). Nothing else is written.
+     *
+     * @throws ToolErrorException {@code INVALID_INPUT} for a path outside the workspace or a
+     *     missing one, {@code PRECONDITION_FAILED} if the workspace is locked or not usable
+     */
+    public CheckReport check(CheckRequest request) {
+        if (request.paths().isEmpty()) {
+            throw invalid("Give at least one workspace path to check", "paths is empty");
+        }
+        List<String> paths = request.paths().stream().map(this::confine).toList();
+        try (WorkspaceLock lock = WorkspaceLock.acquire(root)) {
+            return report(checkPaths(paths, request.verifyOnServer()));
+        }
+    }
+
+    /** The workspace-relative form of {@code path}, refused if it leaves the workspace. */
+    private String confine(String path) {
+        String candidate = path.replace('\\', '/').strip();
+        if (candidate.isEmpty() || candidate.startsWith("/") || candidate.matches("^[A-Za-z]:.*")
+            || List.of(candidate.split("/")).contains("..")) {
+            throw invalid("The path " + quote(path) + " is not a workspace-relative path",
+                "Paths must be relative to the workspace, without .. and not absolute");
+        }
+        Path resolved = root.resolve(candidate).normalize();
+        if (!resolved.startsWith(root) || !Files.exists(resolved)) {
+            throw invalid("The path " + quote(path) + " does not exist in the workspace "
+                + root, "The file or directory is not there (names are case-sensitive)");
+        }
+        try {
+            if (!resolved.toRealPath().startsWith(root.toRealPath())) {
+                throw invalid("The path " + quote(path) + " leaves the workspace through a"
+                    + " symbolic link", "Only files inside the workspace are checked");
+            }
+        } catch (IOException e) {
+            throw invalid("The path " + quote(path) + " cannot be read", "The file system"
+                + " reported " + e.getClass().getSimpleName());
+        }
+        return relative(resolved);
+    }
+
+    private CheckReport report(List<CheckFinding> found) {
+        List<CheckFinding> findings = found.stream().map(ArtifactCheckService::bounded)
+            .sorted(Comparator.comparing(CheckFinding::severity)).toList();
+        Map<Severity, Integer> counts = new EnumMap<>(Severity.class);
+        findings.forEach(f -> counts.merge(f.severity(), 1, Integer::sum));
+        if (findings.size() <= limiter.maxItems()) {
+            return new CheckReport(findings, counts, List.of(), false, Optional.empty());
+        }
+        String name = REPORTS + "/check-" + TIMESTAMP.format(clock.instant()) + ".json";
+        try {
+            Path file = root.resolve(name);
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, json(counts, findings), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+                "The report " + name + " cannot be written (" + e.getClass().getSimpleName()
+                    + ")", "The workspace is not writable",
+                "Check the workspace directory's permissions"));
+        }
+        return new CheckReport(findings.subList(0, limiter.maxItems()), counts, List.of(), true,
+            Optional.of(name));
+    }
+
+    /** {@code finding} with its message cut to {@value #MAX_MESSAGE} characters. */
+    private static CheckFinding bounded(CheckFinding finding) {
+        String message = finding.message();
+        if (message.length() <= MAX_MESSAGE) {
+            return finding;
+        }
+        return new CheckFinding(finding.severity(), finding.check(), finding.path(),
+            finding.location(), finding.code(), message.substring(0, MAX_MESSAGE - 1) + "…");
+    }
+
+    /** The full report: {@code {"counts": {…}, "findings": [{…}, …]}}. */
+    private static String json(Map<Severity, Integer> counts, List<CheckFinding> findings) {
+        StringBuilder json = new StringBuilder("{\n  \"counts\": {");
+        Severity[] severities = Severity.values();
+        for (int i = 0; i < severities.length; i++) {
+            json.append(i == 0 ? "" : ", ").append(string(severities[i].name())).append(": ")
+                .append(counts.getOrDefault(severities[i], 0));
+        }
+        json.append("},\n  \"findings\": [");
+        for (int i = 0; i < findings.size(); i++) {
+            CheckFinding f = findings.get(i);
+            json.append(i == 0 ? "\n    " : ",\n    ").append("{\"severity\": ")
+                .append(string(f.severity().name())).append(", \"check\": ")
+                .append(string(f.check().name())).append(", \"path\": ").append(string(f.path()))
+                .append(f.location().map(l -> ", \"location\": " + string(l)).orElse(""))
+                .append(", \"code\": ").append(string(f.code())).append(", \"message\": ")
+                .append(string(f.message())).append('}');
+        }
+        return json.append("\n  ]\n}\n").toString();
+    }
+
+    private static String string(String value) {
+        StringBuilder out = new StringBuilder("\"");
+        for (char c : value.toCharArray()) {
+            switch (c) {
+                case '"' -> out.append("\\\"");
+                case '\\' -> out.append("\\\\");
+                default -> {
+                    if (c < 0x20) {
+                        out.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        out.append(c);
+                    }
+                }
+            }
+        }
+        return out.append('"').toString();
+    }
+
+    private static String quote(String value) {
+        String shown = value.length() > 200 ? value.substring(0, 200) + "…" : value;
+        return "\"" + shown + "\"";
+    }
+
+    private static ToolErrorException invalid(String message, String likelyCause) {
+        return new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT, message,
+            likelyCause, "Give paths relative to the workspace, e.g. <group>/<owner>/workflows"));
     }
 
     /**
@@ -134,7 +288,8 @@ public final class ArtifactCheckService {
                 continue;
             }
             try (Stream<Path> walk = Files.walk(start)) {
-                walk.filter(Files::isRegularFile).map(this::relative)
+                walk.filter(file -> Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS))
+                    .map(this::relative)
                     .filter(file -> !SKIPPED.contains(file.split("/", 2)[0]))
                     .forEach(files::add);
             } catch (IOException e) {

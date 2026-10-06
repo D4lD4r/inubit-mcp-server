@@ -121,7 +121,7 @@ class TemplateGrammarTest {
             .anySatisfy(t -> assertThat(t).contains("mcp/McpServerFactory.java"))
             .anySatisfy(t -> assertThat(t).contains("application/TargetResolver.java"))
             .anySatisfy(t -> assertThat(t).contains("config/ConfigValidator.java"));
-        assertThat(Files.list(SCHEMAS).count()).isEqualTo(18);
+        assertThat(Files.list(SCHEMAS).count()).isEqualTo(20);
         assertThat(schemaTemplates()).filteredOn(t -> PLACEHOLDER.matcher(t).find())
             .hasSizeGreaterThan(15);
     }

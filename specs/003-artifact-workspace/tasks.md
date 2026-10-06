@@ -276,7 +276,7 @@ unchanged re-export, round trip.
   owner and of `inventory.owner` via `InventoryPort` (cached) → ok; else `MODULE_MISSING` ERROR;
   server unreachable → `MODULE_UNVERIFIED` WARNING; `verifyOnServer: false` → `MODULE_UNVERIFIED` for
   modules not in the workspace.
-- [ ] T027 [US3] `res/schemas/check_artifacts.input.json` and `.output.json`,
+- [X] T027 [US3] `res/schemas/check_artifacts.input.json` and `.output.json`,
   `main/mcp/tools/CheckArtifactsTool.java`, registration in `main/Wiring.java` (always), tests first in
   `test/mcp/tools/`: paths must stay inside the workspace ("no `..`, no absolute paths, no symlinks
   leaving it") else `INVALID_INPUT`; at least one of `paths`/`xslt`; findings bounded with

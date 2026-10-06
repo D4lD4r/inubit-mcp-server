@@ -48,7 +48,8 @@ class ArtifactCheckServiceTest {
     ArtifactCheckService service() {
         return new ArtifactCheckService(root, new WorkspaceInspector(),
             group -> group.equals(DEV) ? Optional.of(NODE) : Optional.empty(),
-            node -> server, node -> Optional.of("OWNERS"));
+            node -> server, node -> Optional.of("OWNERS"), ResultLimiter.withDefaults(),
+            java.time.Clock.systemUTC());
     }
 
     /** The defect fixture {@code defects/<name>/} as an export ZIP. */

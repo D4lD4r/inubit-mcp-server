@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "required": ["paths"],
+  "properties": {
+    "paths": { "type": "array",
+               "description": "Workspace-relative files or directories; every workflow, module and repository file below them is checked",
+               "minItems": 1, "maxItems": 200,
+               "items": { "type": "string", "minLength": 1, "maxLength": 1000 } },
+    "verifyOnServer": { "type": "boolean", "default": true,
+                        "description": "Look up referenced modules missing in the workspace on the first {node} of the {group}" }
+  },
+  "additionalProperties": false
+}

@@ -13,7 +13,10 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/** T023: {@code export_artifacts} is offered only if a node has a CLI installation. */
+/**
+ * T023/T027: {@code export_artifacts} is offered only if a node has a CLI installation,
+ * {@code check_artifacts} always.
+ */
 class ExportArtifactsWiringTest {
 
     @TempDir
@@ -44,11 +47,12 @@ class ExportArtifactsWiringTest {
     @Test
     void withACliHomeTheExportToolIsOffered() {
         assertThat(toolNames("    cli:\n      home: " + temp.resolve("startcli")))
-            .contains("export_artifacts");
+            .contains("export_artifacts", "check_artifacts");
     }
 
     @Test
     void withoutACliHomeItIsNot() {
-        assertThat(toolNames("")).doesNotContain("export_artifacts");
+        assertThat(toolNames("")).doesNotContain("export_artifacts")
+            .as("check_artifacts is always offered (T027)").contains("check_artifacts");
     }
 }
