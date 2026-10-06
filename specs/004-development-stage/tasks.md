@@ -127,7 +127,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   `ImportProtocolParser.java` with tests first (D-8, fixtures T001): exact command line incl.
   `--importUser` vs `--importUserGroup`; private temp dir deleted on all paths; protocol parsed into
   entries; NOK → failure; `cliExportTimeout` reused and named on TIMEOUT.
-- [ ] T014 [US1] `main/adapter/cli/v81/V81ImportAdapter.java` (`ImportPort` via `Gateway`) with test
+- [X] T014 [US1] `main/adapter/cli/v81/V81ImportAdapter.java` (`ImportPort` via `Gateway`) with test
   first; the v8.1 gateway overrides the default.
 - [ ] T015 [US1] `main/application/ConflictDetector.java` with test first (D-5): fresh export rendered
   in memory (new read-only `PreparedExport.files()`), compared with `show(base, path)` for every

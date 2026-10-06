@@ -1,15 +1,18 @@
 package de.dadecker.inubit.mcp.adapter;
 
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
+import de.dadecker.inubit.mcp.adapter.cli.CliImportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
+import de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ProcessControlAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81LogAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81MaintenanceProbe;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81MonitoringAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81ProcessQueryAdapter;
+import de.dadecker.inubit.mcp.adapter.rest.v81.V81UserDirectory;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81VersionDetector;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
@@ -22,6 +25,8 @@ import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
+import de.dadecker.inubit.mcp.domain.port.ImportPort;
+import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
@@ -153,6 +158,16 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
     @Override
     public ArtifactPort artifacts(NodeId server) {
         return slot(server).ports().artifacts();
+    }
+
+    @Override
+    public ImportPort imports(NodeId server) {
+        return slot(server).ports().imports();
+    }
+
+    @Override
+    public UserDirectoryPort users(NodeId server) {
+        return slot(server).ports().users();
     }
 
     /** Without waiting for a version detection: only the 8.1 adapters exist (US4). */
@@ -369,7 +384,11 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                             new CliOutputClassifier(scrubber, server.credentialVariables())),
                         new V81ArtifactAdapter(new CliExportRunner(server, credentials, guard,
                             cliRunner, new CliOutputClassifier(scrubber,
-                                server.credentialVariables())), inventory::confirmCredentials));
+                                server.credentialVariables())), inventory::confirmCredentials),
+                        new V81ImportAdapter(new CliImportRunner(server, credentials, guard,
+                            cliRunner, new CliOutputClassifier(scrubber,
+                                server.credentialVariables())), inventory::confirmCredentials),
+                        new V81UserDirectory(server.id(), client));
                 } catch (RuntimeException e) {
                     newProbe.close();
                     throw e;

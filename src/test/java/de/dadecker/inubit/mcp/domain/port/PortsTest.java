@@ -83,6 +83,21 @@ class PortsTest {
     }
 
     @Test
+    void aGatewayWithoutImportOrUserAdapterReportsThemAsUnavailableForItsNode() {
+        // feature 004 (T014)
+        assertThatThrownBy(() -> new PreviousGateway().imports())
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                assertThat(e.error().node()).contains(NODE);
+            });
+        assertThatThrownBy(() -> new PreviousGateway().users())
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.NOT_CONFIGURED);
+                assertThat(e.error().node()).contains(NODE);
+            });
+    }
+
+    @Test
     void anXsltRequestCopiesItsParameters() {
         Map<String, String> params = new HashMap<>(Map.of("lang", "de"));
         XsltRequest request = new XsltRequest(Path.of("a.xsl"), Path.of("in.xml"), params,
