@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "required": ["target"],
+  "properties": {
+    "target": { "type": "string",
+                "description": "Id of one {group} (its first {node} is used) or of one {node} (`<{group}>/<{node}>`)",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,31}(/[a-z0-9][a-z0-9-]{0,31})?$" },
+    "owner": { "type": "string",
+               "description": "INUBIT user or user group owning the artifacts; default: inventory.owner of the {node}",
+               "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$" },
+    "diagramGroups": { "type": "array",
+                       "description": "Diagram groups whose technical workflows are exported, with the modules they use",
+                       "minItems": 1, "maxItems": 20, "uniqueItems": true,
+                       "items": { "type": "string", "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$" } },
+    "modules": { "type": "array",
+                 "description": "Single modules; without pluginType it is looked up in the module list",
+                 "minItems": 1, "maxItems": 50,
+                 "items": { "type": "object",
+                            "required": ["name"],
+                            "properties": {
+                              "name": { "type": "string", "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$" },
+                              "pluginType": { "type": "string", "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$" }
+                            },
+                            "additionalProperties": false } }
+  },
+  "additionalProperties": false
+}

@@ -1,10 +1,12 @@
 package de.dadecker.inubit.mcp;
 
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
+import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.git.GitCli;
 import de.dadecker.inubit.mcp.application.ConfirmationRegistry;
 import de.dadecker.inubit.mcp.application.DiagnosisService;
 import de.dadecker.inubit.mcp.application.FanOut;
@@ -14,6 +16,7 @@ import de.dadecker.inubit.mcp.application.InventoryService;
 import de.dadecker.inubit.mcp.application.ProcessControlService;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.TargetResolver;
+import de.dadecker.inubit.mcp.application.WorkspaceService;
 import de.dadecker.inubit.mcp.application.WriteGuard;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
@@ -34,6 +37,7 @@ import de.dadecker.inubit.mcp.mcp.McpServerFactory;
 import de.dadecker.inubit.mcp.mcp.ResultMapper;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import de.dadecker.inubit.mcp.mcp.tools.ExportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.FindProcessesTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetHealthTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetInventoryItemTool;
@@ -58,7 +62,8 @@ import java.util.function.Predicate;
  *
  * <p><b>Extension point:</b> each user-story phase adds its handlers in {@link #toolHandlers()}
  * (US1: {@code list_nodes}, {@code get_health}; US2: {@code find_processes},
- * {@code query_logs}; US3: {@code list_inventory}, {@code get_inventory_item}). The write tools
+ * {@code query_logs}; US3: {@code list_inventory}, {@code get_inventory_item}; feature 003:
+ * {@code export_artifacts}, only if a node has a CLI installation). The write tools
  * of US4 ({@code restart_process}, {@code kill_process}) are added only if
  * {@link #anyWriteEnabled()} (contracts/mcp-tools.md, Story 4 / AS 6); their service, the write
  * guard and the audit log ({@code auditDirectory}, written only on a write call) are built in any
@@ -82,6 +87,7 @@ final class Wiring implements AutoCloseable {
     private final DiagnosisService diagnosis;
     private final InventoryService inventory;
     private final ProcessControlService processControl;
+    private final ExportArtifactsTool exportArtifacts;
     private final CliResources cliResources;
     private final Thread cleanupHook;
 
@@ -143,6 +149,12 @@ final class Wiring implements AutoCloseable {
             new ConfirmationRegistry(clock.clock()),
             new AuditLog(config.auditDirectory(), scrubber), clock.clock(), UUID::randomUUID,
             profile.name());
+        // feature 003: the workspace history uses the system git (not the StartCLI launcher)
+        Path workspace = config.workspace();
+        this.exportArtifacts = new ExportArtifactsTool(new WorkspaceService(workspace,
+            new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
+            new ArchiveCodec(), gateways::artifacts, gateways::inventory), targets,
+            id -> byId.get(id).inventory().owner(), limiter);
         // last step (N2): SIGTERM (and System.exit) stop running StartCLI work and delete the
         // export directories
         Runtime.getRuntime().addShutdownHook(cleanupHook);
@@ -171,6 +183,9 @@ final class Wiring implements AutoCloseable {
         handlers.add(new QueryLogsTool(diagnosis));
         handlers.add(new ListInventoryTool(inventory));
         handlers.add(new GetInventoryItemTool(inventory));
+        if (servers.stream().anyMatch(server -> server.cli().home().isPresent())) {
+            handlers.add(exportArtifacts);
+        }
         if (anyWriteEnabled()) {
             handlers.add(new RestartProcessTool(processControl));
             handlers.add(new KillProcessTool(processControl));

@@ -1,0 +1,50 @@
+{
+  "type": "object",
+  "required": ["node", "owner", "workspace", "unchanged", "counts", "changes", "truncated",
+               "secretsReplaced", "warnings"],
+  "properties": {
+    "node": { "type": "string", "description": "The {node} the artifacts were exported from" },
+    "owner": { "type": "string" },
+    "workspace": { "type": "string", "description": "Absolute path of the workspace" },
+    "localChanges": {
+      "type": "object",
+      "description": "Present only if uncommitted changes of the workspace were recorded first",
+      "required": ["commit", "files"],
+      "properties": {
+        "commit": { "type": "string" },
+        "files": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "commit": { "type": "string", "description": "The history entry of the export; absent if unchanged" },
+    "unchanged": { "type": "boolean", "description": "true if the export changed no file" },
+    "counts": {
+      "type": "object",
+      "required": ["added", "modified", "deleted"],
+      "properties": {
+        "added": { "type": "integer", "minimum": 0 },
+        "modified": { "type": "integer", "minimum": 0 },
+        "deleted": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "changes": {
+      "type": "array",
+      "description": "Changed workspace paths, at most resultLimits.maxItems",
+      "items": {
+        "type": "object",
+        "required": ["path", "kind"],
+        "properties": {
+          "path": { "type": "string" },
+          "kind": { "enum": ["ADDED", "MODIFIED", "DELETED"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "truncated": { "type": "boolean" },
+    "fullList": { "type": "string", "description": "Workspace-relative path of the full change list; present only if truncated" },
+    "secretsReplaced": { "type": "integer", "minimum": 0 },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}

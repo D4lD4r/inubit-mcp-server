@@ -26,6 +26,15 @@ public record ToolHints(
         return new ToolHints(title, true, false, true, openWorld);
     }
 
+    /**
+     * A read-only tool (for INUBIT) with an explicit idempotence hint; {@code idempotent} is
+     * {@code false} for a tool that records something locally on every call (feature 003:
+     * {@code export_artifacts} writes a history entry).
+     */
+    public static ToolHints readOnly(String title, boolean openWorld, boolean idempotent) {
+        return new ToolHints(title, true, false, idempotent, openWorld);
+    }
+
     /** A state-changing tool: destructive, non-idempotent, open world. */
     public static ToolHints destructive(String title) {
         return new ToolHints(title, false, true, false, true);

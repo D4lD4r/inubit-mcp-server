@@ -39,27 +39,27 @@ import java.util.stream.Stream;
  * codec, with a fake StartCLI ({@link FakeArtifacts}) and a fake module list; plus helpers that
  * derive export archives from the fixtures and inspect the workspace.
  */
-final class ExportHarness {
+public final class ExportHarness {
 
-    static final NodeId DEV = NodeId.parse("dev/node1");
+    public static final NodeId DEV = NodeId.parse("dev/node1");
 
-    final Path root;
-    final FakeArtifacts artifacts = new FakeArtifacts();
-    final Map<String, String> pluginTypes = new LinkedHashMap<>();
-    final GitCli history;
+    public final Path root;
+    public final FakeArtifacts artifacts = new FakeArtifacts();
+    public final Map<String, String> pluginTypes = new LinkedHashMap<>();
+    public final GitCli history;
 
-    ExportHarness(Path root) {
+    public ExportHarness(Path root) {
         this.root = root;
         SystemProcessLauncher system = new SystemProcessLauncher();
         this.history = new GitCli(root, "acme", system::launch,
             Map.of("PATH", System.getenv().getOrDefault("PATH", "/usr/bin")));
     }
 
-    WorkspaceService service() {
+    public WorkspaceService service() {
         return service(new ArchiveCodec());
     }
 
-    WorkspaceService service(ArchiveCodecPort codec) {
+    public WorkspaceService service(ArchiveCodecPort codec) {
         return new WorkspaceService(root, history, codec, node -> {
             assertThat(node).isEqualTo(DEV);
             return artifacts;
@@ -111,10 +111,10 @@ final class ExportHarness {
     }
 
     /** StartCLI stand-in: returns the archive registered for a diagram group or module. */
-    static final class FakeArtifacts implements ArtifactPort {
+    public static final class FakeArtifacts implements ArtifactPort {
 
-        final Map<String, byte[]> exports = new LinkedHashMap<>();
-        final List<String> calls = new CopyOnWriteArrayList<>();
+        public final Map<String, byte[]> exports = new LinkedHashMap<>();
+        public final List<String> calls = new CopyOnWriteArrayList<>();
 
         @Override
         public byte[] exportWorkflowGroup(String owner, String diagramGroup) {
@@ -139,7 +139,7 @@ final class ExportHarness {
     }
 
     /** The files of the workspace (without {@code .git} and the lock file), by relative path. */
-    SortedMap<String, String> snapshot() {
+    public SortedMap<String, String> snapshot() {
         SortedMap<String, String> files = new TreeMap<>();
         try (Stream<Path> walk = Files.walk(root)) {
             for (Path file : walk.filter(Files::isRegularFile).toList()) {
@@ -156,7 +156,7 @@ final class ExportHarness {
     }
 
     /** The subjects of the history, newest first (empty without a history). */
-    List<String> log() {
+    public List<String> log() {
         if (!Files.isDirectory(root.resolve(".git"))) {
             return List.of();
         }
@@ -165,7 +165,7 @@ final class ExportHarness {
     }
 
     /** Plain git (outside the classes under test), failing the test on a non-zero exit. */
-    String git(String... arguments) {
+    public String git(String... arguments) {
         List<String> command = new ArrayList<>(List.of("git", "-C", root.toString()));
         command.addAll(List.of(arguments));
         try {

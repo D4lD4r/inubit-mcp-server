@@ -12,6 +12,9 @@ import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort.ModuleEntry;
 import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -42,6 +45,8 @@ public final class WorkspaceService {
 
     /** The file the history creates itself; never a local change of the person. */
     private static final String GITIGNORE = ".gitignore";
+    /** The directory of full result lists (ignored by the history). */
+    private static final String REPORTS = ".reports";
 
     /** A module to export; without a plugin type it is looked up in the module list. */
     public record ModuleRef(String name, Optional<String> pluginType) {
@@ -159,6 +164,30 @@ public final class WorkspaceService {
             return new ExportResult(node, request.owner(), root, localChanges, export,
                 prepared.secretsReplaced(), prepared.warnings());
         }
+    }
+
+    /**
+     * Writes {@code lines} to {@code .reports/<fileName>} (ignored by the history, research D-10)
+     * and returns its workspace-relative path.
+     *
+     * @throws ToolErrorException {@code PRECONDITION_FAILED} if it cannot be written
+     */
+    public String writeReport(String fileName, List<String> lines) {
+        if (fileName.isBlank() || fileName.contains("/") || fileName.contains("\\")
+            || fileName.startsWith(".")) {
+            throw new IllegalArgumentException("A report name is a plain file name");
+        }
+        Path file = root.resolve(REPORTS).resolve(fileName);
+        try {
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, String.join("\n", lines) + "\n", StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+                "The report " + file + " cannot be written (" + e.getClass().getSimpleName()
+                    + ")",
+                "The workspace is not writable", "Check the workspace directory's permissions"));
+        }
+        return REPORTS + "/" + fileName;
     }
 
     /**

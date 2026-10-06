@@ -233,7 +233,7 @@ unchanged re-export, round trip.
 - [X] T022 [US1] `test/application/WorkspaceLocalChangesTest.java` first, then the remaining
   `WorkspaceService` behaviour (clarification 1, FR-019): an edited and an added file are committed as
   `local changes` before the export commit; both commits in the result; nothing is discarded.
-- [ ] T023 [US1] Extend `main/mcp/ToolHints.java` test-first with
+- [X] T023 [US1] Extend `main/mcp/ToolHints.java` test-first with
   `readOnly(String title, boolean openWorld, boolean idempotent)` (the existing two-argument factory
   keeps `idempotent: true`); then `res/schemas/export_artifacts.input.json` and `.output.json` per
   `contracts/mcp-tools-delta.md`, `main/mcp/tools/ExportArtifactsTool.java` and registration in
