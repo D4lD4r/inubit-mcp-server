@@ -84,6 +84,9 @@ public final class ImportHarness {
     public final String owner;
     public final String diagramGroup;
     public WritePolicy.Confirmation confirmation = WritePolicy.Confirmation.CLIENT;
+    /** Wraps the archive port (e.g. to inject an unexpected failure). */
+    public java.util.function.UnaryOperator<de.dadecker.inubit.mcp.domain.port.ImportArchivePort>
+        archives = java.util.function.UnaryOperator.identity();
     private final List<UUID> ids = new CopyOnWriteArrayList<>();
     private final EffectiveNodeConfig server;
     private final NodeCredentials credentials;
@@ -167,7 +170,8 @@ public final class ImportHarness {
             new ArtifactCheckService(root, inspector, new SaxonXsltRunner(root),
                 group -> Optional.of(DEV), node -> inventory(), node -> Optional.of(owner),
                 ResultLimiter.withDefaults(), clock),
-            new ArchiveCodec(), new V81ImportArchives(), node -> artifacts, node -> imports,
+            new ArchiveCodec(), archives.apply(new V81ImportArchives()), node -> artifacts,
+            node -> imports,
             node -> inventory(), new OwnerKindResolver(owners, node -> () -> users),
             node -> Optional.of(owner),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),

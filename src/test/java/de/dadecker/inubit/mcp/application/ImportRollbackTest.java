@@ -188,4 +188,36 @@ class ImportRollbackTest {
         assertThat(outcome.failure().orElseThrow().message())
             .contains(outcome.backupRef().orElseThrow());
     }
+
+    @Test
+    void anUnexpectedFailureAfterTheImportIsAuditedAsFailedNotAsRefused() {
+        harness.archives = port -> new de.dadecker.inubit.mcp.domain.port.ImportArchivePort() {
+            @Override
+            public Archive assemble(Build build) {
+                return port.assemble(build);
+            }
+
+            @Override
+            public boolean equivalent(String path, byte[] expected, byte[] actual) {
+                throw new IllegalStateException("boom");
+            }
+
+            @Override
+            public java.util.Optional<String> checkinComment(byte[] file) {
+                return port.checkinComment(file);
+            }
+        };
+        harness.exportGroup().importApplied().exportGroup();
+
+        de.dadecker.inubit.mcp.domain.model.ToolErrorException error =
+            org.assertj.core.api.Assertions.catchThrowableOfType(
+                de.dadecker.inubit.mcp.domain.model.ToolErrorException.class,
+                () -> harness.service().importArtifacts(harness.group("Unexpected")));
+
+        assertThat(error.error().code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(error.error().message()).contains("may have been imported", "backup");
+        assertThat(harness.audit("import_artifacts")).extracting(r -> r.outcome())
+            .containsExactly(de.dadecker.inubit.mcp.domain.model.AuditOutcome.PENDING,
+                de.dadecker.inubit.mcp.domain.model.AuditOutcome.FAILED);
+    }
 }

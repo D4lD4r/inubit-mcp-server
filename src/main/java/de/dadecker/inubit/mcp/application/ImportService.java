@@ -237,13 +237,15 @@ public final class ImportService {
         }
         try (WorkspaceLock lock = WorkspaceLock.acquire(d.root())) {
             return locked(call, policy);
-        } catch (ToolErrorException e) {
-            throw call.refused ? e : call.refuse(e.error());
         } catch (RuntimeException e) {
+            if (call.sent != null) {
+                throw call.failedAfterSending(e);
+            }
             if (call.refused) {
                 throw e;
             }
-            throw call.refuse(unexpected("preparing the import", e));
+            throw e instanceof ToolErrorException tool ? call.refuse(tool.error())
+                : call.refuse(unexpected("preparing the import", e));
         }
     }
 
@@ -351,6 +353,7 @@ public final class ImportService {
             call.refused = true;
             throw auditFailure(node, e, "nothing was sent");
         }
+        call.sent = auditId;
         ImportPort.Mode mode = scope.diagramGroup().isPresent() ? ImportPort.Mode.WORKFLOW
             : ImportPort.Mode.MODULE;
         List<String> warnings = new ArrayList<>();
@@ -963,6 +966,8 @@ public final class ImportService {
         String backupRef;
         String rollback;
         boolean refused;
+        /** The audit id of the execution once the import may have been sent. */
+        UUID sent;
 
         Call(ImportRequest request) {
             this.request = request;
@@ -1010,6 +1015,29 @@ public final class ImportService {
 
         void append(UUID auditId, AuditRecord.Step step, AuditOutcome outcome, String reason) {
             d.audit().append(record(auditId, step, inputs(), outcome, Optional.of(reason)));
+        }
+
+        /**
+         * An unexpected failure after the import may have been sent: audited {@code FAILED}
+         * with the same audit id, never as a refusal; the backup holds the state before.
+         */
+        ToolErrorException failedAfterSending(RuntimeException e) {
+            LOG.error("import_artifacts failed unexpectedly after sending (audit id {})", sent, e);
+            String message = "Unexpected failure after the import was sent ("
+                + e.getClass().getSimpleName() + "): the change set may have been imported"
+                + " without verification; the backup " + sent + " holds the state before";
+            try {
+                d.audit().append(record(sent, AuditRecord.Step.EXECUTE, inputs(),
+                    AuditOutcome.FAILED, Optional.of(ErrorCode.INTERNAL + ": " + message)));
+            } catch (RuntimeException audit) {
+                LOG.error("The final audit record {} could not be written ({})", sent,
+                    audit.getClass().getSimpleName());
+            }
+            return new ToolErrorException(ToolError.of(ErrorCode.INTERNAL, message,
+                "An internal error of the INUBIT MCP server",
+                "Export the scope and compare it; restore the backup with restore_backup if"
+                    + " needed, and report the problem with the MCP server log")
+                .withNode(policy.node()));
         }
 
         /** Audits {@code error} as {@code REFUSED}; discards a presented code. */
