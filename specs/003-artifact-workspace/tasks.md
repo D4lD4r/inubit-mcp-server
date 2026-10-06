@@ -355,7 +355,7 @@ unchanged re-export, round trip.
 
 - [X] T036 [P] `docs/tools.md`: sections `export_artifacts` and `check_artifacts` (descriptions,
   inputs, outputs, errors, finding codes), tool table updated (10 tools).
-- [ ] T037 [P] `docs/setup.md`: `workspace` setting, git requirement, workspace layout, local-changes
+- [X] T037 [P] `docs/setup.md`: `workspace` setting, git requirement, workspace layout, local-changes
   behaviour, "never pushed"; `README.md` feature list.
 - [ ] T038 [P] Live test `test/live/ArtifactExportLiveTest.java` and `docs/live-tests.md`
   (`INUBIT_LIVE_DIAGRAM_GROUP`): read-only export of one diagram group twice → second `unchanged`;

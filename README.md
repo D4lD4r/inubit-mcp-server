@@ -20,10 +20,14 @@ customer or project, one YAML file); several profiles run side by side as separa
 | `get_inventory_item` | one diagram or module: versions, tags, active flag, modules used | REST + StartCLI |
 | `restart_process` | restart ONE process instance in `ERROR` on ONE node (two-step confirmation) | REST + StartCLI |
 | `kill_process` | kill ONE process instance on ONE node (two-step confirmation) | REST + StartCLI |
+| `export_artifacts` | export technical workflows (by diagram group) or modules into a local, git-versioned workspace as readable files, secrets replaced by placeholders | StartCLI `export` (read-only) |
+| `check_artifacts` | check workspace files offline: workflow structure, referenced modules, a stylesheet run with deterministic stand-ins, XML/XSD validation | only the module list for modules missing locally |
 
 The two write tools are registered only if at least one node of the profile has effective write
-access; with the default configuration the server offers the six read-only tools. Inputs, outputs
-and example prompts: [docs/tools.md](docs/tools.md).
+access, `export_artifacts` only if a node has a StartCLI installation; with the default
+configuration and no client installation the server offers the six read-only tools and
+`check_artifacts`. Inputs, outputs and example prompts: [docs/tools.md](docs/tools.md); the
+workspace: [docs/setup.md](docs/setup.md#artifact-workspace).
 
 ## Safety model
 
@@ -44,6 +48,10 @@ and example prompts: [docs/tools.md](docs/tools.md).
 - **Secrets only via environment variables.** Credentials are never read from the YAML file (a
   credential key there is a startup error) or from tool parameters; StartCLI receives the password
   on stdin, never as a process argument.
+- **Local artifact history, never pushed.** `export_artifacts` writes only to the local workspace
+  and its local git history; secrets are replaced before anything is written, and nothing is ever
+  sent anywhere. `check_artifacts` runs stylesheets without access to the server's environment,
+  files outside the workspace or the network.
 - **TLS on.** Self-signed server certificates are handled with a dedicated trust store plus a
   certificate pin, never by switching verification off.
 
@@ -60,6 +68,7 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
   and "CLI login access" for the account. The INUBIT client is **not included** in this project.
   Without it, the REST-based tools work and CLI-based parts report `CLI_UNAVAILABLE`. CLI-based
   tools are not supported on Windows in this version.
+- Only for the artifact workspace (`export_artifacts`): **git 2.32** or newer on `PATH`.
 
 ## Installation in Claude Code
 

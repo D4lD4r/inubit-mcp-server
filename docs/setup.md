@@ -14,6 +14,7 @@ this guide walks through it. All host names below are examples (`*.example.test`
 | Temurin (or another) JDK **17** | StartCLI 8.1 runs on Java 17, not on the JDK of the server |
 | An INUBIT account per group (or node) with rights to read logs, monitoring and models, plus "CLI login access" for CLI-backed tools | REST and CLI access |
 | `openssl` and `keytool` (part of the JDK) | only for a self-signed server certificate (section 5) |
+| `git` 2.32 or newer on `PATH` (`git --version`) | only for the artifact workspace (`export_artifacts`, section 3); the history stays local |
 
 Without a client installation the REST-backed tools still work; CLI-backed parts report
 `CLI_UNAVAILABLE`. CLI-backed tools are not supported on Windows in this version.
@@ -308,6 +309,63 @@ they cannot change anything.
   `auditId`; `REFUSED` for every refusal. A confirmed restart therefore leaves three records:
   `CHALLENGE_ISSUED`, `PENDING`, `EXECUTED`.
 - Secrets are scrubbed from every field; passwords never appear.
+
+### Artifact workspace
+
+`export_artifacts` and `check_artifacts` (feature 003) keep INUBIT artifacts as readable files in
+a local **workspace** with its own git history.
+
+```yaml
+workspace: ~/work/acme-inubit   # default: ~/.inubit-mcp/<profile.name>/workspace
+```
+
+- `~` is expanded; the path must be absolute afterwards. The server creates the directory
+  `rwx------` at startup if it is missing and checks that it is readable and writable;
+  `--check-config` shows `Workspace: <path> (ok | created | <problem>)`.
+- Two profiles in the default configuration directory must not share a workspace, nor may one
+  lie inside the other (a configuration error naming both profiles). A copy of the same profile
+  shares it by design.
+- **git ≥ 2.32** must be on `PATH`. The history is local only: there is no remote and nothing is
+  ever pushed. Commits are made as `INUBIT MCP (<profile>)`, without hooks or signing, and ignore
+  your global git configuration.
+- Layout:
+
+  ```text
+  <workspace>/
+    .gitignore                      ignores .tests/, .reports/, .lock
+    <group>/<owner>/workflows/<diagram group>/<workflow>.xml
+    <group>/<owner>/modules/<plugin type>/<module>/module.xml, index.xml, <property>.<ext>
+    <group>/<owner>/repository/<repository path>   only files the exported artifacts reference
+    .meta/…                         volatile values (UIDs, export suffix of check-in comments, context)
+    .tests/…                        outputs of local stylesheet runs (not versioned)
+    .reports/…                      full change and finding lists (not versioned)
+  ```
+
+  Names are kept readable; characters that file systems cannot carry are percent-encoded.
+- **Local changes**: before an export, everything you (or the assistant) changed in the workspace
+  and did not commit is recorded as its own entry `local changes: <n> files`; the export comes
+  as a second entry on top. Nothing is discarded: an edited file overwritten by the export stays
+  in the history. An export that changes nothing records nothing.
+- **Secrets**: every password, encrypted value, keystore and other key material, saved test
+  message and saved XSLT test value is replaced by `${secret:<property path>}` in memory, before
+  anything is written; a repository file with key material is not written at all. The raw export
+  lives only in a private temporary directory that is deleted after each export.
+- Only **technical workflows** are exported (with their modules); system diagrams and other
+  diagram types are not.
+- One export or check at a time: a second call is refused at once while another one runs.
+
+**What `check_artifacts` can test locally**: workflow structure (edges, ids, Demultiplexer keys,
+parent references, modules, variables, repository references), well-formedness and XSD validity,
+and stylesheet runs on Saxon-HE 10. INUBIT's own XSLT functions are served by **deterministic
+stand-ins**: GUIDs and `java.util.UUID` give `00000000-0000-0000-0000-000000000000`, date and time
+functions use `2000-01-01T00:00:00Z` (or the run's `now`), `sleep` returns at once; a stand-in
+whose INUBIT behaviour is undocumented (e.g. `Misc:encode`) or a fallback (e.g. an unreadable date
+kept) adds the warning `XSLT_STANDIN_ASSUMED`. **Not testable locally** (`XSLT_NOT_TESTABLE`):
+other Java extensions, `Formatter:calculateDateDifference`, licensed Saxon features,
+`xsl:result-document`, document type declarations, an unseeded `random-number-generator`. A run
+reads only workspace files, sees no environment variables or system properties of the server,
+ends after **60 s** and writes at most 64 MiB of output. Inline stylesheets of assignments are not
+run. Details: [tools.md](tools.md#check_artifacts).
 
 ## 4. Credentials: environment variables
 
