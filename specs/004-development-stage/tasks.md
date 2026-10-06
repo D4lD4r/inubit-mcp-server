@@ -46,7 +46,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 1: Setup
 
-- [ ] T001 Fixtures (D-22): from the local spike recordings (`~/.inubit-mcp/<profile>/spike`:
+- [X] T001 Fixtures (D-22): from the local spike recordings (`~/.inubit-mcp/<profile>/spike`:
   `claude/import-create.txt`, `t6/import.txt`, `t7/import*.txt`, `t8/import.txt`, `t9/tag.txt`,
   `finger-*.txt`), neutralize and store as `fixtures/cli/import_created.{stdout,stderr,exit}`,
   `import_modified`, `import_module_only`, `tag_ok`, `tag_delete_ok`, `finger_user`,
