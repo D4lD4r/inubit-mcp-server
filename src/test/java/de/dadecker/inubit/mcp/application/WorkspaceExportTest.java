@@ -113,6 +113,30 @@ class WorkspaceExportTest {
     }
 
     @Test
+    void personWrittenCommentSegmentsStayInTheFilesAndTheirChangesAreRecorded() throws Exception {
+        // review I1 (FR-014): ### also separates segments written by a person
+        WorkspaceService service = harness.service();
+        service.export(diagramGroups("jdoe", "GRP-01"));
+        service.export(diagramGroups("OWNERS", "GRP-02"));
+        try (var files = Files.walk(root.resolve("dev"))) {
+            // every fixture workflow but Workflow-0004 (comment "###") has "JD: Fixture"
+            assertThat(files.filter(f -> f.toString().contains("/workflows/")
+                && f.toString().endsWith(".xml") && !f.endsWith("Workflow-0004.xml")).toList())
+                .hasSize(5).allSatisfy(file ->
+                    assertThat(Files.readString(file)).contains("JD: Fixture"));
+        }
+        harness.artifacts.exports.put("GRP-01", ExportHarness.rewrite("grp-a.zip",
+            "workflow/workflow.xml", xml -> xml.replace("JD: Fixture###",
+                "JD: Fixture edited###")));
+
+        ExportResult edited = service.export(diagramGroups("jdoe", "GRP-01"));
+
+        assertThat(edited.export()).hasValueSatisfying(entry -> assertThat(entry.changes())
+            .contains(new PathChange(workflow("jdoe", "GRP-01", "Workflow-0001"),
+                PathChange.Kind.MODIFIED)));
+    }
+
+    @Test
     void aChangedStylesheetIsExactlyOneModifiedPath() {
         WorkspaceService service = harness.service();
         service.export(diagramGroups("jdoe", "GRP-01"));

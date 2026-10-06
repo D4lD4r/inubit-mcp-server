@@ -31,9 +31,9 @@ import tools.jackson.databind.json.JsonMapper;
  * element: the text of {@code WorkflowUId}/{@code ModuleUId} (the element stays, empty, so that
  * its place is kept) and the export suffix of {@code CheckinComment} — from the first
  * {@code @@@Deploying User:} to the end, written by INUBIT at export time; the part written by a
- * person stays. A workflow's comment also has history segments separated by {@code ###}, which
- * INUBIT extends on every export (live acceptance): for workflows only the text before the first
- * {@code ###} stays, the segments go to {@link #CHECKIN_HISTORY}. The export time at its end
+ * person stays. Before that suffix a workflow's comment has {@code ###}-separated segments; INUBIT
+ * appends copies of the last one on every export (live acceptance, recordings): those copies go
+ * to {@link #CHECKIN_HISTORY}, every other segment stays in the file. The export time at its end
  * ({@code Export/Deployment: <time>@@@}) changes on every export and is not kept at all (SC-001: an unchanged re-export changes no file); a rebuild writes
  * a new one. Everything else — {@code CheckoutUser}, {@code IsActive}, layout,
  * {@code LastUpdate}, {@code ExportUser} — stays in the reviewed file. {@link #restore} puts
@@ -45,9 +45,9 @@ public final class MetaStore {
     /** The key of the export suffix of {@code CheckinComment}. */
     public static final String CHECKIN_SUFFIX = "CheckinComment.exportSuffix";
     /**
-     * The key of the history segments of a workflow's {@code CheckinComment}: from the first
-     * {@code ###} up to the export suffix. INUBIT appends to them on every export, so a record
-     * that differs from the stored one only here is not rewritten (SC-001).
+     * The key of the copies of the last {@code ###} segment that INUBIT appends to a workflow's
+     * {@code CheckinComment} on every export; a record that differs from the stored one only
+     * here is not rewritten (SC-001).
      */
     public static final String CHECKIN_HISTORY = "CheckinComment.history";
     private static final String HISTORY_SEPARATOR = "###";
@@ -137,13 +137,28 @@ public final class MetaStore {
     }
 
     /**
-     * The start of the history segments of a workflow comment: the first {@code ###} before the
-     * export suffix, or -1.
+     * The start of the history INUBIT appended to a workflow comment, or -1 (review I1, observed
+     * on the recordings): each export appends {@code ###<last segment>} copies of the last
+     * {@code ###}-separated segment of the part before {@code @@@Deploying User:}. Every other
+     * segment is written by a person and stays; of a trailing run of equal segments only the
+     * first stays.
      */
     private static int history(String comment) {
         int deploying = comment.indexOf(DEPLOYING_USER);
-        int hashes = comment.indexOf(HISTORY_SEPARATOR);
-        return hashes >= 0 && (deploying < 0 || hashes < deploying) ? hashes : -1;
+        String head = deploying < 0 ? comment : comment.substring(0, deploying);
+        String[] segments = head.split(HISTORY_SEPARATOR, -1);
+        int keep = segments.length;
+        while (keep > 1 && segments[keep - 1].equals(segments[keep - 2])) {
+            keep--;
+        }
+        if (keep == segments.length) {
+            return -1;
+        }
+        int start = 0;
+        for (int i = 0; i < keep; i++) {
+            start += segments[i].length() + (i > 0 ? HISTORY_SEPARATOR.length() : 0);
+        }
+        return start;
     }
 
     /** Takes the volatile values out of a {@code Workflow} or index {@code Module} element. */
@@ -159,10 +174,10 @@ public final class MetaStore {
                 children.add(e.withText(""));
             } else if (child instanceof Element e && e.localName().equals("CheckinComment")
                 && workflow && history(e.text()) >= 0) {
-                // live acceptance: a workflow's history segments grow with every export
+                // recordings: each export appends copies of the head's last ### segment
                 String text = e.text();
                 int start = history(text);
-                int deploying = text.indexOf(DEPLOYING_USER, start);
+                int deploying = text.indexOf(DEPLOYING_USER);
                 int end = deploying < 0 ? text.length() : deploying;
                 values.put(CHECKIN_HISTORY, text.substring(start, end));
                 if (deploying >= 0) {

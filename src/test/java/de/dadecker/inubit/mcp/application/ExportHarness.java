@@ -198,13 +198,18 @@ public final class ExportHarness {
 
     /**
      * {@code grp-a.zip} as a second export would return it: each workflow's check-in comment has
-     * one more {@code ###} history segment before its {@code @@@Deploying User:} suffix (module
-     * comments do not grow).
+     * two more copies of its last {@code ###} segment before its {@code @@@Deploying User:}
+     * suffix (module comments do not grow).
      */
     public static byte[] grownComments() {
-        return rewrite("grp-a.zip", "workflow/workflow.xml", xml -> xml.replace(
-            "@@@Deploying User:", "###Import from inubit without version history"
-                + "@@@Deploying User:"));
+        // the pattern of the recordings: two more copies of the last ###-separated segment
+        return rewrite("grp-a.zip", "workflow/workflow.xml", xml -> Pattern.compile(
+            "<CheckinComment>([^<@]*)@@@Deploying User:").matcher(xml).replaceAll(match -> {
+                String head = match.group(1);
+                String last = head.substring(head.lastIndexOf("###") + 3);
+                return Matcher.quoteReplacement("<CheckinComment>" + head + "###" + last + "###"
+                    + last + "@@@Deploying User:");
+            }));
     }
 
     /** {@code grp-a.zip} without module {@code Module-0009} (a used module of another owner). */

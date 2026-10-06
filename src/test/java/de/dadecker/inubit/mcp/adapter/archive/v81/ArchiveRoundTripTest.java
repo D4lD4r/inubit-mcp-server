@@ -84,8 +84,9 @@ class ArchiveRoundTripTest {
         compareRecorded(ArtifactFixtures.entries(grown), rebuilt, "grown", differences);
 
         assertThat(differences).isEmpty();
-        assertThat(new String(rebuilt.get("workflow/workflow.xml"), StandardCharsets.UTF_8))
-            .contains("###Import from inubit without version history@@@Deploying User:");
+        assertThat(rebuilt.get("workflow/workflow.xml")).as("byte for byte not required, but"
+            + " the grown comments are there").isNotEqualTo(ArtifactFixtures.entries("grp-a.zip")
+                .get("workflow/workflow.xml"));
     }
 
     @Test

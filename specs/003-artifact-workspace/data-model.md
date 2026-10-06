@@ -18,7 +18,7 @@ Delta to the data models of features 001 and 002. Decisions referenced as D-n ar
 | `Workspace` | `root: Path`, `profile: String` | one per process; owns the lock and the `VersionHistoryPort` |
 | `WorkspacePath` | `group: GroupId`, `owner: String`, `kind: WORKFLOW \| MODULE \| MODULE_INDEX \| EMBEDDED \| REPOSITORY`, `segments: List<String>` | maps names ↔ relative paths with the encoding of D-3; `toRelativePath()`, `parse(Path)` |
 | `ArtifactRef` | `group`, `owner`, `kind: WORKFLOW \| MODULE \| REPOSITORY_FILE`, `name`, `diagramGroup?` (workflow), `pluginType?` (module) | identity is the **name** within owner and kind (spike §5); UIDs are never part of it |
-| `MetaRecord` | `artifact: ArtifactRef`, `values: SortedMap<String,String>` | JSON under `.meta/` mirroring the artifact path (D-6): enclosing XML context, UIDs, CheckinComment export suffix (without the export time) and, for workflows, its `###` history segments (they grow with every export; a record differing only there is not rewritten), `sourceVersion` of the archive properties (export time and `operationId` are dropped), repository metadata |
+| `MetaRecord` | `artifact: ArtifactRef`, `values: SortedMap<String,String>` | JSON under `.meta/` mirroring the artifact path (D-6): enclosing XML context, UIDs, CheckinComment export suffix (without the export time) and, for workflows, the copies of the last `###` segment that INUBIT appends on every export (person-written segments stay in the file; a record differing only in these copies is not rewritten), `sourceVersion` of the archive properties (export time and `operationId` are dropped), repository metadata |
 
 ## Archive model (adapter `archive/v81`, in memory only)
 

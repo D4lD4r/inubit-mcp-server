@@ -87,11 +87,11 @@ class MetaStoreTest {
             .endsWith("@@@");
         assertThat(split.exportTime()).isPresent();
         assertThat(file).contains("<WorkflowUId/>",
-            "<CheckinComment>DefaultCommitCommentImport</CheckinComment>",
+            "<CheckinComment>DefaultCommitCommentImport###JD: Fixture###</CheckinComment>",
             "<CheckoutUser>jdoe</CheckoutUser>", "<IsActive>false</IsActive>",
-            "<StyleSheet xPos=").doesNotContain("Deploying User", "-7f78", "###");
+            "<StyleSheet xPos=").doesNotContain("Deploying User", "-7f78");
         assertThat((String) split.values().get(MetaStore.CHECKIN_HISTORY))
-            .startsWith("###JD: Fixture#");
+            .as("only the repetitions of the last segment").matches("(###)+");
         assertThat(MetaStore.restore(split.element(), split.values(), split.exportTime()))
             .isEqualTo(workflow.element());
     }
@@ -117,26 +117,35 @@ class MetaStoreTest {
 
     @Test
     void theGrowingHistoryOfAWorkflowCommentMovesToMeta() {
-        // live acceptance: every export appends ###-separated segments before the suffix
-        String once = "DD: change###Import from inubit without version history####"
-            + "@@@Deploying User: jdoe@@@Version: 3@@@Export/Deployment: 06.10.2026 08:00:00@@@";
-        String twice = once.replace("####@@@", "####Import from inubit without version"
-            + " history#####@@@");
-        Element first = workflow(once);
-        Element second = workflow(twice);
+        // recordings: every export appends copies of the last ###-separated segment of the
+        // part before @@@Deploying User:; every other segment is written by a person
+        String head = "DD: change###Import from inubit without version history";
+        String suffix = "@@@Deploying User: jdoe@@@Version: 3@@@Export/Deployment:"
+            + " 06.10.2026 08:00:00@@@";
+        String repeated = "###Import from inubit without version history";
+        Element first = workflow(head + suffix);
+        Element second = workflow(head + repeated + repeated + suffix);
 
         Split a = MetaStore.split(first);
         Split b = MetaStore.split(second);
 
-        assertThat(text(a.element())).contains("<CheckinComment>DD: change</CheckinComment>");
+        assertThat(text(a.element())).contains("<CheckinComment>" + head + "</CheckinComment>");
         assertThat(a.element()).isEqualTo(b.element());
-        assertThat(a.values().get(MetaStore.CHECKIN_SUFFIX))
-            .isEqualTo(b.values().get(MetaStore.CHECKIN_SUFFIX));
-        assertThat((String) a.values().get(MetaStore.CHECKIN_HISTORY))
-            .isEqualTo("###Import from inubit without version history####");
+        assertThat(a.values()).doesNotContainKey(MetaStore.CHECKIN_HISTORY);
+        assertThat(b.values()).containsEntry(MetaStore.CHECKIN_HISTORY, repeated + repeated);
         assertThat(MetaStore.restore(a.element(), a.values(), a.exportTime())).isEqualTo(first);
         assertThat(MetaStore.restore(b.element(), b.values(), b.exportTime()))
             .isEqualTo(second);
+    }
+
+    @Test
+    void personWrittenSegmentsStayInTheFile() {
+        Split split = MetaStore.split(workflow("DD: first###JD: second###JD: third"
+            + "@@@Deploying User: jdoe@@@"));
+
+        assertThat(text(split.element()))
+            .contains("<CheckinComment>DD: first###JD: second###JD: third</CheckinComment>");
+        assertThat(split.values()).doesNotContainKey(MetaStore.CHECKIN_HISTORY);
     }
 
     private static Element workflow(String comment) {

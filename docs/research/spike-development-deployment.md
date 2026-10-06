@@ -77,8 +77,11 @@ Two exports of the same unchanged diagram group, nine seconds apart, differ only
   is written **at export time**.
 - **Correction (live acceptance of feature 003, 2026-10-06; confirmed on the raw recordings, counts
   only):** for **workflows** the part of `CheckinComment` *before* `@@@Deploying User:` grows as
-  well: every export appends `###`-separated history segments at its end (e.g. one more `#`, or one
-  more `###Import from inubit without version history`). Module comments do not grow. The original
+  well: it consists of `###`-separated segments, and every export appends copies of its **last**
+  segment at the end (e.g. `######` when the last segment is empty, or
+  `###Import from inubit without version history` twice) — on every pair of recordings of the same
+  workflow the added tail was exactly such copies. The other segments (e.g. a person's comment)
+  do not change. Module comments do not grow. The original
   statement of this section missed it because the comparison above looked at the suffix only.
 
 An export is therefore **not completely side-effect free in INUBIT**: it leaves a trace in the
