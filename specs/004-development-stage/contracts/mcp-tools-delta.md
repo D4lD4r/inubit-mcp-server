@@ -10,7 +10,8 @@ non-development node with `NOT_DEVELOPMENT`. Confirmation follows the node's
 `src/main/resources/schemas/<tool>.{input,output}.json`.
 
 Common inputs: `node` (one node id `<group>/<node>`, required), `confirmationCode` (22 chars),
-`reason` (1–500 chars; required for import, restore, activate, tag).
+`reason` (1–500 chars, no `###`, `@@@` or control characters; required for import, restore,
+activate, tag); `owner` defaults to `inventory.owner` for every tool that takes it.
 
 ## `import_artifacts`
 
@@ -29,11 +30,14 @@ Result: `{ "outcome": "EXECUTED"|"FAILED", "commit", "backupRef", "created": [..
 "notImported": [...], "rollback": "NOT_NEEDED"|"SUCCEEDED"|"FAILED", "createdNotRemoved": [...],
 "reports": [paths], "warnings": [...] }`.
 
-Errors: `NOT_DEVELOPMENT`, `INVALID_INPUT` (scope, deletions), `VALIDATION_FAILED`-style check errors
-are returned as `PRECONDITION_FAILED` with the findings report path, `CONFLICT` (diff path),
-`SECRET_UNRESOLVED` (artifact + property path), `CONFIRMATION_INVALID`, `PRECONDITION_FAILED` (lock,
-owner kind), `CLI_UNAVAILABLE`, `AUTH_FAILED`, `TIMEOUT`; `IMPORT_FAILED` / `VERIFY_MISMATCH` are
-results with `outcome: FAILED` and the rollback state (the call itself succeeded in reporting).
+Failure model (research D-25): refusals **before** anything is sent are tool errors —
+`NOT_DEVELOPMENT`, `INVALID_INPUT` (scope, deletions, repository changes, reason with `###`/`@@@`),
+`PRECONDITION_FAILED` (check errors with the findings report path, missing referenced modules, lock,
+owner kind, user-group owner not yet verified, no base export), `CONFLICT` (diff path),
+`SECRET_UNRESOLVED` (artifact + property path), `CONFIRMATION_INVALID`, `CLI_UNAVAILABLE`,
+`AUTH_FAILED`. Once anything was sent, the call returns a **result** with `outcome: FAILED`,
+`failure: {code: IMPORT_FAILED | VERIFY_MISMATCH, step, message}` and `rollback`. Fields without a
+value are absent.
 
 ## `restore_backup`
 
@@ -65,8 +69,9 @@ artifacts — removed again).
 > [acme] Send a SOAP envelope from the workspace to an endpoint of ONE {node} and report the response
 > and the process instances, errors and log entries it caused. Allowed only where e2eTests permits.
 
-Input: `node`, `envelope` (workspace path), `path` (relative endpoint path), `soapAction`, `workflow`
-(for correlation), `timeoutSeconds` (1–120, default 60), `confirmationCode` (when `e2eTests: CONFIRM`).
+Input: `node`, `envelope` (workspace path, confined), `path` (relative endpoint path), `soapAction`,
+`workflow` (for correlation), `timeoutSeconds` (1–120, default 60), `includeExcerpt` (default
+false), `confirmationCode` (when `e2eTests: CONFIRM`).
 Preview (CONFIRM): `{ "endpoint", "payloadBytes", "soapAction" }`.
 Result: `{ "testId", "status", "durationMs", "timedOut", "responseFile", "excerpt", "correlation":
 "BY_TEST_ID"|"TIME_WINDOW_UNCERTAIN", "processes": [...], "errors": [...], "logEntries": [...],

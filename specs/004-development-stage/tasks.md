@@ -50,9 +50,11 @@ assertion before the production code exists. `mvn -q verify` green after every t
   `claude/import-create.txt`, `t6/import.txt`, `t7/import*.txt`, `t8/import.txt`, `t9/tag.txt`,
   `finger-*.txt`), neutralize and store as `fixtures/cli/import_created.{stdout,stderr,exit}`,
   `import_modified`, `import_module_only`, `tag_ok`, `tag_delete_ok`, `finger_user`,
-  `finger_not_registered`; synthesize `import_nok` (an `n-NOK` line), `import_protocol_mismatch`
-  (an extra artifact), `import_timeout`; record a synthetic `/user/users` XML (`fixtures/rest/user_users.xml`,
-  fictitious users only); document all in `fixtures/cli/README.md`. Identifier check before commit.
+  `finger_not_registered`, plus the archive-shape probes of research D-24
+  (`~/.inubit-mcp/<profile>/spike/p4`: workflow-only import, activate/deactivate, comment shapes);
+  synthesize `import_nok` (an `n-NOK` line), `import_protocol_mismatch` (an extra artifact),
+  `import_timeout`; record the real `/user/users` response read-only and neutralize it into
+  `fixtures/rest/user_users.xml` (fictitious names and e-mails, same structure); document all in `fixtures/cli/README.md`. Identifier check before commit.
 - [ ] T002 `test/adapter/cli/ScriptedProcessLauncher.java` with its own test: answers a sequence of
   StartCLI launches by matching the `--execCommand` line (prefix or regex) to a response
   (`stdout/stderr/exit`) and an optional action (e.g. write the export file); records every launch;
@@ -69,11 +71,13 @@ assertion before the production code exists. `mvn -q verify` green after every t
   `DevelopmentPolicy`; defaults `enabled false`, `confirmation SERVER`, `e2eTests FORBIDDEN`; tests
   first in `test/config/ConfigLoaderTest` and `ConfigValidatorTest`: production + development →
   error; production + e2e FREE/CONFIRM → error; e2e without baseUrl → error; http baseUrl → warning;
-  invalid owner kind → error; unknown keys still rejected.
+  invalid owner kind → error; more than one development-enabled node in a group → error (D-25);
+  unknown keys still rejected.
 - [ ] T005 `main/application/DevelopmentGuard.java` with test first (D-1): admit(node, capability) →
   `DevelopmentPolicy`; group id → `INVALID_INPUT`; unknown → `TARGET_UNKNOWN`; not development →
   `NOT_DEVELOPMENT`; production (defence in depth) → `PRODUCTION_PROTECTED`; CLI unavailable →
-  `CLI_UNAVAILABLE`; `e2eTests` checks for `run_e2e_test` → `E2E_FORBIDDEN`.
+  `CLI_UNAVAILABLE`; `e2eTests` checks for `run_e2e_test` → `E2E_FORBIDDEN`. `DevelopmentGuardTest`
+  covers every branch.
 - [ ] T006 `main/application/WriteChallengeRegistry.java` with test first (D-2): issue/redeem bound to
   `(capability, node, inputFingerprint, previewState)`; 22-char code, single use, TTL, max 1000
   pending, swept; changed inputs or capability or node → `CONFIRMATION_INVALID`; changed previewState
@@ -83,15 +87,18 @@ assertion before the production code exists. `mvn -q verify` green after every t
   `show(rev, path)`, `changedPaths(fromRev, subtree)` (incl. added, modified, deleted, renamed as
   delete+add); `WorkspaceService` export commits now carry the trailer (test in
   `WorkspaceExportTest`); no write method beyond `commitAll`/`restore`.
+  **Also (analysis):** trailer names the **group**; without any trailer fall back to the last `export <node>:` subject; no base → `PRECONDITION_FAILED` "export the scope first"; `changedPaths` per artifact path (D-25).
 - [ ] T008 `main/application/BackupStore.java` (+ `BackupPort` if needed) with test first (D-13):
   write `<auditId>.zip` + `.json` under `~/.inubit-mcp/<profile>/backups` (injectable root),
   `rwx------`/`rw-------`; index has no secrets (assert); `find(auditId)`; retention sweep: older than
   30 days removed unless newest of `(node, owner, scope)`, returns removed refs for auditing.
+  **Also (analysis):** backup = manifest `<auditId>.json` (scope, change set, created, intended-state hashes, outcome; no secrets) + one raw ZIP per scope export `<auditId>-<n>.zip` (D-25).
 - [ ] T009 `main/application/OwnerKindResolver.java` + `main/domain/port/UserDirectoryPort.java` +
   `main/adapter/rest/v81/V81UserDirectory.java` (GET `/user/users?type=processEngineUser` through the
   existing REST client and credential guard) with tests first (D-21, WireMock + fixture XML): profile
   override wins; listed user → `USER`; not listed but owner has artifacts → `USER_GROUP`; neither →
   `PRECONDITION_FAILED` naming `owners.<name>`; REST failure → `PRECONDITION_FAILED`.
+  **Also (analysis):** only positive evidence: profile override or REST user list → `USER`; profile `USER_GROUP` → `USER_GROUP`; otherwise `PRECONDITION_FAILED`; writes for `USER_GROUP` owners refused by ONE guard ("not yet verified") with its own test; REST fixture is the neutralized recording of T001 (D-25).
 
 ## Phase 3: User Story 1 — Import (Priority: P1) 🎯 MVP
 
@@ -104,6 +111,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   NEW vs MODIFIED; modules of changed workflows only if their files changed or are new; deletions →
   `INVALID_INPUT` with the message of D-4; changes outside the scope → `notImported`; nothing changed
   → empty change set (import sends nothing, SC-003).
+  **Also (analysis):** base per artifact (`lastServerState(node, path)`); changes below `repository/` → `INVALID_INPUT` (D-24, D-25).
 - [ ] T011 [P] [US1] `main/adapter/archive/v81/SecretPaths.java` (extracted from `SecretRedactor`,
   which must keep all its tests green) and `SecretValues.java` with tests first (D-6): for every
   synthetic secret form of the feature-003 fixtures, the path derived on the raw archive equals the
@@ -114,6 +122,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   naming artifact and path), sets the person-written CheckinComment part to the reason, restores
   withheld key material from the target repository; reading the archive back yields exactly the
   change set (guard); an unchanged artifact is never included.
+  **Also (analysis):** CheckinComment in the probed export shape `DefaultCommitCommentImport###<reason>###@@@Deploying User: …@@@Server: …@@@Version: …@@@Export/Deployment: …@@@` (D-11); strip `<CheckoutUser>`; omit `Repository.zip` (D-24); default context for new artifacts and a module-index entry from `index.xml`; name collision with another owner/kind on the target → `PRECONDITION_FAILED` (D-25).
 - [ ] T013 [US1] `main/adapter/cli/CliCommand.java` (+ `import`, `tag` options), `CliImportRunner.java`,
   `ImportProtocolParser.java` with tests first (D-8, fixtures T001): exact command line incl.
   `--importUser` vs `--importUserGroup`; private temp dir deleted on all paths; protocol parsed into
@@ -124,6 +133,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   in memory (new read-only `PreparedExport.files()`), compared with `show(base, path)` for every
   change-set artifact; `CheckoutUser` → `CONFLICT (IN_EDIT_MODE)`; diff to
   `.reports/conflict-<auditId>.diff`; returns the raw archive for D-6 and the fingerprint for D-2.
+  **Also (analysis):** also compares scope artifacts outside the change set; returns the target's module list for the referenced-module rule (D-25).
 - [ ] T016 [US1] `main/application/ImportService.java` with tests first in
   `test/application/ImportServiceTest`, `ImportServiceRefusalTest`, `ImportRollbackTest`,
   `ImportConfirmationTest` (D-2, D-5, D-9, D-10, D-12, D-13, D-18, D-20): the full sequence of the plan
@@ -135,6 +145,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   trailer and auditId; reason in the check-in comment; audit records (PREVIEW/CHALLENGE_ISSUED,
   EXECUTE/PENDING, EXECUTED/FAILED, REFUSED) with the inputs of data-model; backup retention sweep at
   start, audited; SC-007 performance test (20 workflows, 100 modules, scripted StartCLI) < 2 min.
+  **Also (analysis):** reason validated (no `###`, `@@@`, control characters); referenced modules must be in the archive or the target's module list; calls `checkPaths` (lock already held); `USER_GROUP` owners refused; rollback built from the backup through `ImportAssembler` with secrets from the target's CURRENT export; failure result `failure{code, step, message}`; after a StartCLI TIMEOUT re-export before deciding; write-back replaces only change-set files; workspace changed between preview and execute → `CONFIRMATION_INVALID`; `DevelopmentAuditTest` covers every tool's audit records; concurrent workspace operation refused (FR-027) (D-25).
 - [ ] T017 [US1] `test/security/ImportSecretLeakTest.java` (FR-012, SC-004): run imports of all
   feature-003 fixtures; search workspace, history objects, backup index, audit file, tool results and
   captured logs for every synthetic secret value — zero; the import ZIP temp dir no longer exists; the
@@ -150,12 +161,14 @@ assertion before the production code exists. `mvn -q verify` green after every t
   first (D-14): unknown/removed/foreign ref → `NOT_FOUND` without INUBIT contact; conflict check
   against the commit of the referenced call; rollback archive from the backup limited to the call's
   artifacts; verify; commit; created artifacts of the original call reported as not removed.
+  **Also (analysis):** conflict base = intended state in the referenced manifest (also for failed calls); restore takes its own backup and has its own rollback; secrets from the target's current export (D-25).
 
 ## Phase 5: User Story 3 — Activate (Priority: P2)
 
 - [ ] T020 [US3] `ImportService.setActive` + `main/mcp/tools/SetActiveTool.java` + schemas, tests
   first (D-15): only that workflow sent (no module) with `--importWorkflowActive|Inactive`; conflict
   check; verify `IsActive`; commit; result notes the new version.
+  **Also (analysis):** archive built from the FRESH server export of that workflow only (D-24); refused if the workspace file has unimported edits (D-25).
 
 ## Phase 6: User Story 4 — Tag (Priority: P2)
 
@@ -165,6 +178,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   (history export of all groups) → `INVALID_INPUT`; one `tag --tagMove … --tagWorkflowGroup '<g>'
   --tagWorkflowType 'technical' --tagUser '<owner>'` per group; verification by history export; tag on
   anything else → `tag --tagDelete` + `VERIFY_MISMATCH` with `removedAgain: true`; audited.
+  **Also (analysis):** new `CliExportRunner.exportHistoryAllGroups(owner)` (`--exportWorkflowGroup ''` via emptyQuoted, type `all`) with tests for the existence pre-check; wildcard-like and blank groups refused; failure uses the result shape `failure{code: VERIFY_MISMATCH}` with `removedAgain` (D-25).
 
 ## Phase 7: User Story 5 — SOAP test (Priority: P3)
 
@@ -176,6 +190,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   response file under `.tests/e2e/`; excerpt ≤ 2 KB; correlation by test id in logs within the window,
   else workflow + window marked `TIME_WINDOW_UNCERTAIN`; timeout keeps diagnostics; audited (payload
   hash only); registered only if a node allows e2e.
+  **Also (analysis):** envelope path confined to the workspace (real path; not `.git`, `.meta`, `.reports`); non-placeholder `wsse:Password` refused; redirects never followed; optional e2e basic auth only from `<PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME/_PASSWORD`; excerpt only with `includeExcerpt: true`; `.tests/e2e` files older than 30 days removed (D-25).
 
 ## Phase 8: User Story 6 — Configuration check (Priority: P3)
 

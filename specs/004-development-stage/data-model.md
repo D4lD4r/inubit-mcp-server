@@ -26,9 +26,9 @@ Delta to features 001–003. Decisions D-n are in [research.md](research.md).
 | Entity | Fields | Notes |
 |---|---|---|
 | `WriteChallenge` | `code`, `capability`, `node`, `inputFingerprint`, `previewState`, `expiresAt` | in memory; single use (D-2) |
-| `Backup` | `auditId`, `node`, `owner`, `scope`, `changeSet` (names), `created` (names), `takenAt`, `zip: Path` | `~/.inubit-mcp/<profile>/backups/<auditId>.{zip,json}`; zip contains secrets → `rw-------`; json contains none (D-13) |
+| `Backup` | `auditId`, `node`, `owner`, `scope`, `changeSet` (names), `created` (names), `intendedState` (hashes per artifact), `outcome`, `takenAt`, `zips: List<Path>` | manifest `<auditId>.json` (no secrets) + `<auditId>-<n>.zip` raw scope exports (`rw-------`) (D-13, D-25) |
 | `ImportProtocol` | `entries: List<{type, description, artifact, owner}>`, `total` | parsed fixed-width table (D-8) |
-| `WriteOutcome` | `outcome: EXECUTED \| FAILED`, `commit?`, `backupRef`, `created`, `modified`, `notImported`, `rollback?: SUCCEEDED \| FAILED \| NOT_NEEDED`, `createdNotRemoved`, `reports: List<path>`, `warnings` | result of import/restore/activate |
+| `WriteOutcome` | `outcome: EXECUTED \| FAILED`, `failure?: {code, step, message}`, `commit?`, `backupRef`, `created`, `modified`, `notImported`, `rollback?: SUCCEEDED \| FAILED \| NOT_NEEDED`, `createdNotRemoved`, `reports: List<path>`, `warnings` | result of import/restore/activate |
 | `TagOutcome` | `tag`, `diagramGroups`, `workflows: int`, `modules: int`, `removedAgain: boolean` | D-16 |
 
 State of a writing call: `Admitted → Locked → (LocalChangesCommitted) → ChangeSetBuilt → Checked →
