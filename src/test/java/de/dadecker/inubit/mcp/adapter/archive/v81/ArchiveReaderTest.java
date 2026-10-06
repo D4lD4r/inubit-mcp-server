@@ -15,6 +15,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -187,6 +188,72 @@ class ArchiveReaderTest {
 
         assertThat(largest).isLessThan(total - 1);
         assertUnexpected(() -> new ArchiveReader(total - 1).read(fixture), "too large");
+    }
+
+    @Test
+    void theBoundIs128MebibytesPerEntryAndInTotal() {
+        assertThat(ArchiveReader.MAX_BYTES).isEqualTo(128L * 1024 * 1024);
+    }
+
+    @Test
+    void anOversizedEntryOfTheNestedRepositoryIsRefused() {
+        Map<String, byte[]> entries = moduleOnly();
+        // compresses to a few bytes, so the outer entry stays small
+        entries.put("Repository.zip", zip(Map.of("Root/OWNERS/xsd/big.xsd.dat", new byte[8192])));
+
+        assertUnexpected(() -> new ArchiveReader(4096).read(zip(entries)),
+            "Root/OWNERS/xsd/big.xsd.dat", "too large");
+    }
+
+    @Test
+    void aDirectoryEntryInTheNestedRepositoryIsRefused() {
+        Map<String, byte[]> entries = moduleOnly();
+        Map<String, byte[]> repository = new LinkedHashMap<>();
+        repository.put("Root/", new byte[0]);
+        entries.put("Repository.zip", zip(repository));
+
+        assertUnexpected(() -> reader.read(zip(entries)), "directory entry", "Root/");
+    }
+
+    @Test
+    void aDuplicateEntryIsRefused() {
+        Map<String, byte[]> entries = moduleOnly();
+        entries.put("module/module-002X.xml", entries.get("module/module-0023.xml"));
+        // ZipOutputStream refuses duplicates: write another name of the same length, then patch it
+        byte[] zip = zip(entries);
+        byte[] from = "module/module-002X.xml".getBytes(StandardCharsets.UTF_8);
+        byte[] to = "module/module-0023.xml".getBytes(StandardCharsets.UTF_8);
+        for (int i = 0; i + from.length <= zip.length; i++) {
+            if (Arrays.equals(zip, i, i + from.length, from, 0, from.length)) {
+                System.arraycopy(to, 0, zip, i, to.length);
+            }
+        }
+
+        assertUnexpected(() -> reader.read(zip), "module/module-0023.xml", "twice");
+    }
+
+    @Test
+    void unexpectedElementsOrTextInTheModuleIndexAreRefused() {
+        Map<String, byte[]> entries = moduleOnly();
+        String index = new String(entries.get("module/module.xml"), StandardCharsets.UTF_8);
+        entries.put("module/module.xml", index.replace("<Modules>", "<Modules><Unknown/>")
+            .getBytes(StandardCharsets.UTF_8));
+        assertUnexpected(() -> reader.read(zip(entries)), "<Unknown>", "<Modules>");
+
+        entries.put("module/module.xml", index.replace("<ModuleGroupName>",
+            "stray text<ModuleGroupName>").getBytes(StandardCharsets.UTF_8));
+        assertUnexpected(() -> reader.read(zip(entries)), "unexpected text", "<ModuleGroup>");
+    }
+
+    @Test
+    void unexpectedElementsInTheWorkflowsAreRefused() {
+        Map<String, byte[]> entries = new LinkedHashMap<>(ArtifactFixtures.entries("grp-a.zip"));
+        String workflows = new String(entries.get("workflow/workflow.xml"),
+            StandardCharsets.UTF_8);
+        entries.put("workflow/workflow.xml", workflows.replace("<WorkflowGroupName>",
+            "<Owner>x</Owner><WorkflowGroupName>").getBytes(StandardCharsets.UTF_8));
+
+        assertUnexpected(() -> reader.read(zip(entries)), "<Owner>", "<WorkflowGroup>");
     }
 
     @Test
