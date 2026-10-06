@@ -192,7 +192,7 @@ unchanged re-export, round trip.
   property text becomes `@file:<file name>`; re-embedding escapes `&`, `<`, and `>` only after `]]`,
   and re-encodes InternalDocuments, recomputing derived values (`JSONStaticSchemaMD5`,
   `documentSize`); decode(encode(x)) == x on all fixture modules.
-- [ ] T016 [P] [US1] `main/adapter/archive/v81/MetaStore.java` with test first (D-6): writes and reads
+- [X] T016 [P] [US1] `main/adapter/archive/v81/MetaStore.java` with test first (D-6): writes and reads
   `.meta/<same path>.json` (sorted keys) holding enclosing XML context, `WorkflowUId`/`ModuleUId`, the
   `CheckinComment` export suffix ("from the first `@@@Deploying User:` to the end"), archive
   properties and repository metadata; `CheckoutUser`, `IsActive`, layout, `LastUpdate`, `ExportUser`
