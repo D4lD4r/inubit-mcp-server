@@ -13,7 +13,6 @@ import de.dadecker.inubit.mcp.domain.model.XsltRun.Outcome;
 import de.dadecker.inubit.mcp.domain.port.XsltPort;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -38,7 +37,6 @@ import javax.xml.transform.TransformerException;
 import net.sf.saxon.Configuration;
 import net.sf.saxon.lib.EnvironmentVariableResolver;
 import net.sf.saxon.lib.Feature;
-import net.sf.saxon.s9api.Destination;
 import net.sf.saxon.s9api.Processor;
 import net.sf.saxon.s9api.QName;
 import net.sf.saxon.s9api.SaxonApiException;
@@ -65,8 +63,9 @@ import net.sf.saxon.value.DateTimeValue;
  *       its {@code line:column}; a dynamic error is {@link Outcome#ERROR} with
  *       {@code XSLT_RUNTIME_ERROR}.
  *   <li>Every read goes through {@link WorkspaceUriResolver} (workspace only, no DTDs);
- *       {@code collection()} is refused; {@code xsl:result-document} may only write next to the
- *       output. The output is
+ *       {@code collection()} is refused; {@code xsl:result-document} is disabled together
+ *       with external functions (review C1) and makes a stylesheet
+ *       {@link Outcome#NOT_TESTABLE}. The output is
  *       {@code .tests/<group>/<owner>/<module>/<input file name>.out}.
  *   <li>A run that takes longer than {@link #DEADLINE} is an {@code XSLT_RUNTIME_ERROR}; it runs
  *       on a daemon thread that is left behind (Saxon-HE cannot be stopped), and its output
@@ -209,10 +208,6 @@ public final class SaxonXsltRunner implements XsltPort {
                 transformer.setParameter(new QName(parameter.getKey()),
                     new XdmAtomicValue(parameter.getValue()));
             }
-            transformer.setBaseOutputURI(output.toUri().toString());
-            Path directory = output.getParent();
-            transformer.setResultDocumentHandler(uri -> resultDocument(processor, directory,
-                uri));
             transformer.setSource(resolver.source(input));
             transformer.setDestination(processor.newSerializer(partial.toFile()));
             transformer.transform();
@@ -318,6 +313,10 @@ public final class SaxonXsltRunner implements XsltPort {
             return Optional.of("the extension function " + function.group(1) + " "
                 + function.group(2) + " has no local stand-in (only available in INUBIT)");
         }
+        if (message.contains("result-document") && message.contains("disabled")) {
+            return Optional.of("xsl:result-document (secondary output files are not written"
+                + " locally)");
+        }
         if (message.contains("DOCTYPE")) {
             return Optional.of("a document type declaration (DTDs and entities are not read"
                 + " locally)");
@@ -333,31 +332,6 @@ public final class SaxonXsltRunner implements XsltPort {
             return Optional.empty();
         }
         return Optional.of(error.getLineNumber() + ":" + Math.max(error.getColumnNumber(), 0));
-    }
-
-    /** A secondary result document: only below the output directory. */
-    private static Destination resultDocument(Processor processor,
-        Path directory, URI uri) {
-        Path file;
-        try {
-            file = Path.of(uri).toAbsolutePath().normalize();
-        } catch (IllegalArgumentException e) {
-            throw refusedResult(uri);
-        }
-        if (!file.startsWith(directory)) {
-            throw refusedResult(uri);
-        }
-        try {
-            Files.createDirectories(file.getParent());
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-        return processor.newSerializer(file.toFile());
-    }
-
-    private static SaxonApiUncheckedException refusedResult(URI uri) {
-        return new SaxonApiUncheckedException(new SaxonApiException(
-            "xsl:result-document may only write below the test output directory, not " + uri));
     }
 
     /** {@code .tests/<group>/<owner>/<module>/<input file name>.out}. */

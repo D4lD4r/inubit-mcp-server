@@ -279,6 +279,28 @@ class XsltRunnerTest {
     }
 
     @Test
+    void secondaryResultDocumentsAreNotTestableAndNeverWritten() throws IOException {
+        // review M1/C1: no secondary output at all, not even through a link in .tests/
+        Path directory = Files.createDirectories(root.resolve(".tests/dev/OWNERS/Module-link"));
+        Files.createSymbolicLink(directory.resolve("away"), outside);
+        put(MODULES + "Module-link/xslt.stylesheet.xsl", """
+            <xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+              <xsl:template match="/">
+                <r/>
+                <xsl:result-document href="away/written.xml"><x/></xsl:result-document>
+              </xsl:template>
+            </xsl:stylesheet>
+            """);
+
+        XsltRun run = run("link", Optional.empty());
+
+        assertThat(outside.resolve("written.xml")).doesNotExist();
+        assertThat(run.outcome()).as("secondary results are not available locally")
+            .isEqualTo(Outcome.NOT_TESTABLE);
+        assertThat(run.findings().get(0).message()).contains("xsl:result-document");
+    }
+
+    @Test
     void nothingOutsideTheWorkspaceIsReadOrWritten() throws IOException {
         Files.writeString(outside.resolve("secret.xml"), "<secret>outside</secret>");
         String file = outside.resolve("secret.xml").toUri().toString();

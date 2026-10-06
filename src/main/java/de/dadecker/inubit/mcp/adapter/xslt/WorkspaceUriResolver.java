@@ -143,17 +143,18 @@ public final class WorkspaceUriResolver implements URIResolver, UnparsedTextURIR
         }
     }
 
+    /** The real path of {@code file}, which is what is read (review M1: no check-then-use gap). */
     private Path inside(String href, Path file) throws TransformerException {
-        Path normalized = file.toAbsolutePath().normalize();
+        Path real;
         try {
-            if (!Files.isRegularFile(normalized)
-                || !normalized.toRealPath().startsWith(realRoot)) {
-                throw refused(href, "not a file of the workspace");
-            }
+            real = file.toAbsolutePath().normalize().toRealPath();
         } catch (IOException e) {
-            throw refused(href, "not readable");
+            throw refused(href, "not a readable file of the workspace");
         }
-        return normalized;
+        if (!Files.isRegularFile(real) || !real.startsWith(realRoot)) {
+            throw refused(href, "not a file of the workspace");
+        }
+        return real;
     }
 
     private static TransformerException refused(String href, String reason) {
