@@ -112,7 +112,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   `INVALID_INPUT` with the message of D-4; changes outside the scope → `notImported`; nothing changed
   → empty change set (import sends nothing, SC-003).
   **Also (analysis):** base per artifact (`lastServerState(node, path)`); changes below `repository/` → `INVALID_INPUT` (D-24, D-25).
-- [ ] T011 [P] [US1] `main/adapter/archive/v81/SecretPaths.java` (extracted from `SecretRedactor`,
+- [X] T011 [P] [US1] `main/adapter/archive/v81/SecretPaths.java` (extracted from `SecretRedactor`,
   which must keep all its tests green) and `SecretValues.java` with tests first (D-6): for every
   synthetic secret form of the feature-003 fixtures, the path derived on the raw archive equals the
   placeholder path written by the redactor; lookup by (artifact, path); values never in `toString`.
