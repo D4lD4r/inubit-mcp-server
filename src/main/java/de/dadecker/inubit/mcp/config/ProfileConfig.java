@@ -13,6 +13,10 @@ import java.util.TreeSet;
 /**
  * The whole YAML configuration of one profile (data-model.md → ProfileConfig; 002
  * contracts/configuration.md, format v2).
+ *
+ * @param workspace the artifact workspace of feature 003 (contracts/configuration-delta.md);
+ *                  {@link ConfigLoader} sets the default {@code ~/.inubit-mcp/<profile>/workspace},
+ *                  {@link ConfigValidator} checks it and creates it if missing
  */
 public record ProfileConfig(
     ProfileSection profile,
@@ -22,7 +26,8 @@ public record ProfileConfig(
     Defaults defaults,
     Path auditDirectory,
     LogLevel logLevel,
-    ResultLimits resultLimits) {
+    ResultLimits resultLimits,
+    Path workspace) {
 
     public ProfileConfig {
         profile = Optionals.orDefault(profile, ProfileSection.EMPTY);
@@ -33,6 +38,7 @@ public record ProfileConfig(
         Objects.requireNonNull(auditDirectory, "auditDirectory");
         logLevel = Optionals.orDefault(logLevel, LogLevel.INFO);
         resultLimits = Optionals.orDefault(resultLimits, ResultLimits.DEFAULT);
+        Objects.requireNonNull(workspace, "workspace");
     }
 
     /**

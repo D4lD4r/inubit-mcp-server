@@ -49,6 +49,12 @@ import org.junit.jupiter.api.Test;
  * {@code config}; only {@code adapter.rest} uses {@code java.net.http}; only {@code adapter.cli}
  * starts or inspects OS processes ({@code ProcessBuilder}, {@code Process},
  * {@code ProcessHandle}, {@code Runtime.exec}).
+ *
+ * <p>Feature 003 (T004, plan "Constitution Check" V): the workspace adapters
+ * {@code adapter.archive}, {@code adapter.git} and {@code adapter.xslt} depend neither on
+ * {@code mcp} nor on {@code application}; {@code application} reaches no adapter at all (only the
+ * ports of {@code domain.port}); Saxon ({@code net.sf.saxon}) is used only in
+ * {@code adapter.xslt}.
  */
 class PackageBoundaryTest {
 
@@ -58,6 +64,10 @@ class PackageBoundaryTest {
     private static final Set<String> PROCESS_TYPES = Set.of("java/lang/ProcessBuilder",
         "java/lang/Process", "java/lang/ProcessHandle");
     private static final String RUNTIME_EXEC = "java/lang/Runtime.exec";
+    private static final String SAXON = "net/sf/saxon/";
+    /** The adapters of feature 003, each with its own package (T004). */
+    private static final List<String> WORKSPACE_ADAPTERS =
+        List.of("adapter/archive", "adapter/git", "adapter/xslt");
 
     /** Class (internal name) → its type names and member references. */
     private static Map<String, ClassRefs> classes;
@@ -127,6 +137,39 @@ class PackageBoundaryTest {
             .as("ProcessBuilder / Process / ProcessHandle outside adapter.cli").isEmpty();
         assertThat(memberViolations(inPackage("adapter/cli").negate(), RUNTIME_EXEC))
             .as("Runtime.exec outside adapter.cli").isEmpty();
+    }
+
+    @Test
+    void theWorkspaceAdaptersReachNeitherTheMcpLayerNorTheApplication() {
+        Predicate<String> scope = WORKSPACE_ADAPTERS.stream().map(PackageBoundaryTest::inPackage)
+            .reduce(name -> false, Predicate::or);
+        assertThat(violations(scope, forbidden(BASE + "mcp/", BASE + "application/")))
+            .as("adapter.archive / adapter.git / adapter.xslt → mcp / application").isEmpty();
+    }
+
+    @Test
+    void theApplicationReachesAdaptersOnlyThroughThePorts() {
+        assertThat(violations(inPackage("application"), forbidden(BASE + "adapter/")))
+            .as("application → adapter (use domain.port)").isEmpty();
+    }
+
+    @Test
+    void onlyTheXsltAdapterUsesSaxon() {
+        assertThat(violations(inPackage("adapter/xslt").negate(), forbidden(SAXON)))
+            .as("net.sf.saxon outside adapter.xslt").isEmpty();
+    }
+
+    /**
+     * The packages of the workspace adapters exist and are documented. A {@code package-info}
+     * without annotations compiles to no class file, so the sources are checked.
+     */
+    @Test
+    void theWorkspaceAdapterPackagesExist() {
+        Path sources = Path.of("src", "main", "java");
+        for (String pkg : List.of("adapter/archive/v81", "adapter/git", "adapter/xslt")) {
+            assertThat(sources.resolve(BASE + pkg).resolve("package-info.java"))
+                .as("package-info of %s", pkg).isRegularFile();
+        }
     }
 
     /** Guards against a vacuous pass: the scan must see the dependencies that do exist. */

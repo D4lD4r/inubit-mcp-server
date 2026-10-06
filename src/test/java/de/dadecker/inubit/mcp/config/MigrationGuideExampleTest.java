@@ -34,6 +34,10 @@ import tools.jackson.dataformat.yaml.YAMLMapper;
  */
 class MigrationGuideExampleTest {
 
+    /** The fictitious home is never touched: the workspace is not created (feature 003). */
+    private static final WorkspaceDirectory.Preparer NO_DISK =
+        workspace -> new WorkspaceDirectory.Usable(false);
+
     private static final Path GUIDE = Path.of("docs/migration-001-to-002.md");
     private static final Path HOME = Path.of("/home/test");
 
@@ -104,7 +108,7 @@ class MigrationGuideExampleTest {
             config.terminology().effectiveOrDefault(), config.credentialPrefix())
             .resolve(config.nodeIds());
         ValidationReport report = new ConfigValidator(path -> true, ENV_001, false,
-            Path.of("/var/tmp")).validate(loaded, credentials);
+            Path.of("/var/tmp"), file -> List.of(), NO_DISK).validate(loaded, credentials);
 
         assertThat(report.errors()).isEmpty();
         assertThat(report.warnings()).isEmpty();
@@ -129,7 +133,7 @@ class MigrationGuideExampleTest {
             config.terminology().effectiveOrDefault(), config.credentialPrefix())
             .resolve(config.nodeIds());
         ValidationReport report = new ConfigValidator(path -> true, ENV_001, false,
-            Path.of("/var/tmp")).validate(loaded, credentials);
+            Path.of("/var/tmp"), file -> List.of(), NO_DISK).validate(loaded, credentials);
 
         String summary = new ConfigSummary(path -> true, false).render(loaded, credentials, report);
 
@@ -154,7 +158,7 @@ class MigrationGuideExampleTest {
             config.terminology().effectiveOrDefault(), config.credentialPrefix())
             .resolve(config.nodeIds());
         ValidationReport report = new ConfigValidator(path -> true, ENV_001, false,
-            Path.of("/var/tmp")).validate(loaded, credentials);
+            Path.of("/var/tmp"), file -> List.of(), NO_DISK).validate(loaded, credentials);
 
         String summary = new ConfigSummary(path -> true, false).render(loaded, credentials, report);
 

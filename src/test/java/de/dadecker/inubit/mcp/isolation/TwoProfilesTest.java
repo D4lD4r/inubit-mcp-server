@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.verification.LoggedRequest;
 import de.dadecker.inubit.mcp.TestWiring;
+import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
@@ -194,7 +195,9 @@ class TwoProfilesTest {
                 Path file = Path.of(matcher.group(1));
                 exportFiles.add(file);
                 try {
-                    Files.write(file, modules);
+                    // feature 003: a diagram group export gets the recorded grp-a export
+                    Files.write(file, command.contains("--exportWorkflowGroup")
+                        ? ArtifactFixtures.bytes("grp-a.zip") : modules);
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
                 }
@@ -326,6 +329,49 @@ class TwoProfilesTest {
         });
         assertThat(Files.exists(home.resolve(".inubit-mcp/audit")))
             .as("the 001 location is not used").isFalse();
+    }
+
+    @Test
+    void eachProfileExportsIntoItsOwnWorkspaceAndHistory() throws IOException,
+        InterruptedException {
+        // T035 (feature 003, FR-001 – FR-003)
+        Profile acme = acme();
+        Profile globex = globex();
+
+        for (Profile profile : List.of(acme, globex)) {
+            JsonNode export = structured(profile.client().callTool("export_artifacts", Map.of(
+                "target", NODE.value(), "owner", "jdoe", "diagramGroups", List.of("GRP-01"))));
+            Path workspace = home.resolve(".inubit-mcp").resolve(profile.name())
+                .resolve("workspace");
+
+            assertThat(export.path("workspace").asString()).isEqualTo(workspace.toString());
+            assertThat(export.path("unchanged").asBoolean()).isFalse();
+            assertThat(workspace.resolve("test/jdoe/workflows/GRP-01/Workflow-0001.xml"))
+                .isRegularFile();
+            assertThat(git(workspace, "log", "--format=%an|%s")).as(profile.name())
+                .isEqualTo("INUBIT MCP (" + profile.name() + ")|export test/node1: diagram"
+                    + " group GRP-01 (" + export.path("counts").path("added").asInt()
+                    + " files)\n");
+        }
+        // a second export of acme changes nothing in globex's workspace or history
+        structured(acme.client().callTool("export_artifacts", Map.of("target", NODE.value(),
+            "owner", "jdoe", "diagramGroups", List.of("GRP-01"))));
+        assertThat(git(home.resolve(".inubit-mcp/globex/workspace"), "rev-list", "--count",
+            "HEAD")).isEqualTo("1\n");
+    }
+
+    private static String git(Path workspace, String... arguments) throws IOException,
+        InterruptedException {
+        List<String> command = new ArrayList<>(List.of("git", "-C", workspace.toString()));
+        command.addAll(List.of(arguments));
+        ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true);
+        builder.environment().put("GIT_CONFIG_NOSYSTEM", "1");
+        builder.environment().put("GIT_CONFIG_GLOBAL", "/dev/null");
+        Process process = builder.start();
+        String output = new String(process.getInputStream().readAllBytes(),
+            StandardCharsets.UTF_8);
+        assertThat(process.waitFor()).as(output).isZero();
+        return output;
     }
 
     @Test

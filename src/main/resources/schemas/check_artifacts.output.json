@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "required": ["counts", "findings", "truncated"],
+  "properties": {
+    "counts": {
+      "type": "object",
+      "description": "The number of all findings per severity, also of those not listed",
+      "required": ["ERROR", "WARNING", "INFO"],
+      "properties": {
+        "ERROR": { "type": "integer", "minimum": 0 },
+        "WARNING": { "type": "integer", "minimum": 0 },
+        "INFO": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "description": "At most resultLimits.maxItems findings, most severe first",
+      "items": {
+        "type": "object",
+        "required": ["severity", "check", "path", "code", "message"],
+        "properties": {
+          "severity": { "enum": ["ERROR", "WARNING", "INFO"] },
+          "check": { "enum": ["STRUCTURE", "XSLT", "XML", "XSD"] },
+          "path": { "type": "string", "description": "Workspace-relative file" },
+          "location": { "type": "string", "description": "Element path or line:column" },
+          "code": { "type": "string" },
+          "message": { "type": "string", "maxLength": 500 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "xslt": {
+      "type": "object",
+      "description": "The stylesheet run, if one was requested",
+      "required": ["outcome", "standInsUsed"],
+      "properties": {
+        "outcome": { "enum": ["OK", "ERROR", "NOT_TESTABLE"] },
+        "output": { "type": "string", "description": "Workspace-relative output below .tests/; present only for OK" },
+        "standInsUsed": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "truncated": { "type": "boolean" },
+    "fullReport": { "type": "string", "description": "Workspace-relative file with all findings; present only if truncated" }
+  },
+  "additionalProperties": false
+}

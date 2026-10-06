@@ -9,6 +9,7 @@ import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,10 @@ import org.junit.jupiter.params.provider.ValueSource;
  * Startup validation).
  */
 class ProfileSectionTest {
+
+    /** The fictitious home is never touched: the workspace is not created (feature 003). */
+    private static final WorkspaceDirectory.Preparer NO_DISK =
+        workspace -> new WorkspaceDirectory.Usable(false);
 
     private static final Path HOME = Path.of("/home/test");
     private static final String GROUPS = """
@@ -43,8 +48,8 @@ class ProfileSectionTest {
         CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
             loaded.config().credentialPrefix())
             .resolve(loaded.config().nodeIds());
-        return new ConfigValidator(path -> true, env, false, Path.of("/var/tmp"))
-            .validate(loaded, credentials);
+        return new ConfigValidator(path -> true, env, false, Path.of("/var/tmp"),
+            source -> List.of(), NO_DISK).validate(loaded, credentials);
     }
 
     @Nested

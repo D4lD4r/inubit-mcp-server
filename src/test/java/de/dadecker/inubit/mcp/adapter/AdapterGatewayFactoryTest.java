@@ -341,6 +341,18 @@ class AdapterGatewayFactoryTest {
     }
 
     @Test
+    void theV81GatewayProvidesTheArtifactPort() throws NoSuchMethodException {
+        // T020: the 8.1 gateway overrides the CLI_UNAVAILABLE default of Gateway.artifacts()
+        assertThat(V81Gateway.class.getDeclaredMethod("artifacts").getDeclaringClass())
+            .isEqualTo(V81Gateway.class);
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
+            assertThat(factory.forServer(DEV).artifacts()).isNotNull()
+                .isSameAs(factory.artifacts(DEV));
+            assertThat(wireMock.getAllServeEvents()).isEmpty();
+        }
+    }
+
+    @Test
     void theGatewayHandsOutTheSameInventoryPort() {
         try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
             assertThat(factory.forServer(DEV).inventory()).isNotNull()

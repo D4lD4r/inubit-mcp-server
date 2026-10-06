@@ -53,6 +53,10 @@ import java.util.zip.ZipFile;
  *   <li>Success needs StartCLI's success classification and an {@code n-OK} message ending in
  *       {@value #SUCCESS_SUFFIX}; then only the requested allow-listed entry
  *       ({@link #ALLOWED_ENTRIES}) is read, at most {@link #MAX_ENTRY_BYTES} bytes.
+ *   <li>Feature 003 (research D-8): {@link #exportWorkflowGroup} and {@link #exportModule} return
+ *       the whole archive (at most {@link #MAX_ARCHIVE_BYTES}) for the workspace; their values
+ *       are checked first ({@code INVALID_INPUT}, a blank diagram group included), and a missing
+ *       group or module is {@code NOT_FOUND} ({@link CliOutputClassifier}).
  * </ul>
  */
 public final class CliExportRunner {
@@ -64,6 +68,8 @@ public final class CliExportRunner {
         Set.of(HISTORY_ENTRY, MODULE_INDEX_ENTRY, "workflow/workflow.xml");
     /** Upper bound of an uncompressed entry. */
     public static final long MAX_ENTRY_BYTES = 64L << 20;
+    /** Upper bound of a whole artifact export archive (research D-8). */
+    public static final long MAX_ARCHIVE_BYTES = 128L << 20;
     static final String SUCCESS_SUFFIX = "exported successfully.";
 
     private static final FileAttribute<Set<PosixFilePermission>> OWNER_ONLY =
@@ -75,22 +81,30 @@ public final class CliExportRunner {
     private final CliRunner runner;
     private final CliOutputClassifier classifier;
     private final Path tempRoot;
+    private final long maxArchiveBytes;
 
     /** Exports into the system's temporary directory ({@code java.io.tmpdir}). */
     public CliExportRunner(EffectiveNodeConfig server, NodeCredentials credentials,
         CredentialGuard guard, CliRunner runner, CliOutputClassifier classifier) {
         this(server, credentials, guard, runner, classifier,
-            Path.of(System.getProperty("java.io.tmpdir")));
+            Path.of(System.getProperty("java.io.tmpdir")), MAX_ARCHIVE_BYTES);
     }
 
     CliExportRunner(EffectiveNodeConfig server, NodeCredentials credentials,
-        CredentialGuard guard, CliRunner runner, CliOutputClassifier classifier, Path tempRoot) {
+        CredentialGuard guard, CliRunner runner, CliOutputClassifier classifier, Path tempRoot,
+        long maxArchiveBytes) {
         this.server = Objects.requireNonNull(server, "server");
         this.credentials = Objects.requireNonNull(credentials, "credentials");
         this.guard = Objects.requireNonNull(guard, "guard");
         this.runner = Objects.requireNonNull(runner, "runner");
         this.classifier = Objects.requireNonNull(classifier, "classifier");
         this.tempRoot = Objects.requireNonNull(tempRoot, "tempRoot");
+        this.maxArchiveBytes = maxArchiveBytes;
+    }
+
+    CliExportRunner(EffectiveNodeConfig server, NodeCredentials credentials,
+        CredentialGuard guard, CliRunner runner, CliOutputClassifier classifier, Path tempRoot) {
+        this(server, credentials, guard, runner, classifier, tempRoot, MAX_ARCHIVE_BYTES);
     }
 
     /**
@@ -103,7 +117,8 @@ public final class CliExportRunner {
      */
     public byte[] exportHistory(String owner, String type, String group) {
         checkHistoryExport(owner, type, group);
-        return export("history.zip", HISTORY_ENTRY, file -> CliCommand.command("export")
+        return export("history.zip", file -> readEntry(server.id(), file, HISTORY_ENTRY),
+            file -> CliCommand.command("export")
             .quoted("--exportWorkflowUser", owner)
             .quoted("--exportWorkflowType", type)
             .quoted("--exportWorkflowGroup", group)
@@ -119,12 +134,80 @@ public final class CliExportRunner {
      */
     public byte[] exportModules(String owner) {
         checkModuleExport(owner);
-        return export("modules.zip", MODULE_INDEX_ENTRY, file -> CliCommand.command("export")
+        return export("modules.zip", file -> readEntry(server.id(), file, MODULE_INDEX_ENTRY),
+            file -> CliCommand.command("export")
             .emptyQuoted("--exportModule")
             .emptyQuoted("--exportModuleGroup")
             .quoted("--exportModuleUser", owner)
             .path("--exportFile", file)
             .build());
+    }
+
+    /**
+     * The whole export archive of the technical workflows of {@code diagramGroup} owned by
+     * {@code owner} (feature 003, research D-8): {@code export --exportWorkflowUser '<owner>'
+     * --exportWorkflowType 'technical' --exportWorkflowGroup '<group>' --exportFile
+     * '<tmp>/export.zip'}. Only technical workflows, always (clarification 2).
+     *
+     * @throws ToolErrorException {@code INVALID_INPUT} for a blank group (StartCLI would export
+     *     all groups) or a value StartCLI quoting cannot carry, before anything is launched;
+     *     {@code NOT_FOUND}, {@code TIMEOUT} (naming {@code cliExportTimeout}),
+     *     {@code UNEXPECTED_RESPONSE} (also above {@link #MAX_ARCHIVE_BYTES}), {@code AUTH_FAILED},
+     *     {@code CLI_UNAVAILABLE}
+     */
+    public byte[] exportWorkflowGroup(String owner, String diagramGroup) {
+        checkWorkflowGroupExport(owner, diagramGroup);
+        return export("export.zip", this::readArchive, file -> CliCommand.command("export")
+            .quoted("--exportWorkflowUser", owner)
+            .quoted("--exportWorkflowType", "technical")
+            .quoted("--exportWorkflowGroup", diagramGroup)
+            .path("--exportFile", file)
+            .build());
+    }
+
+    /**
+     * The module-only export archive of module {@code name} of plugin type {@code pluginType}
+     * owned by {@code owner}: {@code export --exportModule '<name>' --exportModuleGroup
+     * '<plugin type>' --exportModuleUser '<owner>' --exportFile '<tmp>/module.zip'}.
+     *
+     * @throws ToolErrorException as {@link #exportWorkflowGroup}
+     */
+    public byte[] exportModule(String owner, String pluginType, String name) {
+        checkModuleExport(owner, pluginType, name);
+        return export("module.zip", this::readArchive, file -> CliCommand.command("export")
+            .quoted("--exportModule", name)
+            .quoted("--exportModuleGroup", pluginType)
+            .quoted("--exportModuleUser", owner)
+            .path("--exportFile", file)
+            .build());
+    }
+
+    private void quotable(String label, String value) {
+        if (value == null || !CliCommand.VALUE.matcher(value).matches()) {
+            throw invalid(label + " " + Names.quote(value) + " is not supported by StartCLI"
+                + " quoting", "StartCLI receives values inside single quotes; only values"
+                + " matching " + CliCommand.VALUE.pattern() + " can be passed safely");
+        }
+    }
+
+    private ToolErrorException invalid(String message, String likelyCause) {
+        return new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT, message,
+            likelyCause, "Use the exact INUBIT name (letters, digits, _ . - and spaces); rename"
+                + " the artifact in INUBIT if it should be exportable").withNode(server.id()));
+    }
+
+    /** The export file as a whole, at most {@code maxArchiveBytes}. */
+    private byte[] readArchive(Path file) {
+        try {
+            if (Files.size(file) > maxArchiveBytes) {
+                throw unexpected("The export of " + server.id() + " is too large (more than "
+                    + maxArchiveBytes + " bytes)");
+            }
+            return Files.readAllBytes(file);
+        } catch (IOException e) {
+            throw unexpected("The export file of " + server.id() + " is not readable ("
+                + e.getClass().getSimpleName() + ")");
+        }
     }
 
     /**
@@ -149,6 +232,29 @@ public final class CliExportRunner {
         checkQuotable("inventory.owner", owner);
     }
 
+    /** The checks of {@link #exportWorkflowGroup}; see {@link #checkHistoryExport}. */
+    public void checkWorkflowGroupExport(String owner, String diagramGroup) {
+        if (diagramGroup == null || diagramGroup.isBlank()) {
+            throw invalid("The diagram group must not be empty",
+                "StartCLI treats an empty group as all diagram groups of the owner");
+        }
+        quotable("Owner", owner);
+        quotable("Diagram group", diagramGroup);
+        checkPreconditions();
+    }
+
+    /** The checks of {@link #exportModule}; see {@link #checkHistoryExport}. */
+    public void checkModuleExport(String owner, String pluginType, String name) {
+        if (name == null || name.isBlank() || pluginType == null || pluginType.isBlank()) {
+            throw invalid("The module name and plugin type must not be empty",
+                "StartCLI treats an empty module or module group as all");
+        }
+        quotable("Owner", owner);
+        quotable("Plugin type", pluginType);
+        quotable("Module", name);
+        checkPreconditions();
+    }
+
     private void checkPreconditions() {
         runner.checkAvailable(server);
         if (!CliPaths.exportRootUsable(tempRoot)) {
@@ -170,7 +276,8 @@ public final class CliExportRunner {
         }
     }
 
-    private byte[] export(String fileName, String entry, Function<Path, CliCommand> command) {
+    private byte[] export(String fileName, Function<Path, byte[]> reader,
+        Function<Path, CliCommand> command) {
         // announced before the directory exists, so that a concurrent shutdown deletes it
         CliResources.Reservation reservation;
         try {
@@ -212,7 +319,7 @@ public final class CliExportRunner {
                 throw unexpected("StartCLI reported a successful export on " + server.id()
                     + " but wrote no export file");
             }
-            return readEntry(server.id(), file, entry);
+            return reader.apply(file);
         }
     }
 

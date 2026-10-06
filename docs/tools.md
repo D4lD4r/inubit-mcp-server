@@ -3,9 +3,11 @@
 The MCP tools of the INUBIT MCP server, for users of an MCP client such as Claude Code. The
 authoritative contract is
 [contracts/mcp-tools.md](../specs/001-inubit-mcp-mvp/contracts/mcp-tools.md); the JSON schemas
-the server announces are in `src/main/resources/schemas/`. All eight tools of the MVP are
-described here; each section quotes the description the server announces in `tools/list` for a
-profile `acme` without description and with the default terminology (Group/Node).
+the server announces are in `src/main/resources/schemas/`; the two workspace tools of feature 003
+follow [contracts/mcp-tools-delta.md](../specs/003-artifact-workspace/contracts/mcp-tools-delta.md).
+All ten tools are described here; each section quotes the description the server announces in
+`tools/list` for a profile `acme` without description and with the default terminology
+(Group/Node).
 
 General rules:
 
@@ -49,11 +51,16 @@ General rules:
 | [`get_inventory_item`](#get_inventory_item) | one diagram or module: versions, tags, active flag, modules used | read-only, idempotent, open world | yes (REST + StartCLI export with history) |
 | [`restart_process`](#restart_process--kill_process) | restart ONE process instance in ERROR on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `processErrorStart`) |
 | [`kill_process`](#restart_process--kill_process) | delete ONE process instance on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `kill`) |
+| [`export_artifacts`](#export_artifacts) | export technical workflows or modules into the local workspace and its history | read-only for INUBIT, non-idempotent (records a history entry), open world | yes (StartCLI `export`, read-only) |
+| [`check_artifacts`](#check_artifacts) | check workspace files offline: structure, a stylesheet run, XML/XSD | read-only, idempotent, open world | only to look up modules missing in the workspace (module list) |
 
 `restart_process` and `kill_process` are **offered only if at least one node has effective
 write access** (`write.enabled: true`, and on a `production: true` group also
 `write.productionOptIn: true`; see [setup.md](setup.md#write-settings-restart-and-kill)). With the
 default configuration the server is read-only and `tools/list` does not contain them.
+
+`export_artifacts` is **offered only if at least one node has a StartCLI installation**
+(`cliHome`); `check_artifacts` is always offered.
 
 ## Common shapes: Page and ToolError
 
@@ -96,7 +103,7 @@ other nodes are still reported.
 | `INVALID_INPUT` | the arguments are well-formed but not valid (time format, a filter the log type does not support, a group id for a write tool, …) |
 | `CLI_UNAVAILABLE` | StartCLI cannot be used: no `cliHome` or JDK, Windows, or an unusable `java.io.tmpdir` |
 | `UNEXPECTED_RESPONSE` | INUBIT or StartCLI answered in an unexpected way (status, format); see `excerpt` |
-| `WRITE_DISABLED`, `PRODUCTION_PROTECTED`, `CONFIRMATION_INVALID`, `PRECONDITION_FAILED` | refusals of `restart_process` / `kill_process` (see their refusal table) |
+| `WRITE_DISABLED`, `PRODUCTION_PROTECTED`, `CONFIRMATION_INVALID`, `PRECONDITION_FAILED` | refusals of `restart_process` / `kill_process` (see their refusal table); `PRECONDITION_FAILED` also when the workspace is busy (another export or check is running) or not usable |
 | `CONFIRMATION_REQUIRED`, `UNSUPPORTED_VERSION` | reserved in the catalogue, not returned by this version: the first write call returns a `challenge`, and 9.x servers run with the 8.1 adapters and a warning |
 | `NOT_CONFIGURED` | a setting the tool needs is not configured for this node, e.g. `inventory.owner` for `list_inventory` / `get_inventory_item`; `nextStep` names the setting ("set inventory.owner for <group>/<node> or in defaults") |
 | `INTERNAL` | an unexpected error inside the MCP server, the server is shutting down, or an audit record could not be written |
@@ -656,3 +663,139 @@ audited**; nothing can be changed by them.
 `restart_process(node: "dev/node1", processId: "110219899")` returns the preview and a code;
 after the user confirms, `restart_process(node: "dev/node1", processId: "110219899",
 confirmationCode: "…")` returns `outcome: EXECUTED` with `stateAfter`.
+
+## The workspace (feature 003)
+
+`export_artifacts` and `check_artifacts` work on the profile's **workspace**, a local directory
+with its own git history (setting `workspace`, default `~/.inubit-mcp/<profile>/workspace`; see
+[setup.md](setup.md#artifact-workspace)). Only one export or check runs at a time: a second call
+is refused at once with `PRECONDITION_FAILED` ("another export or check is running"), also across
+the processes of one profile. Paths in results are workspace-relative with `/`. Fields without a
+value are **absent, never `null`**.
+
+## `export_artifacts`
+
+> [acme] Export technical workflows (by diagram group) or single modules from one group or node
+> into the local workspace as readable files, record the export in the workspace history and list
+> what changed. Only technical workflows are exported (no system diagrams or other diagram types).
+> Secrets are replaced by placeholders. Read-only for INUBIT.
+
+Runs one StartCLI `export` per diagram group or module (`--exportWorkflowType 'technical'`
+always), reads, redacts and splits the archive **in memory**, then writes the files of the
+exported diagram groups and modules and records one history entry. Before the export, uncommitted
+changes in the workspace are recorded as their own entry `local changes: <n> files`, so nothing
+of yours is lost. Every secret (passwords, encrypted values, keystores, key material, saved test
+messages, `xslt.sourceVariables`) is replaced by `${secret:<property path>}`; key material in a
+repository file is not written at all. The history is never pushed anywhere.
+
+**Input** (`export_artifacts.input.json`):
+
+| Property | Rules |
+|---|---|
+| `target` (required) | id of one group (its first node is used and named in the result) or one node |
+| `owner` | INUBIT user or user group; default `inventory.owner` of the node |
+| `diagramGroups` | 1–20 diagram group names (letters, digits, `_ . -` and spaces) |
+| `modules` | 1–50 `{name, pluginType?}`; without `pluginType` it is looked up in the module list |
+| — | exactly one of `diagramGroups` / `modules` |
+
+**Output** (`export_artifacts.output.json`):
+
+| Field | Meaning |
+|---|---|
+| `node`, `owner`, `workspace` | where it came from and where it went (absolute workspace path) |
+| `localChanges` | `{commit, files}` — only if uncommitted changes were recorded first |
+| `commit` | the history entry of the export; absent if `unchanged` |
+| `unchanged` | `true` if the export changed no file (an unchanged re-export records nothing) |
+| `counts` | `{added, modified, deleted}` over all changed files |
+| `changes` | `[{path, kind}]`, at most `resultLimits.maxItems` |
+| `truncated`, `fullList` | `fullList` (`.reports/export-<commit>.txt`, all changes) only when `truncated` |
+| `secretsReplaced` | number of values replaced by placeholders (count only) |
+| `warnings` | e.g. a workflow in edit mode (`CheckoutUser`), used modules of another owner that were not exported, repository files with key material that were not written, values with a secret-like name that were kept |
+
+Directory layout: `<group>/<owner>/workflows/<diagram group>/<workflow>.xml`,
+`<group>/<owner>/modules/<plugin type>/<module>/{module.xml, index.xml, <property>.<ext>}`,
+`<group>/<owner>/repository/<repository path>`, volatile values (UIDs, export suffix of check-in
+comments, archive context) under `.meta/`. Files of artifacts no longer exported are removed.
+
+**Errors**: `TARGET_UNKNOWN`; `INVALID_INPUT` (neither/both of `diagramGroups`/`modules`, a blank
+or unsupported name, two artifacts whose paths differ only in case); `NOT_CONFIGURED` (no owner);
+`CLI_UNAVAILABLE`, `AUTH_FAILED`, `TIMEOUT` (names `cliExportTimeout`); `NOT_FOUND` (diagram group
+or module does not exist for the owner); `UNEXPECTED_RESPONSE` (the archive cannot be processed —
+the workspace is unchanged); `PRECONDITION_FAILED` (workspace busy or not usable; a failed write
+is undone from the history); `INTERNAL`.
+
+**Example prompt**: "Export diagram group GRP-01 of dev" → `export_artifacts(target: "dev",
+diagramGroups: ["GRP-01"])`.
+
+## `check_artifacts`
+
+> [acme] Check workspace files before an import: workflow structure (edges, ids, branch
+> conditions, referenced modules, variables, repository references), run a stylesheet against an
+> input file, or validate XML against a schema. Never changes INUBIT; writes only test outputs.
+
+Works offline on the workspace; only module names missing in the workspace are looked up in the
+module list of the group's first node. Writes only below `.tests/` (stylesheet outputs) and
+`.reports/` (full finding lists).
+
+**Input** (`check_artifacts.input.json`):
+
+| Property | Rules |
+|---|---|
+| `paths` | 1–200 workspace-relative files or directories: every workflow, module and repository file below them is checked, every XML document (`.xml .xsd .xsl .xslt .wsdl`) for well-formedness |
+| `xslt` | `{stylesheet, input, params?, now?}`: run a workspace stylesheet on a workspace input; `now` (ISO-8601) is what the date functions return |
+| `schema` | workspace-relative XSD; with `paths`, each `.xml` file is validated against it |
+| `verifyOnServer` | default `true`: look up modules missing in the workspace on the group's first node |
+| — | at least one of `paths` / `xslt`; every path stays inside the workspace (no `..`, no absolute path, no symbolic link leaving it) |
+
+**Output** (`check_artifacts.output.json`): `counts` (`ERROR`, `WARNING`, `INFO` over all
+findings), `findings` (most severe first, at most `resultLimits.maxItems`, each
+`{severity, check, path, location?, code, message}` with a message of at most 500 characters),
+`xslt` (`{outcome, output?, standInsUsed}` if a stylesheet ran; `output` only for `OK`),
+`truncated` and `fullReport` (`.reports/check-<timestamp>.json`, only when `truncated`).
+
+**Finding codes**:
+
+| Code | Severity | Check |
+|---|---|---|
+| `EDGE_TARGET_MISSING` | ERROR | a `Connection` targets a node that does not exist |
+| `ID_COLLISION` | ERROR | a `ModuleId` or `ConnectionId` is used twice (one id space) |
+| `DEMUX_KEY_UNMATCHED` | ERROR | a Demultiplexer key `<Name>(<id>)@@@…` or `DefaultOutput` names an existing node that is not an outgoing edge of this node, or one with another name |
+| `DEMUX_KEY_STALE` | WARNING | a Demultiplexer key or `DefaultOutput` names a node that no longer exists in the workflow, or an old name of a renamed node that also has a key under its current name (leftovers the Workbench keeps; INUBIT ignores them) |
+| `PARENT_REF_MISSING` | ERROR | `ParentModule` or `EndLoopId` names a node that does not exist (`Connection@scopeChildId` names internal ids of a scope and is not checked) |
+| `MODULE_MISSING` | ERROR | a module is neither in the workspace (any owner of the group) nor in the module list of the artifact's owner or of `inventory.owner` |
+| `MODULE_UNVERIFIED` | WARNING | not in the workspace, and the module list could not be read or `verifyOnServer` is `false` |
+| `REPOSITORY_REF_MISSING` | ERROR | an `inubitrepository:` reference is not in the workspace repository |
+| `REPOSITORY_REF_UNVERIFIED` | WARNING | the reference lies in another owner's repository (`Root/<owner>/…`), which an export does not include |
+| `VARIABLE_UNRESOLVED` | WARNING | a variable reference names no declared variable (names starting with `IS` are taken as INUBIT system variables) |
+| `DERIVED_VALUE_MISMATCH` | WARNING | `<property>MD5` of an embedded document or `contentMD5`/`contentSize` of a repository file no longer matches the content (a rebuild recomputes them) |
+| `XML_NOT_WELL_FORMED` | ERROR | with `line:column`; a document type declaration counts (DTDs and entities are never read) |
+| `XSD_INVALID` | ERROR | one finding per position of a violation, or a schema that cannot be loaded |
+| `XSLT_STATIC_ERROR` | ERROR | a static error of the stylesheet, with `line:column` and the error code |
+| `XSLT_RUNTIME_ERROR` | ERROR | the run failed on the given input (error code), did not finish within 60 s, or its output exceeds 64 MiB — never passed |
+| `XSLT_NOT_TESTABLE` | WARNING | the stylesheet needs something only INUBIT has (see below) |
+| `XSLT_STANDINS_USED` | INFO | which INUBIT extension functions local stand-ins served |
+| `XSLT_STANDIN_ASSUMED` | WARNING | the output rests on a stand-in with assumed behaviour or on a fallback (e.g. an unreadable date kept) |
+
+**Stylesheet runs**: Saxon-HE 10 (whatever `xslt.transformer` a module names). INUBIT's extension
+functions (`Formatter`, `Misc`, `ISFunctions`, `java.util.UUID`, `java.lang.Thread`,
+`java.net.URLDecoder`) are served by deterministic stand-ins: GUIDs
+`00000000-0000-0000-0000-000000000000`, time `2000-01-01T00:00:00Z` or `xslt.now`, `sleep` returns
+at once. `NOT_TESTABLE` reasons: an extension function without stand-in (another Java class,
+`Formatter:calculateDateDifference`), a construct of a licensed Saxon edition,
+`xsl:result-document`, a document type declaration, an unseeded `random-number-generator`. A run
+sees no environment variables or system properties of the server and reads only workspace files
+(`inubitrepository:` from the stylesheet owner's `repository/`).
+
+**Known limitation**: Saxon-HE cannot stop a running transformation. A stylesheet run that does
+not finish within 60 s is reported as `XSLT_RUNTIME_ERROR`, its output is discarded and the
+workspace lock is released, but the run keeps one CPU core busy until it ends by itself or the
+server process ends.
+
+**Errors**: `INVALID_INPUT` (a path outside the workspace or missing, neither `paths` nor `xslt`,
+`schema` without `paths`, a malformed `now`); `PRECONDITION_FAILED` (workspace busy or not
+usable); `INTERNAL`. Server lookup failures are findings (`MODULE_UNVERIFIED`), not errors.
+
+**Example prompts**: "Check the workflows of GRP-01" → `check_artifacts(paths:
+["dev/OWNERS/workflows/GRP-01"])`; "Run the stylesheet of Map-Order on this test message" →
+`check_artifacts(xslt: {stylesheet: "dev/OWNERS/modules/XSLT Converter/Map-Order/xslt.stylesheet.xsl",
+input: "inputs/order.xml"})`.

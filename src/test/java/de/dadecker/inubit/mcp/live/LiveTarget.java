@@ -11,7 +11,9 @@ import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
+import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.ValidationReport;
+import de.dadecker.inubit.mcp.config.WorkspaceDirectory;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.nio.file.Files;
@@ -84,9 +86,11 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
             loaded.config().terminology().effectiveOrDefault(),
             loaded.config().credentialPrefix())
             .resolve(loaded.config().nodeIds(), otherVariables);
+        // the workspace is not prepared: live tests must not create the person's real
+        // workspace (feature 003, review M11); a test that needs one uses a temporary directory
         ValidationReport report = new ConfigValidator(Files::exists, environment, windows,
-            Path.of(System.getProperty("java.io.tmpdir")), source -> otherProfiles)
-            .validate(loaded, credentials);
+            Path.of(System.getProperty("java.io.tmpdir")), source -> otherProfiles,
+            workspace -> new WorkspaceDirectory.Usable(false)).validate(loaded, credentials);
         assertThat(report.errors()).as("configuration errors in " + loaded.source()).isEmpty();
         EffectiveNodeConfig node = loaded.config().effectiveNodes().stream()
             .filter(candidate -> candidate.id().equals(nodeId))
@@ -107,5 +111,17 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
     /** The production wiring for the real configuration. */
     TestWiring wiring() {
         return TestWiring.of(loaded.config(), credentials, scrubber, Files::exists, windows);
+    }
+
+    /**
+     * The production wiring with {@code workspace} instead of the configured one (feature 003):
+     * a live test never writes into the person's real workspace.
+     */
+    TestWiring wiring(Path workspace) {
+        ProfileConfig config = loaded.config();
+        return TestWiring.of(new ProfileConfig(config.profile(), config.terminology(),
+            config.credentials(), config.groups(), config.defaults(), config.auditDirectory(),
+            config.logLevel(), config.resultLimits(), workspace), credentials, scrubber,
+            Files::exists, windows);
     }
 }

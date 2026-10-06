@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import java.net.URI;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -47,6 +48,7 @@ public final class ConfigValidator {
     private final boolean windows;
     private final Path tempDirectory;
     private final Function<Path, List<LoadedConfig>> otherProfiles;
+    private final WorkspaceDirectory.Preparer workspaces;
 
     /**
      * @param exists      file-system check, injectable for tests
@@ -74,6 +76,18 @@ public final class ConfigValidator {
      */
     public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
         boolean windows, Path tempDirectory, Function<Path, List<LoadedConfig>> otherProfiles) {
+        this(exists, environment, windows, tempDirectory, otherProfiles,
+            WorkspaceDirectory::prepare);
+    }
+
+    /**
+     * @param workspaces creates and checks the workspace directory ({@link
+     *     WorkspaceDirectory#prepare} unless a test injects another)
+     */
+    public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
+        boolean windows, Path tempDirectory, Function<Path, List<LoadedConfig>> otherProfiles,
+        WorkspaceDirectory.Preparer workspaces) {
+        this.workspaces = Objects.requireNonNull(workspaces, "workspaces");
         this.tempDirectory = tempDirectory;
         this.exists = exists;
         this.environment = Map.copyOf(environment);
@@ -103,6 +117,7 @@ public final class ConfigValidator {
         }
         loaded.urlProblems().forEach(findings::error);
         checkProfile(config, findings);
+        Optional<WorkspaceDirectory.Result> workspace = checkWorkspace(config, findings);
         checkStructure(config, findings);
         checkResultLimits(config.resultLimits(), findings);
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
@@ -137,7 +152,7 @@ public final class ConfigValidator {
         checkOtherProfiles(loaded, findings);
         findings.errors.addAll(credentials.errors());
         findings.warnings.addAll(credentials.warnings());
-        return new ValidationReport(findings.errors, findings.warnings);
+        return new ValidationReport(findings.errors, findings.warnings, workspace);
     }
 
     /**
@@ -192,6 +207,27 @@ public final class ConfigValidator {
                 shared.add("the credential variable names " + String.join(", ", sharedVariables)
                     + " (both read them)");
             }
+            // feature 003 FR-003: two profiles never share a workspace; a copy of the same
+            // profile (same name) may start and shares it by design (002 re-review N1)
+            Path workspace = canonical(config.workspace());
+            Path otherWorkspace = canonical(otherConfig.workspace());
+            boolean nested = workspace.startsWith(otherWorkspace)
+                || otherWorkspace.startsWith(workspace);
+            if (nested && copy) {
+                shared.add("the workspace " + config.workspace() + " (one history for both)");
+            } else if (nested) {
+                String profile = ProfileInfo.isValidName(name) ? "'" + name + "'"
+                    : ProfileInfo.INVALID_NAME;
+                Path shown = config.workspace().toAbsolutePath().normalize();
+                Path otherShown = otherConfig.workspace().toAbsolutePath().normalize();
+                String relation = workspace.equals(otherWorkspace) ? "is also the workspace of"
+                    : workspace.startsWith(otherWorkspace) ? "is inside the workspace "
+                        + otherShown + " of" : "contains the workspace " + otherShown + " of";
+                findings.error("The workspace " + shown + " of profile " + profile + " "
+                    + relation + " the profile file " + other.source() + " (profile "
+                    + (otherName.equals(ProfileInfo.INVALID_NAME) ? otherName : "'" + otherName
+                        + "'") + "); profiles need separate workspaces (setting workspace)");
+            }
             if (config.auditDirectory().toAbsolutePath().normalize()
                 .equals(otherConfig.auditDirectory().toAbsolutePath().normalize())) {
                 shared.add("the audit directory " + config.auditDirectory()
@@ -202,6 +238,78 @@ public final class ConfigValidator {
                     + " by side need their own (credentials.envPrefix, auditDirectory)");
             }
         }
+    }
+
+    /**
+     * {@code path} as compared for FR-003 (review M2): the real path of its nearest existing
+     * ancestor (symbolic links resolved) with the rest appended; lower-case if that file system
+     * ignores case.
+     */
+    static Path canonical(Path path) {
+        Path absolute = path.toAbsolutePath().normalize();
+        Path existing = absolute;
+        while (existing != null && !Files.exists(existing)) {
+            existing = existing.getParent();
+        }
+        if (existing == null) {
+            return absolute;
+        }
+        Path real;
+        try {
+            real = existing.toRealPath();
+        } catch (IOException e) {
+            return absolute;
+        }
+        Path canonical = real.resolve(existing.relativize(absolute)).normalize();
+        return ignoresCase(real) ? Path.of(canonical.toString().toLowerCase(Locale.ROOT))
+            : canonical;
+    }
+
+    /** True if {@code existing} is also found under its name in the other case. */
+    private static boolean ignoresCase(Path existing) {
+        for (Path candidate = existing; candidate != null && candidate.getFileName() != null;
+            candidate = candidate.getParent()) {
+            String name = candidate.getFileName().toString();
+            String swapped = name.equals(name.toUpperCase(Locale.ROOT))
+                ? name.toLowerCase(Locale.ROOT) : name.toUpperCase(Locale.ROOT);
+            if (!swapped.equals(name)) {
+                Path other = candidate.resolveSibling(swapped);
+                try {
+                    return Files.exists(other) && Files.isSameFile(candidate, other);
+                } catch (IOException e) {
+                    return false;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The workspace of feature 003 (FR-001, FR-002): absolute after {@code ~} expansion, then
+     * created owner-only if missing and checked to be a readable and writable directory. Nothing
+     * is created for an invalid or reserved profile name (the server does not start with it, and
+     * the default path would not belong to a real profile).
+     *
+     * @return the outcome (kept in the report for the configuration summary), or empty if the
+     *     workspace was not prepared
+     */
+    private Optional<WorkspaceDirectory.Result> checkWorkspace(ProfileConfig config,
+        Findings findings) {
+        Path workspace = config.workspace();
+        if (!workspace.isAbsolute()) {
+            findings.error("workspace " + workspace + " must be absolute after expansion of ~"
+                + " (e.g. ~/work/acme-inubit or /srv/inubit/acme)");
+            return Optional.empty();
+        }
+        String name = config.profile().name();
+        if (!ProfileInfo.isValidName(name) || ProfileInfo.isReservedName(name)) {
+            return Optional.empty();
+        }
+        WorkspaceDirectory.Result result = workspaces.prepare(workspace.normalize());
+        if (result instanceof WorkspaceDirectory.Unusable unusable) {
+            findings.error(unusable.problem());
+        }
+        return Optional.of(result);
     }
 
     /** {@code a}, {@code a and b}, {@code a, b and c}. */

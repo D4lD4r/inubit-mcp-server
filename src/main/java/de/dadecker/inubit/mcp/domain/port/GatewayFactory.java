@@ -63,6 +63,14 @@ public interface GatewayFactory {
     ProcessControlPort processControl(NodeId server);
 
     /**
+     * The artifact port of {@code server} (feature 003); the default asks the gateway, which
+     * may detect the version first.
+     */
+    default ArtifactPort artifacts(NodeId server) {
+        return forServer(server).artifacts();
+    }
+
+    /**
      * The gateway of {@code server} if its adapter set is known without contacting the server:
      * a configured version line, or a detected (or cached fallback) {@code AUTO} version. Never
      * blocks on a running detection.

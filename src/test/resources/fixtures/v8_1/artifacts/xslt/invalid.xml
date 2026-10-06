@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Two violations of schema.xsd: quantity is not a positive integer (line 5) and an unexpected
+     element (line 6). -->
+<order id="A-1002">
+  <customer>Globex</customer><item sku="Widget-01" quantity="zero" price="10.50"/>
+  <note>unexpected</note>
+</order>

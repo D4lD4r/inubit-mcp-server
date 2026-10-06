@@ -9,7 +9,8 @@ import java.util.function.Predicate;
 
 /**
  * Text printed by {@code --check-config}: the profile, its terminology, credential variable
- * scheme and audit directory, then per group the nodes with their id, the effective write flag,
+ * scheme, audit directory and workspace ({@code ok}, {@code created} or the problem), then per
+ * group the nodes with their id, the effective write flag,
  * CLI availability and the source variable of each credential, then all warnings and errors.
  * Groups and nodes are named with the profile's display names (FR-007). Values and URLs are never
  * printed.
@@ -44,6 +45,12 @@ public final class ConfigSummary {
         out.append("Credential variables: ").append(config.credentialPrefix()).append('_')
             .append(ConfigValidator.variablePart(terms)).append("_USERNAME / _PASSWORD\n");
         out.append("Audit directory: ").append(config.auditDirectory()).append('\n');
+        // feature 003 (FR-004): ok, created just now, or why it cannot be used
+        out.append("Workspace: ").append(config.workspace()).append(" (")
+            .append(report.workspace().map(result -> switch (result) {
+                case WorkspaceDirectory.Usable usable -> usable.created() ? "created" : "ok";
+                case WorkspaceDirectory.Unusable unusable -> unusable.problem();
+            }).orElse("not usable: see the errors")).append(")\n");
         GroupId group = null;
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
             if (!server.id().group().equals(group)) {

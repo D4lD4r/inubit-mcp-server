@@ -1,0 +1,280 @@
+package de.dadecker.inubit.mcp.mcp.tools;
+
+import static de.dadecker.inubit.mcp.mcp.tools.DiagnosisToolFixture.assertMatchesOutputSchema;
+import static de.dadecker.inubit.mcp.mcp.tools.DiagnosisToolFixture.toolError;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
+import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
+import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
+import de.dadecker.inubit.mcp.application.ArtifactCheckService;
+import de.dadecker.inubit.mcp.application.ResultLimiter;
+import de.dadecker.inubit.mcp.application.WorkspaceLock;
+import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import java.io.IOException;
+import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.SortedMap;
+import java.util.TreeMap;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * T027: {@code check_artifacts} over MCP (contracts/mcp-tools-delta.md): confined paths, the
+ * workspace lock, bounded findings with a full report, messages of at most 500 characters.
+ */
+@Timeout(60)
+class CheckArtifactsToolTest {
+
+    private static final String DESCRIPTION = "[acme] Check workspace files before an import:"
+        + " workflow structure (edges, ids, branch conditions, referenced modules, variables,"
+        + " repository references), run a stylesheet against an input file, or validate XML"
+        + " against a schema. Never changes INUBIT; writes only test outputs.";
+    private static final Instant NOW = Instant.parse("2026-10-06T12:00:00Z");
+
+    @TempDir
+    Path root;
+    @TempDir
+    Path outside;
+
+    private McpTestClient client;
+
+    private void start(int maxItems) {
+        ArtifactCheckService service = new ArtifactCheckService(root, new WorkspaceInspector(),
+            new SaxonXsltRunner(root), group -> Optional.empty(), node -> {
+                throw new AssertionError("no server lookups");
+            }, node -> Optional.empty(), new ResultLimiter(maxItems,
+                ResultLimiter.DEFAULT_MAX_CHARS), Clock.fixed(NOW, ZoneOffset.UTC));
+        client = McpTestClient.start(List.of(new CheckArtifactsTool(service)));
+        client.initialize();
+    }
+
+    @BeforeEach
+    void exportDefect() throws IOException, URISyntaxException {
+        Path directory = Path.of(getClass().getResource(
+            "/fixtures/v8_1/artifacts/defects/dangling-edge").toURI());
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        for (String fixed : List.of("archive.properties", "Repository.zip",
+            "workflow/workflow.xml")) {
+            entries.put(fixed, Files.readAllBytes(directory.resolve(fixed)));
+        }
+        try (Stream<Path> modules = Files.list(directory.resolve("module"))) {
+            for (Path module : modules.sorted().toList()) {
+                entries.put("module/" + module.getFileName(), Files.readAllBytes(module));
+            }
+        }
+        new ArchiveCodec().prepare(new GroupId("dev"), "jdoe", List.of(
+            de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures.zip(entries)))
+            .writeTo(root);
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (client != null) {
+            client.close();
+        }
+    }
+
+    private JsonNode call(Map<String, Object> arguments) {
+        return client.callTool("check_artifacts", arguments);
+    }
+
+    private SortedMap<String, String> snapshot() throws IOException {
+        SortedMap<String, String> files = new TreeMap<>();
+        try (Stream<Path> walk = Files.walk(root)) {
+            for (Path file : walk.filter(Files::isRegularFile).toList()) {
+                String relative = root.relativize(file).toString();
+                if (!relative.startsWith(".reports") && !relative.equals(".lock")) {
+                    files.put(relative, Files.readString(file, StandardCharsets.ISO_8859_1));
+                }
+            }
+        }
+        return files;
+    }
+
+    @Test
+    void theToolIsReadOnlyIdempotentAndOpenWorld() {
+        start(100);
+        JsonNode tool = client.listTools().path("tools").get(0);
+
+        assertThat(tool.path("name").asString()).isEqualTo("check_artifacts");
+        assertThat(tool.path("description").asString()).isEqualTo(DESCRIPTION);
+        JsonNode annotations = tool.path("annotations");
+        assertThat(annotations.path("readOnlyHint").asBoolean()).isTrue();
+        assertThat(annotations.path("destructiveHint").asBoolean(true)).isFalse();
+        assertThat(annotations.path("idempotentHint").asBoolean()).isTrue();
+        assertThat(annotations.path("openWorldHint").asBoolean()).isTrue();
+    }
+
+    @Test
+    void aDefectIsReportedAndNothingIsWritten() throws IOException {
+        start(100);
+        SortedMap<String, String> before = snapshot();
+
+        JsonNode result = call(Map.of("paths", List.of("dev/jdoe")));
+
+        assertMatchesOutputSchema("check_artifacts", result);
+        JsonNode report = result.path("structuredContent");
+        assertThat(report.path("counts").path("ERROR").asInt()).isEqualTo(1);
+        assertThat(report.path("counts").path("WARNING").asInt()).isZero();
+        assertThat(report.path("findings").get(0).path("code").asString())
+            .isEqualTo("EDGE_TARGET_MISSING");
+        assertThat(report.path("findings").get(0).path("check").asString())
+            .isEqualTo("STRUCTURE");
+        assertThat(report.path("truncated").asBoolean()).isFalse();
+        assertThat(report.has("fullReport")).isFalse();
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    @Test
+    void manyFindingsAreBoundedWithAFullReport() throws IOException {
+        start(1);
+        Path workflow = root.resolve("dev/jdoe/workflows/GRP-01/Workflow-0001.xml");
+        Files.writeString(workflow, Files.readString(workflow).replace("<ModuleId>1</ModuleId>",
+            "<ModuleId>1</ModuleId><Connection moduleOutId=\"77\"/><Connection moduleOutId="
+                + "\"" + "8".repeat(600) + "\"/>"));
+
+        JsonNode result = call(Map.of("paths", List.of("dev")));
+
+        assertMatchesOutputSchema("check_artifacts", result);
+        JsonNode report = result.path("structuredContent");
+        assertThat(report.path("counts").path("ERROR").asInt()).isEqualTo(3);
+        assertThat(report.path("findings")).hasSize(1);
+        assertThat(report.path("truncated").asBoolean()).isTrue();
+        String fullReport = report.path("fullReport").asString();
+        assertThat(fullReport).isEqualTo(".reports/check-20261006T120000000Z.json");
+        JsonNode all = JsonMapper.builder().build().readTree(Files.readString(
+            root.resolve(fullReport)));
+        assertThat(all.path("findings")).hasSize(3);
+        for (JsonNode finding : all.path("findings")) {
+            assertThat(finding.path("message").asString()).hasSizeLessThanOrEqualTo(500);
+        }
+        assertThat(all.path("findings")).anySatisfy(finding -> assertThat(finding.path("message")
+            .asString()).hasSize(500).endsWith("…"));
+    }
+
+    private void putFixture(String path, String fixture) throws IOException {
+        Path file = root.resolve(path);
+        Files.createDirectories(file.getParent());
+        Files.write(file, de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures.bytes(
+            "xslt/" + fixture));
+    }
+
+    @Test
+    void aStylesheetRunsAgainstAnInputFile() throws IOException {
+        start(100);
+        String stylesheet = "dev/OWNERS/modules/XSLT Converter/Map-Order/xslt.stylesheet.xsl";
+        putFixture(stylesheet, "standins.xsl");
+        putFixture("inputs/order.xml", "input.xml");
+
+        JsonNode result = call(Map.of("xslt", Map.of("stylesheet", stylesheet,
+            "input", "inputs/order.xml", "params", Map.of("unused", "x"),
+            "now", "2026-10-06T12:34:56Z")));
+
+        assertMatchesOutputSchema("check_artifacts", result);
+        JsonNode report = result.path("structuredContent");
+        JsonNode xslt = report.path("xslt");
+        assertThat(xslt.path("outcome").asString()).isEqualTo("OK");
+        assertThat(xslt.path("output").asString())
+            .isEqualTo(".tests/dev/OWNERS/Map-Order/order.xml.out");
+        assertThat(xslt.path("standInsUsed").toString()).contains("Misc.guid");
+        assertThat(Files.readString(root.resolve(xslt.path("output").asString())))
+            .contains("<createdAt>2026-10-06 12:34:56</createdAt>");
+        assertThat(report.path("findings").get(0).path("code").asString())
+            .isEqualTo("XSLT_STANDINS_USED");
+        assertThat(report.path("counts").path("INFO").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void aStylesheetThatNeedsInubitIsNotTestable() throws IOException {
+        start(100);
+        String stylesheet = "dev/OWNERS/modules/XSLT Converter/Tool/xslt.stylesheet.xsl";
+        putFixture(stylesheet, "unknown-extension.xsl");
+        putFixture("inputs/order.xml", "input.xml");
+
+        JsonNode result = call(Map.of("paths", List.of("dev/jdoe"), "xslt", Map.of(
+            "stylesheet", stylesheet, "input", "inputs/order.xml")));
+
+        assertMatchesOutputSchema("check_artifacts", result);
+        JsonNode report = result.path("structuredContent");
+        assertThat(report.path("xslt").path("outcome").asString()).isEqualTo("NOT_TESTABLE");
+        assertThat(report.path("xslt").has("output")).isFalse();
+        assertThat(report.path("findings").toString()).contains("XSLT_NOT_TESTABLE",
+            "EDGE_TARGET_MISSING");
+        assertThat(toolError(call(Map.of("xslt", Map.of("stylesheet", "../x.xsl",
+            "input", "inputs/order.xml")))).path("code").asString()).isEqualTo("INVALID_INPUT");
+    }
+
+    @Test
+    void xmlFilesAreCheckedForWellFormednessAndAgainstASchema() throws IOException {
+        start(100);
+        for (String name : List.of("schema.xsd", "invalid.xml", "valid.xml",
+            "not-well-formed.xml")) {
+            putFixture("docs/" + name, name);
+        }
+
+        JsonNode wellFormed = call(Map.of("paths", List.of("docs/not-well-formed.xml",
+            "docs/valid.xml")));
+        JsonNode validated = call(Map.of("paths", List.of("docs/invalid.xml", "docs/valid.xml"),
+            "schema", "docs/schema.xsd"));
+
+        assertMatchesOutputSchema("check_artifacts", wellFormed);
+        assertThat(wellFormed.path("structuredContent").path("findings")).singleElement()
+            .satisfies(finding -> {
+                assertThat(finding.path("code").asString()).isEqualTo("XML_NOT_WELL_FORMED");
+                assertThat(finding.path("check").asString()).isEqualTo("XML");
+                assertThat(finding.path("location").asString()).startsWith("4:");
+            });
+        assertMatchesOutputSchema("check_artifacts", validated);
+        JsonNode findings = validated.path("structuredContent").path("findings");
+        assertThat(findings).hasSize(2).allSatisfy(finding -> {
+            assertThat(finding.path("code").asString()).isEqualTo("XSD_INVALID");
+            assertThat(finding.path("path").asString()).isEqualTo("docs/invalid.xml");
+        });
+        assertThat(toolError(call(Map.of("schema", "docs/schema.xsd"))).path("code")
+            .asString()).as("a schema needs paths").isEqualTo("INVALID_INPUT");
+        assertThat(toolError(call(Map.of("paths", List.of("docs"), "schema", "../x.xsd")))
+            .path("code").asString()).isEqualTo("INVALID_INPUT");
+    }
+
+    @Test
+    void pathsMustStayInsideTheWorkspace() throws IOException {
+        start(100);
+        Files.writeString(outside.resolve("secret.xml"), "<a/>");
+        Files.createSymbolicLink(root.resolve("dev/escape"), outside);
+
+        for (String path : List.of("../x", "dev/../../x", "/etc", root.toString(), "dev/escape",
+            "dev/escape/secret.xml", "dev/nothing-here")) {
+            assertThat(toolError(call(Map.of("paths", List.of(path)))).path("code").asString())
+                .as(path).isEqualTo("INVALID_INPUT");
+        }
+        assertThat(call(Map.of("paths", List.of())).path("isError").asBoolean()).isTrue();
+        assertThat(toolError(call(Map.of())).path("code").asString())
+            .as("neither paths nor xslt").isEqualTo("INVALID_INPUT");
+    }
+
+    @Test
+    void aRunningExportOrCheckRefusesTheCheckAtOnce() {
+        start(100);
+        try (WorkspaceLock held = WorkspaceLock.acquire(root)) {
+            assertThat(toolError(call(Map.of("paths", List.of("dev")))).path("code").asString())
+                .isEqualTo("PRECONDITION_FAILED");
+        }
+    }
+}

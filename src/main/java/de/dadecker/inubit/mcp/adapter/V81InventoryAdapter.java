@@ -92,7 +92,7 @@ public final class V81InventoryAdapter implements InventoryPort {
      * confirmed, only the account may not read the system information, which the export does
      * not need.
      */
-    private void confirmCredentials() {
+    void confirmCredentials() {
         if (!client.credentialGuard().confirmed()) {
             client.get(SYSTEM_INFO, Map.of(), 403);
         }

@@ -503,12 +503,12 @@ class MainTest {
             .isEqualTo("inubit-mcp-server");
         assertThat(initialize.path("result").path("serverInfo").path("version").asString())
             .isEqualTo(BuildInfo.version());
-        // US1 (Phase 3), US2 (Phase 4) and US3 (Phase 5); no write tool while write is
-        // disabled
+        // US1 (Phase 3), US2 (Phase 4), US3 (Phase 5) and check_artifacts (feature 003); no
+        // write tool while write is disabled, no export without a CLI installation
         assertThat(tools.path("result").path("tools"))
             .extracting(tool -> tool.path("name").asString())
             .containsExactlyInAnyOrder("list_nodes", "get_health", "find_processes",
-                "query_logs", "list_inventory", "get_inventory_item");
+                "query_logs", "list_inventory", "get_inventory_item", "check_artifacts");
         JsonNode server = servers.path("result").path("structuredContent").path("groups").path(0)
             .path("nodes").path(0);
         assertThat(server.path("id").asString()).isEqualTo("dev/node1");

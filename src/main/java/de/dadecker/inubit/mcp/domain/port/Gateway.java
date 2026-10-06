@@ -1,6 +1,9 @@
 package de.dadecker.inubit.mcp.domain.port;
 
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.util.List;
 import java.util.Optional;
 
@@ -9,8 +12,8 @@ import java.util.Optional;
  *
  * <p><b>Extension point:</b> the user-story phases add one accessor per port here:
  * {@link #monitoring()} (US1), {@link #processes()} and {@link #logs()} (US2),
- * {@link #inventory()} (US3), {@link #processControl()} (US4), implemented by the
- * version-specific adapters.
+ * {@link #inventory()} (US3), {@link #processControl()} (US4), and feature 003 adds
+ * {@link #artifacts()}, implemented by the version-specific adapters.
  * Application services obtain gateways only through {@link GatewayFactory}, so supporting 9.x is an
  * adapter change, not a change of the tool logic.
  */
@@ -46,4 +49,18 @@ public interface Gateway {
 
     /** Restart and kill of process instances on this server (US4). */
     ProcessControlPort processControl();
+
+    /**
+     * Read-only artifact exports of this server (feature 003). The default is for gateways
+     * without an artifact adapter.
+     *
+     * @throws ToolErrorException {@code CLI_UNAVAILABLE} with the server id, unless the
+     *     version-specific gateway provides an adapter
+     */
+    default ArtifactPort artifacts() {
+        throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
+            "Artifact exports are not available for " + node(),
+            "This adapter line has no artifact adapter",
+            "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
+    }
 }

@@ -28,12 +28,17 @@ following libraries (the runtime dependencies of `pom.xml`, as resolved by
 | `ch.qos.logback:logback-classic:1.5.38` | dual-licensed: Eclipse Public License 2.0 (EPL-2.0) **or** GNU Lesser General Public License 2.1 only (LGPL-2.1-only) | https://www.eclipse.org/legal/epl-v20.html, https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html |
 | `ch.qos.logback:logback-core:1.5.38` | dual-licensed: EPL-2.0 **or** LGPL-2.1-only | https://www.eclipse.org/legal/epl-v20.html, https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html |
 | `org.slf4j:slf4j-api:2.0.17` | MIT License | https://opensource.org/license/mit |
+| `net.sf.saxon:Saxon-HE:10.9` | Mozilla Public License 2.0 (MPL-2.0) | https://www.mozilla.org/MPL/2.0/ |
 
 `jackson-core` itself bundles code of FastDoubleParser (MIT License, with third-party code under
 the Boost Software License 1.0) and Schubfach (MIT License); their license texts are kept in the JAR
 as `META-INF/FastDoubleParser-LICENSE`, `META-INF/FastDoubleParser-ThirdParty-LICENSE` and
 `META-INF/Schubfach-LICENSE`. `json-schema-validator` contains repackaged classes of Apache
 Commons Validator (Apache License 2.0) under `com/networknt/org/apache/commons/validator/`.
+
+`Saxon-HE` contains code derived from Apache Jakarta Regexp (Apache License 2.0, package
+`net/sf/saxon/regex/`) and DTD and entity files of the W3C (Copyright W3C; where stated, under the
+W3C Software Notice and License) below `net/sf/saxon/data/w3c/`, as their file headers state.
 
 ### License files inside the JAR
 
@@ -81,6 +86,15 @@ Logback is Copyright (C) 1999-2026, QOS.ch, and is used unmodified. The licensee
 license. Its source code is available at https://github.com/qos-ch/logback and as
 `logback-classic-1.5.38-sources.jar` / `logback-core-1.5.38-sources.jar` on Maven Central
 (https://repo.maven.apache.org/maven2/ch/qos/logback/).
+
+### Saxon-HE (MPL-2.0)
+
+Saxon-HE is Copyright (c) Saxonica Limited and is used unmodified; its source files state that they
+are subject to the Mozilla Public License, v. 2.0, and are "Incompatible With Secondary Licenses".
+The license text is at https://www.mozilla.org/MPL/2.0/. Its source code is available as
+`Saxon-HE-10.9-sources.jar` on Maven Central
+(https://repo.maven.apache.org/maven2/net/sf/saxon/Saxon-HE/10.9/). The JAR registers Saxon as a
+`javax.xml.transform.TransformerFactory` service (`META-INF/services`), which the shaded JAR keeps.
 
 ## 2. Development tooling (not part of the JAR)
 

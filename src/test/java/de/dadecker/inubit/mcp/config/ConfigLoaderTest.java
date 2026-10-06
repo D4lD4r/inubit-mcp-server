@@ -849,4 +849,57 @@ class ConfigLoaderTest {
                 .hasMessageContaining(missing.toString());
         }
     }
+
+    /** T011 (feature 003, FR-001): the optional top-level {@code workspace}. */
+    @Nested
+    class Workspace {
+
+        @Test
+        void defaultsToTheProfilesDirectoryBelowTheHome() {
+            ProfileConfig config = loader().parse(MINIMAL, home.resolve("acme.yaml")).config();
+
+            assertThat(config.workspace()).isEqualTo(home.resolve(".inubit-mcp/acme/workspace"));
+            assertThat(loader().parse(MINIMAL + "workspace: null\n", home.resolve("n.yaml"))
+                .config().workspace()).isEqualTo(home.resolve(".inubit-mcp/acme/workspace"));
+        }
+
+        @Test
+        void twoProfilesGetSeparateDefaultWorkspaces() {
+            ProfileConfig globex = loader().parse(MINIMAL.replace("name: acme", "name: globex"),
+                home.resolve("globex.yaml")).config();
+
+            assertThat(globex.workspace()).isEqualTo(home.resolve(".inubit-mcp/globex/workspace"));
+        }
+
+        @Test
+        void aGivenWorkspaceIsUsedWithTheHomeExpanded() {
+            assertThat(loader().parse(MINIMAL + "workspace: ~/work/acme-inubit\n",
+                home.resolve("a.yaml")).config().workspace())
+                .isEqualTo(home.resolve("work/acme-inubit"));
+            assertThat(loader().parse(MINIMAL + "workspace: /srv/inubit/acme\n",
+                home.resolve("b.yaml")).config().workspace())
+                .isEqualTo(Path.of("/srv/inubit/acme"));
+            // relative paths are loaded as given; ConfigValidator reports them
+            assertThat(loader().parse(MINIMAL + "workspace: relative/ws\n",
+                home.resolve("c.yaml")).config().workspace()).isEqualTo(Path.of("relative/ws"));
+        }
+
+        @Test
+        void anInvalidProfileNameNeverBecomesPartOfTheDefaultWorkspace() {
+            ProfileConfig config = loader().parse(MINIMAL.replace("name: acme",
+                "name: \"../../etc\""), home.resolve("odd.yaml")).config();
+
+            assertThat(config.workspace())
+                .isEqualTo(home.resolve(".inubit-mcp/(invalid profile.name)/workspace"));
+        }
+
+        @Test
+        void aWorkspaceThatIsNoPathIsRefused() {
+            assertThatThrownBy(() -> loader().parse(MINIMAL + "workspace: [a, b]\n",
+                home.resolve("d.yaml")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("workspace")
+                .hasMessageContaining("a file system path");
+        }
+    }
 }

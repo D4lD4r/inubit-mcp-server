@@ -147,12 +147,13 @@ class ProcessControlToolsTest {
     void withoutEffectiveWriteAccessTheWriteToolsAreNotOffered() {
         // dev: write disabled (default); prod: write.enabled but no productionOptIn
         assertThat(toolNames(false)).containsExactlyInAnyOrder("list_nodes", "get_health",
-            "find_processes", "query_logs", "list_inventory", "get_inventory_item");
+            "find_processes", "query_logs", "list_inventory", "get_inventory_item",
+            "check_artifacts");
     }
 
     @Test
     void withWriteAccessOnEntBothWriteToolsAreOffered() {
-        assertThat(toolNames(true)).contains("restart_process", "kill_process").hasSize(8);
+        assertThat(toolNames(true)).contains("restart_process", "kill_process").hasSize(9);
     }
 
     @Test
