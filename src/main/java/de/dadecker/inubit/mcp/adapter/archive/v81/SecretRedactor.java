@@ -100,9 +100,6 @@ public final class SecretRedactor {
     private static final Set<String> SCALAR_TYPES = Set.of("Boolean", "Integer");
     private static final Pattern UNSAFE_PATH_CHARACTERS = Pattern.compile("[{}\\p{Cntrl}]");
     private static final Set<String> CONTENT_VALUES = Set.of("contentSize", "contentMD5");
-    /** A value long enough to hide a key: at least 64 characters of the base64 alphabet. */
-    private static final Pattern LONG_BASE64 =
-        Pattern.compile("(?:[A-Za-z0-9+/=]\\s*){64,}");
     /** The namespace of the variable types ({@code is:password}). */
     static final String VARIABLE_TYPES = "http://inubit.com/variables/types";
 
@@ -244,8 +241,29 @@ public final class SecretRedactor {
             return true;
         }
         // a keystore can also sit base64-encoded in an untyped property (stage-2 review)
-        return LONG_BASE64.matcher(value.strip()).matches() && KeyMaterial.decodeDocument(value)
+        return longBase64(value) && KeyMaterial.decodeDocument(value)
             .filter(KeyMaterial::isKeyMaterial).isPresent();
+    }
+
+    /**
+     * At least 64 characters of the base64 alphabet, white space allowed — a loop, not a regular
+     * expression with a group loop, which overflows the stack on long values.
+     */
+    static boolean longBase64(String value) {
+        int count = 0;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (Character.isWhitespace(c)) {
+                continue;
+            }
+            boolean base64 = c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
+                || c == '+' || c == '/' || c == '=';
+            if (!base64) {
+                return false;
+            }
+            count++;
+        }
+        return count >= 64;
     }
 
     /** True if {@code value} is one X.509 certificate (base64 DER or PEM) and nothing else. */

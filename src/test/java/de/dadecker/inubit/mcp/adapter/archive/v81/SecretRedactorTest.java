@@ -290,6 +290,19 @@ class SecretRedactorTest {
         assertThat(property(module, "plainBlob")).isEqualTo(text);
     }
 
+    @Test
+    void aVeryLongUntypedValueIsCheckedWithoutOverflow() {
+        // structure corpus: a regex with a group loop overflowed the stack on a long value
+        String value = Base64.getEncoder().encodeToString(new byte[300_000]);
+
+        org.assertj.core.api.Assertions.assertThatCode(() -> redactModule("""
+            <?xml version='1.0' encoding='UTF-8'?>
+            <Properties version="4.1">
+            \t<Property name="largeBlob">%s</Property>
+            </Properties>
+            """.formatted(value))).doesNotThrowAnyException();
+    }
+
     private static String gzipBase64(byte[] content) throws IOException {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (java.util.zip.GZIPOutputStream gzip = new java.util.zip.GZIPOutputStream(bytes)) {
