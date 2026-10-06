@@ -689,8 +689,16 @@ public final class ImportService {
                 raw.add(port.exportWorkflowGroup(scope.owner(), scope.diagramGroup().get()));
             } else {
                 for (ChangedArtifact module : changes.modules()) {
-                    raw.add(port.exportModule(scope.owner(), module.ref().pluginType()
-                        .orElseThrow(), module.name()));
+                    try {
+                        raw.add(port.exportModule(scope.owner(), module.ref().pluginType()
+                            .orElseThrow(), module.name()));
+                    } catch (ToolErrorException e) {
+                        // review I3: a new module that was not created is simply absent
+                        if (module.kind() != ChangedArtifact.Kind.NEW
+                            || e.error().code() != ErrorCode.NOT_FOUND) {
+                            throw e;
+                        }
+                    }
                 }
             }
             return new Exported(raw, d.codec().prepare(scope.group(), scope.owner(), raw)

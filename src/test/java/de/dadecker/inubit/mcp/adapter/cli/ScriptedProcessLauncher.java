@@ -82,6 +82,19 @@ public final class ScriptedProcessLauncher implements ProcessLauncher {
         return this;
     }
 
+    /** A whole answer: stdout, stderr and exit code. */
+    public record Reply(String stdout, String stderr, int exitCode) {
+    }
+
+    /**
+     * Answers the last expected step with a reply computed at launch (after the step's
+     * actions), e.g. a fake server's export or its {@code NOT_FOUND}.
+     */
+    public ScriptedProcessLauncher answering(Function<LaunchSpec, Reply> reply) {
+        last().dynamicReply = reply;
+        return this;
+    }
+
     /** The last expected step never exits until it is destroyed (timeout cases). */
     public ScriptedProcessLauncher hanging() {
         last().hang = true;
@@ -144,8 +157,16 @@ public final class ScriptedProcessLauncher implements ProcessLauncher {
         byte[] importFile = step.captureImport ? read(file(IMPORT_FILE, line)) : null;
         byte[] stdout = step.dynamicStdout == null ? step.stdout
             : step.dynamicStdout.apply(spec).getBytes(StandardCharsets.UTF_8);
+        byte[] stderr = step.stderr;
+        int exitCode = step.exitCode;
+        if (step.dynamicReply != null) {
+            Reply reply = step.dynamicReply.apply(spec);
+            stdout = reply.stdout().getBytes(StandardCharsets.UTF_8);
+            stderr = reply.stderr().getBytes(StandardCharsets.UTF_8);
+            exitCode = reply.exitCode();
+        }
         FakeProcessLauncher.FakeProcess process = new FakeProcessLauncher.FakeProcess(spec,
-            stdout, step.stderr, step.exitCode, step.hang, false, false, -1);
+            stdout, stderr, exitCode, step.hang, false, false, -1);
         launches.add(new Launch(spec, line, process, importFile));
         return process;
     }
@@ -239,6 +260,7 @@ public final class ScriptedProcessLauncher implements ProcessLauncher {
         private boolean captureImport;
         private Consumer<LaunchSpec> action = spec -> { };
         private Function<LaunchSpec, String> dynamicStdout;
+        private Function<LaunchSpec, Reply> dynamicReply;
 
         Step(String expected, Predicate<String> matcher) {
             this.expected = expected;

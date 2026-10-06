@@ -158,6 +158,31 @@ class ImportServiceTest {
     }
 
     @Test
+    void aNewModuleIsCreatedByAModuleImportWithoutExportingItFirst() throws IOException {
+        // review I3: StartCLI answers NOT_FOUND for a module that does not exist yet
+        ImportHarness harness = ImportHarness.grpA(temp);
+        String source = harness.moduleDirectory("Module-0003");
+        String pluginType = source.split("/")[3];
+        String target = source.replace("Module-0003", "Module-0100");
+        harness.write(target + "/module.xml", harness.read(source + "/module.xml"));
+        harness.write(target + "/index.xml", harness.read(source + "/index.xml")
+            .replace("Module-0003", "Module-0100"));
+        harness.importApplied("--importModule --importUser 'jdoe' --returnProtocol")
+            .exportModule(pluginType, "Module-0100");
+
+        WriteOutcome outcome = completed(harness.service().importArtifacts(
+            new ImportService.ImportRequest("dev/node1", Optional.of("jdoe"), Optional.empty(),
+                List.of(new ImportScope.Module("Module-0100", Optional.of(pluginType))),
+                "New module", Optional.empty(), Optional.empty())));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.created()).containsExactly("Module-0100");
+        assertThat(harness.inubit.hasModule("Module-0100")).isTrue();
+        assertThat(harness.exports.history.status()).isEmpty();
+    }
+
+    @Test
     void newArtifactsAreCreatedInactiveWithTheirOwnIndexEntry() throws IOException {
         ImportHarness harness = ImportHarness.grpA(temp);
         String source = harness.moduleDirectory("Module-0003");

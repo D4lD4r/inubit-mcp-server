@@ -47,7 +47,10 @@ import java.util.stream.Stream;
  * <ul>
  *   <li>A modified artifact of the change set whose files differ from its base, that no longer
  *       exists, or a new one that exists on the server already, is a conflict; so is every
- *       other artifact of the scope that differs from its own base (D-25).
+ *       other artifact of the scope that differs from its own base (D-25). A module import
+ *       exports only the modified modules; whether a new module exists is decided by the
+ *       owner's module list (review I3: StartCLI answers {@code NOT_FOUND} for a module that
+ *       does not exist).
  *   <li>A workflow of the change set with a {@code CheckoutUser} is in Workbench edit mode: a
  *       conflict naming the user INUBIT reports (a publish would overwrite the import, or the
  *       import the edit).
@@ -121,6 +124,10 @@ public final class ConflictDetector {
         SortedMap<String, byte[]> rendered = prepared.files();
         SortedMap<String, byte[]> server = artifactFiles(rendered);
 
+        // review I3: the owner's module list tells whether a new module exists already
+        Set<String> listed = new LinkedHashSet<>();
+        inventory.apply(node).listModules(scope.owner())
+            .forEach(entry -> listed.add(entry.item().name()));
         List<String> changed = new ArrayList<>();
         List<String> editMode = new ArrayList<>();
         List<String> exists = new ArrayList<>();
@@ -131,7 +138,8 @@ public final class ConflictDetector {
             covered.add(key);
             List<String> serverPaths = paths(server, key);
             if (artifact.kind() == ChangedArtifact.Kind.NEW) {
-                if (!serverPaths.isEmpty()) {
+                if (!serverPaths.isEmpty() || (artifact.ref().kind() == ArtifactRef.Kind.MODULE
+                    && listed.contains(artifact.name()))) {
                     exists.add(artifact.name());
                     diff.append("=== ").append(key).append(": exists on ").append(node)
                         .append(" although the workspace creates it\n");
@@ -191,9 +199,7 @@ public final class ConflictDetector {
                     : "Publish or discard the edit in the Workbench, export the scope again, then"
                         + " import again").withNode(node));
         }
-        Set<String> modules = new LinkedHashSet<>();
-        inventory.apply(node).listModules(scope.owner())
-            .forEach(entry -> modules.add(entry.item().name()));
+        Set<String> modules = new LinkedHashSet<>(listed);
         server.keySet().stream().map(ConflictDetector::parse).flatMap(Optional::stream)
             .filter(path -> path.kind() != WorkspacePath.Kind.WORKFLOW
                 && path.kind() != WorkspacePath.Kind.REPOSITORY)
@@ -230,9 +236,12 @@ public final class ConflictDetector {
         if (scope.diagramGroup().isPresent()) {
             raw.add(port.exportWorkflowGroup(scope.owner(), scope.diagramGroup().get()));
         } else {
+            // review I3: a new module does not exist yet (StartCLI would answer NOT_FOUND)
             for (ChangedArtifact module : changes.modules()) {
-                raw.add(port.exportModule(scope.owner(), module.ref().pluginType().orElseThrow(),
-                    module.name()));
+                if (module.kind() == ChangedArtifact.Kind.MODIFIED) {
+                    raw.add(port.exportModule(scope.owner(), module.ref().pluginType()
+                        .orElseThrow(), module.name()));
+                }
             }
         }
         return raw;

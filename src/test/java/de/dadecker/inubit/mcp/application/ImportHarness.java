@@ -229,12 +229,23 @@ public final class ImportHarness {
         return this;
     }
 
-    /** The next StartCLI call is a module export from the fake server. */
+    /**
+     * The next StartCLI call is a module export from the fake server; like the real StartCLI it
+     * answers {@code 2-NOK: The module <name> not found} if the server has no such module.
+     */
     public ImportHarness exportModule(String pluginType, String name) {
         cli.expect("export --exportModule '" + name + "' --exportModuleGroup '" + pluginType
             + "' --exportModuleUser '" + owner + "'")
-            .then(spec -> write(ScriptedProcessLauncher.exportFile(spec),
-                inubit.exportModule(pluginType, name))).replying(MODULE_OK, "", 0);
+            .answering(spec -> {
+                if (!inubit.hasModule(name)) {
+                    return new ScriptedProcessLauncher.Reply("JAVA_HOME is set\nPassword: \n"
+                        + "EXECUTION ERROR\nInternal INUBIT error!\n2-NOK: The module " + name
+                        + " not found\n", "", 1);
+                }
+                write(ScriptedProcessLauncher.exportFile(spec), inubit.exportModule(pluginType,
+                    name));
+                return new ScriptedProcessLauncher.Reply(MODULE_OK, "", 0);
+            });
         return this;
     }
 

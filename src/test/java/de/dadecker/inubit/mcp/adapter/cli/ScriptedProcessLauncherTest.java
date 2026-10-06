@@ -104,6 +104,23 @@ class ScriptedProcessLauncherTest {
     }
 
     @Test
+    void aWholeReplyCanBeComputedAtLaunch() throws Exception {
+        // review I3: a fake server answers NOT_FOUND or the export, depending on its state
+        ScriptedProcessLauncher cli = new ScriptedProcessLauncher()
+            .expect("export ").answering(spec -> new ScriptedProcessLauncher.Reply(
+                "2-NOK: The module x not found\n", "err\n", 1));
+
+        LaunchedProcess process = cli.launch(spec("export --exportModule 'x'"));
+
+        assertThat(process.waitFor(Duration.ofSeconds(1))).isTrue();
+        assertThat(process.exitValue()).isEqualTo(1);
+        assertThat(new String(process.stdout().readAllBytes(), StandardCharsets.UTF_8))
+            .isEqualTo("2-NOK: The module x not found\n");
+        assertThat(new String(process.stderr().readAllBytes(), StandardCharsets.UTF_8))
+            .isEqualTo("err\n");
+    }
+
+    @Test
     void anUnexpectedCommandFailsTheTestAndIsRecorded() {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher()
             .expect("export ").replying("export_modules_sample");

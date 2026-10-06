@@ -48,6 +48,11 @@ public final class FakeInubit {
         return ArtifactFixtures.zip(entries);
     }
 
+    /** True if the server has module {@code name} (real StartCLI: NOT_FOUND otherwise). */
+    public synchronized boolean hasModule(String name) {
+        return contains(root(INDEX), name);
+    }
+
     /** The current module-only export of {@code name}. */
     public synchronized byte[] exportModule(String pluginType, String name) {
         Element index = root(INDEX);

@@ -193,6 +193,28 @@ class ImportServiceRefusalTest {
     }
 
     @Test
+    void aNewModuleThatExistsOnTheTargetIsAConflict() throws IOException {
+        // review I3: existence of a new module comes from the owner's module list
+        ImportHarness harness = ImportHarness.grpA(temp);
+        String source = harness.moduleDirectory("Module-0003");
+        String pluginType = source.split("/")[3];
+        String target = source.replace("Module-0003", "Module-0100");
+        harness.write(target + "/module.xml", harness.read(source + "/module.xml"));
+        harness.write(target + "/index.xml", harness.read(source + "/index.xml")
+            .replace("Module-0003", "Module-0100"));
+        harness.targetModules.add("Module-0100");
+
+        ToolError error = refusal(harness, new ImportService.ImportRequest("dev/node1",
+            Optional.of("jdoe"), Optional.empty(), List.of(new de.dadecker.inubit.mcp.domain
+                .model.ImportScope.Module("Module-0100", Optional.of(pluginType))), "Exists",
+            Optional.empty(), Optional.empty()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CONFLICT);
+        assertThat(error.message()).contains("Module-0100", "exists");
+        assertThat(harness.cli.launches()).isEmpty();
+    }
+
+    @Test
     void aBusyWorkspaceIsRefusedAtOnce() throws IOException {
         ImportHarness harness = edited(ImportHarness.grpA(temp));
 
