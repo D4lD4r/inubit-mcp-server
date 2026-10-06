@@ -64,6 +64,15 @@ public final class XmlNormalizer {
         return out.toString().getBytes(StandardCharsets.UTF_8);
     }
 
+    /** The normalized document whose root is {@code root} (D-5), e.g. one workflow file. */
+    public static byte[] normalize(Element root) {
+        StringBuilder out = new StringBuilder(4096);
+        out.append(DECLARATION).append('\n');
+        write(out, root, 0, true);
+        out.append('\n');
+        return out.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
     private static void write(StringBuilder out, Node node, int depth, boolean indent) {
         switch (node) {
             case Element element -> writeElement(out, element, depth, indent);

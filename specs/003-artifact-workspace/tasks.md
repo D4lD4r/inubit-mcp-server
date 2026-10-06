@@ -154,7 +154,7 @@ are P1, and no export may write a file before redaction exists.
 **Independent test**: redact the parsed fixtures and search the result for every synthetic secret value
 from `fixtures/artifacts/README.md`.
 
-- [ ] T013 [US2] `test/adapter/archive/v81/SecretRedactorTest.java` first, then
+- [X] T013 [US2] `test/adapter/archive/v81/SecretRedactorTest.java` first, then
   `main/adapter/archive/v81/SecretRedactor.java` (D-7): replaces "every `Property` with
   `type=\"Password\"`, any value, with or without `encrypted`" (module files and workflow instance
   properties), every `Property` with `encrypted="true"` whatever its type (`MaskedString`),

@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import javax.xml.XMLConstants;
 import javax.xml.stream.Location;
 import javax.xml.stream.XMLInputFactory;
@@ -50,6 +51,62 @@ public final class XmlTree {
 
         public String qualifiedName() {
             return prefix.isEmpty() ? localName : prefix + ":" + localName;
+        }
+
+        /** This element with other children. */
+        public Element withChildren(List<Node> newChildren) {
+            return new Element(prefix, localName, namespaceUri, namespaces, attributes,
+                newChildren);
+        }
+
+        /** This element with {@code text} as its only child (no child if empty). */
+        public Element withText(String text) {
+            return withChildren(text.isEmpty() ? List.of() : List.of(new Text(text)));
+        }
+
+        /** This element with other attributes. */
+        public Element withAttributes(List<Attribute> newAttributes) {
+            return new Element(prefix, localName, namespaceUri, namespaces, newAttributes,
+                children);
+        }
+
+        /** This element with other namespace declarations. */
+        public Element withNamespaces(List<Namespace> newNamespaces) {
+            return new Element(prefix, localName, namespaceUri, newNamespaces, attributes,
+                children);
+        }
+
+        /** The value of the attribute without namespace named {@code name}. */
+        public Optional<String> attribute(String name) {
+            return attributes.stream().filter(a -> a.namespaceUri().isEmpty()
+                && a.localName().equals(name)).map(Attribute::value).findFirst();
+        }
+
+        /** The child elements in document order. */
+        public List<Element> elements() {
+            return children.stream().filter(Element.class::isInstance).map(Element.class::cast)
+                .toList();
+        }
+
+        /** The first child element named {@code name}. */
+        public Optional<Element> child(String name) {
+            return elements().stream().filter(e -> e.localName().equals(name)).findFirst();
+        }
+
+        /** The concatenated text children (the value of an element without element children). */
+        public String text() {
+            StringBuilder text = new StringBuilder();
+            children.forEach(child -> {
+                if (child instanceof Text t) {
+                    text.append(t.value());
+                }
+            });
+            return text.toString();
+        }
+
+        /** True if this element has child elements. */
+        public boolean hasElements() {
+            return children.stream().anyMatch(Element.class::isInstance);
         }
 
         /** {@code xml:space="preserve"} on this element. */
