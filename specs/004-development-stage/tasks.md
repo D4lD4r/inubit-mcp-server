@@ -73,7 +73,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   error; production + e2e FREE/CONFIRM → error; e2e without baseUrl → error; http baseUrl → warning;
   invalid owner kind → error; more than one development-enabled node in a group → error (D-25);
   unknown keys still rejected.
-- [ ] T005 `main/application/DevelopmentGuard.java` with test first (D-1): admit(node, capability) →
+- [X] T005 `main/application/DevelopmentGuard.java` with test first (D-1): admit(node, capability) →
   `DevelopmentPolicy`; group id → `INVALID_INPUT`; unknown → `TARGET_UNKNOWN`; not development →
   `NOT_DEVELOPMENT`; production (defence in depth) → `PRODUCTION_PROTECTED`; CLI unavailable →
   `CLI_UNAVAILABLE`; `e2eTests` checks for `run_e2e_test` → `E2E_FORBIDDEN`. `DevelopmentGuardTest`
