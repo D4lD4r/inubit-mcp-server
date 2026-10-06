@@ -71,7 +71,7 @@ are P1, and no export may write a file before redaction exists.
   group and of a non-existent module, neutralized, as `fixtures/artifacts/cli/export-group-missing.txt`
   and `fixtures/artifacts/cli/export-module-missing.txt` (contract tests, Constitution III). Run
   `python3 tools/check-identifiers.py --staged` before committing.
-- [ ] T003 [P] Derive defect fixtures from `grp-a.zip` as unzipped directories under
+- [X] T003 [P] Derive defect fixtures from `grp-a.zip` as unzipped directories under
   `fixtures/artifacts/defects/` — `dangling-edge`, `id-collision`, `demux-key-unmatched`,
   `missing-module`, `repository-ref-missing`, `variable-unresolved` — each with a one-line
   `DEFECT.md` naming the edit; and XSLT fixtures under `fixtures/artifacts/xslt/`: `plain.xsl`,

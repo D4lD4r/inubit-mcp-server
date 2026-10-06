@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<order id="A-1003">
+  <customer>Initech</customer>
+  <item sku="Widget-01" quantity="1" price="1.00"></order>

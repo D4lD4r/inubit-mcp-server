@@ -1,0 +1,21 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<Properties version="4.1">
+	<Property name="ErrorSuppression" type="Boolean">false</Property>
+	<Property name="IsModuleTemplate" type="Boolean">false</Property>
+	<Property name="xslt.base64Zipped">true</Property>
+	<Property name="xslt.ignoreInput">false</Property>
+	<Property name="xslt.params" type="List" />
+	<Property name="xslt.saveAtServer">false</Property>
+	<Property name="xslt.source"></Property>
+	<Property name="xslt.sourceVariables" type="Map" />
+	<Property name="xslt.stylesheet" type="XmlDocument">&lt;?xml version="1.0" encoding="UTF-8"?>
+&lt;xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" exclude-result-prefixes="#all" version="3.0">
+  &lt;xsl:output method="xml" encoding="UTF-8"/>
+  &lt;xsl:template match="/">
+  &lt;/xsl:template>
+&lt;!-- spike -->&lt;/xsl:stylesheet></Property>
+	<Property name="xslt.target"></Property>
+	<Property name="xslt.transformer">com.saxonica.config.ProfessionalTransformerFactory</Property>
+	<Property name="xslt_mode">NEW</Property>
+</Properties>

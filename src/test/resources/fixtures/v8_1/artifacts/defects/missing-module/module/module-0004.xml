@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<Properties version="4.1">
+	<Property name="ErrorSuppression" type="Boolean">false</Property>
+	<Property name="IsModuleTemplate" type="Boolean">false</Property>
+</Properties>

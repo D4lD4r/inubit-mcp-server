@@ -14,6 +14,8 @@ repository, because it contains the customer values it replaces.
 | `module-smime.zip` | module-only export of one SMIME module (`Module-0029`, untyped `smime.*` secrets, index entry `<Module version="head">` without `type`) | the layout of `module-one.zip` with the SMIME module and its index entry of the stage's module export |
 | `cli/export-group-missing.{stdout,stderr,exit}` | StartCLI stdout, stderr and exit code of an export of a non-existent diagram group: `export --exportWorkflowUser '<owner>' --exportWorkflowType 'technical' --exportWorkflowGroup 'MCP-FIXTURE-NO-SUCH-GROUP' --exportFile '<private temporary directory>/group.zip'` | read-only recording |
 | `cli/export-module-missing.{stdout,stderr,exit}` | the same for a non-existent module: `export --exportModule 'MCP-FIXTURE-NO-SUCH-MODULE' --exportModuleGroup 'XSLT Converter' --exportModuleUser '<owner>' --exportFile '<private temporary directory>/module.zip'` | read-only recording |
+| `defects/<defect>/` | `grp-a.zip` unzipped, with one edit of `workflow/workflow.xml` named in `DEFECT.md` (T003) | derived |
+| `xslt/` | stylesheets and XML documents for the XSLT and XML/XSD checks (T003) | written for the tests |
 
 ## Contents
 
@@ -21,7 +23,8 @@ repository, because it contains the customer values it replaces.
 
 - `Workflow-0001`: XSLT Converter → Demultiplexer → two Assign nodes (4 nodes, 3 edges).
 - `Workflow-0002`: a copy with an inserted node; the Demultiplexer has a condition
-  (`Module-0007(4)@@@DeMuxInput`, `…@@@ProcessingOrder`) and a `DefaultOutput`; the workflow carries
+  (`Module-0008(4)@@@DeMuxInput`, `…@@@ProcessingOrder`) and a `DefaultOutput`
+  (`Module-0009(11)`); the workflow carries
   `<CheckoutUser>jdoe</CheckoutUser>` (in edit mode).
 
 `grp-b.zip`
@@ -205,6 +208,22 @@ keystore	module-smime.zip	module/module-0029.xml smime.keystore.data	/u3+7QAAAAI
 plain	module-smime.zip	module/module-0029.xml smime.keystore.alias.password	synthetic-plain-0004
 ```
 
+## Derived fixtures (T003)
+
+`defects/` holds `grp-a.zip` unzipped (byte-identical entries) with exactly one edit of
+`workflow/workflow.xml` each, named in its `DEFECT.md`: `dangling-edge`, `id-collision`,
+`demux-key-unmatched`, `missing-module`, `repository-ref-missing`, `variable-unresolved`. Each should
+yield exactly its own finding.
+
+`xslt/` holds fictitious documents: `plain.xsl` (no extensions), `standins.xsl` (`Misc:guid()`,
+`Formatter:changeDateFormat(value, 'in|out')`, `Formatter:getDateTime(pattern)`,
+`UUID:randomUUID()`, `Thread:sleep(n)` in the namespaces of real stylesheets),
+`unknown-extension.xsl` (a Java extension without stand-in), `syntax-error.xsl` (static XPath error,
+line 7), `repository-import.xsl` (imports `inubitrepository:/Root/OWNERS/xsl/common.xsl`, whose
+content is `common.xsl`), `input.xml`, `schema.xsd`, `valid.xml`, `invalid.xml` (two violations,
+lines 5 and 6) and `not-well-formed.xml` (fails on line 4). Saxon-HE 10.9 without stand-ins rejects
+`standins.xsl` and `unknown-extension.xsl` with `XPST0017` (no reflexive Java calls in HE).
+
 ## Observations for later tasks
 
 - `JSONStaticSchemaMD5` of the JSON Validator (`Module-0018`) is the MD5 of the decoded
@@ -213,3 +232,9 @@ plain	module-smime.zip	module/module-0029.xml smime.keystore.alias.password	synt
   `<Module version="head">` (no `type`).
 - The XSLT Converters store their stylesheets as escaped XML although `xslt.base64Zipped` is
   `true`.
+- Extension calls in the spike corpus beyond the list of T029 (counts of calls): `Misc:encode` with
+  2 arguments (3), `Misc:encodeWithCompression` (6), `Misc:setVariable` with 3 arguments (1),
+  `ISFunctions:encode` (1); `Formatter:convertDateString` takes 4 or 9 arguments and
+  `Formatter:calculateDateDifference` 11.
+- Real XSLT Converter modules name either `net.sf.saxon.TransformerFactoryImpl` or the Saxon-EE
+  factory in `xslt.transformer`.
