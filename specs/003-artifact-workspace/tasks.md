@@ -230,7 +230,7 @@ unchanged re-export, round trip.
   performance (SC-006): a synthetic archive with one diagram group, 20 workflows and 100 modules (built
   from fixture modules by renaming) is read, redacted, written and committed in under 60 s with the
   fake StartCLI returning at once.
-- [ ] T022 [US1] `test/application/WorkspaceLocalChangesTest.java` first, then the remaining
+- [X] T022 [US1] `test/application/WorkspaceLocalChangesTest.java` first, then the remaining
   `WorkspaceService` behaviour (clarification 1, FR-019): an edited and an added file are committed as
   `local changes` before the export commit; both commits in the result; nothing is discarded.
 - [ ] T023 [US1] Extend `main/mcp/ToolHints.java` test-first with
