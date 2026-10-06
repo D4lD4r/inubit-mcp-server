@@ -25,6 +25,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.Set;
 import java.util.SortedSet;
 import java.util.TimeZone;
 import java.util.TreeSet;
@@ -44,7 +45,6 @@ import net.sf.saxon.s9api.Processor;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.BooleanValue;
 import net.sf.saxon.value.EmptySequence;
-import net.sf.saxon.value.Int64Value;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.value.StringValue;
 
@@ -59,7 +59,10 @@ import net.sf.saxon.value.StringValue;
  * {@code 2000-01-01T00:00:00Z}; date patterns are {@link SimpleDateFormat} patterns and dates are
  * read and written in UTC unless a time zone is passed; {@code sleep} returns at once. Where the
  * INUBIT documentation does not say what a function does, the stand-in's Javadoc states the
- * assumed behaviour; a run that used a stand-in is reported as such.
+ * assumed behaviour; a run that used a stand-in is reported as such, one that used an assumed
+ * stand-in ({@link #ASSUMED}) or took a fallback ({@link #fallbacks()}) also gets a warning.
+ * {@code Formatter:calculateDateDifference} has no stand-in: nothing about its eleven
+ * parameters is documented, so a stylesheet that calls it is not testable locally.
  */
 public final class InubitStandIns {
 
@@ -67,6 +70,16 @@ public final class InubitStandIns {
     public static final String GUID = "00000000-0000-0000-0000-000000000000";
     /** The instant of the date/time stand-ins without a {@code now} of the run. */
     public static final Instant FIXED_NOW = Instant.parse("2000-01-01T00:00:00Z");
+
+    /**
+     * The stand-ins whose behaviour is assumed because the INUBIT documentation does not say
+     * it; a run that uses one gets the warning {@code XSLT_STANDIN_ASSUMED} (review I2).
+     */
+    static final Set<String> ASSUMED = Set.of("Misc.encode", "Misc.decode",
+        "Misc.encodeWithCompression", "Misc.stringToBranch", "Misc.setVariableStorage",
+        "Misc.setVariable", "Misc.getVariable", "Formatter.convertDateString",
+        "Formatter.formatNumber", "Formatter.parseSchemaDateToSQLTimestamp",
+        "ISFunctions.encode");
 
     static final String MISC = "java:com.inubit.ibis.xsltext.Misc";
     static final String FORMATTER = "java:com.inubit.ibis.xsltext.Formatter";
@@ -78,6 +91,8 @@ public final class InubitStandIns {
 
     private final Instant now;
     private final SortedSet<String> used = new TreeSet<>();
+    private final SortedSet<String> assumed = new TreeSet<>();
+    private final SortedSet<String> fallbacks = new TreeSet<>();
     private final Map<String, String> variables = new ConcurrentHashMap<>();
 
     /** @param now the instant of the date/time stand-ins; {@link #FIXED_NOW} if empty */
@@ -89,6 +104,32 @@ public final class InubitStandIns {
     public SortedSet<String> used() {
         synchronized (used) {
             return new TreeSet<>(used);
+        }
+    }
+
+    /**
+     * The stand-ins called so far whose behaviour is assumed, not documented (review I2), e.g.
+     * {@code Misc.encode}, sorted.
+     */
+    public SortedSet<String> assumed() {
+        synchronized (used) {
+            return new TreeSet<>(assumed);
+        }
+    }
+
+    /**
+     * The fallbacks taken so far, e.g. a date that could not be read and was kept; each starts
+     * with the stand-in's name (review I2).
+     */
+    public SortedSet<String> fallbacks() {
+        synchronized (used) {
+            return new TreeSet<>(fallbacks);
+        }
+    }
+
+    private void fallback(String standIn, String what) {
+        synchronized (used) {
+            fallbacks.add(standIn + ": " + what);
         }
     }
 
@@ -116,7 +157,7 @@ public final class InubitStandIns {
             (c, a) -> string(Base64.getEncoder().encodeToString(gzip(text(a, 0)))));
         /* stringToBranch(xml): assumed to parse the text into a document node. */
         define(processor, MISC, "Misc", "stringToBranch", 1, 1, false,
-            (c, a) -> parse(c, text(a, 0)));
+            (c, a) -> parse(c, text(a, 0), "Misc.stringToBranch"));
         /* setVariableStorage(storage): no storage is kept beyond the run; returns nothing. */
         define(processor, MISC, "Misc", "setVariableStorage", 1, 1, true,
             (c, a) -> EmptySequence.getInstance());
@@ -134,7 +175,8 @@ public final class InubitStandIns {
         define(processor, FORMATTER, "Formatter", "changeDateFormat", 2, 2, false, (c, a) -> {
             String patterns = text(a, 1);
             int bar = patterns.indexOf('|');
-            return bar < 0 ? string(text(a, 0)) : string(convert(text(a, 0),
+            return bar < 0 ? string(text(a, 0)) : string(convert(
+                "Formatter.changeDateFormat", text(a, 0),
                 patterns.substring(0, bar), Locale.ROOT, "UTC", patterns.substring(bar + 1),
                 Locale.ROOT, "UTC"));
         });
@@ -145,9 +187,11 @@ public final class InubitStandIns {
          */
         define(processor, FORMATTER, "Formatter", "convertDateString", 4, 9, false, (c, a) ->
             a.length >= 9
-                ? string(convert(text(a, 0), text(a, 1), locale(text(a, 2), text(a, 3)),
+                ? string(convert("Formatter.convertDateString", text(a, 0), text(a, 1),
+                    locale(text(a, 2), text(a, 3)),
                     text(a, 4), text(a, 5), locale(text(a, 6), text(a, 7)), text(a, 8)))
-                : string(convert(text(a, 0), text(a, 1), Locale.ROOT, text(a, 3), text(a, 2),
+                : string(convert("Formatter.convertDateString", text(a, 0), text(a, 1),
+                    Locale.ROOT, text(a, 3), text(a, 2),
                     Locale.ROOT, text(a, 3))));
         /* trim(text): leading and trailing white space removed. */
         define(processor, FORMATTER, "Formatter", "trim", 1, 1, false,
@@ -159,6 +203,7 @@ public final class InubitStandIns {
                 return string(new DecimalFormat(text(a, 1), DecimalFormatSymbols.getInstance(
                     locale)).format(new BigDecimal(text(a, 0).strip())));
             } catch (IllegalArgumentException e) {
+                fallback("Formatter.formatNumber", "the number could not be read and was kept");
                 return string(text(a, 0));
             }
         });
@@ -178,13 +223,6 @@ public final class InubitStandIns {
          */
         define(processor, FORMATTER, "Formatter", "parseSchemaDateToSQLTimestamp", 1, 1, false,
             (c, a) -> string(sqlTimestamp(text(a, 0))));
-        /*
-         * calculateDateDifference (eleven arguments): the INUBIT documentation was not available;
-         * the stand-in returns 0 — the run is marked as using stand-ins.
-         */
-        define(processor, FORMATTER, "Formatter", "calculateDateDifference", 11, 11, false,
-            (c, a) -> Int64Value.makeIntegerValue(0));
-
         // --- ISFunctions -------------------------------------------------------------------
         /* serialize(node): the node as XML text without declaration. */
         define(processor, IS_FUNCTIONS, "ISFunctions", "serialize", 1, 1, false, (c, a) -> {
@@ -194,7 +232,7 @@ public final class InubitStandIns {
         });
         /* deserialize(xml): the text parsed into a document node. */
         define(processor, IS_FUNCTIONS, "ISFunctions", "deserialize", 1, 1, false,
-            (c, a) -> parse(c, text(a, 0)));
+            (c, a) -> parse(c, text(a, 0), "ISFunctions.deserialize"));
         /* encode(text): assumed base64 of the UTF-8 text, like Misc:encode. */
         define(processor, IS_FUNCTIONS, "ISFunctions", "encode", 1, 1, false, (c, a) -> string(
             Base64.getEncoder().encodeToString(text(a, 0).getBytes(StandardCharsets.UTF_8))));
@@ -262,6 +300,9 @@ public final class InubitStandIns {
                         throws XPathException {
                         synchronized (used) {
                             used.add(name);
+                            if (ASSUMED.contains(name)) {
+                                assumed.add(name);
+                            }
                         }
                         return body.call(context, arguments);
                     }
@@ -302,19 +343,22 @@ public final class InubitStandIns {
      * declaration (no entities or external documents are ever resolved) or one that is not
      * well-formed.
      */
-    private static Sequence parse(XPathContext context, String xml) {
+    private Sequence parse(XPathContext context, String xml, String standIn) {
         if (xml.toUpperCase(Locale.ROOT).contains("<!DOCTYPE")) {
+            fallback(standIn, "the text has a document type declaration (not read); empty"
+                + " result");
             return EmptySequence.getInstance();
         }
         try {
             return context.getConfiguration().buildDocumentTree(new StreamSource(
                 new StringReader(xml))).getRootNode();
         } catch (XPathException e) {
+            fallback(standIn, "the text is not well-formed XML; empty result");
             return EmptySequence.getInstance();
         }
     }
 
-    private static String convert(String value, String inPattern, Locale inLocale,
+    private String convert(String standIn, String value, String inPattern, Locale inLocale,
         String inZone, String outPattern, Locale outLocale, String outZone) {
         try {
             SimpleDateFormat in = new SimpleDateFormat(inPattern, inLocale);
@@ -322,6 +366,7 @@ public final class InubitStandIns {
             in.setTimeZone(TimeZone.getTimeZone(inZone.isBlank() ? "UTC" : inZone));
             return format(in.parse(value.strip()), outPattern, outLocale, outZone);
         } catch (ParseException | IllegalArgumentException e) {
+            fallback(standIn, "the date could not be read and was kept");
             return value;
         }
     }

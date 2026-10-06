@@ -232,9 +232,25 @@ public final class SaxonXsltRunner implements XsltPort {
             throw new UncheckedIOException(e);
         }
         List<String> used = List.copyOf(standIns.used());
-        List<CheckFinding> findings = used.isEmpty() ? List.of()
-            : List.of(finding(Severity.INFO, stylesheetPath, Optional.empty(),
+        List<CheckFinding> findings = new ArrayList<>();
+        if (!used.isEmpty()) {
+            findings.add(finding(Severity.INFO, stylesheetPath, Optional.empty(),
                 "XSLT_STANDINS_USED", "stand-ins used: " + String.join(", ", used)));
+        }
+        // review I2: an OK run never rests silently on an assumed or invented result
+        List<String> assumptions = new ArrayList<>();
+        if (!standIns.assumed().isEmpty()) {
+            assumptions.add("stand-ins with assumed behaviour: " + String.join(", ",
+                standIns.assumed()));
+        }
+        if (!standIns.fallbacks().isEmpty()) {
+            assumptions.add("fallbacks: " + String.join("; ", standIns.fallbacks()));
+        }
+        if (!assumptions.isEmpty()) {
+            findings.add(finding(Severity.WARNING, stylesheetPath, Optional.empty(),
+                "XSLT_STANDIN_ASSUMED", "the output rests on assumptions — "
+                    + String.join("; ", assumptions)));
+        }
         return new XsltRun(stylesheetPath, inputPath, Optional.of(relative(output)), Outcome.OK,
             used, findings);
     }

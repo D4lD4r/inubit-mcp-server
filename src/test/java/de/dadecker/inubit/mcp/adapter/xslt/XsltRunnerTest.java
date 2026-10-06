@@ -100,6 +100,51 @@ class XsltRunnerTest {
     }
 
     @Test
+    void assumedStandInsAndFallbacksAreAWarning() throws IOException {
+        // review I2: OK, but not silently resting on an invented result
+        put(MODULES + "Module-assumed/xslt.stylesheet.xsl", """
+            <xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+                xmlns:Misc="java:com.inubit.ibis.xsltext.Misc"
+                xmlns:Formatter="java:com.inubit.ibis.xsltext.Formatter">
+              <xsl:output method="text"/>
+              <xsl:template match="/">
+                <xsl:value-of select="Misc:encode('abc'),
+                    Formatter:changeDateFormat('soon', 'yyyy-MM-dd|dd.MM.yyyy')"/>
+              </xsl:template>
+            </xsl:stylesheet>
+            """);
+
+        XsltRun run = run("assumed", Optional.empty());
+
+        assertThat(run.outcome()).isEqualTo(Outcome.OK);
+        assertThat(run.findings()).extracting(CheckFinding::code)
+            .containsExactly("XSLT_STANDINS_USED", "XSLT_STANDIN_ASSUMED");
+        assertThat(run.findings().get(1)).satisfies(finding -> {
+            assertThat(finding.severity()).isEqualTo(Severity.WARNING);
+            assertThat(finding.message()).contains("Misc.encode",
+                "Formatter.changeDateFormat: the date could not be read and was kept");
+        });
+    }
+
+    @Test
+    void aFunctionWithoutDocumentedBehaviourIsNotTestable() throws IOException {
+        put(MODULES + "Module-difference/xslt.stylesheet.xsl", """
+            <xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+                xmlns:Formatter="java:com.inubit.ibis.xsltext.Formatter">
+              <xsl:template match="/">
+                <d><xsl:value-of select="Formatter:calculateDateDifference('a', 'b', 'c', 'd',
+                    'e', 'f', 'g', 'h', 'i', 'j', 'k')"/></d>
+              </xsl:template>
+            </xsl:stylesheet>
+            """);
+
+        XsltRun run = run("difference", Optional.empty());
+
+        assertThat(run.outcome()).isEqualTo(Outcome.NOT_TESTABLE);
+        assertThat(run.findings().get(0).message()).contains("calculateDateDifference");
+    }
+
+    @Test
     void anUnknownExtensionIsNotTestableNeverOk() {
         XsltRun run = run("unknown-extension", Optional.empty());
 

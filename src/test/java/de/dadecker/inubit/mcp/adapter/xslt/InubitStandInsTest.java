@@ -95,8 +95,6 @@ class InubitStandInsTest {
             .as("an unparseable value stays").isEqualTo("not a date");
         assertThat(eval("Formatter:parseSchemaDateToSQLTimestamp('2026-10-06T12:30:00')"))
             .isEqualTo("2026-10-06 12:30:00.0");
-        assertThat(eval("Formatter:calculateDateDifference('a', 'b', 'c', 'd', 'e', 'f', 'g',"
-            + " 'h', 'i', 'j', 'k')")).isEqualTo("0");
     }
 
     @Test
@@ -137,6 +135,27 @@ class InubitStandInsTest {
             .isEqualTo("v|");
         assertThat(standIns.used()).containsExactly("Misc.getVariable", "Misc.setVariable",
             "Misc.setVariableStorage");
+    }
+
+    @Test
+    void assumedBehaviourAndFallbacksAreRecorded() throws SaxonApiException {
+        // review I2: an OK run must never rest silently on an invented result
+        eval("Misc:guid(), Formatter:getDateTime('yyyy')");
+        assertThat(standIns.assumed()).isEmpty();
+        assertThat(standIns.fallbacks()).isEmpty();
+
+        eval("Misc:encode('abc'), Formatter:convertDateString('06.10.2026', 'dd.MM.yyyy',"
+            + " 'yyyy-MM-dd', 'UTC')");
+        assertThat(standIns.assumed()).containsExactly("Formatter.convertDateString",
+            "Misc.encode");
+        assertThat(standIns.fallbacks()).isEmpty();
+
+        eval("Formatter:changeDateFormat('not a date', 'yyyy-MM-dd|dd.MM.yyyy'),"
+            + " count(Misc:stringToBranch('<a')), count(ISFunctions:deserialize('<b'))");
+        assertThat(standIns.fallbacks()).containsExactly(
+            "Formatter.changeDateFormat: the date could not be read and was kept",
+            "ISFunctions.deserialize: the text is not well-formed XML; empty result",
+            "Misc.stringToBranch: the text is not well-formed XML; empty result");
     }
 
     @Test
