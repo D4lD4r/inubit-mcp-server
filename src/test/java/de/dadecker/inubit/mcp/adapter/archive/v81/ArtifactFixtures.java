@@ -75,6 +75,21 @@ public final class ArtifactFixtures {
         return entries;
     }
 
+    /** A ZIP of {@code entries} in their order (test archives derived from the fixtures). */
+    public static byte[] zip(Map<String, byte[]> entries) {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream out = new java.util.zip.ZipOutputStream(bytes)) {
+            for (Map.Entry<String, byte[]> entry : entries.entrySet()) {
+                out.putNextEntry(new ZipEntry(entry.getKey()));
+                out.write(entry.getValue());
+                out.closeEntry();
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return bytes.toByteArray();
+    }
+
     /** The synthetic secret values listed in the fixture README, in file order. */
     public static List<SyntheticSecret> syntheticSecrets() {
         String readme = new String(bytes("README.md"), StandardCharsets.UTF_8);

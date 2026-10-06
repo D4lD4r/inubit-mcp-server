@@ -197,7 +197,7 @@ unchanged re-export, round trip.
   `CheckinComment` export suffix ("from the first `@@@Deploying User:` to the end"), archive
   properties and repository metadata; `CheckoutUser`, `IsActive`, layout, `LastUpdate`, `ExportUser`
   stay in the reviewed files (FR-014).
-- [ ] T017 [US1] `main/adapter/archive/v81/WorkspaceWriter.java` with test first: turns a
+- [X] T017 [US1] `main/adapter/archive/v81/WorkspaceWriter.java` with test first: turns a
   `RedactedArchive` into a set of files under `<group>/<owner>/` (one file per workflow with root
   `Workflow`, `module.xml` + `index.xml` + embedded files per module, referenced repository files only)
   plus meta records, all through `XmlNormalizer` (a module listed twice in the index is written
