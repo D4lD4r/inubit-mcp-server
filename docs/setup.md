@@ -491,6 +491,7 @@ Profile: acme (ACME – INUBIT integration platform)
 Terminology: Umgebung/Umgebungen, Knoten/Knoten
 Credential variables: INUBIT_ACME_<UMGEBUNG>[_<KNOTEN>]_USERNAME / _PASSWORD
 Audit directory: /Users/jdoe/.inubit-mcp/acme/audit
+Workspace: /Users/jdoe/.inubit-mcp/acme/workspace (ok)
 Umgebung test:
   Knoten test/node1: write enabled (confirmation SERVER), cli: available, username ← INUBIT_ACME_TEST_USERNAME, password ← INUBIT_ACME_TEST_PASSWORD
   Knoten test/node2: write enabled (confirmation SERVER), cli: available, username ← INUBIT_ACME_TEST_USERNAME, password ← INUBIT_ACME_TEST_PASSWORD

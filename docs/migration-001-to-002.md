@@ -284,6 +284,7 @@ Profile: acme (ACME – INUBIT integration platform)
 Terminology: stage/stages, server/servers
 Credential variables: INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD
 Audit directory: /Users/jdoe/.inubit-mcp/acme/audit
+Workspace: /Users/jdoe/.inubit-mcp/acme/workspace (ok)
 Stage dev:
   Server dev/node1: write enabled (confirmation CLIENT), cli: unavailable, username ← INUBIT_DEV_USERNAME, password ← INUBIT_DEV_PASSWORD
 Stage qa:

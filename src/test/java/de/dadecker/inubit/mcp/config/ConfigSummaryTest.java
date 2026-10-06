@@ -30,13 +30,17 @@ class ConfigSummaryTest {
     private final Predicate<Path> exists = Set.of(Path.of("/opt/client/bin/startcli.sh"))::contains;
 
     private String render(String yaml) {
+        return render(yaml, NO_DISK);
+    }
+
+    private String render(String yaml, WorkspaceDirectory.Preparer workspaces) {
         LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, false).parse(yaml, SOURCE);
         CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
             loaded.config().credentialPrefix())
             .resolve(loaded.config().nodeIds());
         ValidationReport report =
             new ConfigValidator(exists, env, false, Path.of(System.getProperty("java.io.tmpdir")),
-                source -> List.of(), NO_DISK).validate(loaded, credentials);
+                source -> List.of(), workspaces).validate(loaded, credentials);
         return new ConfigSummary(exists, false).render(loaded, credentials, report);
     }
 
@@ -64,6 +68,23 @@ class ConfigSummaryTest {
               - name: inubit01
                 baseUrl: https://inubit-prod-01.example.test:8443
         """;
+
+    // --- T034: the workspace line (FR-004) -------------------------------------------------------
+
+    @Test
+    void theWorkspaceLineSaysOkCreatedOrTheError() {
+        Path workspace = HOME.resolve(".inubit-mcp/acme/workspace");
+
+        assertThat(render(CONFIG)).contains("Workspace: " + workspace + " (ok)\n");
+        assertThat(render(CONFIG, any -> new WorkspaceDirectory.Usable(true)))
+            .contains("Workspace: " + workspace + " (created)\n");
+        assertThat(render(CONFIG, any -> new WorkspaceDirectory.Unusable("The workspace "
+            + any + " is not writable"))).contains("Workspace: " + workspace + " (The workspace "
+                + workspace + " is not writable)\n");
+        assertThat(render(CONFIG.replace("profile:\n  name: acme\n",
+            "profile:\n  name: acme\nworkspace: relative/dir\n")))
+            .containsPattern("Workspace: .*relative/dir \\(not usable: see the errors\\)\n");
+    }
 
     @Test
     void listsEveryServerWithWriteFlagCliAvailabilityAndVariableNames() {
