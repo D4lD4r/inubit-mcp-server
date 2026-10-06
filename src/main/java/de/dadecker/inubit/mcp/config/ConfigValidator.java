@@ -116,7 +116,7 @@ public final class ConfigValidator {
         }
         loaded.urlProblems().forEach(findings::error);
         checkProfile(config, findings);
-        checkWorkspace(config, findings);
+        Optional<WorkspaceDirectory.Result> workspace = checkWorkspace(config, findings);
         checkStructure(config, findings);
         checkResultLimits(config.resultLimits(), findings);
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
@@ -151,7 +151,7 @@ public final class ConfigValidator {
         checkOtherProfiles(loaded, findings);
         findings.errors.addAll(credentials.errors());
         findings.warnings.addAll(credentials.warnings());
-        return new ValidationReport(findings.errors, findings.warnings);
+        return new ValidationReport(findings.errors, findings.warnings, workspace);
     }
 
     /**
@@ -223,22 +223,27 @@ public final class ConfigValidator {
      * created owner-only if missing and checked to be a readable and writable directory. Nothing
      * is created for an invalid or reserved profile name (the server does not start with it, and
      * the default path would not belong to a real profile).
+     *
+     * @return the outcome (kept in the report for the configuration summary), or empty if the
+     *     workspace was not prepared
      */
-    private void checkWorkspace(ProfileConfig config, Findings findings) {
+    private Optional<WorkspaceDirectory.Result> checkWorkspace(ProfileConfig config,
+        Findings findings) {
         Path workspace = config.workspace();
         if (!workspace.isAbsolute()) {
             findings.error("workspace " + workspace + " must be absolute after expansion of ~"
                 + " (e.g. ~/work/acme-inubit or /srv/inubit/acme)");
-            return;
+            return Optional.empty();
         }
         String name = config.profile().name();
         if (!ProfileInfo.isValidName(name) || ProfileInfo.isReservedName(name)) {
-            return;
+            return Optional.empty();
         }
-        if (workspaces.prepare(workspace.normalize())
-            instanceof WorkspaceDirectory.Unusable unusable) {
+        WorkspaceDirectory.Result result = workspaces.prepare(workspace.normalize());
+        if (result instanceof WorkspaceDirectory.Unusable unusable) {
             findings.error(unusable.problem());
         }
+        return Optional.of(result);
     }
 
     /** {@code a}, {@code a and b}, {@code a, b and c}. */

@@ -1143,6 +1143,16 @@ class ConfigValidatorTest {
 
             assertThat(report.errors()).isEmpty();
             assertThat(prepared).containsExactly(HOME.resolve(".inubit-mcp/acme/workspace"));
+            assertThat(report.workspace()).contains(new WorkspaceDirectory.Usable(false));
+        }
+
+        @Test
+        void theReportKeepsWhetherTheWorkspaceWasCreated() {
+            // review M10: --check-config prints "created" (T034)
+            workspaceResult = new WorkspaceDirectory.Usable(true);
+
+            assertThat(validate(server("")).workspace())
+                .contains(new WorkspaceDirectory.Usable(true));
         }
 
         @Test
@@ -1152,6 +1162,7 @@ class ConfigValidatorTest {
             assertThat(report.errors()).singleElement().asString()
                 .contains("workspace", "relative/ws", "must be absolute after expansion");
             assertThat(prepared).isEmpty();
+            assertThat(report.workspace()).isEmpty();
         }
 
         @Test
@@ -1163,6 +1174,7 @@ class ConfigValidatorTest {
 
             assertThat(report.errors()).containsExactly(
                 "The workspace /srv/ws must be readable and writable");
+            assertThat(report.workspace()).contains(workspaceResult);
         }
 
         @Test

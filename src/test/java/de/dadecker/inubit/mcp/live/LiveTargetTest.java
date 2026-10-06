@@ -113,6 +113,19 @@ class LiveTargetTest {
     }
 
     @Test
+    void resolvingTheTargetCreatesNoWorkspaceOfTheProfile() throws IOException {
+        // review M11: live tests must not create the person's real workspace as a side effect
+        profileFile("globex");
+        credentials("INUBIT_GLOBEX");
+        env.put("INUBIT_MCP_PROFILE", "globex");
+        env.put("INUBIT_LIVE_NODE", "test/node1");
+
+        resolve();
+
+        assertThat(home.resolve(".inubit-mcp/globex/workspace")).doesNotExist();
+    }
+
+    @Test
     void theConfigVariableComesBeforeTheProfileVariable() throws IOException {
         Path acme = profileFile("acme");
         profileFile("globex");
