@@ -263,7 +263,7 @@ unchanged re-export, round trip.
 
 **Independent test**: one finding per defect fixture, none on unchanged fixtures.
 
-- [ ] T025 [US3] `test/application/ArtifactCheckServiceTest.java` first, then
+- [X] T025 [US3] `test/application/ArtifactCheckServiceTest.java` first, then
   `main/application/ArtifactCheckService.java` (D-13) for workflow files: `EDGE_TARGET_MISSING`,
   `ID_COLLISION` (ModuleId and ConnectionId together), `DEMUX_KEY_UNMATCHED` (keys
   `<Name>(<id>)@@@…` and `DefaultOutput`), `PARENT_REF_MISSING` (`ParentModule`, `EndLoopId`,
