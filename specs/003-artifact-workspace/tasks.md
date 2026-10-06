@@ -128,7 +128,7 @@ are P1, and no export may write a file before redaction exists.
   `<root>/.lock`; second acquisition in the same JVM and from a second process (spawn
   `java -cp … LockHolder`) fails with `PRECONDITION_FAILED` "another export or check is running";
   released on close, also after an exception.
-- [ ] T011 Workspace configuration (FR-001, FR-002) in `main/config/ProfileConfig.java`,
+- [X] T011 Workspace configuration (FR-001, FR-002) in `main/config/ProfileConfig.java`,
   `ConfigLoader.java`, `ConfigValidator.java` with tests first in `test/config/ConfigLoaderTest.java`
   and `ConfigValidatorTest.java`: optional top-level `workspace`, default
   `~/.inubit-mcp/<profile.name>/workspace`, `~` expanded, "must be absolute after expansion",

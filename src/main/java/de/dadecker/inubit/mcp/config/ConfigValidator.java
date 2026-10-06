@@ -47,6 +47,7 @@ public final class ConfigValidator {
     private final boolean windows;
     private final Path tempDirectory;
     private final Function<Path, List<LoadedConfig>> otherProfiles;
+    private final WorkspaceDirectory.Preparer workspaces;
 
     /**
      * @param exists      file-system check, injectable for tests
@@ -74,6 +75,18 @@ public final class ConfigValidator {
      */
     public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
         boolean windows, Path tempDirectory, Function<Path, List<LoadedConfig>> otherProfiles) {
+        this(exists, environment, windows, tempDirectory, otherProfiles,
+            WorkspaceDirectory::prepare);
+    }
+
+    /**
+     * @param workspaces creates and checks the workspace directory ({@link
+     *     WorkspaceDirectory#prepare} unless a test injects another)
+     */
+    public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
+        boolean windows, Path tempDirectory, Function<Path, List<LoadedConfig>> otherProfiles,
+        WorkspaceDirectory.Preparer workspaces) {
+        this.workspaces = Objects.requireNonNull(workspaces, "workspaces");
         this.tempDirectory = tempDirectory;
         this.exists = exists;
         this.environment = Map.copyOf(environment);
@@ -103,6 +116,7 @@ public final class ConfigValidator {
         }
         loaded.urlProblems().forEach(findings::error);
         checkProfile(config, findings);
+        checkWorkspace(config, findings);
         checkStructure(config, findings);
         checkResultLimits(config.resultLimits(), findings);
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
@@ -201,6 +215,29 @@ public final class ConfigValidator {
                 findings.warning(otherFile + " has " + joined(shared) + "; profiles that run side"
                     + " by side need their own (credentials.envPrefix, auditDirectory)");
             }
+        }
+    }
+
+    /**
+     * The workspace of feature 003 (FR-001, FR-002): absolute after {@code ~} expansion, then
+     * created owner-only if missing and checked to be a readable and writable directory. Nothing
+     * is created for an invalid or reserved profile name (the server does not start with it, and
+     * the default path would not belong to a real profile).
+     */
+    private void checkWorkspace(ProfileConfig config, Findings findings) {
+        Path workspace = config.workspace();
+        if (!workspace.isAbsolute()) {
+            findings.error("workspace " + workspace + " must be absolute after expansion of ~"
+                + " (e.g. ~/work/acme-inubit or /srv/inubit/acme)");
+            return;
+        }
+        String name = config.profile().name();
+        if (!ProfileInfo.isValidName(name) || ProfileInfo.isReservedName(name)) {
+            return;
+        }
+        if (workspaces.prepare(workspace.normalize())
+            instanceof WorkspaceDirectory.Unusable unusable) {
+            findings.error(unusable.problem());
         }
     }
 

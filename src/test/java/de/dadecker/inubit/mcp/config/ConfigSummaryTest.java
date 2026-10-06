@@ -5,12 +5,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 import org.junit.jupiter.api.Test;
 
 class ConfigSummaryTest {
+
+    /** The fictitious home is never touched: the workspace is not created (feature 003). */
+    private static final WorkspaceDirectory.Preparer NO_DISK =
+        workspace -> new WorkspaceDirectory.Usable(false);
 
     private static final Path HOME = Path.of("/home/test");
     private static final Path SOURCE = HOME.resolve(".config/inubit-mcp/config.yaml");
@@ -30,7 +35,8 @@ class ConfigSummaryTest {
             loaded.config().credentialPrefix())
             .resolve(loaded.config().nodeIds());
         ValidationReport report =
-            new ConfigValidator(exists, env, false).validate(loaded, credentials);
+            new ConfigValidator(exists, env, false, Path.of(System.getProperty("java.io.tmpdir")),
+                source -> List.of(), NO_DISK).validate(loaded, credentials);
         return new ConfigSummary(exists, false).render(loaded, credentials, report);
     }
 

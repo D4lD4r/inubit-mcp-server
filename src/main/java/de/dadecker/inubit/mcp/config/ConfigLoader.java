@@ -54,6 +54,8 @@ import tools.jackson.dataformat.yaml.YAMLMapper;
  *       {@link LoadedConfig#credentialKeys()} for {@link ConfigValidator}; their values are
  *       dropped.
  *   <li>{@code ~} at the start of a path means the user's home directory.
+ *   <li>Defaults that depend on the profile name: {@code auditDirectory} and {@code workspace}
+ *       (feature 003) below {@code ~/.inubit-mcp/<profile.name>}.
  * </ul>
  */
 public final class ConfigLoader {
@@ -310,6 +312,9 @@ public final class ConfigLoader {
         if (!rootObject.hasNonNull("auditDirectory")) {
             rootObject.put("auditDirectory", defaultAuditDirectory(rootObject).toString());
         }
+        if (!rootObject.hasNonNull("workspace")) {
+            rootObject.put("workspace", defaultWorkspace(rootObject).toString());
+        }
         try {
             return new LoadedConfig(source, mapper.treeToValue(rootObject, ProfileConfig.class),
                 credentialKeys, urlProblems);
@@ -339,6 +344,19 @@ public final class ConfigLoader {
             return AuditLog.defaultDirectory(userHome, name.asString());
         }
         return userHome.resolve(".inubit-mcp").resolve(NO_PROFILE_AUDIT_DIRECTORY).resolve("audit");
+    }
+
+    /**
+     * {@code <home>/.inubit-mcp/<profile.name>/workspace} (feature 003, FR-001). As for the audit
+     * directory, an invalid profile name is never part of the path: it is
+     * {@link #NO_PROFILE_AUDIT_DIRECTORY} then (the server does not start with such a name, and
+     * {@link ConfigValidator} creates no workspace for it).
+     */
+    private Path defaultWorkspace(ObjectNode root) {
+        JsonNode name = root.path("profile").path("name");
+        String directory = name.isString() && ProfileInfo.isValidName(name.asString())
+            ? name.asString() : NO_PROFILE_AUDIT_DIRECTORY;
+        return userHome.resolve(".inubit-mcp").resolve(directory).resolve("workspace");
     }
 
     /** True for keys that must never appear in the YAML: credentials come from the environment. */

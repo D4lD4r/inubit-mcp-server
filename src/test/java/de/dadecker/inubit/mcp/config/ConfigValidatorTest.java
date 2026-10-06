@@ -7,8 +7,11 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,6 +34,9 @@ class ConfigValidatorTest {
     /** Stage-wide credential variables that a test wants to be unset. */
     private final Set<String> unset = new HashSet<>();
     private final Set<Path> existing = new HashSet<>();
+    /** Workspaces the validator asked to prepare; no directory is created by these tests. */
+    private final List<Path> prepared = new ArrayList<>();
+    private WorkspaceDirectory.Result workspaceResult = new WorkspaceDirectory.Usable(false);
     private boolean windows;
     private Path tempDirectory = Path.of("/var/tmp/inubit-test");
 
@@ -59,8 +65,11 @@ class ConfigValidatorTest {
         CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
             loaded.config().credentialPrefix())
             .resolve(loaded.config().nodeIds());
-        return new ConfigValidator(existing::contains, env, windows, tempDirectory)
-            .validate(loaded, credentials);
+        return new ConfigValidator(existing::contains, env, windows, tempDirectory,
+            source -> List.of(), workspace -> {
+                prepared.add(workspace);
+                return workspaceResult;
+            }).validate(loaded, credentials);
     }
 
     private static String server(String settings) {
@@ -1122,5 +1131,117 @@ class ConfigValidatorTest {
 
         assertThat(report.errors()).anySatisfy(error -> assertThat(error)
             .contains("profile.name", "'audit'", "reserved"));
+    }
+
+    /** T011 (feature 003, FR-001, FR-002): the workspace setting. */
+    @Nested
+    class Workspace {
+
+        @Test
+        void theDefaultWorkspaceIsPrepared() {
+            ValidationReport report = validate(server(""));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(prepared).containsExactly(HOME.resolve(".inubit-mcp/acme/workspace"));
+        }
+
+        @Test
+        void aRelativeWorkspaceIsAnErrorNamingThePath() {
+            ValidationReport report = validate("workspace: relative/ws\n" + server(""));
+
+            assertThat(report.errors()).singleElement().asString()
+                .contains("workspace", "relative/ws", "must be absolute after expansion");
+            assertThat(prepared).isEmpty();
+        }
+
+        @Test
+        void anUnusableWorkspaceIsAnError() {
+            workspaceResult = new WorkspaceDirectory.Unusable(
+                "The workspace /srv/ws must be readable and writable");
+
+            ValidationReport report = validate("workspace: /srv/ws\n" + server(""));
+
+            assertThat(report.errors()).containsExactly(
+                "The workspace /srv/ws must be readable and writable");
+        }
+
+        @Test
+        void nothingIsPreparedForAnInvalidProfileName() {
+            ValidationReport report = validate(server("").replace("name: acme", "name: Acme!"));
+
+            assertThat(report.errors()).isNotEmpty();
+            assertThat(prepared).isEmpty();
+        }
+    }
+
+    /** T011: preparing a workspace on the real file system. */
+    @Nested
+    class WorkspaceOnDisk {
+
+        @TempDir
+        Path home;
+
+        @Test
+        void aMissingWorkspaceIsCreatedOwnerOnlyWithItsMissingParents() throws IOException {
+            Path workspace = home.resolve("a/b/workspace");
+
+            WorkspaceDirectory.Result result = WorkspaceDirectory.prepare(workspace);
+
+            assertThat(result).isEqualTo(new WorkspaceDirectory.Usable(true));
+            for (Path created : List.of(home.resolve("a"), home.resolve("a/b"), workspace)) {
+                assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(created)))
+                    .as(created.toString()).isEqualTo("rwx------");
+            }
+            assertThat(WorkspaceDirectory.prepare(workspace))
+                .isEqualTo(new WorkspaceDirectory.Usable(false));
+        }
+
+        @Test
+        void anExistingWorkspaceKeepsItsPermissions() throws IOException {
+            Path workspace = Files.createDirectory(home.resolve("ws"),
+                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwxr-x---")));
+
+            assertThat(WorkspaceDirectory.prepare(workspace))
+                .isEqualTo(new WorkspaceDirectory.Usable(false));
+            assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(workspace)))
+                .isEqualTo("rwxr-x---");
+        }
+
+        @Test
+        void aWorkspaceThatIsNotWritableIsUnusable() throws IOException {
+            Path workspace = Files.createDirectory(home.resolve("ro"),
+                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("r-x------")));
+
+            assertThat(WorkspaceDirectory.prepare(workspace))
+                .isInstanceOfSatisfying(WorkspaceDirectory.Unusable.class, u -> assertThat(
+                    u.problem()).contains(workspace.toString(), "must be readable and writable"));
+        }
+
+        @Test
+        void aFileOrAnUncreatableWorkspaceIsUnusable() throws IOException {
+            Path file = Files.writeString(home.resolve("file"), "x");
+
+            assertThat(WorkspaceDirectory.prepare(file))
+                .isInstanceOfSatisfying(WorkspaceDirectory.Unusable.class,
+                    u -> assertThat(u.problem()).contains(file.toString(), "not a directory"));
+            assertThat(WorkspaceDirectory.prepare(file.resolve("below")))
+                .isInstanceOfSatisfying(WorkspaceDirectory.Unusable.class, u -> assertThat(
+                    u.problem()).contains(file.resolve("below").toString(), "cannot be created"));
+        }
+
+        @Test
+        void theValidatorCreatesTheWorkspaceAtStartup() {
+            LoadedConfig loaded = new ConfigLoader(Map.of(), home, false).parse(server(""),
+                home.resolve("config.yaml"));
+            CredentialResolution credentials = new CredentialResolver(Map.of(
+                "INUBIT_ACME_DEV_USERNAME", "u", "INUBIT_ACME_DEV_PASSWORD", "secret-value"),
+                new SecretScrubber(), "INUBIT_ACME").resolve(loaded.config().nodeIds());
+
+            ValidationReport report = new ConfigValidator(existing::contains, env, false,
+                tempDirectory, source -> List.of()).validate(loaded, credentials);
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(home.resolve(".inubit-mcp/acme/workspace")).isDirectory();
+        }
     }
 }
