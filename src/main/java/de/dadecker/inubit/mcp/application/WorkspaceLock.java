@@ -37,9 +37,20 @@ public final class WorkspaceLock implements AutoCloseable {
      * Locks the workspace {@code root}.
      *
      * @throws ToolErrorException {@code PRECONDITION_FAILED} if another export or check holds
-     *     the lock, or if the lock file cannot be opened
+     *     the lock, or (with another message) if the lock file cannot be opened or locked
      */
     public static WorkspaceLock acquire(Path root) {
+        return acquire(root, FileChannel::tryLock);
+    }
+
+    /** Takes the file lock; tests inject failures. */
+    @FunctionalInterface
+    interface Locker {
+
+        FileLock tryLock(FileChannel channel) throws IOException;
+    }
+
+    static WorkspaceLock acquire(Path root, Locker locker) {
         Objects.requireNonNull(root, "root");
         FileChannel channel;
         try {
@@ -54,9 +65,17 @@ public final class WorkspaceLock implements AutoCloseable {
         }
         FileLock lock;
         try {
-            lock = channel.tryLock();
-        } catch (OverlappingFileLockException | IOException e) {
-            lock = null;
+            lock = locker.tryLock(channel);
+        } catch (OverlappingFileLockException e) {
+            lock = null; // held in this process
+        } catch (IOException e) {
+            closeQuietly(channel);
+            throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+                "The lock file " + root.resolve(FILE) + " cannot be locked ("
+                    + e.getClass().getSimpleName() + ")",
+                "The file system of the workspace does not support file locks or reported an"
+                    + " I/O error",
+                "Put the workspace on a local file system (setting workspace) and retry"));
         }
         if (lock == null) {
             closeQuietly(channel);

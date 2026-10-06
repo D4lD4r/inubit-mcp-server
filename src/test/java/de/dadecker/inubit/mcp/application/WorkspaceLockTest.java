@@ -59,6 +59,19 @@ class WorkspaceLockTest {
     }
 
     @Test
+    void anIoErrorWhileLockingIsNotReportedAsBusy() {
+        assertThatThrownBy(() -> WorkspaceLock.acquire(root, channel -> {
+            throw new java.io.IOException("lock not supported");
+        })).isInstanceOfSatisfying(ToolErrorException.class, e -> {
+            assertThat(e.error().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
+            assertThat(e.error().message()).contains(root.resolve(".lock").toString(),
+                "cannot be locked").doesNotContain("another export or check is running");
+        });
+        // the failed attempt left nothing locked
+        WorkspaceLock.acquire(root).close();
+    }
+
+    @Test
     void closingTwiceIsHarmless() {
         WorkspaceLock lock = WorkspaceLock.acquire(root);
         lock.close();
