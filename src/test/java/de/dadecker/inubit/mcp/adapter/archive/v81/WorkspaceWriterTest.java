@@ -156,6 +156,50 @@ class WorkspaceWriterTest {
         assertThat(root.resolve("dev/jdoe/workflows/GRP-01/Workflow-0001.xml")).exists();
     }
 
+    /** {@code grp-a.zip} without {@code Module-0009} in its index and files. */
+    private static byte[] grpAWithoutModule0009() {
+        Map<String, byte[]> entries = new LinkedHashMap<>(ArtifactFixtures.entries("grp-a.zip"));
+        entries.remove("module/module-0009.xml");
+        entries.put("module/module.xml", new String(entries.get("module/module.xml"),
+            StandardCharsets.UTF_8).replaceFirst("(?s)<Module type=\"technical\""
+                + " version=\"head\">\\s*<ModuleName>Module-0009</ModuleName>.*?</Module>\\s*", "")
+            .getBytes(StandardCharsets.UTF_8));
+        return ArtifactFixtures.zip(entries);
+    }
+
+    @Test
+    void aModuleNoLongerInTheDiagramGroupIsRemoved() {
+        WorkspaceWriter.write(root, WorkspaceWriter.render(redacted("grp-a.zip"), DEV, "jdoe"));
+        Path module = root.resolve("dev/jdoe/modules/Assign/Module-0009");
+        Path meta = root.resolve(".meta/dev/jdoe/modules/Assign/Module-0009");
+        assertThat(module).isDirectory();
+        assertThat(meta).isDirectory();
+
+        WorkspaceWriter.write(root, WorkspaceWriter.render(redacted(grpAWithoutModule0009()), DEV,
+            "jdoe"));
+
+        assertThat(module).as("no longer exported (FR-017)").doesNotExist();
+        assertThat(meta).doesNotExist();
+        assertThat(root.resolve("dev/jdoe/modules/Assign/Module-0008")).isDirectory();
+    }
+
+    @Test
+    void aModuleStillExportedByAnotherRecordIsKept() throws IOException {
+        WorkspaceWriter.write(root, WorkspaceWriter.render(redacted("grp-a.zip"), DEV, "jdoe"));
+        Map<String, byte[]> entries = new LinkedHashMap<>(ArtifactFixtures.entries("grp-a.zip"));
+        entries.put("workflow/workflow.xml", new String(entries.get("workflow/workflow.xml"),
+            StandardCharsets.UTF_8).replace("GRP-01", "GRP-03").getBytes(
+                StandardCharsets.UTF_8));
+        WorkspaceWriter.write(root, WorkspaceWriter.render(redacted(ArtifactFixtures.zip(entries)),
+            DEV, "jdoe"));
+
+        WorkspaceWriter.write(root, WorkspaceWriter.render(redacted(grpAWithoutModule0009()), DEV,
+            "jdoe"));
+
+        assertThat(root.resolve("dev/jdoe/modules/Assign/Module-0009"))
+            .as("still part of the export of GRP-03").isDirectory();
+    }
+
     @Test
     void namesThatDifferOnlyInCaseAreRefused() {
         Map<String, byte[]> entries = new LinkedHashMap<>(ArtifactFixtures.entries("grp-a.zip"));

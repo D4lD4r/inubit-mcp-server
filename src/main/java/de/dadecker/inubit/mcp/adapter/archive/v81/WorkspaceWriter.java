@@ -114,11 +114,6 @@ public final class WorkspaceWriter {
                         + " is in edit mode by " + user + " (CheckoutUser)"));
                 usedModules.addAll(moduleNames(workflow.element()));
             }
-            files.put(exportRecord(group, owner, "workflows", diagramGroup.name()),
-                MetaStore.serialize(Map.of("kind", "workflows",
-                    "diagramGroup", diagramGroup.name(),
-                    "sourceVersion", export.properties().getOrDefault("sourceVersion", ""),
-                    "entries", export.entries())));
         }
 
         Map<String, List<ModuleIndexEntry>> index = new LinkedHashMap<>();
@@ -141,6 +136,18 @@ public final class WorkspaceWriter {
             if (module != null) {
                 module(group, owner, module, files, texts);
             }
+        }
+        List<Map<String, String>> exportedModules = index.values().stream()
+            .map(entries -> Map.of("name", entries.get(0).name(),
+                "pluginType", entries.get(0).pluginType()))
+            .toList();
+        for (WorkflowGroupXml diagramGroup : export.workflowGroups()) {
+            files.put(exportRecord(group, owner, "workflows", diagramGroup.name()),
+                MetaStore.serialize(Map.of("kind", "workflows",
+                    "diagramGroup", diagramGroup.name(),
+                    "modules", exportedModules,
+                    "sourceVersion", export.properties().getOrDefault("sourceVersion", ""),
+                    "entries", export.entries())));
         }
         if (export.workflowGroups().isEmpty()) {
             for (ModuleIndexEntry entry : export.moduleIndex()) {
@@ -223,7 +230,7 @@ public final class WorkspaceWriter {
         return names;
     }
 
-    private static void checkCaseCollisions(Set<String> paths) {
+    static void checkCaseCollisions(Set<String> paths) {
         Map<String, String> folded = new HashMap<>();
         for (String path : paths) {
             String previous = folded.putIfAbsent(path.toLowerCase(Locale.ROOT), path);
@@ -243,10 +250,20 @@ public final class WorkspaceWriter {
 
     /**
      * Writes {@code rendered} below {@code root}: the affected sub-trees are replaced (files not
-     * rendered again are deleted, empty directories removed), all rendered files written.
+     * rendered again are deleted, empty directories removed), all rendered files written. A
+     * module that a diagram group exported before but no longer does is removed, unless another
+     * export record of the owner still names it (FR-017).
      */
     public static void write(Path root, Rendered rendered) {
         try {
+            for (Path directory : orphanedModules(root, rendered)) {
+                deleteTree(directory);
+                for (Path parent = directory.getParent(); parent != null
+                    && !parent.equals(root) && isEmptyDirectory(parent);
+                    parent = parent.getParent()) {
+                    Files.delete(parent);
+                }
+            }
             for (String subtree : rendered.subtrees()) {
                 Path directory = root.resolve(subtree);
                 if (!Files.isDirectory(directory)) {
@@ -281,6 +298,86 @@ public final class WorkspaceWriter {
             }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * The module directories (files and {@code .meta/} mirror) that the diagram groups of
+     * {@code rendered} exported before but no longer do and that no other export record of the
+     * owner names.
+     */
+    private static List<Path> orphanedModules(Path root, Rendered rendered) throws IOException {
+        List<Path> orphans = new ArrayList<>();
+        for (Map.Entry<String, byte[]> file : rendered.files().entrySet()) {
+            String path = file.getKey();
+            int exports = path.indexOf("/" + EXPORTS_DIRECTORY + "/workflows/");
+            Path previous = root.resolve(path);
+            if (!path.startsWith(WorkspacePath.META_DIRECTORY + "/") || exports < 0
+                || !Files.isRegularFile(previous)) {
+                continue;
+            }
+            Set<List<String>> dropped = exportedModules(Files.readAllBytes(previous));
+            dropped.removeAll(exportedModules(file.getValue()));
+            if (dropped.isEmpty()) {
+                continue;
+            }
+            String exportsDirectory = path.substring(0, exports + EXPORTS_DIRECTORY.length() + 1);
+            try (Stream<Path> records = Files.walk(root.resolve(exportsDirectory))) {
+                for (Path record : records.filter(Files::isRegularFile).toList()) {
+                    if (!rendered.files().containsKey(slash(root.relativize(record)))) {
+                        dropped.removeAll(exportedModules(Files.readAllBytes(record)));
+                    }
+                }
+            }
+            rendered.files().entrySet().stream()
+                .filter(other -> other.getKey().startsWith(exportsDirectory + "/"))
+                .forEach(other -> dropped.removeAll(exportedModules(other.getValue())));
+            String[] owner = path.split("/");
+            for (List<String> module : dropped) {
+                WorkspacePath index = WorkspacePath.moduleIndex(new GroupId(owner[1]),
+                    NameCodec.decode(owner[2]), module.get(1), module.get(0));
+                orphans.add(root.resolve(index.toRelativePath()).getParent());
+                orphans.add(root.resolve(index.metaPath()).getParent());
+            }
+        }
+        return orphans;
+    }
+
+    /** The modules (name, plugin type) an export record names. */
+    private static Set<List<String>> exportedModules(byte[] record) {
+        Map<String, Object> values = MetaStore.deserialize(record);
+        Set<List<String>> modules = new HashSet<>();
+        if (values.get("modules") instanceof List<?> list) {
+            for (Object module : list) {
+                if (module instanceof Map<?, ?> map) {
+                    modules.add(List.of(String.valueOf(map.get("name")),
+                        String.valueOf(map.get("pluginType"))));
+                }
+            }
+        } else if (values.containsKey("module")) {
+            modules.add(List.of(String.valueOf(values.get("module")),
+                String.valueOf(values.get("pluginType"))));
+        }
+        return modules;
+    }
+
+    private static void deleteTree(Path directory) throws IOException {
+        if (!Files.isDirectory(directory)) {
+            return;
+        }
+        try (Stream<Path> walk = Files.walk(directory)) {
+            for (Path path : walk.sorted(Comparator.reverseOrder()).toList()) {
+                Files.delete(path);
+            }
+        }
+    }
+
+    private static boolean isEmptyDirectory(Path directory) throws IOException {
+        if (!Files.isDirectory(directory)) {
+            return false;
+        }
+        try (Stream<Path> entries = Files.list(directory)) {
+            return entries.findAny().isEmpty();
         }
     }
 }

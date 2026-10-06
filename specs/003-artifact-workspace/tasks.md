@@ -219,7 +219,7 @@ unchanged re-export, round trip.
 - [X] T020 [US1] `main/adapter/cli/v81/V81ArtifactAdapter.java` implementing `ArtifactPort`, wired in the
   v8.1 gateway factory, with `test/adapter/cli/V81ArtifactAdapterTest.java` first; assert that the
   v8.1 gateway overrides `Gateway.artifacts()` (no `CLI_UNAVAILABLE` default for a node with a CLI).
-- [ ] T021 [US1] `main/application/WorkspaceService.java` with `test/application/WorkspaceExportTest.java`
+- [X] T021 [US1] `main/application/WorkspaceService.java` with `test/application/WorkspaceExportTest.java`
   first (D-9): lock (a second export or check is refused at once, FR-020) → commit uncommitted changes as `local changes: <n> files` → export(s) per diagram
   group or module (plugin type looked up via `InventoryPort.listModules` if absent) → read → redact →
   write affected sub-trees (deleting artifacts no longer exported, FR-017) → commit
