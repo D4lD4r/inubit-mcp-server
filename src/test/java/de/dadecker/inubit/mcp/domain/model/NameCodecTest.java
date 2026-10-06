@@ -1,4 +1,4 @@
-package de.dadecker.inubit.mcp.adapter.archive.v81;
+package de.dadecker.inubit.mcp.domain.model;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;

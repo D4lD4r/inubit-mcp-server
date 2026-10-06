@@ -1,4 +1,4 @@
-package de.dadecker.inubit.mcp.adapter.archive.v81;
+package de.dadecker.inubit.mcp.domain.model;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;

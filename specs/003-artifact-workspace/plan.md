@@ -108,13 +108,13 @@ pom.xml                                          # + Saxon-HE 10.9 (pinned)
 src/main/java/de/dadecker/inubit/mcp/
 ├── config/                                      # ProfileConfig.workspace, ConfigLoader/Validator (default,
 │                                                # create rwx------, unique per profile), ConfigSummary line
-├── domain/model/                                # ArtifactRef, WorkspacePath, PathChange, HistoryEntry,
+├── domain/model/                                # ArtifactRef, WorkspacePath, NameCodec, PathChange, HistoryEntry,
 │                                                # CheckFinding, CheckReport, XsltRun, SecretPlaceholder
 ├── domain/port/                                 # ArtifactPort (Gateway.artifacts()), VersionHistoryPort, XsltPort
 ├── adapter/cli/                                 # CliExportRunner: exportWorkflowGroup, exportModule (D-8)
 ├── adapter/cli/v81/                             # V81ArtifactAdapter (ArtifactPort)
 ├── adapter/archive/v81/                         # ArchiveCodec (read+split), ArchiveAssembler (rebuild),
-│                                                # EmbeddedDocuments, SecretRedactor, XmlNormalizer, NameCodec, MetaStore
+│                                                # EmbeddedDocuments, SecretRedactor, XmlNormalizer, MetaStore
 ├── adapter/git/                                 # GitCli (VersionHistoryPort)
 ├── adapter/xslt/                                # SaxonXsltRunner (XsltPort), InubitStandIns (Formatter, Misc,
 │                                                # ISFunctions, Java/Xalan helpers), WorkspaceUriResolver, XsdValidator

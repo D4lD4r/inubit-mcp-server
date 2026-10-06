@@ -1,11 +1,10 @@
-package de.dadecker.inubit.mcp.adapter.archive.v81;
+package de.dadecker.inubit.mcp.domain.model;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
-import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspacePath.Kind;
-import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.WorkspacePath.Kind;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;

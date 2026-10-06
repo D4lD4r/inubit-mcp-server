@@ -1,6 +1,5 @@
-package de.dadecker.inubit.mcp.adapter.archive.v81;
+package de.dadecker.inubit.mcp.domain.model;
 
-import de.dadecker.inubit.mcp.domain.model.GroupId;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;

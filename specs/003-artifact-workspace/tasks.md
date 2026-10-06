@@ -103,7 +103,7 @@ are P1, and no export may write a file before redaction exists.
   (`init`, `status`, `commitAll(String message) → Optional<HistoryEntry>`, `restore(Path subtree)`);
   `XsltPort` (`run(XsltRequest) → XsltRun`, `validate(Path xml, Optional<Path> xsd) →
   List<CheckFinding>`).
-- [X] T007 [P] `main/adapter/archive/v81/NameCodec.java` with `test/adapter/archive/v81/NameCodecTest.java`
+- [X] T007 [P] `main/domain/model/NameCodec.java` with `test/domain/model/NameCodecTest.java`
   first: percent-encode every character outside `[A-Za-z0-9 ._()+,=@-]`, a leading `.` and trailing
   spaces/dots; `decode(encode(x)) == x` for property-generated names; `encode` never yields `.`, `..`,
   empty or a segment containing `/`; plus `WorkspacePath` (data-model) building
