@@ -20,6 +20,10 @@ updates:
       # Logback: patch releases only; minor/major releases are a deliberate upgrade.
       - dependency-name: "ch.qos.logback:*"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      # Saxon-HE stays on the Saxon 10 line that INUBIT 8.1 runs (research D-11 of feature 003):
+      # patch releases only; a newer line changes XSLT defaults and error codes.
+      - dependency-name: "net.sf.saxon:*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
     groups:
       mcp-sdk:
         patterns: ["io.modelcontextprotocol.sdk:*"]

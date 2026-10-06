@@ -53,7 +53,7 @@ are P1, and no export may write a file before redaction exists.
 
 ## Phase 1: Setup
 
-- [ ] T001 Add `net.sf.saxon:Saxon-HE` pinned to `10.9` (`<saxon.version>10.9</saxon.version>` with a
+- [X] T001 Add `net.sf.saxon:Saxon-HE` pinned to `10.9` (`<saxon.version>10.9</saxon.version>` with a
   comment "INUBIT 8.1 runs Saxon 10, research D-11") to `pom.xml`, exclude nothing, check that the
   shaded JAR still builds and that `mvn -q dependency:tree` shows no version conflict; add the Saxon-HE
   row (MPL-2.0) to `THIRD-PARTY-NOTICES.md`; add an ignore rule for `net.sf.saxon:*` minor and major
