@@ -108,6 +108,20 @@ public final class MetaStore {
         }
     }
 
+    /**
+     * The record in {@code json}.
+     *
+     * @throws IllegalArgumentException if it is not a JSON object
+     */
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> deserialize(byte[] json) {
+        try {
+            return JSON.readValue(json, Map.class);
+        } catch (JacksonException e) {
+            throw new IllegalArgumentException("A record in .meta is not readable JSON");
+        }
+    }
+
     /** The bytes of a record: JSON with sorted keys, two-space indentation, LF, final LF. */
     public static byte[] serialize(Map<String, Object> values) {
         return (JSON.writeValueAsString(values) + "\n").getBytes(StandardCharsets.UTF_8);

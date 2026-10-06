@@ -203,7 +203,7 @@ unchanged re-export, round trip.
   plus meta records, all through `XmlNormalizer` (a module listed twice in the index is written
   once); case-insensitive collision of two target paths →
   `INVALID_INPUT` naming both names; writing the same archive twice yields identical bytes.
-- [ ] T018 [US1] `main/adapter/archive/v81/ArchiveAssembler.java` and
+- [X] T018 [US1] `main/adapter/archive/v81/ArchiveAssembler.java` and
   `test/adapter/archive/v81/ArchiveRoundTripTest.java` first: rebuild a ZIP from workspace + `.meta/`
   (with placeholders still in place); for every fixture, `XmlEquality` holds between the original
   (redacted the same way) and the rebuilt archive entry by entry, `Repository.zip` content equal after
