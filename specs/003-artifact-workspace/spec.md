@@ -68,6 +68,15 @@ must allow feature 004 to rebuild an import archive that INUBIT treats as identi
   history.
 - **Placeholder**: the text that stands in the workspace where an exported secret was.
 
+## Clarifications
+
+### Session 2026-10-06
+
+- Q: What should a new export do when the assistant has changed workspace files that are not yet imported? → A: Record the local changes automatically as their own history entry ("local changes"), then export the server state on top as a separate entry; the assistant's state stays retrievable from the history.
+- Q: Which diagram types can `export_artifacts` export? → A: Only technical workflows (with their modules) for now; system diagrams and other diagram types are excluded, so that they cannot become part of a later import and be overwritten unintentionally.
+- Q: From which groups may `export_artifacts` read? → A: From every configured group without restriction, including production groups; an export is read-only, like health, logs and inventory.
+- Q: How should the local stand-ins for INUBIT's non-deterministic extension functions (GUIDs, current time, sleep) behave? → A: Deterministically: fixed, recognizable values (e.g. an all-zero GUID, a fixed time that a run may override), sleep does not wait; the result names the stand-ins used.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Export a diagram group as readable files (Priority: P1)
@@ -184,11 +193,14 @@ extension, with a syntax error) against sample inputs.
    transformation output is written to the workspace's test area and its path is returned.
 2. **Given** a stylesheet that uses INUBIT extension functions for which stand-ins exist, **When** it
    runs, **Then** it produces output, and the result notes that stand-ins were used.
-3. **Given** a stylesheet that needs an unknown extension or a capability only available inside
+3. **Given** a stylesheet that generates an identifier and reads the current time, **When** it runs
+   twice with the same input, **Then** both outputs are identical; **when** a run sets the time,
+   **Then** that time appears in the output.
+4. **Given** a stylesheet that needs an unknown extension or a capability only available inside
    INUBIT, **When** it is checked, **Then** the result says "not testable locally" with the reason.
-4. **Given** a stylesheet with a syntax error, **When** it is checked, **Then** the error and its
+5. **Given** a stylesheet with a syntax error, **When** it is checked, **Then** the error and its
    location are reported.
-5. **Given** a stylesheet that imports a repository file, **When** it runs, **Then** the repository
+6. **Given** a stylesheet that imports a repository file, **When** it runs, **Then** the repository
    file from the workspace is used.
 
 ---
@@ -254,8 +266,10 @@ settings.
   binary content is kept unchanged.
 - A very large export (hundreds of modules): the tool result stays bounded; the full list of changed
   paths is written to a file in the workspace and the result returns counts and that path.
-- The workspace was edited by hand (uncommitted changes) before an export: the export does not discard
-  those edits silently; it refuses and lists the affected files.
+- The workspace contains changes not yet recorded in the history (edits by the assistant or by hand)
+  before an export: the export first records them as a history entry "local changes" naming the
+  files, then writes the server state as a separate entry; nothing is discarded, and the result
+  names both entries so the assistant can compare or restore its own state.
 - A node of a group without a configured command-line installation: the export reports that the
   command line is unavailable.
 
@@ -287,11 +301,14 @@ settings.
 
 **Export**
 
-- **FR-009**: The assistant MUST be able to export one or more diagram groups of an owner from one
-  group or node; the owner defaults to the configured inventory owner.
+- **FR-009**: The assistant MUST be able to export the technical workflows of one or more diagram
+  groups of an owner from one group or node; the owner defaults to the configured inventory owner.
+  System diagrams and all other diagram types MUST NOT be exported (they configure a stage, and an
+  export is the basis of a later import); a request for them MUST be refused with an explanation.
 - **FR-010**: The assistant MUST be able to export single modules of an owner.
-- **FR-011**: Without an explicit node, the export MUST use the first node of the group and name it in
-  the result.
+- **FR-011**: Exports MUST be possible from every configured group, including production groups (they
+  are read-only and need neither `development` nor write settings). Without an explicit node, the
+  export MUST use the first node of the group and name it in the result.
 - **FR-012**: The export MUST write one file per workflow, one file per module used by the exported
   workflows (or per exported module), each embedded document (stylesheet, WSDL, schema, configuration
   document, other embedded XML) as a separate file in its natural format, and every repository file
@@ -313,8 +330,10 @@ settings.
   it.
 - **FR-018**: If the export fails or the received archive cannot be processed, the workspace MUST stay
   unchanged and no history entry MUST be created.
-- **FR-019**: If the workspace contains changes that are not recorded in the history, an export into
-  the affected files MUST be refused with a list of those files.
+- **FR-019**: If the workspace contains changes that are not recorded in the history, an export MUST
+  first record them as a separate history entry ("local changes", listing the files) and then record
+  the exported server state as its own entry; the result MUST name both entries. No change may be
+  discarded without a history entry that preserves it.
 - **FR-020**: Exports into the same workspace MUST NOT run concurrently.
 - **FR-021**: The export result MUST list the added, changed and removed paths and the history entry;
   for large exports it MUST return counts and a path to a file in the workspace with the full list
@@ -348,7 +367,10 @@ settings.
   test area of the workspace and returned as a path.
 - **FR-030**: Calls to INUBIT's own XSLT extension functions found in real stylesheets MUST be served by
   local stand-ins that behave like the originals for typical input; the result MUST say when stand-ins
-  were used.
+  were used. Stand-ins for non-deterministic functions MUST be deterministic: generated identifiers
+  return a fixed, recognizable value, the current date/time returns a fixed value that a run may
+  override, and waiting functions return immediately, so that two runs with the same input produce
+  identical output.
 - **FR-031**: A stylesheet that needs an unknown extension or a capability not available locally MUST
   be reported as "not testable locally" with the reason, never as passed.
 - **FR-032**: Stylesheet imports and includes that refer to the INUBIT repository MUST be resolved from
@@ -421,3 +443,5 @@ settings.
 - Writing to INUBIT (import, activation, tagging, restore), backups, end-to-end tests and deployment
   are features 004 and 005.
 - Script modules were not found in real exports and are out of scope.
+- Only technical workflows are exported; system diagrams, BPDs, process maps and other diagram types
+  are out of scope until a later feature decides otherwise.
