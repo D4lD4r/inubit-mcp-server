@@ -89,7 +89,7 @@ are P1, and no export may write a file before redaction exists.
 
 ## Phase 2: Foundational (blocking for all stories)
 
-- [ ] T005 [P] Domain types in `main/domain/model/`: `ArtifactRef` (group, owner, kind
+- [X] T005 [P] Domain types in `main/domain/model/`: `ArtifactRef` (group, owner, kind
   `WORKFLOW|MODULE|REPOSITORY_FILE`, name, optional diagramGroup, optional pluginType; identity is the
   name within owner and kind — "UIDs are never part of it"), `PathChange` (path, kind
   `ADDED|MODIFIED|DELETED`), `HistoryEntry` (commit, message, changes), `CheckFinding` (severity
