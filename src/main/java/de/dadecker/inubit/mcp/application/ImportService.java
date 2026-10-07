@@ -43,6 +43,7 @@ import java.time.Clock;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -203,6 +204,25 @@ public final class ImportService {
         }
     }
 
+    /**
+     * The arguments of {@code set_active} (research D-15): one workflow of one diagram group;
+     * {@code owner} defaults to the node's {@code inventory.owner}.
+     */
+    public record ActivationRequest(String node, Optional<String> owner, String diagramGroup,
+        String workflow, boolean active, String reason, Optional<String> confirmationCode,
+        Optional<String> mcpClient) {
+
+        public ActivationRequest {
+            node = node == null ? "" : node;
+            owner = owner == null ? Optional.empty() : owner;
+            diagramGroup = diagramGroup == null ? "" : diagramGroup;
+            workflow = workflow == null ? "" : workflow;
+            reason = reason == null ? "" : reason;
+            confirmationCode = confirmationCode == null ? Optional.empty() : confirmationCode;
+            mcpClient = mcpClient == null ? Optional.empty() : mcpClient;
+        }
+    }
+
     /** Either the preview of the first step or the outcome of an execution. */
     public sealed interface Response {
 
@@ -256,13 +276,7 @@ public final class ImportService {
             validate(request);
             policy = d.guard().admit(request.node(), Capability.IMPORT_ARTIFACTS);
             call.policy = policy;
-            call.owner = request.owner().or(() -> d.defaultOwners().apply(policy.node()))
-                .orElseThrow(() -> new ToolErrorException(ToolError.of(ErrorCode.NOT_CONFIGURED,
-                    "No owner is given and inventory.owner is not set for " + policy.node()
-                        + "; nothing was sent",
-                    "import_artifacts needs the owner of the artifacts",
-                    "Give owner, or set inventory.owner for the node").withNode(
-                        policy.node())));
+            call.owner = owner(request.owner(), policy.node(), Capability.IMPORT_ARTIFACTS);
         } catch (ToolErrorException e) {
             throw call.refuse(e.error());
         } catch (RuntimeException e) {
@@ -352,6 +366,143 @@ public final class ImportService {
         return execute(call, node, new Plan(changes, archive, mode, mode, this::readOrNull,
             "import", scope.describe(), List.of(), List.of()), auditId, fresh.rawExports(),
             account);
+    }
+
+    // --- set_active ----------------------------------------------------------------------------
+
+    /**
+     * {@code set_active} (US3, FR-020, research D-15, D-24, D-25): activates or deactivates one
+     * workflow.
+     *
+     * <ol>
+     *   <li>reason, code and names are checked, then the guard and the owner;
+     *   <li>the workspace file of the workflow must be its last server state: unimported edits
+     *       are {@code PRECONDITION_FAILED} (they would not be sent, D-24); without an exported
+     *       state "export first";
+     *   <li>the owner kind (user groups refused); the conflict check on that workflow only
+     *       (changed on the server, edit mode);
+     *   <li>a workflow already in the requested state sends nothing (no new version);
+     *   <li>the archive holds that workflow alone, built from the FRESH server export with
+     *       {@code IsActive} changed, and is imported with {@code --importWorkflowActive} or
+     *       {@code --importWorkflowInactive}; the rest is the import sequence (backup, protocol,
+     *       verification incl. {@code IsActive}, commit {@code activate|deactivate <node>: …},
+     *       or a rollback with the original flag). INUBIT creates a new version (noted).
+     * </ol>
+     *
+     * @throws ToolErrorException every refusal before anything is sent (after its audit record)
+     */
+    public Response setActive(ActivationRequest request) {
+        Call call = new Call(Capability.SET_ACTIVE, request.node(), request.reason(),
+            request.confirmationCode(), request.mcpClient());
+        call.requested.put("scope", DIAGRAM_GROUP + request.diagramGroup());
+        call.requested.put("workflow", request.workflow());
+        call.requested.put("active", String.valueOf(request.active()));
+        DevelopmentPolicy policy;
+        try {
+            validate(request.reason(), request.confirmationCode());
+            if (request.diagramGroup().isBlank() || request.workflow().isBlank()) {
+                throw invalid("Give diagramGroup and workflow", "set_active switches exactly"
+                    + " one workflow", "Name the workflow and its diagram group");
+            }
+            policy = d.guard().admit(request.node(), Capability.SET_ACTIVE);
+            call.policy = policy;
+            call.owner = owner(request.owner(), policy.node(), Capability.SET_ACTIVE);
+        } catch (ToolErrorException e) {
+            throw call.refuse(e.error());
+        } catch (RuntimeException e) {
+            throw call.refuse(unexpected("checking the request", e));
+        }
+        return underLock(call, () -> activateLocked(call, policy, request));
+    }
+
+    private Response activateLocked(Call call, DevelopmentPolicy policy,
+        ActivationRequest request) {
+        NodeId node = policy.node();
+        sweep(call);
+        d.history().init();
+        commitLocalChanges();
+        String name = request.workflow();
+        String file = WorkspacePath.workflow(node.group(), call.owner, request.diagramGroup(),
+            name).toRelativePath().toString().replace('\\', '/');
+        Optional<String> base = d.history().lastServerState(node.group(), file);
+        byte[] current = readOrNull(file);
+        if (base.isEmpty() || current == null) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+                "The workflow " + name + " of diagram group " + request.diagramGroup()
+                    + " is not in the workspace with an exported server state; nothing was sent",
+                "set_active compares the workflow with its last export to detect conflicts",
+                "export the diagram group first (export_artifacts), then repeat the call")
+                .withNode(node));
+        }
+        if (!d.history().show(base.get(), file).map(before -> Arrays.equals(before, current))
+            .orElse(false)) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+                "The workspace file of " + name + " has unimported edits (" + file
+                    + "); nothing was sent",
+                "set_active sends the server's state of the workflow, so the edits would"
+                    + " silently not be part of it (research D-24)",
+                "Import the edits first (import_artifacts), or restore the file (git restore "
+                    + file + "), then repeat the call").withNode(node));
+        }
+        call.kind = d.owners().admitForWrite(node, call.owner);
+        ChangedArtifact workflow = new ChangedArtifact(ArtifactRef.workflow(node.group(),
+            call.owner, request.diagramGroup(), name), ChangedArtifact.Kind.MODIFIED,
+            List.of(file), base);
+        ChangeSet changes = new ChangeSet(ImportScope.diagramGroup(node.group(), call.owner,
+            request.diagramGroup()), base.get(), List.of(workflow), List.of(), List.of());
+        call.changes = changes;
+        UUID auditId = d.ids().get();
+        String inputs = "sha256:" + sha256(String.join("\n", node.value(), call.owner,
+            request.diagramGroup(), name, String.valueOf(request.active()), call.reason)
+            .getBytes(StandardCharsets.UTF_8));
+        boolean server = policy.confirmation() == WritePolicy.Confirmation.SERVER;
+        Optional<String> previewed = Optional.empty();
+        if (server && call.confirmationCode.isPresent()) {
+            previewed = Optional.of(d.challenges().redeem(call.confirmationCode.get(),
+                Capability.SET_ACTIVE, node, inputs));
+        }
+        ConflictDetector.Result fresh = detector.detect(node, changes, auditId, false);
+        String state = ConflictDetector.fingerprint(artifactFiles(fresh.rendered(), workflow));
+        if (previewed.isPresent() && !previewed.get().equals(state)) {
+            throw changedSincePreview(node);
+        }
+        byte[] serverFile = fresh.rendered().get(file);
+        boolean wasActive = d.archives().active(serverFile).orElse(false);
+        if (wasActive == request.active()) {
+            call.append(auditId, AuditRecord.Step.EXECUTE, AuditOutcome.EXECUTED, name
+                + " is already " + activity(wasActive) + "; nothing was sent");
+            return new Response.Completed(new WriteOutcome(auditId,
+                WriteOutcome.Outcome.EXECUTED, Optional.empty(), Optional.empty(),
+                Optional.empty(), List.of(), List.of(), List.of(), Optional.empty(), List.of(),
+                List.of(), List.of("The workflow " + name + " is already " + activity(wasActive)
+                    + " on " + node + "; nothing was sent")));
+        }
+        byte[] intended = d.archives().withActive(serverFile, request.active());
+        SortedMap<String, byte[]> files = new TreeMap<>(fresh.rendered());
+        files.put(file, intended);
+        Account account = d.accounts().apply(node);
+        ImportArchivePort.Archive archive = d.archives().assemble(build(changes, call, files,
+            fresh.rawExports(), call.reason, account, Set.of()));
+        String subject = "workflow " + name + " of diagram group " + request.diagramGroup();
+        String change = activity(wasActive) + " → " + activity(request.active());
+        if (server && call.confirmationCode.isEmpty()) {
+            return writeChallenge(call, node, policy, subject, List.of(name), List.of(
+                "IsActive: " + change, "INUBIT creates a new version of " + name), inputs,
+                state);
+        }
+        return execute(call, node, new Plan(changes, archive, mode(request.active()),
+            mode(wasActive), path -> path.equals(file) ? intended : fresh.rendered().get(path),
+            request.active() ? "activate" : "deactivate", subject, List.of(), List.of(
+                "INUBIT created a new version of " + name + " (" + change + ")")), auditId,
+            fresh.rawExports(), account);
+    }
+
+    private static ImportPort.Mode mode(boolean active) {
+        return active ? ImportPort.Mode.WORKFLOW_ACTIVE : ImportPort.Mode.WORKFLOW_INACTIVE;
+    }
+
+    private static String activity(boolean active) {
+        return active ? "active" : "inactive";
     }
 
     // --- restore_backup ----------------------------------------------------------------------
@@ -1311,6 +1462,16 @@ public final class ImportService {
             throw invalid("At most " + MAX_MODULES + " modules per call",
                 "The module import is bounded", "Split the modules into several calls");
         }
+    }
+
+    /** The given owner, else {@code inventory.owner} of the node (research D-25 L2). */
+    private String owner(Optional<String> owner, NodeId node, Capability capability) {
+        return owner.or(() -> d.defaultOwners().apply(node)).orElseThrow(() ->
+            new ToolErrorException(ToolError.of(ErrorCode.NOT_CONFIGURED,
+                "No owner is given and inventory.owner is not set for " + node
+                    + "; nothing was sent",
+                capability.toolName() + " needs the owner of the artifacts",
+                "Give owner, or set inventory.owner for the node").withNode(node)));
     }
 
     /** The reason and the code of every writing call. */

@@ -84,4 +84,25 @@ class V81ImportArchivesTest {
         assertThat(archives.checkinComment(bytes("not xml"))).isEmpty();
         assertThat(Map.of()).isEmpty();
     }
+
+    @Test
+    void theActiveFlagOfAWorkflowFileIsReadAndSet() {
+        // T020 (research D-15): set_active changes only IsActive of the server's workflow
+        byte[] inactive = bytes("<Workflow>\n  <WorkflowName>W</WorkflowName>\n"
+            + "  <IsActive>false</IsActive>\n  <XPathVersion>3.1</XPathVersion>\n</Workflow>\n");
+
+        byte[] active = archives.withActive(inactive, true);
+
+        assertThat(archives.active(inactive)).contains(false);
+        assertThat(archives.active(active)).contains(true);
+        assertThat(new String(active, StandardCharsets.UTF_8))
+            .isEqualTo(new String(XmlNormalizer.normalize(XmlTree.parse(new String(inactive,
+                StandardCharsets.UTF_8).replace("false", "true").getBytes(StandardCharsets.UTF_8))
+                .root()), StandardCharsets.UTF_8));
+        assertThat(archives.withActive(active, false)).isEqualTo(XmlNormalizer.normalize(
+            XmlTree.parse(inactive).root()));
+        assertThat(archives.active(bytes("<Workflow><WorkflowName>W</WorkflowName></Workflow>")))
+            .isEmpty();
+        assertThat(archives.active(bytes("not xml"))).isEmpty();
+    }
 }

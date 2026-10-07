@@ -251,6 +251,16 @@ class ImportRollbackTest {
             public java.util.Optional<String> checkinComment(byte[] file) {
                 return port.checkinComment(file);
             }
+
+            @Override
+            public java.util.Optional<Boolean> active(byte[] file) {
+                return port.active(file);
+            }
+
+            @Override
+            public byte[] withActive(byte[] file, boolean active) {
+                return port.withActive(file, active);
+            }
         };
         harness.exportGroup().importApplied().exportGroup().exportGroup();
 

@@ -92,4 +92,10 @@ public interface ImportArchivePort {
 
     /** The {@code CheckinComment} text of a workflow or module index file, if any. */
     Optional<String> checkinComment(byte[] file);
+
+    /** The {@code IsActive} flag of a workflow file (research D-15), if it has one. */
+    Optional<Boolean> active(byte[] workflowFile);
+
+    /** The workflow file with its {@code IsActive} flag set to {@code active}. */
+    byte[] withActive(byte[] workflowFile, boolean active);
 }

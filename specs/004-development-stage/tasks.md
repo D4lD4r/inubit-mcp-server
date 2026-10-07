@@ -171,7 +171,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 5: User Story 3 — Activate (Priority: P2)
 
-- [ ] T020 [US3] `ImportService.setActive` + `main/mcp/tools/SetActiveTool.java` + schemas, tests
+- [X] T020 [US3] `ImportService.setActive` + `main/mcp/tools/SetActiveTool.java` + schemas, tests
   first (D-15): only that workflow sent (no module) with `--importWorkflowActive|Inactive`; conflict
   check; verify `IsActive`; commit; result notes the new version.
   **Also (analysis):** archive built from the FRESH server export of that workflow only (D-24); refused if the workspace file has unimported edits (D-25).

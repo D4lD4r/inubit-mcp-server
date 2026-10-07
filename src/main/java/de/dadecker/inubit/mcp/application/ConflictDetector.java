@@ -117,6 +117,15 @@ public final class ConflictDetector {
      * @throws ToolErrorException {@code CONFLICT}, or the errors of the export
      */
     public Result detect(NodeId node, ChangeSet changes, UUID auditId) {
+        return detect(node, changes, auditId, true);
+    }
+
+    /**
+     * As {@link #detect(NodeId, ChangeSet, UUID)}; with {@code wholeScope} false only the
+     * change set is compared and the owner's module list is not read ({@code set_active}, research
+     * D-15: the conflict check covers that workflow only).
+     */
+    public Result detect(NodeId node, ChangeSet changes, UUID auditId, boolean wholeScope) {
         ImportScope scope = changes.scope();
         List<byte[]> raw = export(node, changes);
         PreparedExport prepared = withNode(node, () -> codec.prepare(scope.group(),
@@ -126,8 +135,10 @@ public final class ConflictDetector {
 
         // review I3: the owner's module list tells whether a new module exists already
         Set<String> listed = new LinkedHashSet<>();
-        inventory.apply(node).listModules(scope.owner())
-            .forEach(entry -> listed.add(entry.item().name()));
+        if (wholeScope) {
+            inventory.apply(node).listModules(scope.owner())
+                .forEach(entry -> listed.add(entry.item().name()));
+        }
         List<String> changed = new ArrayList<>();
         List<String> editMode = new ArrayList<>();
         List<String> exists = new ArrayList<>();
@@ -159,8 +170,10 @@ public final class ConflictDetector {
         }
         // research D-25: the other artifacts of the scope are compared as well
         Set<String> others = new TreeSet<>();
-        server.keySet().stream().map(ConflictDetector::key).filter(Objects::nonNull)
-            .filter(key -> !covered.contains(key)).forEach(others::add);
+        if (wholeScope) {
+            server.keySet().stream().map(ConflictDetector::key).filter(Objects::nonNull)
+                .filter(key -> !covered.contains(key)).forEach(others::add);
+        }
         for (String key : others) {
             Optional<String> base = history.lastServerState(scope.group(), key);
             String name = name(key);

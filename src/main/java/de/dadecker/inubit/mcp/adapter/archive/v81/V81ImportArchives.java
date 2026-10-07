@@ -64,6 +64,39 @@ public final class V81ImportArchives implements ImportArchivePort {
         }
     }
 
+    @Override
+    public Optional<Boolean> active(byte[] workflowFile) {
+        try {
+            return XmlTree.parse(workflowFile).root().child("IsActive").map(Element::text)
+                .map(String::strip).filter(text -> text.equals("true") || text.equals("false"))
+                .map(Boolean::parseBoolean);
+        } catch (RuntimeException e) {
+            return Optional.empty();
+        }
+    }
+
+    /** Sets (or adds) {@code IsActive}; the file comes back normalized like a workspace file. */
+    @Override
+    public byte[] withActive(byte[] workflowFile, boolean active) {
+        Element root = XmlTree.parse(workflowFile).root();
+        String text = String.valueOf(active);
+        List<Node> children = new ArrayList<>();
+        boolean set = false;
+        for (Node child : root.children()) {
+            if (child instanceof Element element && element.localName().equals("IsActive")) {
+                children.add(element.withText(text));
+                set = true;
+            } else {
+                children.add(child);
+            }
+        }
+        if (!set) {
+            children.add(new Element("", "IsActive", "", List.of(), List.of(),
+                List.of(new XmlTree.Text(text))));
+        }
+        return XmlNormalizer.normalize(root.withChildren(children));
+    }
+
     /** The root without the volatile children of a workflow or a module index entry. */
     private static Element reviewed(Element root) {
         if (!root.localName().equals("Workflow") && !root.localName().equals("Module")) {
