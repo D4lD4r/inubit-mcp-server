@@ -94,7 +94,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 - [X] T011 [US6] `main/config/DeployConfig.java`, `ExcludeRule.java`; `GroupConfig.deploy`;
   `Defaults.deployConfirmationTtl` ("default `PT30M`", "positive, at most `PT2H`"); `deploy` on a
   node is an unknown key; `ConfigLoaderTest` fixtures `src/test/resources/config/deploy-*.yaml`.
-- [ ] T012 [US6] `main/config/ConfigValidator.java` `checkChain`: `from` "an existing group other
+- [X] T012 [US6] `main/config/ConfigValidator.java` `checkChain`: `from` "an existing group other
   than this one", acyclic (names the cycle), `EXECUTE` on production needs effective
   `write.productionOptIn: true` on every node, every node of target and source has `cli.home`,
   exclude entry "exactly one of `diagramGroup`, `name` (glob), `repositoryPath` (glob); non-blank";
