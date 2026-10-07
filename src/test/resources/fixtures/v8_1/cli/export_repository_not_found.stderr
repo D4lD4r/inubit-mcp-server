@@ -1,0 +1,13 @@
+Picked up JAVA_TOOL_OPTIONS: -Duser.language=en -Duser.country=US
+ERROR 09:05:12,481 [main      ] CLI                       ERROR
+com.inubit.ibis.utils.InubitException: @Start@IError@@@Internal INUBIT error!@End@Path not found //ibis:Root/jdoe/xsd/no-such-dir
+	at com.inubit.ibis.cli.executors.RawCommandExecutor.start(RawCommandExecutor.java:74) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.executors.ScriptableCommandExecutor.executeRawCommand(ScriptableCommandExecutor.java:351) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.executors.ScriptableCommandExecutor.processCommand(ScriptableCommandExecutor.java:334) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.executors.ScriptableCommandExecutor.processLine(ScriptableCommandExecutor.java:160) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.CLI.execute(CLI.java:247) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.CLI.main(CLI.java:86) ~[ibis.jar:8.1.17]
+EXECUTION ERROR
+Internal INUBIT error!
+Path not found //ibis:Root/jdoe/xsd/no-such-dir
+

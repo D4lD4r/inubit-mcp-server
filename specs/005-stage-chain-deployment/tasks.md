@@ -46,7 +46,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 1: Setup
 
-- [ ] T001 Fixtures from the D-1 probes (`~/.inubit-mcp/<profile>/spike/p5`): neutralize (synthetic
+- [X] T001 Fixtures from the D-1 probes (`~/.inubit-mcp/<profile>/spike/p5`): neutralize (synthetic
   names `Workflow-*`, `Module-*`, `GRP-*`, owner `OWNERS`/`jdoe`, repository paths `/Root/<owner>/…`)
   and store as `fixtures/cli/export_release.zip` (tagged release export with a referenced repository
   file in an older version), `export_repository.zip`, `export_repository_not_found.{stdout,stderr,exit}`,

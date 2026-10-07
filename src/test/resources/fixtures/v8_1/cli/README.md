@@ -82,3 +82,35 @@ Because `tag` prints nothing, the result of a tag call can only be verified by a
 
 The neutralized recording of `GET /ibis/rest/user/users` (`../rest/user_users.*`, D-21) was
 removed with the owner-kind lookup (D-26): imports name every owner with `--importUser`.
+
+## Repository files and releases (feature 005)
+
+The cases of feature 005 (research D-1, tasks T001); `DeployFixturesTest` checks their shape. The
+probes of 2026-10-07 ran in a personal test repository area and a personal test diagram group of
+a development stage; their raw outputs stay private (`~/.inubit-mcp/<profile>/spike/p5`, never
+committed). **Every case below is synthetic**: built by a local one-off script from `grp-a.zip`
+and small synthetic documents so that it reproduces the observed structure (entry names, entry
+order, metadata attributes, XML shapes, the `5.3` archive comment of repository archives) with
+synthetic names only — owner `jdoe`, diagram group `GRP-01`, `Workflow-*`, `Module-*`, repository
+folder `/Root/jdoe/xsd/`, tag `TAG-01`. The result lines are the texts the probes printed; where
+a text was only noted, not kept byte for byte, the row says so. The success texts
+`1-OK: Repository path exported successfully.` and `1-OK: Imported successfully` and the refusal
+`Cannot specify user when repository is tagged.` are also string constants of the 8.1.17 client's
+StartCLI command classes.
+
+| Case | What it is |
+|---|---|
+| `export_release.zip` | `export --exportWorkflowUser 'jdoe' --exportWorkflowType 'technical' --exportWorkflowGroup '' --exportTag 'TAG-01' --exportFile '<zip>'`: only the diagram groups carrying the tag (here `GRP-01` of `grp-a.zip`) in their **tagged** versions. As observed: `<Workflow version="<n>">` and `<Module … version="<n>">` instead of `head`, `@@@Tag: TAG-01@@@` in the export suffix of every `CheckinComment`, `tag="TAG-01"` on every `WorkflowModule`, an extra entry `usertags.xml` (`<IBISTagging version="5.3">…<Tag>TAG-01</Tag>…`) after `workflow/workflow.xml`, and a `Repository.zip` with the tagged versions of the repository files the modules reference. `Module-0005` imports `inubitrepository:/Root/jdoe/xsd/release.xsl` (`xsl:import`); `Repository.zip` holds that file in version `1.0` with `tagName="TAG-01"` while its head is `1.1` (`export_repository.zip`) — the "older tagged version" of D-1. `Workflow-0002` is not in edit mode here |
+| `export_release.{stdout,stderr,exit}` | `1-OK: Workflow group exported successfully.`, exit 0 (the text of every workflow export) |
+| `export_repository.zip` | `export --exportRepositoryPath '/Root/jdoe/xsd' --exportFile '<zip>'`: a directory entry `Root/jdoe/xsd/`, then per file `<name>.xml` (metadata) and `<name>.dat` (content); archive comment `5.3`. Metadata as observed: `<Property name type="RepositoryFile" anonymousRead versionComment writeable uuid path modificator contentSize modified contentEncoding contentType systemElement contentMD5 [tagName] version><Description>…</Description></Property>`; `contentSize` and `contentMD5` match the `.dat`. `release.xsl` is in version `1.1`, `order.xsd` (not referenced by any module) in `1.0`; no `tagName` (untagged export) |
+| `export_repository.{stdout,stderr,exit}` | `1-OK: Repository path exported successfully.`, exit 0 |
+| `export_repository_not_found` | a path that does not exist: exit 1, `Internal INUBIT error!` and `Path not found //ibis:Root/jdoe/xsd/no-such-dir`. The probe notes put these lines on stderr; the layout of the error record (`ERROR … CLI`, `InubitException: @Start@IError@@@…@End@…`, stack, `EXECUTION ERROR`) follows the recorded `export-group-missing`, not kept byte for byte |
+| `import_repository_ok` | `import --importFile '<zip>' --importRepositoryPath '/Root/jdoe'`: a progress line `Completed = 0 MB / 0 MB` and `1-OK: Imported successfully`, exit 0 — **no** protocol table. The archive entries are relative to the import path (`xsd/release.xsl.xml` + `.dat` for `/Root/jdoe/xsd/release.xsl`); entries in the export shape (`Root/jdoe/…`) would be stored below `/Root/jdoe/Root/jdoe/…` (D-1) |
+| `tag_repository_user_refused` | `tag --tagMove '<tag>' --tagUser '<owner>' --tagRepositoryPath '<path>'`: refused with `Cannot specify user when repository is tagged.`, exit 1; error layout as above (reconstructed). The server therefore never combines these options (a repository path is tagged through its diagram group, D-1) |
+
+Further facts of the probes without a fixture: a tag export of a repository path without tagged
+files returns the directory entry only; repository imports ignore the archive's `uuid` on create
+and its `versionComment`, and every import creates a new version; workflow and module imports
+ignore `Repository.zip`. An owner-wide tag export with no tagged diagram group was not probed;
+the client knows the message `2-NOK: No workflow group containing workflows for export found.`,
+and the server treats that message and an archive without workflows alike as `NOT_FOUND`.
