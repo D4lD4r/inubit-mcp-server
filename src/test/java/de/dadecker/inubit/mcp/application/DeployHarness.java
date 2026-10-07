@@ -346,6 +346,39 @@ public final class DeployHarness {
             new DiagramGroupTagger(root), packages()));
     }
 
+    /**
+     * {@code restore_backup} and the other tools of feature 004 on this harness (T026): no node
+     * is a development stage; {@code int} receives deployments, {@code prod} packages.
+     */
+    public ImportService importService() {
+        Map<NodeId, de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy> policies =
+            new LinkedHashMap<>();
+        servers.keySet().forEach(node -> policies.put(node,
+            new de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy(node, node.equals(PROD),
+                false, de.dadecker.inubit.mcp.domain.model.WritePolicy.Confirmation.SERVER,
+                Duration.ofMinutes(5), de.dadecker.inubit.mcp.domain.model.E2ePolicy.FORBIDDEN,
+                Optional.empty())));
+        de.dadecker.inubit.mcp.domain.model.StageChain chain = chain(List.of());
+        DevelopmentGuard guard = new DevelopmentGuard(new TargetResolver(
+            new java.util.ArrayList<>(servers.keySet())), policies::get, node -> { },
+            group -> chain.link(group).map(
+                de.dadecker.inubit.mcp.domain.model.StageChain.ChainLink::mode),
+            Duration.ofMinutes(30));
+        de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector inspector =
+            new de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector();
+        return new ImportService(new ImportService.Dependencies(root, "acme", guard,
+            policies::get, history, inspector, new ArtifactCheckService(root, inspector,
+                new de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner(root),
+                group -> Optional.empty(), this::inventory, node -> Optional.of(OWNER),
+                ResultLimiter.withDefaults(), clock),
+            new de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec(),
+            new de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives(), this::artifacts,
+            this::imports, this::tags, this::inventory, node -> Optional.of(OWNER),
+            node -> new ImportService.Account(OWNER, node.name() + ".example.test"), challenges,
+            backups, audit::add, clock, java.util.UUID::randomUUID,
+            Optional.of(deployer(audit::add))));
+    }
+
     /** The package writer below {@link #profileHome} ({@code packages}). */
     public PackageWriter packages() {
         return new PackageWriter(profileHome.resolve("packages"), clock);

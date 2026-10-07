@@ -101,7 +101,8 @@ import java.util.function.Predicate;
  * {@link #anyWriteEnabled()} (contracts/mcp-tools.md, Story 4 / AS 6); their service, the write
  * guard and the audit log ({@code auditDirectory}, written only on a write call) are built in any
  * case. Feature 004: {@code import_artifacts}, {@code restore_backup}, {@code set_active} and
- * {@code tag_artifacts} only if {@link #anyDevelopmentNode()}, {@code run_e2e_test} only if
+ * {@code tag_artifacts} only if {@link #anyDevelopmentNode()} ({@code restore_backup} also if
+ * {@link #anyDeploymentTarget()}, feature 005), {@code run_e2e_test} only if
  * {@link #anyE2eNode()} (its SOAP clients are created per node on first use); their services
  * share one
  * challenge registry and the audit log; the import service uses the check service and keeps
@@ -130,6 +131,8 @@ final class Wiring implements AutoCloseable {
     private final CheckArtifactsTool checkArtifacts;
     private final ImportArtifactsTool importArtifacts;
     private final RestoreBackupTool restoreBackup;
+    /** Feature 005: the stage chain of the configuration (empty: none). */
+    private final StageChain chain;
     private final SetActiveTool setActive;
     private final TagArtifactsTool tagArtifacts;
     private final RunE2eTestTool runE2eTest;
@@ -214,25 +217,17 @@ final class Wiring implements AutoCloseable {
         // feature 004: the development tools (offered only with a development node)
         Map<NodeId, DevelopmentPolicy> development = new HashMap<>();
         servers.forEach(server -> development.put(server.id(), server.developmentPolicy()));
+        StageChain chain = config.stageChain();
+        this.chain = chain;
         DevelopmentGuard developmentGuard = new DevelopmentGuard(targets, development::get,
-            node -> gateways.imports(node).checkAvailable());
+            node -> gateways.imports(node).checkAvailable(), group -> Optional.ofNullable(
+                chain.targets().get(group)).map(StageChain.ChainLink::mode),
+            config.defaults().effectiveDeployConfirmationTtl());
         Function<NodeId, ImportService.Account> accounts = id -> new ImportService.Account(
             policies.get(id).account().orElse("unknown"), byId.get(id).baseUrl().getHost());
         WriteChallengeRegistry challenges = new WriteChallengeRegistry(clock.clock());
         Path backups = BackupStore.defaultRoot(Path.of(System.getProperty("user.home")),
             profile.name());
-        ImportService imports = new ImportService(
-            new ImportService.Dependencies(workspace, profile.name(), developmentGuard,
-                development::get,
-                new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
-                new WorkspaceInspector(), checks, new ArchiveCodec(), new V81ImportArchives(),
-                gateways::artifacts, gateways::imports, gateways::tags, gateways::inventory,
-                id -> byId.get(id).inventory().owner(), accounts, challenges,
-                new BackupStore(backups, clock.clock()),
-                audit, clock.clock(), UUID::randomUUID));
-        this.importArtifacts = new ImportArtifactsTool(imports);
-        this.restoreBackup = new RestoreBackupTool(imports);
-        this.setActive = new SetActiveTool(imports);
         this.tagArtifacts = new TagArtifactsTool(new TagService(new TagService.Dependencies(
             workspace, profile.name(), developmentGuard, gateways::tags,
             id -> byId.get(id).inventory().owner(), accounts, challenges, audit, clock.clock(),
@@ -248,7 +243,7 @@ final class Wiring implements AutoCloseable {
             gateways::logs, gateways::processes, hangingThresholds::get, accounts, challenges,
             audit, clock.clock(), UUID::randomUUID)));
         // feature 005: deploy_release along the stage chain (offered only with a chain)
-        StageChain chain = config.stageChain();
+        Optional<NodeDeployer> deployer = Optional.empty();
         if (chain.isEmpty()) {
             this.deployRelease = Optional.empty();
         } else {
@@ -265,11 +260,12 @@ final class Wiring implements AutoCloseable {
                         Optional.empty(), gateways::inventory, id -> Optional.empty(), limiter,
                     clock.clock()).checkPaths(paths, false), accounts, workspace,
                 clock.clock()));
-            NodeDeployer deployer = new NodeDeployer(new NodeDeployer.Dependencies(planner,
+            NodeDeployer nodeDeployer = new NodeDeployer(new NodeDeployer.Dependencies(planner,
                 releases, importArchives, codec, gateways::imports, gateways::tags, accounts,
                 new BackupStore(backups, clock.clock()), ledger, audit, profile.name(),
                 clock.clock(), UUID::randomUUID, workspace, new DiagramGroupTagger(workspace),
                 new PackageWriter(deployments.resolveSibling("packages"), clock.clock())));
+            deployer = Optional.of(nodeDeployer);
             DeployService deploy = new DeployService(new DeployService.Dependencies(workspace,
                 deployments, profile.name(), new DeployGuard(chain, targets, group ->
                     servers.stream().filter(server -> server.id().group().equals(group))
@@ -277,11 +273,24 @@ final class Wiring implements AutoCloseable {
                     profile.name(), clock.clock(), UUID::randomUUID),
                 new ReleaseDiscovery(gateways::artifacts, codec, releases, workspace), planner,
                 ledger, challenges, config.defaults().effectiveDeployConfirmationTtl(), audit,
-                clock.clock(), UUID::randomUUID, deployer, new GitCli(workspace, profile.name(),
+                clock.clock(), UUID::randomUUID, nodeDeployer, new GitCli(workspace, profile.name(),
                     new SystemProcessLauncher(), environment)));
             this.deployRelease = Optional.of(new DeployReleaseTool(deploy,
                 config.resultLimits().maxItems()));
         }
+        // feature 004 (feature 005, T026: and the restore of deployment backups)
+        ImportService imports = new ImportService(
+            new ImportService.Dependencies(workspace, profile.name(), developmentGuard,
+                development::get,
+                new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
+                new WorkspaceInspector(), checks, new ArchiveCodec(), new V81ImportArchives(),
+                gateways::artifacts, gateways::imports, gateways::tags, gateways::inventory,
+                id -> byId.get(id).inventory().owner(), accounts, challenges,
+                new BackupStore(backups, clock.clock()),
+                audit, clock.clock(), UUID::randomUUID, deployer));
+        this.importArtifacts = new ImportArtifactsTool(imports);
+        this.restoreBackup = new RestoreBackupTool(imports);
+        this.setActive = new SetActiveTool(imports);
         // last step (N2): SIGTERM (and System.exit) stop running StartCLI work and delete the
         // export directories
         Runtime.getRuntime().addShutdownHook(cleanupHook);
@@ -331,6 +340,8 @@ final class Wiring implements AutoCloseable {
             handlers.add(restoreBackup);
             handlers.add(setActive);
             handlers.add(tagArtifacts);
+        } else if (anyDeploymentTarget()) {
+            handlers.add(restoreBackup); // feature 005 (T026): deployment backups
         }
         if (anyE2eNode()) {
             handlers.add(runE2eTest);
@@ -377,6 +388,15 @@ final class Wiring implements AutoCloseable {
     /** True if at least one node is a development stage (feature 004, FR-001). */
     boolean anyDevelopmentNode() {
         return servers.stream().anyMatch(server -> server.development().enabled());
+    }
+
+    /**
+     * Feature 005 (T026): true if a group receives deployments in mode {@code EXECUTE}; its
+     * nodes get deployment backups that {@code restore_backup} restores.
+     */
+    boolean anyDeploymentTarget() {
+        return chain.targets().values().stream().anyMatch(link -> link.mode()
+            == de.dadecker.inubit.mcp.domain.model.DeployMode.EXECUTE);
     }
 
     /**

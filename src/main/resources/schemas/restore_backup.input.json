@@ -9,12 +9,12 @@
     "node": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]{0,31}/[a-z0-9][a-z0-9-]{0,31}$",
-      "description": "Id of exactly one development {node} (`<{group}>/<{node}>`); the backup must have been taken there"
+      "description": "Id of exactly one development {node}, or the {node} of a deployment backup (`<{group}>/<{node}>`); the backup must have been taken there"
     },
     "backupRef": {
       "type": "string",
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-      "description": "The backupRef (audit id) from the result of import_artifacts, restore_backup or set_active"
+      "description": "The backupRef (audit id) from the result of import_artifacts, restore_backup, set_active or deploy_release (per {node})"
     },
     "reason": {
       "type": "string",

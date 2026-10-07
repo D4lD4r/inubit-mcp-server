@@ -168,7 +168,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 7: Restore and end-to-end on targets
 
-- [ ] T026 [US3] `DevelopmentGuard` + `ImportService` restore: admit a target-group node for a
+- [X] T026 [US3] `DevelopmentGuard` + `ImportService` restore: admit a target-group node for a
   backup of kind `DEPLOYMENT`, always with preview and server code; restore covers workflows,
   modules and repository files of that deployment on that node; created artifacts listed;
   `RestoreDeploymentTest`.

@@ -108,6 +108,13 @@ public interface ReleaseArchivePort {
     Map<String, byte[]> repositoryFiles(byte[] archive);
 
     /**
+     * True if {@code archive} is a repository export ({@code export --exportRepositoryPath}),
+     * false for a diagram group, module or release export (they carry a
+     * {@code Repository.zip}).
+     */
+    boolean repositoryExport(byte[] archive);
+
+    /**
      * The archive of a repository import into {@code /Root/<owner>} (research D-1, D-7) with the
      * files {@code paths}, each taken from the first of {@code archives} (repository exports or
      * diagram group / release exports) that has it: entries relative to the owner's root,

@@ -6,11 +6,13 @@ import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.DeploymentResult.NodeOutcome;
 import de.dadecker.inubit.mcp.domain.model.DeploymentResult.State;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodePlan;
 import de.dadecker.inubit.mcp.domain.model.NodePlan.Kind;
 import de.dadecker.inubit.mcp.domain.model.NodePlan.PlannedArtifact;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
 import de.dadecker.inubit.mcp.domain.port.ArchiveCodecPort;
@@ -150,11 +152,11 @@ public final class NodeDeployer {
         }
     }
 
-    /** One call's context. */
+    /** One call's context; a restore has no plan (its node is the only target node). */
     private record Call(DeployGuard.Admitted admitted, ReleaseDiscovery.Release release,
         NodePlan plan, UUID auditId, Optional<String> mcpClient, String reason) {
         NodeId node() {
-            return plan.node();
+            return plan != null ? plan.node() : admitted.targetNodes().get(0);
         }
     }
 
@@ -167,7 +169,7 @@ public final class NodeDeployer {
         NodePlan plan, UUID auditId, Optional<String> mcpClient) {
         if (admitted.mode() == de.dadecker.inubit.mcp.domain.model.DeployMode.PACKAGE_ONLY) {
             // stage 3 review B1, defence in depth: nothing is ever sent to a package-only group
-            throw new ToolErrorException(de.dadecker.inubit.mcp.domain.model.ToolError.of(
+            throw new ToolErrorException(ToolError.of(
                 ErrorCode.PRECONDITION_FAILED, admitted.target() + " is package-only; the"
                     + " deployer never writes to it", "An internal error of the INUBIT MCP"
                     + " server", "Report the problem with the MCP server log"));
@@ -575,16 +577,32 @@ public final class NodeDeployer {
     private State rollback(Call call, List<PlannedArtifact> deployed,
         ReleasePlanner.NodeState before, Optional<ReleasePlanner.NodeState> afterImport,
         List<String> reports) {
+        return reimport(call, deployed, before, afterImport, reports, "rollback",
+            "rollback of deploy " + call.admitted().tag() + " " + call.auditId(), "Rollback of "
+                + call.node() + " from the backup of the re-check:").state();
+    }
+
+    /** The outcome of {@link #reimport} and the state its verification saw, if it ran. */
+    private record Reimported(State state, Optional<ReleasePlanner.NodeState> verified) {
+    }
+
+    /**
+     * Re-imports the artifacts of {@code artifacts} that existed in {@code before} and differ
+     * now, from {@code before} with the node's current secrets, and verifies them by re-export
+     * ({@code ROLLED_BACK} or {@code ROLLBACK_FAILED}); a report names what was re-imported.
+     */
+    private Reimported reimport(Call call, List<PlannedArtifact> artifacts,
+        ReleasePlanner.NodeState before, Optional<ReleasePlanner.NodeState> afterImport,
+        List<String> reports, String kind, String reason, String heading) {
         NodeId node = call.node();
         try {
             ReleasePlanner.NodeState now = afterImport.isPresent() ? afterImport.get()
                 : d.planner().nodeState(call.admitted(), call.release(), node);
-            List<PlannedArtifact> changed = deployed.stream().filter(a -> a.artifactClass()
+            List<PlannedArtifact> changed = artifacts.stream().filter(a -> a.artifactClass()
                 != ArtifactClass.NEW && !same(call, a, before, now)).toList();
             if (changed.isEmpty()) {
-                return State.ROLLED_BACK;
+                return new Reimported(State.ROLLED_BACK, Optional.of(now));
             }
-            String reason = "rollback of deploy " + call.admitted().tag() + " " + call.auditId();
             ImportPort port = d.imports().apply(node);
             List<String> repository = changed.stream().filter(a -> a.kind()
                 == Kind.REPOSITORY_FILE).map(PlannedArtifact::name).toList();
@@ -615,19 +633,285 @@ public final class NodeDeployer {
             List<String> differences = changed.stream().filter(a -> !same(call, a, before,
                 restored)).map(a -> a.name() + ": not back to its state before").toList();
             List<String> lines = new ArrayList<>();
-            lines.add("Rollback of " + node + " from the backup of the re-check:");
+            lines.add(heading);
             changed.forEach(a -> lines.add("re-imported: " + a.name()));
             lines.addAll(differences);
             lines.add(ROLLBACK_NOTE);
-            reports.add(report(call, "rollback", lines));
-            return differences.isEmpty() ? State.ROLLED_BACK : State.ROLLBACK_FAILED;
+            reports.add(report(call, kind, lines));
+            return new Reimported(differences.isEmpty() ? State.ROLLED_BACK
+                : State.ROLLBACK_FAILED, Optional.of(restored));
         } catch (ToolErrorException e) {
-            LOG.warn("The rollback on {} failed: {}", node, e.error().code());
-            return State.ROLLBACK_FAILED;
+            LOG.warn("The {} on {} failed: {}", kind, node, e.error().code());
+            return new Reimported(State.ROLLBACK_FAILED, Optional.empty());
         } catch (RuntimeException e) {
-            LOG.error("The rollback on {} failed unexpectedly", node, e);
-            return State.ROLLBACK_FAILED;
+            LOG.error("The {} on {} failed unexpectedly", kind, node, e);
+            return new Reimported(State.ROLLBACK_FAILED, Optional.empty());
         }
+    }
+
+    // --- restore of a deployment backup (T026) -------------------------------------------------
+
+    /**
+     * What the restore of a deployment backup on its node re-imports: the artifacts the
+     * deployment changed there that existed before it, as the backup holds them; the node's
+     * current state is the one the preview showed ({@link #fingerprint()}).
+     */
+    public static final class RestorePlan {
+        private final BackupStore.Manifest manifest;
+        private final Call call;
+        private final List<PlannedArtifact> artifacts;
+        private final ReleasePlanner.NodeState before;
+        private final ReleasePlanner.NodeState now;
+        private final List<String> restored;
+
+        private RestorePlan(BackupStore.Manifest manifest, Call call,
+            List<PlannedArtifact> artifacts, ReleasePlanner.NodeState before,
+            ReleasePlanner.NodeState now, List<String> restored) {
+            this.manifest = manifest;
+            this.call = call;
+            this.artifacts = List.copyOf(artifacts);
+            this.before = before;
+            this.now = now;
+            this.restored = List.copyOf(restored);
+        }
+
+        public NodeId node() {
+            return manifest.node();
+        }
+
+        /** The names of the artifacts the restore re-imports. */
+        public List<String> restored() {
+            return restored;
+        }
+
+        /** The names of the artifacts the deployment created; they stay. */
+        public List<String> created() {
+            return manifest.created();
+        }
+
+        /** The node's state the plan was made on (the preview state of the code). */
+        public String fingerprint() {
+            return now.fingerprint();
+        }
+
+        /** Names and the fingerprint only; never content. */
+        @Override
+        public String toString() {
+            return "RestorePlan[" + manifest.auditId() + ", " + restored + ", " + fingerprint()
+                + "]";
+        }
+    }
+
+    /** What a restore did; {@code backupRef} is the restore's own backup. */
+    public record Restored(State state, String backupRef, List<String> restored,
+        List<String> reports, List<String> warnings) {
+        public Restored {
+            Objects.requireNonNull(state, "state");
+            Objects.requireNonNull(backupRef, "backupRef");
+            restored = List.copyOf(restored);
+            reports = List.copyOf(reports);
+            warnings = List.copyOf(warnings);
+        }
+    }
+
+    /**
+     * The restore plan of the deployment backup {@code manifest} (its raw exports
+     * {@code exports}) on its node: the node is read like a deployment reads it (the backup's
+     * diagram groups, modules and repository files); every artifact to re-import must still be
+     * in the state the deployment left ({@code CONFLICT} otherwise, also for a workflow in edit
+     * mode; {@code PRECONDITION_FAILED} if that state is not recorded).
+     *
+     * @throws ToolErrorException the refusals above and the export failures of the node
+     */
+    public RestorePlan restorePlan(BackupStore.Manifest manifest, List<byte[]> exports,
+        UUID auditId) {
+        if (manifest.kind() != BackupStore.Manifest.Kind.DEPLOYMENT) {
+            throw new IllegalArgumentException("Not a deployment backup");
+        }
+        NodeId node = manifest.node();
+        GroupId group = node.group();
+        String owner = manifest.owner();
+        String tag = manifest.tag().orElse("");
+        DeployGuard.Admitted admitted = new DeployGuard.Admitted(group, new GroupId(
+            manifest.source().orElse(group.value())),
+            de.dadecker.inubit.mcp.domain.model.DeployMode.EXECUTE, List.of(), List.of(node),
+            List.of(), owner, tag);
+        List<byte[]> artifactExports = new ArrayList<>();
+        List<byte[]> repositoryExports = new ArrayList<>();
+        exports.forEach(zip -> (d.releases().repositoryExport(zip) ? repositoryExports
+            : artifactExports).add(zip));
+        SortedMap<String, byte[]> rendered = artifactExports.isEmpty() ? new TreeMap<>()
+            : d.codec().prepare(group, owner, artifactExports).files();
+        Map<String, byte[]> repository = new TreeMap<>();
+        Map<String, byte[]> repositoryZips = new TreeMap<>();
+        for (byte[] zip : repositoryExports) {
+            d.releases().repositoryFiles(zip).forEach((path, content) -> {
+                repository.putIfAbsent(path, content);
+                repositoryZips.putIfAbsent(path, zip);
+            });
+        }
+        if (manifest.intendedState().isEmpty()) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+                "The state the deployment " + manifest.auditId() + " left on " + node + " is not"
+                    + " recorded (outcome " + manifest.outcome() + "); nothing was sent",
+                "The deployment did not finish on this node, or it was rolled back",
+                "Compare the node with the version history in the Workbench and restore there"
+                    + " if needed").withNode(node));
+        }
+        List<PlannedArtifact> artifacts = new ArrayList<>();
+        for (String key : manifest.intendedState().keySet()) {
+            artifacts.add(artifact(key, manifest.created()));
+        }
+        Set<String> paths = new TreeSet<>();
+        artifacts.stream().filter(a -> a.kind() == Kind.REPOSITORY_FILE
+            && repository.containsKey(a.name())).forEach(a -> paths.add(a.name()));
+        List<byte[]> holding = new ArrayList<>();
+        paths.forEach(path -> {
+            if (!holding.contains(repositoryZips.get(path))) {
+                holding.add(repositoryZips.get(path));
+            }
+        });
+        byte[] export = merged(holding);
+        ReleaseDiscovery.Release release = new ReleaseDiscovery.Release(owner, tag,
+            new TreeSet<>(manifest.groups()), rendered, "backup:" + manifest.auditId(),
+            List.of(), Map.of(), export);
+        Map<String, byte[]> backedUp = new TreeMap<>();
+        paths.forEach(path -> backedUp.put(path, repository.get(path)));
+        Map<String, byte[]> backedUpZips = new TreeMap<>();
+        paths.forEach(path -> backedUpZips.put(path, repositoryZips.get(path)));
+        ReleasePlanner.NodeState before = new ReleasePlanner.NodeState(artifactExports,
+            rendered, Map.of(), backedUp, backedUpZips, "backup");
+        Call call = new Call(admitted, release, null, auditId, Optional.empty(), "restore of"
+            + " deploy " + tag + " " + manifest.auditId());
+        ReleasePlanner.NodeState now = d.planner().nodeState(admitted, release, node);
+        List<PlannedArtifact> existing = artifacts.stream().filter(a -> a.artifactClass()
+            != ArtifactClass.NEW).toList();
+        Map<String, String> states = d.planner().artifactStates(admitted, release, existing,
+            now);
+        List<String> changed = new ArrayList<>();
+        for (PlannedArtifact artifact : existing) {
+            String key = NodePlan.key(artifact);
+            if (!manifest.intendedState().get(key).equals(states.get(key))) {
+                changed.add(artifact.name());
+            }
+        }
+        List<String> editMode = existing.stream().filter(a -> a.kind() == Kind.WORKFLOW
+            && now.editMode().containsKey(a.name())).map(a -> a.name() + " (by "
+                + now.editMode().get(a.name()) + ")").toList();
+        if (!changed.isEmpty() || !editMode.isEmpty()) {
+            List<String> parts = new ArrayList<>();
+            if (!changed.isEmpty()) {
+                parts.add("changed on " + node + " since the deployment " + manifest.auditId()
+                    + ": " + String.join(", ", changed));
+            }
+            if (!editMode.isEmpty()) {
+                parts.add("in Workbench edit mode: " + String.join(", ", editMode));
+            }
+            throw new ToolErrorException(ToolError.of(ErrorCode.CONFLICT,
+                "Nothing was sent: " + String.join("; ", parts),
+                "A colleague (or an import) changed or opened the artifacts after the"
+                    + " deployment; restoring now would overwrite that change",
+                "Compare the node with its preview (deploy_release) or the version history in"
+                    + " the Workbench, then decide there").withNode(node));
+        }
+        List<String> restored = existing.stream().filter(a -> !same(call, a, before, now))
+            .map(PlannedArtifact::name).toList();
+        return new RestorePlan(manifest, call, existing, before, now, restored);
+    }
+
+    /**
+     * Restores {@code plan}: the restore's own backup (the node's current state, kind
+     * {@code DEPLOYMENT}), then {@code pending} (the {@code PENDING} audit record; if it throws,
+     * nothing is sent), then the re-imports of D-7 order from the backup with the node's current
+     * secrets and their verification ({@code ROLLED_BACK}: restored, {@code ROLLBACK_FAILED}).
+     *
+     * @throws RuntimeException what {@code pending} or the backup throws (nothing was sent)
+     */
+    public Restored restore(RestorePlan plan, UUID auditId, Runnable pending) {
+        Call call = new Call(plan.call.admitted(), plan.call.release(), null, auditId,
+            Optional.empty(), plan.call.reason());
+        NodeId node = plan.node();
+        String backupRef = auditId.toString();
+        List<byte[]> exports = new ArrayList<>(plan.now.raws());
+        exports.addAll(plan.now.repositoryExports().values());
+        BackupStore.Manifest manifest = d.backups().write(new BackupStore.Manifest(backupRef,
+            node, plan.manifest.owner(), "restore " + plan.manifest.auditId(), plan.restored,
+            List.of(), Map.of(), "PENDING", d.clock().instant(), List.of(),
+            BackupStore.Manifest.Kind.DEPLOYMENT, plan.manifest.groups(),
+            plan.artifacts.stream().filter(a -> a.kind() == Kind.REPOSITORY_FILE
+                && plan.restored.contains(a.name())).map(PlannedArtifact::name).toList(),
+            plan.manifest.tag(), plan.manifest.source()), exports);
+        List<String> warnings = new ArrayList<>();
+        try {
+            pending.run();
+        } catch (RuntimeException e) {
+            updateManifest(manifest.with(State.NOT_STARTED.name(), Map.of()), warnings);
+            throw e;
+        }
+        List<String> reports = new ArrayList<>();
+        Reimported result = reimport(call, plan.artifacts, plan.before, Optional.of(plan.now),
+            reports, "restore", call.reason(), "Restore of " + node + " from the backup "
+                + plan.manifest.auditId() + " (before the deployment):");
+        Map<String, String> states = Map.of();
+        if (result.state() == State.ROLLED_BACK && result.verified().isPresent()) {
+            try {
+                states = d.planner().artifactStates(call.admitted(), call.release(),
+                    plan.artifacts, result.verified().get());
+            } catch (RuntimeException e) {
+                LOG.error("The restored state of {} could not be fingerprinted", node, e);
+            }
+        } else {
+            warnings.add("The restore of " + node + " is incomplete; its state before the"
+                + " restore is in the backup " + backupRef + " (restore_backup)");
+        }
+        updateManifest(manifest.with(result.state() == State.ROLLED_BACK ? "EXECUTED"
+            : "FAILED", states), warnings);
+        return new Restored(result.state(), backupRef, plan.restored, reports, warnings);
+    }
+
+    /** The planned artifact of an intended-state key ({@link NodePlan#key}). */
+    private static PlannedArtifact artifact(String key, List<String> created) {
+        int colon = key.indexOf(':');
+        String kind = key.substring(0, colon);
+        String rest = key.substring(colon + 1);
+        if (kind.equals("repository")) {
+            return new PlannedArtifact(Kind.REPOSITORY_FILE, rest, Optional.empty(),
+                created.contains(rest) ? ArtifactClass.NEW : ArtifactClass.CHANGED,
+                Optional.empty(), false);
+        }
+        int slash = rest.lastIndexOf('/');
+        String name = rest.substring(slash + 1);
+        return new PlannedArtifact(kind.equals("workflow") ? Kind.WORKFLOW : Kind.MODULE, name,
+            Optional.of(rest.substring(0, slash)), created.contains(name) ? ArtifactClass.NEW
+                : ArtifactClass.CHANGED, Optional.empty(), false);
+    }
+
+    /**
+     * One ZIP with the entries of {@code zips} (the first of equal names wins): the repository
+     * exports of a backup as one repository export (an empty ZIP for none).
+     */
+    private static byte[] merged(List<byte[]> zips) {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        Set<String> names = new java.util.HashSet<>();
+        try (java.util.zip.ZipOutputStream out = new java.util.zip.ZipOutputStream(bytes)) {
+            for (byte[] zip : zips) {
+                try (java.util.zip.ZipInputStream in = new java.util.zip.ZipInputStream(
+                    new java.io.ByteArrayInputStream(zip))) {
+                    for (java.util.zip.ZipEntry entry = in.getNextEntry(); entry != null;
+                        entry = in.getNextEntry()) {
+                        if (names.add(entry.getName())) {
+                            out.putNextEntry(new java.util.zip.ZipEntry(entry.getName()));
+                            in.transferTo(out);
+                            out.closeEntry();
+                        }
+                    }
+                }
+            }
+            out.finish();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return bytes.toByteArray();
     }
 
     /** True if {@code artifact} is the same in both states (flag included). */
@@ -805,7 +1089,7 @@ public final class NodeDeployer {
             LOG.error("The {} audit record of {} could not be written ({})", outcome, node,
                 e.getClass().getSimpleName());
             if (outcome == AuditOutcome.PENDING) {
-                throw new ToolErrorException(de.dadecker.inubit.mcp.domain.model.ToolError.of(
+                throw new ToolErrorException(ToolError.of(
                     ErrorCode.INTERNAL, "The audit record of " + node + " could not be written;"
                         + " nothing was sent to it",
                     "The audit directory is not writable, full, or not owned by this user",

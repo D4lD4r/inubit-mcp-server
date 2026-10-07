@@ -937,8 +937,10 @@ REL-2026-10-07" adds `tag: "REL-2026-10-07"`.
 
 ## `restore_backup`
 
-> [acme] Re-import the backup taken by an earlier development call on ONE node, limited to the
-> artifacts that call changed; same checks, conflict detection, verification and rollback.
+> [acme] Re-import the backup taken by an earlier development call or deployment on ONE node,
+> limited to the artifacts that call changed; same checks, conflict detection, verification and
+> rollback. A deployment backup is restored on its node of the target group, always after a
+> preview with a code.
 
 **Input**: `node`, `backupRef` (the `backupRef`/`auditId` of an earlier result, a UUID),
 `reason`, `confirmationCode`.

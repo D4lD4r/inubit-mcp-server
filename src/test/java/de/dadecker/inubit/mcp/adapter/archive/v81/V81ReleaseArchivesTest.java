@@ -150,5 +150,14 @@ class V81ReleaseArchivesTest {
             "export_repository.zip")), "jdoe", List.of("/Root/jdoe/xsd/missing.xsd")))
             .isInstanceOf(ToolErrorException.class);
     }
-}
 
+    @Test
+    void tellsARepositoryExportFromAnArtifactExport() {
+        // T026: the backup of a deployment holds both kinds
+        assertThat(archives.repositoryExport(cliFixture("export_repository.zip"))).isTrue();
+        assertThat(archives.repositoryExport(cliFixture("export_release.zip"))).isFalse();
+        assertThat(archives.repositoryExport(ArtifactFixtures.bytes("grp-a.zip"))).isFalse();
+        assertThat(archives.repositoryExport(ArtifactFixtures.bytes("module-one.zip")))
+            .isFalse();
+    }
+}

@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.application.DevelopmentGuard.Capability;
+import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -45,6 +47,11 @@ class DevelopmentGuardTest {
                 : Optional.of(URI.create("https://inubit-dev.example.test:8443")));
     }
 
+    /** Feature 005: test receives deployments from dev, prod packages from test. */
+    private Map<GroupId, DeployMode> deployModes = Map.of(TEST.group(), DeployMode.EXECUTE,
+        PROD.group(), DeployMode.PACKAGE_ONLY);
+    private static final Duration DEPLOY_TTL = Duration.ofMinutes(30);
+
     private DevelopmentGuard guard() {
         return new DevelopmentGuard(new TargetResolver(List.of(DEV, TEST, PROD)),
             policies::get, node -> {
@@ -52,7 +59,7 @@ class DevelopmentGuardTest {
                 if (cliUnavailable != null) {
                     throw cliUnavailable;
                 }
-            });
+            }, group -> Optional.ofNullable(deployModes.get(group)), DEPLOY_TTL);
     }
 
     private ToolError refusal(String node, Capability capability) {
@@ -182,5 +189,41 @@ class DevelopmentGuardTest {
 
         assertThat(refusal("test/node1", Capability.RUN_E2E_TEST).code())
             .isEqualTo(ErrorCode.NOT_DEVELOPMENT);
+    }
+
+    // --- feature 005, T026: the restore of a deployment backup ---------------------------------
+
+    @Test
+    void aNodeOfAGroupThatReceivesDeploymentsIsAdmittedForADeploymentRestore() {
+        DevelopmentPolicy admitted = guard().admitDeploymentRestore("test/node1");
+
+        assertThat(admitted.node()).isEqualTo(TEST);
+        assertThat(admitted.confirmation()).isEqualTo(Confirmation.SERVER);
+        assertThat(admitted.confirmationTtl()).isEqualTo(DEPLOY_TTL);
+        assertThat(cliChecks).containsExactly("check test/node1");
+    }
+
+    @Test
+    void aDeploymentRestoreIsAlwaysConfirmedOnTheServer() {
+        policies = Map.of(TEST, new DevelopmentPolicy(TEST, false, true, Confirmation.CLIENT,
+            Duration.ofMinutes(5), E2ePolicy.FORBIDDEN, Optional.empty()));
+
+        assertThat(guard().admitDeploymentRestore("test/node1").confirmation())
+            .isEqualTo(Confirmation.SERVER);
+    }
+
+    @Test
+    void aPackageOnlyOrAnUnchainedGroupIsNeverAdmittedForADeploymentRestore() {
+        for (String node : List.of("prod/node1", "dev/node1")) {
+            ToolErrorException e = catchThrowableOfType(ToolErrorException.class,
+                () -> guard().admitDeploymentRestore(node));
+
+            assertThat(e).as(node).isNotNull();
+            assertThat(e.error().code()).as(node).isEqualTo(ErrorCode.NOT_DEVELOPMENT);
+            assertThat(e.error().message()).as(node).contains("restore_backup");
+        }
+        assertThat(refusal("test", Capability.RESTORE_BACKUP).code())
+            .isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(cliChecks).isEmpty();
     }
 }

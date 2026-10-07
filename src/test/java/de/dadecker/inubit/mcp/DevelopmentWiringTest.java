@@ -105,5 +105,14 @@ class DevelopmentWiringTest {
         assertThat(toolNames("", "deploy:\n  from: dev\n  mode: PACKAGE_ONLY"))
             .contains("deploy_release").doesNotContain("import_artifacts");
     }
-}
 
+    @Test
+    void restoreBackupIsOfferedForDeploymentBackupsOfAnExecuteTarget() {
+        // feature 005 (T026)
+        assertThat(toolNames("", "deploy:\n  from: dev\nwrite:\n  enabled: true\n"
+            + "  productionOptIn: true")).contains("deploy_release", "restore_backup")
+            .doesNotContain("import_artifacts", "set_active", "tag_artifacts");
+        assertThat(toolNames("", "deploy:\n  from: dev\n  mode: PACKAGE_ONLY"))
+            .doesNotContain("restore_backup");
+    }
+}

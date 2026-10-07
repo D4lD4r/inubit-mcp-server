@@ -167,6 +167,11 @@ public final class V81ReleaseArchives implements ReleaseArchivePort {
     }
 
     @Override
+    public boolean repositoryExport(byte[] archive) {
+        return !entries(archive).containsKey("Repository.zip");
+    }
+
+    @Override
     public byte[] repositoryArchive(List<byte[]> archives, String owner,
         java.util.Collection<String> paths) {
         Map<String, RepositoryArchive.RepositoryFile> files = new java.util.TreeMap<>();
