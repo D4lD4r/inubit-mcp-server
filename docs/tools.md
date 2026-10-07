@@ -833,9 +833,10 @@ every write; each step that refuses sends nothing to INUBIT:
    or development call in the workspace history);
 4. the checks of `check_artifacts` — any `ERROR` refuses with `PRECONDITION_FAILED` and the path
    of the findings report;
-5. the owner kind: a user (from the profile's `owners` or INUBIT's user list). **user-group
-   owners are not yet supported** for writes (`PRECONDITION_FAILED` "not yet verified") until
-   INUBIT's behaviour for them has been probed;
+5. the owner (default `inventory.owner`): a Workbench user or a user group alike — every
+   import, restore, activation and rollback names it with `--importUser` (INUBIT 8.1 refuses
+   `--importUserGroup` with "Missing user or group!" and takes a user group with
+   `--importUser`), so there is no owner lookup and no owner setting;
 6. the **conflict check** on a fresh export: an artifact changed on the server since its base, a
    new artifact that already exists, or a workflow in Workbench **edit mode** is a `CONFLICT`;
 7. with `development.confirmation` `SERVER` (the default) the first call returns a **preview**
@@ -911,7 +912,7 @@ absent):
   first"). UIDs and module file names of modified artifacts come from the node's fresh export,
   never from `.meta/`.
 - **Preview** (`challenge`): `scope`, `baseCommit`, `create`, `modify`, `notImported`,
-  `checkWarnings`, `ownerKind`, `confirmationCode`, `expiresAt`, `message`.
+  `checkWarnings`, `confirmationCode`, `expiresAt`, `message`.
 
 **Example prompt**: "Import the layout change of GRP-01 to dev with reason 'layout'" →
 `import_artifacts(node: "dev/node1", diagramGroup: "GRP-01", reason: "layout")` returns the
@@ -935,8 +936,8 @@ preview; after the user approves, the same call with `confirmationCode`.
   then, or edit mode, is `CONFLICT`; a call without a recorded state is `PRECONDITION_FAILED`.
 - The restore takes its own backup (its `backupRef`) and rolls back on failure like an import;
   the secrets come from the node's **current** export (old passwords never come back).
-- **Preview** (`challenge`): `scope`, `modify`, `notes`, `ownerKind`, `confirmationCode`,
-  `expiresAt`, `message`.
+- **Preview** (`challenge`): `scope`, `modify`, `notes`, `confirmationCode`, `expiresAt`,
+  `message`.
 
 **Example prompt**: "Undo that import" → `restore_backup(node: "dev/node1", backupRef: "…",
 reason: "undo layout")`.
@@ -971,7 +972,7 @@ reason: "undo layout")`.
 - Blank, empty, duplicate or wildcard-like groups are refused (`INVALID_INPUT`) before anything
   is read — StartCLI would tag **everything** of the owner without a group. A tag that exists on
   any version of any diagram or module of the owner is refused (tags are never moved); a group
-  without technical workflows is `NOT_FOUND`. User-group owners are refused as above.
+  without technical workflows is `NOT_FOUND`. The owner may be a user or a user group.
 - One `tag --tagMove '<tag>' --tagWorkflowGroup '<group>' --tagWorkflowType 'technical'
   --tagUser '<owner>'` per group. **Verification** by history exports: the tag must be on the
   head versions of exactly the technical workflows of the requested groups and the modules they
@@ -979,7 +980,7 @@ reason: "undo layout")`.
   (`tag --tagDelete`) and the result is `FAILED` with `failure` and `removedAgain: true`.
 - **Result**: `auditId`, `outcome`, `failure`, `tag`, `diagramGroups`, `workflows`, `modules`
   (how many carry the tag), `removedAgain`, `reports`, `warnings`. **Preview**: `owner`, `tag`,
-  `diagramGroups`, `workflows`, `ownerKind`, `confirmationCode`, `expiresAt`, `message`; the code
+  `diagramGroups`, `workflows`, `confirmationCode`, `expiresAt`, `message`; the code
   is bound to the head versions, so a publish in between is `CONFLICT`.
 
 **Removing the tag again acts owner-wide.** StartCLI deletes a tag only per owner

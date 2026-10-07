@@ -32,7 +32,6 @@
         "tag",
         "diagramGroups",
         "workflows",
-        "ownerKind",
         "confirmationCode",
         "expiresAt",
         "message"
@@ -57,12 +56,6 @@
           "type": "integer",
           "minimum": 0,
           "description": "Technical workflows whose head versions (and modules) get the tag"
-        },
-        "ownerKind": {
-          "enum": [
-            "USER",
-            "USER_GROUP"
-          ]
         },
         "confirmationCode": {
           "type": "string",

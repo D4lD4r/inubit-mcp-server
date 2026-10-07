@@ -31,13 +31,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `run_e2e_test`: sends a SOAP envelope from the workspace (`e2eTests: FREE | CONFIRM`) with a
     test-id header and reports the response, process instances, errors and log entries, found by
     the test id or, marked uncertain, by workflow and time window.
-- Settings `development.enabled`, `development.confirmation`, `e2eTests`, `e2e.soap.baseUrl` and
-  the profile-level `owners`; optional end-to-end basic authentication from
-  `<PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME` / `_E2E_PASSWORD`; `--check-config` shows the
-  development and end-to-end settings per node and the owner kinds.
+- Settings `development.enabled`, `development.confirmation`, `e2eTests` and `e2e.soap.baseUrl`;
+  optional end-to-end basic authentication from `<PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME` /
+  `_E2E_PASSWORD`; `--check-config` shows the development and end-to-end settings per node.
 - Backups in `~/.inubit-mcp/<profile>/backups`, kept 30 days (the newest per scope always);
   removals are audited. Every call of the development tools is audited.
-- Writes for user-group owners are refused until INUBIT's behaviour for them has been verified.
+- Writes work for user and user-group owners alike: every import names the owner with
+  `--importUser` (INUBIT 8.1 refuses `--importUserGroup`). There is no owner-kind lookup and no
+  `owners` setting; such a section in a profile is a startup error (unknown key).
 
 ## [0.2.0] - 2026-10-06
 

@@ -77,21 +77,23 @@ Configuration loading, the target selection and the production refusal are share
 
 `live/DevelopmentLiveTest` exercises the development tools against a real **development** node.
 It **writes to INUBIT**, so it runs only when started explicitly — starting it is the approval of
-exactly this scenario — and only on a **personal** diagram group of a **user** with dedicated,
-disposable test workflows (never a shared owner, never production):
+exactly this scenario — and only on a dedicated, disposable test diagram group with a dedicated
+test workflow (never production). The owner may be a user or a user group (research D-26: every
+import uses `--importUser`); a user group's diagram groups are shared, so nothing is chosen by
+default:
 
 ```bash
-INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=jdoe \
-  INUBIT_LIVE_DEV_DIAGRAM_GROUP=SPIKE mvn verify -Plive -Dtest=DevelopmentLiveTest
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=OWNERS \
+  INUBIT_LIVE_DEV_DIAGRAM_GROUP=GRP-01 INUBIT_LIVE_DEV_WORKFLOW=Workflow-0001 \
+  mvn verify -Plive -Dtest=DevelopmentLiveTest
 ```
 
-- Without `INUBIT_LIVE_DEV_NODE`, `INUBIT_LIVE_DEV_OWNER` or `INUBIT_LIVE_DEV_DIAGRAM_GROUP` the
-  test is skipped. `INUBIT_LIVE_DEV_WORKFLOW` (optional) names the workflow to change; without it
-  the first workflow file of the group is used. The tag step always covers the whole diagram group
-  (INUBIT tags per group) and is removed again.
+- Without `INUBIT_LIVE_DEV_NODE`, `INUBIT_LIVE_DEV_OWNER`, `INUBIT_LIVE_DEV_DIAGRAM_GROUP` **and**
+  `INUBIT_LIVE_DEV_WORKFLOW` the test is skipped: the diagram group and the workflow to change are
+  always named explicitly (there is no "first workflow of the group" default any more). The tag
+  step always covers the whole diagram group (INUBIT tags per group).
 - It **fails before anything is written** unless the node is a development node
-  (`development.enabled: true`; the selection is covered offline by `LiveTargetTest`) and the
-  owner is a user (`owners.<name>: USER` in the profile or listed in INUBIT's user list). A
+  (`development.enabled: true`; the selection is covered offline by `LiveTargetTest`). A
   production group is refused as for every live test.
 - Use a temporary copy of the profile if it needs `development.enabled: true`; never edit the
   real file under `~/.config/inubit-mcp/` for a test run. The test works in a **temporary

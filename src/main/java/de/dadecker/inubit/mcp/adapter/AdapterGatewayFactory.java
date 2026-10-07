@@ -14,7 +14,6 @@ import de.dadecker.inubit.mcp.adapter.rest.v81.V81LogAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81MaintenanceProbe;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81MonitoringAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81ProcessQueryAdapter;
-import de.dadecker.inubit.mcp.adapter.rest.v81.V81UserDirectory;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81VersionDetector;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
@@ -29,7 +28,6 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
-import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
@@ -171,11 +169,6 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
     @Override
     public TagPort tags(NodeId server) {
         return slot(server).ports().tags();
-    }
-
-    @Override
-    public UserDirectoryPort users(NodeId server) {
-        return slot(server).ports().users();
     }
 
     /** Without waiting for a version detection: only the 8.1 adapters exist (US4). */
@@ -400,8 +393,7 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                             guard, cliRunner, new CliOutputClassifier(scrubber,
                                 server.credentialVariables())), new CliTagRunner(server,
                             credentials, guard, cliRunner, new CliOutputClassifier(scrubber,
-                                server.credentialVariables())), inventory::confirmCredentials),
-                        new V81UserDirectory(server.id(), client));
+                                server.credentialVariables())), inventory::confirmCredentials));
                 } catch (RuntimeException e) {
                     newProbe.close();
                     throw e;

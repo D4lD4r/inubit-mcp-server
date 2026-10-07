@@ -143,8 +143,11 @@ class CliCommandTest {
                 + " '/tmp/x/import.zip' --importWorkflow --importWorkflowActive --importUser"
                 + " 'jdoe' --returnProtocol");
         assertThat(CliCommand.command("import").flag("--importModule").flag(
-            "--importWorkflowInactive").quoted("--importUserGroup", "OWNERS").build()
-            .commandLine()).contains("--importModule", "--importUserGroup 'OWNERS'");
+            "--importWorkflowInactive").quoted("--importUser", "OWNERS").build()
+            .commandLine()).contains("--importModule", "--importUser 'OWNERS'");
+        // research D-26: INUBIT refuses --importUserGroup ("Missing user or group!")
+        assertInvalidInput(() -> CliCommand.command("import").quoted("--importUserGroup",
+            "OWNERS"));
         assertInvalidInput(() -> CliCommand.command("import").quoted("--exportFile", "x"));
         assertInvalidInput(() -> CliCommand.command("import").flag("--importRepositoryPath"));
         assertInvalidInput(() -> CliCommand.command("import").flag("--importMetadata"));

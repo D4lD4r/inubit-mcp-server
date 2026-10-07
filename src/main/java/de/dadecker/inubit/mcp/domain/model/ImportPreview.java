@@ -13,8 +13,8 @@ import java.util.Objects;
  * @param checkWarnings the number of WARNING findings of the checks
  */
 public record ImportPreview(NodeId node, String scope, String baseCommit, List<String> create,
-    List<String> modify, List<String> notImported, int checkWarnings, OwnerKind ownerKind,
-    String confirmationCode, Instant expiresAt, String message) {
+    List<String> modify, List<String> notImported, int checkWarnings, String confirmationCode,
+    Instant expiresAt, String message) {
 
     public ImportPreview {
         Objects.requireNonNull(node, "node");
@@ -23,7 +23,6 @@ public record ImportPreview(NodeId node, String scope, String baseCommit, List<S
         create = List.copyOf(create);
         modify = List.copyOf(modify);
         notImported = List.copyOf(notImported);
-        Objects.requireNonNull(ownerKind, "ownerKind");
         Objects.requireNonNull(confirmationCode, "confirmationCode");
         Objects.requireNonNull(expiresAt, "expiresAt");
         Objects.requireNonNull(message, "message");

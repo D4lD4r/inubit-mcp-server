@@ -16,14 +16,13 @@ import java.util.Objects;
  *               the active flag)
  */
 public record WritePreview(NodeId node, String scope, List<String> modify, List<String> notes,
-    OwnerKind ownerKind, String confirmationCode, Instant expiresAt, String message) {
+    String confirmationCode, Instant expiresAt, String message) {
 
     public WritePreview {
         Objects.requireNonNull(node, "node");
         Objects.requireNonNull(scope, "scope");
         modify = List.copyOf(modify);
         notes = List.copyOf(notes);
-        Objects.requireNonNull(ownerKind, "ownerKind");
         Objects.requireNonNull(confirmationCode, "confirmationCode");
         Objects.requireNonNull(expiresAt, "expiresAt");
         Objects.requireNonNull(message, "message");

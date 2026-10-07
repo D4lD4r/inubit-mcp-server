@@ -1347,11 +1347,7 @@ class ConfigValidatorTest {
                 e2e:
                   soap:
                     baseUrl: https://inubit-dev.example.test:8443
-                """, "e2eTests: FORBIDDEN\n") + """
-                owners:
-                  OWNERS: USER_GROUP
-                  jdoe: USER
-                """);
+                """, "e2eTests: FORBIDDEN\n"));
 
             assertThat(report.errors()).isEmpty();
             assertThat(report.warnings()).isEmpty();
@@ -1501,17 +1497,6 @@ class ConfigValidatorTest {
                 .contains("dev/node1", "e2e.soap.baseUrl", "absolute");
             assertThat(query.errors()).singleElement().asString()
                 .contains("e2e.soap.baseUrl", "query or fragment");
-        }
-
-        @Test
-        void anOwnerNameThatCannotBePassedToStartCliIsAnError() {
-            ValidationReport report = validate(profile("", "") + """
-                owners:
-                  "-x": USER
-                """);
-
-            assertThat(report.errors()).singleElement().asString()
-                .contains("owners", CLI_VALUE_RULE);
         }
 
         @Test

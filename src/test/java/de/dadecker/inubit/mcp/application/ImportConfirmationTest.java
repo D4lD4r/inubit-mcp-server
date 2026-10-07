@@ -7,7 +7,6 @@ import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ImportPreview;
-import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
@@ -67,7 +66,6 @@ class ImportConfirmationTest {
         assertThat(preview.create()).isEmpty();
         assertThat(preview.scope()).isEqualTo("diagram group GRP-01");
         assertThat(preview.baseCommit()).matches("[0-9a-f]{40}");
-        assertThat(preview.ownerKind()).isEqualTo(OwnerKind.USER);
         assertThat(preview.confirmationCode()).matches("^[A-Za-z0-9_-]{22}$");
         assertThat(preview.message()).contains("confirmationCode");
         assertThat(harness.audit("import_artifacts")).singleElement().satisfies(record -> {

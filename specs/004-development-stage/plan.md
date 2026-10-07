@@ -69,7 +69,7 @@ INUBIT's own time.
 - 5 tools and 10 schemas;
 - about 30 new production classes (application services and guard, a generic challenge registry,
   import/tag runners, protocol parser, `SecretValues`/`SecretPaths`/`ImportAssembler`,
-  `BackupStore`, `OwnerKindResolver`, `E2eClient`);
+  `BackupStore`, `OwnerKindResolver` (removed again by research D-26), `E2eClient`);
 - config, wiring and docs.
 
 ## Constitution Check
@@ -111,21 +111,20 @@ specs/004-development-stage/
 
 ```text
 src/main/java/de/dadecker/inubit/mcp/
-├── config/                 # DevelopmentConfig, E2eConfig, OwnerKind, owners map; EffectiveNodeConfig.development();
+├── config/                 # DevelopmentConfig, E2eConfig; EffectiveNodeConfig.development() (OwnerKind/owners removed, D-26);
 │                           # ConfigValidator production rules; ConfigSummary development/e2e lines
 ├── domain/model/           # DevelopmentPolicy, E2ePolicy, ImportScope, ChangeSet, ChangedArtifact, Conflict,
 │                           # WriteOutcome, TagOutcome, E2eRun, ErrorCode (+6)
-├── domain/port/            # ImportPort, TagPort (Gateway), UserDirectoryPort, E2ePort, BackupPort;
+├── domain/port/            # ImportPort, TagPort (Gateway), E2ePort, BackupPort (UserDirectoryPort removed, D-26);
 │                           # VersionHistoryPort (+lastServerState, show, changedPaths); ArchiveCodecPort (+files view,
 │                           # +assembleForImport)
 ├── adapter/cli/            # CliCommand (+import, +tag options), CliImportRunner, ImportProtocolParser
 ├── adapter/cli/v81/        # V81ImportAdapter, V81TagAdapter
 ├── adapter/archive/v81/    # SecretPaths (shared with SecretRedactor), SecretValues, ImportAssembler
-├── adapter/rest/v81/       # V81UserDirectory (GET /user/users)
 ├── adapter/soap/           # SoapE2eClient (JDK HttpClient, node TLS)
 ├── adapter/git/            # GitCli (+3 read methods, Server-State trailer)
 ├── application/            # DevelopmentGuard, WriteChallengeRegistry, ChangeSetBuilder, ConflictDetector,
-│                           # BackupStore (+retention), OwnerKindResolver, ImportService (import/restore/activate),
+│                           # BackupStore (+retention), ImportService (import/restore/activate),
 │                           # TagService, E2eTestService; WorkspaceService (+trailer, +shared steps)
 ├── mcp/tools/              # ImportArtifactsTool, RestoreBackupTool, SetActiveTool, TagArtifactsTool, RunE2eTestTool
 └── Wiring.java             # registration only with a development node

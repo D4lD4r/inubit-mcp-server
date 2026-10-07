@@ -1,7 +1,6 @@
 package de.dadecker.inubit.mcp.domain.port;
 
 import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
-import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 
 /**
  * Imports into one INUBIT server (feature 004, research D-8; 8.1: StartCLI {@code import
@@ -32,12 +31,12 @@ public interface ImportPort {
     void checkAvailable();
 
     /**
-     * Imports {@code archive} for {@code owner} ({@code --importUser} for a user,
-     * {@code --importUserGroup} for a user group) and returns INUBIT's protocol.
+     * Imports {@code archive} for {@code owner} and returns INUBIT's protocol. The owner may be
+     * a user or a user group: INUBIT 8.1 takes both with {@code --importUser} (research D-26).
      *
      * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException {@code INVALID_INPUT}
      *     before anything is launched; {@code IMPORT_FAILED} if StartCLI reports a failure or an
      *     unreadable protocol; {@code TIMEOUT} (the import may have happened)
      */
-    ImportProtocol importArchive(byte[] archive, Mode mode, String owner, OwnerKind kind);
+    ImportProtocol importArchive(byte[] archive, Mode mode, String owner);
 }

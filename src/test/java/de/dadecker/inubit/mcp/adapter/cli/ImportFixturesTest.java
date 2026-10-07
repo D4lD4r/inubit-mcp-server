@@ -152,23 +152,6 @@ class ImportFixturesTest {
             .contains("<CheckinComment>DefaultCommitCommentImport###</CheckinComment>");
     }
 
-    @Test
-    void theUserListIsNeutralizedAndListsUsersOnly() throws IOException {
-        String users;
-        try (InputStream in = resource("/fixtures/v8_1/rest/user_users.xml")) {
-            assertThat(in).as("rest/user_users.xml").isNotNull();
-            users = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
-
-        assertThat(Pattern.compile("<ns2:User ").matcher(users).results().count())
-            .isEqualTo(58);
-        assertThat(users).contains("id=\"jdoe\"").doesNotContain("OWNERS");
-        Matcher emails = Pattern.compile("email=\"([^\"]*)\"").matcher(users);
-        while (emails.find()) {
-            assertThat(emails.group(1)).endsWith("@example.test");
-        }
-    }
-
     private static List<String> rows(String stdout) {
         return stdout.lines().map(String::stripTrailing)
             .filter(line -> PROTOCOL_ROW.matcher(line).matches()).toList();

@@ -24,7 +24,7 @@ Input: `node`, `owner` (default `inventory.owner`), exactly one of `diagramGroup
 `modules` (1–50 `{name, pluginType?}`), `reason`, `confirmationCode`.
 
 Challenge preview: `{ "scope", "baseCommit", "create": [names], "modify": [names], "notImported":
-[paths], "checkWarnings": n, "ownerKind" }` + code/expiry.
+[paths], "checkWarnings": n }` + code/expiry (no owner kind, research D-26).
 
 Result: `{ "outcome": "EXECUTED"|"FAILED", "commit", "backupRef", "created": [...], "modified": [...],
 "notImported": [...], "rollback": "NOT_NEEDED"|"SUCCEEDED"|"FAILED", "createdNotRemoved": [...],
@@ -33,7 +33,7 @@ Result: `{ "outcome": "EXECUTED"|"FAILED", "commit", "backupRef", "created": [..
 Failure model (research D-25): refusals **before** anything is sent are tool errors —
 `NOT_DEVELOPMENT`, `INVALID_INPUT` (scope, deletions, repository changes, reason with `###`/`@@@`),
 `PRECONDITION_FAILED` (check errors with the findings report path, missing referenced modules, lock,
-owner kind, user-group owner not yet verified, no base export), `CONFLICT` (diff path),
+no base export), `CONFLICT` (diff path),
 `SECRET_UNRESOLVED` (artifact + property path), `CONFIRMATION_INVALID`, `CLI_UNAVAILABLE`,
 `AUTH_FAILED`. Once anything was sent, the call returns a **result** with `outcome: FAILED`,
 `failure: {code: IMPORT_FAILED | VERIFY_MISMATCH, step, message}` and `rollback`. Fields without a

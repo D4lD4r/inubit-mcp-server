@@ -9,7 +9,6 @@ import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
-import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.model.TagOutcome;
 import de.dadecker.inubit.mcp.domain.model.TagPreview;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -21,11 +20,9 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,7 +34,7 @@ import org.junit.jupiter.api.io.TempDir;
  * against a fake tag port — blank, empty and wildcard-like diagram groups and existing tags
  * are refused before any tag command; one tag command per diagram group; verification by
  * history export; a tag that reached anything else (or a failing tag command) is removed again
- * and reported as {@code FAILED}; user-group owners are refused; every call is audited.
+ * and reported as {@code FAILED}; every call is audited.
  */
 class TagServiceTest {
 
@@ -50,7 +47,6 @@ class TagServiceTest {
     private final FakeTagPort port = new FakeTagPort();
     private final List<AuditRecord> audit = new CopyOnWriteArrayList<>();
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
-    private final Map<String, OwnerKind> owners = new HashMap<>();
     private WritePolicy.Confirmation confirmation = WritePolicy.Confirmation.CLIENT;
 
     @BeforeEach
@@ -72,8 +68,7 @@ class TagServiceTest {
         return new TagService(new TagService.Dependencies(root, "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV, TEST)), policies::get,
                 node -> port.checkAvailable()),
-            node -> port, new OwnerKindResolver(owners, node -> () -> Set.of("jdoe")),
-            node -> Optional.of("jdoe"),
+            node -> port, node -> Optional.of("jdoe"),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),
             new WriteChallengeRegistry(clock), audit::add, clock, UUID::randomUUID));
     }
@@ -119,7 +114,7 @@ class TagServiceTest {
         assertThat(audit.get(1).inputs()).containsEntry("tag", "REL-1")
             .containsEntry("scope", "diagram groups GRP-01, GRP-02")
             .containsEntry("reason", "Tested state").containsEntry("owner", "jdoe")
-            .containsEntry("ownerKind", "USER");
+            .doesNotContainKey("ownerKind");
     }
 
     @Test
@@ -196,17 +191,6 @@ class TagServiceTest {
         });
         assertThat(outcome.removedAgain()).isTrue();
         assertThat(port.carrying("REL-1")).isEmpty();
-    }
-
-    @Test
-    void aUserGroupOwnerIsRefusedAsNotYetVerified() {
-        owners.put("jdoe", OwnerKind.USER_GROUP);
-
-        ToolError error = refusal(service(), request(List.of("GRP-01")));
-
-        assertThat(error.code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
-        assertThat(error.message()).contains("not yet verified");
-        assertThat(port.calls).isEmpty();
     }
 
     @Test

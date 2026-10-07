@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
-import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.io.IOException;
@@ -99,30 +98,6 @@ class ImportServiceRefusalTest {
 
         assertThat(error.code()).isEqualTo(ErrorCode.SECRET_UNRESOLVED);
         assertThat(error.message()).contains("Module-0003", "Password");
-    }
-
-    @Test
-    void aUserGroupOwnerIsRefusedAsNotYetVerified() throws IOException {
-        ImportHarness harness = edited(ImportHarness.grpA(temp));
-        harness.owners.put("jdoe", OwnerKind.USER_GROUP);
-
-        ToolError error = refusal(harness, harness.group("Group"));
-
-        assertThat(error.code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
-        assertThat(error.message()).contains("not yet verified");
-        assertThat(harness.cli.launches()).isEmpty();
-    }
-
-    @Test
-    void anOwnerOfUnknownKindIsRefused() throws IOException {
-        ImportHarness harness = edited(ImportHarness.grpA(temp));
-        harness.users.clear();
-
-        ToolError error = refusal(harness, harness.group("Unknown"));
-
-        assertThat(error.code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
-        assertThat(error.nextStep()).contains("owners.jdoe");
-        assertThat(harness.cli.launches()).isEmpty();
     }
 
     @Test

@@ -3,9 +3,7 @@ package de.dadecker.inubit.mcp.live;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.TestWiring;
-import de.dadecker.inubit.mcp.application.OwnerKindResolver;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
-import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
@@ -31,17 +29,20 @@ import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.JsonNode;
 
 /**
- * T026 (feature 004, research D-23, SC-006): the development tools against a real
- * <b>development</b> node, on a <b>personal</b> diagram group of a <b>user</b> owner with
- * dedicated test workflows only — opt-in, never part of the default build, never on production
- * or shared owners. Run with
- * {@code INUBIT_MCP_PROFILE=<profile> INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=<user>
- * INUBIT_LIVE_DEV_DIAGRAM_GROUP=<personal group> mvn verify -Plive -Dtest=DevelopmentLiveTest};
- * starting it is the approval of exactly this scenario.
+ * T026, T031 (feature 004, research D-23, D-26, SC-006): the development tools against a real
+ * <b>development</b> node, on a dedicated test diagram group with a dedicated test workflow only
+ * — opt-in, never part of the default build, never on production. Run with
+ * {@code INUBIT_MCP_PROFILE=<profile> INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=<owner>
+ * INUBIT_LIVE_DEV_DIAGRAM_GROUP=<test group> INUBIT_LIVE_DEV_WORKFLOW=<test workflow>
+ * mvn verify -Plive -Dtest=DevelopmentLiveTest}; starting it is the approval of exactly this
+ * scenario.
  *
- * <p>Refused before anything is written unless the node is a development node
- * ({@link LiveTarget#resolveDevelopment}) and the owner is a user (profile {@code owners} or
- * INUBIT's user list). Scenario, into a <b>temporary</b> workspace: export → change one layout
+ * <p>The owner may be a user or a user group (research D-26: the server no longer tells them
+ * apart, every import uses {@code --importUser}). Because a user group's diagram groups are
+ * shared, nothing is chosen by default: the diagram group <b>and</b> the workflow must both be
+ * named explicitly, otherwise the test is skipped. Refused before anything is written unless the
+ * node is a development node ({@link LiveTarget#resolveDevelopment}). Scenario, into a
+ * <b>temporary</b> workspace: export → change one layout
  * value of one workflow → {@code import_artifacts} → verified (the workspace shows the change)
  * → {@code restore_backup} → {@code set_active} off/on (or on/off) → {@code tag_artifacts} with a
  * unique {@code LIVE-<timestamp>} tag → the tag is removed again ({@code tag --tagDelete}) and
@@ -55,7 +56,7 @@ class DevelopmentLiveTest {
 
     static final String OWNER_VARIABLE = "INUBIT_LIVE_DEV_OWNER";
     static final String GROUP_VARIABLE = "INUBIT_LIVE_DEV_DIAGRAM_GROUP";
-    /** Optional: the workflow to change; without it the first workflow file of the group. */
+    /** The workflow to change; required, never a default (a group may be shared). */
     static final String WORKFLOW_VARIABLE = "INUBIT_LIVE_DEV_WORKFLOW";
     private static final Duration WAIT = Duration.ofSeconds(600);
     private static final Pattern X_POS = Pattern.compile("xPos=\"(\\d+)\"");
@@ -65,13 +66,14 @@ class DevelopmentLiveTest {
     Path workspace;
 
     @Test
-    void importRestoreActivateAndTagOnAPersonalDiagramGroup() throws IOException {
+    void importRestoreActivateAndTagOnATestDiagramGroup() throws IOException {
         LiveTarget live = LiveTarget.resolveDevelopment();
         String owner = System.getenv(OWNER_VARIABLE);
         String group = System.getenv(GROUP_VARIABLE);
-        Assumptions.assumeTrue(owner != null && !owner.isBlank() && group != null
-            && !group.isBlank(), OWNER_VARIABLE + " and " + GROUP_VARIABLE
-            + " are not set; the development live test is skipped");
+        String named = System.getenv(WORKFLOW_VARIABLE);
+        Assumptions.assumeTrue(given(owner) && given(group) && given(named), OWNER_VARIABLE
+            + ", " + GROUP_VARIABLE + " and " + WORKFLOW_VARIABLE + " are not all set; the"
+            + " development live test is skipped (nothing is chosen by default)");
         owner = owner.strip();
         group = group.strip();
         NodeId node = live.node();
@@ -82,16 +84,12 @@ class DevelopmentLiveTest {
         try (TestWiring wiring = live.wiring(workspace);
             McpTestClient client = McpTestClient.start(wiring.toolHandlers(),
                 live.scrubber())) {
-            OwnerKind kind = new OwnerKindResolver(live.loaded().config().owners(),
-                wiring.gateways()::users).resolve(node, owner);
-            assertThat(kind).as("the development live test runs only for a user owner (a"
-                + " personal diagram group)").isEqualTo(OwnerKind.USER);
             client.initialize();
             long start = System.nanoTime();
 
             structured(client.callTool("export_artifacts", Map.of("target", node.value(),
                 "owner", owner, "diagramGroups", List.of(group)), WAIT));
-            Path file = firstWorkflow(node, owner, group);
+            Path file = namedWorkflow(node, owner, group, named.strip());
             String original = Files.readString(file, StandardCharsets.UTF_8);
             Matcher x = X_POS.matcher(original);
             assertThat(x.find()).as("a layout value to change").isTrue();
@@ -156,26 +154,18 @@ class DevelopmentLiveTest {
         }
     }
 
-    /**
-     * The workflow file named by {@code INUBIT_LIVE_DEV_WORKFLOW}, or else the first workflow file
-     * of the diagram group in the temporary workspace.
-     */
-    private Path firstWorkflow(NodeId node, String owner, String group) throws IOException {
-        String named = System.getenv(WORKFLOW_VARIABLE);
-        if (named != null && !named.isBlank()) {
-            Path file = workspace.resolve(WorkspacePath.workflow(node.group(), owner, group,
-                named).toRelativePath());
-            if (!Files.isRegularFile(file)) {
-                throw new AssertionError(WORKFLOW_VARIABLE + " names no workflow of the group");
-            }
-            return file;
+    private static boolean given(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    /** The workflow file named by {@code INUBIT_LIVE_DEV_WORKFLOW} in the temporary workspace. */
+    private Path namedWorkflow(NodeId node, String owner, String group, String named) {
+        Path file = workspace.resolve(WorkspacePath.workflow(node.group(), owner, group, named)
+            .toRelativePath());
+        if (!Files.isRegularFile(file)) {
+            throw new AssertionError(WORKFLOW_VARIABLE + " names no workflow of the group");
         }
-        Path directory = workspace.resolve(WorkspacePath.workflow(node.group(), owner, group, "x")
-            .toRelativePath()).getParent();
-        try (Stream<Path> files = Files.list(directory)) {
-            return files.filter(f -> f.toString().endsWith(".xml")).sorted().findFirst()
-                .orElseThrow(() -> new AssertionError("the diagram group has no workflow"));
-        }
+        return file;
     }
 
     /** The result of a write, confirming a preview with its code (the run is the approval). */

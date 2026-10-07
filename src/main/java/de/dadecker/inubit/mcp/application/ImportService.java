@@ -14,7 +14,6 @@ import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
 import de.dadecker.inubit.mcp.domain.model.ImportScope;
 import de.dadecker.inubit.mcp.domain.model.NameCodec;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
-import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.model.PathChange;
 import de.dadecker.inubit.mcp.domain.model.Target;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -74,8 +73,6 @@ import org.slf4j.LoggerFactory;
  *       uncommitted edits recorded as local changes;
  *   <li>the change set ({@link ChangeSetBuilder}); an empty one sends nothing (SC-003);
  *   <li>the checks of feature 003 on the change set — an ERROR refuses with a findings report;
- *   <li>the owner kind, only from positive evidence; user groups are refused
- *       ({@link OwnerKindResolver#admitForWrite});
  *   <li>with a confirmation code: the code must match the inputs and the workspace of its
  *       preview ({@code CONFIRMATION_INVALID} otherwise, "preview again");
  *   <li>the conflict check on a fresh export ({@link ConflictDetector}), repeated right before
@@ -84,7 +81,8 @@ import org.slf4j.LoggerFactory;
  *   <li>the import archive with only the change set and the target's current secrets;
  *   <li>server confirmation without a code: the preview with a code, audited — nothing sent;
  *   <li>the backup (the raw export of the scope and a manifest), then the {@code PENDING}
- *       audit record (fail closed), then the StartCLI import;
+ *       audit record (fail closed), then the StartCLI import — always with
+ *       {@code --importUser <owner>}, for users and user groups alike (research D-26);
  *   <li>the protocol must name exactly the change set; the scope is exported again and every
  *       change-set artifact must equal its workspace file (reviewed content) with exactly the
  *       reason as the person-written segment of its check-in comment (workflows and module
@@ -141,7 +139,7 @@ public final class ImportService {
         ArtifactInspectorPort inspector, ArtifactCheckService checks, ArchiveCodecPort codec,
         ImportArchivePort archives, Function<NodeId, ArtifactPort> artifacts,
         Function<NodeId, ImportPort> imports, Function<NodeId, InventoryPort> inventory,
-        OwnerKindResolver owners, Function<NodeId, Optional<String>> defaultOwners,
+        Function<NodeId, Optional<String>> defaultOwners,
         Function<NodeId, Account> accounts, WriteChallengeRegistry challenges,
         BackupStore backups, AuditPort audit, Clock clock, Supplier<UUID> ids) {
 
@@ -158,7 +156,6 @@ public final class ImportService {
             Objects.requireNonNull(artifacts, "artifacts");
             Objects.requireNonNull(imports, "imports");
             Objects.requireNonNull(inventory, "inventory");
-            Objects.requireNonNull(owners, "owners");
             Objects.requireNonNull(defaultOwners, "defaultOwners");
             Objects.requireNonNull(accounts, "accounts");
             Objects.requireNonNull(challenges, "challenges");
@@ -325,8 +322,6 @@ public final class ImportService {
         }
         UUID auditId = d.ids().get();
         int warnings = check(node, changes, auditId);
-        OwnerKind kind = d.owners().admitForWrite(node, call.owner);
-        call.kind = kind;
         String inputs = inputFingerprint(node, call, request);
         String workspace = workspaceState(changes);
         Optional<String> previewedServer = Optional.empty();
@@ -379,8 +374,7 @@ public final class ImportService {
      *   <li>the workspace file of the workflow must be its last server state: unimported edits
      *       are {@code PRECONDITION_FAILED} (they would not be sent, D-24); without an exported
      *       state "export first";
-     *   <li>the owner kind (user groups refused); the conflict check on that workflow only
-     *       (changed on the server, edit mode);
+     *   <li>the conflict check on that workflow only (changed on the server, edit mode);
      *   <li>a workflow already in the requested state sends nothing (no new version);
      *   <li>the archive holds that workflow alone, built from the FRESH server export with
      *       {@code IsActive} changed, and is imported with {@code --importWorkflowActive} or
@@ -444,7 +438,6 @@ public final class ImportService {
                 "Import the edits first (import_artifacts), or restore the file (git restore "
                     + file + "), then repeat the call").withNode(node));
         }
-        call.kind = d.owners().admitForWrite(node, call.owner);
         ChangedArtifact workflow = new ChangedArtifact(ArtifactRef.workflow(node.group(),
             call.owner, request.diagramGroup(), name), ChangedArtifact.Kind.MODIFIED,
             List.of(file), base);
@@ -516,8 +509,7 @@ public final class ImportService {
      *   <li>reason, code and {@code backupRef} (an audit id) are checked, then the guard; the
      *       backup must exist for this node — unknown, removed (retention sweep at the start)
      *       or foreign references are {@code NOT_FOUND} before anything is read from INUBIT;
-     *   <li>the owner kind of the backup's owner (user groups refused); the backup is rendered
-     *       in memory;
+     *   <li>the backup is rendered in memory (for the backup's owner);
      *   <li>the conflict check compares the scope's fresh export with the state the referenced
      *       call left — the intended-state hashes of its manifest, which a failed call records
      *       as its last verification saw them; an artifact without recorded state is
@@ -571,7 +563,6 @@ public final class ImportService {
         call.requested.put("scope", manifest.scope());
         d.history().init();
         commitLocalChanges();
-        call.kind = d.owners().admitForWrite(node, call.owner);
         SortedMap<String, byte[]> before = d.codec().prepare(node.group(), call.owner,
             d.backups().exports(ref)).files();
         Optional<ChangeSet> restorable = restoreSet(node, manifest, before);
@@ -810,7 +801,7 @@ public final class ImportService {
             "the import of " + changes.scope().describe());
         return new Response.Challenge(new ImportPreview(node, changes.scope().describe(),
             changes.baseCommit(), changes.created(), changes.modified(), changes.notImported(),
-            warnings, call.kind, issued.code(), issued.expiresAt(), "Nothing was sent. To"
+            warnings, issued.code(), issued.expiresAt(), "Nothing was sent. To"
                 + " import " + changes.artifacts().size() + " artifact(s) of "
                 + changes.scope().describe() + " into " + node + ", show this preview to the"
                 + " user and, after their explicit approval, call import_artifacts again with"
@@ -844,7 +835,7 @@ public final class ImportService {
         WriteChallengeRegistry.Issued issued = issue(call, node, policy, inputs, previewState,
             call.capability.toolName() + " of " + scope);
         return new Response.WriteChallenge(new WritePreview(node, scope, modify, notes,
-            call.kind, issued.code(), issued.expiresAt(), "Nothing was sent. To run "
+            issued.code(), issued.expiresAt(), "Nothing was sent. To run "
                 + call.capability.toolName() + " for " + scope + " on " + node + ", show this"
                 + " preview to the user and, after their explicit approval, call "
                 + call.capability.toolName() + " again with the same inputs and"
@@ -920,7 +911,7 @@ public final class ImportService {
         call.step = "import";
         try {
             ImportProtocol protocol = d.imports().apply(node).importArchive(
-                plan.archive().zip(), plan.mode(), call.owner, call.kind);
+                plan.archive().zip(), plan.mode(), call.owner);
             call.step = "protocol";
             Optional<String> mismatch = protocolMismatch(changes, protocol);
             if (mismatch.isPresent()) {
@@ -1099,7 +1090,7 @@ public final class ImportService {
                 "Rollback of " + plan.verb() + " " + auditId, account, Set.of()));
             try {
                 d.imports().apply(node).importArchive(archive.zip(), plan.rollbackMode(),
-                    call.owner, call.kind);
+                    call.owner);
             } catch (ToolErrorException e) {
                 LOG.warn("The rollback import on {} failed: {}", node, e.error().code());
             }
@@ -1624,7 +1615,6 @@ public final class ImportService {
         final Map<String, String> requested = new LinkedHashMap<>();
         DevelopmentPolicy policy;
         String owner;
-        OwnerKind kind;
         ChangeSet changes;
         String backupRef;
         String rollback;
@@ -1650,9 +1640,6 @@ public final class ImportService {
             requested.forEach((key, value) -> inputs.put(key, bounded(value)));
             if (owner != null) {
                 inputs.put("owner", bounded(owner));
-            }
-            if (kind != null) {
-                inputs.put("ownerKind", kind.name());
             }
             if (changes != null) {
                 List<String> names = names(changes.artifacts());

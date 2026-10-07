@@ -2,7 +2,6 @@ package de.dadecker.inubit.mcp.adapter.cli.v81;
 
 import de.dadecker.inubit.mcp.adapter.cli.CliImportRunner;
 import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
-import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import java.util.Objects;
 
@@ -33,11 +32,10 @@ public final class V81ImportAdapter implements ImportPort {
     }
 
     @Override
-    public ImportProtocol importArchive(byte[] archive, Mode mode, String owner,
-        OwnerKind kind) {
+    public ImportProtocol importArchive(byte[] archive, Mode mode, String owner) {
         imports.checkAvailable();
         confirmCredentials.run();
-        return imports.importArchive(archive, mode, owner, kind);
+        return imports.importArchive(archive, mode, owner);
     }
 
     @Override

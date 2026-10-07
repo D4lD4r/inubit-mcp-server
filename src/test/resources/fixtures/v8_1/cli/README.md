@@ -43,8 +43,10 @@ Java stack traces.
 | `import_protocol_mismatch` | **synthetic** | `import_modified` with one extra row `Module [SPIKE_C_Assign-09] was modified.` (an artifact that is not in the archive), `Total: 6`; column widths kept | derived from `import_modified` |
 | `import_timeout` | **synthetic** | what is left of a run that was stopped on timeout: the preamble only, no protocol; exit 143 is what `FakeProcessLauncher` reports for a destroyed process. Replay it with `hanging()` so that the runner's timeout fires | written for the tests |
 
-The import was run with `--importUser` only; `--importUserGroup` (a user-group owner) was not
-probed, which is why feature 004 refuses writes for user-group owners (D-25).
+These imports were run with `--importUser` for a user. A later probe (D-26) showed that
+`--importUserGroup '<group owner>'` is refused with "Missing user or group!" while
+`--importUser '<group owner>'` imports for the user group, so feature 004 always uses
+`--importUser`; that probe's output was not recorded as a fixture.
 
 ### Check-in comment probes (`import_comment_history.xml`)
 
@@ -76,15 +78,7 @@ Because `tag` prints nothing, the result of a tag call can only be verified by a
 | `finger_user` | recorded | a user: `Login: jdoe       Name: Doe, John`, `Email: jdoe@example.test`, `Role: …`, exit 0 | `finger-<user>.txt` |
 | `finger_not_registered` | recorded | the shared user-group owner: `The user or group "OWNERS" is not registered in the INUBIT Process Engine.`, stack trace, exit 1. An unknown name gives the identical answer, so `finger` cannot tell a user group from a typo; feature 004 does not use it (D-21, D-25) | `finger-<group owner>.txt` |
 
-## REST: `../rest/user_users.{http,xml}`
+## REST: user list (removed)
 
-`GET /ibis/rest/user/users?type=processEngineUser` (read-only, recorded once on the development
-node on 2026-10-06 for D-21/D-25; `Accept: application/xml`): status 200,
-`application/xml;charset=UTF-8`, one line, `ns2:UserList` with 58 `ns2:User` elements, each with
-`id`, `email`, `type="ProcessEngineUser"` and, for 26 of them, `firstName` and `lastName`.
-
-Every user entry was replaced by a fictitious one; element order, attribute set and attribute
-order of each entry and the document structure are kept byte for byte otherwise. The person of the
-spike is `jdoe` (`John`/`Doe`, `jdoe@example.test`); the other 57 entries are `User01`…`User57`
-with `user<nn>@example.test` and, where the original had names, `First<nn>`/`Last<nn>`. The list
-contains users only: the shared user-group owner (`OWNERS`) is not in it (D-21).
+The neutralized recording of `GET /ibis/rest/user/users` (`../rest/user_users.*`, D-21) was
+removed with the owner-kind lookup (D-26): imports name every owner with `--importUser`.

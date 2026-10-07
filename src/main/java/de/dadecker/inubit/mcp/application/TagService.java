@@ -6,7 +6,6 @@ import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
-import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.model.TagOutcome;
 import de.dadecker.inubit.mcp.domain.model.TagPreview;
 import de.dadecker.inubit.mcp.domain.model.Target;
@@ -50,9 +49,8 @@ import org.slf4j.LoggerFactory;
  * <ol>
  *   <li>inputs: 1–20 distinct diagram groups, none blank and each a name StartCLI quoting can
  *       carry (so no wildcard-like value), the tag likewise, the reason; then the
- *       {@link DevelopmentGuard}, the owner (default {@code inventory.owner}) and its kind —
- *       user groups are refused ({@link OwnerKindResolver#admitForWrite}). Nothing is read from
- *       INUBIT before;
+ *       {@link DevelopmentGuard} and the owner (default {@code inventory.owner}), a user or a
+ *       user group (research D-26). Nothing is read from INUBIT before;
  *   <li>the owner's history of all diagram groups and types: a tag that exists on any version
  *       of any diagram or module is {@code INVALID_INPUT} (tags are never moved); a requested
  *       group without technical workflows is {@code NOT_FOUND};
@@ -91,7 +89,7 @@ public final class TagService {
      * @param accounts      the INUBIT account of each node (audit)
      */
     public record Dependencies(Path root, String profile, DevelopmentGuard guard,
-        Function<NodeId, TagPort> tags, OwnerKindResolver owners,
+        Function<NodeId, TagPort> tags,
         Function<NodeId, Optional<String>> defaultOwners,
         Function<NodeId, ImportService.Account> accounts, WriteChallengeRegistry challenges,
         AuditPort audit, Clock clock, Supplier<UUID> ids) {
@@ -101,7 +99,6 @@ public final class TagService {
             Objects.requireNonNull(profile, "profile");
             Objects.requireNonNull(guard, "guard");
             Objects.requireNonNull(tags, "tags");
-            Objects.requireNonNull(owners, "owners");
             Objects.requireNonNull(defaultOwners, "defaultOwners");
             Objects.requireNonNull(accounts, "accounts");
             Objects.requireNonNull(challenges, "challenges");
@@ -171,7 +168,6 @@ public final class TagService {
                         + "; nothing was sent", "tag_artifacts needs the owner of the diagram"
                         + " groups", "Give owner, or set inventory.owner for the node")
                     .withNode(node)));
-            call.kind = d.owners().admitForWrite(node, call.owner);
             return prepared(call, policy);
         } catch (ToolErrorException e) {
             if (call.refused) {
@@ -255,7 +251,7 @@ public final class TagService {
                     issued.code()));
         LOG.info("tag_artifacts on {}: CHALLENGE_ISSUED", node);
         return new Response.Challenge(new TagPreview(node, call.owner, request.tag(),
-            request.diagramGroups(), workflows, call.kind, issued.code(), issued.expiresAt(),
+            request.diagramGroups(), workflows, issued.code(), issued.expiresAt(),
             "Nothing was sent. To tag the head versions of " + workflows + " technical"
                 + " workflow(s) of " + String.join(", ", request.diagramGroups())
                 + " (and their modules) with " + request.tag() + " on " + node + ", show this"
@@ -482,7 +478,6 @@ public final class TagService {
         final TagRequest request;
         DevelopmentPolicy policy;
         String owner;
-        OwnerKind kind;
         Optional<Boolean> removedAgain = Optional.empty();
         boolean refused;
 
@@ -499,9 +494,6 @@ public final class TagService {
                 request.diagramGroups().stream().map(String::valueOf).toList())));
             if (owner != null) {
                 inputs.put("owner", bounded(owner));
-            }
-            if (kind != null) {
-                inputs.put("ownerKind", kind.name());
             }
             request.confirmationCode().ifPresent(code ->
                 inputs.put(AuditRecord.CONFIRMATION_CODE, code));

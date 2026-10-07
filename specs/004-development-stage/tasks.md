@@ -246,7 +246,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 10: Follow-up 2026-10-07 — owner kind removed, tags per diagram group (research D-26)
 
-- [ ] T028 Remove the owner kind (D-26): always `import --importUser '<owner>'` (also for `set_active`,
+- [X] T028 Remove the owner kind (D-26): always `import --importUser '<owner>'` (also for `set_active`,
   `restore_backup` and rollbacks); delete `OwnerKindResolver`, `UserDirectoryPort`, `V81UserDirectory`,
   the `owners` setting (loader, validator, `ConfigSummary` line, docs), the `requireVerified` refusal and
   `fixtures/v8_1/rest/user_users.*` if no longer used; tests first: a user-group owner (fixture

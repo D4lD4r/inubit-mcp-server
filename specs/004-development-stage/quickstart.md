@@ -30,7 +30,7 @@ mvn -q -Dtest=NoCustomerIdentifiersTest test
 | `set_active` sends only the workflow | `SetActiveTest` | US3, FR-020 |
 | Tag: blank group refused before launch; existing tag refused; tag outside the request removed again | `TagServiceTest` | US4, FR-021, SC-005 |
 | SOAP test: FREE/CONFIRM/FORBIDDEN; test-id header; correlation by id or uncertain window; timeout keeps diagnostics | `E2eTestServiceTest` (WireMock) | US5, FR-022–FR-024 |
-| Owner kind: override, user list, group fallback, undeterminable → refused | `OwnerKindResolverTest` | clarification 2 |
+| Every owner (user or user group) imported with `--importUser`; `owners:` is an unknown key | `UserGroupOwnerTest`, `ConfigLoaderTest` | FR-014, research D-26 |
 | Every call audited (refused/preview/executed/failed), codes hashed, no content | `DevelopmentAuditTest` | FR-025 |
 | 20 workflows / 100 modules import within 2 minutes (fake StartCLI) | `ImportServiceTest` | SC-007 |
 

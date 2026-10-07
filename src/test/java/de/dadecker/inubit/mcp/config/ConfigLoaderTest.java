@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
-import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import java.io.IOException;
@@ -914,9 +913,6 @@ class ConfigLoaderTest {
         private static final String LAYERED = """
             profile:
               name: acme
-            owners:
-              OWNERS: USER_GROUP
-              jdoe: USER
             defaults:
               development:
                 confirmation: CLIENT
@@ -960,7 +956,6 @@ class ConfigLoaderTest {
             assertThat(server.development().confirmation()).isEqualTo(ConfirmationMode.SERVER);
             assertThat(server.development().e2eTests()).isEqualTo(E2ePolicy.FORBIDDEN);
             assertThat(server.development().soapBaseUrl()).isEmpty();
-            assertThat(loaded.config().owners()).isEmpty();
         }
 
         @Test
@@ -1005,17 +1000,12 @@ class ConfigLoaderTest {
         }
 
         @Test
-        void ownerKindsAreReadFromTheProfile() {
-            assertThat(parse(LAYERED).config().owners()).containsExactlyInAnyOrderEntriesOf(
-                Map.of("OWNERS", OwnerKind.USER_GROUP, "jdoe", OwnerKind.USER));
-        }
-
-        @Test
-        void anUnknownOwnerKindIsRefusedNamingTheAllowedKinds() {
-            assertThatThrownBy(() -> parse(MINIMAL + "owners:\n  OWNERS: GROUP\n"))
+        void theOwnersSettingIsAnUnknownKey() {
+            // research D-26: no owner kind any more; imports always name the owner with
+            // --importUser, for users and user groups alike
+            assertThatThrownBy(() -> parse(MINIMAL + "owners:\n  OWNERS: USER_GROUP\n"))
                 .isInstanceOf(ConfigException.class)
-                .hasMessageContaining("owners.OWNERS")
-                .hasMessageContaining("USER, USER_GROUP");
+                .hasMessageContaining("Unknown key 'owners' at the top level");
         }
 
         @Test

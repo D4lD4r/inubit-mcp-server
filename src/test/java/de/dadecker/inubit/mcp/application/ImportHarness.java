@@ -27,7 +27,6 @@ import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
 import de.dadecker.inubit.mcp.domain.model.InventoryKind;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
-import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
@@ -44,11 +43,9 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
@@ -77,8 +74,6 @@ public final class ImportHarness {
     public final List<AuditRecord> audit = new CopyOnWriteArrayList<>();
     public final MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
     public final BackupStore backups;
-    public final Map<String, OwnerKind> owners = new HashMap<>();
-    public final Set<String> users = new java.util.HashSet<>(Set.of("jdoe"));
     public final List<String> targetModules = new ArrayList<>();
     public final List<String> targetDiagrams = new ArrayList<>();
     public final String owner;
@@ -172,8 +167,7 @@ public final class ImportHarness {
                 ResultLimiter.withDefaults(), clock),
             new ArchiveCodec(), archives.apply(new V81ImportArchives()), node -> artifacts,
             node -> imports,
-            node -> inventory(), new OwnerKindResolver(owners, node -> () -> users),
-            node -> Optional.of(owner),
+            node -> inventory(), node -> Optional.of(owner),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),
             new WriteChallengeRegistry(clock), backups, audit::add, clock, this::nextId));
     }

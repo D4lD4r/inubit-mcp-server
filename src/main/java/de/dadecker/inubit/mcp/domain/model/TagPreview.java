@@ -13,15 +13,13 @@ import java.util.Objects;
  *                  get the tag, with the modules they use)
  */
 public record TagPreview(NodeId node, String owner, String tag, List<String> diagramGroups,
-    int workflows, OwnerKind ownerKind, String confirmationCode, Instant expiresAt,
-    String message) {
+    int workflows, String confirmationCode, Instant expiresAt, String message) {
 
     public TagPreview {
         Objects.requireNonNull(node, "node");
         Objects.requireNonNull(owner, "owner");
         Objects.requireNonNull(tag, "tag");
         diagramGroups = List.copyOf(diagramGroups);
-        Objects.requireNonNull(ownerKind, "ownerKind");
         Objects.requireNonNull(confirmationCode, "confirmationCode");
         Objects.requireNonNull(expiresAt, "expiresAt");
         Objects.requireNonNull(message, "message");

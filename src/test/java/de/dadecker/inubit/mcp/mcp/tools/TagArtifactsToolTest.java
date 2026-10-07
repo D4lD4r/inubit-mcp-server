@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.application.DevelopmentGuard;
 import de.dadecker.inubit.mcp.application.ImportService;
-import de.dadecker.inubit.mcp.application.OwnerKindResolver;
 import de.dadecker.inubit.mcp.application.TagService;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
@@ -23,7 +22,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterEach;
@@ -95,8 +93,7 @@ class TagArtifactsToolTest {
         MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
         TagService service = new TagService(new TagService.Dependencies(root, "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV)), Map.of(DEV, dev)::get,
-                node -> { }), node -> port, new OwnerKindResolver(Map.of(),
-                    node -> () -> Set.of("jdoe")), node -> Optional.of("jdoe"),
+                node -> { }), node -> port, node -> Optional.of("jdoe"),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),
             new WriteChallengeRegistry(clock), record -> { }, clock, UUID::randomUUID));
         McpTestClient client = McpTestClient.start(List.of(new TagArtifactsTool(service)));

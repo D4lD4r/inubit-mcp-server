@@ -146,7 +146,7 @@ class ImportArtifactsToolTest {
         assertThat(challenge.path("modify")).extracting(JsonNode::asString)
             .containsExactly("Workflow-0001");
         assertThat(challenge.path("scope").asString()).isEqualTo("diagram group GRP-01");
-        assertThat(challenge.path("ownerKind").asString()).isEqualTo("USER");
+        assertThat(challenge.has("ownerKind")).as("research D-26").isFalse();
         assertThat(challenge.path("expiresAt").asString()).endsWith("Z");
         assertThat(result.path("outcome").asString()).isEqualTo("EXECUTED");
         assertThat(result.path("modified")).extracting(JsonNode::asString)
@@ -176,7 +176,8 @@ class ImportArtifactsToolTest {
     @Test
     void aRefusalIsAToolError() throws IOException {
         ImportHarness harness = edited();
-        harness.users.clear();
+        harness.edit(harness.workflow("Workflow-0001"), "moduleOutId=\"2\"",
+            "moduleOutId=\"77\"");
         McpTestClient client = client(harness);
 
         JsonNode error = toolError(client.callTool("import_artifacts", Map.of("node",

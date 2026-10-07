@@ -34,7 +34,6 @@
         "modify",
         "notImported",
         "checkWarnings",
-        "ownerKind",
         "confirmationCode",
         "expiresAt",
         "message"
@@ -47,7 +46,6 @@
         "modify": { "type": "array", "items": { "type": "string" } },
         "notImported": { "type": "array", "items": { "type": "string" }, "description": "Changed workspace files outside the scope" },
         "checkWarnings": { "type": "integer", "minimum": 0 },
-        "ownerKind": { "enum": ["USER", "USER_GROUP"] },
         "confirmationCode": { "type": "string", "pattern": "^[A-Za-z0-9_-]{22}$" },
         "expiresAt": { "type": "string", "description": "ISO-8601 UTC" },
         "message": { "type": "string", "description": "What to do next" }

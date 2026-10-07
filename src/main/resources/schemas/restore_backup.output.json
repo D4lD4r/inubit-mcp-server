@@ -31,7 +31,6 @@
         "scope",
         "modify",
         "notes",
-        "ownerKind",
         "confirmationCode",
         "expiresAt",
         "message"
@@ -55,12 +54,6 @@
           "items": {
             "type": "string"
           }
-        },
-        "ownerKind": {
-          "enum": [
-            "USER",
-            "USER_GROUP"
-          ]
         },
         "confirmationCode": {
           "type": "string",

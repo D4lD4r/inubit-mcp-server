@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
-import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
@@ -105,7 +104,6 @@ class SetActiveTest {
     void aDeactivationUsesTheInactiveFlagAndTheTargetsSecrets() throws IOException {
         ImportHarness harness = new ImportHarness(temp, ArtifactFixtures.bytes("grp-b.zip"),
             "OWNERS", "GRP-02");
-        harness.owners.put("OWNERS", OwnerKind.USER);
         harness.exportGroup().importApplied("--importWorkflow --importWorkflowInactive"
             + " --importUser 'OWNERS' --returnProtocol").exportGroup();
 
@@ -240,16 +238,5 @@ class SetActiveTest {
 
         assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
         harness.cli.verifyComplete();
-    }
-
-    @Test
-    void aUserGroupOwnerIsRefused() throws IOException {
-        ImportHarness harness = ImportHarness.grpA(temp);
-        harness.owners.put("jdoe", OwnerKind.USER_GROUP);
-
-        ToolError error = refusal(harness, request("Workflow-0001", true));
-
-        assertThat(error.code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
-        assertThat(error.message()).contains("not yet verified");
     }
 }

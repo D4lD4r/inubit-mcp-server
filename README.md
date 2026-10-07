@@ -64,7 +64,7 @@ workspace: [docs/setup.md](docs/setup.md#artifact-workspace).
   change or an open Workbench edit, backed up (owner-only, 30 days), sends only what changed with
   the target's own secret values, is verified by a re-export and rolled back from the backup on
   failure; by default it needs a server-issued confirmation code. Nothing is ever deleted in
-  INUBIT. Writes for user-group owners are not yet supported.
+  INUBIT.
 - **TLS on.** Self-signed server certificates are handled with a dedicated trust store plus a
   certificate pin, never by switching verification off.
 

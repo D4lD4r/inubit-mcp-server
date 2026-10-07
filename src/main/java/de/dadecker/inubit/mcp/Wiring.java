@@ -22,7 +22,6 @@ import de.dadecker.inubit.mcp.application.HealthService;
 import de.dadecker.inubit.mcp.application.ImportService;
 import de.dadecker.inubit.mcp.application.InventoryCache;
 import de.dadecker.inubit.mcp.application.InventoryService;
-import de.dadecker.inubit.mcp.application.OwnerKindResolver;
 import de.dadecker.inubit.mcp.application.ProcessControlService;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.TagService;
@@ -204,7 +203,6 @@ final class Wiring implements AutoCloseable {
         servers.forEach(server -> development.put(server.id(), server.developmentPolicy()));
         DevelopmentGuard developmentGuard = new DevelopmentGuard(targets, development::get,
             node -> gateways.imports(node).checkAvailable());
-        OwnerKindResolver ownerKinds = new OwnerKindResolver(config.owners(), gateways::users);
         Function<NodeId, ImportService.Account> accounts = id -> new ImportService.Account(
             policies.get(id).account().orElse("unknown"), byId.get(id).baseUrl().getHost());
         WriteChallengeRegistry challenges = new WriteChallengeRegistry(clock.clock());
@@ -216,14 +214,14 @@ final class Wiring implements AutoCloseable {
                 new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
                 new WorkspaceInspector(), checks, new ArchiveCodec(), new V81ImportArchives(),
                 gateways::artifacts, gateways::imports, gateways::inventory,
-                ownerKinds, id -> byId.get(id).inventory().owner(), accounts, challenges,
+                id -> byId.get(id).inventory().owner(), accounts, challenges,
                 new BackupStore(backups, clock.clock()),
                 audit, clock.clock(), UUID::randomUUID));
         this.importArtifacts = new ImportArtifactsTool(imports);
         this.restoreBackup = new RestoreBackupTool(imports);
         this.setActive = new SetActiveTool(imports);
         this.tagArtifacts = new TagArtifactsTool(new TagService(new TagService.Dependencies(
-            workspace, profile.name(), developmentGuard, gateways::tags, ownerKinds,
+            workspace, profile.name(), developmentGuard, gateways::tags,
             id -> byId.get(id).inventory().owner(), accounts, challenges, audit, clock.clock(),
             UUID::randomUUID)));
         CredentialResolver e2eCredentials = new CredentialResolver(environment, scrubber,
