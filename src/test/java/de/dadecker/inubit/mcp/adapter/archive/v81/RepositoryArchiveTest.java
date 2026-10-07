@@ -92,8 +92,9 @@ class RepositoryArchiveTest {
             "xsd/sub/order.xsd.dat");
         assertThat(entries.get("xsd/release.xsl.dat")).asString(StandardCharsets.UTF_8)
             .isEqualTo("<xsl/>");
-        assertThat(entries.get("xsd/release.xsl.xml"))
-            .isEqualTo(metadata("/Root/jdoe/xsd/release.xsl"));
+        assertThat(entries.get("xsd/release.xsl.xml")).asString(StandardCharsets.UTF_8)
+            .contains("path=\"/Root/jdoe/xsd/release.xsl\"", "contentSize=\"6\"",
+                "<Description>Fixture</Description>");
         assertThat(entries.keySet()).noneMatch(name -> name.startsWith("Root/"));
     }
 
@@ -144,13 +145,98 @@ class RepositoryArchiveTest {
             new RepositoryFile("/Root/jdoe/keys/a.xsd", metadata("/Root/jdoe/keys/a.xsd"), jks),
             new RepositoryFile("/Root/jdoe/keys/b.txt", metadata("/Root/jdoe/keys/b.txt"), pem),
             new RepositoryFile("/Root/jdoe/keys/c.bin", metadata("/Root/jdoe/keys/c.bin"), p12),
-            file("/Root/jdoe/keys/client.p12", "not really a keystore"))) {
+            file("/Root/jdoe/keys/client.p12", "not really a keystore"),
+            // stage 1 review #1 (FR-015a): certificates are never deployed either
+            file("/Root/jdoe/keys/partner.cer", "x"), file("/Root/jdoe/keys/partner.CRT", "x"),
+            file("/Root/jdoe/keys/partner.der", "x"), file("/Root/jdoe/keys/partner.pem", "x"),
+            file("/Root/jdoe/keys/chain.p7b", "x"), file("/Root/jdoe/keys/chain.p7c", "x"),
+            file("/Root/jdoe/keys/code.spc", "x"),
+            new RepositoryFile("/Root/jdoe/keys/d.txt", metadata("/Root/jdoe/keys/d.txt"),
+                pem(CERTIFICATE, "CERTIFICATE")),
+            new RepositoryFile("/Root/jdoe/keys/e.txt", metadata("/Root/jdoe/keys/e.txt"),
+                pem(new byte[] {0x30, 0x03, 0x02, 0x01, 0x01}, "PKCS7")),
+            new RepositoryFile("/Root/jdoe/keys/f.bin", metadata("/Root/jdoe/keys/f.bin"),
+                CERTIFICATE))) {
             ToolErrorException e = failure(() -> RepositoryArchive.build("jdoe", List.of(
                 file("/Root/jdoe/xsd/ok.xsd", "<xs/>"), key)));
 
-            assertThat(e.error().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
+            assertThat(e.error().code()).as(key.path()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
             assertThat(e.error().message()).contains(key.path()).contains("key material");
+            assertThat(RepositoryArchive.isKeyMaterial(key.path(), key.content()))
+                .as(key.path()).isTrue();
         }
+    }
+
+    private static final byte[] CERTIFICATE = certificate();
+
+    private static byte[] certificate() {
+        try {
+            return de.dadecker.inubit.mcp.adapter.rest.TestCertificates.get()
+                .selfsignedCertificate().getEncoded();
+        } catch (java.security.cert.CertificateEncodingException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static byte[] pem(byte[] der, String type) {
+        return ("-----BEGIN " + type + "-----\n"
+            + java.util.Base64.getMimeEncoder().encodeToString(der) + "\n-----END " + type
+            + "-----\n").getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void ordinaryFilesAreNoKeyMaterial() {
+        assertThat(RepositoryArchive.isKeyMaterial("/Root/jdoe/xsd/order.xsd",
+            "<xs:schema/>".getBytes(StandardCharsets.UTF_8))).isFalse();
+        assertThat(RepositoryArchive.isKeyMaterial("/Root/jdoe/data/seq.bin",
+            new byte[] {0x30, 0x03, 0x02, 0x01, 0x01})).isFalse();
+        assertThat(RepositoryArchive.isKeyMaterial("/Root/jdoe/xsd/certificate-notes.txt",
+            "a text about certificates".getBytes(StandardCharsets.UTF_8))).isFalse();
+    }
+
+    @Test
+    void theMetadataStatesTheContentThatIsWrittenWithoutTag() {
+        // stage 1 review #5: size and MD5 of the written content; no tag of the source
+        String path = "/Root/jdoe/xsd/release.xsl";
+        byte[] metadata = ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Property"
+            + " name=\"release.xsl\" type=\"RepositoryFile\" versionComment=\"a > b\""
+            + " uuid=\"00000000-0000-0000-0000-000000000101\" path=\"" + path + "\""
+            + " contentSize=\"999\" contentMD5=\"00000000000000000000000000000000\""
+            + " tagName=\"TAG-01\" version=\"1.0\"><Description>Fixture</Description>"
+            + "</Property>").getBytes(StandardCharsets.UTF_8);
+        byte[] content = "<xsl/>".getBytes(StandardCharsets.UTF_8);
+
+        String written = new String(ArtifactFixtures.entries(RepositoryArchive.build("jdoe",
+            List.of(new RepositoryFile(path, metadata, content)))).get("xsd/release.xsl.xml"),
+            StandardCharsets.UTF_8);
+
+        assertThat(written).contains("contentSize=\"6\"",
+            "contentMD5=\"" + md5(content) + "\"",
+            "uuid=\"00000000-0000-0000-0000-000000000101\"", "versionComment=\"a > b\"",
+            "<Description>Fixture</Description>").doesNotContain("tagName", "999");
+    }
+
+    private static String md5(byte[] content) {
+        try {
+            return String.format("%032x", new java.math.BigInteger(1,
+                java.security.MessageDigest.getInstance("MD5").digest(content)));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Test
+    void theInflationOfAnArchiveIsBounded() {
+        // stage 1 review #4: a small ZIP must not inflate without limit
+        byte[] zip = ArtifactFixtures.zip(java.util.Map.of("Root/jdoe/big.xsd.xml",
+            metadata("/Root/jdoe/big.xsd"), "Root/jdoe/big.xsd.dat", new byte[4096]));
+
+        ToolErrorException e = failure(() -> RepositoryArchive.read(zip, 1024));
+
+        assertThat(e.error().code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(e.error().message()).contains("too large");
+        assertThat(RepositoryArchive.read(zip, 8192)).hasSize(1);
+        assertThat(RepositoryArchive.MAX_ENTRY_BYTES).isEqualTo(64L << 20);
     }
 
     @Test

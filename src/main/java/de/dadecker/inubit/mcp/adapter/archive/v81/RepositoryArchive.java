@@ -38,9 +38,11 @@ import java.util.zip.ZipOutputStream;
  *   <li>Every file must lie below {@code /Root/<owner>/} (segments of letters, digits,
  *       {@code _ . -} and spaces, no {@code .} or {@code ..}), its metadata must name the same
  *       path, and no path may occur twice ({@code INVALID_INPUT}).
- *   <li>Key material (a key file name or keystore/private key content, {@link KeyMaterial}) is
- *       never part of an import archive ({@code PRECONDITION_FAILED}): the target keeps its own
- *       keys.
+ *   <li>Key material and certificates ({@link #isKeyMaterial}) are never part of an import
+ *       archive ({@code PRECONDITION_FAILED}, FR-015a): the target keeps its own.
+ *   <li>The metadata keeps its exported form except {@code contentSize} and {@code contentMD5}
+ *       (of the content written) and {@code tagName} (dropped).
+ *   <li>Reading inflates at most {@link #MAX_ENTRY_BYTES} per entry and 128 MiB in all.
  * </ul>
  *
  * <p>INUBIT ignores the archive's {@code uuid} on create and its {@code versionComment}; the
@@ -53,7 +55,49 @@ public final class RepositoryArchive {
     private static final Pattern SEGMENT =
         Pattern.compile("^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$");
 
+    /** Upper bound of one inflated entry (the bound of the StartCLI exports). */
+    public static final long MAX_ENTRY_BYTES = 64L << 20;
+    /** Upper bound of all inflated entries of one archive. */
+    static final long MAX_TOTAL_BYTES = 128L << 20;
+    /** File names of certificates and certificate containers (FR-015a). */
+    private static final Pattern CERTIFICATE_NAME =
+        Pattern.compile("(?i).*\\.(cer|crt|der|pem|p7b|p7c|spc)$");
+    private static final Pattern ATTRIBUTE_VALUE = Pattern.compile("=\\s*(\"[^\"]*\"|'[^']*')");
+
     private RepositoryArchive() {
+    }
+
+    /**
+     * True if the repository file holds key material or a certificate, which is never deployed
+     * (FR-015a; the target keeps its own): a key or keystore ({@link KeyMaterial}), a file name
+     * ending in {@code .cer}, {@code .crt}, {@code .der}, {@code .pem}, {@code .p7b},
+     * {@code .p7c} or {@code .spc}, PEM text with {@code BEGIN CERTIFICATE} or
+     * {@code BEGIN PKCS7}, or a DER X.509 certificate.
+     */
+    public static boolean isKeyMaterial(String path, byte[] content) {
+        if (KeyMaterial.hasKeyName(path) || KeyMaterial.isKeyMaterial(content)
+            || (path != null && CERTIFICATE_NAME.matcher(path.strip()).matches())) {
+            return true;
+        }
+        String text = new String(content, java.nio.charset.StandardCharsets.ISO_8859_1);
+        if (text.contains("-----BEGIN CERTIFICATE") || text.contains("-----BEGIN TRUSTED"
+            + " CERTIFICATE") || text.contains("-----BEGIN PKCS7")) {
+            return true;
+        }
+        return isDerCertificate(content);
+    }
+
+    private static boolean isDerCertificate(byte[] content) {
+        if (content.length < 2 || content[0] != 0x30) {
+            return false;
+        }
+        try {
+            java.security.cert.CertificateFactory.getInstance("X.509")
+                .generateCertificate(new ByteArrayInputStream(content));
+            return true;
+        } catch (java.security.cert.CertificateException | RuntimeException e) {
+            return false;
+        }
     }
 
     /**
@@ -95,12 +139,17 @@ public final class RepositoryArchive {
      *     a metadata entry without content or the other way round, or an unreadable archive
      */
     public static List<RepositoryFile> read(byte[] zip) {
+        return read(zip, MAX_ENTRY_BYTES);
+    }
+
+    /** {@link #read} with the bound {@code maxEntryBytes} per inflated entry (tests). */
+    static List<RepositoryFile> read(byte[] zip, long maxEntryBytes) {
         return pairs(zip, name -> {
             if (!name.startsWith("Root/")) {
                 throw unexpected("The repository archive has an entry outside Root/");
             }
             return "/" + name;
-        });
+        }, maxEntryBytes);
     }
 
     /**
@@ -109,7 +158,7 @@ public final class RepositoryArchive {
      * @throws ToolErrorException as {@link #read}
      */
     public static List<RepositoryFile> readRelative(String owner, byte[] zip) {
-        return pairs(zip, name -> "/Root/" + owner + "/" + name);
+        return pairs(zip, name -> "/Root/" + owner + "/" + name, MAX_ENTRY_BYTES);
     }
 
     /**
@@ -128,11 +177,11 @@ public final class RepositoryArchive {
         for (RepositoryFile file : files) {
             String relative = relative(root, file.path());
             checkMetadata(file);
-            if (KeyMaterial.hasKeyName(file.path()) || KeyMaterial.isKeyMaterial(file.content)) {
+            if (isKeyMaterial(file.path(), file.content)) {
                 throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
-                    "The repository file " + file.path() + " holds key material; key material"
-                        + " is never imported",
-                    "Keystores and private keys are stage-specific and stay on the target",
+                    "The repository file " + file.path() + " holds key material (a key,"
+                        + " keystore or certificate); key material is never imported",
+                    "Keys and certificates are stage-specific and stay on the target",
                     "Exclude the file from the deployment and maintain it on the target"));
             }
             if (byRelative.put(relative, file) != null) {
@@ -151,7 +200,7 @@ public final class RepositoryArchive {
                         out.closeEntry();
                     }
                 }
-                write(out, relative + METADATA, entry.getValue().metadata);
+                write(out, relative + METADATA, importMetadata(entry.getValue()));
                 write(out, relative + CONTENT, entry.getValue().content);
             }
         } catch (IOException e) {
@@ -191,6 +240,63 @@ public final class RepositoryArchive {
         }
     }
 
+    /**
+     * The metadata as imported (stage 1 review #5): {@code contentSize} and {@code contentMD5} of
+     * the content actually written, no {@code tagName} of the source; everything else (the
+     * {@code uuid} included, which INUBIT ignores on create) byte for byte as exported.
+     */
+    private static byte[] importMetadata(RepositoryFile file) {
+        String xml = new String(file.metadata, java.nio.charset.StandardCharsets.UTF_8);
+        int start = xml.indexOf("<Property");
+        int end = startTagEnd(xml, start);
+        String tag = xml.substring(start, end);
+        boolean empty = tag.endsWith("/");
+        String body = empty ? tag.substring(0, tag.length() - 1) : tag;
+        body = withAttribute(body, "tagName", null);
+        body = withAttribute(body, "contentSize", Integer.toString(file.content.length));
+        body = withAttribute(body, "contentMD5", md5(file.content));
+        return (xml.substring(0, start) + body + (empty ? "/" : "") + xml.substring(end))
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** The index of the {@code >} that ends the start tag at {@code start} (outside quotes). */
+    private static int startTagEnd(String xml, int start) {
+        char quote = 0;
+        for (int i = start; i < xml.length(); i++) {
+            char c = xml.charAt(i);
+            if (quote != 0) {
+                if (c == quote) {
+                    quote = 0;
+                }
+            } else if (c == '"' || c == '\'') {
+                quote = c;
+            } else if (c == '>') {
+                return i;
+            }
+        }
+        throw invalid("The metadata of a repository file is not readable");
+    }
+
+    /** {@code tag} with attribute {@code name} set to {@code value}, or removed if null. */
+    private static String withAttribute(String tag, String name, String value) {
+        java.util.regex.Matcher matcher = Pattern.compile("\\s" + name
+            + ATTRIBUTE_VALUE.pattern()).matcher(tag);
+        String replacement = value == null ? "" : " " + name + "=\"" + value + "\"";
+        if (matcher.find()) {
+            return tag.substring(0, matcher.start()) + replacement + tag.substring(matcher.end());
+        }
+        return value == null ? tag : tag + replacement;
+    }
+
+    private static String md5(byte[] content) {
+        try {
+            return String.format("%032x", new java.math.BigInteger(1,
+                java.security.MessageDigest.getInstance("MD5").digest(content)));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     private static void write(ZipOutputStream out, String name, byte[] data) throws IOException {
         out.putNextEntry(new ZipEntry(name));
         out.write(data);
@@ -201,19 +307,26 @@ public final class RepositoryArchive {
         String path(String entryBase);
     }
 
-    private static List<RepositoryFile> pairs(byte[] zip, PathOf pathOf) {
+    private static List<RepositoryFile> pairs(byte[] zip, PathOf pathOf, long maxEntryBytes) {
         Map<String, byte[]> metadata = new TreeMap<>();
         Map<String, byte[]> content = new TreeMap<>();
+        long total = 0;
         try (ZipInputStream in = new ZipInputStream(new ByteArrayInputStream(zip))) {
             for (ZipEntry entry = in.getNextEntry(); entry != null; entry = in.getNextEntry()) {
                 String name = entry.getName();
                 if (entry.isDirectory()) {
                     continue;
                 }
+                byte[] bytes = bounded(in, maxEntryBytes);
+                total += bytes.length;
+                if (total > MAX_TOTAL_BYTES) {
+                    throw unexpected("The repository archive is too large (more than "
+                        + MAX_TOTAL_BYTES + " bytes inflated)");
+                }
                 if (name.endsWith(METADATA)) {
-                    metadata.put(pathOf.path(base(name, METADATA)), in.readAllBytes());
+                    metadata.put(pathOf.path(base(name, METADATA)), bytes);
                 } else if (name.endsWith(CONTENT)) {
-                    content.put(pathOf.path(base(name, CONTENT)), in.readAllBytes());
+                    content.put(pathOf.path(base(name, CONTENT)), bytes);
                 } else {
                     throw unexpected("The repository archive has an entry that is neither"
                         + " metadata nor content");
@@ -232,6 +345,23 @@ public final class RepositoryArchive {
             content.get(path))));
         files.sort(Comparator.comparing(RepositoryFile::path));
         return List.copyOf(files);
+    }
+
+    /** The rest of the current entry, at most {@code maxBytes} (stage 1 review #4). */
+    private static byte[] bounded(ZipInputStream in, long maxBytes) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        long total = 0;
+        int n;
+        while ((n = in.read(buffer)) >= 0) {
+            total += n;
+            if (total > maxBytes) {
+                throw unexpected("An entry of the repository archive is too large (more than "
+                    + maxBytes + " bytes)");
+            }
+            out.write(buffer, 0, n);
+        }
+        return out.toByteArray();
     }
 
     private static String base(String name, String suffix) {
