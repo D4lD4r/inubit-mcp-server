@@ -54,7 +54,7 @@ class DeploymentReferenceTest {
             "package-only", "server-issued confirmation code");
         assertThat(folded("docs/live-tests.md")).contains("## Deployment live test (feature 005)",
             "DeploymentLiveTest", "INUBIT_LIVE_DEPLOY_TARGET", "INUBIT_LIVE_DEPLOY_TAG",
-            "INUBIT_LIVE_DEPLOY_OWNER");
+            "INUBIT_LIVE_DEPLOY_OWNER", "What stays after the deployment live test");
         String changelog = folded("CHANGELOG.md");
         String unreleased = changelog.substring(changelog.indexOf("## [Unreleased]"),
             changelog.indexOf("## [0.3.0]"));

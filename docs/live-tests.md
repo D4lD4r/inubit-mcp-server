@@ -146,6 +146,23 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEPLOY_TARGET=int INUBIT_LIVE_DEPLOY_DIAGRAM
   timings are printed, e.g.
   `[live] int: deploy, redeploy (unchanged) and restore of one test diagram group on 2 node(s): 5 artifact(s) imported, 340 s`.
 
+### What stays after the deployment live test
+
+- **On the target nodes**: the new versions the deployment and the restore created, and every
+  artifact the deployment **created** (new workflows, modules, repository files) — nothing is
+  ever deleted, and `restore_backup` keeps created artifacts (it lists them). The restored node
+  holds the state before the deployment, the other nodes the release.
+- **The tag** on the source (if the test tagged it) and on every target node's deployed diagram
+  group — never removed (StartCLI removes tags only owner-wide); the next run with the same tag
+  moves it.
+- **Under `~/.inubit-mcp/<profile>/`**: the `DEPLOYMENT` backups of every written node and of the
+  restore (`backups/`, 30-day retention, the newest per scope kept), the ledger and lock file of
+  the target group (`deployments/<group>.ledger.json`, `deployments/<group>.lock`), and — never for
+  this test, which refuses package-only groups — `packages/`.
+- **Audit records** (`audit/audit-YYYY-MM.jsonl`) of every call: `deploy_release` (group and node
+  records), `tag_artifacts`, `restore_backup`.
+- The temporary workspace is removed; the reports below it go with it.
+
 ## Manual write checks (approval only)
 
 There is **no automated live test for `restart_process` / `kill_process`**: every state-changing

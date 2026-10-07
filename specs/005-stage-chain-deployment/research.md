@@ -447,3 +447,17 @@ Review fixes of stage 3 and the rulings of T025–T031.
   contacting anything. The live test tags the test diagram group only if the source group has
   exactly one node and it is a development node; otherwise the operator tags it on every source
   node. Not run: pending the user's approval of the live target.
+- **Final review m1**: a package that cannot be written completely is removed (its directory
+  holds the node's secret values); a failure of that removal is logged with the path.
+- **Final review m2**: a verified restore of a deployment backup **records the restored
+  fingerprints** in the ledger (audit id of the restore, the deployment's tag) instead of dropping
+  entries: the next preview then knows the node's state as this server's own and shows no
+  `OUTSIDE_CHAIN` for it, while a later change by someone else still differs from the entry. A
+  ledger that cannot be written is a warning.
+- **Final review m4**: `DeploySecretLeakTest` runs per secret form of `SecretPaths`
+  (fourteen forms, deployment and package). Credentials inside URLs are not a secret form of
+  feature 003 (they are neither redacted nor restored), so they are not part of the list.
+- **Final review n1**: the restore of a deployment backup always uses a server code valid
+  `deployConfirmationTtl`, also on a development node (`DevelopmentGuard.forDeploymentRestore`).
+- **Final review n2**: the package README asks for the node's StartCLI options (user, URL, trust
+  store, host name verification) as configured for that node.

@@ -967,7 +967,8 @@ REL-2026-10-07" adds `tag: "REL-2026-10-07"`.
   existed before it, from the backup with the node's current secrets, and verifies them; the
   conflict check compares with the state the deployment left (`CONFLICT` for a change since, or
   edit mode). What the deployment created stays (`createdNotRemoved`); the workspace is not
-  changed (the next export records the state).
+  changed (the next export records the state). The ledger records the restored state, so the
+  next preview does not report this restore as `OUTSIDE_CHAIN`.
 - **Preview** (`challenge`): `scope`, `modify`, `notes`, `confirmationCode`, `expiresAt`,
   `message`.
 
