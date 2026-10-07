@@ -338,3 +338,45 @@ Smallest design-conforming choices where the tasks met the code (2026-10-07):
   `ModuleUsageIndexer` (concurrency 4, budget 60 s); an incomplete usage is a warning too.
 - `DeployService.preview` refuses a request with a code; executing it (T021–T023) and the tool
   (T024) are stage 3.
+
+## D-16 addendum: rulings of stage 3 (review fixes of stage 2, Execute T021–T024)
+
+- **Review M1**: a repository file is key material if the release's *or* the node's content is
+  one; it is `EXCLUDED`, never diffed, printed or put into the ledger states. **m1**:
+  `RepositoryArchive.isKeyMaterial` also recognizes DER private keys (PKCS#8 incl.
+  `EncryptedPrivateKeyInfo`, PKCS#1, SEC1) by the shape of an outer SEQUENCE that spans the whole
+  content, and PGP private key blocks. **m2**: a referenced path StartCLI cannot take is
+  `EXCLUDED` with a `PRECONDITION_FAILED` error of that file only.
+- **Review m3**: one ledger per target group (`deployments/<group>.ledger.json`); the deploy lock
+  of the group guards every read-modify-write, so deployments into different groups stay
+  parallel. **n1**: lock files are `rw-------`. **n2**: an audit record that cannot be written is
+  reported once (`INTERNAL`) and never audited again.
+- **Review m4**: `ReleasePlanner.nodeState` is the one function for the node state (same
+  exports, rendering and fingerprint incl. edit mode and `IsActive`) of the plan, the re-check
+  right before a node is written and the verification; it reads no inventory and writes no
+  report.
+- **Execute start**: discovery, release checks and the plan of every node are repeated (the plan
+  gives the classes and flags to deploy; its reports go below the execute call's own audit id);
+  the preview state must equal the redeemed one, otherwise `CONFLICT` before the first node.
+- **Backups**: one backup per node with its own reference (a UUID; `BackupStore` writes one
+  backup per id), kind `DEPLOYMENT`, holding the raw exports of the re-check (groups, modules,
+  repository exports). All audit records of the call share its audit id and name the backup.
+- **Import order** per node: repository files, then the modules no deployed workflow runs (one
+  module archive), then per diagram group one workflow archive per intended flag (inactive
+  first) carrying the deployed modules its workflows run first. Rollback archives use plain
+  `--importWorkflow` (the backup's flag is in the archive).
+- **Rollback** re-imports only existing artifacts and repository files whose state differs from
+  the backup, then verifies them; new artifacts and new repository files stay (nothing is
+  deleted) and are listed as created. A node whose re-check fails is `NOT_STARTED` with failure
+  `CONFLICT` at step `recheck`; the deployment stops there.
+- **UNCHANGED** nodes get only the tag: no backup, no node record, no ledger update.
+- **Workspace commit**: after local changes are committed (as in feature 004), the whole
+  verified rendering of the last node (its group, module and repository renderings) is written
+  and committed with `Server-State: <target>`.
+- A node whose `PENDING` record cannot be written fails closed (`INTERNAL`, nothing sent to it);
+  the call then ends with that error and a group-level `FAILED` record (the outcomes of earlier
+  nodes are in the audit log only).
+- **Tool**: the description says "with the own secrets of each {node}" (the template rules
+  forbid `{node}'s`; the contract's wording differs only there). Lists of the result are capped
+  by `resultLimits.maxItems` with `<list>Truncated`; nodes are never cut. `docs/tools.md` has a
+  minimal entry and counts sixteen tools; T029 completes it.
