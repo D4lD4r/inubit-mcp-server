@@ -5,14 +5,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
 import de.dadecker.inubit.mcp.domain.model.ImportScope;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.UUID;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -237,7 +242,10 @@ class ImportServiceTest {
 
         String ref = outcome.backupRef().orElseThrow();
         BackupStore.Manifest manifest = harness.backups.find(ref).orElseThrow();
-        assertThat(harness.backups.exports(ref)).singleElement().isEqualTo(before);
+        // Compared by entry content: the fake export stamps entry times, so two exports made in
+        // different seconds differ in their ZIP headers only.
+        assertThat(harness.backups.exports(ref)).singleElement()
+            .satisfies(backup -> assertThat(entries(backup)).isEqualTo(entries(before)));
         assertThat(manifest.node()).isEqualTo(ImportHarness.DEV);
         assertThat(manifest.owner()).isEqualTo("jdoe");
         assertThat(manifest.scope()).isEqualTo("diagram group GRP-01");
@@ -290,5 +298,16 @@ class ImportServiceTest {
             Duration.ofMinutes(2));
         assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
         assertThat(outcome.modified()).hasSize(100);
+    }
+
+    /** The entries of a ZIP archive by name, with their contents. */
+    private static Map<String, String> entries(byte[] zip) throws IOException {
+        Map<String, String> entries = new TreeMap<>();
+        try (ZipInputStream in = new ZipInputStream(new ByteArrayInputStream(zip))) {
+            for (ZipEntry entry; (entry = in.getNextEntry()) != null; ) {
+                entries.put(entry.getName(), HexFormat.of().formatHex(in.readAllBytes()));
+            }
+        }
+        return entries;
     }
 }
