@@ -330,3 +330,33 @@ scenario: export → edit a layout value → import → verify → restore → s
 - **Unexpected failures after sending (M2, m6)**: they are `FAILED` results like any other
   (`failure{code: IMPORT_FAILED, step}`, state re-exported, rollback from the backup, backup
   named); an `INTERNAL` tool error remains only if not even that result can be produced.
+
+### D-25 addendum: rulings of the implementation of T019–T024 (2026-10-07)
+
+- **Restore (D-14, H7)**: the manifest of every call records, as its intended state, what the
+  last verification of the call saw — the verified state on success, the state after the
+  rollback attempt on failure. An artifact of the referenced call without a recorded state (a
+  call that never finished, or whose last export failed) refuses the restore with
+  `PRECONDITION_FAILED` instead of guessing; a malformed `backupRef` is `INVALID_INPUT`, an
+  unknown, removed or foreign one `NOT_FOUND`.
+- **set_active (D-15)**: the conflict check covers that workflow only (other workflows of the
+  diagram group changing on the server do not block); a workflow already in the requested state
+  sends nothing (no needless version). The rollback re-imports the backed-up workflow with its
+  original flag.
+- **Tags (D-16, M1, M2)**: the expected set is taken from one history export per requested group
+  (its technical workflows and the modules they use), the check from the history of all groups
+  and types; a requested group without technical workflows is `NOT_FOUND`. A failing tag command
+  is reported as `failure{code: IMPORT_FAILED, step: tag}` (the contract's codes for a failed
+  write), followed by `tag --tagDelete`. `tag_artifacts` does not touch the workspace and takes no
+  workspace lock.
+- **SOAP test (D-17, H8, M9)**: nothing waits for late log entries — `end + 30 s` bounds the query
+  only (query_logs can look again); the test id is searched with the text filter of the system
+  and audit logs (a log type that cannot filter by text is skipped). Without a match and without
+  `workflow` the result is `TIME_WINDOW_UNCERTAIN` with no instances and a warning. A
+  `Password` element of any namespace prefix with a non-placeholder value refuses the envelope;
+  envelopes are limited to 10 MB. `UNREACHABLE`/`TLS_ERROR` after the `PENDING` record are
+  audited `FAILED` and returned as tool errors (the message was not delivered). The e2e basic
+  authentication needs both variables; one alone is ignored.
+- **`--check-config` (T024)**: the development and e2e segments of the node lines are printed once
+  any node is a development stage or allows end-to-end tests; a profile without these settings
+  prints as before (feature 001–003 examples stay valid).

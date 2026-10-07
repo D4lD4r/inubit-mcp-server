@@ -206,7 +206,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 9: Polish
 
-- [ ] T025 [P] `docs/tools.md` (5 tools, errors, confirmation, outcomes, rollback semantics incl.
+- [X] T025 [P] `docs/tools.md` (5 tools, errors, confirmation, outcomes, rollback semantics incl.
   "created artifacts are not removed"), `docs/setup.md` (development settings, owners, e2e, backups and
   retention, safety), `README.md`, `CHANGELOG.md` (Unreleased); reference test extended to the new tools.
 - [ ] T026 [P] `test/live/DevelopmentLiveTest.java` + `docs/live-tests.md` (D-23): opt-in, refused
