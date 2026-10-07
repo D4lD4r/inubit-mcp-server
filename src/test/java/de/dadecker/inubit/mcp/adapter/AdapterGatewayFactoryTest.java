@@ -366,6 +366,10 @@ class AdapterGatewayFactoryTest {
             assertThat(factory.forServer(DEV).users()).isNotNull()
                 .isSameAs(factory.users(DEV))
                 .isInstanceOf(de.dadecker.inubit.mcp.adapter.rest.v81.V81UserDirectory.class);
+            // T021
+            assertThat(factory.forServer(DEV).tags()).isNotNull()
+                .isSameAs(factory.tags(DEV))
+                .isInstanceOf(de.dadecker.inubit.mcp.adapter.cli.v81.V81TagAdapter.class);
             assertThat(wireMock.getAllServeEvents()).isEmpty();
         }
     }

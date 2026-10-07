@@ -95,6 +95,12 @@ class PortsTest {
                 assertThat(e.error().code()).isEqualTo(ErrorCode.NOT_CONFIGURED);
                 assertThat(e.error().node()).contains(NODE);
             });
+        // T021
+        assertThatThrownBy(() -> new PreviousGateway().tags())
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                assertThat(e.error().node()).contains(NODE);
+            });
     }
 
     @Test

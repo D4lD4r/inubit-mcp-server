@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionEntry;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort.VersionHistory;
+import de.dadecker.inubit.mcp.domain.port.TagPort;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -60,6 +61,42 @@ public final class VersionHistoryParser {
             }
         }
         return new VersionHistory(workflows, modules);
+    }
+
+    /**
+     * The history with the diagram group and type of every diagram (feature 004, research
+     * D-16): what the tag check of {@code tag_artifacts} compares. A diagram name that occurs
+     * twice keeps its first occurrence.
+     *
+     * @throws ToolErrorException as {@link #parse}
+     */
+    public static TagPort.History parseHistory(NodeId server, byte[] xml) {
+        Element root = InventoryXml.parse(server, xml).getDocumentElement();
+        if (!XmlSupport.localName(root).equals("VersionInformation")) {
+            throw InventoryXml.unexpected(server, "The version history export of " + server
+                + " is not a VersionInformation document");
+        }
+        Map<String, TagPort.Diagram> diagrams = new LinkedHashMap<>();
+        for (Element section : XmlSupport.children(root, "Workflows")) {
+            for (Element group : XmlSupport.children(section, "WorkflowGroup")) {
+                String groupName = XmlSupport.attribute(group, "Name").map(String::strip)
+                    .orElse("");
+                for (Element workflow : XmlSupport.children(group, "Workflow")) {
+                    Map<String, List<VersionEntry>> one = new LinkedHashMap<>();
+                    add(server, one, workflow);
+                    one.forEach((name, versions) -> diagrams.putIfAbsent(name,
+                        new TagPort.Diagram(groupName, XmlSupport.attribute(workflow, "Type")
+                            .map(String::strip).orElse(""), versions)));
+                }
+            }
+        }
+        Map<String, List<VersionEntry>> modules = new LinkedHashMap<>();
+        for (Element section : XmlSupport.children(root, "Modules")) {
+            for (Element module : XmlSupport.children(section, "Module")) {
+                add(server, modules, module);
+            }
+        }
+        return new TagPort.History(diagrams, modules);
     }
 
     private static void add(NodeId server, Map<String, List<VersionEntry>> histories,

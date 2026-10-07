@@ -23,6 +23,7 @@ import de.dadecker.inubit.mcp.application.InventoryService;
 import de.dadecker.inubit.mcp.application.OwnerKindResolver;
 import de.dadecker.inubit.mcp.application.ProcessControlService;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
+import de.dadecker.inubit.mcp.application.TagService;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.WorkspaceService;
 import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
@@ -59,6 +60,7 @@ import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestoreBackupTool;
 import de.dadecker.inubit.mcp.mcp.tools.SetActiveTool;
+import de.dadecker.inubit.mcp.mcp.tools.TagArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -68,6 +70,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
@@ -82,9 +85,10 @@ import java.util.function.Predicate;
  * of US4 ({@code restart_process}, {@code kill_process}) are added only if
  * {@link #anyWriteEnabled()} (contracts/mcp-tools.md, Story 4 / AS 6); their service, the write
  * guard and the audit log ({@code auditDirectory}, written only on a write call) are built in any
- * case. Feature 004: {@code import_artifacts}, {@code restore_backup} and {@code set_active}
- * only if {@link #anyDevelopmentNode()}; their service
- * shares the audit log and the check service, and keeps its backups in
+ * case. Feature 004: {@code import_artifacts}, {@code restore_backup}, {@code set_active} and
+ * {@code tag_artifacts} only if {@link #anyDevelopmentNode()}; their services share one
+ * challenge registry and the audit log; the import service uses the check service and keeps
+ * its backups in
  * {@code ~/.inubit-mcp/<profile>/backups} (created on the first import).
  *
  * <p>The JVM shutdown hook that stops StartCLI work is registered as the last step of the
@@ -110,6 +114,7 @@ final class Wiring implements AutoCloseable {
     private final ImportArtifactsTool importArtifacts;
     private final RestoreBackupTool restoreBackup;
     private final SetActiveTool setActive;
+    private final TagArtifactsTool tagArtifacts;
     private final CliResources cliResources;
     private final Thread cleanupHook;
 
@@ -186,25 +191,29 @@ final class Wiring implements AutoCloseable {
         // feature 004: the development tools (offered only with a development node)
         Map<NodeId, DevelopmentPolicy> development = new HashMap<>();
         servers.forEach(server -> development.put(server.id(), server.developmentPolicy()));
+        DevelopmentGuard developmentGuard = new DevelopmentGuard(targets, development::get,
+            node -> gateways.imports(node).checkAvailable());
+        OwnerKindResolver ownerKinds = new OwnerKindResolver(config.owners(), gateways::users);
+        Function<NodeId, ImportService.Account> accounts = id -> new ImportService.Account(
+            policies.get(id).account().orElse("unknown"), byId.get(id).baseUrl().getHost());
+        WriteChallengeRegistry challenges = new WriteChallengeRegistry(clock.clock());
         ImportService imports = new ImportService(
-            new ImportService.Dependencies(workspace, profile.name(),
-                new DevelopmentGuard(targets, development::get,
-                    node -> gateways.imports(node).checkAvailable()),
+            new ImportService.Dependencies(workspace, profile.name(), developmentGuard,
                 development::get,
                 new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
                 new WorkspaceInspector(), checks, new ArchiveCodec(), new V81ImportArchives(),
                 gateways::artifacts, gateways::imports, gateways::inventory,
-                new OwnerKindResolver(config.owners(), gateways::users),
-                id -> byId.get(id).inventory().owner(),
-                id -> new ImportService.Account(policies.get(id).account().orElse("unknown"),
-                    byId.get(id).baseUrl().getHost()),
-                new WriteChallengeRegistry(clock.clock()),
+                ownerKinds, id -> byId.get(id).inventory().owner(), accounts, challenges,
                 new BackupStore(BackupStore.defaultRoot(Path.of(System.getProperty(
                     "user.home")), profile.name()), clock.clock()),
                 audit, clock.clock(), UUID::randomUUID));
         this.importArtifacts = new ImportArtifactsTool(imports);
         this.restoreBackup = new RestoreBackupTool(imports);
         this.setActive = new SetActiveTool(imports);
+        this.tagArtifacts = new TagArtifactsTool(new TagService(new TagService.Dependencies(
+            workspace, profile.name(), developmentGuard, gateways::tags, ownerKinds,
+            id -> byId.get(id).inventory().owner(), accounts, challenges, audit, clock.clock(),
+            UUID::randomUUID)));
         // last step (N2): SIGTERM (and System.exit) stop running StartCLI work and delete the
         // export directories
         Runtime.getRuntime().addShutdownHook(cleanupHook);
@@ -245,6 +254,7 @@ final class Wiring implements AutoCloseable {
             handlers.add(importArtifacts);
             handlers.add(restoreBackup);
             handlers.add(setActive);
+            handlers.add(tagArtifacts);
         }
         return List.copyOf(handlers);
     }

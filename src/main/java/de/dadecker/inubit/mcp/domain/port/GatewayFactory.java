@@ -75,6 +75,11 @@ public interface GatewayFactory {
         return forServer(server).imports();
     }
 
+    /** The tag port of {@code server} (feature 004); the default asks the gateway. */
+    default TagPort tags(NodeId server) {
+        return forServer(server).tags();
+    }
+
     /** The user directory of {@code server} (feature 004); the default asks the gateway. */
     default UserDirectoryPort users(NodeId server) {
         return forServer(server).users();

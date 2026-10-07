@@ -178,7 +178,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 6: User Story 4 — Tag (Priority: P2)
 
-- [ ] T021 [US4] `main/adapter/cli/v81/V81TagAdapter.java` (`TagPort`) and
+- [X] T021 [US4] `main/adapter/cli/v81/V81TagAdapter.java` (`TagPort`) and
   `main/application/TagService.java` + `main/mcp/tools/TagArtifactsTool.java` + schemas, tests first
   (D-16, SC-005): blank/empty group refused before any launch; tag existing anywhere for the owner
   (history export of all groups) → `INVALID_INPUT`; one `tag --tagMove … --tagWorkflowGroup '<g>'

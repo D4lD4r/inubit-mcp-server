@@ -2,10 +2,12 @@ package de.dadecker.inubit.mcp.adapter;
 
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliImportRunner;
+import de.dadecker.inubit.mcp.adapter.cli.CliTagRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter;
+import de.dadecker.inubit.mcp.adapter.cli.v81.V81TagAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ProcessControlAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81LogAdapter;
@@ -26,6 +28,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
+import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
@@ -163,6 +166,11 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
     @Override
     public ImportPort imports(NodeId server) {
         return slot(server).ports().imports();
+    }
+
+    @Override
+    public TagPort tags(NodeId server) {
+        return slot(server).ports().tags();
     }
 
     @Override
@@ -387,6 +395,11 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                                 server.credentialVariables())), inventory::confirmCredentials),
                         new V81ImportAdapter(new CliImportRunner(server, credentials, guard,
                             cliRunner, new CliOutputClassifier(scrubber,
+                                server.credentialVariables())), inventory::confirmCredentials),
+                        new V81TagAdapter(server.id(), new CliExportRunner(server, credentials,
+                            guard, cliRunner, new CliOutputClassifier(scrubber,
+                                server.credentialVariables())), new CliTagRunner(server,
+                            credentials, guard, cliRunner, new CliOutputClassifier(scrubber,
                                 server.credentialVariables())), inventory::confirmCredentials),
                         new V81UserDirectory(server.id(), client));
                 } catch (RuntimeException e) {
