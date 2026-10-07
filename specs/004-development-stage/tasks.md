@@ -214,7 +214,13 @@ assertion before the production code exists. `mvn -q verify` green after every t
   restore → set_active off/on → tag `LIVE-<ts>` → tag removed; prints counts only. Do not run it in
   this task.
 - [X] T027 Validation per quickstart A–B (offline) and the identifier guard; quickstart C/D only with
-  the user's approval (recorded in this file). **C/D pending (live run by the main session).**
+  the user's approval (recorded in this file). **C done 2026-10-07** (main session, user's go-ahead "continue until done"): `DevelopmentLiveTest`
+  on the development node with a temporary profile copy (development enabled only there), the
+  personal diagram group and the agent's own test workflow: export → layout change → import
+  (preview + code) → verified → restore → set_active off/on → tag `LIVE-<ts>` on the group (2
+  workflows, 9 modules) → tag removed; 87 s. Afterwards the server state of both test workflows
+  equals the state before the run, no `LIVE-` tag is left and no module file changed. User-group
+  owners remain refused (not probed). D (assistant-driven) not run.
   Offline result 2026-10-07: `mvn -q clean verify` green (2062 tests, 3 skipped, 0 failures);
   `mvn -q -Dtest=NoCustomerIdentifiersTest test` (no clean) ran 20 tests, green;
   `--check-config` with a temporary profile under a temporary HOME shows
