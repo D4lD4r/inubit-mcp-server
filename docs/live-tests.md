@@ -7,7 +7,9 @@ are excluded from it (`surefire.excludedGroups=live`).
 Live tests are **opt-in** and **never run against production** (Constitution III). All of them are
 read-only except the development live test of feature 004 (see
 [Development live test](#development-live-test-feature-004)), which writes to dedicated test
-workflows of a personal diagram group on a development node only.
+workflows of a personal diagram group on a development node only, and the deployment live test of
+feature 005 (see [Deployment live test](#deployment-live-test-feature-005)), which deploys one
+test diagram group into an approved, non-production test target group.
 
 ## Run
 
@@ -109,6 +111,40 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=OWN
 - Each write creates new versions of the test workflow in INUBIT, and every export appends to
   its check-in comment (INUBIT behaviour). Only counts and timings are printed, e.g.
   `[live] dev/node1: import, restore, set_active x2 and tag of one test diagram group: 1 workflow(s), 4 module(s) carry LIVE-TEST, 212 s`.
+
+## Deployment live test (feature 005)
+
+`live/DeploymentLiveTest` exercises `deploy_release` against a real chained **test target group**.
+It **writes to INUBIT** on every node of that group, so it runs only when started explicitly —
+starting it is the approval of exactly this scenario on exactly the named group, diagram group,
+tag and owner — and the user must have approved that target group beforehand:
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEPLOY_TARGET=int INUBIT_LIVE_DEPLOY_DIAGRAM_GROUP=GRP-01 \
+  INUBIT_LIVE_DEPLOY_TAG=LIVE-DEPLOY INUBIT_LIVE_DEPLOY_OWNER=OWNERS \
+  mvn verify -Plive -Dtest=DeploymentLiveTest
+```
+
+- `INUBIT_LIVE_DEPLOY_TARGET` is the id of ONE group with a `deploy` record in mode `EXECUTE`;
+  without it (or without `INUBIT_LIVE_DEPLOY_DIAGRAM_GROUP`, `INUBIT_LIVE_DEPLOY_TAG` and
+  `INUBIT_LIVE_DEPLOY_OWNER`) the test is skipped. A node id, a group without `deploy`, a
+  **package-only** group and any **production** group are refused before anything is contacted
+  (covered offline by `LiveTargetTest`).
+- The release is the diagram group `INUBIT_LIVE_DEPLOY_DIAGRAM_GROUP` with the tag
+  `INUBIT_LIVE_DEPLOY_TAG` on the source group (`deploy.from`). If the source group has exactly one
+  node and it is a development node, the test tags the group there itself (`tag_artifacts`);
+  otherwise tag it on every source node before. The preview must show exactly that diagram group
+  — use a tag that no other diagram group of the owner carries.
+- Scenario: (tag) → preview (executable) → execute with the code (every node `DEPLOYED` or
+  `UNCHANGED`) → a second preview and execution find every node `UNCHANGED` (only the tag) →
+  `restore_backup` of the first written node with its deployment backup → on every target node
+  no diagram outside the test group appeared or disappeared, and no module that was not deployed
+  changed (`list_inventory`). The restored node keeps the state before the deployment; deploy
+  again to bring it to the release.
+- The test works in a **temporary workspace**; the audit records, backups and the ledger go to the
+  profile's directories under `~/.inubit-mcp/<profile>/` as for every deployment. Only counts and
+  timings are printed, e.g.
+  `[live] int: deploy, redeploy (unchanged) and restore of one test diagram group on 2 node(s): 5 artifact(s) imported, 340 s`.
 
 ## Manual write checks (approval only)
 

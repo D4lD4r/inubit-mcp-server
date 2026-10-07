@@ -179,13 +179,15 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 - [X] T028 Performance check for SC-007 on `DeployHarness` (5 groups, 20 workflows, 100 modules, 2
   nodes; harness overhead well below the budget).
-- [ ] T029 Docs: `docs/tools.md` (`deploy_release`, widened `restore_backup`/`run_e2e_test`, three
+- [X] T029 Docs: `docs/tools.md` (`deploy_release`, widened `restore_backup`/`run_e2e_test`, three
   error codes), `docs/setup.md` (chain, modes, exclusions, deploy TTL, files), `README.md` tool table
   and safety model, `docs/live-tests.md` (deployment live test), `CHANGELOG.md` `[Unreleased]`.
 - [ ] T030 `test/live/DeploymentLiveTest.java` (`@Tag("live")`, env names a chained test target the
   operator approved, never production; **ask the user to approve the live target before running
   it**): tag → preview → execute → redeploy unchanged → restore;
   checks that nothing outside the test group changed.
+  *Code written (`live/DeploymentLiveTest`, `LiveTarget.resolveDeployment` with offline tests in
+  `LiveTargetTest`); run pending user approval of the live target.*
 - [ ] T031 Validation: `mvn -q clean verify`, guard test without `clean` (not skipped), quickstart
   table; live acceptance only after the user approved the test target.
 

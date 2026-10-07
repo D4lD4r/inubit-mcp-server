@@ -161,7 +161,9 @@ use REST tools only.
   | `allowInsecureHttp` | `false` | per node: allows an `http://` `baseUrl` (startup warning; never for real systems — credentials would travel unencrypted) |
 
   The durations (`timeout`, `cliTimeout`, `hangingThreshold`, `cliExportTimeout`,
-  `confirmationTtl`) and `inventory` can be set in `defaults`, per group or per node;
+  `confirmationTtl`) and `inventory` can be set in `defaults`, per group or per node
+  (`deployConfirmationTtl` only in `defaults`, `deploy` only per group, see
+  [Stage chain and deployments](#stage-chain-and-deployments));
   `versionLine`, `write`, `tls` and `cli` (`cli.home`, `cli.javaHome`, `cli.url`) per group or
   per node; `cliHome` / `cliJavaHome` in `defaults`. The most specific value wins.
 - Top-level keys starting with `x-` are ignored, so YAML anchors can share blocks
@@ -435,6 +437,95 @@ groups:
 ```text
 Group dev:
   Node dev/node1: read-only, development: on (confirmation SERVER), e2e: CONFIRM (https://inubit-dev-1.example.test:8443), cli: available, username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD
+```
+
+### Stage chain and deployments
+
+`deploy_release` (feature 005) deploys a tagged release from one group into the next one of a
+**stage chain**, node by node, or writes import packages for a group that people import by hand.
+Without a `deploy` record the server behaves as before and does not offer the tool. Tool
+reference: [tools.md](tools.md#deploy_release).
+
+| Setting | Level | Default | Meaning |
+|---|---|---|---|
+| `deploy.from` | group | — | the group this group receives releases from (required in the record); an existing other group, the chain is acyclic; every node of both groups needs a StartCLI installation |
+| `deploy.mode` | group | `EXECUTE` | `EXECUTE`: the server imports node by node; `PACKAGE_ONLY`: the server only writes packages and never writes to the group. `EXECUTE` on a `production: true` group needs the effective `write.productionOptIn: true` on every node (startup error otherwise) |
+| `deploy.exclude` (list) | group | `[]` | what this group never receives: each entry exactly one of `diagramGroup` (a name), `name` (glob over workflow and module names) or `repositoryPath` (glob) |
+| `defaults.deployConfirmationTtl` | defaults | `PT30M` | how long the code of a deployment preview (and of the restore of a deployment backup) is valid; at most `PT2H` |
+
+`deploy` on a node is an unknown key (startup error): a group is deployed as a whole.
+
+```yaml
+defaults:
+  deployConfirmationTtl: PT30M
+groups:
+  - name: dev
+    development: { enabled: true }
+    nodes: [ { name: node1, baseUrl: https://inubit-dev-1.example.test:8443 } ]
+  - name: int
+    deploy:
+      from: dev
+      exclude:
+        - diagramGroup: GRP-SYS        # stage-specific configuration flows
+        - name: "CFG_*"
+        - repositoryPath: "/Root/*/stage/**"
+    e2eTests: CONFIRM
+    e2e: { soap: { baseUrl: https://inubit-int-1.example.test:8443 } }
+    nodes:
+      - { name: node1, baseUrl: https://inubit-int-1.example.test:8443 }
+      - { name: node2, baseUrl: https://inubit-int-2.example.test:8443 }
+  - name: prod
+    production: true
+    deploy: { from: int, mode: PACKAGE_ONLY }
+    nodes: [ { name: node1, baseUrl: https://inubit-prod-1.example.test:8443 } ]
+```
+
+- **Write enablement (ruling of stage 4, Constitution I).** For deployments, **the `deploy` record
+  is the write enablement of deployments** of that group: a group without it never receives a
+  deployment (`CHAIN_VIOLATION`). The `write.*` settings stay the settings of `restart_process`
+  and `kill_process` only and do not enable or block deployments. A production group in mode
+  `EXECUTE` additionally needs the effective `write.productionOptIn: true` on every node
+  (checked at startup); a `PACKAGE_ONLY` group **never writes**, whatever its `write` settings
+  say.
+- **Release.** The release is every diagram group of the target's `inventory.owner` (or the
+  `owner` of the call) that carries the tag on the source, read from every source node; the
+  nodes must agree. The release's tag is reused on the target: after a verified node the
+  deployed diagram groups are tagged there too (group-scoped).
+- **What is sent.** Only new, changed and layout-only artifacts, each node with its **own**
+  secret values (taken from its export, in memory only), with the check-in comment
+  `deploy <tag> from <source>`. Repository files the release references are imported with
+  `--importRepositoryPath '/Root/<owner>'`; key material and files outside `/Root/<owner>/` are
+  never deployed. Nothing is ever deleted on a target.
+- **Confirmation.** Always two steps: the preview returns a server code bound to the target, the
+  tag, the owner and the preview state; it cannot be switched off.
+- **Restore and end-to-end tests on targets.** `restore_backup` restores a deployment backup on the
+  node it was taken on (always with preview and code); `run_e2e_test` runs on a non-production
+  node of a group with `deploy` as its `e2eTests` allows (production stays `FORBIDDEN`). Both are
+  offered without a development node in that case.
+- **Files** (owner-only, not configurable): `~/.inubit-mcp/<profile>/deployments/` holds the
+  ledger `<group>.ledger.json` (which state this server deployed on which node; changes made
+  outside the chain are reported as `OUTSIDE_CHAIN`) and the lock `<group>.lock` (one deployment
+  per target group at a time, also across MCP processes; busy is `DEPLOY_LOCKED`).
+  `~/.inubit-mcp/<profile>/packages/<auditId>/<group>-<node>/` holds the packages of
+  `PACKAGE_ONLY` groups: the import archives **with that node's secret values**, `diff.txt`,
+  `warnings.txt` and `README.md` with the StartCLI commands in order — keep it private and remove
+  a package after the import; packages are kept 30 days, the newest per target always. The
+  backups of deployments (kind `DEPLOYMENT`) live with the other backups in
+  `~/.inubit-mcp/<profile>/backups`. Reports go to `<workspace>/.reports/deploy-<auditId>/`.
+- **Audit.** Every call is audited with capability `deploy_release` — a group record and one
+  record per node (outcomes `CHALLENGE_ISSUED`, `PENDING`, `EXECUTED`, `FAILED`, `REFUSED`,
+  `PACKAGED`), never content or secrets.
+
+`--check-config` shows a `Chains:` block before the groups (one line per chain, then the
+exclusions of each target) and, per node of a target group, `deploy: from <group> (EXECUTE |
+PACKAGE_ONLY)`:
+
+```text
+Chains:
+  dev → int → prod (package only)
+  int excludes: diagramGroup GRP-SYS, name CFG_*, repositoryPath /Root/*/stage/**
+Group int:
+  Node int/node1: read-only, development: off, e2e: CONFIRM (https://inubit-int-1.example.test:8443), cli: available, deploy: from dev (EXECUTE), username ← INUBIT_ACME_INT_USERNAME, password ← INUBIT_ACME_INT_PASSWORD
 ```
 
 ## 4. Credentials: environment variables

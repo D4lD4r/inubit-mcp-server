@@ -209,4 +209,66 @@ class LiveTargetTest {
             .hasMessageContaining("INUBIT_LIVE_NODE")
             .hasMessageContaining("<group>/<node>");
     }
+
+    // --- feature 005 (T030): the deployment live test ------------------------------------------
+
+    private static final String CHAIN_YAML = """
+        profile:
+          name: acme
+        defaults:
+          cliHome: %1$s
+        groups:
+          - name: dev
+            development: { enabled: true }
+            nodes: [ { name: node1, baseUrl: "https://acme-dev-1.example.test:8443" } ]
+          - name: int
+            deploy: { from: dev }
+            nodes: [ { name: node1, baseUrl: "https://acme-int-1.example.test:8443" } ]
+          - name: pkg
+            deploy: { from: int, mode: PACKAGE_ONLY }
+            nodes: [ { name: node1, baseUrl: "https://acme-pkg-1.example.test:8443" } ]
+          - name: prod
+            production: true
+            deploy: { from: int, mode: PACKAGE_ONLY }
+            nodes: [ { name: node1, baseUrl: "https://acme-prod-1.example.test:8443" } ]
+        """;
+
+    private void chainProfile() throws IOException {
+        Path client = home.resolve("client");
+        Files.createDirectories(client.resolve("bin"));
+        Files.writeString(client.resolve("bin/startcli.sh"), "#!/bin/sh\n");
+        Path file = home.resolve(".config/inubit-mcp/acme.yaml");
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, CHAIN_YAML.formatted(client));
+        for (String group : new String[] {"DEV", "INT", "PKG", "PROD"}) {
+            env.put("INUBIT_ACME_" + group + "_USERNAME", "live-user");
+            env.put("INUBIT_ACME_" + group + "_PASSWORD", "live-test-Pw-4711");
+        }
+        env.put("INUBIT_MCP_PROFILE", "acme");
+    }
+
+    @Test
+    void withoutTheDeployTargetVariableTheDeploymentLiveTestIsSkipped() {
+        assertThatThrownBy(() -> LiveTarget.resolveDeployment(env, home, false))
+            .isInstanceOf(TestAbortedException.class)
+            .hasMessageContaining("INUBIT_LIVE_DEPLOY_TARGET");
+    }
+
+    @Test
+    void theDeploymentLiveTestTakesOnlyAChainedNonProductionExecuteGroup() throws IOException {
+        chainProfile();
+        Map<String, String> refused = Map.of("prod", "production", "pkg", "package-only",
+            "dev", "receives no deployments", "int/node1", "the id of one group");
+        for (Map.Entry<String, String> target : refused.entrySet()) {
+            env.put("INUBIT_LIVE_DEPLOY_TARGET", target.getKey());
+
+            assertThatThrownBy(() -> LiveTarget.resolveDeployment(env, home, false))
+                .as(target.getKey()).isInstanceOf(AssertionError.class)
+                .hasMessageContaining(target.getValue());
+        }
+        env.put("INUBIT_LIVE_DEPLOY_TARGET", "int");
+
+        assertThat(LiveTarget.resolveDeployment(env, home, false).node())
+            .isEqualTo(NodeId.parse("int/node1"));
+    }
 }

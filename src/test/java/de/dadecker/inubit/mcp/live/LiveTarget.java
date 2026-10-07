@@ -76,6 +76,28 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
                 + " <group>/<node>: " + e.getMessage(), e);
         }
 
+        Configured configured = configured(environment, home, windows);
+        LoadedConfig loaded = configured.loaded();
+        EffectiveNodeConfig node = loaded.config().effectiveNodes().stream()
+            .filter(candidate -> candidate.id().equals(nodeId))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError(nodeId + " is not configured in "
+                + loaded.source()));
+        if (node.production()) {
+            fail("Refusing to run live tests against " + nodeId
+                + ": its group is production: true (Constitution III)");
+        }
+        return new LiveTarget(nodeId, loaded, configured.credentials(), configured.scrubber(),
+            windows);
+    }
+
+    /** The validated real configuration with its credentials. */
+    private record Configured(LoadedConfig loaded, CredentialResolution credentials,
+        SecretScrubber scrubber) {
+    }
+
+    private static Configured configured(Map<String, String> environment, Path home,
+        boolean windows) {
         // the same location order, profile checks and validation as the server (Launcher)
         ConfigLoader loader = new ConfigLoader(environment, home, windows);
         LoadedConfig loaded;
@@ -99,16 +121,56 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
             Path.of(System.getProperty("java.io.tmpdir")), source -> otherProfiles,
             workspace -> new WorkspaceDirectory.Usable(false)).validate(loaded, credentials);
         assertThat(report.errors()).as("configuration errors in " + loaded.source()).isEmpty();
-        EffectiveNodeConfig node = loaded.config().effectiveNodes().stream()
-            .filter(candidate -> candidate.id().equals(nodeId))
-            .findFirst()
-            .orElseThrow(() -> new AssertionError(nodeId + " is not configured in "
-                + loaded.source()));
-        if (node.production()) {
-            fail("Refusing to run live tests against " + nodeId
-                + ": its group is production: true (Constitution III)");
+        return new Configured(loaded, credentials, scrubber);
+    }
+
+    /** The target group of the deployment live test (feature 005, T030). */
+    static final String DEPLOY_TARGET_VARIABLE = "INUBIT_LIVE_DEPLOY_TARGET";
+
+    /**
+     * The target of the opt-in deployment live test (feature 005, T030):
+     * {@code INUBIT_LIVE_DEPLOY_TARGET} names ONE group of the real configuration that receives
+     * deployments in mode {@code EXECUTE}; a node id, a group without {@code deploy}, a
+     * package-only group and any group with a production node are refused before anything is
+     * contacted. {@link #node()} is the group's first node.
+     */
+    static LiveTarget resolveDeployment() {
+        return resolveDeployment(System.getenv(), Path.of(System.getProperty("user.home")),
+            System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows"));
+    }
+
+    /** As {@link #resolveDeployment()} with the given environment, home and platform. */
+    static LiveTarget resolveDeployment(Map<String, String> environment, Path home,
+        boolean windows) {
+        String target = environment.get(DEPLOY_TARGET_VARIABLE);
+        Assumptions.assumeTrue(isSet(target), DEPLOY_TARGET_VARIABLE + " is not set (the id of"
+            + " one group that receives deployments); the deployment live test is skipped");
+        String group = target.strip();
+        if (group.contains("/")) {
+            fail(DEPLOY_TARGET_VARIABLE + " must be the id of one group, not a node: " + group);
         }
-        return new LiveTarget(nodeId, loaded, credentials, scrubber, windows);
+        Configured configured = configured(environment, home, windows);
+        LoadedConfig loaded = configured.loaded();
+        List<EffectiveNodeConfig> nodes = loaded.config().effectiveNodes().stream()
+            .filter(node -> node.id().group().value().equals(group)).toList();
+        if (nodes.isEmpty()) {
+            fail(group + " is not a configured group of " + loaded.source());
+        }
+        if (nodes.stream().anyMatch(EffectiveNodeConfig::production)) {
+            fail("Refusing to run the deployment live test against " + group + ": it is"
+                + " production: true (Constitution III)");
+        }
+        de.dadecker.inubit.mcp.domain.model.StageChain.ChainLink link = loaded.config()
+            .stageChain().link(nodes.get(0).id().group()).orElse(null);
+        if (link == null) {
+            fail("Refusing to run the deployment live test: " + group + " receives no"
+                + " deployments (no deploy record)");
+        }
+        if (link.mode() == de.dadecker.inubit.mcp.domain.model.DeployMode.PACKAGE_ONLY) {
+            fail("Refusing to run the deployment live test: " + group + " is package-only");
+        }
+        return new LiveTarget(nodes.get(0).id(), loaded, configured.credentials(),
+            configured.scrubber(), windows);
     }
 
     /**
