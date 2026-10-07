@@ -74,7 +74,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   successfully`, no protocol); `main/adapter/archive/v81/RepositoryArchive.java` builds the archive
   with entries **relative** to `/Root/<owner>` (D-1) and refuses key material
   (`KeyMaterial`); tests.
-- [ ] T007 Ports: `ArtifactPort` (+`exportRelease`, +`exportRepository`), `ImportPort`
+- [X] T007 Ports: `ArtifactPort` (+`exportRelease`, +`exportRepository`), `ImportPort`
   (+`importRepository`), adapters `V81ArtifactAdapter`/`V81ImportAdapter`; `PackageBoundaryTest`
   stays green.
 - [ ] T008 `main/adapter/archive/v81/ImportAssembler.java`: the active flag of a new workflow becomes

@@ -39,4 +39,17 @@ public interface ImportPort {
      *     unreadable protocol; {@code TIMEOUT} (the import may have happened)
      */
     ImportProtocol importArchive(byte[] archive, Mode mode, String owner);
+
+    /**
+     * Imports the repository files of {@code archive} (entries relative to
+     * {@code /Root/<owner>}) into the repository of {@code owner} (feature 005, research D-1).
+     * INUBIT prints no protocol; the caller verifies the result by a repository export. Key
+     * material is never part of such an archive.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException {@code INVALID_INPUT}
+     *     before anything is launched; {@code IMPORT_FAILED} if StartCLI does not confirm the
+     *     import; {@code TIMEOUT} (the import may have happened)
+     */
+    void importRepository(byte[] archive, String owner);
 }
+

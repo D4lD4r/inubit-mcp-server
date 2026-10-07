@@ -39,6 +39,13 @@ public final class V81ImportAdapter implements ImportPort {
     }
 
     @Override
+    public void importRepository(byte[] archive, String owner) {
+        imports.checkAvailable();
+        confirmCredentials.run();
+        imports.importRepository(archive, owner);
+    }
+
+    @Override
     public String toString() {
         return "V81ImportAdapter[" + imports + "]";
     }

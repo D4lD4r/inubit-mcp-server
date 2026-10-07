@@ -128,6 +128,18 @@ public final class ExportHarness {
             return answer(name);
         }
 
+        @Override
+        public byte[] exportRelease(String owner, String tag) {
+            calls.add("release " + owner + " " + tag);
+            return answer("tag:" + tag);
+        }
+
+        @Override
+        public byte[] exportRepository(String path) {
+            calls.add("repository " + path);
+            return answer(path);
+        }
+
         private byte[] answer(String name) {
             byte[] archive = exports.get(name);
             if (archive == null) {
