@@ -353,19 +353,14 @@ class AdapterGatewayFactoryTest {
     }
 
     @Test
-    void theV81GatewayProvidesTheImportPortAndTheUserDirectory() throws NoSuchMethodException {
+    void theV81GatewayProvidesTheImportAndTagPorts() throws NoSuchMethodException {
         // feature 004 (T014): the 8.1 gateway overrides the CLI_UNAVAILABLE defaults
         assertThat(V81Gateway.class.getDeclaredMethod("imports").getDeclaringClass())
-            .isEqualTo(V81Gateway.class);
-        assertThat(V81Gateway.class.getDeclaredMethod("users").getDeclaringClass())
             .isEqualTo(V81Gateway.class);
         try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
             assertThat(factory.forServer(DEV).imports()).isNotNull()
                 .isSameAs(factory.imports(DEV))
                 .isInstanceOf(de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter.class);
-            assertThat(factory.forServer(DEV).users()).isNotNull()
-                .isSameAs(factory.users(DEV))
-                .isInstanceOf(de.dadecker.inubit.mcp.adapter.rest.v81.V81UserDirectory.class);
             // T021
             assertThat(factory.forServer(DEV).tags()).isNotNull()
                 .isSameAs(factory.tags(DEV))

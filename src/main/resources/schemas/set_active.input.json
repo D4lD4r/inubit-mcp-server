@@ -16,7 +16,7 @@
     "owner": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
-      "description": "The owner (user) of the workflow; default: inventory.owner of the {node}"
+      "description": "The owner (user or user group) of the workflow; default: inventory.owner of the {node}"
     },
     "diagramGroup": {
       "type": "string",

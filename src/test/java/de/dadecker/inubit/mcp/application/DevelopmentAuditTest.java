@@ -19,7 +19,7 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * T016 (feature 004, FR-025, research D-18): every call of the development tools is audited —
  * preview, pending and final execution with one audit id, failures with the rollback state,
- * refusals — with sanitized inputs (reason, scope, owner, owner kind, change set, backup) and
+ * refusals — with sanitized inputs (reason, scope, owner, change set, backup) and
  * never content or secrets. (Further tools add their records to this test.)
  */
 @Timeout(60)
@@ -64,7 +64,7 @@ class DevelopmentAuditTest {
             assertThat(record.account()).contains("jdoe");
             assertThat(record.inputs()).containsEntry("reason", "Audited change")
                 .containsEntry("scope", "diagram group GRP-01").containsEntry("owner", "jdoe")
-                .containsEntry("ownerKind", "USER").containsEntry("changeSet", "Workflow-0001");
+                .doesNotContainKey("ownerKind").containsEntry("changeSet", "Workflow-0001");
         });
         assertThat(records.get(2).inputs()).containsEntry(AuditRecord.CONFIRMATION_CODE,
             preview.confirmationCode()).containsEntry("backupRef",
@@ -90,7 +90,8 @@ class DevelopmentAuditTest {
     @Test
     void aRefusalIsAuditedWithItsCode() throws IOException {
         ImportHarness harness = edited();
-        harness.users.clear();
+        harness.edit(harness.workflow("Workflow-0001"), "moduleOutId=\"2\"",
+            "moduleOutId=\"77\"");
 
         assertThatThrownBy(() -> harness.service().importArtifacts(harness.group("Refused")))
             .isInstanceOf(ToolErrorException.class);
@@ -121,7 +122,7 @@ class DevelopmentAuditTest {
         assertThat(records).allSatisfy(record -> assertThat(record.inputs())
             .containsEntry("reason", "Audited undo").containsEntry("backupRef", ref)
             .containsEntry("scope", "diagram group GRP-01").containsEntry("owner", "jdoe")
-            .containsEntry("ownerKind", "USER").containsEntry("changeSet", "Workflow-0001")
+            .doesNotContainKey("ownerKind").containsEntry("changeSet", "Workflow-0001")
             .containsEntry("newBackupRef", outcome.auditId().toString()));
         assertThat(records.toString()).doesNotContain("xPos");
     }

@@ -83,16 +83,11 @@ class PortsTest {
     }
 
     @Test
-    void aGatewayWithoutImportOrUserAdapterReportsThemAsUnavailableForItsNode() {
+    void aGatewayWithoutImportOrTagAdapterReportsThemAsUnavailableForItsNode() {
         // feature 004 (T014)
         assertThatThrownBy(() -> new PreviousGateway().imports())
             .isInstanceOfSatisfying(ToolErrorException.class, e -> {
                 assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
-                assertThat(e.error().node()).contains(NODE);
-            });
-        assertThatThrownBy(() -> new PreviousGateway().users())
-            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
-                assertThat(e.error().code()).isEqualTo(ErrorCode.NOT_CONFIGURED);
                 assertThat(e.error().node()).contains(NODE);
             });
         // T021

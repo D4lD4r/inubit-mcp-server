@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.application.DevelopmentGuard;
 import de.dadecker.inubit.mcp.application.ImportService;
-import de.dadecker.inubit.mcp.application.OwnerKindResolver;
 import de.dadecker.inubit.mcp.application.TagService;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
@@ -23,7 +22,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterEach;
@@ -42,7 +40,8 @@ class TagArtifactsToolTest {
     private static final NodeId DEV = NodeId.parse("dev/node1");
     private static final String DESCRIPTION = "[acme] Tag the current versions of the technical"
         + " workflows (and their modules) of the given diagram groups of an owner on ONE"
-        + " development node. Never owner-wide; an existing tag is never moved.";
+        + " development node. Only whole diagram groups, never owner-wide; an existing tag name"
+        + " is reused and moves to the current versions within these groups only.";
     private static final String VALUE = "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$";
 
     @TempDir
@@ -65,11 +64,6 @@ class TagArtifactsToolTest {
         }
 
         @Override
-        public History history(String owner) {
-            return history(owner, "GRP-01");
-        }
-
-        @Override
         public History history(String owner, String group) {
             List<String> tags = List.copyOf(tagged);
             return new History(Map.of("W-1", new Diagram("GRP-01", "technical", List.of(
@@ -81,11 +75,6 @@ class TagArtifactsToolTest {
         public void tag(String tag, String group, String owner) {
             tagged.add(tag);
         }
-
-        @Override
-        public void deleteTag(String tag, String owner) {
-            tagged.remove(tag);
-        }
     };
 
     private McpTestClient client() {
@@ -95,8 +84,7 @@ class TagArtifactsToolTest {
         MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
         TagService service = new TagService(new TagService.Dependencies(root, "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV)), Map.of(DEV, dev)::get,
-                node -> { }), node -> port, new OwnerKindResolver(Map.of(),
-                    node -> () -> Set.of("jdoe")), node -> Optional.of("jdoe"),
+                node -> { }), node -> port, node -> Optional.of("jdoe"),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),
             new WriteChallengeRegistry(clock), record -> { }, clock, UUID::randomUUID));
         McpTestClient client = McpTestClient.start(List.of(new TagArtifactsTool(service)));
@@ -148,7 +136,8 @@ class TagArtifactsToolTest {
         assertThat(outcome.path("outcome").asString()).isEqualTo("EXECUTED");
         assertThat(outcome.path("tag").asString()).isEqualTo("REL-1");
         assertThat(outcome.path("workflows").asInt()).isEqualTo(1);
-        assertThat(outcome.path("removedAgain").asBoolean(true)).isFalse();
+        assertThat(outcome.has("removedAgain")).as("research D-26: nothing is removed")
+            .isFalse();
         assertThat(outcome.has("failure")).isFalse();
     }
 }

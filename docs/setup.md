@@ -380,13 +380,10 @@ reference: [tools.md](tools.md#development-on-a-development-stage-feature-004).
 | `development.confirmation` | defaults, group, node | `SERVER` | `SERVER`: every write first returns a preview and a one-time code (bound to the inputs and the server state, valid `confirmationTtl`); `CLIENT`: the write runs on the first call and the MCP client must ask the user |
 | `e2eTests` | defaults, group, node | `FORBIDDEN` | `FREE`, `CONFIRM` (preview and code first) or `FORBIDDEN`; `FREE`/`CONFIRM` need `e2e.soap.baseUrl` and are not allowed on production |
 | `e2e.soap.baseUrl` | group, node | — | the base address of the node's SOAP endpoints; `https` (plain `http` gives a startup warning), no query or fragment; the node's `tls` settings apply |
-| `owners.<name>` | profile | — | `USER` or `USER_GROUP`: the kind of an owner, overriding the lookup in INUBIT's user list |
 
 The node wins over the group, the group over `defaults`.
 
 ```yaml
-owners:
-  jdoe: USER                 # optional; otherwise INUBIT's user list decides
 groups:
   - name: dev
     development:
@@ -400,11 +397,11 @@ groups:
         baseUrl: https://inubit-dev-1.example.test:8443
 ```
 
-- **Owners.** An import addresses one owner. Its kind comes from the profile's `owners` or from
-  INUBIT's user list (read-only REST call); a name that is neither is refused with the hint to
-  set `owners.<name>`. **User-group owners are not yet supported** for writes: their imports and
-  tags are refused until INUBIT's behaviour for them has been probed on a development stage. Use
-  them on personal diagram groups of a user.
+- **Owners.** A write addresses one owner (default `inventory.owner`), a Workbench user or a
+  user group alike: every import names it with `--importUser` (INUBIT 8.1 refuses
+  `--importUserGroup` with "Missing user or group!" and takes a user-group owner with
+  `--importUser`). There is no owner setting; a profile with the former `owners:` section is a
+  startup error (unknown key) — remove the section.
 - **Secrets.** Placeholders `${secret:…}` in the workspace are replaced by the values currently on
   the target node, in memory and in the private temporary import file only (deleted after the
   import). A placeholder without a value on the target is refused (`SECRET_UNRESOLVED`).
@@ -423,7 +420,7 @@ groups:
   result.
 - **Audit.** Every call of the development tools — refused, previewed, executed or failed — is
   audited like restart and kill (capabilities `import_artifacts`, `restore_backup`, `set_active`,
-  `tag_artifacts`, `run_e2e_test`, `backup_retention`), with the reason, scope, owner, owner kind,
+  `tag_artifacts`, `run_e2e_test`, `backup_retention`), with the reason, scope, owner, tag,
   change-set names, backup reference, rollback state, the endpoint path and the payload hash —
   never content or secrets.
 - **Safety.** Nothing is ever deleted in INUBIT (artifacts a failed import created stay and are
@@ -433,10 +430,9 @@ groups:
 
 `--check-config` shows, once a node is a development stage or allows end-to-end tests, per node
 `development: on (confirmation SERVER)` or `development: off` and `e2e: FREE (<url>)`,
-`e2e: CONFIRM (<url>)` or `e2e: FORBIDDEN`, and lists the owner kinds once:
+`e2e: CONFIRM (<url>)` or `e2e: FORBIDDEN`:
 
 ```text
-Owner kinds: jdoe USER
 Group dev:
   Node dev/node1: read-only, development: on (confirmation SERVER), e2e: CONFIRM (https://inubit-dev-1.example.test:8443), cli: available, username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD
 ```

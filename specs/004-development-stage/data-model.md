@@ -8,7 +8,6 @@ Delta to features 001–003. Decisions D-n are in [research.md](research.md).
 |---|---|---|
 | `DevelopmentConfig` (group/node, node wins) | `enabled: Optional<Boolean>`, `confirmation: Optional<ConfirmationMode>` | defaults `false`, `SERVER`; not allowed on production (D-1) |
 | `E2eConfig` (group/node) | `tests: Optional<E2ePolicy>` (key `e2eTests`), `soapBaseUrl: Optional<URI>` (key `e2e.soap.baseUrl`) | default `FORBIDDEN`; ≠ `FORBIDDEN` needs a base URL and is not allowed on production |
-| `ProfileConfig.owners` | `Map<String, OwnerKind>` | `OwnerKind = USER \| USER_GROUP`; optional override (D-21) |
 | `DevelopmentPolicy` (effective, per node) | `node`, `enabled`, `confirmation`, `confirmationTtl`, `e2e: E2ePolicy`, `soapBaseUrl: Optional<URI>`, `production` | built in `EffectiveNodeConfig`; shown by `--check-config` |
 
 ## Change set and conflict
@@ -28,8 +27,9 @@ Delta to features 001–003. Decisions D-n are in [research.md](research.md).
 | `WriteChallenge` | `code`, `capability`, `node`, `inputFingerprint`, `previewState`, `expiresAt` | in memory; single use (D-2) |
 | `Backup` | `auditId`, `node`, `owner`, `scope`, `changeSet` (names), `created` (names), `intendedState` (hashes per artifact), `outcome`, `takenAt`, `zips: List<Path>` | manifest `<auditId>.json` (no secrets) + `<auditId>-<n>.zip` raw scope exports (`rw-------`) (D-13, D-25) |
 | `ImportProtocol` | `entries: List<{type, description, artifact, owner}>`, `total` | parsed fixed-width table (D-8) |
-| `WriteOutcome` | `outcome: EXECUTED \| FAILED`, `failure?: {code, step, message}`, `commit?`, `backupRef`, `created`, `modified`, `notImported`, `rollback?: SUCCEEDED \| FAILED \| NOT_NEEDED`, `createdNotRemoved`, `reports: List<path>`, `warnings` | result of import/restore/activate |
-| `TagOutcome` | `tag`, `diagramGroups`, `workflows: int`, `modules: int`, `removedAgain: boolean` | D-16 |
+| `WriteOutcome` | `outcome: EXECUTED \| FAILED`, `failure?: {code, step, message}`, `commit?`, `backupRef`, `created`, `modified`, `notImported`, `rollback?: SUCCEEDED \| FAILED \| NOT_NEEDED`, `createdNotRemoved`, `reports: List<path>`, `warnings`, `tag?: TagResult` | result of import/restore/activate |
+| `WriteOutcome.TagResult` | `name`, `applied: boolean`, `workflows: int`, `modules: int`, `failure?: {code, step, message}` | only for `import_artifacts` with `tag` (D-26); a tag failure never undoes the import |
+| `TagOutcome` | `outcome`, `failure?`, `tag`, `diagramGroups`, `workflows: int`, `modules: int` (current versions carrying the tag), `reports`, `warnings` | D-16, D-26 (nothing removed) |
 
 State of a writing call: `Admitted → Locked → (LocalChangesCommitted) → ChangeSetBuilt → Checked →
 ConflictChecked → (Challenge issued | BackedUp → Assembled → Guarded → Imported → Verified →
@@ -47,7 +47,7 @@ RollbackFailed`.
 
 `AuditRecord` unchanged; new `capability` values `import_artifacts`, `set_active`, `tag_artifacts`,
 `restore_backup`, `run_e2e_test`, `backup_retention`; `inputs` keys: `reason`, `scope`, `owner`,
-`ownerKind`, `tag`, `backupRef`, `path`, `changeSet` (≤ 20 names, then `…+n`), `rollback`,
+`tag`, `tagApplied`, `backupRef`, `path`, `changeSet` (≤ 20 names, then `…+n`), `rollback`,
 `confirmationCode`/`issuedConfirmationCode` (hashed).
 
 ## Error codes (new)

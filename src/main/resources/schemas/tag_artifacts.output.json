@@ -32,7 +32,6 @@
         "tag",
         "diagramGroups",
         "workflows",
-        "ownerKind",
         "confirmationCode",
         "expiresAt",
         "message"
@@ -58,12 +57,6 @@
           "minimum": 0,
           "description": "Technical workflows whose head versions (and modules) get the tag"
         },
-        "ownerKind": {
-          "enum": [
-            "USER",
-            "USER_GROUP"
-          ]
-        },
         "confirmationCode": {
           "type": "string",
           "pattern": "^[A-Za-z0-9_-]{22}$"
@@ -88,7 +81,6 @@
         "diagramGroups",
         "workflows",
         "modules",
-        "removedAgain",
         "reports",
         "warnings"
       ],
@@ -142,10 +134,6 @@
         "modules": {
           "type": "integer",
           "minimum": 0
-        },
-        "removedAgain": {
-          "type": "boolean",
-          "description": "True if the tag was removed again after a failure"
         },
         "reports": {
           "type": "array",

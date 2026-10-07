@@ -369,3 +369,29 @@ scenario: export → edit a layout value → import → verify → restore → s
   check of envelopes covers CDATA and any case of `Password`; the failure-path
   `tag --tagDelete` is owner-wide and documented with its residual case (a same-named tag on a
   module no diagram uses).
+
+## D-26 Owner kind removed, tags per diagram group (live probes 2026-10-07)
+
+Probed on the development node in two disposable diagram groups of the shared group owner
+(`GRP-SPIKE`, `GRP-SPIKE-2`, test artifacts `SPIKE_G_*` / `SPIKE_H_*`, created with the user's
+approval) and in the personal test group:
+
+- `import … --importUserGroup '<group owner>'` (also with the hierarchical path `admin/<group>`) is
+  refused by INUBIT with "Missing user or group!" and creates nothing; `import … --importUser
+  '<group owner>'` creates and updates workflows and modules under the group owner. The same option
+  works for user owners. **Decision**: always `--importUser <owner>`; the owner kind, the `owners`
+  setting, the REST user lookup (`UserDirectoryPort`, `V81UserDirectory`, `OwnerKindResolver`) and the
+  refusal of user-group owners are removed (D-21 and the owner parts of D-25 are superseded).
+- `tag --tagMove <tag> --tagWorkflowGroup <group> [--tagDiagram <workflow>]` tags the head versions of
+  **all** workflows of the group and all their modules; `--tagDiagram` is ignored. A tag can therefore
+  only cover whole diagram groups.
+- `--tagMove` of an existing tag name on group B leaves the same tag in group A untouched; re-tagging a
+  group after a new version moves the tag from the old to the new head version within the group.
+  **Decision** (user, 2026-10-07): tags only for whole diagram groups; an existing tag name is reused;
+  no owner-wide pre-check export (which would append to the check-in history of every workflow of the
+  owner) and no owner-wide `--tagDelete`: pre-check and verification export only the requested groups
+  with history; a verification failure is reported, nothing is removed. `import_artifacts` takes an
+  optional `tag` for a diagram-group import (applied after a successful verification, as part of the
+  same audited call); a module import with `tag` is refused before anything is sent. A failing tag
+  after a successful import does not roll back the import: the result is `EXECUTED` with a tag failure
+  and the warning to retry `tag_artifacts`.

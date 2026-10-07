@@ -128,7 +128,6 @@ public final class ConfigValidator {
         }
         checkOneDevelopmentNodePerGroup(config, findings);
         checkE2eNodeNames(config, findings);
-        checkOwners(config, findings);
         boolean cliConfigured = config.resolvableNodes().stream()
             .anyMatch(EffectiveNodeConfig::cliConfigured);
         if (!windows && cliConfigured && !CliPaths.exportRootUsable(tempDirectory)) {
@@ -602,23 +601,6 @@ public final class ConfigValidator {
                     String.join(", ", nodes));
             }
         });
-    }
-
-    /**
-     * {@code owners.<name>} (research D-21): the names are passed to StartCLI
-     * ({@code --importUser} / {@code --importUserGroup}), so they follow the same rule as
-     * {@code inventory.owner}. The kinds are checked when the file is read. A name is not echoed;
-     * its position is.
-     */
-    private static void checkOwners(ProfileConfig config, Findings findings) {
-        int position = 0;
-        for (String owner : config.owners().keySet()) {
-            position++;
-            if (!CLI_VALUE_PATTERN.matcher(owner).matches()) {
-                findings.error("owners: the name of entry " + position + " (sorted by name) must"
-                    + " match " + CLI_VALUE_PATTERN.pattern());
-            }
-        }
     }
 
     private static void checkBaseUrl(EffectiveNodeConfig server, Findings findings) {

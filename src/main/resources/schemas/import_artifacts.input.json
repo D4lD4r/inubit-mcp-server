@@ -15,7 +15,7 @@
       "minLength": 1,
       "maxLength": 200,
       "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
-      "description": "The owner (user) of the artifacts; default: inventory.owner of the {node}"
+      "description": "The owner (user or user group) of the artifacts; default: inventory.owner of the {node}"
     },
     "diagramGroup": {
       "type": "string",
@@ -63,6 +63,13 @@
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]{22}$",
       "description": "The code from the preview of the first call; executes the import"
+    },
+    "tag": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+      "description": "Only with diagramGroup (INUBIT tags whole diagram groups; with modules the call is refused): set this tag on the diagram group after the verified import, as tag_artifacts does; an existing tag name is reused"
     }
   },
   "additionalProperties": false,

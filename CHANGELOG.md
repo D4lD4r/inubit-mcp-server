@@ -25,19 +25,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     artifacts that call changed, with its own backup, conflict check against the state the call
     left, verification and rollback.
   - `set_active`: activates or deactivates one workflow, built from the server's current state.
-  - `tag_artifacts`: tags the head versions of named diagram groups and their modules (never
-    owner-wide, never moving an existing tag), verified by history exports and removed again on
-    any mismatch.
+  - `tag_artifacts`: tags the head versions of whole named diagram groups and their modules
+    (INUBIT tags only whole groups). Pre-check and verification export only the requested groups
+    (never owner-wide); an existing tag name is reused — it moves to the current versions within
+    the requested groups and stays elsewhere; a mismatch or a failing tag command is reported as
+    `FAILED` and nothing is removed (a tag removal would act owner-wide).
+  - `import_artifacts` takes an optional `tag` for a diagram-group import: the group is tagged
+    after the verified import in the same audited call; a tag failure keeps the import
+    (`EXECUTED`, `tag.applied: false`, warning to retry `tag_artifacts`); a module import with a
+    tag is refused before anything is sent.
   - `run_e2e_test`: sends a SOAP envelope from the workspace (`e2eTests: FREE | CONFIRM`) with a
     test-id header and reports the response, process instances, errors and log entries, found by
     the test id or, marked uncertain, by workflow and time window.
-- Settings `development.enabled`, `development.confirmation`, `e2eTests`, `e2e.soap.baseUrl` and
-  the profile-level `owners`; optional end-to-end basic authentication from
-  `<PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME` / `_E2E_PASSWORD`; `--check-config` shows the
-  development and end-to-end settings per node and the owner kinds.
+- Settings `development.enabled`, `development.confirmation`, `e2eTests` and `e2e.soap.baseUrl`;
+  optional end-to-end basic authentication from `<PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME` /
+  `_E2E_PASSWORD`; `--check-config` shows the development and end-to-end settings per node.
 - Backups in `~/.inubit-mcp/<profile>/backups`, kept 30 days (the newest per scope always);
   removals are audited. Every call of the development tools is audited.
-- Writes for user-group owners are refused until INUBIT's behaviour for them has been verified.
+- Writes work for user and user-group owners alike: every import names the owner with
+  `--importUser` (INUBIT 8.1 refuses `--importUserGroup`). There is no owner-kind lookup and no
+  `owners` setting; such a section in a profile is a startup error (unknown key).
 
 ## [0.2.0] - 2026-10-06
 

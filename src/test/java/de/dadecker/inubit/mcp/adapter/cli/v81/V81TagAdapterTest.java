@@ -37,9 +37,9 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * T021 (feature 004, research D-16, D-25 M1): the 8.1 {@link TagPort} — the owner's history of
- * all diagram groups and types, the history of one diagram group, and the tag commands after
- * the credentials are confirmed.
+ * T021, T029 (feature 004, research D-16, D-26): the 8.1 {@link TagPort} — the history of one
+ * diagram group and the tag command after the credentials are confirmed; there is no
+ * owner-wide history export and no tag removal.
  */
 @Timeout(30)
 class V81TagAdapterTest {
@@ -94,17 +94,16 @@ class V81TagAdapterTest {
     }
 
     @Test
-    void theOwnersHistoryCoversAllDiagramGroupsAndTypes() {
-        exporting("export --exportWorkflowUser 'jdoe' --exportWorkflowType 'all'"
-            + " --exportWorkflowGroup '' --includeHistory");
-
-        TagPort.History history = adapter().history("jdoe");
-
-        cli.verifyComplete();
-        assertThat(history.diagrams().get("W-1").diagramGroup()).isEqualTo("GRP-01");
-        assertThat(history.diagrams().get("W-1").versions().get(0).tags())
-            .containsExactly("REL-1");
-        assertThat(history.modules()).containsKey("M-1");
+    void thereIsNoOwnerWideHistoryAndNoTagRemoval() {
+        // research D-26: an owner-wide history export appends to the check-in history of every
+        // workflow of the owner, and StartCLI removes a tag only owner-wide
+        assertThat(java.util.Arrays.stream(TagPort.class.getMethods())
+            .filter(method -> method.getName().equals("history")))
+            .allMatch(method -> method.getParameterCount() == 2);
+        assertThat(java.util.Arrays.stream(TagPort.class.getMethods())
+            .map(java.lang.reflect.Method::getName)).doesNotContain("deleteTag");
+        assertThat(java.util.Arrays.stream(CliExportRunner.class.getMethods())
+            .map(java.lang.reflect.Method::getName)).doesNotContain("exportHistoryAllGroups");
     }
 
     @Test
@@ -122,17 +121,15 @@ class V81TagAdapterTest {
     @Test
     void tagCommandsRunAfterTheCredentialsAreConfirmed() {
         cli.expect("tag --tagMove 'REL-2' --tagWorkflowGroup 'GRP-01' --tagWorkflowType"
-            + " 'technical' --tagUser 'jdoe'").replying("tag_ok")
-            .expect("tag --tagDelete 'REL-2' --tagUser 'jdoe'").replying("tag_delete_ok");
+            + " 'technical' --tagUser 'jdoe'").replying("tag_ok");
         TagPort adapter = adapter();
 
         adapter.checkAvailable();
         adapter.tag("REL-2", "GRP-01", "jdoe");
-        adapter.deleteTag("REL-2", "jdoe");
 
         cli.verifyComplete();
-        assertThat(confirmed).hasValue(2);
-        assertThat(cli.execCommands()).hasSize(2).allMatch(line -> line.startsWith("tag "));
+        assertThat(confirmed).hasValue(1);
+        assertThat(cli.execCommands()).hasSize(1).allMatch(line -> line.startsWith("tag "));
         assertThat(List.of(adapter.toString())).noneMatch(text -> text.contains("tag-adapter"));
     }
 }

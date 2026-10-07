@@ -7,7 +7,6 @@ import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
-import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ImportPort.Mode;
@@ -24,8 +23,10 @@ import java.util.Set;
 /**
  * The imports of one server through StartCLI (feature 004, research D-8; Constitution I, II):
  * {@code import --importFile '<tmp>/import.zip' --importWorkflow [--importWorkflowActive |
- * --importWorkflowInactive] | --importModule --importUser | --importUserGroup '<owner>'
- * --returnProtocol}.
+ * --importWorkflowInactive] | --importModule --importUser '<owner>' --returnProtocol} — the
+ * owner is a user or a user group alike: INUBIT 8.1 refuses {@code --importUserGroup} with
+ * "Missing user or group!" and takes a user-group owner with {@code --importUser} (research
+ * D-26).
  *
  * <ul>
  *   <li>The owner must match {@link CliCommand#VALUE}; the CLI, the temporary directory and the
@@ -105,11 +106,9 @@ public final class CliImportRunner {
      *     {@code AUTH_FAILED} before anything is written; {@code IMPORT_FAILED},
      *     {@code TIMEOUT} after StartCLI ran
      */
-    public ImportProtocol importArchive(byte[] archive, Mode mode, String owner,
-        OwnerKind kind) {
+    public ImportProtocol importArchive(byte[] archive, Mode mode, String owner) {
         Objects.requireNonNull(archive, "archive");
         Objects.requireNonNull(mode, "mode");
-        Objects.requireNonNull(kind, "kind");
         if (owner == null || !CliCommand.VALUE.matcher(owner).matches()) {
             throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
                 "The owner cannot be passed to StartCLI safely; nothing was sent",
@@ -159,13 +158,13 @@ public final class CliImportRunner {
                     .withNode(server.id()));
             }
             CliResult result = runner.run(server, credentials.username().orElseThrow().value(),
-                credentials.password().orElseThrow().value(), command(file, mode, owner, kind),
+                credentials.password().orElseThrow().value(), command(file, mode, owner),
                 server.cliExportTimeout(), "cliExportTimeout", guard);
             return protocol(result);
         }
     }
 
-    private static CliCommand command(Path file, Mode mode, String owner, OwnerKind kind) {
+    private static CliCommand command(Path file, Mode mode, String owner) {
         CliCommand.Builder command = CliCommand.command("import").path("--importFile", file);
         switch (mode) {
             case WORKFLOW -> command.flag("--importWorkflow");
@@ -175,7 +174,7 @@ public final class CliImportRunner {
                 .flag("--importWorkflowInactive");
             case MODULE -> command.flag("--importModule");
         }
-        command.quoted(kind == OwnerKind.USER ? "--importUser" : "--importUserGroup", owner);
+        command.quoted("--importUser", owner);
         return command.flag("--returnProtocol").build();
     }
 

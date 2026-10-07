@@ -17,7 +17,7 @@ import java.util.function.Predicate;
  * group the nodes with their id, the effective write flag, the development and end-to-end test
  * settings (feature 004, once any node configures them; with the SOAP base address but never
  * its user information), CLI
- * availability and the source variable of each credential, the owner kind overrides, then all
+ * availability and the source variable of each credential, then all
  * warnings and errors.
  * Groups and nodes are named with the profile's display names (FR-007). Values and URLs are never
  * printed.
@@ -58,12 +58,6 @@ public final class ConfigSummary {
                 case WorkspaceDirectory.Usable usable -> usable.created() ? "created" : "ok";
                 case WorkspaceDirectory.Unusable unusable -> unusable.problem();
             }).orElse("not usable: see the errors")).append(")\n");
-        // feature 004 (contracts/configuration-delta.md): the owner kind overrides, once
-        if (!config.owners().isEmpty()) {
-            out.append("Owner kinds: ").append(String.join(", ", config.owners().entrySet()
-                .stream().map(owner -> owner.getKey() + " " + owner.getValue()).toList()))
-                .append('\n');
-        }
         // feature 004: shown once a node is a development stage or allows end-to-end tests
         boolean development = config.resolvableNodes().stream().map(
             EffectiveNodeConfig::developmentPolicy).anyMatch(policy -> policy.enabled()

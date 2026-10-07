@@ -13,7 +13,8 @@ import org.junit.jupiter.api.Test;
  * T025 (feature 004): docs/tools.md describes the five development tools as the code announces
  * them, with the confirmation, the failure model and the rollback semantics, and lists every
  * error code; docs/setup.md documents the development settings, owners, end-to-end tests and
- * backups.
+ * backups. T028 (research D-26): no owner kind any more — every owner, user or user group, is
+ * imported with {@code --importUser}.
  */
 class DevelopmentToolsReferenceTest {
 
@@ -45,9 +46,19 @@ class DevelopmentToolsReferenceTest {
         String reference = folded(TOOLS);
 
         assertThat(reference).contains("created artifacts are not removed",
-            "`failure`", "`rollback`", "`createdNotRemoved`", "`backupRef`", "`removedAgain`",
-            "`confirmationCode`", "`development.confirmation`", "user-group owners",
-            "not yet supported", "`TIME_WINDOW_UNCERTAIN`", "`X-Inubit-Mcp-Test-Id`");
+            "`failure`", "`rollback`", "`createdNotRemoved`", "`backupRef`",
+            "`confirmationCode`", "`development.confirmation`", "`--importUser`",
+            "user group", "`TIME_WINDOW_UNCERTAIN`", "`X-Inubit-Mcp-Test-Id`");
+        assertThat(reference).doesNotContain("`ownerKind`", "not yet supported",
+            "`--importUserGroup '");
+        // T029 (research D-26): tags per whole diagram group, reused, never removed
+        assertThat(reference).contains("an existing tag name is reused",
+            "the same tag in other diagram groups stays", "nothing is removed")
+            .doesNotContain("`removedAgain`", "--tagDelete '", "never moving an existing tag");
+        // T030: import_artifacts with an optional tag for a diagram group
+        assertThat(reference).contains("a module import with `tag` is refused",
+            "`tag` `{name, applied, workflows, modules, failure}`", "`applied: false`",
+            "the import is not undone");
     }
 
     @Test
@@ -64,8 +75,9 @@ class DevelopmentToolsReferenceTest {
         String setup = folded(SETUP);
 
         assertThat(setup).contains("### Development settings", "`development.enabled`",
-            "`development.confirmation`", "`e2eTests`", "`e2e.soap.baseUrl`", "`owners`",
+            "`development.confirmation`", "`e2eTests`", "`e2e.soap.baseUrl`", "`--importUser`",
             "_E2E_USERNAME", "_E2E_PASSWORD", "~/.inubit-mcp/<profile>/backups", "30 days",
             "development: on (confirmation SERVER)");
+        assertThat(setup).doesNotContain("`owners.<name>`", "Owner kinds", "not yet supported");
     }
 }

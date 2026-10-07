@@ -74,7 +74,7 @@ public final class ImportArtifactsTool implements ToolHandler {
         Response response = service.importArtifacts(new ImportRequest(args.string("node"),
             args.optionalString("owner"), args.optionalString("diagramGroup"), modules,
             args.optionalString("reason").orElse(""), args.optionalString("confirmationCode"),
-            context.client()));
+            context.client(), args.optionalString("tag")));
         return switch (response) {
             case Response.Challenge challenge -> Map.of("challenge", challenge.preview());
             case Response.WriteChallenge challenge -> Map.of("challenge", challenge.preview());

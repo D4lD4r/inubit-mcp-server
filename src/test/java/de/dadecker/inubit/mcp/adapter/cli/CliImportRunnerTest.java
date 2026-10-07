@@ -11,7 +11,6 @@ import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
-import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ImportPort.Mode;
 import de.dadecker.inubit.mcp.infra.Secret;
@@ -91,8 +90,7 @@ class CliImportRunnerTest {
                 + " --importUser 'jdoe' --returnProtocol$"))
             .replying("import_created").capturingImportFile();
 
-        ImportProtocol protocol = runner(cli).importArchive(ARCHIVE, Mode.WORKFLOW, "jdoe",
-            OwnerKind.USER);
+        ImportProtocol protocol = runner(cli).importArchive(ARCHIVE, Mode.WORKFLOW, "jdoe");
 
         assertThat(protocol.total()).isEqualTo(5);
         assertThat(protocol.created()).hasSize(5);
@@ -119,13 +117,14 @@ class CliImportRunnerTest {
                 }
             });
 
-        runner(cli).importArchive(ARCHIVE, Mode.WORKFLOW, "jdoe", OwnerKind.USER);
+        runner(cli).importArchive(ARCHIVE, Mode.WORKFLOW, "jdoe");
 
         cli.verifyComplete();
     }
 
     @Test
-    void modesAndOwnerKindsSelectTheOptions() {
+    void modesSelectTheOptionsAndEveryOwnerIsAnImportUser() {
+        // research D-26: a user-group owner is imported with --importUser as well
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher()
             .expect(Pattern.compile("^import --importFile '[^']+' --importWorkflow"
                 + " --importWorkflowActive --importUser 'jdoe' --returnProtocol$"))
@@ -134,14 +133,13 @@ class CliImportRunnerTest {
                 + " --importWorkflowInactive --importUser 'jdoe' --returnProtocol$"))
             .replying("import_workflow_only")
             .expect(Pattern.compile("^import --importFile '[^']+' --importModule"
-                + " --importUserGroup 'OWNERS' --returnProtocol$"))
+                + " --importUser 'OWNERS' --returnProtocol$"))
             .replying("import_module_only");
         CliImportRunner runner = runner(cli);
 
-        runner.importArchive(ARCHIVE, Mode.WORKFLOW_ACTIVE, "jdoe", OwnerKind.USER);
-        runner.importArchive(ARCHIVE, Mode.WORKFLOW_INACTIVE, "jdoe", OwnerKind.USER);
-        ImportProtocol module = runner.importArchive(ARCHIVE, Mode.MODULE, "OWNERS",
-            OwnerKind.USER_GROUP);
+        runner.importArchive(ARCHIVE, Mode.WORKFLOW_ACTIVE, "jdoe");
+        runner.importArchive(ARCHIVE, Mode.WORKFLOW_INACTIVE, "jdoe");
+        ImportProtocol module = runner.importArchive(ARCHIVE, Mode.MODULE, "OWNERS");
 
         assertThat(module.modified()).containsExactly("SPIKE_C_XSLT-Converter-01");
         cli.verifyComplete();
@@ -152,8 +150,7 @@ class CliImportRunnerTest {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher().expect("import ")
             .replying("import_nok");
 
-        assertThatThrownBy(() -> runner(cli).importArchive(ARCHIVE, Mode.WORKFLOW, "jdoe",
-            OwnerKind.USER)).isInstanceOfSatisfying(ToolErrorException.class, e -> {
+        assertThatThrownBy(() -> runner(cli).importArchive(ARCHIVE, Mode.WORKFLOW, "jdoe")).isInstanceOfSatisfying(ToolErrorException.class, e -> {
                 assertThat(e.error().code()).isEqualTo(ErrorCode.IMPORT_FAILED);
                 assertThat(e.error().message()).contains("Import failed.");
                 assertThat(e.error().node()).contains(DEV);
@@ -167,8 +164,7 @@ class CliImportRunnerTest {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher().expect("import ")
             .replying("import_timeout").hanging();
 
-        assertThatThrownBy(() -> runner(cli).importArchive(ARCHIVE, Mode.WORKFLOW, "jdoe",
-            OwnerKind.USER)).isInstanceOfSatisfying(ToolErrorException.class, e -> {
+        assertThatThrownBy(() -> runner(cli).importArchive(ARCHIVE, Mode.WORKFLOW, "jdoe")).isInstanceOfSatisfying(ToolErrorException.class, e -> {
                 assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT);
                 assertThat(e.error().nextStep()).contains("cliExportTimeout");
             });
@@ -180,8 +176,7 @@ class CliImportRunnerTest {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher().expect("import ")
             .replying("JAVA_HOME is set\nPassword: \nsomething else\n", "", 0);
 
-        assertThatThrownBy(() -> runner(cli).importArchive(ARCHIVE, Mode.WORKFLOW, "jdoe",
-            OwnerKind.USER)).isInstanceOfSatisfying(ToolErrorException.class, e ->
+        assertThatThrownBy(() -> runner(cli).importArchive(ARCHIVE, Mode.WORKFLOW, "jdoe")).isInstanceOfSatisfying(ToolErrorException.class, e ->
                 assertThat(e.error().code()).isEqualTo(ErrorCode.IMPORT_FAILED));
         assertThat(leftovers()).isEmpty();
     }
@@ -191,8 +186,7 @@ class CliImportRunnerTest {
         throws IOException {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
 
-        assertThatThrownBy(() -> runner(cli).importArchive(ARCHIVE, Mode.WORKFLOW, "o'brien",
-            OwnerKind.USER)).isInstanceOfSatisfying(ToolErrorException.class, e ->
+        assertThatThrownBy(() -> runner(cli).importArchive(ARCHIVE, Mode.WORKFLOW, "o'brien")).isInstanceOfSatisfying(ToolErrorException.class, e ->
                 assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT));
         assertThat(cli.launches()).isEmpty();
         assertThat(leftovers()).isEmpty();

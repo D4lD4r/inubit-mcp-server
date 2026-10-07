@@ -143,8 +143,11 @@ class CliCommandTest {
                 + " '/tmp/x/import.zip' --importWorkflow --importWorkflowActive --importUser"
                 + " 'jdoe' --returnProtocol");
         assertThat(CliCommand.command("import").flag("--importModule").flag(
-            "--importWorkflowInactive").quoted("--importUserGroup", "OWNERS").build()
-            .commandLine()).contains("--importModule", "--importUserGroup 'OWNERS'");
+            "--importWorkflowInactive").quoted("--importUser", "OWNERS").build()
+            .commandLine()).contains("--importModule", "--importUser 'OWNERS'");
+        // research D-26: INUBIT refuses --importUserGroup ("Missing user or group!")
+        assertInvalidInput(() -> CliCommand.command("import").quoted("--importUserGroup",
+            "OWNERS"));
         assertInvalidInput(() -> CliCommand.command("import").quoted("--exportFile", "x"));
         assertInvalidInput(() -> CliCommand.command("import").flag("--importRepositoryPath"));
         assertInvalidInput(() -> CliCommand.command("import").flag("--importMetadata"));
@@ -158,9 +161,8 @@ class CliCommandTest {
             .quoted("--tagUser", "jdoe").build().commandLine()).isEqualTo("tag --tagMove"
                 + " 'REL-1' --tagWorkflowGroup 'GRP-01' --tagWorkflowType 'technical' --tagUser"
                 + " 'jdoe'");
-        assertThat(CliCommand.command("tag").quoted("--tagDelete", "REL-1")
-            .quoted("--tagUser", "jdoe").build().commandLine())
-            .isEqualTo("tag --tagDelete 'REL-1' --tagUser 'jdoe'");
+        // research D-26: a tag is never removed (StartCLI removes it only owner-wide)
+        assertInvalidInput(() -> CliCommand.command("tag").quoted("--tagDelete", "REL-1"));
         assertInvalidInput(() -> CliCommand.command("tag").quoted("--tagDiagram", "W"));
         assertInvalidInput(() -> CliCommand.command("tag").flag("--tagRemove"));
         assertInvalidInput(() -> CliCommand.command("tag").quoted("--tagMove", "a'b"));

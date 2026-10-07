@@ -28,9 +28,10 @@ mvn -q -Dtest=NoCustomerIdentifiersTest test
 | No secret in workspace, history, backup index, audit, results, logs; secrets in the import archive come from the target | `ImportSecretLeakTest`, `SecretValuesTest` | FR-012, SC-004 |
 | Restore of a backup ref; unknown/removed ref refused; retention 30 days with newest kept | `RestoreServiceTest`, `BackupStoreTest` | US2, FR-019, clarification 3 |
 | `set_active` sends only the workflow | `SetActiveTest` | US3, FR-020 |
-| Tag: blank group refused before launch; existing tag refused; tag outside the request removed again | `TagServiceTest` | US4, FR-021, SC-005 |
+| Tag: blank group refused before launch; only the requested groups exported; existing tag name reused, the same tag in other groups stays; mismatch or failure reported, nothing removed (no `--tagDelete`) | `TagServiceTest`, `CliTagRunnerTest`, `V81TagAdapterTest` | US4, FR-021, SC-005, D-26 |
 | SOAP test: FREE/CONFIRM/FORBIDDEN; test-id header; correlation by id or uncertain window; timeout keeps diagnostics | `E2eTestServiceTest` (WireMock) | US5, FR-022–FR-024 |
-| Owner kind: override, user list, group fallback, undeterminable → refused | `OwnerKindResolverTest` | clarification 2 |
+| Every owner (user or user group) imported with `--importUser`; `owners:` is an unknown key | `UserGroupOwnerTest`, `ConfigLoaderTest` | FR-014, research D-26 |
+| Import with `tag`: diagram group only (modules + tag refused before sending); tagged after the verified import in the same audited call; a tag failure keeps the import `EXECUTED` with `tag.applied: false` | `ImportTagTest`, `ImportArtifactsToolTest` | US4 AS 5, FR-021, research D-26 |
 | Every call audited (refused/preview/executed/failed), codes hashed, no content | `DevelopmentAuditTest` | FR-025 |
 | 20 workflows / 100 modules import within 2 minutes (fake StartCLI) | `ImportServiceTest` | SC-007 |
 
@@ -42,16 +43,17 @@ java -jar target/inubit-mcp-server-*.jar --profile acme --check-config
 
 Expected per development node: `development: on (confirmation SERVER)`, `e2e: …`.
 
-## C. Live, opt-in (development node, personal diagram group only)
+## C. Live, opt-in (development node, dedicated test diagram group and workflow only)
 
 ```bash
-INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=jdoe \
-  INUBIT_LIVE_DEV_DIAGRAM_GROUP=SPIKE mvn verify -Plive
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=OWNERS \
+  INUBIT_LIVE_DEV_DIAGRAM_GROUP=GRP-01 INUBIT_LIVE_DEV_WORKFLOW=Workflow-0001 mvn verify -Plive
 ```
 
 Scenario (research D-23): export → change one layout value → import (preview + code) → verify →
-restore the backup → set_active off/on → tag `LIVE-<timestamp>` → tag removed again by the test.
-Refused unless the node is a development node and the owner is a user.
+restore the backup → set_active off/on → tag the group with the fixed, reused tag `LIVE-TEST`
+(never removed). Skipped unless diagram group and workflow are named; refused unless the node is a
+development node. The owner may be a user or a user group (research D-26).
 
 ## D. With the AI assistant
 

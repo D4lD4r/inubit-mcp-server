@@ -16,7 +16,6 @@ import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
-import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ImportPort.Mode;
 import de.dadecker.inubit.mcp.infra.Secret;
@@ -75,7 +74,7 @@ class V81ImportAdapterTest {
             .replying("import_modified");
 
         var protocol = adapter(withCli(), cli).importArchive(new byte[] {1}, Mode.WORKFLOW,
-            "jdoe", OwnerKind.USER);
+            "jdoe");
 
         assertThat(protocol.modified()).hasSize(5);
         assertThat(calls).containsExactly("confirm", "startcli");
@@ -89,8 +88,7 @@ class V81ImportAdapterTest {
         assertThatThrownBy(adapter::checkAvailable).isInstanceOfSatisfying(
             ToolErrorException.class, e -> assertThat(e.error().code())
                 .isEqualTo(ErrorCode.CLI_UNAVAILABLE));
-        assertThatThrownBy(() -> adapter.importArchive(new byte[] {1}, Mode.MODULE, "jdoe",
-            OwnerKind.USER)).isInstanceOfSatisfying(ToolErrorException.class, e ->
+        assertThatThrownBy(() -> adapter.importArchive(new byte[] {1}, Mode.MODULE, "jdoe")).isInstanceOfSatisfying(ToolErrorException.class, e ->
                 assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE));
         assertThat(calls).isEmpty();
     }

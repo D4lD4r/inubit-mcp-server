@@ -14,7 +14,6 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures.SyntheticSecr
 import de.dadecker.inubit.mcp.application.ImportHarness;
 import de.dadecker.inubit.mcp.application.ImportService;
 import de.dadecker.inubit.mcp.domain.model.ImportScope;
-import de.dadecker.inubit.mcp.domain.model.OwnerKind;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -75,7 +74,6 @@ class ImportSecretLeakTest {
     void aDiagramGroupWithSecretsLeavesNoSecretOutsideTheImportArchive() throws IOException {
         ImportHarness harness = new ImportHarness(temp, ArtifactFixtures.bytes("grp-b.zip"),
             "OWNERS", "GRP-02");
-        harness.owners.put("OWNERS", OwnerKind.USER);
         harness.edit(harness.workflow("Workflow-0006"), "xPos=\"", "xPos=\"1");
         String module = harness.moduleDirectory("Module-0028") + "/module.xml";
         harness.edit(module, "</Properties>",
@@ -102,7 +100,6 @@ class ImportSecretLeakTest {
         // review m1: the verify difference and the rollback archive of a FAILED call
         ImportHarness harness = new ImportHarness(temp, ArtifactFixtures.bytes("grp-b.zip"),
             "OWNERS", "GRP-02");
-        harness.owners.put("OWNERS", OwnerKind.USER);
         harness.edit(harness.workflow("Workflow-0006"), "xPos=\"", "xPos=\"1");
         String module = harness.moduleDirectory("Module-0028") + "/module.xml";
         harness.edit(module, "</Properties>",
@@ -150,7 +147,6 @@ class ImportSecretLeakTest {
             var entry = raw.moduleIndex().get(0);
             ImportHarness harness = ImportHarness.module(dir, ArtifactFixtures.bytes(fixture),
                 "OWNERS", entry.name(), entry.pluginType());
-            harness.owners.put("OWNERS", OwnerKind.USER);
             String module = harness.moduleDirectory(entry.name()) + "/module.xml";
             harness.edit(module, "</Properties>",
                 "<Property name=\"x.added\">1</Property></Properties>");

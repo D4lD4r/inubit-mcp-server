@@ -69,9 +69,14 @@ a development stage**, 005 deployment along the stage chain).
 ### Session 2026-10-06
 
 - Q: What does one `import_artifacts` call cover? → A: All changed workflows of one diagram group of one owner together with their changed or new modules; alternatively changed single modules without a workflow, as a module import.
-- Q: How does the server know whether an owner is a user or a user group? → A: Automatically through a read-only lookup in INUBIT's user administration; an optional configuration entry per owner overrides the lookup; if the result is ambiguous or the lookup fails, nothing is imported and the result says why.
+- Q: How does the server know whether an owner is a user or a user group? → A: Superseded on 2026-10-07: the distinction is not needed (see below).
 - Q: How long are backups kept? → A: 30 days; the newest backup per owner and diagram group (or module set) is always kept; older ones are removed at the next writing call, with an audit record.
 - Q: How does the end-to-end test find the process instances of its own message? → A: A unique test id is sent as a SOAP/HTTP header and searched in logs and process data; without a match, the time window of the test serves as fallback and the correlation is marked as uncertain.
+
+### Session 2026-10-07
+
+- Q: Does the import need to know whether the owner is a user or a user group? → A: No. Live probes on the development node showed that INUBIT imports for a user-group owner only with `--importUser <owner>` (`--importUserGroup` answers "Missing user or group!"), and the same works for user owners. The owner-kind lookup, the `owners` setting and the refusal of user-group owners are removed; the owner defaults to the profile's inventory owner.
+- Q: Which artifacts may a tag reach? → A: Only the artifacts of the imported or named diagram groups. INUBIT can tag only whole diagram groups (probed: `--tagDiagram` is ignored), so a tag is only possible for a whole diagram group; an import of single modules is never tagged. An existing tag name is reused: within the group it moves to the current versions; the same tag name in other diagram groups stays untouched (probed). Artifacts outside the requested diagram groups are never tagged or untagged.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -172,12 +177,16 @@ and that the server checks afterwards which artifacts carry the tag.
 1. **Given** a diagram group of an owner on a development node, **When** the assistant tags it, **Then**
    the tag is set for exactly that owner and diagram group, and the result lists how many workflows and
    modules carry it.
+5. **Given** an import of a diagram group with a tag, **When** the import is verified, **Then** that
+   diagram group is tagged; **given** an import of single modules with a tag, **Then** the call is
+   refused before anything is sent.
 2. **Given** an empty or blank diagram group, **When** the assistant tags, **Then** the call is refused
    before anything is sent (INUBIT would tag everything of the owner).
-3. **Given** a tag name that already exists for that owner, **When** the assistant tags, **Then** the
-   call is refused (no moving of tags).
-4. **Given** that the verification finds the tag on artifacts outside the requested diagram group,
-   **When** this happens, **Then** the server removes the tag again and reports the failure.
+3. **Given** a tag name that already exists in another diagram group of the owner, **When** the
+   assistant tags this group, **Then** the tag is set here and stays unchanged in the other group.
+4. **Given** that the verification does not find the tag on the current versions of the requested
+   group, **When** this happens, **Then** the result reports the failure; nothing is removed
+   owner-wide.
 
 ---
 
@@ -301,11 +310,9 @@ confirmation and whether end-to-end tests are allowed, and sees the result in th
   MUST NOT reach the workspace, logs, results or audit.
 - **FR-013**: Before sending, the server MUST verify that the archive contains exactly the intended
   artifacts and nothing else.
-- **FR-014**: The import MUST target the artifacts' owner. Whether the owner is a user or a user group
-  MUST be determined by a read-only lookup in INUBIT's user administration, unless the profile names the
-  owner's kind explicitly (which takes precedence); an ambiguous or failed determination MUST abort the
-  call before anything is sent. The server MUST verify that INUBIT's import protocol names exactly the
-  sent artifacts.
+- **FR-014**: The import MUST target the artifacts' owner (default: the profile's inventory owner),
+  for users and user groups alike; the server MUST verify that INUBIT's import protocol names exactly
+  the sent artifacts.
 - **FR-015**: After the import, the server MUST export again and compare with the intended state; a
   failing export or a difference is a failure.
 - **FR-016**: On any failure after the first artifact was sent, the server MUST re-import the backup of
@@ -322,11 +329,14 @@ confirmation and whether end-to-end tests are allowed, and sees the result in th
   unknown references MUST be refused.
 - **FR-020**: The assistant MUST be able to activate or deactivate one workflow; only that workflow MUST
   be sent, and the conflict check applies.
-- **FR-021**: The assistant MUST be able to tag the current versions of one or more diagram groups of an
-  owner; the request MUST be limited to those diagram groups (never owner-wide); empty or blank group
-  names MUST be refused before anything is sent; an existing tag name MUST NOT be moved; afterwards the
-  server MUST verify which artifacts carry the tag and remove it again if it reached anything outside
-  the request.
+- **FR-021**: The assistant MUST be able to tag the current versions of one or more whole diagram
+  groups of an owner, and an import of a diagram group MUST optionally tag that group after its
+  successful verification; an import of single modules MUST NOT be tagged. The request MUST be limited
+  to those diagram groups (never owner-wide); empty, blank or wildcard-like group names MUST be refused
+  before anything is sent; an existing tag name MUST be reused (it moves to the current versions within
+  the requested groups); artifacts outside the requested groups MUST NOT be tagged or untagged, so no
+  owner-wide tag removal is ever used; afterwards the server MUST verify that the current versions of
+  the requested groups carry the tag and report any deviation.
 
 **End-to-end test (SOAP)**
 

@@ -7,9 +7,8 @@ import de.dadecker.inubit.mcp.domain.port.TagPort;
 import java.util.Objects;
 
 /**
- * The 8.1 {@link TagPort} (feature 004, research D-16, D-25 M1): the histories come from
- * StartCLI history exports ({@link CliExportRunner#exportHistoryAllGroups} for every diagram
- * of the owner, {@link CliExportRunner#exportHistory} for one diagram group), parsed by
+ * The 8.1 {@link TagPort} (feature 004, research D-16, D-26): the history of one diagram group
+ * comes from a StartCLI history export ({@link CliExportRunner#exportHistory}), parsed by
  * {@link VersionHistoryParser#parseHistory}; the tag commands run through
  * {@link CliTagRunner} after unconfirmed credentials are confirmed with the server's REST login
  * (as for imports, so that a StartCLI run never holds the credential guard's single permit).
@@ -39,11 +38,6 @@ public final class V81TagAdapter implements TagPort {
     }
 
     @Override
-    public History history(String owner) {
-        return VersionHistoryParser.parseHistory(server, exports.exportHistoryAllGroups(owner));
-    }
-
-    @Override
     public History history(String owner, String diagramGroup) {
         return VersionHistoryParser.parseHistory(server, exports.exportHistory(owner,
             "technical", diagramGroup));
@@ -54,13 +48,6 @@ public final class V81TagAdapter implements TagPort {
         tags.checkAvailable();
         confirmCredentials.run();
         tags.tag(tag, diagramGroup, owner);
-    }
-
-    @Override
-    public void deleteTag(String tag, String owner) {
-        tags.checkAvailable();
-        confirmCredentials.run();
-        tags.deleteTag(tag, owner);
     }
 
     @Override

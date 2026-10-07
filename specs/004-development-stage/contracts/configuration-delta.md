@@ -6,9 +6,6 @@ server behaves as before (no development tool is offered).
 ```yaml
 profile:
   name: acme
-owners:                     # optional: owner kind override (otherwise detected, research D-21)
-  OWNERS: USER_GROUP
-  jdoe: USER
 
 defaults:
   e2eTests: FORBIDDEN       # default
@@ -29,14 +26,17 @@ groups:
 
 | Key | Level | Default | Validation (startup error unless noted) |
 |---|---|---|---|
-| `owners.<name>` | profile | — | value `USER` or `USER_GROUP`; name matches `CliCommand.VALUE` |
 | `development.enabled` | defaults, group, node | `false` | `true` not allowed where `production: true` |
 | `development.confirmation` | defaults, group, node | `SERVER` | `SERVER` or `CLIENT` |
 | `e2eTests` | defaults, group, node | `FORBIDDEN` | `FREE`/`CONFIRM` not allowed where `production: true`; need `e2e.soap.baseUrl` |
 | `e2e.soap.baseUrl` | group, node | — | absolute URL; `https`, or `http` with a startup **warning**; no query or fragment |
 
 `--check-config` per node adds: `development: on (confirmation SERVER) | off`, `e2e: FREE (https://…) |
-CONFIRM (…) | FORBIDDEN`. Owner overrides are listed once.
+CONFIRM (…) | FORBIDDEN`.
+
+There is no owner setting (research D-26, superseding D-21): every import names the owner with
+`--importUser`, for users and user groups alike; a top-level `owners:` key is an unknown key
+(startup error).
 
 Backups are stored in `~/.inubit-mcp/<profile>/backups` (not configurable), kept 30 days; the newest per
 node, owner and scope is always kept.

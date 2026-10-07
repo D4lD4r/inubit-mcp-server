@@ -26,7 +26,7 @@ customer or project, one YAML file); several profiles run side by side as separa
 | `import_artifacts` | import the changed workflows of one diagram group (with changed or new modules), or changed modules, into one development node — checked, conflict-free, backed up, verified, rolled back on failure | StartCLI `export` + `import` |
 | `restore_backup` | re-import the backup of an earlier development call | StartCLI `export` + `import` |
 | `set_active` | activate or deactivate one workflow on a development node | StartCLI `export` + `import` |
-| `tag_artifacts` | tag the head versions of named diagram groups (never owner-wide, never moving a tag), verified | StartCLI history `export` + `tag` |
+| `tag_artifacts` | tag the head versions of whole named diagram groups (never owner-wide; an existing tag name is reused), verified | StartCLI history `export` + `tag` |
 | `run_e2e_test` | send a SOAP envelope from the workspace to a development node and report the response, processes, errors and logs it caused | SOAP + REST |
 
 The two write tools are registered only if at least one node of the profile has effective write
@@ -64,7 +64,7 @@ workspace: [docs/setup.md](docs/setup.md#artifact-workspace).
   change or an open Workbench edit, backed up (owner-only, 30 days), sends only what changed with
   the target's own secret values, is verified by a re-export and rolled back from the backup on
   failure; by default it needs a server-issued confirmation code. Nothing is ever deleted in
-  INUBIT. Writes for user-group owners are not yet supported.
+  INUBIT.
 - **TLS on.** Self-signed server certificates are handled with a dedicated trust store plus a
   certificate pin, never by switching verification off.
 

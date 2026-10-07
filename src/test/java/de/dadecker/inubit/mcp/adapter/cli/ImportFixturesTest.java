@@ -30,7 +30,7 @@ class ImportFixturesTest {
     @ParameterizedTest
     @ValueSource(strings = {"import_created", "import_modified", "import_created_and_modified",
         "import_module_only", "import_workflow_only", "import_nok", "import_protocol_mismatch",
-        "import_timeout", "tag_ok", "tag_delete_ok", "finger_user", "finger_not_registered"})
+        "import_timeout", "tag_ok", "finger_user", "finger_not_registered"})
     void everyCaseHasStdoutStderrAndExitCode(String fixtureCase) {
         for (String suffix : List.of(".stdout", ".stderr", ".exit")) {
             assertThat(resource("/fixtures/v8_1/cli/" + fixtureCase + suffix))
@@ -106,7 +106,7 @@ class ImportFixturesTest {
 
     @Test
     void tagRunsPrintNoResultLine() {
-        for (String fixtureCase : List.of("tag_ok", "tag_delete_ok")) {
+        for (String fixtureCase : List.of("tag_ok")) {
             assertThat(exit(fixtureCase)).isZero();
             assertThat(FakeProcessLauncher.fixtureText(fixtureCase + ".stdout"))
                 .doesNotContain("ERROR").doesNotContain("-OK");
@@ -150,23 +150,6 @@ class ImportFixturesTest {
         assertThat(history).contains(
             "<CheckinComment>DefaultCommitCommentImport###REASON-PROBE three###@@@Deploying User:")
             .contains("<CheckinComment>DefaultCommitCommentImport###</CheckinComment>");
-    }
-
-    @Test
-    void theUserListIsNeutralizedAndListsUsersOnly() throws IOException {
-        String users;
-        try (InputStream in = resource("/fixtures/v8_1/rest/user_users.xml")) {
-            assertThat(in).as("rest/user_users.xml").isNotNull();
-            users = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
-
-        assertThat(Pattern.compile("<ns2:User ").matcher(users).results().count())
-            .isEqualTo(58);
-        assertThat(users).contains("id=\"jdoe\"").doesNotContain("OWNERS");
-        Matcher emails = Pattern.compile("email=\"([^\"]*)\"").matcher(users);
-        while (emails.find()) {
-            assertThat(emails.group(1)).endsWith("@example.test");
-        }
     }
 
     private static List<String> rows(String stdout) {

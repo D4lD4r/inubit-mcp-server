@@ -58,7 +58,7 @@ General rules:
 | [`import_artifacts`](#import_artifacts) | import the changed workflows of ONE diagram group (with their changed or new modules), or changed modules, into ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`restore_backup`](#restore_backup) | re-import the backup of an earlier development call | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`set_active`](#set_active) | activate or deactivate ONE workflow on ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
-| [`tag_artifacts`](#tag_artifacts) | tag the head versions of diagram groups (and their modules) | **destructive**, non-idempotent, open world | yes (StartCLI history `export` and `tag`) |
+| [`tag_artifacts`](#tag_artifacts) | tag the head versions of whole diagram groups (and their modules) | **destructive**, non-idempotent, open world | yes (StartCLI history `export` and `tag`) |
 | [`run_e2e_test`](#run_e2e_test) | send a SOAP test message and report what INUBIT did | **destructive**, non-idempotent, open world | yes (SOAP endpoint, REST logs and Queue Manager) |
 
 `restart_process` and `kill_process` are **offered only if at least one node has effective
@@ -833,9 +833,10 @@ every write; each step that refuses sends nothing to INUBIT:
    or development call in the workspace history);
 4. the checks of `check_artifacts` — any `ERROR` refuses with `PRECONDITION_FAILED` and the path
    of the findings report;
-5. the owner kind: a user (from the profile's `owners` or INUBIT's user list). **user-group
-   owners are not yet supported** for writes (`PRECONDITION_FAILED` "not yet verified") until
-   INUBIT's behaviour for them has been probed;
+5. the owner (default `inventory.owner`): a Workbench user or a user group alike — every
+   import, restore, activation and rollback names it with `--importUser` (INUBIT 8.1 refuses
+   `--importUserGroup` with "Missing user or group!" and takes a user group with
+   `--importUser`), so there is no owner lookup and no owner setting;
 6. the **conflict check** on a fresh export: an artifact changed on the server since its base, a
    new artifact that already exists, or a workflow in Workbench **edit mode** is a `CONFLICT`;
 7. with `development.confirmation` `SERVER` (the default) the first call returns a **preview**
@@ -887,6 +888,7 @@ absent):
 | `rollback` | `NOT_NEEDED`, `SUCCEEDED`, `FAILED` (failures only) |
 | `createdNotRemoved` | artifacts created (by this or the restored call) and not removed |
 | `reports`, `warnings` | workspace-relative report files (`.reports/verify-<auditId>.diff`, …); notes |
+| `tag` | only for `import_artifacts` with a `tag`: `{name, applied, workflows, modules, failure}` |
 
 ## `import_artifacts`
 
@@ -897,7 +899,8 @@ absent):
 > from the node.
 
 **Input**: `node` (one node id), `owner` (default `inventory.owner`), exactly one of
-`diagramGroup` or `modules` (1–50 `{name, pluginType?}`), `reason`, `confirmationCode`.
+`diagramGroup` or `modules` (1–50 `{name, pluginType?}`), `reason`, `confirmationCode`, and
+optionally `tag` (only with `diagramGroup`).
 
 - Changed workflows of the diagram group go with their **changed or new** modules; unchanged
   referenced modules are not sent (every import creates a new version). A module import sends
@@ -910,12 +913,23 @@ absent):
   owner already uses for another workflow or module, no exported base ("export the scope
   first"). UIDs and module file names of modified artifacts come from the node's fresh export,
   never from `.meta/`.
+- **Tag** (optional): after the verified import and the write-back, the diagram group is tagged
+  exactly as `tag_artifacts` does it (one `tag --tagMove` for the group, verified by the group's
+  history export; an existing tag name is reused) — in the same call and under the same audit id
+  (audit inputs `tag`, `tagApplied`). INUBIT tags only whole diagram groups, so a module import
+  with `tag` is refused (`INVALID_INPUT`) before anything is sent. The result carries `tag`
+  `{name, applied, workflows, modules, failure}`. A tag failure after a successful import keeps
+  `outcome: EXECUTED` — the import is not undone — with `applied: false`, the `failure`
+  (`IMPORT_FAILED` at `tag` or `VERIFY_MISMATCH` at `verify`) and a warning to retry with
+  `tag_artifacts`; nothing is removed. A failed or empty import sets no tag (`applied: false`,
+  no failure). The confirmation code is bound to the tag as well.
 - **Preview** (`challenge`): `scope`, `baseCommit`, `create`, `modify`, `notImported`,
-  `checkWarnings`, `ownerKind`, `confirmationCode`, `expiresAt`, `message`.
+  `checkWarnings`, `tag` (if requested), `confirmationCode`, `expiresAt`, `message`.
 
 **Example prompt**: "Import the layout change of GRP-01 to dev with reason 'layout'" →
 `import_artifacts(node: "dev/node1", diagramGroup: "GRP-01", reason: "layout")` returns the
-preview; after the user approves, the same call with `confirmationCode`.
+preview; after the user approves, the same call with `confirmationCode`. "… and tag it
+REL-2026-10-07" adds `tag: "REL-2026-10-07"`.
 
 ## `restore_backup`
 
@@ -935,8 +949,8 @@ preview; after the user approves, the same call with `confirmationCode`.
   then, or edit mode, is `CONFLICT`; a call without a recorded state is `PRECONDITION_FAILED`.
 - The restore takes its own backup (its `backupRef`) and rolls back on failure like an import;
   the secrets come from the node's **current** export (old passwords never come back).
-- **Preview** (`challenge`): `scope`, `modify`, `notes`, `ownerKind`, `confirmationCode`,
-  `expiresAt`, `message`.
+- **Preview** (`challenge`): `scope`, `modify`, `notes`, `confirmationCode`, `expiresAt`,
+  `message`.
 
 **Example prompt**: "Undo that import" → `restore_backup(node: "dev/node1", backupRef: "…",
 reason: "undo layout")`.
@@ -962,33 +976,35 @@ reason: "undo layout")`.
 ## `tag_artifacts`
 
 > [acme] Tag the current versions of the technical workflows (and their modules) of the given
-> diagram groups of an owner on ONE development node. Never owner-wide; an existing tag is never
-> moved.
+> diagram groups of an owner on ONE development node. Only whole diagram groups, never
+> owner-wide; an existing tag name is reused and moves to the current versions within these
+> groups only.
 
 **Input**: `node`, `owner`, `diagramGroups` (1–20 distinct names), `tag`, `reason`,
 `confirmationCode`.
 
-- Blank, empty, duplicate or wildcard-like groups are refused (`INVALID_INPUT`) before anything
-  is read — StartCLI would tag **everything** of the owner without a group. A tag that exists on
-  any version of any diagram or module of the owner is refused (tags are never moved); a group
-  without technical workflows is `NOT_FOUND`. User-group owners are refused as above.
-- One `tag --tagMove '<tag>' --tagWorkflowGroup '<group>' --tagWorkflowType 'technical'
-  --tagUser '<owner>'` per group. **Verification** by history exports: the tag must be on the
-  head versions of exactly the technical workflows of the requested groups and the modules they
-  use. Anything else, or a failing tag command, removes the tag again
-  (`tag --tagDelete`) and the result is `FAILED` with `failure` and `removedAgain: true`.
+- INUBIT tags only **whole diagram groups** (`--tagDiagram` is ignored), so a tag always covers
+  every technical workflow of a requested group and the modules they use. Blank, empty, duplicate
+  or wildcard-like groups are refused (`INVALID_INPUT`) before anything is read — StartCLI would
+  tag **everything** of the owner without a group. A group without technical workflows is
+  `NOT_FOUND`. The owner may be a user or a user group.
+- **Tag names**: an existing tag name is reused. Within the requested groups it moves to the
+  current versions (re-tagging after a new version moves it from the old to the new head);
+  the same tag in other diagram groups stays untouched (probed). Artifacts outside the requested
+  groups are never tagged or untagged.
+- Pre-check and verification export **only the requested groups** with their history — never
+  the whole owner. One `tag --tagMove '<tag>' --tagWorkflowGroup '<group>' --tagWorkflowType
+  'technical' --tagUser '<owner>'` per group. **Verification**: the current version of every
+  technical workflow of the requested groups and of every module they use must carry the tag.
+- On a deviation (`VERIFY_MISMATCH`, report `.reports/tag-<auditId>.txt`) or a failing tag
+  command (`IMPORT_FAILED` at step `tag`) the result is `FAILED` with `failure`; **nothing is
+  removed** — StartCLI removes a tag only for the whole owner, which could take away a tag that
+  marks another group's state, so the server never does. The warning names the groups already
+  tagged and asks to call `tag_artifacts` again.
 - **Result**: `auditId`, `outcome`, `failure`, `tag`, `diagramGroups`, `workflows`, `modules`
-  (how many carry the tag), `removedAgain`, `reports`, `warnings`. **Preview**: `owner`, `tag`,
-  `diagramGroups`, `workflows`, `ownerKind`, `confirmationCode`, `expiresAt`, `message`; the code
-  is bound to the head versions, so a publish in between is `CONFLICT`.
-
-**Removing the tag again acts owner-wide.** StartCLI deletes a tag only per owner
-(`tag --tagDelete '<tag>' --tagUser '<owner>'`), never per diagram group. It can only remove this
-call's own new tag: the pre-check refused the call if the tag existed on any version of any
-diagram of the owner (all groups and types) or of any module those diagrams use. One case
-remains: a module that no diagram of the owner uses is not part of that history; if it carried a
-tag of the same name, the removal would take that tag away as well. Use unique tag names (e.g.
-with date and time). A history export of unused modules was not probed and is not used.
+  (how many current versions carry the tag), `reports`, `warnings`. **Preview**: `owner`, `tag`,
+  `diagramGroups`, `workflows`, `confirmationCode`, `expiresAt`, `message`; the code is bound to
+  the head versions, so a publish in between is `CONFLICT`.
 
 Every history export appends to the check-in comments of the exported workflows in INUBIT
 (an INUBIT behaviour, see the spike notes).

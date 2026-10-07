@@ -15,7 +15,7 @@
     "owner": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
-      "description": "The owner (user) of the diagram groups; default: inventory.owner of the {node}"
+      "description": "The owner (user or user group) of the diagram groups; default: inventory.owner of the {node}"
     },
     "diagramGroups": {
       "type": "array",
@@ -31,7 +31,7 @@
     "tag": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
-      "description": "The new tag, e.g. REL-2026-10-07; a tag that exists for the owner is refused (never moved)"
+      "description": "The tag, e.g. REL-2026-10-07; an existing tag name is reused: within the requested diagram groups it moves to the current versions, elsewhere it stays"
     },
     "reason": {
       "type": "string",

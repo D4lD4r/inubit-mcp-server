@@ -21,19 +21,27 @@ activate, tag); `owner` defaults to `inventory.owner` for every tool that takes 
 > changed, verifies by re-export and rolls back on failure. Secrets are taken from the {node}.
 
 Input: `node`, `owner` (default `inventory.owner`), exactly one of `diagramGroup` (string) or
-`modules` (1–50 `{name, pluginType?}`), `reason`, `confirmationCode`.
+`modules` (1–50 `{name, pluginType?}`), `reason`, `confirmationCode`, optional `tag`
+(`CliCommand.VALUE`; only with `diagramGroup` — with `modules` it is `INVALID_INPUT` before
+anything is sent, research D-26).
 
 Challenge preview: `{ "scope", "baseCommit", "create": [names], "modify": [names], "notImported":
-[paths], "checkWarnings": n, "ownerKind" }` + code/expiry.
+[paths], "checkWarnings": n, "tag"? }` + code/expiry (no owner kind, research D-26); the code is
+bound to the tag as well.
 
 Result: `{ "outcome": "EXECUTED"|"FAILED", "commit", "backupRef", "created": [...], "modified": [...],
 "notImported": [...], "rollback": "NOT_NEEDED"|"SUCCEEDED"|"FAILED", "createdNotRemoved": [...],
-"reports": [paths], "warnings": [...] }`.
+"reports": [paths], "warnings": [...], "tag"?: {"name", "applied", "workflows", "modules",
+"failure"?} }`. With `tag`, the diagram group is tagged after the verified import and its
+write-back, as `tag_artifacts` does it, in the same call and audit record (inputs `tag`,
+`tagApplied`). A tag failure after a successful import keeps `outcome: EXECUTED` with
+`tag.applied: false`, `tag.failure{IMPORT_FAILED | VERIFY_MISMATCH}` and a warning to retry
+`tag_artifacts`; a failed or empty import sets no tag (`applied: false`).
 
 Failure model (research D-25): refusals **before** anything is sent are tool errors —
 `NOT_DEVELOPMENT`, `INVALID_INPUT` (scope, deletions, repository changes, reason with `###`/`@@@`),
 `PRECONDITION_FAILED` (check errors with the findings report path, missing referenced modules, lock,
-owner kind, user-group owner not yet verified, no base export), `CONFLICT` (diff path),
+no base export), `CONFLICT` (diff path),
 `SECRET_UNRESOLVED` (artifact + property path), `CONFIRMATION_INVALID`, `CLI_UNAVAILABLE`,
 `AUTH_FAILED`. Once anything was sent, the call returns a **result** with `outcome: FAILED`,
 `failure: {code: IMPORT_FAILED | VERIFY_MISMATCH, step, message}` and `rollback`. Fields without a
@@ -57,12 +65,17 @@ Result as `import_artifacts` (only that workflow).
 ## `tag_artifacts`
 
 > [acme] Tag the current versions of the technical workflows (and their modules) of the given diagram
-> groups of an owner on ONE development {node}. Never owner-wide; an existing tag is never moved.
+> groups of an owner on ONE development {node}. Only whole diagram groups, never owner-wide; an
+> existing tag name is reused and moves to the current versions within these groups only.
 
 Input: `node`, `owner`, `diagramGroups` (1–20, non-blank), `tag` (`CliCommand.VALUE`), `reason`,
-`confirmationCode`. Result: `{ "tag", "diagramGroups", "workflows": n, "modules": n, "removedAgain":
-false }`. Errors: `INVALID_INPUT` (blank group, existing tag), `VERIFY_MISMATCH` (tag reached other
-artifacts — removed again).
+`confirmationCode`. Result: `{ "outcome", "failure"?, "tag", "diagramGroups", "workflows": n,
+"modules": n, "reports", "warnings" }` (research D-26). Pre-check and verification export only
+the requested groups with history (never owner-wide); an existing tag name is reused. Errors
+before anything is sent: `INVALID_INPUT` (blank, duplicate or wildcard-like group), `NOT_FOUND`
+(group without technical workflows). After sending: `outcome: FAILED` with `failure{IMPORT_FAILED`
+(a tag command failed) `| VERIFY_MISMATCH` (a current version of the requested groups does not
+carry the tag)`}`; nothing is ever removed (no `--tagDelete`).
 
 ## `run_e2e_test`
 
