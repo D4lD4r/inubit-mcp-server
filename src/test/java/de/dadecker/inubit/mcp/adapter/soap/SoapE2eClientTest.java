@@ -148,7 +148,9 @@ class SoapE2eClientTest {
 
             assertThat(exchange.timedOut()).isTrue();
             assertThat(exchange.status()).isEmpty();
-            assertThat(exchange.duration()).isGreaterThanOrEqualTo(Duration.ofMillis(300));
+            // waited for the time limit, not a fast failure; the HTTP client's timer may fire a
+            // little before the client's own measurement reaches 300 ms (CI: 299.7 ms)
+            assertThat(exchange.duration()).isGreaterThanOrEqualTo(Duration.ofMillis(250));
         }
     }
 
