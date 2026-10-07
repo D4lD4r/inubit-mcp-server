@@ -132,15 +132,18 @@ assertion before the production code exists. `mvn -q verify` green after every t
 - [ ] T020 [US1] `main/application/DeployService.java` preview: guard, locks, discovery, checks,
   planning, `WriteChallengeRegistry` capability `DEPLOY_RELEASE` keyed by the target group, preview
   state per D-6, TTL `deployConfirmationTtl`, code only if every plan is executable; audit
-  `CHALLENGE_ISSUED`; `DeployServiceTest` previews (US1 AS1, AS3–AS7; US2 AS1–AS4).
+  `CHALLENGE_ISSUED`; `DeployServiceTest` previews (US1 AS1, AS3–AS7; US2 AS1–AS4; a target node
+  that cannot be read fails the whole preview; first deployment without ledger entries warns with
+  "no earlier deployment by this server").
 
 ## Phase 5: User Story 1 + 3 — Execute (P1)
 
 - [ ] T021 [US1] `main/application/NodeDeployer.java`: re-check fingerprint, backup
   (`BackupStore` manifest `kind: DEPLOYMENT`, groups, repository paths, tag, source; 004 manifests
   read as `IMPORT`), `PENDING` audit, imports in D-7 order (repository, modules, workflows active /
-  inactive) with target secrets and protocol matching, verification (content, reason segment, active
-  flag, repository files), tag via `DiagramGroupTagger`, ledger update; tests on `DeployHarness`.
+  inactive) with target secrets and protocol matching; check-in comment of workflows and modules
+  with the reason `deploy <tag> from <source>` (FR-019, D-9); verification (content, reason segment,
+  active flag, repository files), tag via `DiagramGroupTagger`, ledger update; tests on `DeployHarness`.
 - [ ] T022 [US3] Rollback and stop rule in `NodeDeployer`/`DeployService`: rollback from the backup
   incl. repository files, verified; states `DEPLOYED`, `UNCHANGED`, `ROLLED_BACK`,
   `ROLLBACK_FAILED`, `NOT_STARTED`; remaining nodes untouched; `DeployFailureTest` (import NOK on
@@ -180,7 +183,8 @@ assertion before the production code exists. `mvn -q verify` green after every t
   error codes), `docs/setup.md` (chain, modes, exclusions, deploy TTL, files), `README.md` tool table
   and safety model, `docs/live-tests.md` (deployment live test), `CHANGELOG.md` `[Unreleased]`.
 - [ ] T030 `test/live/DeploymentLiveTest.java` (`@Tag("live")`, env names a chained test target the
-  operator approved, never production): tag → preview → execute → redeploy unchanged → restore;
+  operator approved, never production; **ask the user to approve the live target before running
+  it**): tag → preview → execute → redeploy unchanged → restore;
   checks that nothing outside the test group changed.
 - [ ] T031 Validation: `mvn -q clean verify`, guard test without `clean` (not skipped), quickstart
   table; live acceptance only after the user approved the test target.

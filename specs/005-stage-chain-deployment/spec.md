@@ -265,6 +265,9 @@ The operator describes the chain in the profile and checks it with the configura
 - An old diagram group still carries a reused tag name: it becomes part of the release; the preview
   lists it with the date of its tagged version, so the developer can move or remove the tag in the
   source before confirming.
+- An artifact without an entry from an earlier deployment of this server (e.g. the first deployment
+  into a group): a changed one carries the warning "changed on the target outside the chain" with the
+  note "no earlier deployment by this server".
 - A target node is not reachable during the preview: the preview fails for the whole deployment (no
   partial preview can be confirmed).
 - The re-export after an import fails because INUBIT broke the diagram group (spike: missing module):
@@ -286,7 +289,9 @@ The operator describes the chain in the profile and checks it with the configura
   `EXECUTE` on a production group MUST additionally require the existing production write opt-in;
   without it the server MUST NOT start.
 - **FR-003**: The profile MUST allow per target group exclusion rules by diagram group and by
-  workflow or module name pattern, in addition to the default exclusion of system diagrams.
+  workflow or module name pattern and by repository path pattern, in addition to the default
+  exclusion of system diagrams. System diagrams are never read; the preview states this instead of
+  listing them.
 - **FR-004**: Deployments MUST always use the server-issued two-step confirmation; there MUST NOT be a
   setting to turn it off.
 - **FR-005**: The configuration check MUST print the chain, the mode of each target, its exclusions,
@@ -355,9 +360,12 @@ The operator describes the chain in the profile and checks it with the configura
   groups of that node, scoped to those diagram groups as in feature 004 (never owner-wide; an existing
   tag name is reused), and verify it; a tag failure MUST keep the deployment and be reported with a
   retry hint.
-- **FR-019**: The check-in comment of the new versions MUST name the release tag and the source group.
-- **FR-020**: After the deployment the workspace MUST record the verified state of the target group as
-  one history entry "deploy <target> ← <source>: <tag>"; secret values MUST NOT reach the workspace.
+- **FR-019**: The check-in comment of the new versions of workflows and modules MUST name the release
+  tag and the source group (INUBIT ignores comments of repository files).
+- **FR-020**: After a deployment in which every node was deployed or unchanged, the workspace MUST
+  record the verified state of the target group as one history entry "deploy <target> ← <source>:
+  <tag>"; after a partial deployment nothing is recorded and the result says so. Secret values MUST
+  NOT reach the workspace.
 - **FR-021**: Only one deployment per target group MAY run at a time, also across several server
   processes of the same profile; a second one MUST be refused with DEPLOY_LOCKED.
 - **FR-022**: The backup restore of feature 004 MUST work for nodes written by a deployment; on a target
@@ -409,7 +417,7 @@ The operator describes the chain in the profile and checks it with the configura
   violated, the source is inconsistent, a secret is unresolved, a referenced module would be missing,
   the code is missing or invalid, or the target is in package-only mode.
 - **SC-002**: In 100 % of the offline failure scenarios, every node ends in one of the states deployed,
-  rolled back, rollback failed (named) or not started, and the result lists each node's state
+  unchanged, packaged, rolled back, rollback failed (named) or not started, and the result lists each node's state
   correctly.
 - **SC-003**: Re-deploying an already deployed release imports nothing and creates no new version on
   any node.
@@ -427,9 +435,8 @@ The operator describes the chain in the profile and checks it with the configura
 
 - Features 003 and 004 are in place: workspace, checks, redaction, archive rebuild, backup, rollback,
   verification and group-scoped tagging.
-- INUBIT's import of repository files (archive shape, versioning, relation to a tag) is not known yet;
-  a live probe on the development stage with test artifacts settles it before the implementation,
-  as the spike did for workflows and modules.
+- INUBIT's import of repository files (archive shape, versioning, relation to a tag) was probed live
+  on the development stage with test artifacts (research D-1).
 - Artifacts are stage-independent; stage-specific settings live in system diagrams or are set at
   runtime. INUBIT's own deployment mechanism for stage-specific properties is not used.
 - The server can read (export) every node of every chained group, including production, with the
