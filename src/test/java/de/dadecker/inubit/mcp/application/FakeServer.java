@@ -338,6 +338,22 @@ public final class FakeServer {
             after.getBytes(StandardCharsets.UTF_8), module.version() + 1));
     }
 
+    /** A person copies workflow {@code from} as {@code to} into diagram group {@code group}. */
+    public synchronized void copyWorkflow(String from, String to, String group) {
+        for (Map<String, Workflow> workflows : new ArrayList<>(groups.values())) {
+            Workflow workflow = workflows.get(from);
+            if (workflow != null) {
+                String text = new String(XmlNormalizer.normalize(workflow.element()),
+                    StandardCharsets.UTF_8).replace("<WorkflowName>" + from + "</WorkflowName>",
+                    "<WorkflowName>" + to + "</WorkflowName>");
+                groups.computeIfAbsent(group, g -> new LinkedHashMap<>()).put(to, new Workflow(
+                    XmlTree.parse(text.getBytes(StandardCharsets.UTF_8)).root(), 1));
+                return;
+            }
+        }
+        throw new IllegalStateException("no workflow " + from);
+    }
+
     /** A person opens workflow {@code name} in Workbench edit mode. */
     public synchronized void editMode(String name, String user) {
         for (Map<String, Workflow> workflows : groups.values()) {

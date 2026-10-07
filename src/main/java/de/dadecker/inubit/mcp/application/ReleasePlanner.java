@@ -73,6 +73,10 @@ import java.util.regex.Pattern;
  *       ({@code SECRET_UNRESOLVED}); a file outside the owner's area missing on the node
  *       ({@code PRECONDITION_FAILED}); every failure of building the import archives with the
  *       node's own secrets ({@code SECRET_UNRESOLVED} names artifact and path, never a value).
+ *   <li><b>Warnings</b>: a changed property of a deployed workflow or changed module whose
+ *       name or value looks stage-specific ({@code STAGE_SPECIFIC_VALUE}, names only); a
+ *       changed module that workflows of the node outside the release run as well
+ *       ({@code SHARED_MODULE}, module usage of feature 001, REST).
  *   <li><b>Reports</b> {@code .reports/deploy-<auditId>/<group>-<node>.diff} (the deployed
  *       artifacts, placeholders only, never key material) and {@code …txt} (the plan).
  * </ol>
@@ -83,6 +87,8 @@ public final class ReleasePlanner {
 
     private static final String REPORTS = ".reports";
     private static final String META = WorkspacePath.META_DIRECTORY + "/";
+    private static final int USAGE_CONCURRENCY = 4;
+    private static final java.time.Duration USAGE_BUDGET = java.time.Duration.ofSeconds(60);
     private static final DateTimeFormatter COMMENT_TIME =
         DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
@@ -296,7 +302,8 @@ public final class ReleasePlanner {
                 entry.item().name(), entry.item().type()));
             return types;
         });
-        otherDiagramGroups(node, owner, parts, excludedWorkflows, errors);
+        List<InventoryItem> diagrams = d.inventory().apply(node).listDiagrams(owner);
+        otherDiagramGroups(node, diagrams, parts, excludedWorkflows, errors);
         moduleClasses.forEach((name, artifactClass) -> {
             String type = artifactClass == ArtifactClass.NEW ? moduleTypes.get().get(name) : null;
             String pluginType = parts.modules().get(name).pluginType();
@@ -325,6 +332,21 @@ public final class ReleasePlanner {
         });
         errors.addAll(assemble(admitted, release, node, parts, runs, workflowClasses,
             moduleClasses, raws));
+
+        // warnings (T018): stage-specific values, shared modules
+        workflowClasses.forEach((name, artifactClass) -> {
+            String path = parts.workflowPaths().get(name);
+            if (artifactClass == ArtifactClass.CHANGED || artifactClass
+                == ArtifactClass.LAYOUT_ONLY) {
+                stageSpecific(name, Map.of(path, release.files().get(path)), target, warnings);
+            }
+        });
+        moduleClasses.forEach((name, artifactClass) -> {
+            if (artifactClass == ArtifactClass.CHANGED) {
+                stageSpecific(name, parts.modules().get(name).files(), target, warnings);
+            }
+        });
+        sharedModules(node, owner, diagrams, parts, moduleClasses, warnings);
 
         String fingerprint = fingerprint(target, targetRepository, prepared.inEditMode());
         String base = REPORTS + "/deploy-" + auditId + "/" + node.group() + "-" + node.name();
@@ -481,9 +503,9 @@ public final class ReleasePlanner {
     }
 
     /** A release workflow that the node has in another diagram group (REST diagram list). */
-    private void otherDiagramGroups(NodeId node, String owner, Parts parts,
-        Set<String> excludedWorkflows, List<PlanError> errors) {
-        for (InventoryItem item : d.inventory().apply(node).listDiagrams(owner)) {
+    private static void otherDiagramGroups(NodeId node, List<InventoryItem> diagrams,
+        Parts parts, Set<String> excludedWorkflows, List<PlanError> errors) {
+        for (InventoryItem item : diagrams) {
             String releaseGroup = parts.workflowGroups().get(item.name());
             if (releaseGroup != null && !excludedWorkflows.contains(item.name())
                 && !releaseGroup.equals(item.group())) {
@@ -556,6 +578,63 @@ public final class ReleasePlanner {
                 reason, account.user(), account.host(), time, Set.of(), true));
         } catch (ToolErrorException e) {
             errors.add(new PlanError(e.error().code(), scope, e.error().message()));
+        }
+    }
+
+    // --- warnings ------------------------------------------------------------------------------
+
+    /**
+     * {@code STAGE_SPECIFIC_VALUE} for {@code artifact} if a changed simple property of one of
+     * its files looks like a host, URL, port or login ({@link StageValueHeuristics}); the
+     * warning names the properties, the values are in the difference file only.
+     */
+    private void stageSpecific(String artifact, Map<String, byte[]> files,
+        SortedMap<String, byte[]> target, List<Warning> warnings) {
+        Set<String> properties = new LinkedHashSet<>();
+        files.forEach((path, content) -> {
+            byte[] before = target.get(path);
+            if (before != null) {
+                d.releases().changedProperties(path, content, before).forEach(change -> {
+                    if (StageValueHeuristics.looksStageSpecific(change.property(),
+                        change.releaseValue(), change.targetValue())) {
+                        properties.add(change.property());
+                    }
+                });
+            }
+        });
+        if (!properties.isEmpty()) {
+            warnings.add(new Warning(WarningKind.STAGE_SPECIFIC_VALUE, artifact,
+                "stage-specific value? changed propert" + (properties.size() == 1 ? "y " : "ies ")
+                    + String.join(", ", properties) + " (the release's value is deployed)"));
+        }
+    }
+
+    /**
+     * {@code SHARED_MODULE} for a changed module that workflows of the node outside the release
+     * run as well (module usage of feature 001: the nodes of each such workflow, REST).
+     */
+    private void sharedModules(NodeId node, String owner, List<InventoryItem> diagrams,
+        Parts parts, Map<String, ArtifactClass> moduleClasses, List<Warning> warnings) {
+        List<String> changed = moduleClasses.entrySet().stream()
+            .filter(e -> e.getValue() == ArtifactClass.CHANGED).map(Map.Entry::getKey).toList();
+        List<String> outside = diagrams.stream().map(InventoryItem::name)
+            .filter(name -> !parts.workflowPaths().containsKey(name)).distinct().toList();
+        if (changed.isEmpty() || outside.isEmpty()) {
+            return;
+        }
+        ModuleUsage usage = ModuleUsageIndexer.build(node, outside, workflow -> d.inventory()
+            .apply(node).diagramDetail(owner, workflow).modules(), USAGE_CONCURRENCY,
+            USAGE_BUDGET);
+        for (String module : changed) {
+            Set<String> users = new TreeSet<>(ModuleUsage.ORDER);
+            users.addAll(usage.uses().getOrDefault(module, Map.of()).keySet());
+            if (!users.isEmpty()) {
+                warnings.add(new Warning(WarningKind.SHARED_MODULE, module, "shared module,"
+                    + " also used by " + String.join(", ", users) + " on " + node));
+            } else if (!usage.complete()) {
+                warnings.add(new Warning(WarningKind.SHARED_MODULE, module, "the module usage"
+                    + " of " + node + " is incomplete; other workflows may use it"));
+            }
         }
     }
 

@@ -466,4 +466,57 @@ class ReleasePlannerTest {
     static NodeId node(String id) {
         return NodeId.parse(id);
     }
+
+    // --- T018: warnings (US5) ---------------------------------------------------------------
+
+    @Test
+    void aChangedStageSpecificPropertyWarnsWithItsNameOnly() throws IOException {
+        harness = harnessQuietly(false);
+        ReleaseDiscovery.Release release = release(server -> server.publishModule("Module-0001",
+            module("<Property name=\"IsModuleTemplate\"", "<Property name=\"EndpointUrl\">"
+                + "https://dev-host.example.test/x</Property>\n\t<Property name=\"Note\">"
+                + "dev note</Property>\n\t<Property name=\"IsModuleTemplate\"")));
+        harness.servers.get(DeployHarness.INT1).publishModule("Module-0001",
+            module("<Property name=\"IsModuleTemplate\"", "<Property name=\"EndpointUrl\">"
+                + "https://int-host.example.test/x</Property>\n\t<Property name=\"Note\">"
+                + "int note</Property>\n\t<Property name=\"IsModuleTemplate\""));
+        harness.exportGroup(DeployHarness.INT1)
+            .exportRepository(DeployHarness.INT1, DeployHarness.RELEASE_XSL);
+
+        NodePlan plan = plan(release, List.of());
+
+        assertThat(plan.warnings()).singleElement().satisfies(warning -> {
+            assertThat(warning.kind()).isEqualTo(NodePlan.WarningKind.STAGE_SPECIFIC_VALUE);
+            assertThat(warning.artifact()).isEqualTo("Module-0001");
+            assertThat(warning.detail()).contains("EndpointUrl").doesNotContain("example.test");
+        });
+        assertThat(plan.executable()).isTrue();
+        assertThat(read(plan.diffFile())).contains("int-host.example.test",
+            "dev-host.example.test");
+        assertThat(read(plan.summaryFile())).contains("EndpointUrl")
+            .doesNotContain("host.example.test");
+        harness.verifyComplete();
+    }
+
+    @Test
+    void aChangedModuleUsedByTargetWorkflowsOutsideTheReleaseIsShared() {
+        harness = harnessQuietly(false);
+        ReleaseDiscovery.Release release = release();
+        harness.servers.get(DeployHarness.INT1).copyWorkflow("Workflow-0002", "Workflow-0099",
+            "GRP-09");
+        harness.exportGroup(DeployHarness.INT1)
+            .exportRepository(DeployHarness.INT1, DeployHarness.RELEASE_XSL);
+
+        NodePlan plan = plan(release, List.of());
+
+        assertThat(plan.warnings()).singleElement().satisfies(warning -> {
+            assertThat(warning.kind()).isEqualTo(NodePlan.WarningKind.SHARED_MODULE);
+            assertThat(warning.artifact()).isEqualTo("Module-0005");
+            assertThat(warning.detail()).contains("Workflow-0099");
+        });
+        assertThat(harness.restCalls).contains("int/node1 diagram Workflow-0099")
+            .doesNotContain("int/node1 diagram Workflow-0001");
+        harness.verifyComplete();
+    }
 }
+

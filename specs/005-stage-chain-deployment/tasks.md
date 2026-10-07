@@ -121,7 +121,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   take the release's"), errors (name in another diagram group via REST model list, plugin-type
   clash, missing referenced module, `SECRET_UNRESOLVED` incl. key material, edit mode → `CONFLICT`,
   feature-003 check ERRORs), diff and summary files; tests per class and error.
-- [ ] T018 [US5] Warnings in `ReleasePlanner`: `STAGE_SPECIFIC_VALUE` (`StageValueHeuristics`:
+- [X] T018 [US5] Warnings in `ReleasePlanner`: `STAGE_SPECIFIC_VALUE` (`StageValueHeuristics`:
   property name or value looks like host, URL, port or login; names only in the result),
   `SHARED_MODULE` (module usage of feature 001 on the target), `OUTSIDE_CHAIN` (ledger, T019);
   exclusions by `diagramGroup`, `name` glob, `repositoryPath` glob; tests incl. "excluded module
