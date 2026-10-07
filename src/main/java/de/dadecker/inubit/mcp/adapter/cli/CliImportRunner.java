@@ -134,16 +134,8 @@ public final class CliImportRunner {
      */
     public void importRepository(byte[] archive, String owner) {
         Objects.requireNonNull(archive, "archive");
-        checkOwner(owner);
+        checkRepositoryImport(owner);
         String root = "/Root/" + owner;
-        if (!CliCommand.repositoryPathPassable(root)) {
-            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
-                "The owner's repository root cannot be passed to StartCLI safely; nothing was"
-                    + " sent",
-                "It must match " + CliCommand.REPOSITORY_PATH.pattern(),
-                "Use the exact INUBIT owner name").withNode(server.id()));
-        }
-        checkAvailable();
         CliResult result = run(archive, file -> CliCommand.command("import")
             .path("--importFile", file).repositoryPath("--importRepositoryPath", root).build());
         CliOutput output = classifier.parse(result);
@@ -152,6 +144,25 @@ public final class CliImportRunner {
             throw failed("StartCLI did not confirm the repository import on " + server.id()
                 + ": " + reason(result, output));
         }
+    }
+
+    /**
+     * Everything {@link #importRepository} checks before it writes or launches anything: the
+     * owner and its repository root pass the quoting rules, CLI and credentials are usable.
+     *
+     * @throws ToolErrorException {@code INVALID_INPUT}, {@code CLI_UNAVAILABLE} or
+     *     {@code AUTH_FAILED}
+     */
+    public void checkRepositoryImport(String owner) {
+        checkOwner(owner);
+        if (!CliCommand.repositoryPathPassable("/Root/" + owner)) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
+                "The owner's repository root cannot be passed to StartCLI safely; nothing was"
+                    + " sent",
+                "It must match " + CliCommand.REPOSITORY_PATH.pattern(),
+                "Use the exact INUBIT owner name").withNode(server.id()));
+        }
+        checkAvailable();
     }
 
     private void checkOwner(String owner) {

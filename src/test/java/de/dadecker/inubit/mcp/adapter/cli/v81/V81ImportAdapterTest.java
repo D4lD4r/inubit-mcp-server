@@ -117,4 +117,18 @@ class V81ImportAdapterTest {
                 assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE));
         assertThat(calls).isEmpty();
     }
+
+    @Test
+    void anInvalidOwnerIsRefusedBeforeTheCredentialsAreConfirmed() throws IOException {
+        // stage 1 review #9: no REST login for input that cannot be sent
+        V81ImportAdapter adapter = adapter(withCli(), new ScriptedProcessLauncher());
+
+        for (String owner : List.of("it's", "..", "")) {
+            assertThatThrownBy(() -> adapter.importRepository(new byte[] {1}, owner))
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT));
+        }
+        assertThat(calls).isEmpty();
+    }
 }
+

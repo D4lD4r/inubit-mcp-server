@@ -40,7 +40,7 @@ public final class V81ImportAdapter implements ImportPort {
 
     @Override
     public void importRepository(byte[] archive, String owner) {
-        imports.checkAvailable();
+        imports.checkRepositoryImport(owner);
         confirmCredentials.run();
         imports.importRepository(archive, owner);
     }
