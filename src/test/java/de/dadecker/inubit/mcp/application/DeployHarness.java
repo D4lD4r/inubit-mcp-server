@@ -19,9 +19,14 @@ import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.ConnectorFlags;
+import de.dadecker.inubit.mcp.domain.model.InventoryItem;
+import de.dadecker.inubit.mcp.domain.model.InventoryKind;
+import de.dadecker.inubit.mcp.domain.model.ModuleRef;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
+import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -39,24 +44,29 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Pattern;
 
 /**
- * Test support of the deployment tests (feature 005, research D-16, tasks T010): one
- * {@link FakeInubit} per node — the source {@code dev/node1}, the chained targets
- * {@code int/node1}…{@code int/node3} and the package-only {@code prod/node1} — each behind the
- * real 8.1 adapters on its own {@link ScriptedProcessLauncher}, so that every StartCLI call is
- * scripted per node and a call on a node that should not be written fails the test. Plus a real
- * git workspace, real backups, a recording audit and a {@link MutableClock}.
+ * Test support of the deployment tests (feature 005, research D-16, tasks T010, stage 2
+ * review #7): one {@link FakeServer} per node — the source nodes {@code dev/node1} and
+ * {@code dev/node2}, the chained targets {@code int/node1}…{@code int/node3} and the package-only
+ * {@code prod/node1} — each behind the real 8.1 adapters on its own
+ * {@link ScriptedProcessLauncher}, so that every StartCLI call is scripted per node and a call on
+ * a node that should not be written fails the test; plus a fake REST inventory per node (diagram
+ * list with diagram groups, module list, the modules of each workflow), a real git workspace,
+ * real backups, a recording audit and a {@link MutableClock}.
  *
- * <p>Every server holds diagram group {@code GRP-01} of owner {@code jdoe} ({@code grp-a.zip}
- * without edit mode); on the source, {@code Module-0005} imports the repository file
- * {@link #RELEASE_XSL} (version {@code 1.0}, {@link #RELEASE_XSL_V1}), which the targets do not
- * have. {@link #DeployHarness(Path, boolean) With empty targets} the targets have neither the
- * diagram group nor its modules (everything is new there). A server holds one diagram group; a
- * release of several groups needs one harness per group combination (later tasks may extend
- * {@link FakeInubit}).
+ * <p>By default every server holds diagram group {@code GRP-01} of owner {@code jdoe}
+ * ({@code grp-a.zip} without edit mode); on the source nodes {@code Module-0005} imports the
+ * repository file {@link #RELEASE_XSL} (version {@code 1.0}, {@link #RELEASE_XSL_V1}), which the
+ * targets do not have. {@link #DeployHarness(Path, boolean) With empty targets} the targets have
+ * no artifact at all. {@link #DeployHarness(Path, java.util.function.Function) Any servers} can
+ * be given, e.g. {@link FakeServer#synthetic} for SC-007.
  */
 public final class DeployHarness {
 
     public static final NodeId SOURCE = NodeId.parse("dev/node1");
+    public static final NodeId SOURCE2 = NodeId.parse("dev/node2");
+    /** The nodes of the source group {@code dev}, in configuration order. */
+    public static final List<NodeId> SOURCES = List.of(NodeId.parse("dev/node1"),
+        NodeId.parse("dev/node2"));
     public static final NodeId INT1 = NodeId.parse("int/node1");
     public static final NodeId INT2 = NodeId.parse("int/node2");
     public static final NodeId INT3 = NodeId.parse("int/node3");
@@ -81,7 +91,9 @@ public final class DeployHarness {
     public final Path cliHome;
     /** Stand-in for {@code ~/.inubit-mcp/<profile>} (backups, deployments, packages). */
     public final Path profileHome;
-    public final Map<NodeId, FakeInubit> servers = new LinkedHashMap<>();
+    public final Map<NodeId, FakeServer> servers = new LinkedHashMap<>();
+    /** The REST reads of every node, e.g. {@code int/node1 diagrams jdoe}. */
+    public final List<String> restCalls = new CopyOnWriteArrayList<>();
     public final Map<NodeId, ScriptedProcessLauncher> cli = new LinkedHashMap<>();
     public final List<AuditRecord> audit = new CopyOnWriteArrayList<>();
     public final MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
@@ -96,10 +108,24 @@ public final class DeployHarness {
     }
 
     /**
-     * @param emptyTargets true: the target and package-only nodes have neither the diagram
-     *     group nor its modules
+     * @param emptyTargets true: the target and package-only nodes have no artifact at all
      */
     public DeployHarness(Path temp, boolean emptyTargets) throws IOException {
+        this(temp, node -> {
+            if (node.group().value().equals("dev")) {
+                FakeServer source = FakeServer.of(withRepositoryReference(
+                    ImportHarness.withoutEditMode()));
+                source.putRepositoryFile(RELEASE_XSL, RELEASE_XSL_V1);
+                return source;
+            }
+            return emptyTargets ? new FakeServer() : FakeServer.of(
+                ImportHarness.withoutEditMode());
+        });
+    }
+
+    /** The harness with the server {@code servers} gives for each node. */
+    public DeployHarness(Path temp, java.util.function.Function<NodeId, FakeServer> servers)
+        throws IOException {
         this.root = Files.createDirectories(temp.resolve("workspace"));
         this.cliHome = Files.createDirectories(temp.resolve("client"));
         this.profileHome = Files.createDirectories(temp.resolve("profile"));
@@ -108,14 +134,10 @@ public final class DeployHarness {
         this.backups = new BackupStore(profileHome.resolve("backups"), clock);
         this.workspace = new ExportHarness(root);
         this.history = workspace.history;
-        byte[] base = ImportHarness.withoutEditMode();
-        FakeInubit source = new FakeInubit(withRepositoryReference(base));
-        source.putRepositoryFile(RELEASE_XSL, RELEASE_XSL_V1);
-        servers.put(SOURCE, source);
-        for (NodeId node : List.of(INT1, INT2, INT3, PROD)) {
-            servers.put(node, emptyTargets ? FakeInubit.without(GROUP) : new FakeInubit(base));
+        for (NodeId node : List.of(SOURCE, SOURCE2, INT1, INT2, INT3, PROD)) {
+            this.servers.put(node, servers.apply(node));
+            cli.put(node, new ScriptedProcessLauncher());
         }
-        servers.keySet().forEach(node -> cli.put(node, new ScriptedProcessLauncher()));
     }
 
     /** {@code export} with {@code Module-0005} importing {@link #RELEASE_XSL}. */
@@ -181,15 +203,64 @@ public final class DeployHarness {
             new CliOutputClassifier(new SecretScrubber())), () -> { });
     }
 
+    /**
+     * The REST inventory of {@code node}: the owner's diagram list with diagram groups, the
+     * module list, and the modules each workflow runs; every read is recorded in
+     * {@link #restCalls}.
+     */
+    public InventoryPort inventory(NodeId node) {
+        FakeServer server = servers.get(node);
+        return new InventoryPort() {
+            @Override
+            public List<InventoryItem> listDiagrams(String owner) {
+                restCalls.add(node + " diagrams " + owner);
+                return server.diagrams().entrySet().stream().map(e -> InventoryItem.diagram(
+                    node, e.getKey(), "technical", e.getValue(), owner)).toList();
+            }
+
+            @Override
+            public DiagramDetail diagramDetail(String owner, String name) {
+                restCalls.add(node + " diagram " + name);
+                List<String> used = server.modulesOf(name);
+                List<ModuleRef> refs = new java.util.ArrayList<>();
+                for (int i = 0; i < used.size(); i++) {
+                    refs.add(new ModuleRef(used.get(i), "tw" + server.pluginType(used.get(i))
+                        .orElse("Unknown").replace(" ", ""), Integer.toString(i + 1)));
+                }
+                return new DiagramDetail(name, Optional.of("technical"), Optional.empty(), refs);
+            }
+
+            @Override
+            public DiagramMetadata diagramMetadata(String name) {
+                throw new AssertionError("not used");
+            }
+
+            @Override
+            public VersionHistory versionHistory(String owner, String type, String group) {
+                throw new AssertionError("not used");
+            }
+
+            @Override
+            public List<ModuleEntry> listModules(String owner) {
+                restCalls.add(node + " modules " + owner);
+                return server.moduleTypes().entrySet().stream().map(e -> new ModuleEntry(
+                    new InventoryItem(node, InventoryKind.MODULE, e.getKey(), e.getValue(),
+                        e.getValue(), owner, Optional.empty(), Optional.empty(),
+                        Optional.empty(), Optional.empty()), Optional.empty(), Optional.empty(),
+                    new ConnectorFlags(false, false, false), Optional.empty())).toList();
+            }
+        };
+    }
+
     // --- scripting (per node, in launch order) -----------------------------------------------
 
     /** The next call on {@code node} is the release export of {@code tag}. */
     public DeployHarness exportRelease(NodeId node, String tag) {
-        FakeInubit inubit = servers.get(node);
+        FakeServer server = servers.get(node);
         cli.get(node).expect("export --exportWorkflowUser '" + OWNER + "' --exportWorkflowType"
             + " 'technical' --exportWorkflowGroup '' --exportTag '" + tag + "'")
             .then(spec -> ImportHarness.write(ScriptedProcessLauncher.exportFile(spec),
-                inubit.exportRelease(tag)))
+                server.exportRelease(tag)))
             .replying(EXPORT_OK, "", 0);
         return this;
     }
@@ -199,17 +270,22 @@ public final class DeployHarness {
      * answers {@code Workflow group not found} if the server does not have it.
      */
     public DeployHarness exportGroup(NodeId node) {
-        FakeInubit inubit = servers.get(node);
+        return exportGroup(node, GROUP);
+    }
+
+    /** As {@link #exportGroup(NodeId)} for diagram group {@code group}. */
+    public DeployHarness exportGroup(NodeId node, String group) {
+        FakeServer server = servers.get(node);
         cli.get(node).expect("export --exportWorkflowUser '" + OWNER + "' --exportWorkflowType"
-            + " 'technical' --exportWorkflowGroup '" + GROUP + "'")
+            + " 'technical' --exportWorkflowGroup '" + group + "' --exportFile")
             .answering(spec -> {
-                if (!inubit.hasDiagramGroup()) {
+                Optional<byte[]> export = server.exportWorkflowGroup(group);
+                if (export.isEmpty()) {
                     return new ScriptedProcessLauncher.Reply("JAVA_HOME is set\nPassword: \n"
                         + "EXECUTION ERROR\nInternal INUBIT error!\n2-NOK: Workflow group not"
-                        + " found: " + GROUP + "\n", "", 1);
+                        + " found: " + group + "\n", "", 1);
                 }
-                ImportHarness.write(ScriptedProcessLauncher.exportFile(spec),
-                    inubit.exportWorkflowGroup());
+                ImportHarness.write(ScriptedProcessLauncher.exportFile(spec), export.get());
                 return new ScriptedProcessLauncher.Reply(EXPORT_OK, "", 0);
             });
         return this;
@@ -217,17 +293,17 @@ public final class DeployHarness {
 
     /** The next call on {@code node} is a module export ({@code NOT_FOUND} if missing). */
     public DeployHarness exportModule(NodeId node, String pluginType, String name) {
-        FakeInubit inubit = servers.get(node);
+        FakeServer server = servers.get(node);
         cli.get(node).expect("export --exportModule '" + name + "' --exportModuleGroup '"
             + pluginType + "' --exportModuleUser '" + OWNER + "'")
             .answering(spec -> {
-                if (!inubit.hasModule(name)) {
+                Optional<byte[]> export = server.exportModule(pluginType, name);
+                if (export.isEmpty()) {
                     return new ScriptedProcessLauncher.Reply("JAVA_HOME is set\nPassword: \n"
                         + "EXECUTION ERROR\nInternal INUBIT error!\n2-NOK: The module " + name
                         + " not found\n", "", 1);
                 }
-                ImportHarness.write(ScriptedProcessLauncher.exportFile(spec),
-                    inubit.exportModule(pluginType, name));
+                ImportHarness.write(ScriptedProcessLauncher.exportFile(spec), export.get());
                 return new ScriptedProcessLauncher.Reply(MODULE_OK, "", 0);
             });
         return this;
@@ -238,10 +314,10 @@ public final class DeployHarness {
      * does not have fails like the recorded {@code Path not found}.
      */
     public DeployHarness exportRepository(NodeId node, String path) {
-        FakeInubit inubit = servers.get(node);
+        FakeServer server = servers.get(node);
         cli.get(node).expect("export --exportRepositoryPath '" + path + "'")
             .answering(spec -> {
-                Optional<byte[]> zip = inubit.exportRepository(path);
+                Optional<byte[]> zip = server.exportRepository(path);
                 if (zip.isEmpty()) {
                     return new ScriptedProcessLauncher.Reply(
                         FakeProcessLauncher.fixtureText("export_repository_not_found.stdout"),
@@ -261,24 +337,24 @@ public final class DeployHarness {
      * name.
      */
     public DeployHarness importApplied(NodeId node, String options) {
-        FakeInubit inubit = servers.get(node);
+        FakeServer server = servers.get(node);
         Boolean active = options.contains("--importWorkflowActive") ? Boolean.TRUE
             : options.contains("--importWorkflowInactive") ? Boolean.FALSE : null;
         cli.get(node).expect(Pattern.compile("^import --importFile '[^']+' "
                 + Pattern.quote(options) + "$"))
             .capturingImportFile()
-            .replyingWith(spec -> inubit.importArchive(ImportHarness.read(
+            .replyingWith(spec -> server.importArchive(ImportHarness.read(
                 ScriptedProcessLauncher.importFile(spec)), active));
         return this;
     }
 
     /** The next call on {@code node} is a repository import into {@code /Root/jdoe}. */
     public DeployHarness importRepositoryApplied(NodeId node) {
-        FakeInubit inubit = servers.get(node);
+        FakeServer server = servers.get(node);
         cli.get(node).expect(Pattern.compile("^import --importFile '[^']+'"
                 + " --importRepositoryPath '/Root/" + OWNER + "'$"))
             .capturingImportFile()
-            .replyingWith(spec -> inubit.importRepository(ImportHarness.read(
+            .replyingWith(spec -> server.importRepository(ImportHarness.read(
                 ScriptedProcessLauncher.importFile(spec)), OWNER));
         return this;
     }
@@ -290,15 +366,26 @@ public final class DeployHarness {
     }
 
     /**
-     * The next call on {@code node} tags the diagram group with {@code tag}; the server records
-     * the tagged state (and the referenced repository files) like INUBIT.
+     * The next call on {@code node} tags diagram group {@code GRP-01} with {@code tag}; the
+     * server records the tagged state (and the referenced repository files) like INUBIT.
      */
     public DeployHarness tagMoved(NodeId node, String tag) {
-        FakeInubit inubit = servers.get(node);
-        cli.get(node).expect("tag --tagMove '" + tag + "' --tagWorkflowGroup '" + GROUP
+        return tagMoved(node, GROUP, tag);
+    }
+
+    /** As {@link #tagMoved(NodeId, String)} for diagram group {@code group}. */
+    public DeployHarness tagMoved(NodeId node, String group, String tag) {
+        FakeServer server = servers.get(node);
+        cli.get(node).expect("tag --tagMove '" + tag + "' --tagWorkflowGroup '" + group
                 + "' --tagWorkflowType 'technical' --tagUser '" + OWNER + "'")
-            .then(spec -> inubit.tag(tag))
+            .then(spec -> server.tag(group, tag))
             .replying("tag_ok");
+        return this;
+    }
+
+    /** Tags {@code group} with {@code tag} on every source node, as a person did before. */
+    public DeployHarness tagged(String group, String tag) {
+        SOURCES.forEach(node -> servers.get(node).tag(group, tag));
         return this;
     }
 

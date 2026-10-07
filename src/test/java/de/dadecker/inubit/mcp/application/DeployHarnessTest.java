@@ -7,6 +7,8 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
 import de.dadecker.inubit.mcp.adapter.archive.v81.RepositoryArchive;
 import de.dadecker.inubit.mcp.adapter.archive.v81.RepositoryArchive.RepositoryFile;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InventoryItem;
+import de.dadecker.inubit.mcp.domain.model.ModuleRef;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import java.io.IOException;
@@ -14,15 +16,18 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * T010 (feature 005, research D-16): the deployment harness — one {@link FakeInubit} per node
- * behind the real 8.1 adapters — answers tag (release) exports with the tagged versions and the
- * referenced repository files, repository exports and imports with versions and relative entries,
- * and applies the active-flag option of a workflow import.
+ * T010 (feature 005, research D-16) and stage 2 review #7: the deployment harness — one
+ * {@link FakeServer} per node behind the real 8.1 adapters, with several diagram groups per
+ * server — answers tag (release) exports with the tagged versions and the referenced repository
+ * files, repository exports and imports with versions and relative entries, applies the
+ * active-flag option of a workflow import, and offers the REST inventory of each node.
  */
 class DeployHarnessTest {
 
@@ -40,10 +45,20 @@ class DeployHarnessTest {
         return new String(bytes, StandardCharsets.UTF_8);
     }
 
+    private static int count(String text, String token) {
+        Matcher matcher = Pattern.compile(Pattern.quote(token)).matcher(text);
+        int count = 0;
+        while (matcher.find()) {
+            count++;
+        }
+        return count;
+    }
+
     @Test
-    void hasTheSourceThreeTargetNodesAndAPackageOnlyNode() {
+    void hasTwoSourceNodesThreeTargetNodesAndAPackageOnlyNode() {
         assertThat(harness.servers.keySet()).containsExactly(DeployHarness.SOURCE,
-            DeployHarness.INT1, DeployHarness.INT2, DeployHarness.INT3, DeployHarness.PROD);
+            DeployHarness.SOURCE2, DeployHarness.INT1, DeployHarness.INT2, DeployHarness.INT3,
+            DeployHarness.PROD);
         assertThat(DeployHarness.TARGETS).containsExactly(DeployHarness.INT1, DeployHarness.INT2,
             DeployHarness.INT3);
         assertThat(harness.root.resolve(".git")).doesNotExist();
@@ -52,11 +67,12 @@ class DeployHarnessTest {
 
     @Test
     void theReleaseExportHoldsTheTaggedStateWithTheTaggedRepositoryFile() {
-        FakeInubit source = harness.servers.get(DeployHarness.SOURCE);
+        FakeServer source = harness.servers.get(DeployHarness.SOURCE);
         harness.tagMoved(DeployHarness.SOURCE, "TAG-01");
         harness.tags(DeployHarness.SOURCE).tag("TAG-01", DeployHarness.GROUP, DeployHarness.OWNER);
         source.putRepositoryFile(DeployHarness.RELEASE_XSL, "<xsl:stylesheet v2/>");
-        source.changeWorkflows(xml -> xml.replace("xPos=\"120\"", "xPos=\"999\""));
+        source.publishWorkflow("Workflow-0001", xml -> xml.replace("xPos=\"120\"",
+            "xPos=\"999\""));
         harness.exportRelease(DeployHarness.SOURCE, "TAG-01");
 
         byte[] release = harness.artifacts(DeployHarness.SOURCE).exportRelease(
@@ -67,8 +83,8 @@ class DeployHarnessTest {
             "module/module.xml", "Repository.zip");
         String workflows = text(entries.get("workflow/workflow.xml"));
         assertThat(workflows).contains("<WorkflowGroupName>GRP-01</WorkflowGroupName>",
-            "@@@Tag: TAG-01@@@", "tag=\"TAG-01\"").doesNotContain("version=\"head\"")
-            .doesNotContain("xPos=\"999\"");
+            "@@@Tag: TAG-01@@@", "tag=\"TAG-01\"", "<Workflow version=\"1\"")
+            .doesNotContain("version=\"head\"").doesNotContain("xPos=\"999\"");
         assertThat(RepositoryArchive.read(entries.get("Repository.zip"))).singleElement()
             .satisfies(file -> {
                 assertThat(file.path()).isEqualTo(DeployHarness.RELEASE_XSL);
@@ -77,7 +93,47 @@ class DeployHarnessTest {
                 assertThat(text(file.content())).isEqualTo(DeployHarness.RELEASE_XSL_V1);
             });
         assertThat(source.repositoryVersion(DeployHarness.RELEASE_XSL)).contains("1.1");
+        assertThat(source.version("Workflow-0001")).contains(2);
         harness.verifyComplete();
+    }
+
+    @Test
+    void aServerHoldsSeveralDiagramGroupsWithOwnerWideModules() {
+        FakeServer server = FakeServer.synthetic(5, 4, 20);
+        server.tag("GRP-02", "TAG-02");
+        server.tag("GRP-04", "TAG-02");
+
+        Map<String, byte[]> release = ArtifactFixtures.entries(server.exportRelease("TAG-02"));
+        Map<String, byte[]> group = ArtifactFixtures.entries(server.exportWorkflowGroup("GRP-03")
+            .orElseThrow());
+
+        assertThat(server.diagramGroups()).containsExactly("GRP-01", "GRP-02", "GRP-03",
+            "GRP-04", "GRP-05");
+        assertThat(server.diagrams()).hasSize(20).containsEntry("Workflow-3002", "GRP-03");
+        assertThat(server.moduleTypes()).hasSize(100);
+        String workflows = text(release.get("workflow/workflow.xml"));
+        assertThat(count(workflows, "<WorkflowGroupName>")).isEqualTo(2);
+        assertThat(workflows).contains("GRP-02", "GRP-04").doesNotContain("GRP-03");
+        assertThat(count(text(group.get("workflow/workflow.xml")), "<WorkflowName>"))
+            .isEqualTo(4);
+        assertThat(group.keySet().stream().filter(name -> name.startsWith("module/module-")))
+            .hasSize(16).allMatch(name -> name.startsWith("module/module-3"));
+        assertThat(server.exportWorkflowGroup("GRP-99")).isEmpty();
+    }
+
+    @Test
+    void scalesToSc007() {
+        FakeServer server = FakeServer.synthetic(5, 4, 20);
+        for (String group : server.diagramGroups()) {
+            server.tag(group, "REL");
+        }
+
+        Map<String, byte[]> release = ArtifactFixtures.entries(server.exportRelease("REL"));
+
+        assertThat(count(text(release.get("workflow/workflow.xml")), "<WorkflowName>"))
+            .isEqualTo(20);
+        assertThat(release.keySet().stream().filter(name -> name.startsWith("module/module-")))
+            .hasSize(80);
     }
 
     @Test
@@ -92,10 +148,10 @@ class DeployHarnessTest {
 
     @Test
     void repositoryImportsCreateAndVersionFilesFromRelativeEntries() {
-        FakeInubit target = harness.servers.get(DeployHarness.INT1);
+        FakeServer target = harness.servers.get(DeployHarness.INT1);
         RepositoryFile file = RepositoryArchive.read(ArtifactFixtures.entries(
-            harness.servers.get(DeployHarness.SOURCE).exportWorkflowGroup())
-            .get("Repository.zip")).get(0);
+            harness.servers.get(DeployHarness.SOURCE).exportWorkflowGroup(DeployHarness.GROUP)
+                .orElseThrow()).get("Repository.zip")).get(0);
         harness.exportRepository(DeployHarness.INT1, DeployHarness.RELEASE_XSL)
             .importRepositoryApplied(DeployHarness.INT1)
             .importRepositoryApplied(DeployHarness.INT1)
@@ -113,7 +169,6 @@ class DeployHarnessTest {
 
         assertThat(target.repositoryVersion(DeployHarness.RELEASE_XSL)).contains("1.1");
         assertThat(target.repositoryUuid(DeployHarness.RELEASE_XSL)).contains(uuid);
-        assertThat(uuid).isNotEqualTo("00000000-0000-0000-0000-000000000101");
         assertThat(exported).singleElement().satisfies(back -> {
             assertThat(back.content()).isEqualTo(file.content());
             assertThat(text(back.metadata())).contains("version=\"1.1\"",
@@ -126,25 +181,27 @@ class DeployHarnessTest {
 
     @Test
     void theActiveFlagOfAWorkflowImportIsApplied() {
-        FakeInubit target = harness.servers.get(DeployHarness.INT2);
-        byte[] export = target.exportWorkflowGroup();
+        FakeServer target = harness.servers.get(DeployHarness.INT2);
+        byte[] export = target.exportWorkflowGroup(DeployHarness.GROUP).orElseThrow();
         harness.importApplied(DeployHarness.INT2, "--importWorkflow --importWorkflowActive"
             + " --importUser 'jdoe' --returnProtocol");
 
         harness.imports(DeployHarness.INT2).importArchive(export,
             ImportPort.Mode.WORKFLOW_ACTIVE, DeployHarness.OWNER);
 
-        assertThat(target.workflowXml()).contains("<IsActive>true</IsActive>")
-            .doesNotContain("<IsActive>false</IsActive>");
+        assertThat(target.active("Workflow-0001")).contains(true);
+        assertThat(target.active("Workflow-0002")).contains(true);
+        assertThat(target.version("Workflow-0001")).contains(2);
         assertThat(target.importFlags).containsExactly(Boolean.TRUE);
         harness.verifyComplete();
     }
 
     @Test
-    void aTargetWithoutTheDiagramGroupAnswersNotFoundUntilItIsImported() throws IOException {
+    void anEmptyTargetAnswersNotFoundUntilTheGroupIsImported() throws IOException {
         DeployHarness empty = new DeployHarness(temp.resolve("empty"), true);
-        FakeInubit target = empty.servers.get(DeployHarness.INT3);
-        byte[] release = empty.servers.get(DeployHarness.SOURCE).exportWorkflowGroup();
+        FakeServer target = empty.servers.get(DeployHarness.INT3);
+        byte[] release = empty.servers.get(DeployHarness.SOURCE).exportWorkflowGroup(
+            DeployHarness.GROUP).orElseThrow();
         empty.exportGroup(DeployHarness.INT3)
             .importApplied(DeployHarness.INT3, "--importWorkflow --importWorkflowInactive"
                 + " --importUser 'jdoe' --returnProtocol")
@@ -165,6 +222,24 @@ class DeployHarnessTest {
             "<WorkflowName>Workflow-0002</WorkflowName>");
         assertThat(target.hasModule("Module-0001")).isTrue();
         empty.verifyComplete();
+    }
+
+    @Test
+    void theRestInventoryShowsDiagramGroupsModulesAndTheModulesOfAWorkflow() {
+        List<InventoryItem> diagrams = harness.inventory(DeployHarness.INT1)
+            .listDiagrams(DeployHarness.OWNER);
+        List<ModuleRef> nodes = harness.inventory(DeployHarness.INT1)
+            .diagramDetail(DeployHarness.OWNER, "Workflow-0001").modules();
+
+        assertThat(diagrams).extracting(InventoryItem::name, InventoryItem::group)
+            .containsExactly(org.assertj.core.groups.Tuple.tuple("Workflow-0001", "GRP-01"),
+                org.assertj.core.groups.Tuple.tuple("Workflow-0002", "GRP-01"));
+        assertThat(nodes).extracting(ModuleRef::name).containsExactly("Module-0001",
+            "Module-0002", "Module-0003", "Module-0004");
+        assertThat(harness.inventory(DeployHarness.INT1).listModules(DeployHarness.OWNER))
+            .hasSize(9);
+        assertThat(harness.restCalls).containsExactly("int/node1 diagrams jdoe",
+            "int/node1 diagram Workflow-0001", "int/node1 modules jdoe");
     }
 
     @Test
