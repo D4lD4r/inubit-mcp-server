@@ -69,7 +69,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   "no diagram group carries the tag" = an archive without workflows → `NOT_FOUND`) and
   `exportRepository(path)` ("Path not found" → `NOT_FOUND`); tests on `ScriptedProcessLauncher` with
   the T001 fixtures.
-- [ ] T006 `main/adapter/cli/CliImportRunner.java`: repository mode
+- [X] T006 `main/adapter/cli/CliImportRunner.java`: repository mode
   `import --importFile '<zip>' --importRepositoryPath '/Root/<owner>'` (success = `n-OK: Imported
   successfully`, no protocol); `main/adapter/archive/v81/RepositoryArchive.java` builds the archive
   with entries **relative** to `/Root/<owner>` (D-1) and refuses key material
