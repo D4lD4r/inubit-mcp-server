@@ -425,4 +425,91 @@ class ImportAssemblerTest {
     private static String slash(java.nio.file.Path path) {
         return path.toString().replace('\\', '/');
     }
+
+    // --- feature 005 (T008, research D-7): the active flag of a new workflow is a parameter ---
+
+    private Request release(List<Artifact> workflows) {
+        return new Request(GROUP, OWNER, Optional.of("GRP-02"), workflows, List.of(), COMMENT,
+            versions, java.util.Set.of(), ImportAssembler.NewWorkflowFlag.FROM_RELEASE);
+    }
+
+    /** A new workflow {@code Workflow-0100}, a copy of {@code Workflow-0004} (active). */
+    private void newWorkflow(java.util.function.UnaryOperator<String> edit) {
+        String source = slash(WorkspacePath.workflow(GROUP, OWNER, "GRP-02", "Workflow-0004"));
+        String copy = new String(files.get(source), StandardCharsets.UTF_8)
+            .replace("Workflow-0004", "Workflow-0100");
+        files.put(slash(WorkspacePath.workflow(GROUP, OWNER, "GRP-02", "Workflow-0100")),
+            edit.apply(copy).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private Element assembledWorkflow(Assembled assembled, String name) {
+        return reader.read(assembled.zip()).workflowGroups().get(0).workflows().stream()
+            .filter(workflow -> workflow.name().equals(name)).findFirst().orElseThrow()
+            .element();
+    }
+
+    @Test
+    void featureFourCallersKeepTheRuleThatANewWorkflowMustBeInactive() {
+        assertThat(group(List.of(), List.of()).newWorkflowFlag())
+            .isEqualTo(ImportAssembler.NewWorkflowFlag.MUST_BE_INACTIVE);
+        newWorkflow(xml -> xml.replace("<IsActive>false</IsActive>", "<IsActive>true</IsActive>"));
+
+        assertThatThrownBy(() -> ImportAssembler.assemble(files, group(
+            List.of(workflow("Workflow-0100", true)), List.of()), target))
+            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT));
+    }
+
+    @Test
+    void aNewWorkflowOfAReleaseTakesTheReleasesFlag() {
+        newWorkflow(xml -> xml.replace("<IsActive>false</IsActive>", "<IsActive>true</IsActive>"));
+
+        Assembled assembled = ImportAssembler.assemble(files, release(
+            List.of(workflow("Workflow-0100", true))), target);
+
+        assertThat(assembled.active()).containsExactly(Map.entry("Workflow-0100", true));
+        assertThat(assembledWorkflow(assembled, "Workflow-0100").child("IsActive")
+            .map(Element::text)).contains("true");
+    }
+
+    @Test
+    void aNewWorkflowOfAReleaseWithoutFlagIsInactive() {
+        newWorkflow(xml -> xml.replace("<IsActive>true</IsActive>", "")
+            .replace("<IsActive>false</IsActive>", ""));
+
+        Assembled assembled = ImportAssembler.assemble(files, release(
+            List.of(workflow("Workflow-0100", true))), target);
+
+        assertThat(assembled.active()).containsExactly(Map.entry("Workflow-0100", false));
+        assertThat(assembledWorkflow(assembled, "Workflow-0100").child("IsActive")
+            .map(Element::text)).contains("false");
+    }
+
+    @Test
+    void anExistingWorkflowOfAReleaseKeepsTheTargetsFlag() {
+        String path = slash(WorkspacePath.workflow(GROUP, OWNER, "GRP-02", "Workflow-0006"));
+        files.put(path, new String(files.get(path), StandardCharsets.UTF_8)
+            .replace("<IsActive>true</IsActive>", "<IsActive>false</IsActive>")
+            .getBytes(StandardCharsets.UTF_8));
+
+        Assembled assembled = ImportAssembler.assemble(files, release(
+            List.of(workflow("Workflow-0006", false))), target);
+
+        assertThat(assembled.active()).containsExactly(Map.entry("Workflow-0006", true));
+        assertThat(assembledWorkflow(assembled, "Workflow-0006").child("IsActive")
+            .map(Element::text)).contains("true");
+    }
+
+    @Test
+    void featureFourArchivesReportTheFlagOfTheirFiles() {
+        newWorkflow(xml -> xml.replace("<IsActive>true</IsActive>", "<IsActive>false</IsActive>"));
+
+        Assembled assembled = ImportAssembler.assemble(files, group(List.of(
+            workflow("Workflow-0006", false), workflow("Workflow-0100", true)), List.of()),
+            target);
+
+        assertThat(assembled.active()).containsExactly(Map.entry("Workflow-0006", true),
+            Map.entry("Workflow-0100", false));
+    }
 }
+

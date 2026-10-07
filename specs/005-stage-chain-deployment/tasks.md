@@ -77,7 +77,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 - [X] T007 Ports: `ArtifactPort` (+`exportRelease`, +`exportRepository`), `ImportPort`
   (+`importRepository`), adapters `V81ArtifactAdapter`/`V81ImportAdapter`; `PackageBoundaryTest`
   stays green.
-- [ ] T008 `main/adapter/archive/v81/ImportAssembler.java`: the active flag of a new workflow becomes
+- [X] T008 `main/adapter/archive/v81/ImportAssembler.java`: the active flag of a new workflow becomes
   a request parameter (`NewWorkflowFlag.MUST_BE_INACTIVE` for 004 callers — unchanged behaviour —,
   `FROM_RELEASE` for deployments); per-workflow intended flag; tests incl. the 004 regression.
 - [ ] T009 `main/adapter/archive/v81/LayoutDiff.java`: decides whether two rendered workflow files

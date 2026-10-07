@@ -60,10 +60,14 @@ import java.util.zip.ZipOutputStream;
  *   <li>A modified artifact gets its UIDs, its module file name and the context of its diagram
  *       group from the target's fresh export ({@link Target}), never from the editable
  *       {@code .meta/} records (review I1); a new one has no UID (INUBIT assigns them), the
- *       diagram group of the scope and the target's (or the default) context. A new workflow
- *       must say {@code IsActive} {@code false} in its file ({@code INVALID_INPUT} otherwise,
- *       review I2): INUBIT creates it inactive, and {@code set_active} switches it on. Every workflow's {@code UserOrUserGroupName} is the
- *       owner of the request; a file that names another owner is {@code INVALID_INPUT}.
+ *       diagram group of the scope and the target's (or the default) context. Every workflow's
+ *       {@code UserOrUserGroupName} is the owner of the request; a file that names another
+ *       owner is {@code INVALID_INPUT}.
+ *   <li>The active flag ({@link NewWorkflowFlag}): for feature 004 a new workflow must say
+ *       {@code IsActive} {@code false} in its file ({@code INVALID_INPUT} otherwise, review I2):
+ *       INUBIT creates it inactive, and {@code set_active} switches it on. For a deployment
+ *       (feature 005, D-7) a new workflow takes the release's flag and an existing one keeps the
+ *       target's. {@link Assembled#active()} reports the intended flag of every workflow.
  *   <li>A created artifact whose name the owner uses on the target for another workflow or
  *       module is {@code PRECONDITION_FAILED} (D-25 and its addendum: the owner's own
  *       artifacts only).
@@ -77,6 +81,9 @@ import java.util.zip.ZipOutputStream;
 public final class ImportAssembler {
 
     private static final String PROPERTIES = "archive.properties";
+    /** Elements an inserted {@code IsActive} precedes when there is no check-in comment. */
+    private static final Set<String> ACTIVE_BEFORE =
+        Set.of("XPathVersion", "WorkflowModule", "Variables");
     private static final String WORKFLOWS = "workflow/workflow.xml";
     private static final String MODULE_INDEX = "module/module.xml";
     private static final String REPOSITORY = "Repository.zip";
@@ -142,8 +149,19 @@ public final class ImportAssembler {
      */
     public record Request(GroupId group, String owner, Optional<String> diagramGroup,
         List<Artifact> workflows, List<Artifact> modules, CheckinComment comment,
-        Map<String, Integer> currentVersions, Set<String> takenNames) {
+        Map<String, Integer> currentVersions, Set<String> takenNames,
+        NewWorkflowFlag newWorkflowFlag) {
+
+        /** A request of feature 004: a new workflow must be inactive in its file. */
+        public Request(GroupId group, String owner, Optional<String> diagramGroup,
+            List<Artifact> workflows, List<Artifact> modules, CheckinComment comment,
+            Map<String, Integer> currentVersions, Set<String> takenNames) {
+            this(group, owner, diagramGroup, workflows, modules, comment, currentVersions,
+                takenNames, NewWorkflowFlag.MUST_BE_INACTIVE);
+        }
+
         public Request {
+            Objects.requireNonNull(newWorkflowFlag, "newWorkflowFlag");
             Objects.requireNonNull(group, "group");
             Objects.requireNonNull(owner, "owner");
             diagramGroup = diagramGroup == null ? Optional.empty() : diagramGroup;
@@ -161,12 +179,35 @@ public final class ImportAssembler {
         }
     }
 
-    /** The archive (with secret values) and the names it holds. */
-    public record Assembled(byte[] zip, List<String> workflows, List<String> modules) {
+    /**
+     * How the {@code IsActive} flag of the workflows is decided (feature 005, research D-7 and
+     * the active-flag clarification).
+     */
+    public enum NewWorkflowFlag {
+        /**
+         * Feature 004: a new workflow must say {@code false} in its file ({@code INVALID_INPUT}
+         * otherwise; INUBIT creates it inactive, {@code set_active} switches it on); every file
+         * keeps its flag.
+         */
+        MUST_BE_INACTIVE,
+        /**
+         * Deployments: a new workflow takes the flag of the release file (absent = inactive), an
+         * existing workflow keeps the flag of the target; the archive says the intended flag.
+         */
+        FROM_RELEASE
+    }
+
+    /**
+     * The archive (with secret values), the names it holds and the intended {@code IsActive} flag
+     * per workflow, in request order (a deployment imports one archive per flag, D-7).
+     */
+    public record Assembled(byte[] zip, List<String> workflows, List<String> modules,
+        Map<String, Boolean> active) {
         public Assembled {
             zip = zip.clone();
             workflows = List.copyOf(workflows);
             modules = List.copyOf(modules);
+            active = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(active));
         }
 
         @Override
@@ -331,6 +372,7 @@ public final class ImportAssembler {
         List<String> unresolved = new ArrayList<>();
         List<String> foreign = new ArrayList<>();
         List<String> active = new ArrayList<>();
+        Map<String, Boolean> flags = new LinkedHashMap<>();
         List<Element> workflows = new ArrayList<>();
         // the context of the diagram group on the target (review I1), else the default
         Optional<WorkflowGroupXml> targetGroup = request.diagramGroup()
@@ -354,10 +396,21 @@ public final class ImportAssembler {
                 : withUid(element, "WorkflowUId", target.workflow(request.diagramGroup()
                     .orElseThrow(), artifact.name()).orElseThrow().element());
             element = without(element, "CheckoutUser");
-            if (artifact.created() && element.child("IsActive").map(Element::text)
-                .filter("false"::equals).isEmpty()) {
-                // research D-25 (H9), review I2: INUBIT creates a new workflow inactive
-                active.add(artifact.name());
+            boolean fileFlag = flag(element).orElse(false);
+            if (request.newWorkflowFlag() == NewWorkflowFlag.FROM_RELEASE) {
+                // feature 005 (D-7): new take the release's flag, existing keep the target's
+                boolean intended = artifact.created() ? fileFlag
+                    : flag(target.workflow(request.diagramGroup().orElseThrow(),
+                        artifact.name()).orElseThrow().element()).orElse(fileFlag);
+                element = withActive(element, intended);
+                flags.put(artifact.name(), intended);
+            } else {
+                if (artifact.created() && element.child("IsActive").map(Element::text)
+                    .filter("false"::equals).isEmpty()) {
+                    // research D-25 (H9), review I2: INUBIT creates a new workflow inactive
+                    active.add(artifact.name());
+                }
+                flags.put(artifact.name(), fileFlag);
             }
             element = withChild(element, "CheckinComment", request.comment().render(
                 request.currentVersions().getOrDefault(artifact.name(), 0) + 1));
@@ -437,7 +490,7 @@ public final class ImportAssembler {
         List<String> workflowNames = request.workflows().stream().map(Artifact::name).toList();
         List<String> moduleNames = request.modules().stream().map(Artifact::name).toList();
         guard(zip, workflowNames, moduleNames);
-        return new Assembled(zip, workflowNames, moduleNames);
+        return new Assembled(zip, workflowNames, moduleNames, flags);
     }
 
     /** Research D-7: the archive holds exactly the request and no repository file. */
@@ -585,6 +638,38 @@ public final class ImportAssembler {
         return element.withChildren(element.children().stream()
             .map(child -> child instanceof Element e && e.localName().equals(name)
                 ? e.withText(text) : child).toList());
+    }
+
+    /** The {@code IsActive} flag of a workflow element, if it has one. */
+    private static Optional<Boolean> flag(Element workflow) {
+        return workflow.child("IsActive").map(Element::text).map(String::strip)
+            .map("true"::equals);
+    }
+
+    /**
+     * The workflow with {@code IsActive} set to {@code active}; an absent flag is inserted after
+     * {@code CheckinComment} (the exported order), else before the first node.
+     */
+    private static Element withActive(Element workflow, boolean active) {
+        String text = Boolean.toString(active);
+        if (workflow.child("IsActive").isPresent()) {
+            return withChild(workflow, "IsActive", text);
+        }
+        List<Node> children = new ArrayList<>(workflow.children());
+        int at = children.size();
+        for (int i = 0; i < children.size(); i++) {
+            if (children.get(i) instanceof Element e) {
+                if (e.localName().equals("CheckinComment")) {
+                    at = i + 1;
+                    break;
+                }
+                if (at == children.size() && ACTIVE_BEFORE.contains(e.localName())) {
+                    at = i;
+                }
+            }
+        }
+        children.add(at, leaf("IsActive", text));
+        return workflow.withChildren(children);
     }
 
     private static Element leaf(String name, String text) {
