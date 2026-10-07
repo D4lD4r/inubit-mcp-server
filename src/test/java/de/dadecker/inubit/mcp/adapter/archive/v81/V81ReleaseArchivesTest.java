@@ -132,5 +132,23 @@ class V81ReleaseArchivesTest {
             .containsExactly("/Root/jdoe/xsd/release.xsl");
         assertThat(archives.repositoryFiles(ArtifactFixtures.bytes("grp-a.zip"))).isEmpty();
     }
+
+    @Test
+    void buildsTheRepositoryImportOfChosenFilesRelativeToTheOwnersRoot() {
+        // T021 (research D-1, D-7): entries relative to /Root/<owner>, never key material
+        byte[] zip = archives.repositoryArchive(List.of(cliFixture("export_release.zip"),
+            cliFixture("export_repository.zip")), "jdoe", List.of("/Root/jdoe/xsd/order.xsd"));
+
+        assertThat(ArtifactFixtures.entries(zip).keySet()).containsExactly("xsd/",
+            "xsd/order.xsd.xml", "xsd/order.xsd.dat");
+        // the first archive that has a path wins
+        byte[] release = archives.repositoryArchive(List.of(cliFixture("export_release.zip"),
+            cliFixture("export_repository.zip")), "jdoe", List.of("/Root/jdoe/xsd/release.xsl"));
+        assertThat(text(ArtifactFixtures.entries(release).get("xsd/release.xsl.dat")))
+            .contains("'v1'");
+        assertThatThrownBy(() -> archives.repositoryArchive(List.of(cliFixture(
+            "export_repository.zip")), "jdoe", List.of("/Root/jdoe/xsd/missing.xsd")))
+            .isInstanceOf(ToolErrorException.class);
+    }
 }
 

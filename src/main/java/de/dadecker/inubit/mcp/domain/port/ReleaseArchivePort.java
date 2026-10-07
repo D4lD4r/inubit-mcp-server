@@ -106,5 +106,18 @@ public interface ReleaseArchivePort {
      * included (memory only).
      */
     Map<String, byte[]> repositoryFiles(byte[] archive);
+
+    /**
+     * The archive of a repository import into {@code /Root/<owner>} (research D-1, D-7) with the
+     * files {@code paths}, each taken from the first of {@code archives} (repository exports or
+     * diagram group / release exports) that has it: entries relative to the owner's root,
+     * metadata stating the content written, never key material.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException {@code INTERNAL} if a path
+     *     is in none of the archives; {@code PRECONDITION_FAILED} for key material;
+     *     {@code INVALID_INPUT} for a path outside the owner's root
+     */
+    byte[] repositoryArchive(List<byte[]> archives, String owner,
+        java.util.Collection<String> paths);
 }
 

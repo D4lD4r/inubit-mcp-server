@@ -166,6 +166,31 @@ public final class V81ReleaseArchives implements ReleaseArchivePort {
         return files;
     }
 
+    @Override
+    public byte[] repositoryArchive(List<byte[]> archives, String owner,
+        java.util.Collection<String> paths) {
+        Map<String, RepositoryArchive.RepositoryFile> files = new java.util.TreeMap<>();
+        for (byte[] archive : archives) {
+            Map<String, byte[]> entries = entries(archive);
+            byte[] repository = entries.containsKey("Repository.zip")
+                ? entries.get("Repository.zip") : archive;
+            RepositoryArchive.read(repository).forEach(file -> files.putIfAbsent(file.path(),
+                file));
+        }
+        List<RepositoryArchive.RepositoryFile> chosen = new ArrayList<>();
+        for (String path : new TreeSet<>(paths)) {
+            RepositoryArchive.RepositoryFile file = files.get(path);
+            if (file == null) {
+                throw new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
+                    "The repository file " + path + " is in none of the archives; nothing was"
+                        + " sent", "An internal error of the INUBIT MCP server",
+                    "Report the problem with the MCP server log"));
+            }
+            chosen.add(file);
+        }
+        return RepositoryArchive.build(owner, chosen);
+    }
+
     // --- helpers -------------------------------------------------------------------------------
 
     /** Simple properties ({@code <Property name="…">text</Property>}) below {@code element}. */

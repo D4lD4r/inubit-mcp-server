@@ -457,6 +457,34 @@ public final class DeployHarness {
         return this;
     }
 
+    /**
+     * The next calls on {@code node} tag {@code group} with {@code tag} and read its history
+     * for the verification of the tag ({@code DiagramGroupTagger}).
+     */
+    public DeployHarness tagVerified(NodeId node, String group, String tag) {
+        tagMoved(node, group, tag);
+        return exportHistory(node, group);
+    }
+
+    /** The next call on {@code node} is the history export of {@code group}. */
+    public DeployHarness exportHistory(NodeId node, String group) {
+        FakeServer server = servers.get(node);
+        cli.get(node).expect("export --exportWorkflowUser '" + OWNER + "' --exportWorkflowType"
+            + " 'technical' --exportWorkflowGroup '" + group + "' --includeHistory")
+            .answering(spec -> {
+                ImportHarness.write(ScriptedProcessLauncher.exportFile(spec),
+                    server.exportHistory(group).orElseThrow());
+                return new ScriptedProcessLauncher.Reply(EXPORT_OK, "", 0);
+            });
+        return this;
+    }
+
+    /** The next call on {@code node} is any export, which fails as if the node were down. */
+    public DeployHarness exportFails(NodeId node) {
+        cli.get(node).expect("export ").replying("unreachable");
+        return this;
+    }
+
     /** Tags {@code group} with {@code tag} on every source node, as a person did before. */
     public DeployHarness tagged(String group, String tag) {
         SOURCES.forEach(node -> servers.get(node).tag(group, tag));

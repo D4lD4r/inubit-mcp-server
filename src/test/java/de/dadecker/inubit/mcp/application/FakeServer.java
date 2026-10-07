@@ -90,6 +90,10 @@ public final class FakeServer {
     public final List<byte[]> repositoryImports = new CopyOnWriteArrayList<>();
     /** The next repository import fails with {@code 1-NOK} and changes nothing. */
     public volatile boolean refuseNextRepositoryImport;
+    /** The next workflow or module import applies only its first artifact (protocol: all). */
+    public volatile boolean partialNextImport;
+    /** After the next import, this text of the stored workflow files is replaced. */
+    public volatile String[] tamperNextImport;
 
     /** A server with the diagram groups and modules of {@code exports}. */
     public static FakeServer of(byte[]... exports) {
@@ -410,6 +414,9 @@ public final class FakeServer {
         importFlags.add(active);
         Map<String, byte[]> archive = ArtifactFixtures.entries(zip);
         List<String[]> rows = new ArrayList<>();
+        partial = partialNextImport;
+        partialNextImport = false;
+        int applied = 0;
         if (archive.containsKey(INDEX)) {
             for (Element group : XmlTree.parse(archive.get(INDEX)).root().elements().get(0)
                 .elements()) {
@@ -422,6 +429,9 @@ public final class FakeServer {
                     Module old = modules.get(name);
                     rows.add(new String[] {"Module [" + name + "] was " + (old == null
                         ? "created." : "modified."), "/" + name});
+                    if (skip(applied++)) {
+                        continue;
+                    }
                     byte[] file = archive.get(file(name));
                     modules.put(name, new Module(pluginType, withValue(entry, "ModuleUId",
                         "-fake:" + ++uid), file != null ? file : old.file(),
@@ -448,6 +458,12 @@ public final class FakeServer {
                     }
                     rows.add(new String[] {"Diagram [" + name + "] was " + (old == null
                         ? "created." : "modified."), name});
+                    if (skip(applied++)) {
+                        if (old != null) {
+                            workflows.put(name, old);
+                        }
+                        continue;
+                    }
                     Element stored = withValue(element, "WorkflowUId", "-fake:" + ++uid);
                     if (active != null) {
                         stored = withValue(stored, "IsActive", active.toString());
@@ -457,7 +473,74 @@ public final class FakeServer {
                 }
             }
         }
+        String[] tamper = tamperNextImport;
+        tamperNextImport = null;
+        if (tamper != null) {
+            for (Map<String, Workflow> workflows : groups.values()) {
+                workflows.replaceAll((name, workflow) -> new Workflow(XmlTree.parse(new String(
+                    XmlNormalizer.normalize(workflow.element()), StandardCharsets.UTF_8)
+                    .replace(tamper[0], tamper[1]).getBytes(StandardCharsets.UTF_8)).root(),
+                    workflow.version()));
+            }
+        }
         return protocol(rows);
+    }
+
+    private boolean partial;
+
+    private boolean skip(int index) {
+        return partial && index > 0;
+    }
+
+    /**
+     * The history export of diagram group {@code group} ({@code versionHistory.xml}): the
+     * current version of each workflow and of each module they use, with the tags that mark
+     * exactly that version.
+     */
+    public synchronized Optional<byte[]> exportHistory(String group) {
+        if (!hasDiagramGroup(group)) {
+            return Optional.empty();
+        }
+        Map<String, Workflow> workflows = groups.get(group);
+        StringBuilder xml = new StringBuilder("<VersionInformation><Workflows><WorkflowGroup"
+            + " Name=\"" + group + "\">");
+        workflows.forEach((name, workflow) -> xml.append("<Workflow Name=\"").append(name)
+            .append("\" Type=\"technical\">").append(version(workflow.version(), tagsOf(group,
+                name, workflow.version(), true))).append("</Workflow>"));
+        xml.append("</WorkflowGroup></Workflows><Modules>");
+        usedModules(workflows.values()).forEach((name, module) -> xml.append("<Module Name=\"")
+            .append(name).append("\">").append(version(module.version(), tagsOf(group, name,
+                module.version(), false))).append("</Module>"));
+        xml.append("</Modules></VersionInformation>");
+        return Optional.of(ArtifactFixtures.zip(Map.of("versionHistory.xml",
+            xml.toString().getBytes(StandardCharsets.UTF_8))));
+    }
+
+    private Set<String> tagsOf(String group, String name, int version, boolean workflow) {
+        Set<String> result = new TreeSet<>();
+        tags.forEach((tag, byGroup) -> byGroup.forEach((taggedGroup, state) -> {
+            if (workflow && taggedGroup.equals(group) && state.workflows().containsKey(name)
+                && state.workflows().get(name).version() == version) {
+                result.add(tag);
+            }
+            if (!workflow && state.modules().containsKey(name)
+                && state.modules().get(name).version() == version) {
+                result.add(tag);
+            }
+        }));
+        return result;
+    }
+
+    private static String version(int version, Set<String> tags) {
+        StringBuilder xml = new StringBuilder("<Version><versionNode>").append(version)
+            .append("</versionNode><CheckinUser>jdoe</CheckinUser><DateTime>07.10.2026"
+                + " 10:00:00</DateTime>");
+        if (!tags.isEmpty()) {
+            xml.append("<Tags>");
+            tags.forEach(tag -> xml.append("<Tag>").append(tag).append("</Tag>"));
+            xml.append("</Tags>");
+        }
+        return xml.append("</Version>").toString();
     }
 
     /**
