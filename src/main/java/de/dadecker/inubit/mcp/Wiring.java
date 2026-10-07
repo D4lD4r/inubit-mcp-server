@@ -213,7 +213,7 @@ final class Wiring implements AutoCloseable {
                 development::get,
                 new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
                 new WorkspaceInspector(), checks, new ArchiveCodec(), new V81ImportArchives(),
-                gateways::artifacts, gateways::imports, gateways::inventory,
+                gateways::artifacts, gateways::imports, gateways::tags, gateways::inventory,
                 id -> byId.get(id).inventory().owner(), accounts, challenges,
                 new BackupStore(backups, clock.clock()),
                 audit, clock.clock(), UUID::randomUUID));

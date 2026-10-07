@@ -55,6 +55,10 @@ class DevelopmentToolsReferenceTest {
         assertThat(reference).contains("an existing tag name is reused",
             "the same tag in other diagram groups stays", "nothing is removed")
             .doesNotContain("`removedAgain`", "--tagDelete '", "never moving an existing tag");
+        // T030: import_artifacts with an optional tag for a diagram group
+        assertThat(reference).contains("a module import with `tag` is refused",
+            "`tag` `{name, applied, workflows, modules, failure}`", "`applied: false`",
+            "the import is not undone");
     }
 
     @Test

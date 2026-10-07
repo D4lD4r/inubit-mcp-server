@@ -30,6 +30,7 @@ import de.dadecker.inubit.mcp.domain.port.AuditPort;
 import de.dadecker.inubit.mcp.domain.port.ImportArchivePort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -88,7 +89,10 @@ import org.slf4j.LoggerFactory;
  *       reason as the person-written segment of its check-in comment (workflows and module
  *       index entries);
  *   <li>success: only the change-set files and their {@code .meta/} records are replaced by the
- *       verified state and committed with the {@code Server-State} trailer;
+ *       verified state and committed with the {@code Server-State} trailer; then, if a
+ *       {@code tag} was requested (diagram-group imports only), the diagram group is tagged and
+ *       verified like {@code tag_artifacts} ({@link DiagramGroupTagger}) within the same call
+ *       and audit record — a tag failure never undoes the import (research D-26);
  *   <li>failure after anything was sent (a refused import, a protocol mismatch, a differing or
  *       failing re-export, a timeout whose re-export does not show the intended state, or an
  *       unexpected failure of the server itself, reported at the step it reached): the
@@ -106,6 +110,9 @@ public final class ImportService {
     private static final String RETENTION = "backup_retention";
     private static final Pattern REASON = Pattern.compile("^[^#@\\p{Cntrl}]{1,500}$");
     private static final Pattern CODE = Pattern.compile("^[A-Za-z0-9_-]{22}$");
+    /** The names StartCLI quoting can carry (research R-11, {@code CliCommand.VALUE}). */
+    private static final Pattern TAG =
+        Pattern.compile("^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$");
     private static final Pattern AUDIT_ID = Pattern.compile(
         "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
     private static final String DIAGRAM_GROUP = "diagram group ";
@@ -138,7 +145,8 @@ public final class ImportService {
         Function<NodeId, DevelopmentPolicy> policies, VersionHistoryPort history,
         ArtifactInspectorPort inspector, ArtifactCheckService checks, ArchiveCodecPort codec,
         ImportArchivePort archives, Function<NodeId, ArtifactPort> artifacts,
-        Function<NodeId, ImportPort> imports, Function<NodeId, InventoryPort> inventory,
+        Function<NodeId, ImportPort> imports, Function<NodeId, TagPort> tags,
+        Function<NodeId, InventoryPort> inventory,
         Function<NodeId, Optional<String>> defaultOwners,
         Function<NodeId, Account> accounts, WriteChallengeRegistry challenges,
         BackupStore backups, AuditPort audit, Clock clock, Supplier<UUID> ids) {
@@ -155,6 +163,7 @@ public final class ImportService {
             Objects.requireNonNull(archives, "archives");
             Objects.requireNonNull(artifacts, "artifacts");
             Objects.requireNonNull(imports, "imports");
+            Objects.requireNonNull(tags, "tags");
             Objects.requireNonNull(inventory, "inventory");
             Objects.requireNonNull(defaultOwners, "defaultOwners");
             Objects.requireNonNull(accounts, "accounts");
@@ -168,11 +177,13 @@ public final class ImportService {
 
     /**
      * The arguments of {@code import_artifacts}: exactly one of {@code diagramGroup} and
-     * {@code modules}; {@code owner} defaults to the node's {@code inventory.owner}.
+     * {@code modules}; {@code owner} defaults to the node's {@code inventory.owner}; the optional
+     * {@code tag} is set on the diagram group after the verified import (research D-26, only
+     * with {@code diagramGroup}).
      */
     public record ImportRequest(String node, Optional<String> owner,
         Optional<String> diagramGroup, List<ImportScope.Module> modules, String reason,
-        Optional<String> confirmationCode, Optional<String> mcpClient) {
+        Optional<String> confirmationCode, Optional<String> mcpClient, Optional<String> tag) {
 
         public ImportRequest {
             node = node == null ? "" : node;
@@ -182,6 +193,15 @@ public final class ImportService {
             reason = reason == null ? "" : reason;
             confirmationCode = confirmationCode == null ? Optional.empty() : confirmationCode;
             mcpClient = mcpClient == null ? Optional.empty() : mcpClient;
+            tag = tag == null ? Optional.empty() : tag;
+        }
+
+        /** A request without a tag. */
+        public ImportRequest(String node, Optional<String> owner, Optional<String> diagramGroup,
+            List<ImportScope.Module> modules, String reason, Optional<String> confirmationCode,
+            Optional<String> mcpClient) {
+            this(node, owner, diagramGroup, modules, reason, confirmationCode, mcpClient,
+                Optional.empty());
         }
     }
 
@@ -268,6 +288,8 @@ public final class ImportService {
         call.requested.put("scope", request.diagramGroup().map(g -> "diagram group " + g)
             .orElseGet(() -> "modules " + String.join(", ", request.modules().stream()
                 .map(ImportScope.Module::name).toList())));
+        request.tag().ifPresent(tag -> call.requested.put("tag", tag));
+        call.tag = request.tag();
         DevelopmentPolicy policy;
         try {
             validate(request);
@@ -312,13 +334,15 @@ public final class ImportService {
         call.changes = changes;
         if (changes.isEmpty()) {
             UUID auditId = d.ids().get();
+            List<String> warnings = new ArrayList<>(List.of("Nothing changed in the workspace"
+                + " since the last server state of " + scope.describe() + "; nothing was sent"));
+            Optional<WriteOutcome.TagResult> tag = notTagged(call, warnings, "nothing was"
+                + " imported");
             call.append(auditId, AuditRecord.Step.EXECUTE, AuditOutcome.EXECUTED,
                 "Nothing changed in " + scope.describe() + "; nothing was sent");
             return new Response.Completed(new WriteOutcome(auditId, WriteOutcome.Outcome.EXECUTED,
                 Optional.empty(), Optional.empty(), Optional.empty(), List.of(), List.of(),
-                changes.notImported(), Optional.empty(), List.of(), List.of(),
-                List.of("Nothing changed in the workspace since the last server state of "
-                    + scope.describe() + "; nothing was sent")));
+                changes.notImported(), Optional.empty(), List.of(), List.of(), warnings, tag));
         }
         UUID auditId = d.ids().get();
         int warnings = check(node, changes, auditId);
@@ -801,9 +825,11 @@ public final class ImportService {
             "the import of " + changes.scope().describe());
         return new Response.Challenge(new ImportPreview(node, changes.scope().describe(),
             changes.baseCommit(), changes.created(), changes.modified(), changes.notImported(),
-            warnings, issued.code(), issued.expiresAt(), "Nothing was sent. To"
+            warnings, call.tag, issued.code(), issued.expiresAt(), "Nothing was sent. To"
                 + " import " + changes.artifacts().size() + " artifact(s) of "
-                + changes.scope().describe() + " into " + node + ", show this preview to the"
+                + changes.scope().describe() + " into " + node + call.tag.map(tag -> " and then"
+                    + " tag the diagram group with " + tag).orElse("") + ", show this preview to"
+                + " the"
                 + " user and, after their explicit approval, call import_artifacts again with"
                 + " the same inputs and confirmationCode before " + issued.expiresAt() + "."));
     }
@@ -1008,14 +1034,65 @@ public final class ImportService {
         String message = "Sent " + changes.artifacts().size() + " artifact(s) of "
             + plan.subject() + " (" + plan.verb() + ") and verified them" + commit.map(c -> " ("
                 + c + ")").orElse("");
+        List<String> reports = new ArrayList<>();
+        Optional<WriteOutcome.TagResult> tag = Optional.empty();
+        if (call.tag.isPresent()) {
+            call.step = "tag";
+            DiagramGroupTagger.Result result = tag(call, node, changes, auditId);
+            tag = Optional.of(new WriteOutcome.TagResult(call.tag.get(), result.applied(),
+                result.workflows(), result.modules(), result.failure()));
+            reports.addAll(result.reports());
+            call.tagApplied = String.valueOf(result.applied());
+            message += result.applied() ? "; tagged the diagram group with " + call.tag.get()
+                + " and verified it (" + result.workflows() + " workflow(s), " + result.modules()
+                + " module(s))" : "; the tag " + call.tag.get() + " was not applied ("
+                + result.failure().map(f -> f.code() + " at " + f.step()).orElse("") + ")";
+            if (!result.applied()) {
+                WriteOutcome.Failure failure = result.failure().orElseThrow();
+                warnings.add("The import succeeded, but the tag " + call.tag.get() + " was not"
+                    + " applied (" + failure.code() + " at " + failure.step() + ": "
+                    + failure.message() + "). " + DiagramGroupTagger.retry(call.tag.get(),
+                        result));
+            }
+        }
         appendFinal(call, node, auditId, AuditOutcome.EXECUTED, message);
         LOG.info("{} on {}: EXECUTED (audit id {})", call.capability.toolName(), node, auditId);
         warnings.addAll(plan.notes());
         keep(plan.keep(), warnings);
         return new Response.Completed(new WriteOutcome(auditId, WriteOutcome.Outcome.EXECUTED,
             Optional.empty(), commit, Optional.of(auditId.toString()), changes.created(),
-            changes.modified(), changes.notImported(), Optional.empty(), plan.keep(), List.of(),
-            warnings));
+            changes.modified(), changes.notImported(), Optional.empty(), plan.keep(), reports,
+            warnings, tag));
+    }
+
+    /**
+     * Research D-26: the requested tag on the imported diagram group, after the verified import
+     * and its write-back; never throws (a tag failure is part of the result).
+     */
+    private DiagramGroupTagger.Result tag(Call call, NodeId node, ChangeSet changes,
+        UUID auditId) {
+        String group = changes.scope().diagramGroup().orElseThrow();
+        try {
+            return new DiagramGroupTagger(d.root()).tag(node, d.tags().apply(node), call.owner,
+                List.of(group), call.tag.get(), auditId);
+        } catch (ToolErrorException e) {
+            return new DiagramGroupTagger.Result(false, 0, 0, Optional.of(
+                new WriteOutcome.Failure(ErrorCode.IMPORT_FAILED, "tag", e.error().code() + ": "
+                    + e.error().message())), List.of(), List.of());
+        }
+    }
+
+    /** A requested tag that was not set because nothing (verified) was imported. */
+    private static Optional<WriteOutcome.TagResult> notTagged(Call call, List<String> warnings,
+        String why) {
+        if (call.tag.isEmpty()) {
+            return Optional.empty();
+        }
+        call.tagApplied = "false";
+        warnings.add("The tag " + call.tag.get() + " was not set because " + why + "; tag the"
+            + " diagram group with tag_artifacts if needed");
+        return Optional.of(new WriteOutcome.TagResult(call.tag.get(), false, 0, 0,
+            Optional.empty()));
     }
 
     /** The warning for created artifacts that stay: nothing is ever deleted. */
@@ -1048,6 +1125,7 @@ public final class ImportService {
         updateManifest(call, node, changes, auditId, "FAILED", outcome.seen()
             .orElse(current.files()));
         call.rollback = rollback.name();
+        Optional<WriteOutcome.TagResult> tag = notTagged(call, warnings, "the import failed");
         appendFinal(call, node, auditId, AuditOutcome.FAILED, reported.code() + " at "
             + reported.step() + ": " + reported.message() + " (rollback " + rollback + ")");
         LOG.warn("{} on {}: FAILED at {} (audit id {}, rollback {})",
@@ -1055,7 +1133,7 @@ public final class ImportService {
         return new Response.Completed(new WriteOutcome(auditId, WriteOutcome.Outcome.FAILED,
             Optional.of(reported), Optional.empty(), Optional.of(auditId.toString()),
             changes.created(), changes.modified(), changes.notImported(),
-            Optional.of(rollback), createdNotRemoved, reports, warnings));
+            Optional.of(rollback), createdNotRemoved, reports, warnings, tag));
     }
 
     /**
@@ -1476,6 +1554,16 @@ public final class ImportService {
             throw invalid("At most " + MAX_MODULES + " modules per call",
                 "The module import is bounded", "Split the modules into several calls");
         }
+        if (request.tag().isPresent() && !group) {
+            throw invalid("A tag is only possible for a diagram group import, not for modules",
+                "INUBIT tags only whole diagram groups (research D-26); an import of single"
+                    + " modules is never tagged",
+                "Import the modules without tag, or tag their diagram group with tag_artifacts");
+        }
+        if (request.tag().filter(tag -> !TAG.matcher(tag).matches()).isPresent()) {
+            throw invalid("Invalid tag: it must match " + TAG.pattern(), "The tag is passed to"
+                + " StartCLI in single quotes", "Use letters, digits, _ . - and spaces");
+        }
     }
 
     /** The given owner, else {@code inventory.owner} of the node (research D-25 L2). */
@@ -1507,6 +1595,7 @@ public final class ImportService {
             .append('\n').append(request.diagramGroup().orElse("")).append('\n');
         request.modules().forEach(module -> text.append(module.name()).append('/')
             .append(module.pluginType().orElse("")).append('\n'));
+        text.append("tag=").append(request.tag().orElse("")).append('\n');
         return "sha256:" + sha256(text.append(request.reason()).toString()
             .getBytes(StandardCharsets.UTF_8));
     }
@@ -1618,10 +1707,14 @@ public final class ImportService {
         ChangeSet changes;
         String backupRef;
         String rollback;
+        /** The tag to set after a verified diagram-group import (research D-26). */
+        Optional<String> tag = Optional.empty();
+        /** Whether the requested tag was set and verified, once known. */
+        String tagApplied;
         boolean refused;
         /** The audit id of the execution once the import may have been sent. */
         UUID sent;
-        /** The step reached after sending: import, protocol, verify, commit. */
+        /** The step reached after sending: import, protocol, verify, commit, tag. */
         String step = "import";
 
         Call(Capability capability, String node, String reason,
@@ -1656,6 +1749,9 @@ public final class ImportService {
             }
             if (rollback != null) {
                 inputs.put("rollback", rollback);
+            }
+            if (tagApplied != null) {
+                inputs.put("tagApplied", tagApplied);
             }
             return inputs;
         }

@@ -888,6 +888,7 @@ absent):
 | `rollback` | `NOT_NEEDED`, `SUCCEEDED`, `FAILED` (failures only) |
 | `createdNotRemoved` | artifacts created (by this or the restored call) and not removed |
 | `reports`, `warnings` | workspace-relative report files (`.reports/verify-<auditId>.diff`, …); notes |
+| `tag` | only for `import_artifacts` with a `tag`: `{name, applied, workflows, modules, failure}` |
 
 ## `import_artifacts`
 
@@ -898,7 +899,8 @@ absent):
 > from the node.
 
 **Input**: `node` (one node id), `owner` (default `inventory.owner`), exactly one of
-`diagramGroup` or `modules` (1–50 `{name, pluginType?}`), `reason`, `confirmationCode`.
+`diagramGroup` or `modules` (1–50 `{name, pluginType?}`), `reason`, `confirmationCode`, and
+optionally `tag` (only with `diagramGroup`).
 
 - Changed workflows of the diagram group go with their **changed or new** modules; unchanged
   referenced modules are not sent (every import creates a new version). A module import sends
@@ -911,12 +913,23 @@ absent):
   owner already uses for another workflow or module, no exported base ("export the scope
   first"). UIDs and module file names of modified artifacts come from the node's fresh export,
   never from `.meta/`.
+- **Tag** (optional): after the verified import and the write-back, the diagram group is tagged
+  exactly as `tag_artifacts` does it (one `tag --tagMove` for the group, verified by the group's
+  history export; an existing tag name is reused) — in the same call and under the same audit id
+  (audit inputs `tag`, `tagApplied`). INUBIT tags only whole diagram groups, so a module import
+  with `tag` is refused (`INVALID_INPUT`) before anything is sent. The result carries `tag`
+  `{name, applied, workflows, modules, failure}`. A tag failure after a successful import keeps
+  `outcome: EXECUTED` — the import is not undone — with `applied: false`, the `failure`
+  (`IMPORT_FAILED` at `tag` or `VERIFY_MISMATCH` at `verify`) and a warning to retry with
+  `tag_artifacts`; nothing is removed. A failed or empty import sets no tag (`applied: false`,
+  no failure). The confirmation code is bound to the tag as well.
 - **Preview** (`challenge`): `scope`, `baseCommit`, `create`, `modify`, `notImported`,
-  `checkWarnings`, `confirmationCode`, `expiresAt`, `message`.
+  `checkWarnings`, `tag` (if requested), `confirmationCode`, `expiresAt`, `message`.
 
 **Example prompt**: "Import the layout change of GRP-01 to dev with reason 'layout'" →
 `import_artifacts(node: "dev/node1", diagramGroup: "GRP-01", reason: "layout")` returns the
-preview; after the user approves, the same call with `confirmationCode`.
+preview; after the user approves, the same call with `confirmationCode`. "… and tag it
+REL-2026-10-07" adds `tag: "REL-2026-10-07"`.
 
 ## `restore_backup`
 

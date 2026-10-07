@@ -151,6 +151,11 @@ public final class ImportHarness {
             guard, runner, classifier), () -> { });
         ImportPort imports = new V81ImportAdapter(new CliImportRunner(server, credentials,
             guard, runner, classifier), () -> { });
+        de.dadecker.inubit.mcp.domain.port.TagPort tags =
+            new de.dadecker.inubit.mcp.adapter.cli.v81.V81TagAdapter(DEV, new CliExportRunner(
+                server, credentials, guard, runner, classifier),
+                new de.dadecker.inubit.mcp.adapter.cli.CliTagRunner(server, credentials, guard,
+                    runner, classifier), () -> { });
         DevelopmentPolicy policy = new DevelopmentPolicy(DEV, false, true, confirmation,
             Duration.ofMinutes(5), E2ePolicy.FORBIDDEN, Optional.empty());
         DevelopmentPolicy test = new DevelopmentPolicy(TEST, false, false,
@@ -166,8 +171,7 @@ public final class ImportHarness {
                 group -> Optional.of(DEV), node -> inventory(), node -> Optional.of(owner),
                 ResultLimiter.withDefaults(), clock),
             new ArchiveCodec(), archives.apply(new V81ImportArchives()), node -> artifacts,
-            node -> imports,
-            node -> inventory(), node -> Optional.of(owner),
+            node -> imports, node -> tags, node -> inventory(), node -> Optional.of(owner),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),
             new WriteChallengeRegistry(clock), backups, audit::add, clock, this::nextId));
     }
@@ -275,6 +279,47 @@ public final class ImportHarness {
             + "' --returnProtocol");
     }
 
+    /**
+     * The next StartCLI call is {@code tag --tagMove '<tag>'} of the diagram group (T030); it
+     * prints nothing and succeeds, or fails with {@code 2-NOK} if {@code fails}.
+     */
+    public ImportHarness tagMoved(String tag, boolean fails) {
+        ScriptedProcessLauncher step = cli.expect("tag --tagMove '" + tag + "' --tagWorkflowGroup '"
+            + diagramGroup + "' --tagWorkflowType 'technical' --tagUser '" + owner + "'");
+        if (fails) {
+            step.replying("JAVA_HOME is set\nPassword: \n2-NOK: Tag failed.\n", "", 1);
+        } else {
+            step.replying("tag_ok");
+        }
+        return this;
+    }
+
+    /**
+     * The next StartCLI call is the history export of the diagram group (T030): its workflows
+     * {@code Workflow-0001}, {@code Workflow-0002} and module {@code Module-0003}, whose current
+     * versions carry {@code tag} unless named in {@code untagged}.
+     */
+    public ImportHarness historyExport(String tag, String... untagged) {
+        java.util.Set<String> missing = java.util.Set.of(untagged);
+        java.util.function.Function<String, String> version = name -> "<Version><versionNode>2"
+            + "</versionNode>" + (missing.contains(name) ? "" : "<Tags><Tag>" + tag + "</Tag>"
+                + "</Tags>") + "</Version><Version><versionNode>1</versionNode></Version>";
+        String xml = "<VersionInformation><Workflows><WorkflowGroup Name=\"" + diagramGroup
+            + "\"><Workflow Name=\"Workflow-0001\" Type=\"technical\">" + version.apply(
+                "Workflow-0001") + "</Workflow><Workflow Name=\"Workflow-0002\""
+            + " Type=\"technical\">" + version.apply("Workflow-0002") + "</Workflow>"
+            + "</WorkflowGroup></Workflows><Modules><Module Name=\"Module-0003\">"
+            + version.apply("Module-0003") + "</Module></Modules></VersionInformation>";
+        cli.expect("export --exportWorkflowUser '" + owner + "' --exportWorkflowType"
+            + " 'technical' --exportWorkflowGroup '" + diagramGroup + "' --includeHistory")
+            .then(spec -> write(ScriptedProcessLauncher.exportFile(spec),
+                de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures.zip(Map.of(
+                    "versionHistory.xml", xml.getBytes(StandardCharsets.UTF_8)))))
+            .replying("JAVA_HOME is set\nPassword: \n1-OK: Workflow group exported"
+                + " successfully.\n", "", 0);
+        return this;
+    }
+
     /** The next StartCLI call is an import that INUBIT refuses ({@code 1-NOK}). */
     public ImportHarness importRefused() {
         cli.expect("import ").replying("import_nok");
@@ -351,7 +396,14 @@ public final class ImportHarness {
         String code) {
         return new ImportService.ImportRequest(request.node(), request.owner(),
             request.diagramGroup(), request.modules(), request.reason(), Optional.of(code),
-            request.mcpClient());
+            request.mcpClient(), request.tag());
+    }
+
+    /** The request for the diagram group with a tag (T030). */
+    public ImportService.ImportRequest tagged(String reason, String tag) {
+        return new ImportService.ImportRequest(DEV.value(), Optional.empty(),
+            Optional.of(diagramGroup), List.of(), reason, Optional.empty(), Optional.empty(),
+            Optional.of(tag));
     }
 
     /** The audit records of one capability. */

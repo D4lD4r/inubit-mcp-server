@@ -21,14 +21,22 @@ activate, tag); `owner` defaults to `inventory.owner` for every tool that takes 
 > changed, verifies by re-export and rolls back on failure. Secrets are taken from the {node}.
 
 Input: `node`, `owner` (default `inventory.owner`), exactly one of `diagramGroup` (string) or
-`modules` (1–50 `{name, pluginType?}`), `reason`, `confirmationCode`.
+`modules` (1–50 `{name, pluginType?}`), `reason`, `confirmationCode`, optional `tag`
+(`CliCommand.VALUE`; only with `diagramGroup` — with `modules` it is `INVALID_INPUT` before
+anything is sent, research D-26).
 
 Challenge preview: `{ "scope", "baseCommit", "create": [names], "modify": [names], "notImported":
-[paths], "checkWarnings": n }` + code/expiry (no owner kind, research D-26).
+[paths], "checkWarnings": n, "tag"? }` + code/expiry (no owner kind, research D-26); the code is
+bound to the tag as well.
 
 Result: `{ "outcome": "EXECUTED"|"FAILED", "commit", "backupRef", "created": [...], "modified": [...],
 "notImported": [...], "rollback": "NOT_NEEDED"|"SUCCEEDED"|"FAILED", "createdNotRemoved": [...],
-"reports": [paths], "warnings": [...] }`.
+"reports": [paths], "warnings": [...], "tag"?: {"name", "applied", "workflows", "modules",
+"failure"?} }`. With `tag`, the diagram group is tagged after the verified import and its
+write-back, as `tag_artifacts` does it, in the same call and audit record (inputs `tag`,
+`tagApplied`). A tag failure after a successful import keeps `outcome: EXECUTED` with
+`tag.applied: false`, `tag.failure{IMPORT_FAILED | VERIFY_MISMATCH}` and a warning to retry
+`tag_artifacts`; a failed or empty import sets no tag (`applied: false`).
 
 Failure model (research D-25): refusals **before** anything is sent are tool errors —
 `NOT_DEVELOPMENT`, `INVALID_INPUT` (scope, deletions, repository changes, reason with `###`/`@@@`),

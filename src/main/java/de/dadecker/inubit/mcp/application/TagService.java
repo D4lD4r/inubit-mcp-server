@@ -16,10 +16,7 @@ import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.AuditPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -81,8 +78,6 @@ public final class TagService {
     private static final Pattern CODE = Pattern.compile("^[A-Za-z0-9_-]{22}$");
     private static final int MAX_GROUPS = 20;
     private static final int MAX_AUDITED_INPUT = 500;
-    private static final String TECHNICAL = "technical";
-    private static final String REPORTS = ".reports";
 
     /**
      * The collaborators.
@@ -198,7 +193,7 @@ public final class TagService {
         Map<String, Integer> heads = new java.util.TreeMap<>();
         Set<String> missing = new TreeSet<>();
         for (String group : request.diagramGroups()) {
-            Map<String, TagPort.Diagram> workflows = technicalWorkflows(
+            Map<String, TagPort.Diagram> workflows = DiagramGroupTagger.technicalWorkflows(
                 port.history(call.owner, group), group);
             if (workflows.isEmpty()) {
                 missing.add(group);
@@ -262,114 +257,27 @@ public final class TagService {
         append(call, auditId, AuditRecord.Step.EXECUTE, call.inputs(), AuditOutcome.PENDING,
             "About to tag " + request.diagramGroups().size() + " diagram group(s) with "
                 + request.tag(), () -> { });
-        WriteOutcome.Failure failure;
-        List<String> reports = new ArrayList<>();
-        List<String> tagged = new ArrayList<>();
-        Verification verified = new Verification();
-        String step = "tag";
-        try {
-            for (String group : request.diagramGroups()) {
-                port.tag(request.tag(), group, call.owner);
-                tagged.add(group);
-            }
-            step = "verify";
-            for (String group : request.diagramGroups()) {
-                verified.add(port.history(call.owner, group), group, request.tag());
-            }
-            if (verified.problems.isEmpty()) {
-                append(call, auditId, AuditRecord.Step.EXECUTE, call.inputs(),
-                    AuditOutcome.EXECUTED, "Tagged " + verified.workflows() + " workflow(s) and "
-                        + verified.modules() + " module(s) with " + request.tag()
-                        + " and verified them", null);
-                LOG.info("tag_artifacts on {}: EXECUTED (audit id {})", node, auditId);
-                return new Response.Completed(new TagOutcome(auditId,
-                    WriteOutcome.Outcome.EXECUTED, Optional.empty(), request.tag(),
-                    request.diagramGroups(), verified.workflows(), verified.modules(),
-                    List.of(), List.of()));
-            }
-            String report = report("tag-" + auditId + ".txt", verified.problems);
-            reports.add(report);
-            failure = new WriteOutcome.Failure(ErrorCode.VERIFY_MISMATCH, "verify",
-                "The current versions of " + cut(new TreeSet<>(verified.problems.stream()
-                    .map(p -> p.substring(0, p.indexOf(':'))).toList())) + " do not carry the"
-                    + " tag; see " + report);
-        } catch (ToolErrorException e) {
-            failure = new WriteOutcome.Failure(step.equals("tag") ? ErrorCode.IMPORT_FAILED
-                : ErrorCode.VERIFY_MISMATCH, step, e.error().code() + ": "
-                    + e.error().message());
-        } catch (RuntimeException e) {
-            LOG.error("tag_artifacts on {} failed unexpectedly at {}", node, step, e);
-            failure = new WriteOutcome.Failure(ErrorCode.IMPORT_FAILED, step, "INTERNAL: an"
-                + " unexpected failure (" + e.getClass().getSimpleName() + ") after the tag"
-                + " was sent");
+        DiagramGroupTagger.Result result = new DiagramGroupTagger(d.root()).tag(node, port,
+            call.owner, request.diagramGroups(), request.tag(), auditId);
+        if (result.applied()) {
+            append(call, auditId, AuditRecord.Step.EXECUTE, call.inputs(), AuditOutcome.EXECUTED,
+                "Tagged " + result.workflows() + " workflow(s) and " + result.modules()
+                    + " module(s) with " + request.tag() + " and verified them", null);
+            LOG.info("tag_artifacts on {}: EXECUTED (audit id {})", node, auditId);
+            return new Response.Completed(new TagOutcome(auditId, WriteOutcome.Outcome.EXECUTED,
+                Optional.empty(), request.tag(), request.diagramGroups(), result.workflows(),
+                result.modules(), List.of(), List.of()));
         }
         // research D-26: nothing is ever removed (StartCLI removes a tag only owner-wide)
-        String before = step.equals("tag") && !tagged.isEmpty() ? "The tag " + request.tag()
-            + " was set for " + String.join(", ", tagged) + " before the failure. " : "";
-        List<String> warnings = List.of(before + "Nothing was removed; fix the cause and call"
-            + " tag_artifacts again with the same groups (the tag name is reused and moves to the"
-            + " current versions)");
+        WriteOutcome.Failure failure = result.failure().orElseThrow();
         append(call, auditId, AuditRecord.Step.EXECUTE, call.inputs(), AuditOutcome.FAILED,
             failure.code() + " at " + failure.step() + ": " + failure.message(), null);
         LOG.warn("tag_artifacts on {}: FAILED at {} (audit id {})", node, failure.step(),
             auditId);
         return new Response.Completed(new TagOutcome(auditId, WriteOutcome.Outcome.FAILED,
-            Optional.of(failure), request.tag(), request.diagramGroups(), verified.workflows(),
-            verified.modules(), reports, warnings));
-    }
-
-    /** The technical workflows of {@code group} in {@code history}, by name. */
-    private static Map<String, TagPort.Diagram> technicalWorkflows(TagPort.History history,
-        String group) {
-        Map<String, TagPort.Diagram> workflows = new java.util.TreeMap<>();
-        history.diagrams().forEach((name, diagram) -> {
-            if (diagram.type().equals(TECHNICAL) && diagram.diagramGroup().equals(group)) {
-                workflows.put(name, diagram);
-            }
-        });
-        return workflows;
-    }
-
-    /**
-     * The verification of research D-26: the current version of every technical workflow of
-     * the requested groups and of every module they use carries the tag. Other versions and
-     * other groups are not looked at (a tag there is left alone).
-     */
-    private static final class Verification {
-
-        final Map<String, Boolean> workflows = new java.util.TreeMap<>();
-        final Map<String, Boolean> modules = new java.util.TreeMap<>();
-        final List<String> problems = new ArrayList<>();
-
-        void add(TagPort.History history, String group, String tag) {
-            technicalWorkflows(history, group).forEach((name, diagram) -> {
-                boolean carries = carriesOnHead(diagram.versions(), tag);
-                workflows.put(name, carries);
-                if (!carries) {
-                    problems.add(name + ": the current version of the workflow (diagram group "
-                        + group + ") does not carry the tag");
-                }
-            });
-            history.modules().forEach((name, versions) -> {
-                boolean carries = carriesOnHead(versions, tag);
-                if (modules.put(name, carries) == null && !carries) {
-                    problems.add(name + ": the current version of the module (used in diagram"
-                        + " group " + group + ") does not carry the tag");
-                }
-            });
-        }
-
-        int workflows() {
-            return (int) workflows.values().stream().filter(Boolean::booleanValue).count();
-        }
-
-        int modules() {
-            return (int) modules.values().stream().filter(Boolean::booleanValue).count();
-        }
-
-        private static boolean carriesOnHead(List<VersionEntry> versions, String tag) {
-            return !versions.isEmpty() && versions.get(0).tags().contains(tag);
-        }
+            Optional.of(failure), request.tag(), request.diagramGroups(), result.workflows(),
+            result.modules(), result.reports(), List.of(DiagramGroupTagger.retry(request.tag(),
+                result))));
     }
 
     private static int head(List<VersionEntry> versions) {
@@ -427,23 +335,6 @@ public final class TagService {
                 "The audit directory is not writable, full, or not owned by this user",
                 "Fix the audit directory (auditDirectory in the configuration), then retry"));
         }
-    }
-
-    private String report(String name, List<String> lines) {
-        Path file = d.root().resolve(REPORTS).resolve(name);
-        try {
-            Files.createDirectories(file.getParent());
-            Files.writeString(file, String.join("\n", lines) + "\n", StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-        return REPORTS + "/" + name;
-    }
-
-    private static String cut(Set<String> names) {
-        List<String> list = List.copyOf(names);
-        return list.size() <= 10 ? String.join(", ", list)
-            : String.join(", ", list.subList(0, 10)) + ", …+" + (list.size() - 10);
     }
 
     private static String sha256(String text) {

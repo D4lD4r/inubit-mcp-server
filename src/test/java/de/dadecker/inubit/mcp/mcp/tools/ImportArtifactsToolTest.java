@@ -188,6 +188,58 @@ class ImportArtifactsToolTest {
     }
 
     @Test
+    void theSchemaTakesAnOptionalTagThatStartCliQuotingCanCarry() throws IOException {
+        // T030 (research D-26)
+        JsonNode properties = tool(client(edited())).path("inputSchema").path("properties");
+
+        assertThat(properties.path("tag").path("pattern").asString())
+            .isEqualTo("^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$");
+    }
+
+    @Test
+    void aDiagramGroupImportWithTagTagsTheGroupInTheSameCall() throws IOException {
+        // T030 (research D-26): after the verified import and the write-back, same audit id
+        ImportHarness harness = edited();
+        harness.exportGroup().importApplied().exportGroup().tagMoved("REL-1", false)
+            .historyExport("REL-1");
+        McpTestClient client = client(harness);
+
+        JsonNode result = structured(client.callTool("import_artifacts", Map.of("node",
+            "dev/node1", "diagramGroup", "GRP-01", "reason", "Release", "tag", "REL-1")))
+            .path("result");
+
+        harness.cli.verifyComplete();
+        assertThat(result.path("outcome").asString()).isEqualTo("EXECUTED");
+        JsonNode tag = result.path("tag");
+        assertThat(tag.path("name").asString()).isEqualTo("REL-1");
+        assertThat(tag.path("applied").asBoolean()).isTrue();
+        assertThat(tag.path("workflows").asInt()).isEqualTo(2);
+        assertThat(tag.path("modules").asInt()).isEqualTo(1);
+        assertThat(tag.has("failure")).isFalse();
+        assertThat(harness.cli.execCommands()).noneMatch(line -> line.contains("--tagDelete"));
+        assertThat(harness.audit("import_artifacts")).extracting(record -> record.auditId())
+            .containsOnly(java.util.UUID.fromString(result.path("auditId").asString()));
+        assertThat(harness.audit("import_artifacts")).allSatisfy(record ->
+            assertThat(record.inputs()).containsEntry("tag", "REL-1"));
+    }
+
+    @Test
+    void aModuleImportWithTagIsInvalidInputBeforeAnythingIsSent() throws IOException {
+        // T030 (research D-26): INUBIT tags only whole diagram groups
+        ImportHarness harness = edited();
+        McpTestClient client = client(harness);
+
+        JsonNode result = client.callTool("import_artifacts", Map.of("node", "dev/node1",
+            "modules", List.of(Map.of("name", "Module-0003")), "reason", "Module", "tag",
+            "REL-1"));
+
+        assertThat(result.path("isError").asBoolean()).isTrue();
+        assertThat(result.path("content").get(0).path("text").asString())
+            .contains("INVALID_INPUT", "diagram group");
+        assertThat(harness.cli.launches()).isEmpty();
+    }
+
+    @Test
     void aModuleImportTakesModulesWithOptionalPluginType() throws IOException {
         ImportHarness harness = ImportHarness.grpA(temp);
         String directory = harness.moduleDirectory("Module-0003");

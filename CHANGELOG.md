@@ -30,6 +30,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     (never owner-wide); an existing tag name is reused — it moves to the current versions within
     the requested groups and stays elsewhere; a mismatch or a failing tag command is reported as
     `FAILED` and nothing is removed (a tag removal would act owner-wide).
+  - `import_artifacts` takes an optional `tag` for a diagram-group import: the group is tagged
+    after the verified import in the same audited call; a tag failure keeps the import
+    (`EXECUTED`, `tag.applied: false`, warning to retry `tag_artifacts`); a module import with a
+    tag is refused before anything is sent.
   - `run_e2e_test`: sends a SOAP envelope from the workspace (`e2eTests: FREE | CONFIRM`) with a
     test-id header and reports the response, process instances, errors and log entries, found by
     the test id or, marked uncertain, by workflow and time window.

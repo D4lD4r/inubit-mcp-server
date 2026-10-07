@@ -259,7 +259,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   workflow and module of the requested groups carry the tag — otherwise `outcome: FAILED` with
   `failure{VERIFY_MISMATCH}` and nothing removed; tests first incl. "same tag in another group stays"
   (fake history) and "no launch of tag --tagDelete ever"; docs/tools.md updated (tag semantics).
-- [ ] T030 `import_artifacts` optional `tag` (D-26): only with a diagram-group scope (module scope +
+- [X] T030 `import_artifacts` optional `tag` (D-26): only with a diagram-group scope (module scope +
   tag → `INVALID_INPUT` before anything is sent); applied after a successful verification and
   write-back within the same call and audit record (inputs gain `tag`); tag verification as T029; a tag
   failure after a successful import → `outcome: EXECUTED`, `tag: {applied: false, failure}` and a

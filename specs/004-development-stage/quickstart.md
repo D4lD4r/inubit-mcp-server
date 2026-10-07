@@ -31,6 +31,7 @@ mvn -q -Dtest=NoCustomerIdentifiersTest test
 | Tag: blank group refused before launch; only the requested groups exported; existing tag name reused, the same tag in other groups stays; mismatch or failure reported, nothing removed (no `--tagDelete`) | `TagServiceTest`, `CliTagRunnerTest`, `V81TagAdapterTest` | US4, FR-021, SC-005, D-26 |
 | SOAP test: FREE/CONFIRM/FORBIDDEN; test-id header; correlation by id or uncertain window; timeout keeps diagnostics | `E2eTestServiceTest` (WireMock) | US5, FR-022–FR-024 |
 | Every owner (user or user group) imported with `--importUser`; `owners:` is an unknown key | `UserGroupOwnerTest`, `ConfigLoaderTest` | FR-014, research D-26 |
+| Import with `tag`: diagram group only (modules + tag refused before sending); tagged after the verified import in the same audited call; a tag failure keeps the import `EXECUTED` with `tag.applied: false` | `ImportTagTest`, `ImportArtifactsToolTest` | US4 AS 5, FR-021, research D-26 |
 | Every call audited (refused/preview/executed/failed), codes hashed, no content | `DevelopmentAuditTest` | FR-025 |
 | 20 workflows / 100 modules import within 2 minutes (fake StartCLI) | `ImportServiceTest` | SC-007 |
 
