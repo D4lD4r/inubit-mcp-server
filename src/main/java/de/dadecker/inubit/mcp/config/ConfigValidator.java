@@ -127,6 +127,7 @@ public final class ConfigValidator {
             checkDevelopment(server, findings);
         }
         checkOneDevelopmentNodePerGroup(config, findings);
+        checkE2eNodeNames(config, findings);
         checkOwners(config, findings);
         boolean cliConfigured = config.resolvableNodes().stream()
             .anyMatch(EffectiveNodeConfig::cliConfigured);
@@ -506,9 +507,10 @@ public final class ConfigValidator {
      * neither {@code development.enabled} nor an {@code e2eTests} other than {@code FORBIDDEN} on
      * a production {@code group} or node; {@code e2eTests} other than {@code FORBIDDEN} needs
      * {@code e2e.soap.baseUrl}, which must be an absolute {@code https} URL ({@code http} is a
-     * warning: development stages may run plain HTTP).
+     * warning: development stages may run plain HTTP) — but never together with the e2e basic
+     * authentication variables, which must not travel in clear text (review m-c).
      */
-    private static void checkDevelopment(EffectiveNodeConfig server, Findings findings) {
+    private void checkDevelopment(EffectiveNodeConfig server, Findings findings) {
         String id = server.id().value();
         EffectiveNodeConfig.Development development = server.development();
         if (server.production() && development.enabled()) {
@@ -531,9 +533,50 @@ public final class ConfigValidator {
                 findings.error(id + ": e2e.soap.baseUrl must be an absolute https:// URL"
                     + " (http:// is accepted with a warning)");
             } else if (scheme.equals("http")) {
-                findings.warning(id + ": e2e.soap.baseUrl uses http://; SOAP test messages are"
-                    + " sent unencrypted");
+                List<String> credentials = e2eCredentialVariables(server);
+                if (e2eTests != E2ePolicy.FORBIDDEN && !credentials.isEmpty()) {
+                    findings.error(id + ": e2e.soap.baseUrl uses http:// while the e2e basic"
+                        + " authentication is set (" + String.join(", ", credentials) + "); the"
+                        + " credentials would travel in clear text — use https:// or unset them");
+                } else {
+                    findings.warning(id + ": e2e.soap.baseUrl uses http://; SOAP test messages"
+                        + " are sent unencrypted");
+                }
             }
+        });
+    }
+
+    /** The set e2e basic-authentication variables of {@code server} (names only). */
+    private List<String> e2eCredentialVariables(EffectiveNodeConfig server) {
+        List<String> set = new ArrayList<>();
+        for (String kind : CredentialVariables.E2E_KINDS) {
+            for (String variable : server.credentialVariables().candidates(kind)) {
+                String value = environment.get(variable);
+                if (value != null && !value.isEmpty()) {
+                    set.add(variable);
+                }
+            }
+        }
+        return set;
+    }
+
+    /**
+     * Review m-d: in a {@code group} where any node allows end-to-end tests, a node named
+     * {@code e2e} would read {@code <PREFIX>_<GROUP>_E2E_USERNAME} as its own username.
+     */
+    private static void checkE2eNodeNames(ProfileConfig config, Findings findings) {
+        Map<String, List<EffectiveNodeConfig>> byGroup = new TreeMap<>();
+        config.resolvableNodes().forEach(server -> byGroup.computeIfAbsent(
+            server.id().group().value(), group -> new ArrayList<>()).add(server));
+        byGroup.values().forEach(nodes -> {
+            boolean e2e = nodes.stream().anyMatch(server -> server.development().e2eTests()
+                != E2ePolicy.FORBIDDEN);
+            nodes.stream().filter(server -> e2e && server.id().name().equalsIgnoreCase("e2e"))
+                .forEach(server -> findings.termError("%s: the {node} name '%s' clashes with the"
+                    + " e2e basic-authentication variables of its {group} (%s is its username"
+                    + " variable as well); rename the {node} or set e2eTests: FORBIDDEN for the"
+                    + " {group}", server.id().value(), server.id().name(),
+                    server.credentialVariables().groupVariable(CredentialVariables.E2E_USERNAME)));
         });
     }
 

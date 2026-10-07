@@ -413,6 +413,32 @@ class E2eTestServiceTest {
     }
 
     @Test
+    void aPasswordInCdataOrInAnotherCaseIsRefusedAsWell() throws IOException {
+        // review m-e
+        E2eTestService service = service();
+        int i = 0;
+        for (String header : List.of(
+            "<wsse:Password><![CDATA[synthetic-e2e-0002]]></wsse:Password>",
+            "<wsse:password>synthetic-e2e-0003</wsse:password>",
+            "<PASSWORD Type=\"x\">synthetic-e2e-0004</PASSWORD>",
+            "<wsse:Password>\n  <![CDATA[ synthetic-e2e-0005 ]]>\n</wsse:Password>")) {
+            String name = "samples/secret-" + i++ + ".xml";
+            Files.writeString(root.resolve(name), ENVELOPE.replace("<soapenv:Body>",
+                "<soapenv:Header>" + header + "</soapenv:Header><soapenv:Body>"));
+            ToolError error = refusal(service, request(name, PATH, Optional.empty(), 10, false,
+                Optional.empty()));
+            assertThat(error.code()).as(header).isEqualTo(ErrorCode.INVALID_INPUT);
+            assertThat(error.toString()).doesNotContain("synthetic-e2e");
+        }
+        Files.writeString(root.resolve("samples/cdata-placeholder.xml"), ENVELOPE.replace(
+            "<soapenv:Body>", "<soapenv:Header><wsse:Password><![CDATA[${secret:Password}]]>"
+                + "</wsse:Password></soapenv:Header><soapenv:Body>"));
+        wireMock.stubFor(post(urlEqualTo(PATH)).willReturn(aResponse().withStatus(200)));
+        assertThat(completed(service.run(request("samples/cdata-placeholder.xml", PATH,
+            Optional.empty(), 10, false, Optional.empty()))).status()).contains(200);
+    }
+
+    @Test
     void aTimeoutKeepsTheDiagnostics() {
         wireMock.stubFor(post(urlEqualTo(PATH)).willReturn(aResponse().withStatus(200)
             .withFixedDelay(3000)));
@@ -431,6 +457,21 @@ class E2eTestServiceTest {
             assertThat(record.reason()).hasValueSatisfying(reason ->
                 assertThat(reason).contains("timed out"));
         });
+    }
+
+    @Test
+    void aBrokenConnectionAfterSendingMayHaveDeliveredTheMessage() {
+        // review m-f: the request may have reached INUBIT before the connection broke
+        wireMock.stubFor(post(urlEqualTo(PATH)).willReturn(aResponse().withFault(
+            com.github.tomakehurst.wiremock.http.Fault.CONNECTION_RESET_BY_PEER)));
+
+        ToolErrorException error = catchThrowableOfType(ToolErrorException.class,
+            () -> service().run(request()));
+
+        assertThat(error.error().code()).isEqualTo(ErrorCode.UNREACHABLE);
+        assertThat(error.error().message()).contains("may or may not have been delivered");
+        assertThat(audit).extracting(AuditRecord::outcome).containsExactly(AuditOutcome.PENDING,
+            AuditOutcome.FAILED);
     }
 
     @Test

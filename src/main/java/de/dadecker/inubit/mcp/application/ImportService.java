@@ -522,9 +522,11 @@ public final class ImportService {
      *       call left — the intended-state hashes of its manifest, which a failed call records
      *       as its last verification saw them; an artifact without recorded state is
      *       {@code PRECONDITION_FAILED}, a difference or edit mode {@code CONFLICT};
-     *   <li>the archive holds the backed-up artifacts with the target's current secrets; the
-     *       rest is the import sequence with the restore's own backup, verification against the
-     *       backed-up state, commit {@code restore <node>: …} or rollback;
+     *   <li>the archive holds the backed-up artifacts with the target's current secrets and is
+     *       imported with the backed-up active flag ({@code --importWorkflowActive|Inactive}
+     *       when all its workflows share one); the rest is the import sequence with the
+     *       restore's own backup, verification against the backed-up state, commit
+     *       {@code restore <node>: …} or rollback;
      *   <li>artifacts the referenced call created stay and are reported (nothing is deleted).
      * </ol>
      *
@@ -615,11 +617,32 @@ public final class ImportService {
             return writeChallenge(call, node, policy, changes.scope().describe(),
                 changes.modified(), notes, inputs, fresh.fingerprint());
         }
-        ImportPort.Mode mode = changes.scope().diagramGroup().isPresent()
-            ? ImportPort.Mode.WORKFLOW : ImportPort.Mode.MODULE;
-        return execute(call, node, new Plan(changes, archive, mode, mode, before::get,
-            "restore", changes.scope().describe(), manifest.created(), List.of()), auditId,
-            fresh.raw(), account);
+        return execute(call, node, new Plan(changes, archive, restoreMode(changes, before),
+            restoreMode(changes, fresh.rendered()), before::get, "restore",
+            changes.scope().describe(), manifest.created(), List.of()), auditId, fresh.raw(),
+            account);
+    }
+
+    /**
+     * Review m-b: the import mode that brings back the active flags of {@code state} — with
+     * {@code --importWorkflowActive|Inactive} if all workflows of the change set have the same
+     * flag there (always for a {@code set_active} call), else plain {@code --importWorkflow}.
+     */
+    private ImportPort.Mode restoreMode(ChangeSet changes, SortedMap<String, byte[]> state) {
+        if (changes.scope().diagramGroup().isEmpty()) {
+            return ImportPort.Mode.MODULE;
+        }
+        Set<Boolean> flags = new HashSet<>();
+        for (ChangedArtifact workflow : changes.workflows()) {
+            byte[] file = state.get(workflow.paths().get(0));
+            Optional<Boolean> active = file == null ? Optional.empty()
+                : d.archives().active(file);
+            if (active.isEmpty()) {
+                return ImportPort.Mode.WORKFLOW;
+            }
+            flags.add(active.get());
+        }
+        return flags.size() == 1 ? mode(flags.iterator().next()) : ImportPort.Mode.WORKFLOW;
     }
 
     /**

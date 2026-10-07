@@ -355,8 +355,17 @@ scenario: export → edit a layout value → import → verify → restore → s
   `workflow` the result is `TIME_WINDOW_UNCERTAIN` with no instances and a warning. A
   `Password` element of any namespace prefix with a non-placeholder value refuses the envelope;
   envelopes are limited to 10 MB. `UNREACHABLE`/`TLS_ERROR` after the `PENDING` record are
-  audited `FAILED` and returned as tool errors (the message was not delivered). The e2e basic
+  audited `FAILED` and returned as tool errors (the message may or may not have been delivered —
+  a connection can break after the request was sent; the logs of the window tell). The e2e basic
   authentication needs both variables; one alone is ignored.
 - **`--check-config` (T024)**: the development and e2e segments of the node lines are printed once
   any node is a development stage or allows end-to-end tests; a profile without these settings
   prints as before (feature 001–003 examples stay valid).
+- **Review of T019–T027 (2026-10-07)**: e2e envelopes are confined by their real path (first
+  component not `.git`, `.meta`, `.reports`, not in the backups; no empty, `.` or `..` segment);
+  a restore re-imports with the backed-up active flag (`--importWorkflowActive|Inactive` when all
+  its workflows share one); e2e basic authentication with an `http` base URL is a startup error,
+  and so is a node named `e2e` in a group that allows e2e tests (variable clash); the password
+  check of envelopes covers CDATA and any case of `Password`; the failure-path
+  `tag --tagDelete` is owner-wide and documented with its residual case (a same-named tag on a
+  module no diagram uses).

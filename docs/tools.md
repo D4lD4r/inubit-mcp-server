@@ -982,6 +982,14 @@ reason: "undo layout")`.
   `diagramGroups`, `workflows`, `ownerKind`, `confirmationCode`, `expiresAt`, `message`; the code
   is bound to the head versions, so a publish in between is `CONFLICT`.
 
+**Removing the tag again acts owner-wide.** StartCLI deletes a tag only per owner
+(`tag --tagDelete '<tag>' --tagUser '<owner>'`), never per diagram group. It can only remove this
+call's own new tag: the pre-check refused the call if the tag existed on any version of any
+diagram of the owner (all groups and types) or of any module those diagrams use. One case
+remains: a module that no diagram of the owner uses is not part of that history; if it carried a
+tag of the same name, the removal would take that tag away as well. Use unique tag names (e.g.
+with date and time). A history export of unused modules was not probed and is not used.
+
 Every history export appends to the check-in comments of the exported workflows in INUBIT
 (an INUBIT behaviour, see the spike notes).
 

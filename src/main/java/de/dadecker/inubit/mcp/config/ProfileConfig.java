@@ -82,6 +82,10 @@ public record ProfileConfig(
             for (String kind : CredentialVariables.KINDS) {
                 names.addAll(variables.candidates(kind));
             }
+            // feature 004 (review m-g): the optional e2e basic authentication
+            for (String kind : CredentialVariables.E2E_KINDS) {
+                names.addAll(variables.candidates(kind));
+            }
         }
         return names;
     }

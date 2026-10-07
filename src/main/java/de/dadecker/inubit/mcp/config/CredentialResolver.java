@@ -165,12 +165,20 @@ public final class CredentialResolver {
             + names.get(1) + ")";
     }
 
-    /** Groups every derived name by the groups/nodes it is derived for. */
+    /** Groups every derived name of the node credentials by the groups/nodes it is for. */
     private Map<String, Set<String>> owners(List<NodeId> servers) {
+        return owners(servers, KINDS);
+    }
+
+    /**
+     * Groups every derived name of {@code kinds} by the groups/nodes it is derived for. The
+     * end-to-end kinds count as known names (no typo warning) but not for the collision check:
+     * a node named {@code e2e} clashes only where e2e tests are allowed (ConfigValidator).
+     */
+    private Map<String, Set<String>> owners(List<NodeId> servers, List<String> kinds) {
         Map<String, Set<String>> owners = new LinkedHashMap<>();
         for (NodeId server : servers) {
-            for (String kind : Stream.concat(KINDS.stream(),
-                CredentialVariables.E2E_KINDS.stream()).toList()) {
+            for (String kind : kinds) {
                 String serverVariable = variables(server).nodeVariable(kind);
                 String stageVariable = variables(server).groupVariable(kind);
                 owners.computeIfAbsent(serverVariable, k -> new TreeSet<>())
@@ -198,7 +206,8 @@ public final class CredentialResolver {
 
     private List<String> unmatchedPasswordVariables(List<NodeId> servers,
         Set<String> otherProfiles) {
-        Set<String> known = owners(servers).keySet();
+        Set<String> known = owners(servers, Stream.concat(KINDS.stream(),
+            CredentialVariables.E2E_KINDS.stream()).toList()).keySet();
         Set<String> unmatched = new TreeSet<>();
         for (String variable : environment.keySet()) {
             if (variable.startsWith(prefix + "_") && variable.endsWith("_" + PASSWORD)

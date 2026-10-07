@@ -1358,6 +1358,66 @@ class ConfigValidatorTest {
         }
 
         @Test
+        void e2eBasicAuthOverPlainHttpIsAnError() {
+            // review m-c: the e2e credentials must not travel in clear text
+            String http = profile("""
+                development:
+                  enabled: true
+                e2eTests: FREE
+                e2e:
+                  soap:
+                    baseUrl: http://inubit-dev.example.test:8080
+                """, "");
+            assertThat(validate(http).errors()).isEmpty();
+
+            env.put("INUBIT_ACME_DEV_E2E_USERNAME", "e2e-user");
+            env.put("INUBIT_ACME_DEV_E2E_PASSWORD", "e2e-validator-pw");
+            ValidationReport report = validate(http);
+
+            assertThat(report.errors()).singleElement().asString()
+                .contains("dev/node1", "http://", "INUBIT_ACME_DEV_E2E_USERNAME")
+                .doesNotContain("e2e-validator-pw");
+        }
+
+        @Test
+        void aNodeNamedE2eIsAnErrorWhereItsGroupAllowsE2eTests() {
+            // review m-d: <PREFIX>_<GROUP>_E2E_USERNAME would be the node's own USERNAME
+            String yaml = """
+                profile:
+                  name: acme
+                groups:
+                  - name: dev
+                %s
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-dev.example.test:8443
+                      - name: e2e
+                        baseUrl: https://inubit-dev-2.example.test:8443
+                """;
+            assertThat(validate(yaml.formatted("")).errors()).isEmpty();
+
+            ValidationReport report = validate(yaml.formatted("""
+                    e2eTests: CONFIRM
+                    e2e:
+                      soap:
+                        baseUrl: https://inubit-dev.example.test:8443
+                """.stripTrailing()));
+
+            assertThat(report.errors()).anySatisfy(error -> assertThat(error)
+                .contains("dev/e2e", "e2e", "INUBIT_ACME_DEV_E2E_USERNAME"));
+        }
+
+        @Test
+        void theDerivedVariableNamesIncludeTheE2eVariables() {
+            // review m-g: another profile's e2e variables are known, not typos
+            ProfileConfig config = new ConfigLoader(Map.of(), HOME, false).parse(profile("", ""),
+                HOME.resolve("config.yaml")).config();
+
+            assertThat(config.credentialVariableNames()).contains("INUBIT_ACME_DEV_E2E_USERNAME",
+                "INUBIT_ACME_DEV_E2E_PASSWORD", "INUBIT_ACME_DEV_NODE1_E2E_PASSWORD");
+        }
+
+        @Test
         void developmentOnAProductionGroupIsAnError() {
             ValidationReport report = validate(profile("", """
                 development:

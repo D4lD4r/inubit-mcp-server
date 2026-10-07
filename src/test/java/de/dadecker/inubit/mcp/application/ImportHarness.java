@@ -272,6 +272,15 @@ public final class ImportHarness {
             + "' --returnProtocol");
     }
 
+    /**
+     * A restore of the inactive fixture workflows: the backed-up flag is imported with
+     * {@code --importWorkflowInactive} (review m-b).
+     */
+    public ImportHarness importRestored() {
+        return importApplied("--importWorkflow --importWorkflowInactive --importUser '" + owner
+            + "' --returnProtocol");
+    }
+
     /** The next StartCLI call is an import that INUBIT refuses ({@code 1-NOK}). */
     public ImportHarness importRefused() {
         cli.expect("import ").replying("import_nok");

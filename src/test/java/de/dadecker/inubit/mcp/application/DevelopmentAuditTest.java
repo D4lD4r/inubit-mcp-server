@@ -109,7 +109,7 @@ class DevelopmentAuditTest {
         harness.exportGroup().importApplied().exportGroup();
         String ref = ((ImportService.Response.Completed) harness.service().importArtifacts(
             harness.group("Audited change"))).outcome().backupRef().orElseThrow();
-        harness.exportGroup().importApplied().exportGroup();
+        harness.exportGroup().importRestored().exportGroup();
 
         WriteOutcome outcome = ((ImportService.Response.Completed) harness.service().restore(
             new ImportService.RestoreRequest("dev/node1", ref, "Audited undo",

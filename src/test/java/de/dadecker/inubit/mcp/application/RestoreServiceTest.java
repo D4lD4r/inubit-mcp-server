@@ -82,7 +82,7 @@ class RestoreServiceTest {
     void theArtifactsOfTheReferencedCallAreRestoredVerifiedAndCommitted() throws IOException {
         ImportHarness harness = ImportHarness.grpA(temp);
         String ref = imported(harness);
-        harness.exportGroup().importApplied().exportGroup();
+        harness.exportGroup().importRestored().exportGroup();
 
         WriteOutcome outcome = completed(harness.service().restore(restore(ref)));
 
@@ -166,7 +166,7 @@ class RestoreServiceTest {
         harness.write(harness.workflow("Workflow-0100"), harness.read(harness.workflow(
             "Workflow-0001")).replace("Workflow-0001", "Workflow-0100"));
         String ref = imported(harness);
-        harness.exportGroup().importApplied().exportGroup();
+        harness.exportGroup().importRestored().exportGroup();
 
         WriteOutcome outcome = completed(harness.service().restore(restore(ref)));
 
@@ -191,7 +191,7 @@ class RestoreServiceTest {
         WriteOutcome failed = completed(harness.service().importArtifacts(
             harness.group("Risky")));
         assertThat(failed.rollback()).contains(WriteOutcome.Rollback.FAILED);
-        harness.exportGroup().importApplied().exportGroup();
+        harness.exportGroup().importRestored().exportGroup();
 
         WriteOutcome outcome = completed(harness.service().restore(restore(
             failed.backupRef().orElseThrow())));
@@ -207,7 +207,7 @@ class RestoreServiceTest {
         ImportHarness harness = ImportHarness.grpA(temp);
         String ref = imported(harness);
         harness.inubit.tamperNextImport = new String[] {"xPos=\"120\"", "xPos=\"777\""};
-        harness.exportGroup().importApplied().exportGroup().importApplied().exportGroup();
+        harness.exportGroup().importRestored().exportGroup().importRestored().exportGroup();
 
         WriteOutcome outcome = completed(harness.service().restore(restore(ref)));
 
@@ -219,6 +219,28 @@ class RestoreServiceTest {
             .doesNotContain("xPos=\"777\"");
         assertThat(outcome.backupRef()).contains(outcome.auditId().toString());
         assertThat(harness.backups.find(outcome.auditId().toString())).isPresent();
+    }
+
+    @Test
+    void aSetActiveCallIsRestoredWithTheBackedUpFlag() throws IOException {
+        // review m-b: the restore re-imports the flag of the backup, not a plain --importWorkflow
+        ImportHarness harness = ImportHarness.grpA(temp);
+        harness.exportGroup().importApplied("--importWorkflow --importWorkflowActive"
+            + " --importUser 'jdoe' --returnProtocol").exportGroup();
+        WriteOutcome activated = completed(harness.service().setActive(
+            new ImportService.ActivationRequest("dev/node1", Optional.empty(), "GRP-01",
+                "Workflow-0001", true, "On", Optional.empty(), Optional.empty())));
+        assertThat(workflow0001(harness.inubit.workflowXml())).contains(
+            "<IsActive>true</IsActive>");
+        harness.exportGroup().importRestored().exportGroup();
+
+        WriteOutcome outcome = completed(harness.service().restore(restore(
+            activated.backupRef().orElseThrow())));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(workflow0001(harness.inubit.workflowXml())).contains(
+            "<IsActive>false</IsActive>");
     }
 
     @Test
@@ -252,7 +274,7 @@ class RestoreServiceTest {
         assertThat(preview.scope()).isEqualTo("diagram group GRP-01");
         assertThat(preview.notes()).anyMatch(note -> note.contains(ref));
         assertThat(harness.inubit.imported).hasSize(1);
-        harness.exportGroup().importApplied().exportGroup();
+        harness.exportGroup().importRestored().exportGroup();
 
         WriteOutcome outcome = completed(service.restore(new ImportService.RestoreRequest(
             "dev/node1", ref, "Undo the move", Optional.of(preview.confirmationCode()),

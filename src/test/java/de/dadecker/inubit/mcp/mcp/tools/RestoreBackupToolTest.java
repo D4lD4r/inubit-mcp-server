@@ -92,7 +92,7 @@ class RestoreBackupToolTest {
 
         JsonNode challenge = structured(client.callTool("restore_backup", Map.of("node",
             "dev/node1", "backupRef", ref, "reason", "Undo"))).path("challenge");
-        harness.exportGroup().importApplied().exportGroup();
+        harness.exportGroup().importRestored().exportGroup();
         JsonNode result = structured(client.callTool("restore_backup", Map.of("node",
             "dev/node1", "backupRef", ref, "reason", "Undo", "confirmationCode",
             challenge.path("confirmationCode").asString()))).path("result");

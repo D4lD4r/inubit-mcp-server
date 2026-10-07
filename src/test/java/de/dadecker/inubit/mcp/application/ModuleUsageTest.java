@@ -207,14 +207,16 @@ class ModuleUsageTest {
 
     @Test
     void afterARejectedLoginNoFurtherReadIsStarted() {
-        AtomicInteger calls = new AtomicInteger();
+        // after the probe the reads queue on an unfair permit, so W-1 is not necessarily the
+        // second read (review m-h): what matters is that no read starts after the rejection
+        List<String> calls = new java.util.concurrent.CopyOnWriteArrayList<>();
         List<String> workflows = new ArrayList<>();
         for (int i = 0; i < 10; i++) {
             workflows.add("W-" + i);
         }
 
         ModuleUsage usage = ModuleUsageIndexer.build(DEV, workflows, workflow -> {
-            calls.incrementAndGet();
+            calls.add(workflow);
             if (workflow.equals("W-1")) {
                 throw new ToolErrorException(ToolError.of(ErrorCode.AUTH_FAILED, "401", "c", "s")
                     .withNode(DEV));
@@ -222,10 +224,12 @@ class ModuleUsageTest {
             return List.of(node("M", "twAssign"));
         }, 1, BUDGET);
 
-        assertThat(calls).as("W-0 (probe) and W-1 (rejected), nothing after").hasValue(2);
-        assertThat(usage.workflowsRead()).isEqualTo(1);
+        assertThat(calls).as("W-0 is the probe").first().isEqualTo("W-0");
+        assertThat(calls).as("no read after the rejected one").last().isEqualTo("W-1");
+        assertThat(usage.workflowsRead()).isEqualTo(calls.size() - 1);
         assertThat(usage.failure().orElseThrow().code()).isEqualTo(ErrorCode.AUTH_FAILED);
-        assertThat(usage.failure().orElseThrow().message()).contains("9 of 10");
+        assertThat(usage.failure().orElseThrow().message())
+            .contains((10 - usage.workflowsRead()) + " of 10");
     }
 
     // --- follow-up N4: reads that completed before the budget count --------------------------

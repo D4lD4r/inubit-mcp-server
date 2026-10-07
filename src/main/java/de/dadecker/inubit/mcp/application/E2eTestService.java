@@ -88,8 +88,12 @@ public final class E2eTestService {
     private static final Pattern NAME = Pattern.compile("^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$");
     private static final Pattern ACTION = Pattern.compile("^[^\"\\p{Cntrl}]{0,500}$");
     private static final Pattern CODE = Pattern.compile("^[A-Za-z0-9_-]{22}$");
+    /** Review m-e: any prefix, any case of the local name, text or CDATA content. */
     private static final Pattern PASSWORD = Pattern.compile(
-        "<(?:[A-Za-z_][\\w.-]*:)?Password(?:\\s[^>]*)?>([^<]*)</");
+        "<(?:[A-Za-z_][\\w.-]*:)?password(?:\\s[^>]*)?>(.*?)</(?:[A-Za-z_][\\w.-]*:)?password"
+            + "\\s*>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    private static final Pattern CDATA = Pattern.compile("<!\\[CDATA\\[(.*?)]]>",
+        Pattern.DOTALL);
     private static final Pattern PLACEHOLDER = Pattern.compile("^\\$\\{secret:[^}]+}$");
     private static final Set<String> HIDDEN = Set.of(".git", ".meta", ".reports");
     private static final String RESPONSES = ".tests/e2e";
@@ -271,9 +275,15 @@ public final class E2eTestService {
             exchange = port.post(new E2ePort.Message(request.path(), payload,
                 request.soapAction(), testId, Duration.ofSeconds(request.timeoutSeconds())));
         } catch (ToolErrorException e) {
+            // review m-f: a connection can break after the request reached the endpoint
+            ToolError error = e.error();
+            ToolError reported = error.code() != ErrorCode.UNREACHABLE ? error : new ToolError(error.code(), error.message() + "; the message"
+                + " may or may not have been delivered (test id " + testId + ")",
+                error.likelyCause(), error.nextStep() + "; look for the test id with"
+                    + " query_logs before sending again", error.node(), error.excerpt());
             append(call, auditId, AuditRecord.Step.EXECUTE, call.inputs(), AuditOutcome.FAILED,
-                e.error().code() + ": " + e.error().message(), null);
-            throw e;
+                reported.code() + ": " + reported.message(), null);
+            throw new ToolErrorException(reported);
         }
         Instant end = d.clock().instant();
         Optional<String> responseFile = Optional.empty();
@@ -474,7 +484,7 @@ public final class E2eTestService {
     private static void requireNoPassword(byte[] payload) {
         Matcher matcher = PASSWORD.matcher(new String(payload, StandardCharsets.UTF_8));
         while (matcher.find()) {
-            String value = matcher.group(1).strip();
+            String value = CDATA.matcher(matcher.group(1)).replaceAll("$1").strip();
             if (!value.isEmpty() && !PLACEHOLDER.matcher(value).matches()) {
                 throw invalid("The envelope contains a Password element with a value; nothing"
                         + " was sent",
