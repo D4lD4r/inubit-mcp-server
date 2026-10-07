@@ -105,7 +105,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 4: User Story 1 + 2 — Preview (P1)
 
-- [ ] T014 [US2] `main/application/DeployGuard.java`: target must be one group id (node id →
+- [X] T014 [US2] `main/application/DeployGuard.java`: target must be one group id (node id →
   `INVALID_INPUT`, unknown → `TARGET_UNKNOWN`), must have `deploy` (else `CHAIN_VIOLATION` naming the
   configured source or "receives no deployments"); tag `VALUE`, not blank, no `*`/`?`; refusals
   audited; test: no StartCLI launch for any refusal.
