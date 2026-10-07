@@ -866,6 +866,22 @@ public final class NodeDeployer {
         }
         updateManifest(manifest.with(result.state() == State.ROLLED_BACK ? "EXECUTED"
             : "FAILED", states), warnings);
+        if (!states.isEmpty()) {
+            // final review m2: the restored state is this server's own, not outside the chain
+            Map<String, DeploymentLedger.Entry> entries = new TreeMap<>();
+            String tag = plan.manifest.tag().orElse(call.admitted().tag());
+            states.forEach((key, fingerprint) -> entries.put(key, new DeploymentLedger.Entry(
+                fingerprint, auditId.toString(), tag, d.clock().instant())));
+            try {
+                d.ledger().record(node, entries);
+            } catch (RuntimeException e) {
+                LOG.warn("The ledger of {} could not be written ({})", node,
+                    e.getClass().getSimpleName());
+                warnings.add("The restore of " + node + " stays, but the ledger of "
+                    + node.group() + " could not be written; the next preview may report the"
+                    + " restored artifacts as changed outside the chain");
+            }
+        }
         return new Restored(result.state(), backupRef, plan.restored, reports, warnings);
     }
 

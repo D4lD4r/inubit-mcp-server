@@ -246,4 +246,37 @@ class RestoreDeploymentTest extends DeployExecution {
             .isEqualTo(harness.clock.instant().plus(java.time.Duration.ofMinutes(30)));
         harness.verifyComplete();
     }
+
+    @Test
+    void theNextPreviewDoesNotReportThisServersOwnRestoreAsOutsideTheChain() {
+        // final review m2: the ledger records the restored state
+        harness(false);
+        DeploymentResult deployed = deploy(false);
+        String backupRef = deployed.nodes().get(0).backupRef().orElseThrow();
+        harness.exportGroup(DeployHarness.INT1);
+        WritePreview preview = ((ImportService.Response.WriteChallenge) harness.importService()
+            .restore(restore(backupRef, Optional.empty()))).preview();
+        harness.exportGroup(DeployHarness.INT1);
+        harness.importApplied(DeployHarness.INT1, MODULE_IMPORT)
+            .importApplied(DeployHarness.INT1, WORKFLOW);
+        harness.exportGroup(DeployHarness.INT1);
+        WriteOutcome restored = ((ImportService.Response.Completed) harness.importService()
+            .restore(restore(backupRef, Optional.of(preview.confirmationCode())))).outcome();
+        assertThat(restored.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        source(server -> { }, false);
+        DeployHarness.TARGETS.forEach(this::nodeExports);
+
+        DeploymentPreview again = harness.deployService(List.of()).deploy(request(
+            Optional.empty())).preview().orElseThrow();
+
+        assertThat(again.plans().get(0).node()).isEqualTo(DeployHarness.INT1);
+        assertThat(again.plans().get(0).counts())
+            .containsEntry(de.dadecker.inubit.mcp.domain.model.ArtifactClass.CHANGED, 2);
+        assertThat(again.plans().get(0).warnings()).noneMatch(warning -> warning.kind()
+            == de.dadecker.inubit.mcp.domain.model.NodePlan.WarningKind.OUTSIDE_CHAIN);
+        assertThat(harness.ledger.entries(DeployHarness.INT1).get(
+            "module:XSLT Converter/Module-0005").auditId())
+            .isEqualTo(restored.auditId().toString());
+        harness.verifyComplete();
+    }
 }
