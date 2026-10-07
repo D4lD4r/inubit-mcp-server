@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -287,4 +288,41 @@ class BackupStoreTest {
             List.of(export(id)));
         return id;
     }
+
+    // --- feature 005 (T021, research D-7, D-13): backups of deployments ----------------------
+
+    @Test
+    void aDeploymentBackupNamesItsKindGroupsRepositoryPathsTagAndSource() {
+        String id = "00000000-0000-0000-0000-00000000d021";
+        Manifest deployment = new Manifest(id, NodeId.parse("int/node1"), "jdoe", "deploy TAG-01",
+            List.of("Module-0005"), List.of(), Map.of(), "PENDING", NOW, List.of(),
+            Manifest.Kind.DEPLOYMENT, List.of("GRP-01"), List.of("/Root/jdoe/xsd/release.xsl"),
+            Optional.of("TAG-01"), Optional.of("dev"));
+
+        store().write(deployment, List.of(export("a")));
+
+        Manifest read = store().find(id).orElseThrow();
+        assertThat(read.kind()).isEqualTo(Manifest.Kind.DEPLOYMENT);
+        assertThat(read.groups()).containsExactly("GRP-01");
+        assertThat(read.repositoryPaths()).containsExactly("/Root/jdoe/xsd/release.xsl");
+        assertThat(read.tag()).contains("TAG-01");
+        assertThat(read.source()).contains("dev");
+    }
+
+    @Test
+    void aManifestOfFeature004IsReadAsAnImport() throws IOException {
+        String id = "00000000-0000-0000-0000-00000000d004";
+        store().write(manifest(id, DEV, "jdoe", "g", NOW), List.of(export("a")));
+        Path file = root().resolve(id + ".json");
+        String json = Files.readString(file);
+        assertThat(json).contains("\"kind\": \"IMPORT\"");
+        Files.writeString(file, json.replaceAll("(?m)^  \"kind\": \"IMPORT\",\n", ""));
+
+        Manifest read = store().find(id).orElseThrow();
+
+        assertThat(read.kind()).isEqualTo(Manifest.Kind.IMPORT);
+        assertThat(read.groups()).isEmpty();
+        assertThat(read.tag()).isEmpty();
+    }
 }
+

@@ -82,7 +82,25 @@ public final class BackupStore {
      */
     public record Manifest(String auditId, NodeId node, String owner, String scope,
         List<String> changeSet, List<String> created, Map<String, String> intendedState,
-        String outcome, Instant takenAt, List<String> zips) {
+        String outcome, Instant takenAt, List<String> zips, Kind kind, List<String> groups,
+        List<String> repositoryPaths, Optional<String> tag, Optional<String> source) {
+
+        /** What wrote the backup (feature 005, research D-13). */
+        public enum Kind {
+            /** A development tool of feature 004 (every manifest without {@code kind}). */
+            IMPORT,
+            /** A deployment of feature 005 into a node of a target group. */
+            DEPLOYMENT
+        }
+
+        /** A backup of feature 004 ({@link Kind#IMPORT}). */
+        public Manifest(String auditId, NodeId node, String owner, String scope,
+            List<String> changeSet, List<String> created, Map<String, String> intendedState,
+            String outcome, Instant takenAt, List<String> zips) {
+            this(auditId, node, owner, scope, changeSet, created, intendedState, outcome,
+                takenAt, zips, Kind.IMPORT, List.of(), List.of(), Optional.empty(),
+                Optional.empty());
+        }
 
         public Manifest {
             Objects.requireNonNull(auditId, "auditId");
@@ -95,11 +113,22 @@ public final class BackupStore {
             Objects.requireNonNull(outcome, "outcome");
             Objects.requireNonNull(takenAt, "takenAt");
             zips = List.copyOf(zips);
+            Objects.requireNonNull(kind, "kind");
+            groups = List.copyOf(groups);
+            repositoryPaths = List.copyOf(repositoryPaths);
+            tag = tag == null ? Optional.empty() : tag;
+            source = source == null ? Optional.empty() : source;
+        }
+
+        /** This manifest with another outcome and intended state. */
+        public Manifest with(String newOutcome, Map<String, String> newState) {
+            return new Manifest(auditId, node, owner, scope, changeSet, created, newState,
+                newOutcome, takenAt, zips, kind, groups, repositoryPaths, tag, source);
         }
 
         private Manifest withZips(List<String> files) {
             return new Manifest(auditId, node, owner, scope, changeSet, created, intendedState,
-                outcome, takenAt, files);
+                outcome, takenAt, files, kind, groups, repositoryPaths, tag, source);
         }
 
         private String retentionKey() {
@@ -384,6 +413,13 @@ public final class BackupStore {
             field(json, "scope", string(manifest.scope()), false);
             field(json, "takenAt", string(manifest.takenAt().toString()), false);
             field(json, "outcome", string(manifest.outcome()), false);
+            field(json, "kind", string(manifest.kind().name()), false);
+            if (manifest.kind() == Manifest.Kind.DEPLOYMENT) {
+                field(json, "groups", list(manifest.groups()), false);
+                field(json, "repositoryPaths", list(manifest.repositoryPaths()), false);
+                field(json, "tag", string(manifest.tag().orElse("")), false);
+                field(json, "source", string(manifest.source().orElse("")), false);
+            }
             field(json, "changeSet", list(manifest.changeSet()), false);
             field(json, "created", list(manifest.created()), false);
             StringBuilder state = new StringBuilder("{");
@@ -403,11 +439,18 @@ public final class BackupStore {
                 throw new IllegalArgumentException("Not a backup manifest");
             }
             try {
+                Manifest.Kind kind = object.containsKey("kind")
+                    ? Manifest.Kind.valueOf(text(object, "kind")) : Manifest.Kind.IMPORT;
+                boolean deployment = kind == Manifest.Kind.DEPLOYMENT;
                 return new Manifest(text(object, "auditId"), NodeId.parse(text(object, "node")),
                     text(object, "owner"), text(object, "scope"), texts(object, "changeSet"),
                     texts(object, "created"), map(object, "intendedState"),
                     text(object, "outcome"), Instant.parse(text(object, "takenAt")),
-                    texts(object, "zips"));
+                    texts(object, "zips"), kind,
+                    deployment ? texts(object, "groups") : List.of(),
+                    deployment ? texts(object, "repositoryPaths") : List.of(),
+                    deployment ? Optional.of(text(object, "tag")) : Optional.empty(),
+                    deployment ? Optional.of(text(object, "source")) : Optional.empty());
             } catch (DateTimeException | ClassCastException | NullPointerException e) {
                 throw new IllegalArgumentException("Not a backup manifest", e);
             }
