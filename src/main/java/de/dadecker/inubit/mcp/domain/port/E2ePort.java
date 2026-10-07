@@ -80,6 +80,15 @@ public interface E2ePort {
     int MAX_BODY_BYTES = 8 << 20;
 
     /**
+     * The URL a message to {@code path} goes to, without sending anything (for the preview and
+     * the input check).
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException {@code INVALID_INPUT} for a
+     *     path that leaves the base address
+     */
+    String endpoint(String path);
+
+    /**
      * Posts {@code message}.
      *
      * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException {@code INVALID_INPUT} for a

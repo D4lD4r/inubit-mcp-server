@@ -99,8 +99,13 @@ public final class SoapE2eClient implements E2ePort, AutoCloseable {
     }
 
     @Override
+    public String endpoint(String path) {
+        return resolve(path).toString();
+    }
+
+    @Override
     public Exchange post(Message message) {
-        URI endpoint = endpoint(message.path());
+        URI endpoint = resolve(message.path());
         HttpRequest.Builder request = HttpRequest.newBuilder(endpoint)
             .timeout(message.timeout())
             .header("Content-Type", "text/xml; charset=utf-8")
@@ -148,7 +153,7 @@ public final class SoapE2eClient implements E2ePort, AutoCloseable {
     }
 
     /** The base address plus {@code path}, refused if it leaves the base (research D-25 H8). */
-    URI endpoint(String path) {
+    private URI resolve(String path) {
         String trimmed = path.startsWith("/") ? path.substring(1) : path;
         boolean valid = !trimmed.isEmpty() && !trimmed.startsWith("/");
         if (valid) {

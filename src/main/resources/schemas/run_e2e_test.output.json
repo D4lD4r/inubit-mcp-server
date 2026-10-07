@@ -1,0 +1,262 @@
+{
+  "type": "object",
+  "description": "Either the preview (challenge, where e2eTests is CONFIRM) or the run (result); refusals before anything is sent are tool errors",
+  "properties": {
+    "challenge": {
+      "$ref": "#/$defs/Challenge"
+    },
+    "result": {
+      "$ref": "#/$defs/Result"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "challenge"
+      ]
+    },
+    {
+      "required": [
+        "result"
+      ]
+    }
+  ],
+  "$defs": {
+    "Challenge": {
+      "type": "object",
+      "description": "Nothing was sent; call the tool again with the same inputs and confirmationCode before expiresAt",
+      "required": [
+        "node",
+        "endpoint",
+        "payloadBytes",
+        "confirmationCode",
+        "expiresAt",
+        "message"
+      ],
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "payloadBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "soapAction": {
+          "type": "string"
+        },
+        "confirmationCode": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{22}$"
+        },
+        "expiresAt": {
+          "type": "string",
+          "description": "ISO-8601 UTC"
+        },
+        "message": {
+          "type": "string",
+          "description": "What to do next"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Result": {
+      "type": "object",
+      "required": [
+        "auditId",
+        "testId",
+        "endpoint",
+        "durationMs",
+        "timedOut",
+        "correlation",
+        "processes",
+        "errors",
+        "logEntries",
+        "truncated",
+        "warnings"
+      ],
+      "properties": {
+        "auditId": {
+          "type": "string"
+        },
+        "testId": {
+          "type": "string",
+          "description": "The X-Inubit-Mcp-Test-Id header value"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "status": {
+          "type": "integer",
+          "description": "HTTP status; absent on timeout"
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timedOut": {
+          "type": "boolean"
+        },
+        "responseFile": {
+          "type": "string",
+          "description": "Workspace-relative file with the response body"
+        },
+        "excerpt": {
+          "type": "string",
+          "description": "At most 2 KB of the response (only with includeExcerpt)"
+        },
+        "correlation": {
+          "enum": [
+            "BY_TEST_ID",
+            "TIME_WINDOW_UNCERTAIN"
+          ]
+        },
+        "processes": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "properties": {
+              "node": {
+                "type": "string"
+              },
+              "processId": {
+                "type": "string"
+              },
+              "globalProcessId": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string"
+              },
+              "rawState": {
+                "type": "string"
+              },
+              "since": {
+                "type": "string"
+              },
+              "timeInState": {
+                "type": "string"
+              },
+              "hanging": {
+                "type": "boolean"
+              },
+              "workflow": {
+                "type": "string"
+              },
+              "module": {
+                "type": "string"
+              },
+              "moduleType": {
+                "type": "string"
+              },
+              "tag": {
+                "type": "string"
+              },
+              "inubitNode": {
+                "type": "string"
+              },
+              "owner": {
+                "type": "string"
+              },
+              "priority": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "errors": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "properties": {
+              "node": {
+                "type": "string"
+              },
+              "logType": {
+                "type": "string"
+              },
+              "timestamp": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string"
+              },
+              "rawSeverity": {
+                "type": "string"
+              },
+              "workflow": {
+                "type": "string"
+              },
+              "module": {
+                "type": "string"
+              },
+              "processId": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "fields": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "logEntries": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "properties": {
+              "node": {
+                "type": "string"
+              },
+              "logType": {
+                "type": "string"
+              },
+              "timestamp": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string"
+              },
+              "rawSeverity": {
+                "type": "string"
+              },
+              "workflow": {
+                "type": "string"
+              },
+              "module": {
+                "type": "string"
+              },
+              "processId": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "fields": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

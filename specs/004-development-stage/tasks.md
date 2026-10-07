@@ -191,7 +191,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 - [X] T022 [US5] `main/adapter/soap/SoapE2eClient.java` (`E2ePort`, JDK HttpClient, node TLS via the
   shared builder) with WireMock tests first (D-17): headers incl. `X-Inubit-Mcp-Test-Id`; envelope
   sent unchanged; timeout; TLS errors mapped.
-- [ ] T023 [US5] `main/application/E2eTestService.java` + `main/mcp/tools/RunE2eTestTool.java` +
+- [X] T023 [US5] `main/application/E2eTestService.java` + `main/mcp/tools/RunE2eTestTool.java` +
   schemas, tests first: policy FREE/CONFIRM/FORBIDDEN; path validation (no `..`, no scheme/host);
   response file under `.tests/e2e/`; excerpt ≤ 2 KB; correlation by test id in logs within the window,
   else workflow + window marked `TIME_WINDOW_UNCERTAIN`; timeout keeps diagnostics; audited (payload

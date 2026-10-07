@@ -73,7 +73,18 @@ class DevelopmentWiringTest {
         assertThat(toolNames("")).doesNotContain("import_artifacts", "restore_backup",
             "set_active", "tag_artifacts");
         assertThat(toolNames("development:\n  enabled: false")).doesNotContain(
-            "import_artifacts", "restore_backup", "set_active", "tag_artifacts");
+            "import_artifacts", "restore_backup", "set_active", "tag_artifacts", "run_e2e_test");
+    }
+
+    @Test
+    void theSoapTestIsOfferedOnlyWhereANodeAllowsIt() {
+        assertThat(toolNames("development:\n  enabled: true")).doesNotContain("run_e2e_test");
+        assertThat(toolNames("development:\n  enabled: true\ne2eTests: CONFIRM\ne2e:\n"
+            + "  soap:\n    baseUrl: https://inubit-dev.example.test:8443"))
+            .contains("run_e2e_test", "import_artifacts");
+        assertThat(toolNames("e2eTests: CONFIRM\ne2e:\n  soap:\n"
+            + "    baseUrl: https://inubit-dev.example.test:8443"))
+            .doesNotContain("run_e2e_test");
     }
 
     @Test

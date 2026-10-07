@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.soap.SoapE2eClient;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
 import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
 import de.dadecker.inubit.mcp.application.ArtifactCheckService;
@@ -15,6 +16,7 @@ import de.dadecker.inubit.mcp.application.BackupStore;
 import de.dadecker.inubit.mcp.application.ConfirmationRegistry;
 import de.dadecker.inubit.mcp.application.DevelopmentGuard;
 import de.dadecker.inubit.mcp.application.DiagnosisService;
+import de.dadecker.inubit.mcp.application.E2eTestService;
 import de.dadecker.inubit.mcp.application.FanOut;
 import de.dadecker.inubit.mcp.application.HealthService;
 import de.dadecker.inubit.mcp.application.ImportService;
@@ -30,10 +32,12 @@ import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
 import de.dadecker.inubit.mcp.application.WriteGuard;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
+import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
+import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
@@ -60,6 +64,7 @@ import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestoreBackupTool;
 import de.dadecker.inubit.mcp.mcp.tools.SetActiveTool;
+import de.dadecker.inubit.mcp.mcp.tools.RunE2eTestTool;
 import de.dadecker.inubit.mcp.mcp.tools.TagArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
 import java.nio.file.Path;
@@ -86,7 +91,9 @@ import java.util.function.Predicate;
  * {@link #anyWriteEnabled()} (contracts/mcp-tools.md, Story 4 / AS 6); their service, the write
  * guard and the audit log ({@code auditDirectory}, written only on a write call) are built in any
  * case. Feature 004: {@code import_artifacts}, {@code restore_backup}, {@code set_active} and
- * {@code tag_artifacts} only if {@link #anyDevelopmentNode()}; their services share one
+ * {@code tag_artifacts} only if {@link #anyDevelopmentNode()}, {@code run_e2e_test} only if
+ * {@link #anyE2eNode()} (its SOAP clients are created per node on first use); their services
+ * share one
  * challenge registry and the audit log; the import service uses the check service and keeps
  * its backups in
  * {@code ~/.inubit-mcp/<profile>/backups} (created on the first import).
@@ -115,6 +122,10 @@ final class Wiring implements AutoCloseable {
     private final RestoreBackupTool restoreBackup;
     private final SetActiveTool setActive;
     private final TagArtifactsTool tagArtifacts;
+    private final RunE2eTestTool runE2eTest;
+    /** The SOAP test clients, created on first use per node and closed with the wiring. */
+    private final Map<NodeId, SoapE2eClient> e2eClients = new java.util.concurrent
+        .ConcurrentHashMap<>();
     private final CliResources cliResources;
     private final Thread cleanupHook;
 
@@ -214,9 +225,27 @@ final class Wiring implements AutoCloseable {
             workspace, profile.name(), developmentGuard, gateways::tags, ownerKinds,
             id -> byId.get(id).inventory().owner(), accounts, challenges, audit, clock.clock(),
             UUID::randomUUID)));
+        CredentialResolver e2eCredentials = new CredentialResolver(environment, scrubber,
+            config.credentialPrefix());
+        this.runE2eTest = new RunE2eTestTool(new E2eTestService(new E2eTestService.Dependencies(
+            workspace, profile.name(), developmentGuard, id -> e2eClients.computeIfAbsent(id,
+                node -> new SoapE2eClient(byId.get(node), development.get(node).soapBaseUrl()
+                    .orElseThrow(), trustStorePassword(credentials, node), e2eCredentials
+                    .e2e(node).map(e2e -> new SoapE2eClient.BasicAuth(e2e.username().value(),
+                        e2e.password().value())))),
+            gateways::logs, gateways::processes, hangingThresholds::get, accounts, challenges,
+            audit, clock.clock(), UUID::randomUUID)));
         // last step (N2): SIGTERM (and System.exit) stop running StartCLI work and delete the
         // export directories
         Runtime.getRuntime().addShutdownHook(cleanupHook);
+    }
+
+    /** The resolved trust-store password of {@code node}, if any. */
+    private static Optional<de.dadecker.inubit.mcp.infra.Secret> trustStorePassword(
+        CredentialResolution credentials, NodeId node) {
+        return credentials.all().stream().filter(resolved -> resolved.node().equals(node))
+            .findFirst().flatMap(resolved -> resolved.trustStorePassword())
+            .map(SourcedValue::value);
     }
 
     /** The write settings of {@code server} with the INUBIT account for the audit. */
@@ -255,6 +284,9 @@ final class Wiring implements AutoCloseable {
             handlers.add(restoreBackup);
             handlers.add(setActive);
             handlers.add(tagArtifacts);
+        }
+        if (anyE2eNode()) {
+            handlers.add(runE2eTest);
         }
         return List.copyOf(handlers);
     }
@@ -299,6 +331,15 @@ final class Wiring implements AutoCloseable {
         return servers.stream().anyMatch(server -> server.development().enabled());
     }
 
+    /**
+     * True if at least one development node allows end-to-end tests ({@code e2eTests} other
+     * than {@code FORBIDDEN}, feature 004, contracts/mcp-tools-delta.md).
+     */
+    boolean anyE2eNode() {
+        return servers.stream().map(EffectiveNodeConfig::developmentPolicy)
+            .anyMatch(policy -> policy.enabled() && policy.e2eTests() != E2ePolicy.FORBIDDEN);
+    }
+
     /** True if at least one server has effective write access (Story 4 / AS 6). */
     boolean anyWriteEnabled() {
         return servers.stream().anyMatch(EffectiveNodeConfig::effectiveWriteEnabled);
@@ -314,6 +355,7 @@ final class Wiring implements AutoCloseable {
 
     @Override
     public void close() {
+        e2eClients.values().forEach(SoapE2eClient::close);
         cliResources.close();
         gateways.close();
         try {

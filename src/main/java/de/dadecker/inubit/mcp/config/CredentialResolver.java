@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Stream;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -67,6 +68,35 @@ public final class CredentialResolver {
     /** The variables of {@code node} under this resolver's prefix. */
     public CredentialVariables variables(NodeId node) {
         return new CredentialVariables(prefix, node);
+    }
+
+    /**
+     * The optional basic authentication of the SOAP end-to-end tests of a node (feature 004,
+     * research D-25 H8): {@code <PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME} and
+     * {@code …_E2E_PASSWORD}, node-specific before group-wide, like the node credentials.
+     */
+    public record E2eCredentials(SourcedValue<String> username, SourcedValue<Secret> password) {
+        public E2eCredentials {
+            Objects.requireNonNull(username, "username");
+            Objects.requireNonNull(password, "password");
+        }
+    }
+
+    /**
+     * The end-to-end test credentials of {@code server}: both variables set and a safe username
+     * ({@link #isSafeUsername}), else none. The password is registered with the scrubber.
+     */
+    public Optional<E2eCredentials> e2e(NodeId server) {
+        Optional<SourcedValue<String>> username = lookup(server, CredentialVariables.E2E_USERNAME)
+            .filter(value -> isSafeUsername(value.value()));
+        Optional<SourcedValue<String>> password = lookup(server,
+            CredentialVariables.E2E_PASSWORD);
+        if (username.isEmpty() || password.isEmpty()) {
+            return Optional.empty();
+        }
+        SourcedValue<Secret> secret = register(password.get());
+        scrubber.registerBasicAuth(username.get().value(), secret.value());
+        return Optional.of(new E2eCredentials(username.get(), secret));
     }
 
     /** {@link #resolve(List, Set)} without other known profiles. */
@@ -139,7 +169,8 @@ public final class CredentialResolver {
     private Map<String, Set<String>> owners(List<NodeId> servers) {
         Map<String, Set<String>> owners = new LinkedHashMap<>();
         for (NodeId server : servers) {
-            for (String kind : KINDS) {
+            for (String kind : Stream.concat(KINDS.stream(),
+                CredentialVariables.E2E_KINDS.stream()).toList()) {
                 String serverVariable = variables(server).nodeVariable(kind);
                 String stageVariable = variables(server).groupVariable(kind);
                 owners.computeIfAbsent(serverVariable, k -> new TreeSet<>())
