@@ -136,6 +136,33 @@ class ImportTagTest {
     }
 
     @Test
+    void anUnexpectedTagPortFailureNeverUndoesTheVerifiedImport() throws IOException {
+        // review m1 (research D-26): no rollback of a verified and committed import
+        ImportHarness harness = edited(ImportHarness.grpA(temp));
+        harness.tagPorts = node -> {
+            throw new IllegalStateException("no tag port");
+        };
+        harness.exportGroup().importApplied().exportGroup();
+
+        WriteOutcome outcome = completed(harness.service().importArtifacts(
+            harness.tagged("Release", "REL-1")));
+
+        assertNeverRemoved(harness);
+        assertThat(harness.inubit.imported).as("no rollback import").hasSize(1);
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.commit()).isPresent();
+        assertThat(outcome.rollback()).isEmpty();
+        assertThat(outcome.tag()).hasValueSatisfying(tag -> {
+            assertThat(tag.applied()).isFalse();
+            assertThat(tag.failure()).hasValueSatisfying(failure -> {
+                assertThat(failure.code()).isEqualTo(ErrorCode.IMPORT_FAILED);
+                assertThat(failure.step()).isEqualTo("tag");
+            });
+        });
+        assertThat(outcome.warnings()).anyMatch(warning -> warning.contains("tag_artifacts"));
+    }
+
+    @Test
     void aFailedImportSetsNoTag() throws IOException {
         ImportHarness harness = edited(ImportHarness.grpA(temp));
         harness.exportGroup().importRefused().exportGroup();

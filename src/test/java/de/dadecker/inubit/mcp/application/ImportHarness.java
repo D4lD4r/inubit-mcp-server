@@ -80,6 +80,9 @@ public final class ImportHarness {
     public final String diagramGroup;
     public WritePolicy.Confirmation confirmation = WritePolicy.Confirmation.CLIENT;
     /** Wraps the archive port (e.g. to inject an unexpected failure). */
+    /** Replaces the scripted tag port when set (e.g. to make resolving it fail). */
+    public java.util.function.Function<NodeId, de.dadecker.inubit.mcp.domain.port.TagPort>
+        tagPorts;
     public java.util.function.UnaryOperator<de.dadecker.inubit.mcp.domain.port.ImportArchivePort>
         archives = java.util.function.UnaryOperator.identity();
     private final List<UUID> ids = new CopyOnWriteArrayList<>();
@@ -171,7 +174,8 @@ public final class ImportHarness {
                 group -> Optional.of(DEV), node -> inventory(), node -> Optional.of(owner),
                 ResultLimiter.withDefaults(), clock),
             new ArchiveCodec(), archives.apply(new V81ImportArchives()), node -> artifacts,
-            node -> imports, node -> tags, node -> inventory(), node -> Optional.of(owner),
+            node -> imports, node -> tagPorts != null ? tagPorts.apply(node) : tags,
+            node -> inventory(), node -> Optional.of(owner),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),
             new WriteChallengeRegistry(clock), backups, audit::add, clock, this::nextId));
     }

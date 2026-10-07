@@ -1067,7 +1067,8 @@ public final class ImportService {
 
     /**
      * Research D-26: the requested tag on the imported diagram group, after the verified import
-     * and its write-back; never throws (a tag failure is part of the result).
+     * and its write-back; never throws (a tag failure is part of the result), so a tag problem
+     * can never reach the rollback of the already verified and committed import (review m1).
      */
     private DiagramGroupTagger.Result tag(Call call, NodeId node, ChangeSet changes,
         UUID auditId) {
@@ -1079,6 +1080,12 @@ public final class ImportService {
             return new DiagramGroupTagger.Result(false, 0, 0, Optional.of(
                 new WriteOutcome.Failure(ErrorCode.IMPORT_FAILED, "tag", e.error().code() + ": "
                     + e.error().message())), List.of(), List.of());
+        } catch (RuntimeException e) {
+            LOG.error("The tag after the import on {} failed unexpectedly", node, e);
+            return new DiagramGroupTagger.Result(false, 0, 0, Optional.of(
+                new WriteOutcome.Failure(ErrorCode.IMPORT_FAILED, "tag", "INTERNAL: an"
+                    + " unexpected failure (" + e.getClass().getSimpleName() + ") before the"
+                    + " tag was set")), List.of(), List.of());
         }
     }
 
