@@ -126,7 +126,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   `SHARED_MODULE` (module usage of feature 001 on the target), `OUTSIDE_CHAIN` (ledger, T019);
   exclusions by `diagramGroup`, `name` glob, `repositoryPath` glob; tests incl. "excluded module
   missing on target" → error.
-- [ ] T019 [US1] `main/application/DeploymentLedger.java` (`deployments/ledger.json`, owner-only,
+- [X] T019 [US1] `main/application/DeploymentLedger.java` (`deployments/ledger.json`, owner-only,
   atomic write; node → artifact → fingerprint, auditId, tag, time; no content); tests incl.
   permissions and a leak check.
 - [ ] T020 [US1] `main/application/DeployService.java` preview: guard, locks, discovery, checks,
