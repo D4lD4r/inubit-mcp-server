@@ -52,7 +52,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   file in an older version), `export_repository.zip`, `export_repository_not_found.{stdout,stderr,exit}`,
   `import_repository_ok.{stdout,stderr,exit}`, `tag_repository_user_refused.*`; document them in
   `fixtures/cli/README.md`; identifier check before commit.
-- [ ] T002 Add section 10 "Repository files and releases (feature 005)" with the D-1 facts to
+- [X] T002 Add section 10 "Repository files and releases (feature 005)" with the D-1 facts to
   `docs/research/spike-development-deployment.md` and a row per fact to its summary table (generic
   names only).
 

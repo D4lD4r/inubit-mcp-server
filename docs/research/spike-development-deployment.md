@@ -24,6 +24,12 @@ went to two test workflows in one person's own diagram group**. Names below are 
 | Volatile values | `archive.properties`, ZIP entry times, the export suffix of `CheckinComment` and, for workflows, its `###` history segments (plus UIDs after imports); see the correction in section 3 | normalization is small and well-defined |
 | XSLT on Saxon-HE 10 | 88 % of the owner's stylesheets compile as they are; the rest needs ~20 INUBIT extension functions | stubs for those functions make local XSLT checks broadly useful |
 | Artifacts in edit mode | export marks them with `<CheckoutUser>`; INUBIT does **not** protect them: an import overwrites the edited workflow and a later publish from the Workbench overwrites the import, both without a warning (last writer wins) | `import_artifacts` must refuse with `CONFLICT` when `CheckoutUser` is set, and re-check right before importing |
+| Repository export (section 10) | `export --exportRepositoryPath /Root/<owner>/<path>` returns `Root/<owner>/<path>/<name>.xml` (metadata) + `<name>.dat` (content); a missing path fails with `Path not found` (exit 1) | repository files can be read per path; "missing" is a recognizable `NOT_FOUND` |
+| Repository import (section 10) | `import --importRepositoryPath /Root/<owner>` takes entries **relative** to the import path, prints no protocol, creates a new version on every import | the archive is built relative to the owner's root; verification by re-export |
+| Repository files in workflow and module imports (section 10) | `Repository.zip` of a workflow or module archive is **ignored** | repository files need their own import (repository mode) |
+| Repository references (section 10) | a group export carries the files its modules reference by `inubitrepository:` in `xsl:import`/`xs:import`; a string literal is no reference | the release's repository files come from the export, not from a text search |
+| Tags on repository files (section 10) | a group-scoped tag also tags the referenced repository files; `--tagRepositoryPath` with `--tagUser` is refused | tagging the diagram groups is enough; never combine those options |
+| Release export (section 10) | `export --exportWorkflowGroup '' --exportTag <tag>` returns only the tagged diagram groups in their tagged versions, with tagged modules and repository files, without touching other groups' comments | a release is discovered with one export per source node (feature 005) |
 
 ## 1. StartCLI
 
@@ -179,3 +185,51 @@ Both directions are silent lost updates. The server is the only place that can p
 
 The person opened the structurally changed copy in the Workbench: the new node, the rewired
 default branch and the Demultiplexer condition are shown as intended.
+
+## 10. Repository files and releases (feature 005)
+
+Probes of 2026-10-07 with StartCLI 8.1.17 on the development stage, approved by the person; all
+writes went to the person's **personal test repository area** and personal test diagram group
+(one stray probe folder remained in that area; nothing outside it was touched). Names below are
+neutral (`<owner>`, `<path>`, `<tag>`).
+
+- **Repository export**: `export --exportRepositoryPath '/Root/<owner>[/<path>]' --exportFile
+  '<zip>'` prints `1-OK: Repository path exported successfully.` and writes, for each file below
+  the path, `Root/<owner>/<path>/<name>.xml` and `<name>.dat` (plus directory entries; archive
+  comment `5.3`). The `.xml` is one element `<Property name="<name>" type="RepositoryFile" …>`
+  with the attributes `uuid`, `path`, `version`, `contentMD5`, `contentSize`, `modified`,
+  `versionComment`, `contentType`, `modificator`, a `<Description>` child and, in an export with
+  `--exportTag`, `tagName`. The `.dat` is the content. A path that does not exist fails (exit 1)
+  with `Internal INUBIT error!` and `Path not found //ibis:Root/<owner>/<path>`.
+- **Repository import**: `import --importFile '<zip>' --importRepositoryPath '/Root/<owner>'`
+  prints a progress line `Completed = 0 MB / 0 MB` and `1-OK: Imported successfully` — **no
+  protocol**. The archive entries are taken **relative to the import path**: an archive in the
+  export shape (`Root/<owner>/…`) ended up below `/Root/<owner>/Root/<owner>/…`; entries
+  `<path>/<name>.xml` + `.dat` land at `/Root/<owner>/<path>/<name>`. The archive's `uuid` is
+  ignored when a file is created and stays stable afterwards; `Description` is taken; the
+  archive's `versionComment` is ignored, and the stored comment grows by a
+  `DefaultCommitCommentImport@@@` prefix on every import. Every import creates a new version
+  (`1.0` → `1.1` with changed content, → `1.2` unchanged).
+- **Workflow and module imports ignore `Repository.zip`**: a module archive and a workflow archive
+  whose `Repository.zip` carried a changed repository file were imported (`was modified`); the
+  repository file stayed unchanged. Repository files can only be written in repository mode.
+- **References**: a diagram-group export puts into `Repository.zip` the repository files its
+  modules reference by `inubitrepository:/Root/<owner>/<path>` in an `xsl:import` or `xs:import`;
+  the same URI as a string literal in an XSLT variable was **not** treated as a reference.
+- **Tags**: `tag --tagMove <tag> --tagUser <owner> --tagWorkflowType technical
+  --tagWorkflowGroup <group>` also tags the **referenced repository files** of the group
+  (`tagName` in a tagged repository export); unreferenced files of the same folder are not
+  tagged. `tag --tagMove <tag> --tagRepositoryPath <path>` tags a repository path directly; with
+  `--tagUser` it is refused: `Cannot specify user when repository is tagged.`
+- **Release export**: `export --exportWorkflowUser <owner> --exportWorkflowType technical
+  --exportWorkflowGroup '' --exportTag <tag>` prints `1-OK: Workflow group exported
+  successfully.` and returns **only** the diagram groups that carry the tag, in their tagged
+  versions (`version="<n>"` instead of `head`, `@@@Tag: <tag>@@@` in the export suffix of every
+  check-in comment, `tag="<tag>"` on every workflow node, an extra `usertags.xml`), with the
+  tagged versions of their modules and of their referenced repository files (`Repository.zip`
+  held version 1.0 of a file whose head was 1.1). The check-in comments of untagged diagram
+  groups of the owner were **not** touched (a control group's comment grew only by its own two
+  exports, section 3). An owner-wide tag export without any tagged diagram group was not probed.
+
+Neutralized, synthetic fixtures of these shapes: `src/test/resources/fixtures/v8_1/cli/README.md`
+(feature 005 section).
