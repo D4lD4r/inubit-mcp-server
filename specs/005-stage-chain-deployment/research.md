@@ -298,3 +298,43 @@ Smallest design-conforming choices where the tasks met the code (2026-10-07):
   production lock of feature 001).
 - Identifier lists: a literal `INUBIT_` followed by the group name `int` and `_` matches a local
   rule; tests use neutral variable names (`TARGET_USERNAME`, `HARNESS_USERNAME`).
+
+## D-16 addendum: rulings of stage 2 (review fixes, Preview T014–T020)
+
+- **Review #3**: repository files outside `/Root/<owner>/` that release modules reference are
+  never deployed (another owner's area is outside the release): `EXCLUDED` with the warning
+  `OUTSIDE_OWNER_REPOSITORY`; missing on a target node → `PRECONDITION_FAILED` naming the path
+  (D-5, D-7 updated).
+- **Review #1**: `RepositoryArchive.isKeyMaterial` (keys, keystores and certificates by name,
+  PEM or DER) is the predicate of the archive builder and, through
+  `ReleaseArchivePort.keyMaterial`, of the planner; key material is always `EXCLUDED`, missing on
+  the node → `SECRET_UNRESOLVED`. `KeyMaterial` (003/004) is unchanged.
+- **Review #7**: the multi-group double is a new `FakeServer` (owner-wide modules, versions,
+  repository, tags per diagram group, REST diagram/module lists, `synthetic(5, 4, 20)` for
+  SC-007); `FakeInubit` stays the single-group double of feature 004 (the T010 additions moved
+  to `FakeServer`). `DeployHarness` has the source nodes `dev/node1`, `dev/node2`.
+- **Release shape**: the tag export is normalized by `ReleaseArchivePort.normalize` (no
+  `usertags.xml`, `version="head"`, no `tag` attributes or `@@@Tag:` segments) because the
+  codec refuses `usertags.xml`; the release is rendered for the *target* group so its paths
+  equal the target's renderings.
+- **Fingerprints** use `ReleaseArchivePort.canonical` (check-in comments, UIDs, last update and
+  edit mode removed): the nodes of a group are imported separately and their comments differ.
+  Classification ignores a workflow's `IsActive` in addition (existing workflows keep theirs).
+- **Repository files** are excluded by their own rules only (path glob, key material, foreign
+  area), also when the module that references them is excluded.
+- **Codes**: `deploy_release` is no `DevelopmentGuard.Capability` (that guard admits development
+  nodes); `WriteChallengeRegistry` issues and redeems codes for a tool name keyed by the target
+  group (`DEPLOY_RELEASE`); feature-004 node codes are unchanged and never confirm a group call.
+- **Audit**: `DeployGuard` audits its refusals; `DeployService` audits every later outcome of a
+  preview with the call's audit id: `CHALLENGE_ISSUED`, or `REFUSED` for a failure or a preview
+  that is not executable (it has no code).
+- **Ledger**: no `LedgerPort`; `DeploymentLedger` writes the file itself like `BackupStore`
+  (shared `MiniJson`). An unreadable ledger is `PRECONDITION_FAILED` and is never overwritten.
+  `NodePlan.artifactStates` carries the per-artifact fingerprints for the comparison.
+- **Plan errors** use `PRECONDITION_FAILED` for a name in another diagram group, another plugin
+  type, a missing referenced module, a foreign file missing on the node and feature-003 check
+  ERRORs; `CONFLICT` for a deployed workflow in edit mode; the assembler's own codes otherwise.
+- **Module usage** for `SHARED_MODULE` reads the workflows of the node outside the release with
+  `ModuleUsageIndexer` (concurrency 4, budget 60 s); an incomplete usage is a warning too.
+- `DeployService.preview` refuses a request with a code; executing it (T021–T023) and the tool
+  (T024) are stage 3.
