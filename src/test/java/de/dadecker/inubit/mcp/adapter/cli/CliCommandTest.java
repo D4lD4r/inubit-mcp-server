@@ -239,4 +239,24 @@ class CliCommandTest {
         assertInvalidInput(() -> CliCommand.command("export").repositoryPath(
             "--exportRepositoryPath", null));
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"--exportTag", "--exportWorkflowGroup", "--exportRepositoryPath",
+        "--exportWorkflowUser", "--exportFile", "--exportModule"})
+    void optionsThatTakeAValueAreNoFlags(String option) {
+        // stage 1 review #2: flag("--exportTag") would bypass the tag rule
+        assertInvalidInput(() -> CliCommand.command("export").flag(option));
+        assertInvalidInput(() -> CliCommand.command("export").quoted("--exportWorkflowUser",
+            "jdoe").emptyQuoted("--exportWorkflowGroup").flag(option).build());
+    }
+
+    @Test
+    void flagsTakeNoValueAndRepositoryImportsNoFlag() {
+        assertInvalidInput(() -> CliCommand.command("import").flag("--importRepositoryPath"));
+        assertInvalidInput(() -> CliCommand.command("import").flag("--importFile"));
+        assertInvalidInput(() -> CliCommand.command("export").quoted("--includeHistory", "x"));
+        assertInvalidInput(() -> CliCommand.command("import").quoted("--returnProtocol", "x"));
+        assertInvalidInput(() -> CliCommand.command("export").emptyQuoted("--includeHistory"));
+    }
 }
+

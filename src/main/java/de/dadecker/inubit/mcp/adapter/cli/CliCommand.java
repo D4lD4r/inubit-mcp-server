@@ -69,6 +69,10 @@ public final class CliCommand {
             "--importWorkflowInactive", "--importModule", "--importUser", "--returnProtocol",
             "--importRepositoryPath"),
         "tag", Set.of("--tagMove", "--tagWorkflowGroup", "--tagWorkflowType", "--tagUser"));
+    /** The options without value ({@link Builder#flag}); every other option takes one. */
+    private static final Set<String> FLAGS = Set.of("--includeHistory", "--importWorkflow",
+        "--importWorkflowActive", "--importWorkflowInactive", "--importModule",
+        "--returnProtocol");
     /** The options that take a repository path ({@link Builder#repositoryPath}) only. */
     private static final Set<String> REPOSITORY_OPTIONS =
         Set.of("--exportRepositoryPath", "--importRepositoryPath");
@@ -145,21 +149,33 @@ public final class CliCommand {
         private final List<String> tokens = new ArrayList<>();
         private int processIds;
         private boolean emptyGroupList;
+        /** A validated value followed {@code --exportTag} ({@link #quoted}). */
+        private boolean tagged;
 
         private Builder(String name) {
             this.name = name;
             tokens.add(name);
         }
 
-        /** An allow-listed option without value, e.g. {@code --includeHistory}. */
+        /**
+         * An allow-listed option without value, e.g. {@code --includeHistory}; an option that
+         * takes a value is refused (stage 1 review #2: {@code flag("--exportTag")} would bypass
+         * the tag rule).
+         */
         public Builder flag(String option) {
-            tokens.add(plainOption(option));
+            String checked = plainOption(option);
+            if (!FLAGS.contains(checked)) {
+                throw invalid("The StartCLI option " + checked + " takes a value",
+                    "Only " + String.join(", ", FLAGS.stream().sorted().toList())
+                        + " are passed without value");
+            }
+            tokens.add(checked);
             return this;
         }
 
         /** {@code <option> '<value>'}; the value must match {@link #VALUE}. */
         public Builder quoted(String option, String value) {
-            String checked = plainOption(option);
+            String checked = valueOption(option);
             if (value == null || !VALUE.matcher(value).matches()) {
                 throw invalid("The value for " + checked + " cannot be passed to StartCLI"
                         + " safely",
@@ -167,6 +183,9 @@ public final class CliCommand {
             }
             tokens.add(checked);
             tokens.add("'" + value + "'");
+            if (checked.equals("--exportTag")) {
+                tagged = true;
+            }
             return this;
         }
 
@@ -177,7 +196,7 @@ public final class CliCommand {
          * takes it.
          */
         public Builder emptyQuoted(String option) {
-            String checked = plainOption(option);
+            String checked = valueOption(option);
             if (checked.equals("--exportTag")) {
                 throw invalid("The tag for --exportTag must not be empty",
                     "An empty tag cannot select a release");
@@ -192,7 +211,7 @@ public final class CliCommand {
 
         /** {@code <option> '<absolute path>'}, e.g. the export file in a private directory. */
         public Builder path(String option, Path value) {
-            String checked = plainOption(option);
+            String checked = valueOption(option);
             String text = value == null ? "" : value.toString();
             if (!CliPaths.passable(value)) {
                 throw invalid("The path for " + checked + " cannot be passed to StartCLI safely",
@@ -249,7 +268,7 @@ public final class CliCommand {
                 throw invalid("The StartCLI command " + name + " needs a process id",
                     "processErrorStart and kill take exactly one process id");
             }
-            if (emptyGroupList && !tokens.contains("--exportTag")) {
+            if (emptyGroupList && !tagged) {
                 throw invalid("The empty diagram group list is only allowed in a tag export",
                     "StartCLI exports every diagram group of the owner for --exportWorkflowGroup"
                         + " '' (research D-4); only the release export narrows it by --exportTag");
@@ -271,6 +290,16 @@ public final class CliCommand {
             if (REPOSITORY_OPTIONS.contains(checked)) {
                 throw invalid("The StartCLI option " + checked + " takes a repository path",
                     "Repository paths are passed only through their own rule");
+            }
+            return checked;
+        }
+
+        /** An allow-listed option that takes a value (quoted, empty or a file path). */
+        private String valueOption(String option) {
+            String checked = plainOption(option);
+            if (FLAGS.contains(checked)) {
+                throw invalid("The StartCLI option " + checked + " takes no value",
+                    "Pass it with flag()");
             }
             return checked;
         }
