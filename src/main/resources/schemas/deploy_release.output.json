@@ -1,0 +1,405 @@
+{
+  "type": "object",
+  "description": "Either the preview of the first call (challenge) or the outcome of the confirmed call (result); refusals before anything is sent are tool errors",
+  "properties": {
+    "challenge": {
+      "$ref": "#/$defs/Challenge"
+    },
+    "result": {
+      "$ref": "#/$defs/Result"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "challenge"
+      ]
+    },
+    {
+      "required": [
+        "result"
+      ]
+    }
+  ],
+  "$defs": {
+    "Names": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "Challenge": {
+      "type": "object",
+      "description": "Nothing was sent; with executable true, call the tool again with the same inputs and confirmationCode before expiresAt",
+      "required": [
+        "auditId",
+        "target",
+        "source",
+        "tag",
+        "owner",
+        "mode",
+        "diagramGroups",
+        "olderThanHead",
+        "nodes",
+        "notes",
+        "executable",
+        "message"
+      ],
+      "properties": {
+        "auditId": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "EXECUTE",
+            "PACKAGE_ONLY"
+          ]
+        },
+        "diagramGroups": {
+          "$ref": "#/$defs/Names"
+        },
+        "olderThanHead": {
+          "$ref": "#/$defs/Names"
+        },
+        "olderThanHeadTruncated": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NodePlan"
+          }
+        },
+        "notes": {
+          "$ref": "#/$defs/Names"
+        },
+        "executable": {
+          "type": "boolean",
+          "description": "True if every node plan is executable; only then there is a confirmationCode"
+        },
+        "confirmationCode": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{22}$"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "NodePlan": {
+      "type": "object",
+      "required": [
+        "node",
+        "counts",
+        "activeFlags",
+        "warnings",
+        "errors",
+        "executable",
+        "diff",
+        "summary"
+      ],
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "counts": {
+          "type": "object",
+          "required": [
+            "new",
+            "changed",
+            "layoutOnly",
+            "unchanged",
+            "excluded",
+            "onlyOnTarget"
+          ],
+          "properties": {
+            "new": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "changed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "layoutOnly": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unchanged": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "excluded": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "onlyOnTarget": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "activeFlags": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "workflow",
+              "active",
+              "kept"
+            ],
+            "properties": {
+              "workflow": {
+                "type": "string"
+              },
+              "active": {
+                "type": "boolean"
+              },
+              "kept": {
+                "type": "boolean",
+                "description": "True if the flag is the one of the {node} (an existing workflow keeps it)"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "activeFlagsTruncated": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "artifact",
+              "detail"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "artifact": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "warningsTruncated": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "code",
+              "artifact",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "artifact": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "errorsTruncated": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "executable": {
+          "type": "boolean"
+        },
+        "diff": {
+          "type": "string",
+          "description": "Workspace-relative difference file (placeholders only)"
+        },
+        "summary": {
+          "type": "string",
+          "description": "Workspace-relative file with every artifact of the plan"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Failure": {
+      "type": "object",
+      "required": [
+        "code",
+        "step",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "step": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Result": {
+      "type": "object",
+      "required": [
+        "auditId",
+        "outcome",
+        "target",
+        "source",
+        "tag",
+        "nodes",
+        "reports",
+        "warnings"
+      ],
+      "properties": {
+        "auditId": {
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "EXECUTED",
+            "FAILED",
+            "PACKAGED"
+          ]
+        },
+        "target": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NodeOutcome"
+          }
+        },
+        "commit": {
+          "type": "string"
+        },
+        "reports": {
+          "$ref": "#/$defs/Names"
+        },
+        "warnings": {
+          "$ref": "#/$defs/Names"
+        },
+        "warningsTruncated": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "NodeOutcome": {
+      "type": "object",
+      "required": [
+        "node",
+        "state",
+        "imported",
+        "created"
+      ],
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "DEPLOYED",
+            "UNCHANGED",
+            "ROLLED_BACK",
+            "ROLLBACK_FAILED",
+            "NOT_STARTED",
+            "PACKAGED"
+          ]
+        },
+        "backupRef": {
+          "type": "string"
+        },
+        "imported": {
+          "$ref": "#/$defs/Names"
+        },
+        "importedTruncated": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "created": {
+          "$ref": "#/$defs/Names"
+        },
+        "createdTruncated": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tag": {
+          "type": "object",
+          "required": [
+            "applied",
+            "workflows",
+            "modules"
+          ],
+          "properties": {
+            "applied": {
+              "type": "boolean"
+            },
+            "workflows": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "modules": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "failure": {
+              "$ref": "#/$defs/Failure"
+            }
+          },
+          "additionalProperties": false
+        },
+        "failure": {
+          "$ref": "#/$defs/Failure"
+        },
+        "package": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

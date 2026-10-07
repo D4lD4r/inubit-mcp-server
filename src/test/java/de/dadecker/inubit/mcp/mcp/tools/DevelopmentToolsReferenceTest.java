@@ -34,13 +34,15 @@ class DevelopmentToolsReferenceTest {
 
         for (String description : new String[] {ImportArtifactsTool.DESCRIPTION,
             RestoreBackupTool.DESCRIPTION, SetActiveTool.DESCRIPTION,
-            TagArtifactsTool.DESCRIPTION, RunE2eTestTool.DESCRIPTION}) {
+            TagArtifactsTool.DESCRIPTION, RunE2eTestTool.DESCRIPTION,
+            DeployReleaseTool.DESCRIPTION}) {
             assertThat(reference).contains("[acme] " + Terminology.DEFAULT.render(description));
         }
         assertThat(reference).contains("| [`import_artifacts`](#import_artifacts) |",
             "| [`restore_backup`](#restore_backup) |", "| [`set_active`](#set_active) |",
             "| [`tag_artifacts`](#tag_artifacts) |", "| [`run_e2e_test`](#run_e2e_test) |",
-            "All fifteen tools");
+            "| [`deploy_release`](#deploy_release) |",
+            "All sixteen tools");
     }
 
     @Test

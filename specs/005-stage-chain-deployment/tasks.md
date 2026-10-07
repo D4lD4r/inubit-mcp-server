@@ -153,7 +153,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   commit `deploy <target> ← <source>: <tag> [<auditId>]` with `Server-State: <target>` only when every
   node is `DEPLOYED`/`UNCHANGED`; group-level and per-node audit records; SC-003 test (redeploy
   imports nothing).
-- [ ] T024 [US1] `main/mcp/tools/DeployReleaseTool.java`, `res/schemas/deploy_release.{input,output}.json`
+- [X] T024 [US1] `main/mcp/tools/DeployReleaseTool.java`, `res/schemas/deploy_release.{input,output}.json`
   (contract), `ToolHints.destructive`, terminology rendering; `Wiring`: registered iff a group has
   `deploy`; `DevelopmentWiringTest`, `TerminologyRenderingTest`, `TemplateGrammarTest`.
 

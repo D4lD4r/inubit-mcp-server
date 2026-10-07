@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp;
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives;
+import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
@@ -14,6 +15,9 @@ import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
 import de.dadecker.inubit.mcp.application.ArtifactCheckService;
 import de.dadecker.inubit.mcp.application.BackupStore;
 import de.dadecker.inubit.mcp.application.ConfirmationRegistry;
+import de.dadecker.inubit.mcp.application.DeployGuard;
+import de.dadecker.inubit.mcp.application.DeployService;
+import de.dadecker.inubit.mcp.application.DeploymentLedger;
 import de.dadecker.inubit.mcp.application.DevelopmentGuard;
 import de.dadecker.inubit.mcp.application.DiagnosisService;
 import de.dadecker.inubit.mcp.application.E2eTestService;
@@ -22,7 +26,10 @@ import de.dadecker.inubit.mcp.application.HealthService;
 import de.dadecker.inubit.mcp.application.ImportService;
 import de.dadecker.inubit.mcp.application.InventoryCache;
 import de.dadecker.inubit.mcp.application.InventoryService;
+import de.dadecker.inubit.mcp.application.NodeDeployer;
 import de.dadecker.inubit.mcp.application.ProcessControlService;
+import de.dadecker.inubit.mcp.application.ReleaseDiscovery;
+import de.dadecker.inubit.mcp.application.ReleasePlanner;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.TagService;
 import de.dadecker.inubit.mcp.application.TargetResolver;
@@ -40,6 +47,7 @@ import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
+import de.dadecker.inubit.mcp.domain.model.StageChain;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
@@ -56,6 +64,7 @@ import de.dadecker.inubit.mcp.mcp.tools.ExportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.FindProcessesTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetHealthTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetInventoryItemTool;
+import de.dadecker.inubit.mcp.mcp.tools.DeployReleaseTool;
 import de.dadecker.inubit.mcp.mcp.tools.ImportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListInventoryTool;
@@ -122,6 +131,8 @@ final class Wiring implements AutoCloseable {
     private final SetActiveTool setActive;
     private final TagArtifactsTool tagArtifacts;
     private final RunE2eTestTool runE2eTest;
+    /** Feature 005: offered if a group receives deployments. */
+    private final Optional<DeployReleaseTool> deployRelease;
     /** The SOAP test clients, created on first use per node and closed with the wiring. */
     private final Map<NodeId, SoapE2eClient> e2eClients = new java.util.concurrent
         .ConcurrentHashMap<>();
@@ -234,6 +245,40 @@ final class Wiring implements AutoCloseable {
                         e2e.password().value())))),
             gateways::logs, gateways::processes, hangingThresholds::get, accounts, challenges,
             audit, clock.clock(), UUID::randomUUID)));
+        // feature 005: deploy_release along the stage chain (offered only with a chain)
+        StageChain chain = config.stageChain();
+        if (chain.isEmpty()) {
+            this.deployRelease = Optional.empty();
+        } else {
+            Path deployments = Path.of(System.getProperty("user.home")).resolve(".inubit-mcp")
+                .resolve(profile.name()).resolve("deployments");
+            ArchiveCodec codec = new ArchiveCodec();
+            V81ReleaseArchives releases = new V81ReleaseArchives();
+            V81ImportArchives importArchives = new V81ImportArchives();
+            DeploymentLedger ledger = new DeploymentLedger(deployments);
+            ReleasePlanner planner = new ReleasePlanner(new ReleasePlanner.Dependencies(
+                gateways::artifacts, gateways::inventory, codec, releases, importArchives,
+                (releaseRoot, paths) -> new ArtifactCheckService(releaseRoot,
+                    new WorkspaceInspector(), new SaxonXsltRunner(releaseRoot), group ->
+                        Optional.empty(), gateways::inventory, id -> Optional.empty(), limiter,
+                    clock.clock()).checkPaths(paths, false), accounts, workspace,
+                clock.clock()));
+            NodeDeployer deployer = new NodeDeployer(new NodeDeployer.Dependencies(planner,
+                releases, importArchives, codec, gateways::imports, gateways::tags, accounts,
+                new BackupStore(backups, clock.clock()), ledger, audit, profile.name(),
+                clock.clock(), UUID::randomUUID, workspace));
+            DeployService deploy = new DeployService(new DeployService.Dependencies(workspace,
+                deployments, profile.name(), new DeployGuard(chain, targets, group ->
+                    servers.stream().filter(server -> server.id().group().equals(group))
+                        .findFirst().flatMap(server -> server.inventory().owner()), audit,
+                    profile.name(), clock.clock(), UUID::randomUUID),
+                new ReleaseDiscovery(gateways::artifacts, codec, releases, workspace), planner,
+                ledger, challenges, config.defaults().effectiveDeployConfirmationTtl(), audit,
+                clock.clock(), UUID::randomUUID, deployer, new GitCli(workspace, profile.name(),
+                    new SystemProcessLauncher(), environment)));
+            this.deployRelease = Optional.of(new DeployReleaseTool(deploy,
+                config.resultLimits().maxItems()));
+        }
         // last step (N2): SIGTERM (and System.exit) stop running StartCLI work and delete the
         // export directories
         Runtime.getRuntime().addShutdownHook(cleanupHook);
@@ -287,6 +332,7 @@ final class Wiring implements AutoCloseable {
         if (anyE2eNode()) {
             handlers.add(runE2eTest);
         }
+        deployRelease.ifPresent(handlers::add);
         return List.copyOf(handlers);
     }
 

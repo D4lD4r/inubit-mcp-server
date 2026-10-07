@@ -7,7 +7,7 @@ the server announces are in `src/main/resources/schemas/`; the two workspace too
 follow [contracts/mcp-tools-delta.md](../specs/003-artifact-workspace/contracts/mcp-tools-delta.md),
 the five development tools of feature 004
 [their delta](../specs/004-development-stage/contracts/mcp-tools-delta.md).
-All fifteen tools are described here; each section quotes the description the server announces in
+All sixteen tools are described here; each section quotes the description the server announces in
 `tools/list` for a profile `acme` without description and with the default terminology
 (Group/Node).
 
@@ -60,6 +60,7 @@ General rules:
 | [`set_active`](#set_active) | activate or deactivate ONE workflow on ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`tag_artifacts`](#tag_artifacts) | tag the head versions of whole diagram groups (and their modules) | **destructive**, non-idempotent, open world | yes (StartCLI history `export` and `tag`) |
 | [`run_e2e_test`](#run_e2e_test) | send a SOAP test message and report what INUBIT did | **destructive**, non-idempotent, open world | yes (SOAP endpoint, REST logs and Queue Manager) |
+| [`deploy_release`](#deploy_release) | deploy a tagged release into the next group of the stage chain, node by node | **destructive**, non-idempotent, open world | yes (StartCLI `export`, `import` and `tag`; REST diagram list) |
 
 `restart_process` and `kill_process` are **offered only if at least one node has effective
 write access** (`write.enabled: true`, and on a `production: true` group also
@@ -1047,3 +1048,23 @@ Every history export appends to the check-in comments of the exported workflows 
 **Example prompt**: "Send samples/order.xml to /ibis/ws/Service-01 on dev" →
 `run_e2e_test(node: "dev/node1", envelope: "samples/order.xml", path: "/ibis/ws/Service-01",
 workflow: "Order-Inbound")`.
+
+## `deploy_release`
+
+> [acme] Deploy a release — every diagram group that carries the given tag on the source group —
+> into ONE target group, node by node. The source is always the configured predecessor of the
+> target. The first call returns a preview per node (new, changed, layout-only, unchanged,
+> excluded, warnings) and a confirmation code; the call with the code backs up, imports only what
+> changed with the own secrets of each node, verifies, rolls back a failing node and stops there, and
+> tags the deployed groups. For a package-only target the call with the code writes import
+> packages instead of importing.
+
+Offered only if at least one group has `deploy` (feature 005). **Input**: `target` (a group id),
+`tag`, `owner` (default `inventory.owner` of the target), `confirmationCode`. The first call is
+always a preview (`challenge`); a code exists only if every node plan is executable. The call
+with the code returns `result` with the state of every node (`DEPLOYED`, `UNCHANGED`,
+`ROLLED_BACK`, `ROLLBACK_FAILED`, `NOT_STARTED`). Lists are bounded by `resultLimits.maxItems`
+(`<list>Truncated` names how many were left out). Errors: `CHAIN_VIOLATION`, `DEPLOY_LOCKED`,
+`SOURCE_INCONSISTENT`, `NOT_FOUND`, `CONFLICT`, `CONFIRMATION_INVALID`. The full description
+follows with the documentation of feature 005.
+

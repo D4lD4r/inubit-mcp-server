@@ -569,14 +569,32 @@ public final class NodeDeployer {
         return result;
     }
 
+    /**
+     * Appends a node-level record. A {@code PENDING} record that cannot be written stops the
+     * node before anything is sent ({@code INTERNAL}, fail closed); a final record that cannot be
+     * written is logged, the outcome stands.
+     */
     private void audit(Call call, Map<String, String> inputs, AuditOutcome outcome,
         String reason) {
         NodeId node = call.node();
-        d.audit().append(new AuditRecord(call.auditId(), d.clock().instant(), d.profile(),
-            node.value(), Optional.of(node.group().value()), DeployGuard.CAPABILITY,
-            AuditRecord.Step.EXECUTE, inputs, Optional.of(d.accounts().apply(node).user()),
-            outcome, Optional.of(reason.length() <= 500 ? reason : reason.substring(0, 500)),
-            call.mcpClient()));
+        try {
+            d.audit().append(new AuditRecord(call.auditId(), d.clock().instant(), d.profile(),
+                node.value(), Optional.of(node.group().value()), DeployGuard.CAPABILITY,
+                AuditRecord.Step.EXECUTE, inputs, Optional.of(d.accounts().apply(node).user()),
+                outcome, Optional.of(reason.length() <= 500 ? reason : reason.substring(0, 500)),
+                call.mcpClient()));
+        } catch (RuntimeException e) {
+            LOG.error("The {} audit record of {} could not be written ({})", outcome, node,
+                e.getClass().getSimpleName());
+            if (outcome == AuditOutcome.PENDING) {
+                throw new ToolErrorException(de.dadecker.inubit.mcp.domain.model.ToolError.of(
+                    ErrorCode.INTERNAL, "The audit record of " + node + " could not be written;"
+                        + " nothing was sent to it",
+                    "The audit directory is not writable, full, or not owned by this user",
+                    "Fix the audit directory (auditDirectory in the configuration), then"
+                        + " retry").withNode(node));
+            }
+        }
     }
 
     private String report(Call call, String kind, List<String> lines) {
