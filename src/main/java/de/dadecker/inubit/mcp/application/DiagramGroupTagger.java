@@ -33,7 +33,7 @@ import org.slf4j.LoggerFactory;
  * every module they use must carry the tag. Nothing is ever removed — StartCLI removes a tag only
  * for the whole owner, which could take away a tag marking another group's state.
  */
-final class DiagramGroupTagger {
+public final class DiagramGroupTagger {
 
     private static final Logger LOG = LoggerFactory.getLogger(DiagramGroupTagger.class);
     private static final String TECHNICAL = "technical";
@@ -65,7 +65,7 @@ final class DiagramGroupTagger {
     private final Path root;
 
     /** @param root the workspace root (reports) */
-    DiagramGroupTagger(Path root) {
+    public DiagramGroupTagger(Path root) {
         this.root = Objects.requireNonNull(root, "root");
     }
 

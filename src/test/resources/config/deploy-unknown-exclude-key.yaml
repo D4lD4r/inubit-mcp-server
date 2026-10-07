@@ -1,0 +1,12 @@
+# Feature 005: an exclude entry has the keys diagramGroup, name and repositoryPath only.
+profile:
+  name: acme
+groups:
+  - name: dev
+    nodes: [ { name: node1, baseUrl: https://inubit-dev.example.test:8443 } ]
+  - name: int
+    deploy:
+      from: dev
+      exclude:
+        - path: "/Root/*/stage/**"
+    nodes: [ { name: node1, baseUrl: https://inubit-int-1.example.test:8443 } ]

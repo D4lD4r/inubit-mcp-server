@@ -3,9 +3,12 @@ package de.dadecker.inubit.mcp.config;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
+import de.dadecker.inubit.mcp.domain.model.StageChain;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
@@ -98,6 +101,49 @@ public record ProfileConfig(
      */
     public List<EffectiveNodeConfig> resolvableNodes() {
         return nodes(false);
+    }
+
+    /**
+     * The stage chain of feature 005 (research D-2) from the {@code deploy} records of the
+     * groups, in config order.
+     *
+     * @throws IllegalArgumentException if a group name, a {@code deploy.from} or an exclusion
+     *     is invalid or the chain has a cycle; call this only after {@link ConfigValidator}
+     *     reported no errors
+     */
+    public StageChain stageChain() {
+        Set<String> names = new TreeSet<>();
+        groups.forEach(group -> names.add(group.name()));
+        Map<GroupId, StageChain.ChainLink> targets = new LinkedHashMap<>();
+        for (GroupConfig group : groups) {
+            if (group.deploy().isEmpty()) {
+                continue;
+            }
+            DeployConfig deploy = group.deploy().get();
+            String from = deploy.from().strip();
+            if (!names.contains(from) || from.equals(group.name())) {
+                // the same rule as ConfigValidator.checkChain (stage 1 review #6)
+                throw new IllegalArgumentException("deploy.from of " + group.name()
+                    + " does not name another existing group");
+            }
+            targets.put(new GroupId(group.name()), new StageChain.ChainLink(new GroupId(from),
+                deploy.mode(), deploy.exclude().stream().map(ProfileConfig::exclusion).toList()));
+        }
+        return new StageChain(targets);
+    }
+
+    private static StageChain.Exclusion exclusion(ExcludeRule rule) {
+        List<StageChain.Exclusion> set = new ArrayList<>();
+        rule.diagramGroup().ifPresent(value -> set.add(new StageChain.Exclusion(
+            StageChain.Exclusion.Kind.DIAGRAM_GROUP, value.strip())));
+        rule.name().ifPresent(value -> set.add(new StageChain.Exclusion(
+            StageChain.Exclusion.Kind.NAME, value.strip())));
+        rule.repositoryPath().ifPresent(value -> set.add(new StageChain.Exclusion(
+            StageChain.Exclusion.Kind.REPOSITORY_PATH, value.strip())));
+        if (set.size() != 1) {
+            throw new IllegalArgumentException("An exclude entry needs exactly one key");
+        }
+        return set.get(0);
     }
 
     /** Ids of all servers with valid stage and server names (with or without base URL). */

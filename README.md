@@ -5,7 +5,10 @@ an AI assistant such as Claude Code operate and diagnose **INUBIT 8.1** integrat
 health, find failed or hanging process instances and read the matching logs, inspect the inventory
 of diagrams and modules, and — only where explicitly allowed — restart or kill a single process
 instance. On a configured **development stage** it brings workspace changes back into INUBIT,
-switches workflows on or off, tags tested states, restores backups and sends SOAP test messages. It uses the INUBIT REST API wherever possible and the INUBIT command-line client
+switches workflows on or off, tags tested states, restores backups and sends SOAP test messages.
+Along a configured **stage chain** it deploys a tagged release into the next group, node by node
+— or, for a package-only group such as production, prepares import packages for a person. It uses
+the INUBIT REST API wherever possible and the INUBIT command-line client
 (StartCLI) only where REST cannot do the job. One server process serves one **profile** (one
 customer or project, one YAML file); several profiles run side by side as separate registrations.
 
@@ -24,16 +27,20 @@ customer or project, one YAML file); several profiles run side by side as separa
 | `export_artifacts` | export technical workflows (by diagram group) or modules into a local, git-versioned workspace as readable files, secrets replaced by placeholders | StartCLI `export` (read-only) |
 | `check_artifacts` | check workspace files offline: workflow structure, referenced modules, a stylesheet run with deterministic stand-ins, XML/XSD validation | only the module list for modules missing locally |
 | `import_artifacts` | import the changed workflows of one diagram group (with changed or new modules), or changed modules, into one development node — checked, conflict-free, backed up, verified, rolled back on failure | StartCLI `export` + `import` |
-| `restore_backup` | re-import the backup of an earlier development call | StartCLI `export` + `import` |
+| `restore_backup` | re-import the backup of an earlier development call, or of a deployment on one node of a target group | StartCLI `export` + `import` |
 | `set_active` | activate or deactivate one workflow on a development node | StartCLI `export` + `import` |
 | `tag_artifacts` | tag the head versions of whole named diagram groups (never owner-wide; an existing tag name is reused), verified | StartCLI history `export` + `tag` |
-| `run_e2e_test` | send a SOAP envelope from the workspace to a development node and report the response, processes, errors and logs it caused | SOAP + REST |
+| `run_e2e_test` | send a SOAP envelope from the workspace to a development node (or a non-production node of a target group) and report the response, processes, errors and logs it caused | SOAP + REST |
+| `deploy_release` | deploy the diagram groups that carry a tag from a group into the next group of the stage chain, node by node (preview and code first; backed up, verified, rolled back per node), or write import packages for a package-only group | StartCLI `export`, `import`, `tag`; REST |
 
 The two write tools are registered only if at least one node of the profile has effective write
 access, `export_artifacts` only if a node has a StartCLI installation; with the default
 configuration and no client installation the server offers the six read-only tools and
 `check_artifacts`. The development tools are registered only if a node has
-`development.enabled: true` (never on production), `run_e2e_test` only where `e2eTests` allows it. Inputs, outputs and example prompts: [docs/tools.md](docs/tools.md); the
+`development.enabled: true` (never on production), `run_e2e_test` only where `e2eTests` allows it.
+`deploy_release` is registered only if a group has a `deploy` record (feature 005); with a group
+in mode `EXECUTE` also `restore_backup` (for deployment backups), and `run_e2e_test` where a
+target node's `e2eTests` allows it. Inputs, outputs and example prompts: [docs/tools.md](docs/tools.md); the
 workspace: [docs/setup.md](docs/setup.md#artifact-workspace).
 
 ## Safety model
@@ -65,6 +72,15 @@ workspace: [docs/setup.md](docs/setup.md#artifact-workspace).
   the target's own secret values, is verified by a re-export and rolled back from the backup on
   failure; by default it needs a server-issued confirmation code. Nothing is ever deleted in
   INUBIT.
+- **Stage chain, never skipping a stage.** `deploy_release` deploys only into a group with a
+  `deploy` record, and only from its configured source (`deploy.from`); the record is the write
+  enablement of deployments. Every deployment first returns a preview per node and a
+  **server-issued confirmation code** that cannot be switched off; with the code each node is
+  re-checked, backed up, imported with only what changed and with its own secret values,
+  verified, and rolled back from its backup on failure — the deployment then stops. Production
+  in mode `EXECUTE` needs `write.productionOptIn`; a **package-only** group (e.g. production)
+  never receives an import or a tag: the server only writes owner-only packages for a person to
+  import. Nothing is ever deleted on a target.
 - **TLS on.** Self-signed server certificates are handled with a dedicated trust store plus a
   certificate pin, never by switching verification off.
 

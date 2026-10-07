@@ -54,6 +54,10 @@ public final class CliOutputClassifier {
     private static final Pattern MISSING_MODULE = Pattern.compile("^The module .+ not found$");
 
     private static final String PASSWORD_PROMPT = "Password:";
+    /** StartCLI's answer to an export whose selection (e.g. a tag) matches no diagram group. */
+    private static final String NO_TAGGED_GROUP =
+        "No workflow group containing workflows for export found";
+    private static final String PATH_NOT_FOUND = "Path not found //ibis:Root";
     private static final String INVALID_FILTER =
         "cli.process.option.filter.argument.expression.invalidFilterExpression";
     private static final Pattern NETWORK_FAILURE = Pattern.compile(
@@ -134,6 +138,7 @@ public final class CliOutputClassifier {
             + String.join("\n", output.outputLines());
         return new CliOutcome.Failure(byMarker(output, all)
             .or(() -> missingArtifact(output))
+            .or(() -> missingRepositoryPath(all))
             .or(() -> byText(all))
             .orElseGet(() -> unexpected(result, output)));
     }
@@ -168,11 +173,13 @@ public final class CliOutputClassifier {
     /**
      * An export of a diagram group or module that does not exist (feature 003, recorded:
      * {@code 2-NOK: Workflow group not found: <group>}, {@code 2-NOK: The module <name> not
-     * found}).
+     * found}), or of a selection without any diagram group (feature 005, a text of the 8.1.17
+     * client: {@code 2-NOK: No workflow group containing workflows for export found.}).
      */
     private Optional<ToolError> missingArtifact(CliOutput output) {
         for (String message : output.nokMessages()) {
             if (message.startsWith("Workflow group not found:")
+                || message.startsWith(NO_TAGGED_GROUP)
                 || MISSING_MODULE.matcher(message).matches()) {
                 return Optional.of(error(ErrorCode.NOT_FOUND, "StartCLI: " + message,
                     "The diagram group or module does not exist for this owner (names are"
@@ -181,6 +188,20 @@ public final class CliOutputClassifier {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * A repository export of a path that does not exist (feature 005, research D-1:
+     * {@code Internal INUBIT error!} with {@code Path not found //ibis:Root/…}).
+     */
+    private Optional<ToolError> missingRepositoryPath(String all) {
+        if (!all.contains(PATH_NOT_FOUND)) {
+            return Optional.empty();
+        }
+        return Optional.of(error(ErrorCode.NOT_FOUND, "StartCLI: "
+                + firstLineWith(all, PATH_NOT_FOUND),
+            "The repository file or folder does not exist (paths are case-sensitive)",
+            "Check the path below /Root/<owner> in the Workbench repository, then retry"));
     }
 
     private Optional<ToolError> byText(String all) {

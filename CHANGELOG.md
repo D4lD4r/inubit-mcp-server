@@ -7,6 +7,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Stage chain and deployments (feature 005): a group with a `deploy` record (`from`, `mode`
+  `EXECUTE | PACKAGE_ONLY`, `exclude`) receives releases from exactly one source group;
+  `--check-config` shows the chains and each node's `deploy` line.
+- `deploy_release`: deploys every diagram group that carries a tag on the source into ONE target
+  group, node by node. The first call is always a preview per node (new, changed, layout-only,
+  unchanged, excluded, active flags, warnings such as `OUTSIDE_CHAIN`, `SHARED_MODULE`,
+  `STAGE_SPECIFIC_VALUE`) with a server code valid `deployConfirmationTtl`; the call with the code
+  re-checks, backs up, imports only what changed (repository files, modules, workflows per active
+  flag) with each node's own secret values, verifies, rolls back a failing node and stops there,
+  then tags the deployed groups, records the ledger and commits the verified state. Package-only
+  groups (e.g. production) get owner-only import packages (archives, `diff.txt`,
+  `warnings.txt`, `README.md` with the StartCLI commands) and never an import or a tag.
+- Error codes `CHAIN_VIOLATION`, `SOURCE_INCONSISTENT` and `DEPLOY_LOCKED`; audit outcome
+  `PACKAGED`.
+- Deployment live test (`live/DeploymentLiveTest`, opt-in, never production or package-only).
+
+### Changed
+
+- `restore_backup` also restores a deployment backup on the node of the target group it was taken
+  on (always with preview and server code); it is offered with an `EXECUTE` target even without a
+  development node.
+- `run_e2e_test` also runs on non-production nodes of groups that receive deployments, as their
+  `e2eTests` allows; it is offered where such a node allows it.
+
+### Fixed
+
+- `import_artifacts` (and deployments): a newly created module was reported as `VERIFY_MISMATCH`
+  and rolled back, because INUBIT puts one more `DefaultCommitCommentImport###` in front of the
+  check-in comment of a created module; the reason check accepts that form.
+
 ## [0.3.0] - 2026-10-07
 
 ### Added

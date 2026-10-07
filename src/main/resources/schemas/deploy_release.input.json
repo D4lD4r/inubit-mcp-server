@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "required": [
+    "target",
+    "tag"
+  ],
+  "properties": {
+    "target": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}(/[a-z0-9][a-z0-9-]{0,31})?$",
+      "description": "Id of the ONE target {group} to deploy into; {node} ids are rejected. The source is always the configured predecessor of this {group} (deploy.from)"
+    },
+    "tag": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+      "description": "The tag of the release on the source, e.g. REL-2026-10-07; every diagram group of the owner that carries it is deployed; no wildcards"
+    },
+    "owner": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+      "description": "The owner (user or user group) of the release; default: inventory.owner of the target {group}"
+    },
+    "confirmationCode": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$",
+      "description": "The code from the preview of the first call; deploys (or writes the packages)"
+    }
+  },
+  "additionalProperties": false
+}

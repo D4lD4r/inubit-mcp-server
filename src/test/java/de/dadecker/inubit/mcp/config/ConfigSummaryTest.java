@@ -207,4 +207,82 @@ class ConfigSummaryTest {
         assertThat(summary).contains("trustStorePassword ← INUBIT_ACME_PROD_TRUSTSTORE_PASSWORD");
         assertThat(summary).doesNotContain("ts-secret");
     }
+
+    // --- feature 005 T013: the stage chain (research D-2) -------------------------------------
+
+    private static final String CHAIN = """
+        profile:
+          name: acme
+        defaults:
+          cliHome: /opt/client
+        groups:
+          - name: dev
+            nodes: [ { name: node1, baseUrl: https://inubit-dev.example.test:8443 } ]
+          - name: int
+            deploy:
+              from: dev
+              exclude:
+                - diagramGroup: GRP-SYS
+                - name: "CFG_*"
+                - repositoryPath: "/Root/*/stage/**"
+            nodes:
+              - { name: node1, baseUrl: https://inubit-int-1.example.test:8443 }
+              - { name: node2, baseUrl: https://inubit-int-2.example.test:8443 }
+          - name: qa
+            deploy: { from: int }
+            nodes: [ { name: node1, baseUrl: https://inubit-qa.example.test:8443 } ]
+          - name: prod
+            production: true
+            deploy: { from: qa, mode: PACKAGE_ONLY }
+            nodes: [ { name: node1, baseUrl: https://inubit-prod.example.test:8443 } ]
+        """;
+
+    @Test
+    void showsTheChainsTheExclusionsAndTheDeployLineOfEachNode() {
+        String summary = render(CHAIN);
+
+        assertThat(summary).contains("Chains:\n  dev → int → qa → prod (package only)\n");
+        assertThat(summary).contains("  int excludes: diagramGroup GRP-SYS, name CFG_*,"
+            + " repositoryPath /Root/*/stage/**\n");
+        assertThat(summary).doesNotContain("qa excludes", "prod excludes");
+        assertThat(summary.lines().filter(line -> line.contains("Node int/node")))
+            .hasSize(2).allMatch(line -> line.contains(", deploy: from dev (EXECUTE)"));
+        assertThat(summary.lines().filter(line -> line.contains("Node prod/node1")).findFirst())
+            .get().asString().contains(", deploy: from qa (PACKAGE_ONLY)");
+        assertThat(summary.lines().filter(line -> line.contains("Node dev/node1")).findFirst())
+            .get().asString().doesNotContain("deploy:");
+    }
+
+    @Test
+    void severalChainsAreSeveralLines() {
+        String summary = render(CHAIN.replace("deploy: { from: int }", "deploy: { from: dev }"));
+
+        assertThat(summary)
+            .contains("Chains:\n  dev → int\n  dev → qa → prod (package only)\n");
+    }
+
+    @Test
+    void aProfileWithoutDeployPrintsAsBefore() {
+        assertThat(render(CONFIG)).doesNotContain("Chains:", "deploy:", "excludes");
+    }
+
+    @Test
+    void anInvalidChainIsNotDrawnButReported() {
+        String summary = render(CHAIN.replace("    nodes: [ { name: node1, baseUrl:"
+            + " https://inubit-dev.example.test:8443 } ]", "    deploy: { from: qa }\n"
+            + "    nodes: [ { name: node1, baseUrl: https://inubit-dev.example.test:8443 } ]"));
+
+        assertThat(summary).contains("Chains: not shown, see the errors")
+            .contains("The stage chain has a cycle");
+    }
+
+    @Test
+    void aChainFromAnUnknownGroupIsNotDrawn() {
+        // stage 1 review #6: only a chain without chain errors is drawn
+        String summary = render(CHAIN.replace("deploy: { from: int }", "deploy: { from: test }"));
+
+        assertThat(summary).contains("Chains: not shown, see the errors")
+            .doesNotContain("test → qa");
+    }
 }
+

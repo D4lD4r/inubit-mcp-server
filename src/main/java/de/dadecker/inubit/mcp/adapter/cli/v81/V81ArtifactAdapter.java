@@ -40,6 +40,20 @@ public final class V81ArtifactAdapter implements ArtifactPort {
     }
 
     @Override
+    public byte[] exportRelease(String owner, String tag) {
+        exports.checkReleaseExport(owner, tag);
+        confirmCredentials.run();
+        return exports.exportRelease(owner, tag);
+    }
+
+    @Override
+    public byte[] exportRepository(String path) {
+        exports.checkRepositoryExport(path);
+        confirmCredentials.run();
+        return exports.exportRepository(path);
+    }
+
+    @Override
     public String toString() {
         return "V81ArtifactAdapter[" + exports + "]";
     }

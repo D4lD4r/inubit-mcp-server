@@ -167,4 +167,96 @@ class CliCommandTest {
         assertInvalidInput(() -> CliCommand.command("tag").flag("--tagRemove"));
         assertInvalidInput(() -> CliCommand.command("tag").quoted("--tagMove", "a'b"));
     }
+
+    // --- feature 005 (T004, research D-1, D-4): release and repository exports, repository import
+
+    @Test
+    void theReleaseExportTakesATagAndTheEmptyGroupList() {
+        assertThat(CliCommand.command("export").quoted("--exportWorkflowUser", "jdoe")
+            .quoted("--exportWorkflowType", "technical").emptyQuoted("--exportWorkflowGroup")
+            .quoted("--exportTag", "TAG-01").path("--exportFile", Path.of("/tmp/x/release.zip"))
+            .build().commandLine()).isEqualTo("export --exportWorkflowUser 'jdoe'"
+                + " --exportWorkflowType 'technical' --exportWorkflowGroup '' --exportTag"
+                + " 'TAG-01' --exportFile '/tmp/x/release.zip'");
+        assertInvalidInput(() -> CliCommand.command("export").quoted("--exportTag", "a'b"));
+        assertInvalidInput(() -> CliCommand.command("export").emptyQuoted("--exportTag"));
+        assertInvalidInput(() -> CliCommand.command("import").quoted("--exportTag", "TAG-01"));
+    }
+
+    @Test
+    void theEmptyGroupListIsRefusedWithoutATag() {
+        assertInvalidInput(() -> CliCommand.command("export")
+            .quoted("--exportWorkflowUser", "jdoe").quoted("--exportWorkflowType", "technical")
+            .emptyQuoted("--exportWorkflowGroup").path("--exportFile", Path.of("/tmp/x/a.zip"))
+            .build());
+        assertInvalidInput(() -> CliCommand.command("export")
+            .emptyQuoted("--exportWorkflowGroup").build());
+    }
+
+    @Test
+    void repositoryPathsAreQuotedAndOnlyForTheRepositoryOptions() {
+        assertThat(CliCommand.command("export")
+            .repositoryPath("--exportRepositoryPath", "/Root/jdoe/xsd/release.xsl")
+            .path("--exportFile", Path.of("/tmp/x/repository.zip")).build().commandLine())
+            .isEqualTo("export --exportRepositoryPath '/Root/jdoe/xsd/release.xsl'"
+                + " --exportFile '/tmp/x/repository.zip'");
+        assertThat(CliCommand.command("import").path("--importFile", Path.of("/tmp/x/r.zip"))
+            .repositoryPath("--importRepositoryPath", "/Root/OWNERS").build().commandLine())
+            .isEqualTo("import --importFile '/tmp/x/r.zip' --importRepositoryPath '/Root/OWNERS'");
+        assertThat(CliCommand.command("export")
+            .repositoryPath("--exportRepositoryPath", "/Root/jdoe/My Dir/v1..2.xsd").build()
+            .commandLine()).endsWith("'/Root/jdoe/My Dir/v1..2.xsd'");
+        assertInvalidInput(() -> CliCommand.command("export")
+            .quoted("--exportRepositoryPath", "Root"));
+        assertInvalidInput(() -> CliCommand.command("import")
+            .quoted("--importRepositoryPath", "Root"));
+        assertInvalidInput(() -> CliCommand.command("export")
+            .repositoryPath("--exportWorkflowGroup", "/Root/jdoe"));
+        assertInvalidInput(() -> CliCommand.command("import")
+            .repositoryPath("--exportRepositoryPath", "/Root/jdoe"));
+        assertInvalidInput(() -> CliCommand.command("tag")
+            .repositoryPath("--tagRepositoryPath", "/Root/jdoe"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "/", "/Root", "/Root/", "Root/jdoe", "/root/jdoe", "/Root//jdoe",
+        "/Root/jdoe/", "/Root/../etc", "/Root/jdoe/../x", "/Root/./jdoe", "/Root/jdoe/..",
+        "/Root/it's", "/Root/a;b", "/Root/$(id)", "/Root/-rf", "/Root/ a", "/Root/a\nb",
+        "/Root/a*b", "/Root/ä", "/Other/jdoe"})
+    void repositoryPathsOutsideTheRuleAreRejected(String path) {
+        assertInvalidInput(() -> CliCommand.command("export")
+            .repositoryPath("--exportRepositoryPath", path));
+        assertInvalidInput(() -> CliCommand.command("import")
+            .repositoryPath("--importRepositoryPath", path));
+    }
+
+    @Test
+    void repositoryPathSegmentsUpTo200CharsAreAccepted() {
+        assertThat(CliCommand.command("export").repositoryPath("--exportRepositoryPath",
+            "/Root/" + "a".repeat(200)).build().commandLine()).endsWith("a'");
+        assertInvalidInput(() -> CliCommand.command("export").repositoryPath(
+            "--exportRepositoryPath", "/Root/" + "a".repeat(201)));
+        assertInvalidInput(() -> CliCommand.command("export").repositoryPath(
+            "--exportRepositoryPath", null));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"--exportTag", "--exportWorkflowGroup", "--exportRepositoryPath",
+        "--exportWorkflowUser", "--exportFile", "--exportModule"})
+    void optionsThatTakeAValueAreNoFlags(String option) {
+        // stage 1 review #2: flag("--exportTag") would bypass the tag rule
+        assertInvalidInput(() -> CliCommand.command("export").flag(option));
+        assertInvalidInput(() -> CliCommand.command("export").quoted("--exportWorkflowUser",
+            "jdoe").emptyQuoted("--exportWorkflowGroup").flag(option).build());
+    }
+
+    @Test
+    void flagsTakeNoValueAndRepositoryImportsNoFlag() {
+        assertInvalidInput(() -> CliCommand.command("import").flag("--importRepositoryPath"));
+        assertInvalidInput(() -> CliCommand.command("import").flag("--importFile"));
+        assertInvalidInput(() -> CliCommand.command("export").quoted("--includeHistory", "x"));
+        assertInvalidInput(() -> CliCommand.command("import").quoted("--returnProtocol", "x"));
+        assertInvalidInput(() -> CliCommand.command("export").emptyQuoted("--includeHistory"));
+    }
 }
+

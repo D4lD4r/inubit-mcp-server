@@ -1,13 +1,18 @@
 package de.dadecker.inubit.mcp.application;
 
+import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePolicy;
+import java.time.Duration;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 
 /**
@@ -18,7 +23,9 @@ import java.util.function.Function;
  *   <li>The input must be one configured node: a group id is {@code INVALID_INPUT}, an unknown
  *       id {@code TARGET_UNKNOWN}.
  *   <li>A node that is not a development stage ({@code development.enabled} false, the default,
- *       or no policy at all: fail closed) is {@code NOT_DEVELOPMENT}.
+ *       or no policy at all: fail closed) is {@code NOT_DEVELOPMENT} — except for
+ *       {@code run_e2e_test} on a non-production node of a group that receives deployments
+ *       (feature 005, T027), which its {@code e2eTests} governs.
  *   <li>A development node of a production group is {@code PRODUCTION_PROTECTED} (defence in
  *       depth: the configuration validation rejects it at startup).
  *   <li>{@code run_e2e_test} needs {@code e2eTests} other than {@code FORBIDDEN}
@@ -71,17 +78,66 @@ public final class DevelopmentGuard {
     private final TargetResolver targets;
     private final Function<NodeId, DevelopmentPolicy> policies;
     private final CliCheck cli;
+    private final Function<GroupId, Optional<DeployMode>> deployModes;
+    private final Duration deployTtl;
 
-    /**
-     * @param policies the development settings of each configured node ({@code null}: not a
-     *                 development node)
-     * @param cli      the StartCLI availability check of a node
-     */
+    /** A guard without a stage chain (feature 004). */
     public DevelopmentGuard(TargetResolver targets, Function<NodeId, DevelopmentPolicy> policies,
         CliCheck cli) {
+        this(targets, policies, cli, group -> Optional.empty(), Duration.ofMinutes(30));
+    }
+
+    /**
+     * @param policies    the development settings of each configured node ({@code null}: not a
+     *                    development node)
+     * @param cli         the StartCLI availability check of a node
+     * @param deployModes feature 005: the {@code deploy.mode} of a group that receives
+     *                    deployments (empty: it receives none)
+     * @param deployTtl   {@code defaults.deployConfirmationTtl}, the validity of the code of a
+     *                    deployment restore
+     */
+    public DevelopmentGuard(TargetResolver targets, Function<NodeId, DevelopmentPolicy> policies,
+        CliCheck cli, Function<GroupId, Optional<DeployMode>> deployModes, Duration deployTtl) {
         this.targets = Objects.requireNonNull(targets, "targets");
         this.policies = Objects.requireNonNull(policies, "policies");
         this.cli = Objects.requireNonNull(cli, "cli");
+        this.deployModes = Objects.requireNonNull(deployModes, "deployModes");
+        this.deployTtl = Objects.requireNonNull(deployTtl, "deployTtl");
+    }
+
+    /**
+     * Feature 005 (T026): admits {@code restore_backup} of a deployment backup on a node of a
+     * group that receives deployments in mode {@code EXECUTE} — whether or not the node is a
+     * development stage, always with a preview and a server code valid
+     * {@code deployConfirmationTtl}. The caller has found a {@code DEPLOYMENT} backup of that
+     * node; a package-only group never has one and is refused.
+     *
+     * @throws ToolErrorException {@code INVALID_INPUT}, {@code TARGET_UNKNOWN},
+     *     {@code NOT_DEVELOPMENT}, {@code CLI_UNAVAILABLE} or {@code AUTH_FAILED}
+     */
+    public DevelopmentPolicy admitDeploymentRestore(String node) {
+        NodeId id = targets.resolveSingleServer(node);
+        Terminology terms = targets.terms();
+        if (deployModes.apply(id.group()).filter(DeployMode.EXECUTE::equals).isEmpty()) {
+            throw refused(ErrorCode.NOT_DEVELOPMENT, id,
+                id + terms.render(" neither is a development {node} nor receives deployments;"
+                    + " restore_backup is refused there and nothing was sent"),
+                terms.render("Its {group} has no deploy setting with mode EXECUTE"),
+                terms.render("Restore deployment backups on the {node} they were taken on"));
+        }
+        cli.check(id);
+        DevelopmentPolicy policy = policies.apply(id);
+        return new DevelopmentPolicy(id, policy != null && policy.production(), false,
+            WritePolicy.Confirmation.SERVER, deployTtl, E2ePolicy.FORBIDDEN, Optional.empty());
+    }
+
+    /**
+     * {@code policy} as the restore of a deployment backup needs it (final review n1): always
+     * a server code, valid {@code deployConfirmationTtl}, also on a development node.
+     */
+    public DevelopmentPolicy forDeploymentRestore(DevelopmentPolicy policy) {
+        return new DevelopmentPolicy(policy.node(), policy.production(), policy.enabled(),
+            WritePolicy.Confirmation.SERVER, deployTtl, policy.e2eTests(), policy.soapBaseUrl());
     }
 
     /**
@@ -105,7 +161,11 @@ public final class DevelopmentGuard {
                 terms.render("Use a development {node} (list_nodes) and deploy to production"
                     + " through the stage chain"));
         }
-        if (policy == null || !policy.enabled()) {
+        // feature 005 (T027): end-to-end tests also on the nodes of a group that receives
+        // deployments, as its e2eTests allows; nothing else of feature 004
+        boolean target = capability == Capability.RUN_E2E_TEST && policy != null
+            && deployModes.apply(id.group()).isPresent();
+        if ((policy == null || !policy.enabled()) && !target) {
             throw refused(ErrorCode.NOT_DEVELOPMENT, id,
                 id + terms.render(" is not a development {node}; ") + capability.toolName()
                     + " is refused there and nothing was sent",

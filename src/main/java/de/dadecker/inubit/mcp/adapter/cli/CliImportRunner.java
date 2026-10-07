@@ -19,6 +19,7 @@ import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * The imports of one server through StartCLI (feature 004, research D-8; Constitution I, II):
@@ -40,11 +41,16 @@ import java.util.Set;
  *   <li>A failure reported by StartCLI ({@code n-NOK}, exit code, unreadable protocol) is
  *       {@code IMPORT_FAILED} with the scrubbed reason; success is exit code 0 with a protocol
  *       ({@link ImportProtocolParser}).
+ *   <li>Feature 005 (research D-1): {@link #importRepository} imports repository files into
+ *       {@code /Root/<owner>} ({@code --importRepositoryPath}); it has no protocol, success is
+ *       {@code n-OK: Imported successfully}.
  * </ul>
  */
 public final class CliImportRunner {
 
     static final String FILE = "import.zip";
+    /** The result line of a repository import (research D-1; there is no protocol). */
+    static final String REPOSITORY_SUCCESS = "Imported successfully";
     private static final FileAttribute<Set<PosixFilePermission>> OWNER_ONLY_DIRECTORY =
         PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------"));
     private static final FileAttribute<Set<PosixFilePermission>> OWNER_ONLY_FILE =
@@ -109,13 +115,70 @@ public final class CliImportRunner {
     public ImportProtocol importArchive(byte[] archive, Mode mode, String owner) {
         Objects.requireNonNull(archive, "archive");
         Objects.requireNonNull(mode, "mode");
+        checkOwner(owner);
+        checkAvailable();
+        return protocol(run(archive, file -> command(file, mode, owner)));
+    }
+
+    /**
+     * Imports the repository files of {@code archive} into {@code /Root/<owner>} (feature 005,
+     * research D-1): {@code import --importFile '<tmp>/import.zip' --importRepositoryPath
+     * '/Root/<owner>'}. The archive's entries are relative to that path (built by the archive
+     * adapter). StartCLI prints no protocol: success is exit code 0 with
+     * {@code n-OK: Imported successfully} and no {@code n-NOK}; the caller verifies the result
+     * by a repository export.
+     *
+     * @throws ToolErrorException {@code INVALID_INPUT}, {@code CLI_UNAVAILABLE},
+     *     {@code AUTH_FAILED} before anything is written; {@code IMPORT_FAILED},
+     *     {@code TIMEOUT} after StartCLI ran
+     */
+    public void importRepository(byte[] archive, String owner) {
+        Objects.requireNonNull(archive, "archive");
+        checkRepositoryImport(owner);
+        String root = "/Root/" + owner;
+        CliResult result = run(archive, file -> CliCommand.command("import")
+            .path("--importFile", file).repositoryPath("--importRepositoryPath", root).build());
+        CliOutput output = classifier.parse(result);
+        if (result.exitCode() != 0 || !output.nokMessages().isEmpty() || result.truncated()
+            || output.okMessages().stream().noneMatch(REPOSITORY_SUCCESS::equals)) {
+            throw failed("StartCLI did not confirm the repository import on " + server.id()
+                + ": " + reason(result, output));
+        }
+    }
+
+    /**
+     * Everything {@link #importRepository} checks before it writes or launches anything: the
+     * owner and its repository root pass the quoting rules, CLI and credentials are usable.
+     *
+     * @throws ToolErrorException {@code INVALID_INPUT}, {@code CLI_UNAVAILABLE} or
+     *     {@code AUTH_FAILED}
+     */
+    public void checkRepositoryImport(String owner) {
+        checkOwner(owner);
+        if (!CliCommand.repositoryPathPassable("/Root/" + owner)) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
+                "The owner's repository root cannot be passed to StartCLI safely; nothing was"
+                    + " sent",
+                "It must match " + CliCommand.REPOSITORY_PATH.pattern(),
+                "Use the exact INUBIT owner name").withNode(server.id()));
+        }
+        checkAvailable();
+    }
+
+    private void checkOwner(String owner) {
         if (owner == null || !CliCommand.VALUE.matcher(owner).matches()) {
             throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
                 "The owner cannot be passed to StartCLI safely; nothing was sent",
                 "It must match " + CliCommand.VALUE.pattern(),
                 "Use the exact INUBIT owner name").withNode(server.id()));
         }
-        checkAvailable();
+    }
+
+    /**
+     * Writes {@code archive} into a fresh private temporary directory, runs the command for it
+     * and deletes the directory on every path.
+     */
+    private CliResult run(byte[] archive, Function<Path, CliCommand> command) {
         CliResources.Reservation reservation;
         try {
             reservation = runner.resources().reserve();
@@ -157,10 +220,9 @@ public final class CliImportRunner {
                     "The temporary directory is not writable", "Check java.io.tmpdir")
                     .withNode(server.id()));
             }
-            CliResult result = runner.run(server, credentials.username().orElseThrow().value(),
-                credentials.password().orElseThrow().value(), command(file, mode, owner),
+            return runner.run(server, credentials.username().orElseThrow().value(),
+                credentials.password().orElseThrow().value(), command.apply(file),
                 server.cliExportTimeout(), "cliExportTimeout", guard);
-            return protocol(result);
         }
     }
 
@@ -181,18 +243,26 @@ public final class CliImportRunner {
     private ImportProtocol protocol(CliResult result) {
         CliOutput output = classifier.parse(result);
         if (result.exitCode() != 0 || !output.nokMessages().isEmpty() || result.truncated()) {
-            String reason = output.nokMessages().isEmpty()
-                ? (classifier.classify(result) instanceof CliOutcome.Failure failure
-                    ? failure.error().code() + ": " + failure.error().message()
-                    : "exit code " + result.exitCode())
-                : String.join(" / ", output.nokMessages());
-            throw failed("StartCLI reported a failed import on " + server.id() + ": " + reason);
+            throw failed("StartCLI reported a failed import on " + server.id() + ": "
+                + reason(result, output));
         }
         try {
             return ImportProtocolParser.parse(result.stdout());
         } catch (ToolErrorException e) {
             throw failed(e.error().message() + " (import on " + server.id() + ")");
         }
+    }
+
+    private String reason(CliResult result, CliOutput output) {
+        if (!output.nokMessages().isEmpty()) {
+            return String.join(" / ", output.nokMessages());
+        }
+        if (classifier.classify(result) instanceof CliOutcome.Failure failure) {
+            return failure.error().code() + ": " + failure.error().message();
+        }
+        return "exit code " + result.exitCode() + ", "
+            + (output.okMessages().isEmpty() ? "no result line"
+                : String.join(" / ", output.okMessages()));
     }
 
     private ToolErrorException failed(String message) {

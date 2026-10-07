@@ -1,0 +1,11 @@
+# Feature 005: deploy is a group-level record; on a node it is an unknown key.
+profile:
+  name: acme
+groups:
+  - name: dev
+    nodes: [ { name: node1, baseUrl: https://inubit-dev.example.test:8443 } ]
+  - name: int
+    nodes:
+      - name: node1
+        baseUrl: https://inubit-int-1.example.test:8443
+        deploy: { from: dev }

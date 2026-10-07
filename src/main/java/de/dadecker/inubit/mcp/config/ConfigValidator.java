@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
@@ -44,6 +45,9 @@ public final class ConfigValidator {
 
     /** Upper bound of {@code confirmationTtl} (Phase 6 review W5). */
     static final Duration MAX_CONFIRMATION_TTL = Duration.ofHours(1);
+
+    /** Upper bound of {@code defaults.deployConfirmationTtl} (feature 005, research D-2). */
+    static final Duration MAX_DEPLOY_CONFIRMATION_TTL = Duration.ofHours(2);
 
     private final Predicate<Path> exists;
     private final Map<String, String> environment;
@@ -122,12 +126,14 @@ public final class ConfigValidator {
         Optional<WorkspaceDirectory.Result> workspace = checkWorkspace(config, findings);
         checkStructure(config, findings);
         checkResultLimits(config.resultLimits(), findings);
+        checkDeployConfirmationTtl(config.defaults(), findings);
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
             checkServer(server, credentials, findings);
             checkDevelopment(server, findings);
         }
         checkOneDevelopmentNodePerGroup(config, findings);
         checkE2eNodeNames(config, findings);
+        checkChain(config, findings);
         boolean cliConfigured = config.resolvableNodes().stream()
             .anyMatch(EffectiveNodeConfig::cliConfigured);
         if (!windows && cliConfigured && !CliPaths.exportRootUsable(tempDirectory)) {
@@ -315,6 +321,18 @@ public final class ConfigValidator {
             findings.error(unusable.problem());
         }
         return Optional.of(result);
+    }
+
+    /** Feature 005 (research D-2): positive and at most {@link #MAX_DEPLOY_CONFIRMATION_TTL}. */
+    private static void checkDeployConfirmationTtl(Defaults defaults, Findings findings) {
+        defaults.deployConfirmationTtl().ifPresent(ttl -> {
+            if (ttl.isZero() || ttl.isNegative()) {
+                findings.error("defaults: deployConfirmationTtl must be positive (default PT30M)");
+            } else if (ttl.compareTo(MAX_DEPLOY_CONFIRMATION_TTL) > 0) {
+                findings.error("defaults: deployConfirmationTtl must be at most PT2H (default"
+                    + " PT30M)");
+            }
+        });
     }
 
     /** {@code a}, {@code a and b}, {@code a, b and c}. */
@@ -577,6 +595,104 @@ public final class ConfigValidator {
                     + " {group}", server.id().value(), server.id().name(),
                     server.credentialVariables().groupVariable(CredentialVariables.E2E_USERNAME)));
         });
+    }
+
+    /**
+     * The stage chain of feature 005 (research D-2, contracts/configuration-delta.md):
+     *
+     * <ul>
+     *   <li>{@code deploy.from} is required and names an existing group other than this one;
+     *   <li>the chain is acyclic; a cycle is named once, e.g. {@code dev → int → dev};
+     *   <li>{@code mode: EXECUTE} on a production group needs the effective
+     *       {@code write.productionOptIn: true} on every node of it ({@code PACKAGE_ONLY} sends
+     *       nothing and needs none);
+     *   <li>every node of a target group and of its source group has a StartCLI installation
+     *       ({@code cli.home});
+     *   <li>each {@code deploy.exclude} entry has exactly one of {@code diagramGroup},
+     *       {@code name}, {@code repositoryPath}, with a non-blank value.
+     * </ul>
+     */
+    private static void checkChain(ProfileConfig config, Findings findings) {
+        Map<String, GroupConfig> groups = new java.util.LinkedHashMap<>();
+        config.groups().forEach(group -> groups.putIfAbsent(group.name(), group));
+        Map<String, String> sources = new java.util.LinkedHashMap<>();
+        Set<String> withoutCli = new TreeSet<>();
+        for (GroupConfig group : config.groups()) {
+            if (group.deploy().isEmpty()) {
+                continue;
+            }
+            DeployConfig deploy = group.deploy().get();
+            String name = group.name();
+            String from = deploy.from().strip();
+            if (from.isEmpty()) {
+                findings.termError("{Group} '%s': deploy.from is required (the {group} this one"
+                    + " receives releases from)", name);
+            } else if (from.equals(name) || !groups.containsKey(from)) {
+                findings.termError("{Group} '%s': deploy.from '%s' must name an existing {group}"
+                    + " other than this one", name, from);
+            } else {
+                sources.put(name, from);
+            }
+            List<EffectiveNodeConfig> nodes = nodesOf(config, name);
+            if (group.production() && deploy.mode() == DeployMode.EXECUTE) {
+                List<String> missing = nodes.stream()
+                    .filter(node -> !node.write().productionOptIn())
+                    .map(node -> node.id().value()).toList();
+                if (!missing.isEmpty()) {
+                    findings.termError("{Group} '%s' is production: deploy mode EXECUTE needs"
+                        + " write.productionOptIn: true on every {node} (missing: %s); use mode"
+                        + " PACKAGE_ONLY to receive import packages instead", name,
+                        String.join(", ", missing));
+                }
+            }
+            List<EffectiveNodeConfig> involved = new ArrayList<>(nodes);
+            if (sources.containsKey(name)) {
+                involved.addAll(nodesOf(config, from));
+            }
+            involved.stream().filter(node -> !node.cliConfigured())
+                .forEach(node -> withoutCli.add(node.id().value()));
+            for (int i = 0; i < deploy.exclude().size(); i++) {
+                ExcludeRule rule = deploy.exclude().get(i);
+                List<Optional<String>> keys = List.of(rule.diagramGroup(), rule.name(),
+                    rule.repositoryPath());
+                long set = keys.stream().filter(Optional::isPresent).count();
+                boolean blank = keys.stream().flatMap(Optional::stream)
+                    .anyMatch(String::isBlank);
+                if (set != 1 || blank) {
+                    findings.termError("{Group} '%s': deploy.exclude[%s] must have exactly one"
+                        + " of diagramGroup, name, repositoryPath, with a non-blank value", name,
+                        i);
+                }
+            }
+        }
+        if (!withoutCli.isEmpty()) {
+            findings.termError("Every {node} of each {group} with deploy and of its source"
+                + " {group} needs a StartCLI installation (cli.home); missing on: %s",
+                String.join(", ", withoutCli));
+        }
+        Set<String> reported = new HashSet<>();
+        for (String start : sources.keySet()) {
+            List<String> path = new ArrayList<>();
+            String current = start;
+            while (current != null && !path.contains(current)) {
+                path.add(current);
+                current = sources.get(current);
+            }
+            if (current == null || !current.equals(start)) {
+                continue;
+            }
+            if (reported.addAll(path)) {
+                path.add(start);
+                findings.termError("The stage chain has a cycle: %s; every chain must start"
+                    + " at one {group} without deploy", String.join(" → ", path));
+            }
+        }
+    }
+
+    /** The resolvable nodes of group {@code name}, in config order. */
+    private static List<EffectiveNodeConfig> nodesOf(ProfileConfig config, String name) {
+        return config.resolvableNodes().stream()
+            .filter(node -> node.id().group().value().equals(name)).toList();
     }
 
     /**

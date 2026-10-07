@@ -129,4 +129,42 @@ class V81ArtifactAdapterTest {
                 assertThat(e.error().node()).contains(DEV);
             });
     }
+
+    // --- feature 005 (T007, research D-1, D-4) ----------------------------------------------
+
+    @Test
+    void exportsTheReleaseOfATagAfterConfirmingTheCredentials() {
+        byte[] zip = FakeProcessLauncher.fixture("export_release.zip");
+        FakeProcessLauncher launcher = exporting("Workflow group", zip);
+
+        assertThat(adapter(launcher).exportRelease("jdoe", "TAG-01")).isEqualTo(zip);
+        assertThat(launcher.last().spec().command()).anyMatch(argument -> argument.startsWith(
+            "export --exportWorkflowUser 'jdoe' --exportWorkflowType 'technical'"
+                + " --exportWorkflowGroup '' --exportTag 'TAG-01'"));
+        assertThat(events).containsExactly("confirm", "launch");
+    }
+
+    @Test
+    void exportsARepositoryPathAfterConfirmingTheCredentials() {
+        byte[] zip = FakeProcessLauncher.fixture("export_repository.zip");
+        FakeProcessLauncher launcher = exporting("Repository path", zip);
+
+        assertThat(adapter(launcher).exportRepository("/Root/jdoe/xsd")).isEqualTo(zip);
+        assertThat(launcher.last().spec().command()).anyMatch(argument -> argument.startsWith(
+            "export --exportRepositoryPath '/Root/jdoe/xsd'"));
+        assertThat(events).containsExactly("confirm", "launch");
+    }
+
+    @Test
+    void anInvalidReleaseOrRepositoryRequestIsRefusedBeforeTheLogin() {
+        FakeProcessLauncher launcher = exporting("Workflow group", new byte[0]);
+
+        assertThatThrownBy(() -> adapter(launcher).exportRelease("jdoe", " "))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(e.error().code())
+                .isEqualTo(ErrorCode.INVALID_INPUT));
+        assertThatThrownBy(() -> adapter(launcher).exportRepository("/Root/../etc"))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(e.error().code())
+                .isEqualTo(ErrorCode.INVALID_INPUT));
+        assertThat(events).isEmpty();
+    }
 }

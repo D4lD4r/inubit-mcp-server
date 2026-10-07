@@ -20,7 +20,8 @@ public record Defaults(
     Optional<Path> cliHome,
     Optional<Path> cliJavaHome,
     DevelopmentConfig development,
-    Optional<E2ePolicy> e2eTests) {
+    Optional<E2ePolicy> e2eTests,
+    Optional<Duration> deployConfirmationTtl) {
 
     public static final Duration BUILTIN_TIMEOUT = Duration.ofSeconds(5);
     public static final Duration BUILTIN_CLI_TIMEOUT = Duration.ofSeconds(30);
@@ -35,10 +36,13 @@ public record Defaults(
     public static final boolean BUILTIN_DEVELOPMENT_ENABLED = false;
     public static final ConfirmationMode BUILTIN_DEVELOPMENT_CONFIRMATION = ConfirmationMode.SERVER;
     public static final E2ePolicy BUILTIN_E2E_TESTS = E2ePolicy.FORBIDDEN;
+    /** Feature 005 (research D-2): lifetime of a deployment's confirmation code. */
+    public static final Duration BUILTIN_DEPLOY_CONFIRMATION_TTL = Duration.ofMinutes(30);
 
     public static final Defaults EMPTY = new Defaults(Optional.empty(), Optional.empty(),
         Optional.empty(), Optional.empty(), Optional.empty(), InventoryConfig.EMPTY,
-        Optional.empty(), Optional.empty(), DevelopmentConfig.EMPTY, Optional.empty());
+        Optional.empty(), Optional.empty(), DevelopmentConfig.EMPTY, Optional.empty(),
+        Optional.empty());
 
     public Defaults {
         timeout = Optionals.orEmpty(timeout);
@@ -51,5 +55,14 @@ public record Defaults(
         cliJavaHome = Optionals.orEmpty(cliJavaHome);
         development = Optionals.orDefault(development, DevelopmentConfig.EMPTY);
         e2eTests = Optionals.orEmpty(e2eTests);
+        deployConfirmationTtl = Optionals.orEmpty(deployConfirmationTtl);
+    }
+
+    /**
+     * {@code deployConfirmationTtl}, or {@link #BUILTIN_DEPLOY_CONFIRMATION_TTL} (feature 005;
+     * profile-wide, there is no group or node value).
+     */
+    public Duration effectiveDeployConfirmationTtl() {
+        return deployConfirmationTtl.orElse(BUILTIN_DEPLOY_CONFIRMATION_TTL);
     }
 }

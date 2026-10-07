@@ -149,9 +149,26 @@ public final class ImportService {
         Function<NodeId, InventoryPort> inventory,
         Function<NodeId, Optional<String>> defaultOwners,
         Function<NodeId, Account> accounts, WriteChallengeRegistry challenges,
-        BackupStore backups, AuditPort audit, Clock clock, Supplier<UUID> ids) {
+        BackupStore backups, AuditPort audit, Clock clock, Supplier<UUID> ids,
+        Optional<NodeDeployer> deployments) {
+
+        /** Without a stage chain: deployment backups cannot be restored (feature 004). */
+        public Dependencies(Path root, String profile, DevelopmentGuard guard,
+            Function<NodeId, DevelopmentPolicy> policies, VersionHistoryPort history,
+            ArtifactInspectorPort inspector, ArtifactCheckService checks, ArchiveCodecPort codec,
+            ImportArchivePort archives, Function<NodeId, ArtifactPort> artifacts,
+            Function<NodeId, ImportPort> imports, Function<NodeId, TagPort> tags,
+            Function<NodeId, InventoryPort> inventory,
+            Function<NodeId, Optional<String>> defaultOwners,
+            Function<NodeId, Account> accounts, WriteChallengeRegistry challenges,
+            BackupStore backups, AuditPort audit, Clock clock, Supplier<UUID> ids) {
+            this(root, profile, guard, policies, history, inspector, checks, codec, archives,
+                artifacts, imports, tags, inventory, defaultOwners, accounts, challenges,
+                backups, audit, clock, ids, Optional.empty());
+        }
 
         public Dependencies {
+            deployments = deployments == null ? Optional.empty() : deployments;
             Objects.requireNonNull(root, "root");
             Objects.requireNonNull(profile, "profile");
             Objects.requireNonNull(guard, "guard");
@@ -562,7 +579,7 @@ public final class ImportService {
                         + " set_active",
                     "Use the backupRef of that call's result exactly as returned");
             }
-            policy = d.guard().admit(request.node(), Capability.RESTORE_BACKUP);
+            policy = admitRestore(request);
             call.policy = policy;
         } catch (ToolErrorException e) {
             throw call.refuse(e.error());
@@ -570,6 +587,32 @@ public final class ImportService {
             throw call.refuse(unexpected("checking the request", e));
         }
         return underLock(call, () -> restoreLocked(call, policy, request.backupRef()));
+    }
+
+    /**
+     * The guard of {@code restore_backup}; feature 005 (T026): a node that is no development
+     * stage is admitted for a {@code DEPLOYMENT} backup of its own if its group receives
+     * deployments ({@link DevelopmentGuard#admitDeploymentRestore}). The backup is only looked
+     * up locally here; the restore reads it again under the lock.
+     */
+    private DevelopmentPolicy admitRestore(RestoreRequest request) {
+        try {
+            return d.guard().admit(request.node(), Capability.RESTORE_BACKUP);
+        } catch (ToolErrorException e) {
+            if (e.error().code() != ErrorCode.NOT_DEVELOPMENT || d.deployments().isEmpty()
+                || e.error().node().isEmpty()) {
+                throw e;
+            }
+            NodeId node = e.error().node().get();
+            boolean deployment = d.backups().find(request.backupRef())
+                .filter(manifest -> manifest.node().equals(node))
+                .filter(manifest -> manifest.kind() == BackupStore.Manifest.Kind.DEPLOYMENT)
+                .isPresent();
+            if (!deployment) {
+                throw e;
+            }
+            return d.guard().admitDeploymentRestore(request.node());
+        }
     }
 
     private Response restoreLocked(Call call, DevelopmentPolicy policy, String ref) {
@@ -585,6 +628,9 @@ public final class ImportService {
                     + " version history in the Workbench").withNode(node)));
         call.owner = manifest.owner();
         call.requested.put("scope", manifest.scope());
+        if (manifest.kind() == BackupStore.Manifest.Kind.DEPLOYMENT) {
+            return restoreDeployment(call, policy, manifest);
+        }
         d.history().init();
         commitLocalChanges();
         SortedMap<String, byte[]> before = d.codec().prepare(node.group(), call.owner,
@@ -636,6 +682,94 @@ public final class ImportService {
             restoreMode(changes, fresh.rendered()), before::get, "restore",
             changes.scope().describe(), manifest.created(), List.of()), auditId, fresh.raw(),
             account);
+    }
+
+    /**
+     * Feature 005 (T026): the restore of a deployment backup on its node — always a preview
+     * with a server code first (whatever {@code development.confirmation} says); with the code
+     * the plan is made again and must show the previewed state, then {@link NodeDeployer}
+     * re-imports the artifacts the deployment changed (workflows, modules, repository files)
+     * from the backup with the node's current secrets and verifies them. What the deployment
+     * created stays and is listed. The workspace is not changed (the next export records the
+     * state).
+     */
+    private Response restoreDeployment(Call call, DevelopmentPolicy admitted,
+        BackupStore.Manifest manifest) {
+        DevelopmentPolicy policy = d.guard().forDeploymentRestore(admitted);
+        call.policy = policy;
+        NodeId node = policy.node();
+        NodeDeployer deployer = d.deployments().orElseThrow(() -> new ToolErrorException(
+            ToolError.of(ErrorCode.PRECONDITION_FAILED, "The backup " + manifest.auditId()
+                + " is a deployment backup; nothing was sent",
+                "No group of the configuration receives deployments any more",
+                "Restore it with the stage chain configured, or in the Workbench")
+                .withNode(node)));
+        UUID auditId = d.ids().get();
+        NodeDeployer.RestorePlan plan = deployer.restorePlan(manifest,
+            d.backups().exports(manifest.auditId()), auditId);
+        call.requested.put("changeSet", String.join(", ", plan.restored()));
+        String inputs = "sha256:" + sha256((node.value() + "\n" + manifest.auditId() + "\n"
+            + call.reason).getBytes(StandardCharsets.UTF_8));
+        List<String> warnings = new ArrayList<>();
+        if (!plan.created().isEmpty()) {
+            warnings.add("Created by the deployment " + manifest.auditId() + " and not removed:"
+                + " " + String.join(", ", plan.created()));
+        }
+        if (call.confirmationCode.isEmpty()) {
+            List<String> notes = new ArrayList<>(List.of("Re-imports the state of " + node
+                + " before the deployment " + manifest.tag().orElse("") + " (backup "
+                + manifest.auditId() + ", taken " + manifest.takenAt() + "); each artifact gets"
+                + " a new version"));
+            notes.addAll(warnings);
+            return writeChallenge(call, node, policy, "the deployment " + manifest.auditId(),
+                plan.restored(), notes, inputs, plan.fingerprint());
+        }
+        String previewed = d.challenges().redeem(call.confirmationCode.get(),
+            Capability.RESTORE_BACKUP, node, inputs);
+        if (!previewed.equals(plan.fingerprint())) {
+            throw changedSincePreview(node);
+        }
+        if (plan.restored().isEmpty()) {
+            call.append(auditId, AuditRecord.Step.EXECUTE, AuditOutcome.EXECUTED, "Nothing of"
+                + " the deployment " + manifest.auditId() + " differs from its backup; nothing"
+                + " was sent");
+            return new Response.Completed(new WriteOutcome(auditId,
+                WriteOutcome.Outcome.EXECUTED, Optional.empty(), Optional.empty(),
+                Optional.empty(), List.of(), List.of(), List.of(), Optional.empty(),
+                plan.created(), List.of(), warnings));
+        }
+        call.backupRef = auditId.toString();
+        NodeDeployer.Restored restored = deployer.restore(plan, auditId, () -> {
+            try {
+                d.audit().append(call.record(auditId, AuditRecord.Step.EXECUTE, call.inputs(),
+                    AuditOutcome.PENDING, Optional.of("About to restore "
+                        + plan.restored().size() + " artifact(s) of " + node + " from the"
+                        + " backup " + manifest.auditId())));
+            } catch (RuntimeException e) {
+                call.refused = true;
+                throw auditFailure(node, e, "nothing was sent");
+            }
+            call.sent = auditId;
+        });
+        warnings.addAll(restored.warnings());
+        warnings.add("The workspace was not changed; the next export of " + node + " records"
+            + " the restored state");
+        boolean ok = restored.state() == de.dadecker.inubit.mcp.domain.model.DeploymentResult
+            .State.ROLLED_BACK;
+        call.rollback = ok ? null : "INCOMPLETE";
+        appendFinal(call, node, auditId, ok ? AuditOutcome.EXECUTED : AuditOutcome.FAILED,
+            (ok ? "Restored and verified " : "The restore is incomplete for ")
+                + restored.restored().size() + " artifact(s) of " + node + " from the backup "
+                + manifest.auditId());
+        LOG.info("restore_backup on {}: {} (audit id {})", node, ok ? "EXECUTED" : "FAILED",
+            auditId);
+        return new Response.Completed(new WriteOutcome(auditId, ok
+            ? WriteOutcome.Outcome.EXECUTED : WriteOutcome.Outcome.FAILED, ok ? Optional.empty()
+                : Optional.of(new WriteOutcome.Failure(ErrorCode.VERIFY_MISMATCH, "verify",
+                    "The re-export of " + node + " does not show the backed-up state; see the"
+                        + " report")), Optional.empty(), Optional.of(restored.backupRef()),
+            List.of(), restored.restored(), List.of(), Optional.empty(), plan.created(),
+            restored.reports(), warnings));
     }
 
     /**
@@ -1310,12 +1444,16 @@ public final class ImportService {
      * True if the person-written part of a check-in comment is exactly
      * {@code DefaultCommitCommentImport###<reason>###} (research D-11): the part before the
      * export suffix ({@code @@@…}), with the copies of the empty last segment that every export
-     * appends ({@code ###…}) counted once.
+     * appends ({@code ###…}) counted once. INUBIT puts one more {@code DefaultCommitCommentImport###}
+     * in front of the comment of a <em>created module</em> (005 live acceptance), so one extra
+     * prefix is accepted too.
      */
     static boolean carriesReason(String comment, String reason) {
         int suffix = comment.indexOf("@@@");
         String head = suffix < 0 ? comment : comment.substring(0, suffix);
-        return head.replaceFirst("(###)+$", "###").equals(COMMENT_PREFIX + reason + "###");
+        String person = head.replaceFirst("(###)+$", "###");
+        String expected = COMMENT_PREFIX + reason + "###";
+        return person.equals(expected) || person.equals(COMMENT_PREFIX + expected);
     }
 
     /** Research D-25 (H5): only the change-set files and their .meta records. */

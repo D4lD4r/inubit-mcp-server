@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -755,7 +756,7 @@ class ConfigLoaderTest {
                 java.util.Optional.of(URI.create("https://u:secretpw@h.example.test")), false, null,
                 null, null, null, null, null, null, null, null, null, null, null, null);
             GroupConfig stage = new GroupConfig("dev", false, List.of(entry), null, null, null,
-                null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null);
 
             assertThatThrownBy(() -> EffectiveNodeConfig.resolve(Defaults.EMPTY, stage, entry,
                 "INUBIT_ACME"))
@@ -771,7 +772,7 @@ class ConfigLoaderTest {
                 java.util.Optional.of(URI.create(url)), false, null,
                 null, null, null, null, null, null, null, null, null, null, null, null);
             GroupConfig stage = new GroupConfig("dev", false, List.of(entry), null, null, null,
-                null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null);
 
             assertThatThrownBy(() -> EffectiveNodeConfig.resolve(Defaults.EMPTY, stage, entry,
                 "INUBIT_ACME"))
@@ -1036,4 +1037,80 @@ class ConfigLoaderTest {
             assertThat(loaded.toString()).doesNotContain("soap-secret");
         }
     }
+
+    /** Feature 005 (T011, research D-2, contracts/configuration-delta.md). */
+    @Nested
+    class Deploy {
+
+        private GroupConfig group(LoadedConfig loaded, String name) {
+            return loaded.config().groups().stream().filter(g -> g.name().equals(name))
+                .findFirst().orElseThrow();
+        }
+
+        @Test
+        void theChainIsReadPerGroup() {
+            LoadedConfig loaded = load("deploy-chain.yaml");
+
+            assertThat(group(loaded, "dev").deploy()).isEmpty();
+            DeployConfig integration = group(loaded, "int").deploy().orElseThrow();
+            assertThat(integration.from()).isEqualTo("dev");
+            assertThat(integration.mode()).isEqualTo(DeployMode.EXECUTE);
+            assertThat(integration.exclude()).containsExactly(
+                new ExcludeRule(java.util.Optional.of("GRP-SYS"), java.util.Optional.empty(),
+                    java.util.Optional.empty()),
+                new ExcludeRule(java.util.Optional.empty(), java.util.Optional.of("CFG_*"),
+                    java.util.Optional.empty()),
+                new ExcludeRule(java.util.Optional.empty(), java.util.Optional.empty(),
+                    java.util.Optional.of("/Root/*/stage/**")));
+            DeployConfig qa = group(loaded, "qa").deploy().orElseThrow();
+            assertThat(qa.from()).isEqualTo("int");
+            assertThat(qa.exclude()).isEmpty();
+            assertThat(group(loaded, "prod").deploy().orElseThrow().mode())
+                .isEqualTo(DeployMode.PACKAGE_ONLY);
+        }
+
+        @Test
+        void theDeployConfirmationTtlDefaultsToThirtyMinutes() {
+            assertThat(load("deploy-chain.yaml").config().defaults().deployConfirmationTtl())
+                .contains(Duration.parse("PT45M"));
+            assertThat(load("deploy-chain.yaml").config().defaults()
+                .effectiveDeployConfirmationTtl()).isEqualTo(Duration.parse("PT45M"));
+            assertThat(load("minimal.yaml").config().defaults().deployConfirmationTtl()).isEmpty();
+            assertThat(load("minimal.yaml").config().defaults().effectiveDeployConfirmationTtl())
+                .isEqualTo(Duration.parse("PT30M"));
+            assertThat(Defaults.BUILTIN_DEPLOY_CONFIRMATION_TTL)
+                .isEqualTo(Duration.parse("PT30M"));
+        }
+
+        @Test
+        void deployOnANodeIsAnUnknownKey() {
+            assertThatThrownBy(() -> load("deploy-on-node.yaml"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'deploy' at groups[1].nodes[0]");
+        }
+
+        @Test
+        void theModeIsExecuteOrPackageOnly() {
+            assertThatThrownBy(() -> load("deploy-unknown-mode.yaml"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("groups[1].deploy.mode")
+                .hasMessageContaining("EXECUTE, PACKAGE_ONLY");
+        }
+
+        @Test
+        void anExcludeEntryHasOnlyItsThreeKeys() {
+            assertThatThrownBy(() -> load("deploy-unknown-exclude-key.yaml"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'path'");
+        }
+
+        @Test
+        void unknownKeysOfTheDeployRecordAreRejected() {
+            assertThatThrownBy(() -> loader().parse(MINIMAL.replace("    nodes:",
+                "    deploy:\n      source: dev\n    nodes:"), home.resolve("d.yaml")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'source'");
+        }
+    }
 }
+

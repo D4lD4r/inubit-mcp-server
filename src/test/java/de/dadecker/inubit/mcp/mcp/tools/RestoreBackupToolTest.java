@@ -30,8 +30,10 @@ class RestoreBackupToolTest {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String DESCRIPTION = "[acme] Re-import the backup taken by an earlier"
-        + " development call on ONE node, limited to the artifacts that call changed; same"
-        + " checks, conflict detection, verification and rollback.";
+        + " development call or deployment on ONE node, limited to the artifacts that call"
+        + " changed; same checks, conflict detection, verification and rollback. A deployment"
+        + " backup is restored on its node of the target group, always after a preview with a"
+        + " code.";
 
     @TempDir
     Path temp;

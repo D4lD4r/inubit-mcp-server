@@ -23,8 +23,9 @@ import java.util.Objects;
 public final class RestoreBackupTool implements ToolHandler {
 
     static final String DESCRIPTION = "Re-import the backup taken by an earlier development"
-        + " call on ONE {node}, limited to the artifacts that call changed; same checks, conflict"
-        + " detection, verification and rollback.";
+        + " call or deployment on ONE {node}, limited to the artifacts that call changed; same"
+        + " checks, conflict detection, verification and rollback. A deployment backup is"
+        + " restored on its {node} of the target {group}, always after a preview with a code.";
 
     private final ImportService service;
 

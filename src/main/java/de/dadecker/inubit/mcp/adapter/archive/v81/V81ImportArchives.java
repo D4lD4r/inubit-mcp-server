@@ -33,10 +33,13 @@ public final class V81ImportArchives implements ImportArchivePort {
             build.workflows().stream().map(V81ImportArchives::artifact).toList(),
             build.modules().stream().map(V81ImportArchives::artifact).toList(),
             new CheckinComment(build.reason(), build.user(), build.server(), build.time()),
-            ImportAssembler.currentVersions(build.targetExports()), build.takenNames());
+            ImportAssembler.currentVersions(build.targetExports()), build.takenNames(),
+            build.fromRelease() ? ImportAssembler.NewWorkflowFlag.FROM_RELEASE
+                : ImportAssembler.NewWorkflowFlag.MUST_BE_INACTIVE);
         Assembled assembled = ImportAssembler.assemble(new TreeMap<>(build.files()), request,
             ImportAssembler.Target.of(raws));
-        return new Archive(assembled.zip(), assembled.workflows(), assembled.modules());
+        return new Archive(assembled.zip(), assembled.workflows(), assembled.modules(),
+            assembled.active());
     }
 
     @Override

@@ -34,6 +34,10 @@ class DevelopmentWiringTest {
     }
 
     private List<String> toolNames(String development) {
+        return toolNames(development, "");
+    }
+
+    private List<String> toolNames(String development, String production) {
         String yaml = """
             profile:
               name: acme
@@ -47,11 +51,12 @@ class DevelopmentWiringTest {
                     baseUrl: https://localhost:1
               - name: prod
                 production: true
+            %s
                 nodes:
                   - name: inubit01
                     baseUrl: https://localhost:2
             """.formatted(temp.resolve("audit"), temp.resolve("workspace"),
-            development.indent(4).stripTrailing());
+            development.indent(4).stripTrailing(), production.indent(4).stripTrailing());
         ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml")).config();
         SecretScrubber scrubber = new SecretScrubber();
@@ -91,5 +96,33 @@ class DevelopmentWiringTest {
     void aDevelopmentNodeOffersTheDevelopmentTools() {
         assertThat(toolNames("development:\n  enabled: true")).contains("import_artifacts",
             "restore_backup", "set_active", "tag_artifacts").doesNotContain("restart_process");
+    }
+
+    @Test
+    void deployReleaseIsOfferedIffAGroupReceivesDeployments() {
+        // feature 005 (T024, FR-006)
+        assertThat(toolNames("development:\n  enabled: true")).doesNotContain("deploy_release");
+        assertThat(toolNames("", "deploy:\n  from: dev\n  mode: PACKAGE_ONLY"))
+            .contains("deploy_release").doesNotContain("import_artifacts");
+    }
+
+    @Test
+    void restoreBackupIsOfferedForDeploymentBackupsOfAnExecuteTarget() {
+        // feature 005 (T026)
+        assertThat(toolNames("", "deploy:\n  from: dev\nwrite:\n  enabled: true\n"
+            + "  productionOptIn: true")).contains("deploy_release", "restore_backup")
+            .doesNotContain("import_artifacts", "set_active", "tag_artifacts");
+        assertThat(toolNames("", "deploy:\n  from: dev\n  mode: PACKAGE_ONLY"))
+            .doesNotContain("restore_backup");
+    }
+
+    @Test
+    void runE2eTestIsOfferedOnANonProductionTargetThatAllowsIt() {
+        // feature 005 (T027): dev receives deployments here (from prod), without development
+        String target = "deploy:\n  from: prod\ne2e:\n  soap:\n"
+            + "    baseUrl: https://inubit-dev.example.test:8443\n";
+        assertThat(toolNames(target + "e2eTests: CONFIRM")).contains("run_e2e_test",
+            "deploy_release").doesNotContain("import_artifacts");
+        assertThat(toolNames(target + "e2eTests: FORBIDDEN")).doesNotContain("run_e2e_test");
     }
 }

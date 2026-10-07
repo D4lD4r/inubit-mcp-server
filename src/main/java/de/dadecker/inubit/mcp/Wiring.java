@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp;
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives;
+import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
@@ -14,15 +15,23 @@ import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
 import de.dadecker.inubit.mcp.application.ArtifactCheckService;
 import de.dadecker.inubit.mcp.application.BackupStore;
 import de.dadecker.inubit.mcp.application.ConfirmationRegistry;
+import de.dadecker.inubit.mcp.application.DeployGuard;
+import de.dadecker.inubit.mcp.application.DeployService;
+import de.dadecker.inubit.mcp.application.DeploymentLedger;
 import de.dadecker.inubit.mcp.application.DevelopmentGuard;
 import de.dadecker.inubit.mcp.application.DiagnosisService;
+import de.dadecker.inubit.mcp.application.DiagramGroupTagger;
 import de.dadecker.inubit.mcp.application.E2eTestService;
 import de.dadecker.inubit.mcp.application.FanOut;
 import de.dadecker.inubit.mcp.application.HealthService;
 import de.dadecker.inubit.mcp.application.ImportService;
 import de.dadecker.inubit.mcp.application.InventoryCache;
 import de.dadecker.inubit.mcp.application.InventoryService;
+import de.dadecker.inubit.mcp.application.NodeDeployer;
+import de.dadecker.inubit.mcp.application.PackageWriter;
 import de.dadecker.inubit.mcp.application.ProcessControlService;
+import de.dadecker.inubit.mcp.application.ReleaseDiscovery;
+import de.dadecker.inubit.mcp.application.ReleasePlanner;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.TagService;
 import de.dadecker.inubit.mcp.application.TargetResolver;
@@ -40,6 +49,7 @@ import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
+import de.dadecker.inubit.mcp.domain.model.StageChain;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
@@ -56,6 +66,7 @@ import de.dadecker.inubit.mcp.mcp.tools.ExportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.FindProcessesTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetHealthTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetInventoryItemTool;
+import de.dadecker.inubit.mcp.mcp.tools.DeployReleaseTool;
 import de.dadecker.inubit.mcp.mcp.tools.ImportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListInventoryTool;
@@ -90,7 +101,8 @@ import java.util.function.Predicate;
  * {@link #anyWriteEnabled()} (contracts/mcp-tools.md, Story 4 / AS 6); their service, the write
  * guard and the audit log ({@code auditDirectory}, written only on a write call) are built in any
  * case. Feature 004: {@code import_artifacts}, {@code restore_backup}, {@code set_active} and
- * {@code tag_artifacts} only if {@link #anyDevelopmentNode()}, {@code run_e2e_test} only if
+ * {@code tag_artifacts} only if {@link #anyDevelopmentNode()} ({@code restore_backup} also if
+ * {@link #anyDeploymentTarget()}, feature 005), {@code run_e2e_test} only if
  * {@link #anyE2eNode()} (its SOAP clients are created per node on first use); their services
  * share one
  * challenge registry and the audit log; the import service uses the check service and keeps
@@ -119,9 +131,13 @@ final class Wiring implements AutoCloseable {
     private final CheckArtifactsTool checkArtifacts;
     private final ImportArtifactsTool importArtifacts;
     private final RestoreBackupTool restoreBackup;
+    /** Feature 005: the stage chain of the configuration (empty: none). */
+    private final StageChain chain;
     private final SetActiveTool setActive;
     private final TagArtifactsTool tagArtifacts;
     private final RunE2eTestTool runE2eTest;
+    /** Feature 005: offered if a group receives deployments. */
+    private final Optional<DeployReleaseTool> deployRelease;
     /** The SOAP test clients, created on first use per node and closed with the wiring. */
     private final Map<NodeId, SoapE2eClient> e2eClients = new java.util.concurrent
         .ConcurrentHashMap<>();
@@ -201,25 +217,17 @@ final class Wiring implements AutoCloseable {
         // feature 004: the development tools (offered only with a development node)
         Map<NodeId, DevelopmentPolicy> development = new HashMap<>();
         servers.forEach(server -> development.put(server.id(), server.developmentPolicy()));
+        StageChain chain = config.stageChain();
+        this.chain = chain;
         DevelopmentGuard developmentGuard = new DevelopmentGuard(targets, development::get,
-            node -> gateways.imports(node).checkAvailable());
+            node -> gateways.imports(node).checkAvailable(), group -> Optional.ofNullable(
+                chain.targets().get(group)).map(StageChain.ChainLink::mode),
+            config.defaults().effectiveDeployConfirmationTtl());
         Function<NodeId, ImportService.Account> accounts = id -> new ImportService.Account(
             policies.get(id).account().orElse("unknown"), byId.get(id).baseUrl().getHost());
         WriteChallengeRegistry challenges = new WriteChallengeRegistry(clock.clock());
         Path backups = BackupStore.defaultRoot(Path.of(System.getProperty("user.home")),
             profile.name());
-        ImportService imports = new ImportService(
-            new ImportService.Dependencies(workspace, profile.name(), developmentGuard,
-                development::get,
-                new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
-                new WorkspaceInspector(), checks, new ArchiveCodec(), new V81ImportArchives(),
-                gateways::artifacts, gateways::imports, gateways::tags, gateways::inventory,
-                id -> byId.get(id).inventory().owner(), accounts, challenges,
-                new BackupStore(backups, clock.clock()),
-                audit, clock.clock(), UUID::randomUUID));
-        this.importArtifacts = new ImportArtifactsTool(imports);
-        this.restoreBackup = new RestoreBackupTool(imports);
-        this.setActive = new SetActiveTool(imports);
         this.tagArtifacts = new TagArtifactsTool(new TagService(new TagService.Dependencies(
             workspace, profile.name(), developmentGuard, gateways::tags,
             id -> byId.get(id).inventory().owner(), accounts, challenges, audit, clock.clock(),
@@ -234,6 +242,55 @@ final class Wiring implements AutoCloseable {
                         e2e.password().value())))),
             gateways::logs, gateways::processes, hangingThresholds::get, accounts, challenges,
             audit, clock.clock(), UUID::randomUUID)));
+        // feature 005: deploy_release along the stage chain (offered only with a chain)
+        Optional<NodeDeployer> deployer = Optional.empty();
+        if (chain.isEmpty()) {
+            this.deployRelease = Optional.empty();
+        } else {
+            Path deployments = Path.of(System.getProperty("user.home")).resolve(".inubit-mcp")
+                .resolve(profile.name()).resolve("deployments");
+            ArchiveCodec codec = new ArchiveCodec();
+            V81ReleaseArchives releases = new V81ReleaseArchives();
+            V81ImportArchives importArchives = new V81ImportArchives();
+            DeploymentLedger ledger = new DeploymentLedger(deployments);
+            ReleasePlanner planner = new ReleasePlanner(new ReleasePlanner.Dependencies(
+                gateways::artifacts, gateways::inventory, codec, releases, importArchives,
+                (releaseRoot, paths) -> new ArtifactCheckService(releaseRoot,
+                    new WorkspaceInspector(), new SaxonXsltRunner(releaseRoot), group ->
+                        Optional.empty(), gateways::inventory, id -> Optional.empty(), limiter,
+                    clock.clock()).checkPaths(paths, false), accounts, workspace,
+                clock.clock()));
+            NodeDeployer nodeDeployer = new NodeDeployer(new NodeDeployer.Dependencies(planner,
+                releases, importArchives, codec, gateways::imports, gateways::tags, accounts,
+                new BackupStore(backups, clock.clock()), ledger, audit, profile.name(),
+                clock.clock(), UUID::randomUUID, workspace, new DiagramGroupTagger(workspace),
+                new PackageWriter(deployments.resolveSibling("packages"), clock.clock())));
+            deployer = Optional.of(nodeDeployer);
+            DeployService deploy = new DeployService(new DeployService.Dependencies(workspace,
+                deployments, profile.name(), new DeployGuard(chain, targets, group ->
+                    servers.stream().filter(server -> server.id().group().equals(group))
+                        .findFirst().flatMap(server -> server.inventory().owner()), audit,
+                    profile.name(), clock.clock(), UUID::randomUUID),
+                new ReleaseDiscovery(gateways::artifacts, codec, releases, workspace), planner,
+                ledger, challenges, config.defaults().effectiveDeployConfirmationTtl(), audit,
+                clock.clock(), UUID::randomUUID, nodeDeployer, new GitCli(workspace, profile.name(),
+                    new SystemProcessLauncher(), environment)));
+            this.deployRelease = Optional.of(new DeployReleaseTool(deploy,
+                config.resultLimits().maxItems()));
+        }
+        // feature 004 (feature 005, T026: and the restore of deployment backups)
+        ImportService imports = new ImportService(
+            new ImportService.Dependencies(workspace, profile.name(), developmentGuard,
+                development::get,
+                new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
+                new WorkspaceInspector(), checks, new ArchiveCodec(), new V81ImportArchives(),
+                gateways::artifacts, gateways::imports, gateways::tags, gateways::inventory,
+                id -> byId.get(id).inventory().owner(), accounts, challenges,
+                new BackupStore(backups, clock.clock()),
+                audit, clock.clock(), UUID::randomUUID, deployer));
+        this.importArtifacts = new ImportArtifactsTool(imports);
+        this.restoreBackup = new RestoreBackupTool(imports);
+        this.setActive = new SetActiveTool(imports);
         // last step (N2): SIGTERM (and System.exit) stop running StartCLI work and delete the
         // export directories
         Runtime.getRuntime().addShutdownHook(cleanupHook);
@@ -283,10 +340,13 @@ final class Wiring implements AutoCloseable {
             handlers.add(restoreBackup);
             handlers.add(setActive);
             handlers.add(tagArtifacts);
+        } else if (anyDeploymentTarget()) {
+            handlers.add(restoreBackup); // feature 005 (T026): deployment backups
         }
         if (anyE2eNode()) {
             handlers.add(runE2eTest);
         }
+        deployRelease.ifPresent(handlers::add);
         return List.copyOf(handlers);
     }
 
@@ -331,12 +391,23 @@ final class Wiring implements AutoCloseable {
     }
 
     /**
+     * Feature 005 (T026): true if a group receives deployments in mode {@code EXECUTE}; its
+     * nodes get deployment backups that {@code restore_backup} restores.
+     */
+    boolean anyDeploymentTarget() {
+        return chain.targets().values().stream().anyMatch(link -> link.mode()
+            == de.dadecker.inubit.mcp.domain.model.DeployMode.EXECUTE);
+    }
+
+    /**
      * True if at least one development node allows end-to-end tests ({@code e2eTests} other
-     * than {@code FORBIDDEN}, feature 004, contracts/mcp-tools-delta.md).
+     * than {@code FORBIDDEN}, feature 004, contracts/mcp-tools-delta.md), or a non-production
+     * node of a group that receives deployments (feature 005, T027).
      */
     boolean anyE2eNode() {
         return servers.stream().map(EffectiveNodeConfig::developmentPolicy)
-            .anyMatch(policy -> policy.enabled() && policy.e2eTests() != E2ePolicy.FORBIDDEN);
+            .anyMatch(policy -> policy.e2eTests() != E2ePolicy.FORBIDDEN && (policy.enabled()
+                || (!policy.production() && chain.link(policy.node().group()).isPresent())));
     }
 
     /** True if at least one server has effective write access (Story 4 / AS 6). */

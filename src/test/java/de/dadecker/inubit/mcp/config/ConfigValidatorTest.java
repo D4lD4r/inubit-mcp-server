@@ -1550,4 +1550,185 @@ class ConfigValidatorTest {
     }
 
     private static final String CLI_VALUE_RULE = ConfigValidator.CLI_VALUE_PATTERN.pattern();
+
+    /** Feature 005 (T011, research D-2): the lifetime of a deployment's confirmation code. */
+    @Nested
+    class DeployConfirmationTtl {
+
+        @Test
+        void isPositiveAndAtMostTwoHours() {
+            for (String ttl : List.of("PT0S", "-PT1M")) {
+                assertThat(validate("defaults:\n  deployConfirmationTtl: " + ttl + "\n"
+                    + server("")).errors()).singleElement().asString()
+                    .contains("deployConfirmationTtl must be positive");
+            }
+            assertThat(validate("defaults:\n  deployConfirmationTtl: PT2H1S\n" + server(""))
+                .errors()).singleElement().asString()
+                .contains("deployConfirmationTtl must be at most PT2H");
+            assertThat(validate("defaults:\n  deployConfirmationTtl: PT2H\n" + server(""))
+                .errors()).isEmpty();
+            assertThat(validate(server("")).errors()).isEmpty();
+        }
+    }
+
+    /** Feature 005 (T012, research D-2): {@code checkChain}, one test per rule. */
+    @Nested
+    class Chain {
+
+        /** dev → int (two nodes) and prod (production); each group's extra settings. */
+        private String chain(String dev, String integration, String prod) {
+            return """
+                profile:
+                  name: acme
+                defaults:
+                  cliHome: /opt/client
+                groups:
+                  - name: dev
+                """ + dev.indent(4) + """
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-dev.example.test:8443
+                  - name: int
+                """ + integration.indent(4) + """
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-int-1.example.test:8443
+                      - name: node2
+                        baseUrl: https://inubit-int-2.example.test:8443
+                  - name: prod
+                    production: true
+                """ + prod.indent(4) + """
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-prod.example.test:8443
+                """;
+        }
+
+        @Test
+        void aValidChainHasNoErrors() {
+            ValidationReport report = validate(chain("", """
+                deploy:
+                  from: dev
+                  exclude:
+                    - diagramGroup: GRP-SYS
+                    - name: "CFG_*"
+                    - repositoryPath: "/Root/*/stage/**"
+                """, "deploy: { from: int, mode: PACKAGE_ONLY }"));
+
+            assertThat(report.errors()).isEmpty();
+        }
+
+        @Test
+        void fromMustNameAnExistingOtherGroup() {
+            assertThat(validate(chain("", "deploy: { from: test }", "")).errors())
+                .singleElement().asString()
+                .contains("int", "deploy.from", "'test'", "an existing group other than this"
+                    + " one");
+            assertThat(validate(chain("", "deploy: { from: int }", "")).errors())
+                .singleElement().asString()
+                .contains("int", "deploy.from", "an existing group other than this one");
+            assertThat(validate(chain("", "deploy: { mode: EXECUTE }", "")).errors())
+                .singleElement().asString().contains("int", "deploy.from", "required");
+        }
+
+        @Test
+        void theChainIsAcyclicAndACycleIsNamed() {
+            ValidationReport report = validate(chain("deploy: { from: int }",
+                "deploy: { from: dev }", ""));
+
+            assertThat(report.errors()).singleElement().asString()
+                .contains("cycle", "dev → int → dev");
+            assertThat(validate(chain("deploy: { from: prod }", "deploy: { from: dev }",
+                "deploy: { from: int, mode: PACKAGE_ONLY }")).errors()).singleElement()
+                .asString().contains("dev → prod → int → dev");
+        }
+
+        @Test
+        void executeOnProductionNeedsTheOptInOnEveryNode() {
+            assertThat(validate(chain("", "", "deploy: { from: dev }")).errors())
+                .singleElement().asString()
+                .contains("prod/node1", "write.productionOptIn", "PACKAGE_ONLY");
+            assertThat(validate(chain("", "", """
+                deploy: { from: dev }
+                write: { enabled: true, productionOptIn: true }
+                """)).errors()).isEmpty();
+            assertThat(validate(chain("", "", "deploy: { from: dev, mode: PACKAGE_ONLY }"))
+                .errors()).isEmpty();
+        }
+
+        @Test
+        void theDeployRecordIsTheWriteEnablementOfDeployments() {
+            // stage 3 review M3 (Constitution I): write.* (restart, kill) stays independent
+            assertThat(validate(chain("", """
+                deploy: { from: dev }
+                write: { enabled: false }
+                """, "")).errors()).isEmpty();
+            assertThat(validate(chain("", "", """
+                deploy: { from: dev, mode: PACKAGE_ONLY }
+                write: { enabled: true, productionOptIn: true }
+                """)).errors()).isEmpty();
+        }
+
+        @Test
+        void anOptInOnSomeNodesOnlyIsNamedForTheOthers() {
+            String yaml = chain("", "", "deploy: { from: dev }").replace("""
+                      - name: node1
+                        baseUrl: https://inubit-prod.example.test:8443
+                """, """
+                      - name: node1
+                        baseUrl: https://inubit-prod.example.test:8443
+                        write: { enabled: true, productionOptIn: true }
+                      - name: node2
+                        baseUrl: https://inubit-prod-2.example.test:8443
+                """);
+
+            assertThat(validate(yaml).errors()).singleElement().asString()
+                .contains("prod/node2").doesNotContain("prod/node1");
+        }
+
+        @Test
+        void everyNodeOfTargetAndSourceNeedsAStartCliInstallation() {
+            String yaml = chain("", "deploy: { from: dev }", "")
+                .replace("defaults:\n  cliHome: /opt/client\n", "");
+            String withSourceCli = yaml.replace("""
+                  - name: int
+                """, """
+                  - name: int
+                    cli: { home: /opt/client }
+                """).replace("""
+                  - name: dev
+                """, """
+                  - name: dev
+                    cli: { home: /opt/client }
+                """);
+
+            assertThat(validate(yaml).errors()).singleElement().asString()
+                .contains("cli.home", "dev/node1", "int/node1", "int/node2")
+                .doesNotContain("prod/node1");
+            assertThat(validate(withSourceCli).errors()).isEmpty();
+        }
+
+        @Test
+        void anExcludeEntryHasExactlyOneNonBlankKey() {
+            for (String entry : List.of("{}", "{ diagramGroup: GRP-SYS, name: \"CFG_*\" }",
+                "{ name: \" \" }", "{ repositoryPath: \"\" }")) {
+                assertThat(validate(chain("", "deploy:\n  from: dev\n  exclude:\n    - "
+                    + entry + "\n", "")).errors()).as(entry).singleElement().asString()
+                    .contains("int", "deploy.exclude[0]", "exactly one of diagramGroup, name,"
+                        + " repositoryPath");
+            }
+        }
+
+        @Test
+        void theMessagesUseTheProfilesTerminology() {
+            String yaml = chain("", "deploy: { from: test }", "").replace("profile:\n"
+                + "  name: acme\n", "profile:\n  name: acme\nterminology:\n"
+                + "  group: { singular: stage, plural: stages }\n"
+                + "  node: { singular: server, plural: servers }\n");
+
+            assertThat(validate(yaml).errors()).singleElement().asString()
+                .contains("an existing stage other than this one");
+        }
+    }
 }
+

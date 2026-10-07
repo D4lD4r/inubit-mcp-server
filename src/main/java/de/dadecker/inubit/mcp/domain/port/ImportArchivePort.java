@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.domain.port;
 
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -32,11 +33,24 @@ public interface ImportArchivePort {
      * @param server        the INUBIT host of the check-in comment
      * @param time          {@code dd.MM.yyyy HH:mm:ss}
      * @param takenNames    the names of the owner's workflows and modules on the target
+     * @param fromRelease   feature 005 (research D-7): a new workflow takes the flag of its
+     *                      file and an existing one keeps the target's; otherwise (feature 004)
+     *                      a new workflow must be inactive in its file
      */
     record Build(GroupId group, String owner, Optional<String> diagramGroup,
         List<Artifact> workflows, List<Artifact> modules, SortedMap<String, byte[]> files,
         List<byte[]> targetExports, String reason, String user, String server, String time,
-        Set<String> takenNames) {
+        Set<String> takenNames, boolean fromRelease) {
+
+        /** A build of feature 004 (a new workflow must be inactive). */
+        public Build(GroupId group, String owner, Optional<String> diagramGroup,
+            List<Artifact> workflows, List<Artifact> modules, SortedMap<String, byte[]> files,
+            List<byte[]> targetExports, String reason, String user, String server, String time,
+            Set<String> takenNames) {
+            this(group, owner, diagramGroup, workflows, modules, files, targetExports, reason,
+                user, server, time, takenNames, false);
+        }
+
         public Build {
             Objects.requireNonNull(group, "group");
             Objects.requireNonNull(owner, "owner");
@@ -55,12 +69,23 @@ public interface ImportArchivePort {
         }
     }
 
-    /** The import archive (with secret values; never logged) and the names it holds. */
-    record Archive(byte[] zip, List<String> workflows, List<String> modules) {
+    /**
+     * The import archive (with secret values; never logged), the names it holds and the intended
+     * {@code IsActive} flag of each workflow (feature 005).
+     */
+    record Archive(byte[] zip, List<String> workflows, List<String> modules,
+        Map<String, Boolean> active) {
+
+        /** An archive without flags (feature 004). */
+        public Archive(byte[] zip, List<String> workflows, List<String> modules) {
+            this(zip, workflows, modules, Map.of());
+        }
+
         public Archive {
             zip = zip.clone();
             workflows = List.copyOf(workflows);
             modules = List.copyOf(modules);
+            active = java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(active));
         }
 
         @Override

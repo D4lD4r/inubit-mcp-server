@@ -6,8 +6,9 @@ authoritative contract is
 the server announces are in `src/main/resources/schemas/`; the two workspace tools of feature 003
 follow [contracts/mcp-tools-delta.md](../specs/003-artifact-workspace/contracts/mcp-tools-delta.md),
 the five development tools of feature 004
-[their delta](../specs/004-development-stage/contracts/mcp-tools-delta.md).
-All fifteen tools are described here; each section quotes the description the server announces in
+[their delta](../specs/004-development-stage/contracts/mcp-tools-delta.md), `deploy_release` of
+feature 005 [its delta](../specs/005-stage-chain-deployment/contracts/mcp-tools-delta.md).
+All sixteen tools are described here; each section quotes the description the server announces in
 `tools/list` for a profile `acme` without description and with the default terminology
 (Group/Node).
 
@@ -56,10 +57,11 @@ General rules:
 | [`export_artifacts`](#export_artifacts) | export technical workflows or modules into the local workspace and its history | read-only for INUBIT, non-idempotent (records a history entry), open world | yes (StartCLI `export`, read-only) |
 | [`check_artifacts`](#check_artifacts) | check workspace files offline: structure, a stylesheet run, XML/XSD | read-only, idempotent, open world | only to look up modules missing in the workspace (module list) |
 | [`import_artifacts`](#import_artifacts) | import the changed workflows of ONE diagram group (with their changed or new modules), or changed modules, into ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
-| [`restore_backup`](#restore_backup) | re-import the backup of an earlier development call | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
+| [`restore_backup`](#restore_backup) | re-import the backup of an earlier development call or of a deployment on one node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`set_active`](#set_active) | activate or deactivate ONE workflow on ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`tag_artifacts`](#tag_artifacts) | tag the head versions of whole diagram groups (and their modules) | **destructive**, non-idempotent, open world | yes (StartCLI history `export` and `tag`) |
 | [`run_e2e_test`](#run_e2e_test) | send a SOAP test message and report what INUBIT did | **destructive**, non-idempotent, open world | yes (SOAP endpoint, REST logs and Queue Manager) |
+| [`deploy_release`](#deploy_release) | deploy a tagged release into the next group of the stage chain, node by node | **destructive**, non-idempotent, open world | yes (StartCLI `export`, `import` and `tag`; REST diagram list) |
 
 `restart_process` and `kill_process` are **offered only if at least one node has effective
 write access** (`write.enabled: true`, and on a `production: true` group also
@@ -72,7 +74,11 @@ default configuration the server is read-only and `tools/list` does not contain 
 The development tools of feature 004 are **offered only if at least one node is a development
 stage** (`development.enabled: true`, never on production groups; see
 [setup.md](setup.md#development-settings)); `run_e2e_test` only if, in addition, such a node's
-`e2eTests` is not `FORBIDDEN`. Every other node is refused with `NOT_DEVELOPMENT`.
+`e2eTests` is not `FORBIDDEN`. Every other node is refused with `NOT_DEVELOPMENT` — with two
+exceptions of feature 005: `restore_backup` of a deployment backup on the node it was taken on
+(its group receives deployments in mode `EXECUTE`; `restore_backup` is then offered even without
+a development node), and `run_e2e_test` on a non-production node whose group receives
+deployments, as its `e2eTests` allows.
 
 ## Common shapes: Page and ToolError
 
@@ -123,6 +129,9 @@ other nodes are still reported.
 | `SECRET_UNRESOLVED` | a `${secret:…}` placeholder has no value on the target (names artifact and property path, never a value); nothing was sent |
 | `IMPORT_FAILED`, `VERIFY_MISMATCH` | only inside the `failure` of a development tool's result: a StartCLI write failed or its protocol did not match, or the re-export (history export for tags) did not show the intended state |
 | `E2E_FORBIDDEN` | `run_e2e_test` on a node whose `e2eTests` is `FORBIDDEN` (the default) |
+| `CHAIN_VIOLATION` | a deployment into a group that does not receive deployments from the requested source (no `deploy` record, feature 005) |
+| `SOURCE_INCONSISTENT` | the nodes of a deployment's source group do not hold the same release (feature 005) |
+| `DEPLOY_LOCKED` | another deployment into the same target group is running (feature 005) |
 | `INTERNAL` | an unexpected error inside the MCP server, the server is shutting down, or an audit record could not be written |
 
 ## `list_nodes`
@@ -933,8 +942,10 @@ REL-2026-10-07" adds `tag: "REL-2026-10-07"`.
 
 ## `restore_backup`
 
-> [acme] Re-import the backup taken by an earlier development call on ONE node, limited to the
-> artifacts that call changed; same checks, conflict detection, verification and rollback.
+> [acme] Re-import the backup taken by an earlier development call or deployment on ONE node,
+> limited to the artifacts that call changed; same checks, conflict detection, verification and
+> rollback. A deployment backup is restored on its node of the target group, always after a
+> preview with a code.
 
 **Input**: `node`, `backupRef` (the `backupRef`/`auditId` of an earlier result, a UUID),
 `reason`, `confirmationCode`.
@@ -949,6 +960,15 @@ REL-2026-10-07" adds `tag: "REL-2026-10-07"`.
   then, or edit mode, is `CONFLICT`; a call without a recorded state is `PRECONDITION_FAILED`.
 - The restore takes its own backup (its `backupRef`) and rolls back on failure like an import;
   the secrets come from the node's **current** export (old passwords never come back).
+- **A deployment backup** (the `backupRef` of a node in a `deploy_release` result) is restored on
+  that node of the target group even if it is no development stage, **always** after a preview
+  with a server code (valid `deployConfirmationTtl`, whatever `development.confirmation` says).
+  It re-imports the workflows, modules and repository files the deployment changed there and that
+  existed before it, from the backup with the node's current secrets, and verifies them; the
+  conflict check compares with the state the deployment left (`CONFLICT` for a change since, or
+  edit mode). What the deployment created stays (`createdNotRemoved`); the workspace is not
+  changed (the next export records the state). The ledger records the restored state, so the
+  next preview does not report this restore as `OUTSIDE_CHAIN`.
 - **Preview** (`challenge`): `scope`, `modify`, `notes`, `confirmationCode`, `expiresAt`,
   `message`.
 
@@ -1019,6 +1039,8 @@ Every history export appends to the check-in comments of the exported workflows 
 `soapAction`, `workflow` (for the fallback), `timeoutSeconds` (1–120, default 60),
 `includeExcerpt` (default `false`), `confirmationCode` (only where `e2eTests` is `CONFIRM`).
 
+- Admitted on a development node, and (feature 005) on a non-production node whose group
+  receives deployments — in both cases only as its `e2eTests` allows.
 - Policy per node: `FREE` (one call), `CONFIRM` (preview with `endpoint`, `payloadBytes`,
   `soapAction`, and a code bound to the inputs and the payload hash), `FORBIDDEN` (the default,
   always on production: `E2E_FORBIDDEN`).
@@ -1044,3 +1066,118 @@ Every history export appends to the check-in comments of the exported workflows 
 **Example prompt**: "Send samples/order.xml to /ibis/ws/Service-01 on dev" →
 `run_e2e_test(node: "dev/node1", envelope: "samples/order.xml", path: "/ibis/ws/Service-01",
 workflow: "Order-Inbound")`.
+
+## `deploy_release`
+
+> [acme] Deploy a release — every diagram group that carries the given tag on the source group —
+> into ONE target group, node by node. The source is always the configured predecessor of the
+> target. The first call returns a preview per node (new, changed, layout-only, unchanged,
+> excluded, warnings) and a confirmation code; the call with the code backs up, imports only what
+> changed with the own secrets of each node, verifies, rolls back a failing node and stops there, and
+> tags the deployed groups. For a package-only target the call with the code writes import
+> packages instead of importing.
+
+Offered only if at least one group has a `deploy` record (feature 005, [setup.md](setup.md#stage-chain-and-deployments));
+contract: [feature 005 delta](../specs/005-stage-chain-deployment/contracts/mcp-tools-delta.md).
+
+**Input**: `target` (the id of ONE group; a node id is refused with `INVALID_INPUT` naming its
+group), `tag` (the tag on the source, no wildcards), `owner` (default `inventory.owner` of the
+target), `confirmationCode`.
+
+**The release.** The source is never chosen by the caller: it is the target's `deploy.from`.
+The release is every diagram group of the owner that carries `tag` on the source, exported by tag
+from **every** source node; the nodes must hold the same release (`SOURCE_INCONSISTENT`
+otherwise, the differing paths in `.reports/deploy-<auditId>/source.diff`). A tag on no diagram
+group is `NOT_FOUND`. A tagged version older than the source's head is noted
+(`OLDER_THAN_HEAD`); the tagged one is deployed. Only technical workflows are read; system
+diagrams are never read and never deployed. Repository files that the release's modules
+reference (`inubitrepository:`) belong to it; key material (keys, certificates) and files
+outside `/Root/<owner>/` are never deployed.
+
+**Preview** (`challenge`, the call without `confirmationCode`; nothing is sent to the target):
+every target node is read (exports only) and compared with the release. Per node: `counts` of
+`new`, `changed`, `layoutOnly` (only positions and labels differ), `unchanged`, `excluded`
+(`deploy.exclude`), `onlyOnTarget` (stays); `activeFlags` (an existing workflow keeps the node's
+`IsActive`, a new one takes the release's); `warnings`; `errors`; `diff` and `summary` (report
+files below `.reports/deploy-<auditId>/`, placeholders only, never secret values). The checks of
+`check_artifacts` run on the release; their ERROR findings are errors of every node.
+
+| Warning | Meaning |
+|---|---|
+| `OUTSIDE_CHAIN` | a changed or layout-only artifact on the node is not what the last deployment of this server wrote there (changed outside the chain, or no earlier deployment) |
+| `SHARED_MODULE` | a changed module is also used by workflows on the node that are not part of the release |
+| `STAGE_SPECIFIC_VALUE` | a changed property looks like a host, URL, port or login: check that the target needs the release's value |
+| `OLDER_THAN_HEAD` | the tag marks a version older than the head on the source |
+| `OUTSIDE_OWNER_REPOSITORY` | a referenced repository file outside `/Root/<owner>/`: never deployed |
+
+Errors that make a node plan not executable (there is then **no code**): a workflow in Workbench
+edit mode on the node (`CONFLICT`), a secret or key material the node does not have
+(`SECRET_UNRESOLVED`; key material is never deployed, the node keeps its own), a repository path
+StartCLI cannot take, a module of the same name with another plugin type or a workflow of the
+same name in another diagram group, a workflow that runs an excluded module, and the ERROR
+findings of the checks (`PRECONDITION_FAILED`). The code is bound to the
+target, tag and owner and to the preview state (release fingerprint, diagram groups, every node's
+state); it is valid `deployConfirmationTtl` (default 30 minutes) and used once.
+
+**Execution** (the call with `confirmationCode`): the plans are made again; a changed release or
+node since the preview is `CONFLICT` before the first node (the code is used up). Then node by
+node, in configuration order:
+
+1. re-check of the node right before writing (`CONFLICT`: the node is `NOT_STARTED`);
+2. a `DEPLOYMENT` backup of the node's exports (`~/.inubit-mcp/<profile>/backups`, owner-only)
+   and a `PENDING` audit record (fail closed);
+3. imports of only the new, changed and layout-only artifacts, in this order: the repository
+   files (`--importRepositoryPath`, `'/Root/<owner>'`), the modules no deployed workflow runs, then
+   per diagram group one workflow archive per active flag (inactive first) with the modules its
+   workflows run. Every archive carries the node's **own** secret values (from its export, in
+   memory) and the check-in comment `deploy <tag> from <source>`; INUBIT's protocol must name
+   exactly the sent artifacts;
+4. verification by re-export: content, `IsActive` and check-in comment of every deployed
+   workflow and module, every repository file byte for byte;
+5. on a failure from the first import on: rollback of the node's changed artifacts and
+   repository files from the backup, checked by re-export (content and `IsActive`, not by
+   INUBIT's protocol; a rollback report names what was re-imported) → `ROLLED_BACK` or
+   `ROLLBACK_FAILED`; the deployment **stops**, the following nodes stay `NOT_STARTED`;
+6. once verified, the node stays `DEPLOYED`: the group-scoped tag (one `tag --tagMove` per
+   deployed diagram group, verified; a tag failure is `tag.applied: false` with a retry hint for
+   `tag_artifacts`), then the ledger entry. A backup manifest or ledger that cannot be written is
+   a warning, never a rollback.
+
+A node with nothing to import is `UNCHANGED` and only gets the tag. A failure before a node is
+written (its backup, its `PENDING` record, its re-check) leaves it `NOT_STARTED` with `failure`
+step `backup`, `pending` or `recheck`. If every node is `DEPLOYED` or `UNCHANGED`, the verified
+state is committed to the workspace (`deploy <target> ← <source>: <tag> [<auditId>]`, trailer
+`Server-State: <target>`); a failing commit is a warning. Artifacts are never deleted: what a
+failed node created stays and is listed in `created`.
+
+**Package-only target** (`deploy.mode: PACKAGE_ONLY`, e.g. production): the same preview; the call
+with the code writes per node a package to
+`~/.inubit-mcp/<profile>/packages/<auditId>/<group>-<node>/` (directories `rwx------`, files
+`rw-------`): the import archives of step 3 with **that node's own secret values**, `diff.txt`,
+`warnings.txt` (with what the release leaves out) and `README.md` with the StartCLI commands in
+import order. **No import, tag or other writing command is ever sent** to such a group; the
+state is `PACKAGED`, the outcome `PACKAGED`, nothing is committed. Packages are kept 30 days, the
+newest per target always.
+
+**Result** (`result`): `auditId`, `outcome` (`EXECUTED`, `FAILED`, `PACKAGED`), `target`,
+`source`, `tag`, `nodes` (every node of the target: `node`, `state` — `DEPLOYED`, `UNCHANGED`,
+`ROLLED_BACK`, `ROLLBACK_FAILED`, `NOT_STARTED`, `PACKAGED` — `backupRef`, `imported`, `created`,
+`tag` `{applied, workflows, modules, failure}`, `failure` `{code, step, message}`, `package`),
+`commit`, `reports`, `warnings`. Lists are bounded by `resultLimits.maxItems`
+(`<list>Truncated` names how many were left out; nodes are never cut). A `backupRef` restores
+that node with [`restore_backup`](#restore_backup).
+
+Every call — refused, previewed, executed, failed, packaged — is audited (capability
+`deploy_release`; a group record and one record per node with the same audit id), with target,
+source, tag, diagram groups, node states, backup references and artifact names; never content or
+secret values. A second deployment into the same group meanwhile is refused (`DEPLOY_LOCKED`).
+
+| Code | Likely cause | Next step |
+|---|---|---|
+| `CHAIN_VIOLATION` | the target has no `deploy` record: it receives no deployments (or a node id was meant as the group) | deploy into a group of the chain; the message lists them (e.g. `int (from dev), prod (from int, package only)`) |
+| `SOURCE_INCONSISTENT` | the nodes of the source group do not hold the same release: a node was not updated or tagged like the others | bring every source node to the same state and tag it there, then call `deploy_release` again without code; the differences are in `.reports/deploy-<auditId>/source.diff` |
+| `DEPLOY_LOCKED` | another `deploy_release` into the same group (in this or another MCP server process of the profile) has not finished | wait until it has finished, then call again |
+
+**Example prompt**: "Deploy REL-2026-10-07 to int" → `deploy_release(target: "int", tag:
+"REL-2026-10-07")` returns the preview; after the user approves, the same call with
+`confirmationCode`.

@@ -92,4 +92,43 @@ class V81ImportAdapterTest {
                 assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE));
         assertThat(calls).isEmpty();
     }
+
+    // --- feature 005 (T007, research D-1) ----------------------------------------------------
+
+    @Test
+    void aRepositoryImportIsCheckedThenConfirmedThenRun() throws IOException {
+        ScriptedProcessLauncher cli = new ScriptedProcessLauncher()
+            .expect("import --importFile ").replying("import_repository_ok");
+
+        adapter(withCli(), cli).importRepository(new byte[] {1}, "jdoe");
+
+        assertThat(cli.execCommands()).singleElement().asString()
+            .endsWith(" --importRepositoryPath '/Root/jdoe'");
+        assertThat(calls).containsExactly("confirm", "startcli");
+    }
+
+    @Test
+    void withoutCliNoRepositoryImportIsConfirmedOrLaunched() {
+        V81ImportAdapter adapter = adapter(TestNodeConfig.node().build(),
+            new ScriptedProcessLauncher());
+
+        assertThatThrownBy(() -> adapter.importRepository(new byte[] {1}, "jdoe"))
+            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE));
+        assertThat(calls).isEmpty();
+    }
+
+    @Test
+    void anInvalidOwnerIsRefusedBeforeTheCredentialsAreConfirmed() throws IOException {
+        // stage 1 review #9: no REST login for input that cannot be sent
+        V81ImportAdapter adapter = adapter(withCli(), new ScriptedProcessLauncher());
+
+        for (String owner : List.of("it's", "..", "")) {
+            assertThatThrownBy(() -> adapter.importRepository(new byte[] {1}, owner))
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT));
+        }
+        assertThat(calls).isEmpty();
+    }
 }
+
