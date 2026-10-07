@@ -7,6 +7,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation brought up to date for 0.4.0: README, SECURITY.md, CONTRIBUTING.md,
+  `docs/setup.md`, `docs/tools.md` and `docs/live-tests.md` (offered tools, requirements, audit,
+  workspace lock, `--check-config` output, error codes and the `deploy_release` challenge).
+
 ## [0.4.0] - 2026-10-07
 
 ### Added

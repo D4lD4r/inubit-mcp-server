@@ -24,14 +24,16 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 mvn verify -Plive
 - `INUBIT_LIVE_SERVER`, the variable of feature 001, is **refused**: a live test fails with
   "INUBIT_LIVE_SERVER is no longer supported; use INUBIT_LIVE_NODE=<group>/<node> instead, and
   select the profile with INUBIT_MCP_PROFILE=<profile>". Unset it in your shell.
-- A single test: add `-Dtest=HealthLiveTest` (or `DiagnosisLiveTest`, `InventoryLiveTest`).
+- A single test: add `-Dtest=HealthLiveTest` (or `DiagnosisLiveTest`, `InventoryLiveTest`,
+  `ArtifactExportLiveTest`).
 - `INUBIT_LIVE_DIAGRAM_GROUP` (optional) names a diagram group of the node's `inventory.owner`
   for `ArtifactExportLiveTest`; without it that test is skipped. Choose a small group.
 - `INUBIT_LIVE_GROUP` (optional, `InventoryLiveTest` only) names the diagram group whose version
   history is exported; without it the group of the first technical diagram is used.
-- `InventoryLiveTest` needs the StartCLI settings (`cliHome`, `cliJavaHome`, setup.md section 3)
-  and an `inventory.owner` for the node; it takes about 30–60 s (two StartCLI exports); the other
-  live tests need REST only.
+- `InventoryLiveTest` and `ArtifactExportLiveTest` need the StartCLI settings (`cliHome`,
+  `cliJavaHome`, setup.md section 3) and an `inventory.owner` for the node; each runs two
+  StartCLI exports (`InventoryLiveTest` about 30–60 s); `HealthLiveTest` and `DiagnosisLiveTest`
+  need REST only.
 - The configuration is the real one, found like the server finds it without `--config` or
   `--profile` ([setup.md](setup.md), section 3): `INUBIT_MCP_CONFIG` (a path), then
   `INUBIT_MCP_PROFILE` (a profile name for `~/.config/inubit-mcp/<name>.yaml`, which must declare
