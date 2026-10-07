@@ -94,7 +94,7 @@ public final class DeployReleaseTool implements ToolHandler {
         out.put("tag", preview.tag());
         out.put("owner", preview.owner());
         out.put("mode", preview.mode().name());
-        out.put("diagramGroups", preview.diagramGroups());
+        bounded(out, "diagramGroups", preview.diagramGroups(), text -> text);
         bounded(out, "olderThanHead", preview.olderThanHead(), text -> text);
         out.put("nodes", preview.plans().stream().map(this::plan).toList());
         out.put("notes", preview.notes());
@@ -139,7 +139,7 @@ public final class DeployReleaseTool implements ToolHandler {
         out.put("tag", result.tag());
         out.put("nodes", result.nodes().stream().map(this::node).toList());
         result.commit().ifPresent(commit -> out.put("commit", commit));
-        out.put("reports", result.reports());
+        bounded(out, "reports", result.reports(), text -> text);
         bounded(out, "warnings", result.warnings(), text -> text);
         return out;
     }

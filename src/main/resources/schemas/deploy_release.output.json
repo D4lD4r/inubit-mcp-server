@@ -71,6 +71,10 @@
         "diagramGroups": {
           "$ref": "#/$defs/Names"
         },
+        "diagramGroupsTruncated": {
+          "type": "integer",
+          "minimum": 1
+        },
         "olderThanHead": {
           "$ref": "#/$defs/Names"
         },
@@ -317,6 +321,10 @@
         },
         "reports": {
           "$ref": "#/$defs/Names"
+        },
+        "reportsTruncated": {
+          "type": "integer",
+          "minimum": 1
         },
         "warnings": {
           "$ref": "#/$defs/Names"

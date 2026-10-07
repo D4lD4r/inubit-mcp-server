@@ -77,18 +77,22 @@ class DeployReleaseToolTest {
         JsonNode schema = tool.path("inputSchema");
         assertThat(schema.path("required")).extracting(JsonNode::asString)
             .containsExactlyInAnyOrder("target", "tag");
+        // stage 3 review m4: a node id passes the schema so that the guard can name the group
         assertThat(schema.path("properties").path("target").path("pattern").asString())
-            .isEqualTo("^[a-z0-9][a-z0-9-]{0,31}$");
+            .isEqualTo("^[a-z0-9][a-z0-9-]{0,31}(/[a-z0-9][a-z0-9-]{0,31})?$");
         assertThat(schema.path("properties").path("confirmationCode").path("pattern")
             .asString()).isEqualTo("^[A-Za-z0-9_-]{22}$");
     }
 
     @Test
-    void aNodeIdIsRejectedBeforeTheTool() throws IOException {
+    void aNodeIdIsRefusedByTheGuardNamingItsGroup() throws IOException {
         McpTestClient client = client(100);
 
-        assertThat(client.callTool("deploy_release", Map.of("target", "int/node1", "tag", TAG))
-            .path("isError").asBoolean()).isTrue();
+        JsonNode error = DiagnosisToolFixture.toolError(client.callTool("deploy_release",
+            Map.of("target", "int/node1", "tag", TAG)));
+
+        assertThat(error.path("code").asString()).isEqualTo("INVALID_INPUT");
+        assertThat(error.path("message").asString()).contains("is a node id", "(int)");
         assertThat(harness.launches()).isEmpty();
     }
 
@@ -149,5 +153,49 @@ class DeployReleaseToolTest {
         assertThat(node.path("activeFlags")).hasSize(1);
         assertThat(node.path("activeFlagsTruncated").asInt()).isEqualTo(1);
         assertThat(challenge.path("nodes")).hasSize(3); // nodes are never cut
+    }
+
+    @Test
+    void diagramGroupsAreCappedByResultLimits() throws IOException {
+        // stage 3 review m4
+        McpTestClient client = client(1);
+        DeployHarness.SOURCES.forEach(node -> harness.servers.get(node).copyWorkflow(
+            "Workflow-0002", "Workflow-0099", "GRP-02"));
+        harness.tagged("GRP-01", TAG).tagged("GRP-02", TAG);
+        DeployHarness.SOURCES.forEach(node -> harness.exportRelease(node, TAG));
+        harness.exportGroup(DeployHarness.SOURCE).exportGroup(DeployHarness.SOURCE, "GRP-02");
+        DeployHarness.TARGETS.forEach(node -> harness.exportGroup(node)
+            .exportGroup(node, "GRP-02").exportRepository(node, DeployHarness.RELEASE_XSL));
+
+        JsonNode challenge = client.callTool("deploy_release", Map.of("target", "int", "tag",
+            TAG)).path("structuredContent").path("challenge");
+
+        assertThat(challenge.path("diagramGroups")).hasSize(1);
+        assertThat(challenge.path("diagramGroupsTruncated").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void reportsAreCappedByResultLimits() throws IOException {
+        // stage 3 review m4: a verification mismatch writes a verify and a rollback report
+        McpTestClient client = client(1);
+        String code = preview(client).path("structuredContent").path("challenge")
+            .path("confirmationCode").asString();
+        readsForAPlan();
+        NodeId first = DeployHarness.INT1;
+        nodeExports(first);
+        harness.importRepositoryApplied(first).importApplied(first, MODULE_IMPORT);
+        harness.cli.get(first).then(spec -> harness.servers.get(first).tamperNextImport =
+            new String[] {"xslt_mode", "xslt_mode_X"});
+        nodeExports(first);
+        harness.importApplied(first, MODULE_IMPORT);
+        nodeExports(first);
+
+        JsonNode result = client.callTool("deploy_release", Map.of("target", "int", "tag", TAG,
+            "confirmationCode", code)).path("structuredContent").path("result");
+
+        assertThat(result.path("outcome").asString()).isEqualTo("FAILED");
+        assertThat(result.path("reports")).hasSize(1);
+        assertThat(result.path("reportsTruncated").asInt()).isEqualTo(1);
+        harness.verifyComplete();
     }
 }

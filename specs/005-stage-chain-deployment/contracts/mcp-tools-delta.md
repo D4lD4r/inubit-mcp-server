@@ -19,7 +19,7 @@ Input:
 
 | Field | Type | Rules |
 |---|---|---|
-| `target` | string | one group id (`^[a-z0-9][a-z0-9-]{0,31}$`); a node id → `INVALID_INPUT` |
+| `target` | string | one group id; the schema admits `<group>/<node>` (`^[a-z0-9][a-z0-9-]{0,31}(/[a-z0-9][a-z0-9-]{0,31})?$`) only so that the guard can answer a node id with `INVALID_INPUT` naming its group |
 | `tag` | string | `CliCommand.VALUE`, not blank, no `*`/`?` |
 | `owner` | string | optional, default `inventory.owner` of the target |
 | `confirmationCode` | string | optional, 22 chars |
