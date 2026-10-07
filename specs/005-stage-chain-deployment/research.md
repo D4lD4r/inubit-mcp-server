@@ -124,8 +124,12 @@ Errors that make the node plan not executable: a release workflow name that exis
 **another** diagram group (REST model list of the owner); a module name that exists with another
 plugin type; a release workflow referencing a module that is excluded or missing in the release and
 missing on the target; a placeholder without a target value (`SECRET_UNRESOLVED`); a key-material
-repository file missing on the target (`SECRET_UNRESOLVED`); a target workflow in edit mode
-(`CONFLICT`); any ERROR of the feature-003 checks on the release files (FR-012a).
+or certificate repository file missing on the target (`SECRET_UNRESOLVED`; key material is never
+deployed, one that exists on the target needs nothing); a referenced repository file **outside**
+`/Root/<owner>/` (another owner's area, never part of the release: `EXCLUDED` with the warning
+`OUTSIDE_OWNER_REPOSITORY`) that is missing on the target (`PRECONDITION_FAILED` naming the path);
+a target workflow in edit mode (`CONFLICT`); any ERROR of the feature-003 checks on the release
+files (FR-012a).
 
 Warnings: `stage-specific value?` for a changed module or workflow property whose release and target
 values differ and whose name or value looks like a host, URL, port or login (names only in the
@@ -155,7 +159,8 @@ the source, target changed, new edit mode).
 3. a `PENDING` audit record for the node (fail closed);
 4. imports, each only with the artifacts that are `NEW`, `CHANGED` or `LAYOUT_ONLY`:
    1. repository files: repository mode, `--importRepositoryPath /Root/<owner>`, entries relative to
-      it (D-1); key material is never part of it;
+      it (D-1); key material and certificates are never part of it, nor are files outside
+      `/Root/<owner>/` (stage 2 ruling, review #3);
    2. modules whose workflows are not imported: module archive (004 `ImportAssembler`, mode MODULE);
    3. workflows with their new or changed modules: one workflow archive per resulting active flag
       (`--importWorkflowActive` / `--importWorkflowInactive`), at most two;
