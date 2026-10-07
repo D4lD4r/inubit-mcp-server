@@ -159,7 +159,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 6: User Story 4 — Package-only (P2)
 
-- [ ] T025 [US4] `main/application/PackageWriter.java`: per node
+- [X] T025 [US4] `main/application/PackageWriter.java`: per node
   `~/.inubit-mcp/<profile>/packages/<auditId>/<node>/` (`rwx------`/`rw-------`) with the D-7 archives
   (node's own secrets), `diff.txt`, `warnings.txt`, `README.md` (StartCLI commands in order);
   retention 30 days, newest per target kept; `DeployService` uses it for `PACKAGE_ONLY` (outcome

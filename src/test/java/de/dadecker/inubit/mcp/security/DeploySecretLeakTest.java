@@ -149,6 +149,55 @@ class DeploySecretLeakTest {
         harness.verifyComplete();
     }
 
+    @Test
+    void aPackageHoldsTheProductionNodesOwnValuesOnlyInItsArchives() throws IOException {
+        // T025: prod receives from int, package only
+        harness();
+        DeployHarness.TARGETS.forEach(node -> {
+            harness.servers.get(node).publishModule("Module-0005", text -> text.replace(
+                "IsModuleTemplate", "IsModuleTemplateX"));
+            harness.servers.get(node).tag(DeployHarness.GROUP, TAG);
+        });
+        Runnable reads = () -> {
+            DeployHarness.TARGETS.forEach(node -> harness.exportRelease(node, TAG));
+            harness.exportGroup(DeployHarness.INT1).exportGroup(DeployHarness.PROD);
+        };
+        reads.run();
+        DeploymentPreview preview = harness.deployService(List.of()).deploy(request("prod",
+            Optional.empty())).preview().orElseThrow();
+        assertThat(preview.executable()).as(preview.toString()).isTrue();
+        reads.run();
+        harness.exportGroup(DeployHarness.PROD); // the re-check
+
+        DeploymentResult result = harness.deployService(List.of()).deploy(request("prod",
+            preview.confirmationCode())).result().orElseThrow();
+
+        assertThat(result.outcome()).isEqualTo(DeploymentResult.Outcome.PACKAGED);
+        Path dir = Path.of(result.nodes().get(0).packageDir().orElseThrow());
+        List<Path> archives;
+        try (Stream<Path> files = Files.list(dir)) {
+            archives = files.filter(file -> file.toString().endsWith(".zip")).toList();
+        }
+        assertThat(archives).isNotEmpty();
+        String packaged = archives.stream().map(file -> {
+            try {
+                return archiveText(Files.readAllBytes(file));
+            } catch (IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        }).collect(Collectors.joining("\n"));
+        assertThat(packaged).contains(TARGET_VALUES.get(DeployHarness.PROD));
+        TARGET_VALUES.forEach((node, value) -> {
+            if (!node.equals(DeployHarness.PROD)) {
+                assertThat(packaged).as(node.value()).doesNotContain(value);
+            }
+        });
+        assertThat(packaged).doesNotContain(SOURCE_VALUE);
+        assertNoLeak(preview.toString() + result, archives);
+        assertThat(harness.servers.get(DeployHarness.PROD).imported).isEmpty();
+        harness.verifyComplete();
+    }
+
     /** No value outside the import archives (and the given package directories). */
     void assertNoLeak(String answers, List<Path> allowed) throws IOException {
         Map<String, String> places = new LinkedHashMap<>();

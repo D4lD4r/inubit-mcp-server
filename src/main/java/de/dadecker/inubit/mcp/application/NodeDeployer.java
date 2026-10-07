@@ -90,15 +90,18 @@ public final class NodeDeployer {
     /**
      * @param root    the workspace root (reports)
      * @param profile the profile every audit record carries
-     * @param tagger  the group-scoped tag and its verification
+     * @param tagger   the group-scoped tag and its verification
+     * @param packages the packages of package-only groups
      */
     public record Dependencies(ReleasePlanner planner, ReleaseArchivePort releases,
         ImportArchivePort archives, ArchiveCodecPort codec, Function<NodeId, ImportPort> imports,
         Function<NodeId, TagPort> tags, Function<NodeId, ImportService.Account> accounts,
         BackupStore backups, DeploymentLedger ledger, AuditPort audit, String profile,
-        Clock clock, Supplier<UUID> ids, Path root, DiagramGroupTagger tagger) {
+        Clock clock, Supplier<UUID> ids, Path root, DiagramGroupTagger tagger,
+        PackageWriter packages) {
         public Dependencies {
             Objects.requireNonNull(tagger, "tagger");
+            Objects.requireNonNull(packages, "packages");
             Objects.requireNonNull(planner, "planner");
             Objects.requireNonNull(releases, "releases");
             Objects.requireNonNull(archives, "archives");
@@ -275,21 +278,30 @@ public final class NodeDeployer {
 
     // --- imports -------------------------------------------------------------------------------
 
-    private void send(Call call, List<PlannedArtifact> deployed,
+    /** One import of D-7 step 4 and the artifacts it carries. */
+    private record Step(PackageWriter.Archive archive, List<PlannedArtifact> sent) {
+    }
+
+    /**
+     * The imports of D-7 step 4 in their order, built from the release and the node's own
+     * exports (its secret values): the repository files, the modules no deployed workflow runs,
+     * then per diagram group one workflow archive per intended active flag (inactive first) with
+     * the deployed modules its workflows run.
+     */
+    private List<Step> steps(Call call, List<PlannedArtifact> deployed,
         ReleasePlanner.NodeState before) throws Failed {
-        NodeId node = call.node();
         String owner = call.admitted().owner();
-        ImportPort port = d.imports().apply(node);
-        List<String> repository = deployed.stream().filter(a -> a.kind()
-            == Kind.REPOSITORY_FILE).map(PlannedArtifact::name).toList();
+        List<Step> steps = new ArrayList<>();
+        List<PlannedArtifact> repository = deployed.stream().filter(a -> a.kind()
+            == Kind.REPOSITORY_FILE).toList();
         if (!repository.isEmpty()) {
-            byte[] zip = d.releases().repositoryArchive(List.of(call.release().export()), owner,
-                repository);
             try {
-                port.importRepository(zip, owner);
+                steps.add(new Step(new PackageWriter.Archive(Optional.empty(), Optional.empty(),
+                    d.releases().repositoryArchive(List.of(call.release().export()), owner,
+                        repository.stream().map(PlannedArtifact::name).toList())), repository));
             } catch (ToolErrorException e) {
-                throw new Failed(ErrorCode.IMPORT_FAILED, "import", "The repository import"
-                    + " failed: " + e.error().code() + ": " + e.error().message());
+                throw new Failed(e.error().code(), "import", "The repository archive cannot be"
+                    + " built: " + e.error().message());
             }
         }
         Map<String, PlannedArtifact> modules = new LinkedHashMap<>();
@@ -307,8 +319,8 @@ public final class NodeDeployer {
         List<PlannedArtifact> alone = modules.values().stream().filter(m ->
             !withWorkflows.contains(m.name())).toList();
         if (!alone.isEmpty()) {
-            importArchive(call, port, before, Optional.empty(), List.of(), alone,
-                ImportPort.Mode.MODULE);
+            steps.add(archive(call, before, Optional.empty(), List.of(), alone,
+                ImportPort.Mode.MODULE));
         }
         Set<String> sent = new TreeSet<>();
         alone.forEach(m -> sent.add(m.name()));
@@ -330,43 +342,159 @@ public final class NodeDeployer {
                         }
                     }
                 }
-                importArchive(call, port, before, Optional.of(group.getKey()), part, used,
-                    active ? ImportPort.Mode.WORKFLOW_ACTIVE : ImportPort.Mode.WORKFLOW_INACTIVE);
+                steps.add(archive(call, before, Optional.of(group.getKey()), part, used,
+                    active ? ImportPort.Mode.WORKFLOW_ACTIVE : ImportPort.Mode.WORKFLOW_INACTIVE));
             }
         }
+        return steps;
     }
 
-    private void importArchive(Call call, ImportPort port, ReleasePlanner.NodeState before,
+    private Step archive(Call call, ReleasePlanner.NodeState before,
         Optional<String> diagramGroup, List<PlannedArtifact> workflows,
         List<PlannedArtifact> modules, ImportPort.Mode mode) throws Failed {
-        ImportArchivePort.Archive archive;
+        byte[] zip;
         try {
-            archive = d.archives().assemble(build(call, call.release().files(), before.raws(),
-                diagramGroup, workflows, modules, call.reason(), true));
+            zip = d.archives().assemble(build(call, call.release().files(), before.raws(),
+                diagramGroup, workflows, modules, call.reason(), true)).zip();
         } catch (ToolErrorException e) {
             throw new Failed(e.error().code(), "import", "The import archive cannot be built: "
                 + e.error().message());
         }
-        ImportProtocol protocol;
-        try {
-            protocol = port.importArchive(archive.zip(), mode, call.admitted().owner());
-        } catch (ToolErrorException e) {
-            throw new Failed(ErrorCode.IMPORT_FAILED, "import", e.error().code() + ": "
-                + e.error().message());
-        }
         List<PlannedArtifact> sent = new ArrayList<>(workflows);
         sent.addAll(modules);
-        Set<String> created = new TreeSet<>();
-        Set<String> modified = new TreeSet<>();
-        sent.forEach(a -> (a.artifactClass() == ArtifactClass.NEW ? created : modified)
-            .add(a.name()));
-        if (!new TreeSet<>(protocol.created()).equals(created)
-            || !new TreeSet<>(protocol.modified()).equals(modified)
-            || protocol.entries().stream().anyMatch(e -> e.action().isEmpty())) {
-            throw new Failed(ErrorCode.IMPORT_FAILED, "protocol", "INUBIT's protocol does not"
-                + " name exactly the sent artifacts (created " + protocol.created() + ","
-                + " modified " + protocol.modified() + ")");
+        return new Step(new PackageWriter.Archive(Optional.of(mode), diagramGroup, zip), sent);
+    }
+
+    /** Sends the imports of {@link #steps} in order; a protocol must name the sent artifacts. */
+    private void send(Call call, List<PlannedArtifact> deployed,
+        ReleasePlanner.NodeState before) throws Failed {
+        String owner = call.admitted().owner();
+        ImportPort port = d.imports().apply(call.node());
+        for (Step step : steps(call, deployed, before)) {
+            if (step.archive().mode().isEmpty()) {
+                try {
+                    port.importRepository(step.archive().zip(), owner);
+                } catch (ToolErrorException e) {
+                    throw new Failed(ErrorCode.IMPORT_FAILED, "import", "The repository import"
+                        + " failed: " + e.error().code() + ": " + e.error().message());
+                }
+                continue;
+            }
+            ImportProtocol protocol;
+            try {
+                protocol = port.importArchive(step.archive().zip(), step.archive().mode().get(),
+                    owner);
+            } catch (ToolErrorException e) {
+                throw new Failed(ErrorCode.IMPORT_FAILED, "import", e.error().code() + ": "
+                    + e.error().message());
+            }
+            Set<String> created = new TreeSet<>();
+            Set<String> modified = new TreeSet<>();
+            step.sent().forEach(a -> (a.artifactClass() == ArtifactClass.NEW ? created
+                : modified).add(a.name()));
+            if (!new TreeSet<>(protocol.created()).equals(created)
+                || !new TreeSet<>(protocol.modified()).equals(modified)
+                || protocol.entries().stream().anyMatch(e -> e.action().isEmpty())) {
+                throw new Failed(ErrorCode.IMPORT_FAILED, "protocol", "INUBIT's protocol does"
+                    + " not name exactly the sent artifacts (created " + protocol.created()
+                    + ", modified " + protocol.modified() + ")");
+            }
         }
+    }
+
+    // --- package-only (T025) -------------------------------------------------------------------
+
+    /**
+     * Writes the package of the node of {@code plan} in a package-only group (research D-10):
+     * the node is read again (its state must be the plan's), the imports of D-7 step 4 are built
+     * with the node's own secret values and written by {@link PackageWriter} with the plan's
+     * difference report and warnings. Nothing but exports ever reaches the node. Audited
+     * {@code PACKAGED}; a node with nothing to import is {@code UNCHANGED} without a package.
+     */
+    public Deployed pack(DeployGuard.Admitted admitted, ReleaseDiscovery.Release release,
+        NodePlan plan, UUID auditId, Optional<String> mcpClient) {
+        if (admitted.mode() != de.dadecker.inubit.mcp.domain.model.DeployMode.PACKAGE_ONLY) {
+            throw new IllegalArgumentException("Only a package-only group is packaged");
+        }
+        Call call = new Call(admitted, release, plan, auditId, mcpClient, "deploy "
+            + admitted.tag() + " from " + admitted.source());
+        NodeId node = plan.node();
+        ReleasePlanner.NodeState before;
+        try {
+            before = d.planner().nodeState(admitted, release, node);
+        } catch (ToolErrorException e) {
+            return notStarted(node, ErrorCode.CONFLICT, "recheck", e.error().code() + ": "
+                + e.error().message() + " (the node could not be read for its package)");
+        } catch (RuntimeException e) {
+            LOG.error("The re-check of {} failed unexpectedly", node, e);
+            return notStarted(node, ErrorCode.INTERNAL, "recheck", "The re-check of " + node
+                + " failed unexpectedly (" + e.getClass().getSimpleName() + ")");
+        }
+        if (!before.fingerprint().equals(plan.targetFingerprint())) {
+            return notStarted(node, ErrorCode.CONFLICT, "recheck", node + " changed since the"
+                + " preview; no package was written for it");
+        }
+        List<PlannedArtifact> deployed = plan.artifacts().stream()
+            .filter(artifact -> artifact.artifactClass().deployed()).toList();
+        List<String> names = deployed.stream().map(PlannedArtifact::name).toList();
+        List<String> created = deployed.stream().filter(a -> a.artifactClass()
+            == ArtifactClass.NEW).map(PlannedArtifact::name).toList();
+        Map<String, String> inputs = new LinkedHashMap<>();
+        inputs.put("tag", admitted.tag());
+        inputs.put("source", admitted.source().value());
+        inputs.put("owner", admitted.owner());
+        if (deployed.isEmpty()) {
+            inputs.put("state", State.UNCHANGED.name());
+            audit(call, inputs, AuditOutcome.PACKAGED, "Nothing to package for " + node
+                + ": the release is on it already");
+            return new Deployed(new NodeOutcome(node, State.UNCHANGED, Optional.empty(),
+                List.of(), List.of(), Optional.empty(), Optional.empty(), Optional.empty()),
+                Optional.empty(), List.of(), List.of());
+        }
+        Path dir;
+        try {
+            List<PackageWriter.Archive> archives = steps(call, deployed, before).stream()
+                .map(Step::archive).toList();
+            dir = d.packages().write(new PackageWriter.Content(auditId, node, admitted.tag(),
+                admitted.source(), admitted.owner(), archives, diff(plan), plan.warnings()
+                    .stream().map(w -> w.kind() + " " + w.artifact() + ": " + w.detail())
+                    .toList(), leftOut(plan)));
+        } catch (Failed e) {
+            return notStarted(node, e.failure.code(), "package", e.failure.message());
+        } catch (RuntimeException e) {
+            LOG.error("The package of {} could not be written ({})", node,
+                e.getClass().getSimpleName());
+            return notStarted(node, ErrorCode.INTERNAL, "package", "The package of " + node
+                + " could not be written (" + e.getClass().getSimpleName() + ")");
+        }
+        inputs.put("artifacts", names.size() <= MAX_AUDITED_NAMES ? String.join(", ", names)
+            : String.join(", ", names.subList(0, MAX_AUDITED_NAMES)) + ", …+"
+                + (names.size() - MAX_AUDITED_NAMES));
+        inputs.put("package", dir.toString());
+        audit(call, inputs, AuditOutcome.PACKAGED, "Packaged " + names.size() + " artifact(s)"
+            + " of " + admitted.tag() + " for " + node + "; nothing was sent to it");
+        LOG.info("deploy_release for {}: PACKAGED", node);
+        return new Deployed(new NodeOutcome(node, State.PACKAGED, Optional.empty(), names,
+            created, Optional.empty(), Optional.empty(), Optional.of(dir.toString())),
+            Optional.empty(), List.of(), List.of());
+    }
+
+    /** The node's difference report of this call (placeholders only). */
+    private String diff(NodePlan plan) {
+        try {
+            return Files.readString(d.root().resolve(plan.diffFile()), StandardCharsets.UTF_8);
+        } catch (IOException | RuntimeException e) {
+            return "The difference report could not be copied; see " + plan.diffFile()
+                + " in the workspace.\n";
+        }
+    }
+
+    /** The artifacts the release leaves out or leaves alone on the node, with their class. */
+    private static List<String> leftOut(NodePlan plan) {
+        return plan.artifacts().stream().filter(a -> !a.artifactClass().deployed()
+            && a.artifactClass() != ArtifactClass.UNCHANGED).map(a -> a.name() + " ("
+                + a.artifactClass().name().toLowerCase(java.util.Locale.ROOT).replace('_', ' ')
+                + ")").toList();
     }
 
     private ImportArchivePort.Build build(Call call, SortedMap<String, byte[]> files,

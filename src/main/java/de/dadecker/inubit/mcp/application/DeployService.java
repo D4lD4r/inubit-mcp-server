@@ -162,18 +162,6 @@ public final class DeployService {
         UUID auditId = d.ids().get();
         Map<String, String> inputs = inputs(admitted);
         inputs.put(AuditRecord.CONFIRMATION_CODE, request.confirmationCode().orElseThrow());
-        if (admitted.mode() == DeployMode.PACKAGE_ONLY) {
-            // stage 3 review B1: a package-only group never reaches the deployer
-            ToolErrorException refused = new ToolErrorException(ToolError.of(
-                ErrorCode.PRECONDITION_FAILED, admitted.target() + " is package-only: nothing"
-                    + " is ever imported or tagged there, and packages are not written yet",
-                "deploy.mode is PACKAGE_ONLY for this group",
-                "Import the release on " + admitted.target() + " by hand"));
-            audit(auditId, admitted, inputs, AuditRecord.Step.EXECUTE, AuditOutcome.REFUSED,
-                refused.error().code() + ": " + refused.error().message(),
-                request.mcpClient());
-            throw refused;
-        }
         boolean started = false;
         try (DeployLock lock = DeployLock.acquire(d.deployments(), admitted.target(), d.root())) {
             String previewed = d.challenges().redeem(request.confirmationCode().get(),
@@ -197,9 +185,11 @@ public final class DeployService {
                         + " workflow was opened in edit mode meanwhile",
                     "Call deploy_release again without confirmationCode for a new preview"));
             }
+            boolean packageOnly = admitted.mode() == DeployMode.PACKAGE_ONLY;
             audit(auditId, admitted, inputs, AuditRecord.Step.EXECUTE, AuditOutcome.PENDING,
-                "About to deploy " + admitted.tag() + " into " + admitted.targetNodes().size()
-                    + " node(s) of " + admitted.target(), request.mcpClient());
+                (packageOnly ? "About to write the packages of " : "About to deploy ")
+                    + admitted.tag() + " for " + admitted.targetNodes().size() + " node(s) of "
+                    + admitted.target(), request.mcpClient());
             started = true;
             return run(admitted, release, plans, auditId, inputs, request.mcpClient());
         } catch (AuditFailed e) {
@@ -223,6 +213,7 @@ public final class DeployService {
         List<String> reports = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         Optional<ReleasePlanner.NodeState> verified = Optional.empty();
+        boolean packageOnly = admitted.mode() == DeployMode.PACKAGE_ONLY;
         boolean stopped = false;
         for (NodePlan plan : plans) {
             if (stopped) {
@@ -232,7 +223,10 @@ public final class DeployService {
             }
             NodeDeployer.Deployed deployed;
             try {
-                deployed = d.deployer().deploy(admitted, release, plan, auditId, mcpClient);
+                // B1, T025: a package-only group only ever gets packages, never an import
+                deployed = packageOnly
+                    ? d.deployer().pack(admitted, release, plan, auditId, mcpClient)
+                    : d.deployer().deploy(admitted, release, plan, auditId, mcpClient);
             } catch (RuntimeException e) {
                 // the deployer turns every failure from the first import on into its outcome
                 LOG.error("deploy_release on {} failed before writing", plan.node(), e);
@@ -249,12 +243,15 @@ public final class DeployService {
             if (state == DeploymentResult.State.DEPLOYED
                 || state == DeploymentResult.State.UNCHANGED) {
                 verified = deployed.verified();
-            } else {
+            } else if (state != DeploymentResult.State.PACKAGED) {
                 stopped = true;
             }
         }
         Optional<String> commit = Optional.empty();
-        if (!stopped && verified.isPresent()) {
+        if (packageOnly) {
+            LOG.debug("deploy_release into {}: package only, nothing to commit",
+                admitted.target());
+        } else if (!stopped && verified.isPresent()) {
             try {
                 commit = commit(admitted, auditId, verified.get());
             } catch (RuntimeException e) {
@@ -271,14 +268,19 @@ public final class DeployService {
                 + " state");
         }
         DeploymentResult.Outcome outcome = stopped ? DeploymentResult.Outcome.FAILED
-            : DeploymentResult.Outcome.EXECUTED;
+            : packageOnly ? DeploymentResult.Outcome.PACKAGED
+                : DeploymentResult.Outcome.EXECUTED;
+        AuditOutcome audited = switch (outcome) {
+            case EXECUTED -> AuditOutcome.EXECUTED;
+            case PACKAGED -> AuditOutcome.PACKAGED;
+            case FAILED -> AuditOutcome.FAILED;
+        };
         Map<String, String> finalInputs = new LinkedHashMap<>(inputs);
         outcomes.forEach(node -> finalInputs.put(node.node().value(), node.state().name()
             + node.backupRef().map(ref -> " " + ref).orElse("")));
         try {
-            audit(auditId, admitted, finalInputs, AuditRecord.Step.EXECUTE, outcome
-                == DeploymentResult.Outcome.EXECUTED ? AuditOutcome.EXECUTED
-                    : AuditOutcome.FAILED, "Deployment of " + admitted.tag() + " into "
+            audit(auditId, admitted, finalInputs, AuditRecord.Step.EXECUTE, audited,
+                "Deployment of " + admitted.tag() + " into "
                     + admitted.target() + ": " + String.join(", ", outcomes.stream()
                         .map(node -> node.node() + " " + node.state()).toList()), mcpClient);
         } catch (AuditFailed e) {

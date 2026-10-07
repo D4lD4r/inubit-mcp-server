@@ -314,7 +314,16 @@ public final class DeployHarness {
     public DeployService deployService(
         List<de.dadecker.inubit.mcp.domain.model.StageChain.Exclusion> exclude,
         de.dadecker.inubit.mcp.domain.port.AuditPort serviceAudit) {
-        de.dadecker.inubit.mcp.domain.model.StageChain chain = chain(exclude);
+        return deployService(chain(exclude), serviceAudit);
+    }
+
+    /** {@code deploy_release} on this harness with the chain {@code chain}. */
+    public DeployService deployService(de.dadecker.inubit.mcp.domain.model.StageChain chain) {
+        return deployService(chain, audit::add);
+    }
+
+    private DeployService deployService(de.dadecker.inubit.mcp.domain.model.StageChain chain,
+        de.dadecker.inubit.mcp.domain.port.AuditPort serviceAudit) {
         List<NodeId> nodes = new java.util.ArrayList<>(servers.keySet());
         DeployGuard guard = new DeployGuard(chain, new TargetResolver(nodes),
             group -> Optional.of(OWNER), audit::add, "acme", clock, java.util.UUID::randomUUID);
@@ -334,7 +343,12 @@ public final class DeployHarness {
             new de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec(), this::imports,
             this::tags, node -> new ImportService.Account(OWNER, node.name() + ".example.test"),
             backups, ledger, serviceAudit, "acme", clock, java.util.UUID::randomUUID, root,
-            new DiagramGroupTagger(root)));
+            new DiagramGroupTagger(root), packages()));
+    }
+
+    /** The package writer below {@link #profileHome} ({@code packages}). */
+    public PackageWriter packages() {
+        return new PackageWriter(profileHome.resolve("packages"), clock);
     }
 
     // --- scripting (per node, in launch order) -----------------------------------------------
