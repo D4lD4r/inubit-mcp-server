@@ -190,6 +190,8 @@ assertion before the production code exists. `mvn -q verify` green after every t
   `LiveTargetTest`); run pending user approval of the live target.*
 - [ ] T031 Validation: `mvn -q clean verify`, guard test without `clean` (not skipped), quickstart
   table; live acceptance only after the user approved the test target.
+  *Offline part done (clean verify green, guard test run, quickstart table walked); live part
+  pending user approval of the live target.*
 
 ---
 

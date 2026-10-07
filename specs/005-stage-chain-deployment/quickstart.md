@@ -18,15 +18,17 @@ Expected: green; in particular
 | `--check-config` prints the chain, exclusions, per-node deploy line | `ConfigSummaryTest` |
 | Chain cannot be bypassed (US2) | `DeployServiceTest`: no StartCLI launch for a target without `deploy`; the source is not an input |
 | Preview per node, classes, active flags, warnings, code only when executable (US1, US5) | `DeployServiceTest` on `DeployHarness` (source + 2 target `FakeInubit`s) |
-| Execute: backup, imports in D-7 order, verification, tag, ledger, commit (US1) | `DeployServiceTest`, scripted launches verified complete |
+| Execute: backup, imports in D-7 order, verification, tag, ledger, commit (US1) | `DeployExecuteTest`, `DeployRobustnessTest` (warnings after verification, `NOT_STARTED` steps, final record), scripted launches verified complete |
 | Failure on node 2 of 3: node 1 deployed, node 2 rolled back, node 3 untouched (US3) | `DeployFailureTest` (import NOK, verify mismatch, rollback failure) |
-| Release or target changed between preview and execute | `DeployServiceTest`: `CONFLICT`, nothing written |
-| Package-only: no writing command, owner-only package with the node's secrets (US4) | `PackageOnlyTest`, `DeploySecretLeakTest` |
+| Release or target changed between preview and execute | `DeployExecuteTest`: `CONFLICT`, nothing written; `DeployFailureTest`: a node changed at its re-check |
+| Package-only: no writing command, owner-only package with the node's secrets (US4) | `PackageOnlyTest`, `PackageWriterTest`, `DeploySecretLeakTest` |
 | Exclusions and missing excluded module (US5) | `ReleasePlannerTest` |
-| Re-deploying an unchanged release imports nothing (SC-003) | `DeployServiceTest`: state `UNCHANGED`, no import launch |
+| Re-deploying an unchanged release imports nothing (SC-003) | `DeployExecuteTest`: state `UNCHANGED`, no import launch |
+| SC-007 timing (5 groups, 20 workflows, 100 modules, 2 nodes) | `DeployTimingTest` (prints the times) |
 | `DEPLOY_LOCKED` across processes | `DeployLockTest` with `LockHolder` |
 | Restore of a deployment backup needs the server code | `RestoreDeploymentTest` |
-| E2E on a target group | `DevelopmentGuardTest`, `DevelopmentWiringTest` |
+| E2E on a target group | `DevelopmentGuardTest`, `DevelopmentWiringTest`, `E2eTestServiceTest` |
+| Documentation | `DeploymentReferenceTest` |
 
 ## Live (opt-in, with the user's approval of the target)
 

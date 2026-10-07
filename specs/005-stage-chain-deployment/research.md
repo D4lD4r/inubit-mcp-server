@@ -380,3 +380,70 @@ Smallest design-conforming choices where the tasks met the code (2026-10-07):
   forbid `{node}'s`; the contract's wording differs only there). Lists of the result are capped
   by `resultLimits.maxItems` with `<list>Truncated`; nodes are never cut. `docs/tools.md` has a
   minimal entry and counts sixteen tools; T029 completes it.
+
+## D-16 addendum: rulings of stage 4
+
+Review fixes of stage 3 and the rulings of T025–T031.
+
+- **B1 (package-only never written)**: `DeployService` sends a `PACKAGE_ONLY` group only to
+  `NodeDeployer.pack`, never to `deploy`; `deploy` refuses a package-only target and `pack` any
+  other one (defence in depth). `PackageOnlyTest` keeps the permanent proof that no import, tag or
+  other writing launch reaches such a group — also with the chain of a configuration where the
+  group has `write.enabled: true` and `write.productionOptIn: true`.
+- **M1**: once a node's verification passed, nothing rolls it back: a backup manifest or ledger
+  that cannot be written (and a failed tag) is a warning, the node stays `DEPLOYED`.
+- **M2**: `deploy_release` with a code always answers with a result naming every node and always
+  tries the final group record. A failure before a node is written leaves it `NOT_STARTED` with
+  failure step `backup`, `pending` or `recheck` (`deploy` for an unexpected failure the deployer
+  did not turn into an outcome, `package` for a package that could not be written); the following
+  nodes stay `NOT_STARTED`, the outcome is `FAILED`. A failing workspace commit or final group
+  record is a warning; the outcome stays.
+- **M3 (Constitution I)**: the `deploy` record of a target group **is** the explicit
+  per-environment write enablement of deployments. `write.*` (design §3) stays the setting of
+  restart and kill and neither enables nor blocks deployments. A production group in mode
+  `EXECUTE` additionally needs the effective `write.productionOptIn` (startup rule); a
+  `PACKAGE_ONLY` group never writes. Documented in docs/setup.md.
+- **m1**: every node is audited: an `UNCHANGED` node gets an `EXECUTE` record with outcome
+  `EXECUTED`, `state=UNCHANGED` and `tagApplied`; a package-only node a `PACKAGED` record (with
+  `state=UNCHANGED` when there is nothing to package).
+- **m3**: a rollback that re-imports anything writes a report (`<group>-<node>-rollback.txt`)
+  naming the re-imported artifacts and noting that the rollback is checked by re-export (content
+  and `IsActive`), not by INUBIT's import protocol.
+- **m4**: `reports` and `diagramGroups` are bounded like the other lists. The input schema of
+  `target` admits `<group>/<node>` so that the guard's `INVALID_INPUT` naming the group is
+  reachable (contract updated).
+- **n2**: `DiagramGroupTagger` is public and injected into `NodeDeployer`.
+- **T025 (packages)**: `<packages>/<auditId>/<group>-<node>/` with `<n>-repository.zip`,
+  `<n>-modules.zip`, `<n>-<diagram group>-inactive|active.zip` (unsafe characters as `_`), built by
+  the same D-7 step function as the deployment (the node's own secrets), `diff.txt` (the plan's
+  difference report), `warnings.txt` (warnings and what the release leaves out on the node),
+  `README.md` (StartCLI commands in order, with the absolute archive paths). A marker
+  `package.properties` (target, time) per audit id drives the retention, which runs after each
+  write (30 days; the newest per target kept; directories without a marker are left alone). The
+  node is read again before its package is written (`CONFLICT` at `recheck` if it changed). A node
+  with nothing to import is `UNCHANGED` without a package. Outcome `PACKAGED`; nothing is
+  committed; new audit outcome `PACKAGED`.
+- **T026 (restore of a deployment backup)**: `restore_backup` asks `DevelopmentGuard.admit`
+  first; only if that is `NOT_DEVELOPMENT` and a `DEPLOYMENT` backup of exactly that node exists
+  does `admitDeploymentRestore` admit the node — its group must receive deployments in mode
+  `EXECUTE`; confirmation is always `SERVER` with `deployConfirmationTtl` (also for a development
+  node holding a deployment backup). The plan reads the node like the deployment did, with a
+  release rebuilt from the backup (its rendering; repository exports recognised by
+  `ReleaseArchivePort.repositoryExport` and merged); only artifacts that existed before the
+  deployment are checked against the state it left (`CONFLICT`, edit mode included;
+  `PRECONDITION_FAILED` without a recorded state) and re-imported; what it created stays and is
+  listed. The restore writes its own `DEPLOYMENT` backup (scope `restore <backupRef>`), the
+  `PENDING` record, re-imports and verifies like a rollback; an incomplete restore is `FAILED`
+  (`VERIFY_MISMATCH`) naming its own backup. The workspace is not changed.
+- **T027**: `run_e2e_test` (and only it of feature 004) is admitted on a non-production node of a
+  group with `deploy` (any mode) as its `e2eTests` allows; production stays refused.
+  `restore_backup` is registered with an `EXECUTE` target, `run_e2e_test` where such a node allows
+  it, both without a development node.
+- **T028 (SC-007)**: 5 diagram groups, 20 workflows, 100 modules (80 in the release, all changed),
+  2 target nodes on `DeployHarness`: preview 0.2–0.9 s, execution 0.9–1.1 s of this server's own
+  work (asserted below 20 s each). The module-usage scan does not dominate; no cache.
+- **T030**: `LiveTarget.resolveDeployment` takes `INUBIT_LIVE_DEPLOY_TARGET` (one group) and
+  refuses node ids, groups without `deploy`, package-only groups and any production group before
+  contacting anything. The live test tags the test diagram group only if the source group has
+  exactly one node and it is a development node; otherwise the operator tags it on every source
+  node. Not run: pending the user's approval of the live target.
