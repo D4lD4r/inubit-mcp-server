@@ -151,82 +151,21 @@ public final class ReleasePlanner {
         NodeId node, UUID auditId) {
         GroupId group = admitted.target();
         String owner = admitted.owner();
-        Parts parts = parts(release, group);
-        Map<String, List<String>> runs = new LinkedHashMap<>();
-        parts.workflowPaths().forEach((name, path) -> runs.put(name, d.releases().modulesOf(
-            release.files().get(path))));
-
-        // exclusions
-        Set<String> excludedWorkflows = new TreeSet<>();
-        parts.workflowPaths().keySet().forEach(name -> {
-            if (excluded(admitted.exclude(), StageChain.Exclusion.Kind.DIAGRAM_GROUP,
-                parts.workflowGroups().get(name)) || excluded(admitted.exclude(),
-                StageChain.Exclusion.Kind.NAME, name)) {
-                excludedWorkflows.add(name);
-            }
-        });
-        Set<String> usedByDeployed = new TreeSet<>();
-        Set<String> usedByExcluded = new TreeSet<>();
-        runs.forEach((name, modules) -> (excludedWorkflows.contains(name) ? usedByExcluded
-            : usedByDeployed).addAll(modules));
-        Set<String> excludedModules = new TreeSet<>();
-        parts.modules().keySet().forEach(name -> {
-            if (excluded(admitted.exclude(), StageChain.Exclusion.Kind.NAME, name)
-                || (usedByExcluded.contains(name) && !usedByDeployed.contains(name))) {
-                excludedModules.add(name);
-            }
-        });
-        String ownArea = "/Root/" + owner + "/";
-        Set<String> pathExcluded = new TreeSet<>();
-        Set<String> keyMaterial = new TreeSet<>();
-        Set<String> outsideOwner = new TreeSet<>();
-        Set<String> unpassable = new TreeSet<>();
-        parts.repository().forEach((path, content) -> {
-            if (excluded(admitted.exclude(), StageChain.Exclusion.Kind.REPOSITORY_PATH, path)) {
-                pathExcluded.add(path);
-            } else if (!repositoryPathPassable(path)) {
-                unpassable.add(path);
-            } else if (d.releases().keyMaterial(path, content)) {
-                keyMaterial.add(path);
-            } else if (!path.startsWith(ownArea)) {
-                outsideOwner.add(path);
-            }
-        });
-
-        // the node's state
-        ArtifactPort port = d.artifacts().apply(node);
-        List<byte[]> raws = new ArrayList<>();
-        for (String diagramGroup : release.diagramGroups()) {
-            exported(node, () -> port.exportWorkflowGroup(owner, diagramGroup))
-                .ifPresent(raws::add);
-        }
-        SortedMap<String, byte[]> groupFiles = raws.isEmpty() ? new TreeMap<>()
-            : d.codec().prepare(group, owner, raws).files();
-        Set<String> inGroups = moduleNames(groupFiles);
-        List<String> separately = new ArrayList<>(parts.modules().keySet().stream()
-            .filter(name -> !inGroups.contains(name) && !excludedModules.contains(name))
-            .toList());
-        separately.sort((a, b) -> {
-            int type = parts.modules().get(a).pluginType().compareTo(
-                parts.modules().get(b).pluginType());
-            return type != 0 ? type : a.compareTo(b);
-        });
-        for (String name : separately) {
-            exported(node, () -> port.exportModule(owner, parts.modules().get(name)
-                .pluginType(), name)).ifPresent(raws::add);
-        }
-        ArchiveCodecPort.PreparedExport prepared = d.codec().prepare(group, owner, raws);
-        SortedMap<String, byte[]> target = new TreeMap<>(prepared.files());
-        Map<String, byte[]> targetRepository = new TreeMap<>();
-        for (String path : parts.repository().keySet()) {
-            if (pathExcluded.contains(path) || unpassable.contains(path)) {
-                continue;
-            }
-            exported(node, () -> port.exportRepository(path)).map(zip -> d.releases()
-                .repositoryFiles(zip).get(path)).ifPresent(content ->
-                    targetRepository.put(path, content));
-        }
+        Scope scope = scope(admitted, release);
+        Parts parts = scope.parts();
+        Map<String, List<String>> runs = scope.runs();
+        Set<String> excludedWorkflows = scope.excludedWorkflows();
+        Set<String> excludedModules = scope.excludedModules();
+        Set<String> pathExcluded = scope.pathExcluded();
+        Set<String> unpassable = scope.unpassable();
+        NodeState state = snapshot(admitted, release, node, scope);
+        SortedMap<String, byte[]> target = new TreeMap<>(state.rendered());
+        Map<String, byte[]> targetRepository = new TreeMap<>(state.repository());
+        List<byte[]> raws = state.raws();
+        Map<String, String> editMode = state.editMode();
         // review M1: key material on either side stays on the target and is never shown
+        Set<String> keyMaterial = new TreeSet<>(scope.keyMaterial());
+        Set<String> outsideOwner = new TreeSet<>(scope.outsideOwner());
         targetRepository.forEach((path, content) -> {
             if (d.releases().keyMaterial(path, content) && !keyMaterial.contains(path)) {
                 keyMaterial.add(path);
@@ -255,7 +194,7 @@ public final class ReleasePlanner {
                 : release.files().get(path)).orElse(false));
             artifacts.add(new PlannedArtifact(Kind.WORKFLOW, name, Optional.of(diagramGroup),
                 artifactClass, active, kept));
-            String user = prepared.inEditMode().get(name);
+            String user = editMode.get(name);
             if (user != null && artifactClass.deployed()) {
                 errors.add(new PlanError(ErrorCode.CONFLICT, name, name + " is in Workbench edit"
                     + " mode on " + node + " (by " + user + "); publishing it later would"
@@ -367,7 +306,7 @@ public final class ReleasePlanner {
         });
         sharedModules(node, owner, diagrams, parts, moduleClasses, warnings);
 
-        String fingerprint = fingerprint(target, targetRepository, prepared.inEditMode());
+        String fingerprint = state.fingerprint();
         String base = REPORTS + "/deploy-" + auditId + "/" + node.group() + "-" + node.name();
         writeDiff(base + ".diff", node, release, parts, target, targetRepository, artifacts,
             group, owner);
@@ -376,6 +315,142 @@ public final class ReleasePlanner {
             base + ".diff", base + ".txt");
         writeSummary(plan, admitted, auditId);
         return plan;
+    }
+
+    /** The release split into artifacts and what the chain's rules exclude (node-independent). */
+    private record Scope(Parts parts, Map<String, List<String>> runs,
+        Set<String> excludedWorkflows, Set<String> excludedModules, Set<String> pathExcluded,
+        Set<String> unpassable, Set<String> keyMaterial, Set<String> outsideOwner) {
+    }
+
+    /**
+     * What a node holds of a release (research D-5, D-6): the raw exports (memory only; they
+     * hold the node's secrets), their rendering for the target group, the workflows in edit
+     * mode, the content of the release's repository files the node has, the raw repository
+     * exports, and the node's state fingerprint.
+     *
+     * @param repositoryExports repository path → the node's raw repository export of it
+     */
+    public record NodeState(List<byte[]> raws, SortedMap<String, byte[]> rendered,
+        Map<String, String> editMode, Map<String, byte[]> repository,
+        Map<String, byte[]> repositoryExports, String fingerprint) {
+        public NodeState {
+            raws = List.copyOf(raws);
+            rendered = java.util.Collections.unmodifiableSortedMap(new TreeMap<>(rendered));
+            editMode = Map.copyOf(editMode);
+            repository = Map.copyOf(repository);
+            repositoryExports = Map.copyOf(repositoryExports);
+            Objects.requireNonNull(fingerprint, "fingerprint");
+        }
+
+        /** Names and the fingerprint only; never content. */
+        @Override
+        public String toString() {
+            return "NodeState[" + raws.size() + " exports, " + fingerprint + "]";
+        }
+    }
+
+    /**
+     * The node's state of {@code release} — the same exports, rendering and fingerprint as
+     * {@link #plan} (stage 2 review m4) — without classification, inventory reads or reports:
+     * for the re-check right before a node is written and for the verification after it.
+     *
+     * @throws ToolErrorException as {@link #plan}
+     */
+    public NodeState nodeState(DeployGuard.Admitted admitted, ReleaseDiscovery.Release release,
+        NodeId node) {
+        return snapshot(admitted, release, node, scope(admitted, release));
+    }
+
+    private Scope scope(DeployGuard.Admitted admitted, ReleaseDiscovery.Release release) {
+        String owner = admitted.owner();
+        Parts parts = parts(release, admitted.target());
+        Map<String, List<String>> runs = new LinkedHashMap<>();
+        parts.workflowPaths().forEach((name, path) -> runs.put(name, d.releases().modulesOf(
+            release.files().get(path))));
+        Set<String> excludedWorkflows = new TreeSet<>();
+        parts.workflowPaths().keySet().forEach(name -> {
+            if (excluded(admitted.exclude(), StageChain.Exclusion.Kind.DIAGRAM_GROUP,
+                parts.workflowGroups().get(name)) || excluded(admitted.exclude(),
+                StageChain.Exclusion.Kind.NAME, name)) {
+                excludedWorkflows.add(name);
+            }
+        });
+        Set<String> usedByDeployed = new TreeSet<>();
+        Set<String> usedByExcluded = new TreeSet<>();
+        runs.forEach((name, modules) -> (excludedWorkflows.contains(name) ? usedByExcluded
+            : usedByDeployed).addAll(modules));
+        Set<String> excludedModules = new TreeSet<>();
+        parts.modules().keySet().forEach(name -> {
+            if (excluded(admitted.exclude(), StageChain.Exclusion.Kind.NAME, name)
+                || (usedByExcluded.contains(name) && !usedByDeployed.contains(name))) {
+                excludedModules.add(name);
+            }
+        });
+        String ownArea = "/Root/" + owner + "/";
+        Set<String> pathExcluded = new TreeSet<>();
+        Set<String> keyMaterial = new TreeSet<>();
+        Set<String> outsideOwner = new TreeSet<>();
+        Set<String> unpassable = new TreeSet<>();
+        parts.repository().forEach((path, content) -> {
+            if (excluded(admitted.exclude(), StageChain.Exclusion.Kind.REPOSITORY_PATH, path)) {
+                pathExcluded.add(path);
+            } else if (!repositoryPathPassable(path)) {
+                unpassable.add(path);
+            } else if (d.releases().keyMaterial(path, content)) {
+                keyMaterial.add(path);
+            } else if (!path.startsWith(ownArea)) {
+                outsideOwner.add(path);
+            }
+        });
+        return new Scope(parts, runs, excludedWorkflows, excludedModules, pathExcluded,
+            unpassable, keyMaterial, outsideOwner);
+    }
+
+    private NodeState snapshot(DeployGuard.Admitted admitted, ReleaseDiscovery.Release release,
+        NodeId node, Scope scope) {
+        GroupId group = admitted.target();
+        String owner = admitted.owner();
+        Parts parts = scope.parts();
+        ArtifactPort port = d.artifacts().apply(node);
+        List<byte[]> raws = new ArrayList<>();
+        for (String diagramGroup : release.diagramGroups()) {
+            exported(node, () -> port.exportWorkflowGroup(owner, diagramGroup))
+                .ifPresent(raws::add);
+        }
+        SortedMap<String, byte[]> groupFiles = raws.isEmpty() ? new TreeMap<>()
+            : d.codec().prepare(group, owner, raws).files();
+        Set<String> inGroups = moduleNames(groupFiles);
+        List<String> separately = new ArrayList<>(parts.modules().keySet().stream()
+            .filter(name -> !inGroups.contains(name) && !scope.excludedModules().contains(name))
+            .toList());
+        separately.sort((a, b) -> {
+            int type = parts.modules().get(a).pluginType().compareTo(
+                parts.modules().get(b).pluginType());
+            return type != 0 ? type : a.compareTo(b);
+        });
+        for (String name : separately) {
+            exported(node, () -> port.exportModule(owner, parts.modules().get(name)
+                .pluginType(), name)).ifPresent(raws::add);
+        }
+        ArchiveCodecPort.PreparedExport prepared = d.codec().prepare(group, owner, raws);
+        Map<String, byte[]> repository = new TreeMap<>();
+        Map<String, byte[]> repositoryExports = new TreeMap<>();
+        for (String path : parts.repository().keySet()) {
+            if (scope.pathExcluded().contains(path) || scope.unpassable().contains(path)) {
+                continue;
+            }
+            exported(node, () -> port.exportRepository(path)).ifPresent(zip -> {
+                byte[] content = d.releases().repositoryFiles(zip).get(path);
+                if (content != null) {
+                    repository.put(path, content);
+                    repositoryExports.put(path, zip);
+                }
+            });
+        }
+        SortedMap<String, byte[]> rendered = prepared.files();
+        return new NodeState(raws, rendered, prepared.inEditMode(), repository,
+            repositoryExports, fingerprint(rendered, repository, prepared.inEditMode()));
     }
 
     /**

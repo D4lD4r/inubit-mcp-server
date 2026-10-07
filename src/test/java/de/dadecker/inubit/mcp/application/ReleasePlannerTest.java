@@ -597,5 +597,47 @@ class ReleasePlannerTest {
             .doesNotContain(sourceValue, targetValue);
         harness.verifyComplete();
     }
+
+    @Test
+    void theNodeStateIsThePlansFingerprintWithoutInventoryReadsOrReports() throws IOException {
+        // stage 2 review m4: the re-check right before writing uses the same state function
+        harness = harnessQuietly(false);
+        ReleaseDiscovery.Release release = release();
+        harness.exportGroup(DeployHarness.INT1)
+            .exportRepository(DeployHarness.INT1, DeployHarness.RELEASE_XSL)
+            .exportGroup(DeployHarness.INT1)
+            .exportRepository(DeployHarness.INT1, DeployHarness.RELEASE_XSL);
+        NodePlan plan = plan(release, List.of());
+        String summary = read(plan.summaryFile());
+        int restCalls = harness.restCalls.size();
+        harness.servers.get(DeployHarness.INT1).editMode("Workflow-0002", "jdoe");
+
+        ReleasePlanner.NodeState state = planner().nodeState(admitted(List.of()), release,
+            DeployHarness.INT1);
+
+        assertThat(state.fingerprint()).isNotEqualTo(plan.targetFingerprint());
+        assertThat(state.editMode()).containsEntry("Workflow-0002", "jdoe");
+        assertThat(state.repository()).isEmpty(); // the release file is new there
+        assertThat(harness.restCalls).hasSize(restCalls);
+        assertThat(read(plan.summaryFile())).isEqualTo(summary);
+        assertThat(state).asString().doesNotContain("<");
+        harness.verifyComplete();
+    }
+
+    @Test
+    void anUnchangedNodeHasThePlansFingerprint() {
+        harness = harnessQuietly(false);
+        ReleaseDiscovery.Release release = release();
+        harness.exportGroup(DeployHarness.INT1)
+            .exportRepository(DeployHarness.INT1, DeployHarness.RELEASE_XSL)
+            .exportGroup(DeployHarness.INT1)
+            .exportRepository(DeployHarness.INT1, DeployHarness.RELEASE_XSL);
+
+        NodePlan plan = plan(release, List.of());
+
+        assertThat(planner().nodeState(admitted(List.of()), release, DeployHarness.INT1)
+            .fingerprint()).isEqualTo(plan.targetFingerprint());
+        harness.verifyComplete();
+    }
 }
 
