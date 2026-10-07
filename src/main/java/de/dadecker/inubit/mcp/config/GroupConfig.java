@@ -8,6 +8,9 @@ import java.util.Optional;
 /**
  * One stage as written in the YAML. Its settings are inherited by all its servers. Names are not
  * validated here, so that {@link ConfigValidator} can report every problem at once.
+ *
+ * @param deploy feature 005: the group receives releases along the stage chain (group-level
+ *               only; there is no {@code deploy} on a node)
  */
 public record GroupConfig(
     String name,
@@ -25,7 +28,8 @@ public record GroupConfig(
     Optional<Duration> confirmationTtl,
     DevelopmentConfig development,
     Optional<E2ePolicy> e2eTests,
-    E2eConfig e2e) {
+    E2eConfig e2e,
+    Optional<DeployConfig> deploy) {
 
     public GroupConfig {
         name = Optionals.orDefault(name, "");
@@ -43,5 +47,6 @@ public record GroupConfig(
         development = Optionals.orDefault(development, DevelopmentConfig.EMPTY);
         e2eTests = Optionals.orEmpty(e2eTests);
         e2e = Optionals.orDefault(e2e, E2eConfig.EMPTY);
+        deploy = Optionals.orEmpty(deploy);
     }
 }

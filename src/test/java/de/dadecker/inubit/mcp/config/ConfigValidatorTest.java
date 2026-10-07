@@ -1550,4 +1550,25 @@ class ConfigValidatorTest {
     }
 
     private static final String CLI_VALUE_RULE = ConfigValidator.CLI_VALUE_PATTERN.pattern();
+
+    /** Feature 005 (T011, research D-2): the lifetime of a deployment's confirmation code. */
+    @Nested
+    class DeployConfirmationTtl {
+
+        @Test
+        void isPositiveAndAtMostTwoHours() {
+            for (String ttl : List.of("PT0S", "-PT1M")) {
+                assertThat(validate("defaults:\n  deployConfirmationTtl: " + ttl + "\n"
+                    + server("")).errors()).singleElement().asString()
+                    .contains("deployConfirmationTtl must be positive");
+            }
+            assertThat(validate("defaults:\n  deployConfirmationTtl: PT2H1S\n" + server(""))
+                .errors()).singleElement().asString()
+                .contains("deployConfirmationTtl must be at most PT2H");
+            assertThat(validate("defaults:\n  deployConfirmationTtl: PT2H\n" + server(""))
+                .errors()).isEmpty();
+            assertThat(validate(server("")).errors()).isEmpty();
+        }
+    }
 }
+

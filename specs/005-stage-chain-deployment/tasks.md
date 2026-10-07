@@ -91,7 +91,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 3: User Story 6 — Configure the stage chain (P3, needed by all others)
 
-- [ ] T011 [US6] `main/config/DeployConfig.java`, `ExcludeRule.java`; `GroupConfig.deploy`;
+- [X] T011 [US6] `main/config/DeployConfig.java`, `ExcludeRule.java`; `GroupConfig.deploy`;
   `Defaults.deployConfirmationTtl` ("default `PT30M`", "positive, at most `PT2H`"); `deploy` on a
   node is an unknown key; `ConfigLoaderTest` fixtures `src/test/resources/config/deploy-*.yaml`.
 - [ ] T012 [US6] `main/config/ConfigValidator.java` `checkChain`: `from` "an existing group other

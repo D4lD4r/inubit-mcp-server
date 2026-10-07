@@ -1,0 +1,9 @@
+# Feature 005: deploy.mode is EXECUTE or PACKAGE_ONLY.
+profile:
+  name: acme
+groups:
+  - name: dev
+    nodes: [ { name: node1, baseUrl: https://inubit-dev.example.test:8443 } ]
+  - name: int
+    deploy: { from: dev, mode: SOMETIMES }
+    nodes: [ { name: node1, baseUrl: https://inubit-int-1.example.test:8443 } ]

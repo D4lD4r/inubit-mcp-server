@@ -1,0 +1,34 @@
+# Feature 005 (contracts/configuration-delta.md): a stage chain dev -> int -> qa -> prod.
+profile:
+  name: acme
+
+defaults:
+  deployConfirmationTtl: PT45M
+  cliHome: /opt/client
+
+groups:
+  - name: dev
+    development: { enabled: true }
+    nodes: [ { name: node1, baseUrl: https://inubit-dev.example.test:8443 } ]
+
+  - name: int
+    deploy:
+      from: dev
+      exclude:
+        - diagramGroup: GRP-SYS
+        - name: "CFG_*"
+        - repositoryPath: "/Root/*/stage/**"
+    nodes:
+      - { name: node1, baseUrl: https://inubit-int-1.example.test:8443 }
+      - { name: node2, baseUrl: https://inubit-int-2.example.test:8443 }
+
+  - name: qa
+    deploy: { from: int }
+    nodes: [ { name: node1, baseUrl: https://inubit-qa.example.test:8443 } ]
+
+  - name: prod
+    production: true
+    deploy:
+      from: qa
+      mode: PACKAGE_ONLY
+    nodes: [ { name: node1, baseUrl: https://inubit-prod.example.test:8443 } ]

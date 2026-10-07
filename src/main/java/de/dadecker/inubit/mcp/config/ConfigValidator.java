@@ -45,6 +45,9 @@ public final class ConfigValidator {
     /** Upper bound of {@code confirmationTtl} (Phase 6 review W5). */
     static final Duration MAX_CONFIRMATION_TTL = Duration.ofHours(1);
 
+    /** Upper bound of {@code defaults.deployConfirmationTtl} (feature 005, research D-2). */
+    static final Duration MAX_DEPLOY_CONFIRMATION_TTL = Duration.ofHours(2);
+
     private final Predicate<Path> exists;
     private final Map<String, String> environment;
     private final boolean windows;
@@ -122,6 +125,7 @@ public final class ConfigValidator {
         Optional<WorkspaceDirectory.Result> workspace = checkWorkspace(config, findings);
         checkStructure(config, findings);
         checkResultLimits(config.resultLimits(), findings);
+        checkDeployConfirmationTtl(config.defaults(), findings);
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
             checkServer(server, credentials, findings);
             checkDevelopment(server, findings);
@@ -315,6 +319,18 @@ public final class ConfigValidator {
             findings.error(unusable.problem());
         }
         return Optional.of(result);
+    }
+
+    /** Feature 005 (research D-2): positive and at most {@link #MAX_DEPLOY_CONFIRMATION_TTL}. */
+    private static void checkDeployConfirmationTtl(Defaults defaults, Findings findings) {
+        defaults.deployConfirmationTtl().ifPresent(ttl -> {
+            if (ttl.isZero() || ttl.isNegative()) {
+                findings.error("defaults: deployConfirmationTtl must be positive (default PT30M)");
+            } else if (ttl.compareTo(MAX_DEPLOY_CONFIRMATION_TTL) > 0) {
+                findings.error("defaults: deployConfirmationTtl must be at most PT2H (default"
+                    + " PT30M)");
+            }
+        });
     }
 
     /** {@code a}, {@code a and b}, {@code a, b and c}. */
