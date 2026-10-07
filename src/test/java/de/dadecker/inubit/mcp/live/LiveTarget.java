@@ -40,6 +40,8 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
     static final String NODE_VARIABLE = "INUBIT_LIVE_NODE";
     /** The variable of feature 001; refused (002 research D-13). */
     static final String OLD_SERVER_VARIABLE = "INUBIT_LIVE_SERVER";
+    /** The node of the development live test (feature 004). */
+    static final String DEVELOPMENT_NODE_VARIABLE = "INUBIT_LIVE_DEV_NODE";
 
     static LiveTarget resolve() {
         return resolve(System.getenv(), Path.of(System.getProperty("user.home")),
@@ -53,19 +55,24 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
      * @param windows     whether the tests run on Windows
      */
     static LiveTarget resolve(Map<String, String> environment, Path home, boolean windows) {
+        return resolve(environment, home, windows, NODE_VARIABLE);
+    }
+
+    private static LiveTarget resolve(Map<String, String> environment, Path home,
+        boolean windows, String nodeVariable) {
         if (isSet(environment.get(OLD_SERVER_VARIABLE))) {
             fail(OLD_SERVER_VARIABLE + " is no longer supported; use " + NODE_VARIABLE
                 + "=<group>/<node> instead, and select the profile with "
                 + ConfigLoader.PROFILE_ENV + "=<profile> (docs/live-tests.md)");
         }
-        String target = environment.get(NODE_VARIABLE);
-        Assumptions.assumeTrue(isSet(target), NODE_VARIABLE
+        String target = environment.get(nodeVariable);
+        Assumptions.assumeTrue(isSet(target), nodeVariable
             + " is not set (e.g. test/node1); the live test is skipped");
         NodeId nodeId;
         try {
             nodeId = NodeId.parse(target.strip());
         } catch (IllegalArgumentException e) {
-            throw new AssertionError(NODE_VARIABLE + " must name one configured node as"
+            throw new AssertionError(nodeVariable + " must name one configured node as"
                 + " <group>/<node>: " + e.getMessage(), e);
         }
 
@@ -102,6 +109,30 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
                 + ": its group is production: true (Constitution III)");
         }
         return new LiveTarget(nodeId, loaded, credentials, scrubber, windows);
+    }
+
+    /**
+     * The node of the opt-in development live test (feature 004, research D-23):
+     * {@code INUBIT_LIVE_DEV_NODE}, resolved like {@link #resolve}, and refused unless it is a
+     * development stage ({@code development.enabled}); a production group is refused anyway.
+     */
+    static LiveTarget resolveDevelopment() {
+        return resolveDevelopment(System.getenv(), Path.of(System.getProperty("user.home")),
+            System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows"));
+    }
+
+    /** As {@link #resolveDevelopment()} with the given environment, home and platform. */
+    static LiveTarget resolveDevelopment(Map<String, String> environment, Path home,
+        boolean windows) {
+        LiveTarget live = resolve(environment, home, windows, DEVELOPMENT_NODE_VARIABLE);
+        boolean development = live.loaded().config().effectiveNodes().stream()
+            .filter(node -> node.id().equals(live.node()))
+            .anyMatch(node -> node.development().enabled());
+        if (!development) {
+            fail("Refusing to run the development live test: " + live.node() + " is not a"
+                + " development node (development.enabled is not true for it)");
+        }
+        return live;
     }
 
     private static boolean isSet(String value) {
