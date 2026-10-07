@@ -21,7 +21,8 @@ import java.util.Objects;
  * across the server processes of the profile and within one — then the {@link WorkspaceLock}
  * (busy is {@code PRECONDITION_FAILED}; the group lock is given back then). Both are held for
  * the preview and for the execute call and released by {@link #close()}, and by the operating
- * system when the process ends. The directory is created owner-only; the lock files stay.
+ * system when the process ends. The directory ({@code rwx------}) and the lock files
+ * ({@code rw-------}) are owner-only; the lock files stay.
  */
 public final class DeployLock implements AutoCloseable {
 
@@ -61,7 +62,9 @@ public final class DeployLock implements AutoCloseable {
                 Files.createDirectories(deployments, PosixFilePermissions.asFileAttribute(
                     PosixFilePermissions.fromString("rwx------")));
             }
-            channel = FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+            channel = FileChannel.open(file, java.util.Set.of(StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE), PosixFilePermissions.asFileAttribute(
+                    PosixFilePermissions.fromString("rw-------")));
         } catch (IOException | UnsupportedOperationException e) {
             throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
                 "The deploy lock " + file + " cannot be opened (" + e.getClass().getSimpleName()

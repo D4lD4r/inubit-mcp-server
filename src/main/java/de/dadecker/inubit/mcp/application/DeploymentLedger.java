@@ -19,7 +19,9 @@ import java.util.regex.Pattern;
 
 /**
  * The deployment ledger (feature 005, FR-013, research D-8):
- * {@code ~/.inubit-mcp/<profile>/deployments/ledger.json} records per node and artifact (e.g.
+ * {@code ~/.inubit-mcp/<profile>/deployments/<target group>.ledger.json} — one per target
+ * group, so that its deploy lock guards every read-modify-write (stage 2 review m3) — records
+ * per node and artifact (e.g.
  * {@code workflow:GRP-01/Workflow-0001}, {@code module:Assign/Module-0003},
  * {@code repository:/Root/jdoe/xsd/a.xsd}) the fingerprint of the rendered state the last
  * verified deployment of this server wrote, with its audit id, tag and time. A preview compares
@@ -33,13 +35,12 @@ import java.util.regex.Pattern;
  *   <li>An unreadable ledger is {@code PRECONDITION_FAILED} and never overwritten.
  * </ul>
  *
- * <p>Calls run under the deploy lock of the target group (one writer per group); records of
- * another group's nodes are kept as read.
+ * <p>Callers hold the deploy lock of the node's group ({@link DeployLock}).
  */
 public final class DeploymentLedger {
 
-    /** The file name below the deployments directory. */
-    public static final String FILE = "ledger.json";
+    /** The file name of a target group's ledger: {@code <group>.ledger.json}. */
+    public static final String SUFFIX = ".ledger.json";
     private static final Pattern FINGERPRINT = Pattern.compile("^sha256:[0-9a-f]{64}$");
     private static final Pattern AUDIT_ID = Pattern.compile(
         "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
@@ -73,7 +74,7 @@ public final class DeploymentLedger {
      * @throws ToolErrorException {@code PRECONDITION_FAILED} if the ledger cannot be read
      */
     public synchronized Map<String, Entry> entries(NodeId node) {
-        return read().getOrDefault(node.value(), Map.of());
+        return read(file(node)).getOrDefault(node.value(), Map.of());
     }
 
     /**
@@ -83,23 +84,24 @@ public final class DeploymentLedger {
      *     written
      */
     public synchronized void record(NodeId node, Map<String, Entry> entries) {
-        Map<String, Map<String, Entry>> ledger = read();
+        Path file = file(node);
+        Map<String, Map<String, Entry>> ledger = read(file);
         ledger.computeIfAbsent(node.value(), n -> new TreeMap<>()).putAll(entries);
-        write(ledger);
+        write(file, ledger);
     }
 
-    private Path file() {
-        return directory.resolve(FILE);
+    private Path file(NodeId node) {
+        return directory.resolve(node.group().value() + SUFFIX);
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Map<String, Entry>> read() {
+    private Map<String, Map<String, Entry>> read(Path file) {
         Map<String, Map<String, Entry>> ledger = new TreeMap<>();
-        if (!Files.exists(file())) {
+        if (!Files.exists(file)) {
             return ledger;
         }
         try {
-            Map<String, Object> nodes = MiniJson.parse(Files.readString(file(),
+            Map<String, Object> nodes = MiniJson.parse(Files.readString(file,
                 StandardCharsets.UTF_8));
             nodes.forEach((node, artifacts) -> {
                 Map<String, Entry> entries = new TreeMap<>();
@@ -114,13 +116,13 @@ public final class DeploymentLedger {
             return ledger;
         } catch (IOException | IllegalArgumentException | ClassCastException
             | NullPointerException | DateTimeException e) {
-            throw unusable("cannot be read (" + e.getClass().getSimpleName() + ")",
+            throw unusable(file, "cannot be read (" + e.getClass().getSimpleName() + ")",
                 "The file was edited by hand or damaged",
                 "Move it aside (the next deployment starts a new one) and retry");
         }
     }
 
-    private void write(Map<String, Map<String, Entry>> ledger) {
+    private void write(Path file, Map<String, Map<String, Entry>> ledger) {
         StringBuilder json = new StringBuilder("{\n");
         int n = 0;
         for (Map.Entry<String, Map<String, Entry>> node : ledger.entrySet()) {
@@ -148,20 +150,21 @@ public final class DeploymentLedger {
                     "rw-------")));
             try {
                 Files.writeString(temporary, json, StandardCharsets.UTF_8);
-                Files.move(temporary, file(), StandardCopyOption.ATOMIC_MOVE,
+                Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING);
             } finally {
                 Files.deleteIfExists(temporary);
             }
         } catch (IOException | UnsupportedOperationException e) {
-            throw unusable("cannot be written (" + e.getClass().getSimpleName() + ")",
+            throw unusable(file, "cannot be written (" + e.getClass().getSimpleName() + ")",
                 "The directory is not writable or does not support owner-only permissions",
                 "Check ~/.inubit-mcp/<profile>/deployments, then retry");
         }
     }
 
-    private ToolErrorException unusable(String what, String likelyCause, String nextStep) {
+    private static ToolErrorException unusable(Path file, String what, String likelyCause,
+        String nextStep) {
         return new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
-            "The deployment ledger " + file() + " " + what, likelyCause, nextStep));
+            "The deployment ledger " + file + " " + what, likelyCause, nextStep));
     }
 }

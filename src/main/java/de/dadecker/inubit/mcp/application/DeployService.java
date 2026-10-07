@@ -108,6 +108,14 @@ public final class DeployService {
      *     export failures of a node, each audited
      */
     public DeploymentPreview preview(DeployGuard.Request request) {
+        try {
+            return previewAudited(request);
+        } catch (AuditFailed e) {
+            throw e.error;
+        }
+    }
+
+    private DeploymentPreview previewAudited(DeployGuard.Request request) {
         if (request.confirmationCode().isPresent()) {
             throw new IllegalArgumentException("A preview has no confirmation code");
         }
@@ -116,6 +124,8 @@ public final class DeployService {
         Map<String, String> inputs = inputs(admitted);
         try (DeployLock lock = DeployLock.acquire(d.deployments(), admitted.target(), d.root())) {
             return locked(admitted, auditId, inputs, request.mcpClient());
+        } catch (AuditFailed e) {
+            throw e.error; // never audited twice (stage 2 review n2)
         } catch (ToolErrorException e) {
             audit(auditId, admitted, inputs, AuditOutcome.REFUSED, e.error().code() + ": "
                 + e.error().message(), request.mcpClient());
@@ -166,7 +176,7 @@ public final class DeployService {
                 audit(auditId, admitted, audited, AuditOutcome.CHALLENGE_ISSUED, "Preview of "
                     + admitted.tag() + " from " + admitted.source() + " into " + admitted
                         .target() + ", code valid until " + issued.expiresAt(), mcpClient);
-            } catch (ToolErrorException e) {
+            } catch (AuditFailed e) {
                 d.challenges().discard(issued.code());
                 throw e;
             }
@@ -257,11 +267,22 @@ public final class DeployService {
         } catch (RuntimeException e) {
             LOG.error("Audit record {} could not be written ({})", auditId,
                 e.getClass().getSimpleName());
-            throw new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
+            throw new AuditFailed(new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
                 "The audit record could not be written; nothing was sent and no code was"
                     + " issued",
                 "The audit directory is not writable, full, or not owned by this user",
-                "Fix the audit directory (auditDirectory in the configuration), then retry"));
+                "Fix the audit directory (auditDirectory in the configuration), then retry")));
+        }
+    }
+
+    /** An audit record could not be written: reported as {@code error}, never audited. */
+    private static final class AuditFailed extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        private final ToolErrorException error;
+
+        AuditFailed(ToolErrorException error) {
+            super(null, null, false, false);
+            this.error = error;
         }
     }
 

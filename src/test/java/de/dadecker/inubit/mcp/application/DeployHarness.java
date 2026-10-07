@@ -307,6 +307,13 @@ public final class DeployHarness {
     /** {@code deploy_release} on this harness with the chain {@link #chain}. */
     public DeployService deployService(
         List<de.dadecker.inubit.mcp.domain.model.StageChain.Exclusion> exclude) {
+        return deployService(exclude, audit::add);
+    }
+
+    /** As {@link #deployService(List)} with the audit port {@code serviceAudit}. */
+    public DeployService deployService(
+        List<de.dadecker.inubit.mcp.domain.model.StageChain.Exclusion> exclude,
+        de.dadecker.inubit.mcp.domain.port.AuditPort serviceAudit) {
         de.dadecker.inubit.mcp.domain.model.StageChain chain = chain(exclude);
         List<NodeId> nodes = new java.util.ArrayList<>(servers.keySet());
         DeployGuard guard = new DeployGuard(chain, new TargetResolver(nodes),
@@ -315,7 +322,7 @@ public final class DeployHarness {
             guard, new ReleaseDiscovery(this::artifacts,
                 new de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec(),
                 new de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives(), root),
-            planner(), ledger, challenges, java.time.Duration.ofMinutes(30), audit::add, clock,
+            planner(), ledger, challenges, java.time.Duration.ofMinutes(30), serviceAudit, clock,
             java.util.UUID::randomUUID));
     }
 

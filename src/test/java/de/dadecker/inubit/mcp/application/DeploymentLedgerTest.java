@@ -69,7 +69,7 @@ class DeploymentLedgerTest {
         new DeploymentLedger(deployments()).record(INT1, Map.of("repository:/Root/jdoe/x.xsd",
             entry(FP_A)));
 
-        Path file = deployments().resolve("ledger.json");
+        Path file = deployments().resolve("int.ledger.json");
         assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(deployments())))
             .isEqualTo("rwx------");
         assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(file)))
@@ -84,7 +84,7 @@ class DeploymentLedgerTest {
         new DeploymentLedger(deployments()).record(INT1, Map.of("workflow:GRP-01/Workflow-0001",
             entry(FP_A)));
 
-        String json = Files.readString(deployments().resolve("ledger.json"));
+        String json = Files.readString(deployments().resolve("int.ledger.json"));
         assertThat(json).contains("\"int/node1\"", "\"workflow:GRP-01/Workflow-0001\"", FP_A,
             AUDIT, "\"TAG-01\"", "2026-10-07T10:00:00Z");
         assertThat(json.replaceAll("\"[^\"]*\"", "\"\"").replaceAll("\\s", ""))
@@ -99,16 +99,33 @@ class DeploymentLedgerTest {
     @Test
     void anUnreadableLedgerIsReportedNotOverwritten() throws IOException {
         Files.createDirectories(deployments());
-        Files.writeString(deployments().resolve("ledger.json"), "{broken");
+        Files.writeString(deployments().resolve("int.ledger.json"), "{broken");
         DeploymentLedger ledger = new DeploymentLedger(deployments());
 
         assertThatThrownBy(() -> ledger.entries(INT1)).isInstanceOfSatisfying(
             ToolErrorException.class, e -> {
                 assertThat(e.error().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
-                assertThat(e.error().message()).contains("ledger.json");
+                assertThat(e.error().message()).contains("int.ledger.json");
             });
         assertThatThrownBy(() -> ledger.record(INT1, Map.of("a", entry(FP_A))))
             .isInstanceOf(ToolErrorException.class);
-        assertThat(Files.readString(deployments().resolve("ledger.json"))).isEqualTo("{broken");
+        assertThat(Files.readString(deployments().resolve("int.ledger.json")))
+            .isEqualTo("{broken");
+    }
+
+    @Test
+    void eachTargetGroupHasItsOwnLedgerGuardedByItsDeployLock() {
+        // stage 2 review m3: deployments into different groups may run in parallel
+        DeploymentLedger ledger = new DeploymentLedger(deployments());
+
+        ledger.record(INT1, Map.of("a", entry(FP_A)));
+        ledger.record(NodeId.parse("qa/node1"), Map.of("a", entry(FP_B)));
+
+        assertThat(deployments().resolve("int.ledger.json")).isRegularFile();
+        assertThat(deployments().resolve("qa.ledger.json")).isRegularFile();
+        assertThat(ledger.entries(INT1).get("a").fingerprint()).isEqualTo(FP_A);
+        assertThat(ledger.entries(NodeId.parse("qa/node1")).get("a").fingerprint())
+            .isEqualTo(FP_B);
     }
 }
+

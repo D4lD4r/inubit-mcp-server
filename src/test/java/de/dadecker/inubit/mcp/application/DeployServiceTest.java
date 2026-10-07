@@ -378,4 +378,24 @@ class DeployServiceTest {
     static NodeId node(String id) {
         return NodeId.parse(id);
     }
+
+    @Test
+    void aFailingAuditIsNotAuditedTwiceAndIssuesNoCode() {
+        // stage 2 review n2
+        harness(false);
+        source(server -> { });
+        targets();
+        java.util.concurrent.atomic.AtomicInteger attempts =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+        assertThatThrownBy(() -> harness.deployService(List.of(), record -> {
+            attempts.incrementAndGet();
+            throw new IllegalStateException("disk full");
+        }).preview(request("int", TAG))).isInstanceOfSatisfying(ToolErrorException.class,
+            e -> assertThat(e.error().code()).isEqualTo(ErrorCode.INTERNAL));
+        assertThat(attempts).hasValue(1);
+        assertThat(harness.challenges.pending()).isZero();
+        nothingWritten();
+    }
 }
+

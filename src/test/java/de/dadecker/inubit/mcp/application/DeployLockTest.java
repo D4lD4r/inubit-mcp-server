@@ -44,6 +44,8 @@ class DeployLockTest {
         try (DeployLock lock = DeployLock.acquire(deployments(), INT, workspace)) {
             assertThat(deployments().resolve("int.lock")).isRegularFile();
             assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(
+                deployments().resolve("int.lock")))).isEqualTo("rw-------");
+            assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(
                 deployments()))).isEqualTo("rwx------");
             assertThatThrownBy(() -> WorkspaceLock.acquire(workspace))
                 .isInstanceOf(ToolErrorException.class);
