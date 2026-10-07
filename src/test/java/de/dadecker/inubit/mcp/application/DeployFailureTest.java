@@ -183,6 +183,67 @@ class DeployFailureTest extends DeployExecution {
         harness.verifyComplete();
     }
 
+    /** The connection ids of the workflows of {@code GRP-01} on {@code node}, in order. */
+    private List<String> connections(de.dadecker.inubit.mcp.domain.model.NodeId node) {
+        String xml = harness.servers.get(node).exportWorkflowGroup("GRP-01").map(zip ->
+            de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures.entries(zip).values()
+                .stream().map(bytes -> new String(bytes, java.nio.charset.StandardCharsets.UTF_8))
+                .reduce("", String::concat)).orElseThrow();
+        return java.util.regex.Pattern.compile("<ConnectionId>\\d+<").matcher(xml).results()
+            .map(java.util.regex.MatchResult::group).toList();
+    }
+
+    @Test
+    void aChangedWorkflowAndAChangedRepositoryFileAreRolledBackAndVerified()
+        throws java.io.IOException {
+        // stage 3 review m2, m3: the rollback path of workflows and repository files
+        harness(false);
+        String old = DeployHarness.RELEASE_XSL_V1.replace("'v1'", "'v0'");
+        DeployHarness.TARGETS.forEach(node -> harness.servers.get(node)
+            .putRepositoryFile(DeployHarness.RELEASE_XSL, old));
+        java.util.function.Consumer<FakeServer> change = server -> server.publishWorkflow(
+            "Workflow-0001", xml -> xml.replace("<ConnectionId>5</ConnectionId>",
+                "<ConnectionId>7</ConnectionId>"));
+        source(change, true);
+        DeployHarness.TARGETS.forEach(this::nodeExports);
+        DeploymentPreview preview = harness.deployService(List.of()).deploy(request(
+            java.util.Optional.empty())).preview().orElseThrow();
+        List<String> before = connections(DeployHarness.INT1);
+        String workflow = "--importWorkflow --importWorkflowInactive --importUser 'jdoe'"
+            + " --returnProtocol";
+        executeStart();
+        nodeExports(DeployHarness.INT1); // re-check
+        harness.importRepositoryApplied(DeployHarness.INT1)
+            .importApplied(DeployHarness.INT1, MODULE_IMPORT)
+            .importApplied(DeployHarness.INT1, workflow);
+        harness.cli.get(DeployHarness.INT1).then(spec -> harness.servers.get(
+            DeployHarness.INT1).tamperNextImport = new String[] {"<ConnectionId>7<",
+                "<ConnectionId>9<"});
+        nodeExports(DeployHarness.INT1); // verification sees the tampered workflow
+        harness.importRepositoryApplied(DeployHarness.INT1) // rollback: the old file
+            .importApplied(DeployHarness.INT1, MODULE_IMPORT)
+            .importApplied(DeployHarness.INT1, "--importWorkflow --importUser 'jdoe'"
+                + " --returnProtocol");
+        nodeExports(DeployHarness.INT1); // verification of the rollback
+
+        DeploymentResult result = execute(preview);
+
+        NodeOutcome first = node(result, 0);
+        assertThat(first.state()).isEqualTo(State.ROLLED_BACK);
+        assertThat(first.imported()).contains("Workflow-0001", DeployHarness.RELEASE_XSL);
+        FakeServer target = harness.servers.get(DeployHarness.INT1);
+        assertThat(target.repositoryContent(DeployHarness.RELEASE_XSL)).contains(old);
+        assertThat(target.repositoryImports).hasSize(2);
+        assertThat(connections(DeployHarness.INT1)).isEqualTo(before)
+            .doesNotContain("<ConnectionId>7<");
+        assertThat(target.active("Workflow-0001")).contains(false);
+        assertThat(result.reports()).anySatisfy(report -> assertThat(java.nio.file.Files
+            .readString(harness.root.resolve(report))).contains("Workflow-0001",
+                DeployHarness.RELEASE_XSL, "IsActive", "protocol"));
+        assertThat(node(result, 1).state()).isEqualTo(State.NOT_STARTED);
+        harness.verifyComplete();
+    }
+
     @Test
     void theFailureResultNamesEveryNodesState() {
         harness(false);

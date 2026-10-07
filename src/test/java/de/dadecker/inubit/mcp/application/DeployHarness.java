@@ -333,7 +333,8 @@ public final class DeployHarness {
             new de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives(),
             new de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec(), this::imports,
             this::tags, node -> new ImportService.Account(OWNER, node.name() + ".example.test"),
-            backups, ledger, serviceAudit, "acme", clock, java.util.UUID::randomUUID, root));
+            backups, ledger, serviceAudit, "acme", clock, java.util.UUID::randomUUID, root,
+            new DiagramGroupTagger(root)));
     }
 
     // --- scripting (per node, in launch order) -----------------------------------------------

@@ -230,8 +230,18 @@ public final class DeployService {
                     Optional.empty()));
                 continue;
             }
-            NodeDeployer.Deployed deployed = d.deployer().deploy(admitted, release, plan,
-                auditId, mcpClient);
+            NodeDeployer.Deployed deployed;
+            try {
+                deployed = d.deployer().deploy(admitted, release, plan, auditId, mcpClient);
+            } catch (RuntimeException e) {
+                // the deployer turns every failure from the first import on into its outcome
+                LOG.error("deploy_release on {} failed before writing", plan.node(), e);
+                deployed = new NodeDeployer.Deployed(DeploymentResult.NodeOutcome.notStarted(
+                    plan.node(), Optional.of(new WriteOutcome.Failure(ErrorCode.INTERNAL,
+                        "deploy", "An unexpected failure (" + e.getClass().getSimpleName()
+                            + ") before anything was sent to " + plan.node()))),
+                    Optional.empty(), List.of(), List.of());
+            }
             outcomes.add(deployed.outcome());
             reports.addAll(deployed.reports());
             warnings.addAll(deployed.warnings());
@@ -245,7 +255,16 @@ public final class DeployService {
         }
         Optional<String> commit = Optional.empty();
         if (!stopped && verified.isPresent()) {
-            commit = commit(admitted, auditId, verified.get());
+            try {
+                commit = commit(admitted, auditId, verified.get());
+            } catch (RuntimeException e) {
+                // stage 3 review M2: the deployment stands; the next export records the state
+                LOG.error("The state of {} could not be committed ({})", admitted.target(),
+                    e.getClass().getSimpleName());
+                warnings.add("The deployment is complete, but its state could not be committed"
+                    + " to the workspace (" + e.getClass().getSimpleName() + "); the next"
+                    + " export of " + admitted.target() + " records it");
+            }
         } else {
             warnings.add("Not every node is deployed or unchanged, so nothing was committed to"
                 + " the workspace; the next export of " + admitted.target() + " records its"
@@ -256,11 +275,17 @@ public final class DeployService {
         Map<String, String> finalInputs = new LinkedHashMap<>(inputs);
         outcomes.forEach(node -> finalInputs.put(node.node().value(), node.state().name()
             + node.backupRef().map(ref -> " " + ref).orElse("")));
-        audit(auditId, admitted, finalInputs, AuditRecord.Step.EXECUTE, outcome
-            == DeploymentResult.Outcome.EXECUTED ? AuditOutcome.EXECUTED : AuditOutcome.FAILED,
-            "Deployment of " + admitted.tag() + " into " + admitted.target() + ": "
-                + String.join(", ", outcomes.stream().map(node -> node.node() + " "
-                    + node.state()).toList()), mcpClient);
+        try {
+            audit(auditId, admitted, finalInputs, AuditRecord.Step.EXECUTE, outcome
+                == DeploymentResult.Outcome.EXECUTED ? AuditOutcome.EXECUTED
+                    : AuditOutcome.FAILED, "Deployment of " + admitted.tag() + " into "
+                    + admitted.target() + ": " + String.join(", ", outcomes.stream()
+                        .map(node -> node.node() + " " + node.state()).toList()), mcpClient);
+        } catch (AuditFailed e) {
+            // the nodes are written: the result is the answer, the missing record a warning
+            warnings.add("The final audit record " + auditId + " could not be written; the"
+                + " node records hold each node's outcome");
+        }
         LOG.info("deploy_release into {}: {}", admitted.target(), outcome);
         return new DeploymentResult(auditId, admitted.target(), admitted.source(),
             admitted.tag(), outcome, outcomes, commit, reports, warnings);

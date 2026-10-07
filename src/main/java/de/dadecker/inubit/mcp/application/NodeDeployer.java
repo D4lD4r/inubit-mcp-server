@@ -65,8 +65,12 @@ import org.slf4j.LoggerFactory;
  *       (reviewed content), carries the intended {@code IsActive} and the reason in its
  *       check-in comment; every deployed repository file is byte for byte the release's;
  *   <li>on any failure from the first import on: <b>rollback</b> of the node's changed
- *       artifacts and repository files from the backup, verified ({@code ROLLED_BACK} or
- *       {@code ROLLBACK_FAILED}); created artifacts stay and are listed;
+ *       artifacts and repository files from the backup, verified by re-export (content and
+ *       {@code IsActive}; INUBIT's protocol of the rollback import is not used) into
+ *       {@code ROLLED_BACK} or {@code ROLLBACK_FAILED}, with a rollback report; created
+ *       artifacts stay and are listed;
+ *   <li>once verified, nothing rolls the node back: a backup manifest or ledger that cannot
+ *       be written and a failed tag are warnings, the node stays {@code DEPLOYED};
  *   <li>on success: the group-scoped <b>tag</b> ({@link DiagramGroupTagger}; a tag failure
  *       keeps the deployment) and the <b>ledger</b> entries of the verified state.
  * </ol>
@@ -76,19 +80,25 @@ public final class NodeDeployer {
     private static final Logger LOG = LoggerFactory.getLogger(NodeDeployer.class);
     private static final String REPORTS = ".reports";
     private static final int MAX_AUDITED_NAMES = 20;
+    /** Stage 3 review m3: how a rollback is checked. */
+    static final String ROLLBACK_NOTE = "The rollback is checked by re-export, not by INUBIT's"
+        + " import protocol: every re-imported workflow and module must equal its backup"
+        + " (content and IsActive), every repository file byte for byte.";
     private static final DateTimeFormatter COMMENT_TIME =
         DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
     /**
      * @param root    the workspace root (reports)
      * @param profile the profile every audit record carries
+     * @param tagger  the group-scoped tag and its verification
      */
     public record Dependencies(ReleasePlanner planner, ReleaseArchivePort releases,
         ImportArchivePort archives, ArchiveCodecPort codec, Function<NodeId, ImportPort> imports,
         Function<NodeId, TagPort> tags, Function<NodeId, ImportService.Account> accounts,
         BackupStore backups, DeploymentLedger ledger, AuditPort audit, String profile,
-        Clock clock, Supplier<UUID> ids, Path root) {
+        Clock clock, Supplier<UUID> ids, Path root, DiagramGroupTagger tagger) {
         public Dependencies {
+            Objects.requireNonNull(tagger, "tagger");
             Objects.requireNonNull(planner, "planner");
             Objects.requireNonNull(releases, "releases");
             Objects.requireNonNull(archives, "archives");
@@ -166,21 +176,23 @@ public final class NodeDeployer {
         try {
             before = d.planner().nodeState(admitted, release, node);
         } catch (ToolErrorException e) {
-            return notStarted(node, ErrorCode.CONFLICT, e.error().code() + ": "
+            return notStarted(node, ErrorCode.CONFLICT, "recheck", e.error().code() + ": "
                 + e.error().message() + " (the node could not be read right before writing)");
+        } catch (RuntimeException e) {
+            LOG.error("The re-check of {} failed unexpectedly", node, e);
+            return notStarted(node, ErrorCode.INTERNAL, "recheck", "The re-check of " + node
+                + " failed unexpectedly (" + e.getClass().getSimpleName() + "); nothing was"
+                + " sent to it");
         }
         if (!before.fingerprint().equals(plan.targetFingerprint())) {
-            return notStarted(node, ErrorCode.CONFLICT, node + " changed since the preview (an"
-                + " import, a publish or a workflow in edit mode); it was not written");
+            return notStarted(node, ErrorCode.CONFLICT, "recheck", node + " changed since the"
+                + " preview (an import, a publish or a workflow in edit mode); it was not"
+                + " written");
         }
         List<PlannedArtifact> deployed = plan.artifacts().stream()
             .filter(artifact -> artifact.artifactClass().deployed()).toList();
         if (deployed.isEmpty()) {
-            List<String> warnings = new ArrayList<>();
-            WriteOutcome.TagResult tag = tag(call, warnings);
-            return new Deployed(new NodeOutcome(node, State.UNCHANGED, Optional.empty(),
-                List.of(), List.of(), Optional.of(tag), Optional.empty(), Optional.empty()),
-                Optional.of(before), List.of(), warnings);
+            return unchanged(call, before);
         }
         List<String> names = deployed.stream().map(PlannedArtifact::name).toList();
         List<String> created = deployed.stream().filter(a -> a.artifactClass()
@@ -188,16 +200,30 @@ public final class NodeDeployer {
         String backupRef = d.ids().get().toString();
         List<byte[]> backupExports = new ArrayList<>(before.raws());
         backupExports.addAll(before.repositoryExports().values());
-        BackupStore.Manifest manifest = d.backups().write(new BackupStore.Manifest(backupRef,
-            node, admitted.owner(), "deploy " + admitted.target() + " " + admitted.tag(), names,
-            created, Map.of(), "PENDING", d.clock().instant(), List.of(),
-            BackupStore.Manifest.Kind.DEPLOYMENT, List.copyOf(release.diagramGroups()),
-            deployed.stream().filter(a -> a.kind() == Kind.REPOSITORY_FILE)
-                .map(PlannedArtifact::name).toList(), Optional.of(admitted.tag()),
-            Optional.of(admitted.source().value())), backupExports);
+        BackupStore.Manifest manifest;
+        try {
+            manifest = d.backups().write(new BackupStore.Manifest(backupRef, node,
+                admitted.owner(), "deploy " + admitted.target() + " " + admitted.tag(), names,
+                created, Map.of(), "PENDING", d.clock().instant(), List.of(),
+                BackupStore.Manifest.Kind.DEPLOYMENT, List.copyOf(release.diagramGroups()),
+                deployed.stream().filter(a -> a.kind() == Kind.REPOSITORY_FILE)
+                    .map(PlannedArtifact::name).toList(), Optional.of(admitted.tag()),
+                Optional.of(admitted.source().value())), backupExports);
+        } catch (RuntimeException e) {
+            LOG.error("The backup of {} could not be written ({})", node,
+                e.getClass().getSimpleName());
+            return notStarted(node, ErrorCode.INTERNAL, "backup", "The backup of " + node
+                + " could not be written (" + e.getClass().getSimpleName() + "); nothing was"
+                + " sent to it");
+        }
         Map<String, String> inputs = inputs(call, names, backupRef);
-        audit(call, inputs, AuditOutcome.PENDING, "About to deploy " + names.size()
-            + " artifact(s) of " + admitted.tag() + " on " + node);
+        try {
+            audit(call, inputs, AuditOutcome.PENDING, "About to deploy " + names.size()
+                + " artifact(s) of " + admitted.tag() + " on " + node);
+        } catch (ToolErrorException e) {
+            updateManifest(manifest.with(State.NOT_STARTED.name(), Map.of()), new ArrayList<>());
+            return notStarted(node, ErrorCode.INTERNAL, "pending", e.error().message());
+        }
 
         List<String> reports = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
@@ -212,15 +238,14 @@ public final class NodeDeployer {
                     + " failed: " + e.error().code() + ": " + e.error().message());
             }
             List<String> differences = verify(call, deployed, after.get());
-            if (differences.isEmpty()) {
-                return success(call, deployed, manifest, after.get(), names, created, inputs,
-                    warnings);
+            if (!differences.isEmpty()) {
+                String report = report(call, "verify", differences);
+                reports.add(report);
+                throw new Failed(ErrorCode.VERIFY_MISMATCH, "verify", "The re-export of "
+                    + node + " differs from the release in " + differences.size()
+                    + " artifact(s); see " + report);
             }
-            String report = report(call, "verify", differences);
-            reports.add(report);
-            throw new Failed(ErrorCode.VERIFY_MISMATCH, "verify", "The re-export of " + node
-                + " differs from the release in " + differences.size() + " artifact(s); see "
-                + report);
+            failure = null;
         } catch (Failed e) {
             failure = e.failure;
         } catch (RuntimeException e) {
@@ -229,8 +254,13 @@ public final class NodeDeployer {
                 + " unexpected failure (" + e.getClass().getSimpleName() + ") after the import"
                 + " was started");
         }
+        if (failure == null) {
+            // stage 3 review M1: verified; nothing after this point rolls the node back
+            return success(call, deployed, manifest, after.orElseThrow(), names, created,
+                inputs, warnings);
+        }
         State state = rollback(call, deployed, before, after, reports);
-        d.backups().update(manifest.with(state.name(), Map.of()));
+        updateManifest(manifest.with(state.name(), Map.of()), warnings);
         if (state == State.ROLLBACK_FAILED) {
             warnings.add("The rollback of " + node + " failed; its state before the deployment"
                 + " is in the backup " + backupRef + " (restore_backup)");
@@ -456,11 +486,13 @@ public final class NodeDeployer {
                 call.release(), node);
             List<String> differences = changed.stream().filter(a -> !same(call, a, before,
                 restored)).map(a -> a.name() + ": not back to its state before").toList();
-            if (differences.isEmpty()) {
-                return State.ROLLED_BACK;
-            }
-            reports.add(report(call, "rollback", differences));
-            return State.ROLLBACK_FAILED;
+            List<String> lines = new ArrayList<>();
+            lines.add("Rollback of " + node + " from the backup of the re-check:");
+            changed.forEach(a -> lines.add("re-imported: " + a.name()));
+            lines.addAll(differences);
+            lines.add(ROLLBACK_NOTE);
+            reports.add(report(call, "rollback", lines));
+            return differences.isEmpty() ? State.ROLLED_BACK : State.ROLLBACK_FAILED;
         } catch (ToolErrorException e) {
             LOG.warn("The rollback on {} failed: {}", node, e.error().code());
             return State.ROLLBACK_FAILED;
@@ -499,15 +531,31 @@ public final class NodeDeployer {
         BackupStore.Manifest manifest, ReleasePlanner.NodeState after, List<String> names,
         List<String> created, Map<String, String> inputs, List<String> warnings) {
         NodeId node = call.node();
-        Map<String, String> states = d.planner().artifactStates(call.admitted(), call.release(),
-            deployed, after);
-        d.backups().update(manifest.with("EXECUTED", states));
+        Map<String, String> states = Map.of();
+        try {
+            states = d.planner().artifactStates(call.admitted(), call.release(), deployed,
+                after);
+        } catch (RuntimeException e) {
+            LOG.error("The verified state of {} could not be fingerprinted", node, e);
+        }
+        updateManifest(manifest.with("EXECUTED", states), warnings);
         WriteOutcome.TagResult tag = tag(call, warnings);
         Map<String, DeploymentLedger.Entry> entries = new TreeMap<>();
         states.forEach((key, fingerprint) -> entries.put(key, new DeploymentLedger.Entry(
             fingerprint, call.auditId().toString(), call.admitted().tag(),
             d.clock().instant())));
-        d.ledger().record(node, entries);
+        try {
+            if (states.isEmpty()) {
+                throw new IllegalStateException("no verified state");
+            }
+            d.ledger().record(node, entries);
+        } catch (RuntimeException e) {
+            LOG.warn("The ledger of {} could not be written ({})", node,
+                e.getClass().getSimpleName());
+            warnings.add("The deployment on " + node + " stays, but the ledger of "
+                + node.group() + " could not be written (" + e.getClass().getSimpleName()
+                + "); the next preview may report its artifacts as changed outside the chain");
+        }
         Map<String, String> finalInputs = new LinkedHashMap<>(inputs);
         finalInputs.put("tagApplied", String.valueOf(tag.applied()));
         audit(call, finalInputs, AuditOutcome.EXECUTED, "Deployed and verified " + names.size()
@@ -533,7 +581,7 @@ public final class NodeDeployer {
         String tag = call.admitted().tag();
         DiagramGroupTagger.Result result;
         try {
-            result = new DiagramGroupTagger(d.root()).tag(node, d.tags().apply(node),
+            result = d.tagger().tag(node, d.tags().apply(node),
                 call.admitted().owner(), List.copyOf(groups), tag, call.auditId());
         } catch (RuntimeException e) {
             LOG.error("The tag on {} failed unexpectedly", node, e);
@@ -553,9 +601,44 @@ public final class NodeDeployer {
 
     // --- helpers -------------------------------------------------------------------------------
 
-    private static Deployed notStarted(NodeId node, ErrorCode code, String message) {
+    private static Deployed notStarted(NodeId node, ErrorCode code, String step,
+        String message) {
+        LOG.info("deploy_release on {}: NOT_STARTED at {}", node, step);
         return new Deployed(NodeOutcome.notStarted(node, Optional.of(new WriteOutcome.Failure(
-            code, "recheck", message))), Optional.empty(), List.of(), List.of());
+            code, step, message))), Optional.empty(), List.of(), List.of());
+    }
+
+    /** A node with nothing to import: only the tag, and its own audit record (review m1). */
+    private Deployed unchanged(Call call, ReleasePlanner.NodeState before) {
+        NodeId node = call.node();
+        List<String> warnings = new ArrayList<>();
+        WriteOutcome.TagResult tag = tag(call, warnings);
+        Map<String, String> inputs = new LinkedHashMap<>();
+        inputs.put("tag", call.admitted().tag());
+        inputs.put("source", call.admitted().source().value());
+        inputs.put("owner", call.admitted().owner());
+        inputs.put("state", State.UNCHANGED.name());
+        inputs.put("tagApplied", String.valueOf(tag.applied()));
+        audit(call, inputs, AuditOutcome.EXECUTED, "Nothing to import on " + node
+            + (tag.applied() ? "; tagged " + call.admitted().tag()
+                : "; the tag was not applied"));
+        LOG.info("deploy_release on {}: UNCHANGED", node);
+        return new Deployed(new NodeOutcome(node, State.UNCHANGED, Optional.empty(), List.of(),
+            List.of(), Optional.of(tag), Optional.empty(), Optional.empty()),
+            Optional.of(before), List.of(), warnings);
+    }
+
+    /** Updates a backup manifest; a failure is a warning, the node's outcome stands. */
+    private void updateManifest(BackupStore.Manifest manifest, List<String> warnings) {
+        try {
+            d.backups().update(manifest);
+        } catch (RuntimeException e) {
+            LOG.warn("The backup manifest {} could not be updated ({})", manifest.auditId(),
+                e.getClass().getSimpleName());
+            warnings.add("The backup manifest " + manifest.auditId() + " of " + manifest.node()
+                + " could not be updated to " + manifest.outcome() + " ("
+                + e.getClass().getSimpleName() + "); the backup itself is complete");
+        }
     }
 
     private Map<String, String> inputs(Call call, List<String> names, String backupRef) {

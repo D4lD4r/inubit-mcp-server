@@ -20,6 +20,7 @@ import de.dadecker.inubit.mcp.application.DeployService;
 import de.dadecker.inubit.mcp.application.DeploymentLedger;
 import de.dadecker.inubit.mcp.application.DevelopmentGuard;
 import de.dadecker.inubit.mcp.application.DiagnosisService;
+import de.dadecker.inubit.mcp.application.DiagramGroupTagger;
 import de.dadecker.inubit.mcp.application.E2eTestService;
 import de.dadecker.inubit.mcp.application.FanOut;
 import de.dadecker.inubit.mcp.application.HealthService;
@@ -266,7 +267,7 @@ final class Wiring implements AutoCloseable {
             NodeDeployer deployer = new NodeDeployer(new NodeDeployer.Dependencies(planner,
                 releases, importArchives, codec, gateways::imports, gateways::tags, accounts,
                 new BackupStore(backups, clock.clock()), ledger, audit, profile.name(),
-                clock.clock(), UUID::randomUUID, workspace));
+                clock.clock(), UUID::randomUUID, workspace, new DiagramGroupTagger(workspace)));
             DeployService deploy = new DeployService(new DeployService.Dependencies(workspace,
                 deployments, profile.name(), new DeployGuard(chain, targets, group ->
                     servers.stream().filter(server -> server.id().group().equals(group))
