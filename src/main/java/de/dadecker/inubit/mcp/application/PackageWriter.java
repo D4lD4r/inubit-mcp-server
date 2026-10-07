@@ -93,13 +93,26 @@ public final class PackageWriter {
         }
     }
 
+    /** Writes one new owner-only file of a package. */
+    @FunctionalInterface
+    interface FileSink {
+        void write(Path file, byte[] content) throws IOException;
+    }
+
     private final Path root;
     private final Clock clock;
+    private final FileSink files;
 
     /** @param root {@code ~/.inubit-mcp/<profile>/packages} */
     public PackageWriter(Path root, Clock clock) {
+        this(root, clock, PackageWriter::writeOwnerOnly);
+    }
+
+    /** As above, writing the files through {@code files} (tests). */
+    PackageWriter(Path root, Clock clock, FileSink files) {
         this.root = Objects.requireNonNull(root, "root");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.files = Objects.requireNonNull(files, "files");
     }
 
     /**
@@ -107,12 +120,14 @@ public final class PackageWriter {
      * is only logged).
      *
      * @return the package directory of the node
-     * @throws UncheckedIOException if the package cannot be written completely
+     * @throws UncheckedIOException if the package cannot be written completely; what was
+     *     written of the node's package is removed first (it may hold secret values)
      * @throws IllegalStateException if the node's package of this call exists already
      */
     public Path write(Content content) {
         Path call = root.resolve(content.auditId().toString());
         Path dir = call.resolve(content.node().group() + "-" + content.node().name());
+        boolean created = false;
         try {
             directory(root);
             directory(call);
@@ -123,35 +138,42 @@ public final class PackageWriter {
                 properties.setProperty("takenAt", clock.instant().toString());
                 java.io.StringWriter text = new java.io.StringWriter();
                 properties.store(text, null);
-                file(marker, text.toString().getBytes(StandardCharsets.ISO_8859_1));
+                files.write(marker, text.toString().getBytes(StandardCharsets.ISO_8859_1));
             }
             if (Files.exists(dir, LinkOption.NOFOLLOW_LINKS)) {
                 throw new IllegalStateException("The package of " + content.node()
                     + " exists already for this call");
             }
             directory(dir);
+            created = true;
             List<String> commands = new ArrayList<>();
             int index = 0;
             for (Archive archive : content.archives()) {
                 Path zip = dir.resolve(++index + "-" + name(archive) + ".zip");
-                file(zip, archive.zip());
+                files.write(zip, archive.zip());
                 commands.add("import --importFile '" + zip + "' "
                     + importOptions(archive.mode(), content.owner()));
             }
-            file(dir.resolve("diff.txt"), content.diff().getBytes(StandardCharsets.UTF_8));
+            files.write(dir.resolve("diff.txt"), content.diff().getBytes(StandardCharsets.UTF_8));
             List<String> warnings = new ArrayList<>(content.warnings());
             if (!content.excluded().isEmpty()) {
                 warnings.add("");
                 warnings.add("Left out by the release on this node:");
                 warnings.addAll(content.excluded());
             }
-            file(dir.resolve("warnings.txt"), (String.join("\n", warnings) + "\n")
+            files.write(dir.resolve("warnings.txt"), (String.join("\n", warnings) + "\n")
                 .getBytes(StandardCharsets.UTF_8));
-            file(dir.resolve("README.md"), readme(content, commands)
+            files.write(dir.resolve("README.md"), readme(content, commands)
                 .getBytes(StandardCharsets.UTF_8));
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
+            if (created) {
+                removeQuietly(dir);
+            }
+            if (e instanceof RuntimeException runtime) {
+                throw runtime;
+            }
             throw new UncheckedIOException("The package of " + content.node()
-                + " cannot be written below " + root, e);
+                + " cannot be written below " + root, (IOException) e);
         }
         try {
             sweep();
@@ -214,12 +236,13 @@ public final class PackageWriter {
         }
         text.append("## Import, in this order\n\n");
         text.append("Run each command with StartCLI against ").append(content.node())
-            .append(", logged in as usual (replace `<user>` and `<StartCLI URL>`); stop at the"
+            .append(", with the user, StartCLI URL, trust store and host name verification"
+                + " options as configured for this node (replace `<options>`); stop at the"
                 + " first one that does not report success. If you move this directory, adjust"
                 + " the paths.\n\n");
         int step = 0;
         for (String command : commands) {
-            text.append(++step).append(". ```\n   startcli.sh -u <user> --execCommand \"")
+            text.append(++step).append(". ```\n   startcli.sh <options> --execCommand \"")
                 .append(command).append("\" <StartCLI URL>\n   ```\n");
         }
         text.append("\nAfterwards: check the workflows' active flags, then tag the diagram"
@@ -302,7 +325,19 @@ public final class PackageWriter {
         Files.setPosixFilePermissions(dir, DIRECTORY);
     }
 
-    private static void file(Path file, byte[] content) throws IOException {
+    /** Removes a half-written package directory; a failure is only logged. */
+    private static void removeQuietly(Path dir) {
+        try (Stream<Path> walk = Files.walk(dir)) {
+            for (Path path : walk.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        } catch (IOException | RuntimeException e) {
+            LOG.error("The incomplete package {} could not be removed ({}); remove it by hand,"
+                + " it may hold secret values", dir, e.getClass().getSimpleName());
+        }
+    }
+
+    static void writeOwnerOnly(Path file, byte[] content) throws IOException {
         Files.createFile(file, PosixFilePermissions.asFileAttribute(FILE));
         Files.setPosixFilePermissions(file, FILE);
         Files.write(file, content, StandardOpenOption.TRUNCATE_EXISTING);

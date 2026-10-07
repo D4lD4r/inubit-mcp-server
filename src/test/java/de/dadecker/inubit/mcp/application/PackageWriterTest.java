@@ -135,4 +135,34 @@ class PackageWriterTest {
         assertThat(temp.resolve("packages").resolve(older.toString())).doesNotExist();
         assertThat(temp.resolve("packages").resolve(newest.toString())).isDirectory();
     }
+
+    @Test
+    void aPackageThatCannotBeWrittenCompletelyIsRemovedWithItsSecrets() {
+        // final review m1: the archives hold the node's secret values
+        UUID auditId = UUID.randomUUID();
+        java.util.concurrent.atomic.AtomicInteger written =
+            new java.util.concurrent.atomic.AtomicInteger();
+        PackageWriter writer = new PackageWriter(temp.resolve("packages"), clock,
+            (file, content) -> {
+                if (written.incrementAndGet() == 3) { // the marker, then the first archive
+                    throw new IOException("disk full");
+                }
+                PackageWriter.writeOwnerOnly(file, content);
+            });
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> writer.write(content(auditId,
+            PROD))).isInstanceOf(java.io.UncheckedIOException.class);
+
+        assertThat(temp.resolve("packages").resolve(auditId.toString()).resolve("prod-node1"))
+            .doesNotExist();
+    }
+
+    @Test
+    void theReadmeAsksForTheNodesOwnStartCliOptions() throws IOException {
+        // final review n2
+        Path dir = writer().write(content(UUID.randomUUID(), PROD));
+
+        assertThat(Files.readString(dir.resolve("README.md"))).contains(
+            "as configured for this node", "trust store", "host name verification");
+    }
 }
