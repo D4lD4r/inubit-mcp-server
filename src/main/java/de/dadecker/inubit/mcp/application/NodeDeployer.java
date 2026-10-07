@@ -152,6 +152,13 @@ public final class NodeDeployer {
      */
     public Deployed deploy(DeployGuard.Admitted admitted, ReleaseDiscovery.Release release,
         NodePlan plan, UUID auditId, Optional<String> mcpClient) {
+        if (admitted.mode() == de.dadecker.inubit.mcp.domain.model.DeployMode.PACKAGE_ONLY) {
+            // stage 3 review B1, defence in depth: nothing is ever sent to a package-only group
+            throw new ToolErrorException(de.dadecker.inubit.mcp.domain.model.ToolError.of(
+                ErrorCode.PRECONDITION_FAILED, admitted.target() + " is package-only; the"
+                    + " deployer never writes to it", "An internal error of the INUBIT MCP"
+                    + " server", "Report the problem with the MCP server log"));
+        }
         Call call = new Call(admitted, release, plan, auditId, mcpClient, "deploy "
             + admitted.tag() + " from " + admitted.source());
         NodeId node = plan.node();

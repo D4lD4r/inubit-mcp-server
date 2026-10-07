@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.application;
 import de.dadecker.inubit.mcp.domain.model.ArtifactClass;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.DeploymentPreview;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
@@ -161,6 +162,18 @@ public final class DeployService {
         UUID auditId = d.ids().get();
         Map<String, String> inputs = inputs(admitted);
         inputs.put(AuditRecord.CONFIRMATION_CODE, request.confirmationCode().orElseThrow());
+        if (admitted.mode() == DeployMode.PACKAGE_ONLY) {
+            // stage 3 review B1: a package-only group never reaches the deployer
+            ToolErrorException refused = new ToolErrorException(ToolError.of(
+                ErrorCode.PRECONDITION_FAILED, admitted.target() + " is package-only: nothing"
+                    + " is ever imported or tagged there, and packages are not written yet",
+                "deploy.mode is PACKAGE_ONLY for this group",
+                "Import the release on " + admitted.target() + " by hand"));
+            audit(auditId, admitted, inputs, AuditRecord.Step.EXECUTE, AuditOutcome.REFUSED,
+                refused.error().code() + ": " + refused.error().message(),
+                request.mcpClient());
+            throw refused;
+        }
         boolean started = false;
         try (DeployLock lock = DeployLock.acquire(d.deployments(), admitted.target(), d.root())) {
             String previewed = d.challenges().redeem(request.confirmationCode().get(),
