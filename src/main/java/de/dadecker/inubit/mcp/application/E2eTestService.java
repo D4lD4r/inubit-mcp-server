@@ -105,10 +105,11 @@ public final class E2eTestService {
      * The collaborators.
      *
      * @param root              the workspace root (envelopes, {@code .tests/e2e})
+     * @param backups           the backup directory, never a source of envelopes
      * @param hangingThresholds the hanging threshold of each node (process instances)
      * @param accounts          the INUBIT account of each node (audit)
      */
-    public record Dependencies(Path root, String profile, DevelopmentGuard guard,
+    public record Dependencies(Path root, Path backups, String profile, DevelopmentGuard guard,
         Function<NodeId, E2ePort> e2e, Function<NodeId, LogPort> logs,
         Function<NodeId, ProcessQueryPort> processes,
         Function<NodeId, Duration> hangingThresholds,
@@ -117,6 +118,7 @@ public final class E2eTestService {
 
         public Dependencies {
             Objects.requireNonNull(root, "root");
+            Objects.requireNonNull(backups, "backups");
             Objects.requireNonNull(profile, "profile");
             Objects.requireNonNull(guard, "guard");
             Objects.requireNonNull(e2e, "e2e");
@@ -418,33 +420,50 @@ public final class E2eTestService {
         }
     }
 
-    /** The envelope bytes, read from a file confined to the workspace (research D-25 H8). */
+    /**
+     * The envelope bytes, read from a file confined to the workspace (research D-25 H8, review
+     * I-A): a relative path without empty, {@code .} or {@code ..} segments, a regular file
+     * whose REAL path (symbolic links resolved) lies inside the REAL workspace root and whose
+     * first component there is none of {@code .git}, {@code .meta}, {@code .reports}, and that
+     * is not in the backup directory (should the workspace contain it) — so
+     * neither {@code ./.git/config} nor a link {@code samples/x.xml → ../.git/config} passes.
+     */
     private byte[] envelope(String path) {
         String candidate = path.replace('\\', '/').strip();
-        List<String> segments = List.of(candidate.split("/"));
+        List<String> segments = List.of(candidate.split("/", -1));
         if (candidate.isEmpty() || candidate.startsWith("/") || candidate.matches("^[A-Za-z]:.*")
-            || segments.contains("..") || HIDDEN.contains(segments.get(0))) {
-            throw invalid("The envelope path is not a workspace-relative path outside .git,"
-                    + " .meta and .reports",
-                "Envelopes are read from the workspace only",
+            || segments.stream().anyMatch(s -> s.isEmpty() || s.equals(".") || s.equals(".."))) {
+            throw invalid("The envelope path is not a plain workspace-relative path",
+                "Envelopes are read from the workspace only; empty, '.' and '..' segments are"
+                    + " not allowed",
                 "Put the envelope below the workspace (e.g. samples/order.xml) and give its"
                     + " relative path");
         }
-        Path root = d.root().toAbsolutePath().normalize();
-        Path resolved = root.resolve(candidate).normalize();
         try {
-            if (!resolved.startsWith(root) || !Files.isRegularFile(resolved)
-                || !resolved.toRealPath().startsWith(root.toRealPath())) {
-                throw invalid("The envelope file does not exist in the workspace or leaves it"
-                        + " through a symbolic link",
+            Path root = d.root().toRealPath();
+            Path resolved = root.resolve(candidate);
+            if (!Files.isRegularFile(resolved)) {
+                throw invalid("The envelope file does not exist in the workspace",
                     "Only regular files inside the workspace are sent",
                     "Check the path (names are case-sensitive)");
             }
-            if (Files.size(resolved) > MAX_ENVELOPE_BYTES) {
+            Path real = resolved.toRealPath();
+            Path backups = d.backups().toAbsolutePath().normalize();
+            if (Files.exists(backups)) {
+                backups = backups.toRealPath();
+            }
+            if (!real.startsWith(root) || real.equals(root) || real.startsWith(backups)
+                || HIDDEN.contains(root.relativize(real).getName(0).toString())) {
+                throw invalid("The envelope file leaves the workspace or lies below .git, .meta,"
+                        + " .reports or the backups (symbolic links resolved)",
+                    "Only workspace files outside the history and the metadata are sent",
+                    "Put the envelope below the workspace, e.g. samples/order.xml");
+            }
+            if (Files.size(real) > MAX_ENVELOPE_BYTES) {
                 throw invalid("The envelope is larger than " + MAX_ENVELOPE_BYTES + " bytes",
                     "A test message is small", "Use a smaller sample message");
             }
-            return Files.readAllBytes(resolved);
+            return Files.readAllBytes(real);
         } catch (IOException e) {
             throw invalid("The envelope file cannot be read (" + e.getClass().getSimpleName()
                 + ")", "The file system refused the read", "Check the file");

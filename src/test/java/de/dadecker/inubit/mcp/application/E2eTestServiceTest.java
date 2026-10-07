@@ -166,7 +166,8 @@ class E2eTestServiceTest {
                     .processId().equals(processId)).toList(), 1);
             }
         };
-        return new E2eTestService(new E2eTestService.Dependencies(root, "acme",
+        return new E2eTestService(new E2eTestService.Dependencies(root,
+            root.resolve("backups"), "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV)), Map.of(DEV, dev)::get,
                 node -> { }), node -> client, node -> logs, node -> processes,
             node -> Duration.ofMinutes(15),
@@ -357,11 +358,18 @@ class E2eTestServiceTest {
         Path outside = Files.createTempFile("e2e-outside", ".xml");
         Files.writeString(outside, ENVELOPE);
         Files.createSymbolicLink(root.resolve("samples/link.xml"), outside);
+        // review I-A: a link inside the workspace that points into a hidden folder
+        Files.createSymbolicLink(root.resolve("samples/inner.xml"), Path.of("../.git/config"));
+        // a workspace configured around the profile directory would contain the backups
+        Files.createDirectories(root.resolve("backups"));
+        Files.writeString(root.resolve("backups/x.xml"), ENVELOPE);
         E2eTestService service = service();
 
         for (String envelope : List.of("../order.xml", outside.toString(), ".git/config",
             ".meta/x.xml", ".reports/x.xml", "samples/link.xml", "samples/missing.xml",
-            "samples")) {
+            "samples", "./.git/config", "./.meta/x.xml", "samples/inner.xml", ".GIT/config",
+            "samples/./order.xml", "samples//order.xml", "./samples/order.xml",
+            "backups/x.xml")) {
             ToolError error = refusal(service, request(envelope, PATH, Optional.empty(), 10,
                 false, Optional.empty()));
             assertThat(error.code()).as(envelope).isEqualTo(ErrorCode.INVALID_INPUT);

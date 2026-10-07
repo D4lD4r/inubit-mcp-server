@@ -208,6 +208,8 @@ final class Wiring implements AutoCloseable {
         Function<NodeId, ImportService.Account> accounts = id -> new ImportService.Account(
             policies.get(id).account().orElse("unknown"), byId.get(id).baseUrl().getHost());
         WriteChallengeRegistry challenges = new WriteChallengeRegistry(clock.clock());
+        Path backups = BackupStore.defaultRoot(Path.of(System.getProperty("user.home")),
+            profile.name());
         ImportService imports = new ImportService(
             new ImportService.Dependencies(workspace, profile.name(), developmentGuard,
                 development::get,
@@ -215,8 +217,7 @@ final class Wiring implements AutoCloseable {
                 new WorkspaceInspector(), checks, new ArchiveCodec(), new V81ImportArchives(),
                 gateways::artifacts, gateways::imports, gateways::inventory,
                 ownerKinds, id -> byId.get(id).inventory().owner(), accounts, challenges,
-                new BackupStore(BackupStore.defaultRoot(Path.of(System.getProperty(
-                    "user.home")), profile.name()), clock.clock()),
+                new BackupStore(backups, clock.clock()),
                 audit, clock.clock(), UUID::randomUUID));
         this.importArtifacts = new ImportArtifactsTool(imports);
         this.restoreBackup = new RestoreBackupTool(imports);
@@ -228,7 +229,7 @@ final class Wiring implements AutoCloseable {
         CredentialResolver e2eCredentials = new CredentialResolver(environment, scrubber,
             config.credentialPrefix());
         this.runE2eTest = new RunE2eTestTool(new E2eTestService(new E2eTestService.Dependencies(
-            workspace, profile.name(), developmentGuard, id -> e2eClients.computeIfAbsent(id,
+            workspace, backups, profile.name(), developmentGuard, id -> e2eClients.computeIfAbsent(id,
                 node -> new SoapE2eClient(byId.get(node), development.get(node).soapBaseUrl()
                     .orElseThrow(), trustStorePassword(credentials, node), e2eCredentials
                     .e2e(node).map(e2e -> new SoapE2eClient.BasicAuth(e2e.username().value(),

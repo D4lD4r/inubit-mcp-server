@@ -116,7 +116,7 @@ class RunE2eTestToolTest {
         };
         MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
         E2eTestService service = new E2eTestService(new E2eTestService.Dependencies(root,
-            "acme", new DevelopmentGuard(new TargetResolver(List.of(DEV)), Map.of(DEV, dev)::get,
+            root.resolve("backups"), "acme", new DevelopmentGuard(new TargetResolver(List.of(DEV)), Map.of(DEV, dev)::get,
                 node -> { }), node -> port, node -> logs, node -> processes,
             node -> Duration.ofMinutes(15),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),
