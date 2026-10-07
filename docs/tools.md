@@ -123,6 +123,9 @@ other nodes are still reported.
 | `SECRET_UNRESOLVED` | a `${secret:…}` placeholder has no value on the target (names artifact and property path, never a value); nothing was sent |
 | `IMPORT_FAILED`, `VERIFY_MISMATCH` | only inside the `failure` of a development tool's result: a StartCLI write failed or its protocol did not match, or the re-export (history export for tags) did not show the intended state |
 | `E2E_FORBIDDEN` | `run_e2e_test` on a node whose `e2eTests` is `FORBIDDEN` (the default) |
+| `CHAIN_VIOLATION` | a deployment into a group that does not receive deployments from the requested source (no `deploy` record, feature 005) |
+| `SOURCE_INCONSISTENT` | the nodes of a deployment's source group do not hold the same release (feature 005) |
+| `DEPLOY_LOCKED` | another deployment into the same target group is running (feature 005) |
 | `INTERNAL` | an unexpected error inside the MCP server, the server is shutting down, or an audit record could not be written |
 
 ## `list_nodes`

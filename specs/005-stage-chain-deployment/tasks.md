@@ -58,7 +58,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 2: Foundational
 
-- [ ] T003 [P] `main/domain/model/ErrorCode.java`: `CHAIN_VIOLATION`, `SOURCE_INCONSISTENT`,
+- [X] T003 [P] `main/domain/model/ErrorCode.java`: `CHAIN_VIOLATION`, `SOURCE_INCONSISTENT`,
   `DEPLOY_LOCKED` with Javadoc; extend `DevelopmentToolsReferenceTest` expectations (docs must list
   them, filled in T029).
 - [ ] T004 `main/adapter/cli/CliCommand.java`: allow `--exportTag` (`VALUE`), `--exportRepositoryPath`

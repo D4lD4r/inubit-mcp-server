@@ -14,7 +14,9 @@ import org.junit.jupiter.api.Test;
  * them, with the confirmation, the failure model and the rollback semantics, and lists every
  * error code; docs/setup.md documents the development settings, owners, end-to-end tests and
  * backups. T028 (research D-26): no owner kind any more — every owner, user or user group, is
- * imported with {@code --importUser}.
+ * imported with {@code --importUser}. Feature 005 (T003, research D-15): the deployment codes
+ * {@code CHAIN_VIOLATION}, {@code SOURCE_INCONSISTENT} and {@code DEPLOY_LOCKED} are in the
+ * catalogue as well (described in full with {@code deploy_release}, T029).
  */
 class DevelopmentToolsReferenceTest {
 
@@ -68,6 +70,8 @@ class DevelopmentToolsReferenceTest {
         for (ErrorCode code : ErrorCode.values()) {
             assertThat(reference).as(code.name()).contains("`" + code.name() + "`");
         }
+        assertThat(reference).contains("| `CHAIN_VIOLATION` |", "| `SOURCE_INCONSISTENT` |",
+            "| `DEPLOY_LOCKED` |");
     }
 
     @Test
