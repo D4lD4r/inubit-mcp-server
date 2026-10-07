@@ -2,6 +2,10 @@ package de.dadecker.inubit.mcp.config;
 
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
+import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
+import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -10,8 +14,11 @@ import java.util.function.Predicate;
 /**
  * Text printed by {@code --check-config}: the profile, its terminology, credential variable
  * scheme, audit directory and workspace ({@code ok}, {@code created} or the problem), then per
- * group the nodes with their id, the effective write flag,
- * CLI availability and the source variable of each credential, then all warnings and errors.
+ * group the nodes with their id, the effective write flag, the development and end-to-end test
+ * settings (feature 004, once any node configures them; with the SOAP base address but never
+ * its user information), CLI
+ * availability and the source variable of each credential, the owner kind overrides, then all
+ * warnings and errors.
  * Groups and nodes are named with the profile's display names (FR-007). Values and URLs are never
  * printed.
  */
@@ -51,6 +58,16 @@ public final class ConfigSummary {
                 case WorkspaceDirectory.Usable usable -> usable.created() ? "created" : "ok";
                 case WorkspaceDirectory.Unusable unusable -> unusable.problem();
             }).orElse("not usable: see the errors")).append(")\n");
+        // feature 004 (contracts/configuration-delta.md): the owner kind overrides, once
+        if (!config.owners().isEmpty()) {
+            out.append("Owner kinds: ").append(String.join(", ", config.owners().entrySet()
+                .stream().map(owner -> owner.getKey() + " " + owner.getValue()).toList()))
+                .append('\n');
+        }
+        // feature 004: shown once a node is a development stage or allows end-to-end tests
+        boolean development = config.resolvableNodes().stream().map(
+            EffectiveNodeConfig::developmentPolicy).anyMatch(policy -> policy.enabled()
+                || policy.e2eTests() != E2ePolicy.FORBIDDEN);
         GroupId group = null;
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
             if (!server.id().group().equals(group)) {
@@ -60,6 +77,7 @@ public final class ConfigSummary {
             }
             out.append("  ").append(terms.render("{Node} ")).append(server.id()).append(": ")
                 .append(writeFlag(server))
+                .append(development ? ", " + development(server) : "")
                 .append(", cli: ").append(cliAvailable(server) ? "available" : "unavailable");
             Optional<NodeCredentials> serverCredentials = credentials.all().stream()
                 .filter(c -> c.node().equals(server.id()))
@@ -85,6 +103,29 @@ public final class ConfigSummary {
     /** CLI home configured and {@code startcli} found (data-model.md → NodeSummary). */
     boolean cliAvailable(EffectiveNodeConfig server) {
         return server.cliAvailable(exists, windows);
+    }
+
+    /**
+     * Feature 004 (FR-005): {@code development: on (confirmation …) | off, e2e: FREE (<url>) |
+     * CONFIRM (<url>) | FORBIDDEN}; the URL without user information.
+     */
+    private static String development(EffectiveNodeConfig server) {
+        DevelopmentPolicy policy = server.developmentPolicy();
+        String development = policy.enabled() ? "development: on (confirmation "
+            + policy.confirmation() + ")" : "development: off";
+        String e2e = "e2e: " + policy.e2eTests() + (policy.e2eTests() == E2ePolicy.FORBIDDEN
+            ? "" : policy.soapBaseUrl().map(url -> " (" + withoutUserInfo(url) + ")")
+                .orElse(""));
+        return development + ", " + e2e;
+    }
+
+    private static String withoutUserInfo(URI url) {
+        try {
+            return new URI(url.getScheme(), null, url.getHost(), url.getPort(), url.getPath(),
+                null, null).toString();
+        } catch (URISyntaxException e) {
+            return url.getScheme() + "://" + url.getHost();
+        }
     }
 
     private static String writeFlag(EffectiveNodeConfig server) {

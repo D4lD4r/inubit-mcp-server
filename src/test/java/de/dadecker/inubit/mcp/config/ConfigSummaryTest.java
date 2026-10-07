@@ -69,6 +69,50 @@ class ConfigSummaryTest {
                 baseUrl: https://inubit-prod-01.example.test:8443
         """;
 
+    // --- feature 004 T024: development, e2e and owner kinds (FR-005, US6 AS 4) -------------------
+
+    @Test
+    void eachNodeShowsItsDevelopmentConfirmationAndE2ePolicyAndTheOwnerKindsAreListedOnce() {
+        String summary = render("""
+            profile:
+              name: acme
+            owners:
+              OWNERS: USER_GROUP
+              jdoe: USER
+            groups:
+              - name: test
+                development:
+                  enabled: true
+                e2eTests: CONFIRM
+                e2e:
+                  soap:
+                    baseUrl: https://inubit-test.example.test:8443/soap
+                nodes:
+                  - name: inubit01
+                    baseUrl: https://inubit-test-01.example.test:8443
+                  - name: inubit02
+                    baseUrl: https://inubit-test-02.example.test:8443
+                    development:
+                      confirmation: CLIENT
+                    e2eTests: FREE
+              - name: prod
+                production: true
+                nodes:
+                  - name: inubit01
+                    baseUrl: https://inubit-prod-01.example.test:8443
+            """);
+
+        assertThat(summary).contains("test/inubit01: read-only, development: on (confirmation"
+            + " SERVER), e2e: CONFIRM (https://inubit-test.example.test:8443/soap), cli:");
+        assertThat(summary).contains("test/inubit02: read-only, development: on (confirmation"
+            + " CLIENT), e2e: FREE (https://inubit-test.example.test:8443/soap), cli:");
+        assertThat(summary).contains("prod/inubit01: read-only, development: off, e2e:"
+            + " FORBIDDEN, cli:");
+        assertThat(summary).containsOnlyOnce("Owner kinds: OWNERS USER_GROUP, jdoe USER\n");
+        assertThat(render(CONFIG)).as("a profile without development settings prints as"
+            + " before").doesNotContain("Owner kinds", "development:", "e2e:");
+    }
+
     // --- T034: the workspace line (FR-004) -------------------------------------------------------
 
     @Test

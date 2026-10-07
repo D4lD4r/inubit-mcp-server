@@ -200,7 +200,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 8: User Story 6 — Configuration check (Priority: P3)
 
-- [ ] T024 [US6] `main/config/ConfigSummary.java` with test first: per node `development: on
+- [X] T024 [US6] `main/config/ConfigSummary.java` with test first: per node `development: on
   (confirmation …) | off` and `e2e: …`; owner overrides listed; docs example in setup.md verified by
   the existing example test if applicable.
 
