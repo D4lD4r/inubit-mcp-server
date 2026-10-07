@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -92,7 +93,7 @@ class DeploymentLiveTest {
                     List.of(group), "tag", tag, "reason", "Live deployment tag " + stamp));
                 assertThat(tagged.path("outcome").asString()).isEqualTo("EXECUTED");
             }
-            Map<NodeId, State> before = new TreeMap<>();
+            Map<NodeId, State> before = new LinkedHashMap<>();
             for (NodeId node : targetNodes) {
                 before.put(node, state(client, node));
             }
