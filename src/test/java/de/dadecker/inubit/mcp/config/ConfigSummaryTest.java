@@ -275,5 +275,14 @@ class ConfigSummaryTest {
         assertThat(summary).contains("Chains: not shown, see the errors")
             .contains("The stage chain has a cycle");
     }
+
+    @Test
+    void aChainFromAnUnknownGroupIsNotDrawn() {
+        // stage 1 review #6: only a chain without chain errors is drawn
+        String summary = render(CHAIN.replace("deploy: { from: int }", "deploy: { from: test }"));
+
+        assertThat(summary).contains("Chains: not shown, see the errors")
+            .doesNotContain("test → qa");
+    }
 }
 

@@ -112,11 +112,22 @@ public record ProfileConfig(
      *     reported no errors
      */
     public StageChain stageChain() {
+        Set<String> names = new TreeSet<>();
+        groups.forEach(group -> names.add(group.name()));
         Map<GroupId, StageChain.ChainLink> targets = new LinkedHashMap<>();
         for (GroupConfig group : groups) {
-            group.deploy().ifPresent(deploy -> targets.put(new GroupId(group.name()),
-                new StageChain.ChainLink(new GroupId(deploy.from().strip()), deploy.mode(),
-                    deploy.exclude().stream().map(ProfileConfig::exclusion).toList())));
+            if (group.deploy().isEmpty()) {
+                continue;
+            }
+            DeployConfig deploy = group.deploy().get();
+            String from = deploy.from().strip();
+            if (!names.contains(from) || from.equals(group.name())) {
+                // the same rule as ConfigValidator.checkChain (stage 1 review #6)
+                throw new IllegalArgumentException("deploy.from of " + group.name()
+                    + " does not name another existing group");
+            }
+            targets.put(new GroupId(group.name()), new StageChain.ChainLink(new GroupId(from),
+                deploy.mode(), deploy.exclude().stream().map(ProfileConfig::exclusion).toList()));
         }
         return new StageChain(targets);
     }
