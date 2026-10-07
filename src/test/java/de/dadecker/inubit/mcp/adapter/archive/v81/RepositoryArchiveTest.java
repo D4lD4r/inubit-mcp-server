@@ -273,7 +273,7 @@ class RepositoryArchiveTest {
     @Test
     void privateKeysInDerAndPgpAreKeyMaterial() throws Exception {
         java.security.KeyPairGenerator rsa = java.security.KeyPairGenerator.getInstance("RSA");
-        rsa.initialize(1024);
+        rsa.initialize(2048);
         byte[] pkcs8 = rsa.generateKeyPair().getPrivate().getEncoded();
         java.security.KeyPairGenerator ec = java.security.KeyPairGenerator.getInstance("EC");
         ec.initialize(256);
