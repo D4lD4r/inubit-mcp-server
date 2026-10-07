@@ -323,7 +323,17 @@ public final class DeployHarness {
                 new de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec(),
                 new de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives(), root),
             planner(), ledger, challenges, java.time.Duration.ofMinutes(30), serviceAudit, clock,
-            java.util.UUID::randomUUID));
+            java.util.UUID::randomUUID, deployer(serviceAudit), history));
+    }
+
+    /** The node deployer on the real 8.1 adapters of this harness. */
+    public NodeDeployer deployer(de.dadecker.inubit.mcp.domain.port.AuditPort serviceAudit) {
+        return new NodeDeployer(new NodeDeployer.Dependencies(planner(),
+            new de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives(),
+            new de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives(),
+            new de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec(), this::imports,
+            this::tags, node -> new ImportService.Account(OWNER, node.name() + ".example.test"),
+            backups, ledger, serviceAudit, "acme", clock, java.util.UUID::randomUUID, root));
     }
 
     // --- scripting (per node, in launch order) -----------------------------------------------

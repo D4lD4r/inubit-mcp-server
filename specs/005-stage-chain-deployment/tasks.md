@@ -138,17 +138,17 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 5: User Story 1 + 3 — Execute (P1)
 
-- [ ] T021 [US1] `main/application/NodeDeployer.java`: re-check fingerprint, backup
+- [X] T021 [US1] `main/application/NodeDeployer.java`: re-check fingerprint, backup
   (`BackupStore` manifest `kind: DEPLOYMENT`, groups, repository paths, tag, source; 004 manifests
   read as `IMPORT`), `PENDING` audit, imports in D-7 order (repository, modules, workflows active /
   inactive) with target secrets and protocol matching; check-in comment of workflows and modules
   with the reason `deploy <tag> from <source>` (FR-019, D-9); verification (content, reason segment,
   active flag, repository files), tag via `DiagramGroupTagger`, ledger update; tests on `DeployHarness`.
-- [ ] T022 [US3] Rollback and stop rule in `NodeDeployer`/`DeployService`: rollback from the backup
+- [X] T022 [US3] Rollback and stop rule in `NodeDeployer`/`DeployService`: rollback from the backup
   incl. repository files, verified; states `DEPLOYED`, `UNCHANGED`, `ROLLED_BACK`,
   `ROLLBACK_FAILED`, `NOT_STARTED`; remaining nodes untouched; `DeployFailureTest` (import NOK on
   node 2 of 3, verify mismatch, rollback failure, `CONFLICT` at the re-check of node 2).
-- [ ] T023 [US1] `DeployService` execute: redeem code, repeat discovery and exports and compare with
+- [X] T023 [US1] `DeployService` execute: redeem code, repeat discovery and exports and compare with
   the preview state (`CONFLICT` before the first node), nodes in order, result per contract, workspace
   commit `deploy <target> ← <source>: <tag> [<auditId>]` with `Server-State: <target>` only when every
   node is `DEPLOYED`/`UNCHANGED`; group-level and per-node audit records; SC-003 test (redeploy

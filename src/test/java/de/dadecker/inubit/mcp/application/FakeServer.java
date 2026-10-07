@@ -92,7 +92,7 @@ public final class FakeServer {
     public volatile boolean refuseNextRepositoryImport;
     /** The next workflow or module import applies only its first artifact (protocol: all). */
     public volatile boolean partialNextImport;
-    /** After the next import, this text of the stored workflow files is replaced. */
+    /** After the next import, this text of the stored workflow and module files is replaced. */
     public volatile String[] tamperNextImport;
 
     /** A server with the diagram groups and modules of {@code exports}. */
@@ -476,6 +476,9 @@ public final class FakeServer {
         String[] tamper = tamperNextImport;
         tamperNextImport = null;
         if (tamper != null) {
+            modules.replaceAll((name, module) -> new Module(module.pluginType(), module.entry(),
+                new String(module.file(), StandardCharsets.UTF_8).replace(tamper[0], tamper[1])
+                    .getBytes(StandardCharsets.UTF_8), module.version()));
             for (Map<String, Workflow> workflows : groups.values()) {
                 workflows.replaceAll((name, workflow) -> new Workflow(XmlTree.parse(new String(
                     XmlNormalizer.normalize(workflow.element()), StandardCharsets.UTF_8)
