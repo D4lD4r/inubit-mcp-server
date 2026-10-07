@@ -98,4 +98,16 @@ class LayoutDiffTest {
         assertThatThrownBy(() -> LayoutDiff.layoutOnly(bytes("<a>"), bytes("<a/>")))
             .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void aStyleSheetInAnotherNamespaceIsContent() {
+        // stage 1 review #10: only INUBIT's own StyleSheet elements (no namespace) are layout
+        String release = edit(workflow("Workflow-0001"), "<ConnectionId>5</ConnectionId>",
+            "<ConnectionId>5</ConnectionId><x:StyleSheet xmlns:x=\"urn:example:other\""
+                + " value=\"1\"/>");
+        String target = edit(release, "value=\"1\"", "value=\"2\"");
+
+        assertThat(LayoutDiff.layoutOnly(bytes(release), bytes(target))).isFalse();
+    }
 }
+
