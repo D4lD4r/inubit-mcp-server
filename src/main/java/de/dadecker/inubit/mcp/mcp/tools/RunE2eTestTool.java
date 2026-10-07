@@ -45,7 +45,7 @@ public final class RunE2eTestTool implements ToolHandler {
     /** Destructive (it triggers processes), non-idempotent, open world (FR-026). */
     @Override
     public ToolHints annotations() {
-        return ToolHints.destructive("Send a SOAP test message to a development INUBIT node");
+        return ToolHints.destructive("Send a SOAP test message to an INUBIT {node}");
     }
 
     @Override

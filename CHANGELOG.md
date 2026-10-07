@@ -12,6 +12,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Documentation brought up to date for 0.4.0: README, SECURITY.md, CONTRIBUTING.md,
   `docs/setup.md`, `docs/tools.md` and `docs/live-tests.md` (offered tools, requirements, audit,
   workspace lock, `--check-config` output, error codes and the `deploy_release` challenge).
+- The titles of `restore_backup` ("Restore a development or deployment backup on an INUBIT node")
+  and `run_e2e_test` ("Send a SOAP test message to an INUBIT node") cover deployment targets too.
 
 ## [0.4.0] - 2026-10-07
 
