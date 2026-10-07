@@ -83,7 +83,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 - [X] T009 `main/adapter/archive/v81/LayoutDiff.java`: decides whether two rendered workflow files
   differ only inside `<StyleSheet>` elements (`xPos`, `yPos`, `labelPosition`, …); tests with a
   moved node, a moved label, a changed edge (not layout-only) and a changed condition.
-- [ ] T010 Test harness: `test/application/FakeInubit.java` learns tag exports (tagged versions per
+- [X] T010 Test harness: `test/application/FakeInubit.java` learns tag exports (tagged versions per
   group, referenced repository files), repository export/import (versions, relative entries) and the
   active-flag option per import; `test/application/DeployHarness.java` with one `FakeInubit` per node
   (source `dev/node1`, targets `int/node1`, `int/node2`, `int/node3`, package-only `prod/node1`)
