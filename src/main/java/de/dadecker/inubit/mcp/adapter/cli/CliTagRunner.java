@@ -18,9 +18,10 @@ import java.util.Objects;
  *       StartCLI tags every diagram of the owner without one (spike §6); a blank group is
  *       {@code INVALID_INPUT} before anything is launched, and so is any value that does not
  *       match {@link CliCommand#VALUE} (wildcards, quotes, a leading {@code -});
- *   <li>{@link #deleteTag}: {@code tag --tagDelete '<tag>' --tagUser '<owner>'};
- *   <li>StartCLI prints no result line for {@code tag} (fixtures {@code tag_ok},
- *       {@code tag_delete_ok}): exit code 0 without an {@code n-NOK} line is success, anything
+ *   <li>there is no tag removal: StartCLI removes a tag only for the whole owner
+ *       ({@code --tagDelete}), which could take a tag away that marks another diagram group's
+ *       state (research D-26); {@link CliCommand} refuses that option;
+ *   <li>StartCLI prints no result line for {@code tag} (fixture {@code tag_ok}): exit code 0 without an {@code n-NOK} line is success, anything
  *       else {@code IMPORT_FAILED} (a write StartCLI did not complete; the caller verifies by a
  *       history export); the node's {@code cliExportTimeout} applies and is named on
  *       {@code TIMEOUT}. Every run goes through the node's {@link CredentialGuard}.
@@ -79,16 +80,6 @@ public final class CliTagRunner {
             .quoted("--tagUser", owner).build());
     }
 
-    /**
-     * Removes {@code tag} from every version of {@code owner}.
-     *
-     * @throws ToolErrorException as {@link #tag}
-     */
-    public void deleteTag(String tag, String owner) {
-        run(CliCommand.command("tag").quoted("--tagDelete", tag).quoted("--tagUser", owner)
-            .build());
-    }
-
     private void run(CliCommand command) {
         checkAvailable();
         CliResult result = runner.run(server, credentials.username().orElseThrow().value(),
@@ -106,7 +97,7 @@ public final class CliTagRunner {
                     + reason,
                 "INUBIT refused the tag command or StartCLI failed; part of it may have been"
                     + " applied",
-                "tag_artifacts verifies by a history export and removes the tag again")
+                "tag_artifacts verifies by a history export of the requested groups")
                 .withNode(server.id()));
         }
     }

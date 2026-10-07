@@ -128,28 +128,6 @@ public final class CliExportRunner {
     }
 
     /**
-     * {@code versionHistory.xml} of every diagram of {@code owner} — all diagram groups, all
-     * diagram types — and of the modules they use (feature 004, research D-16, D-25 M1):
-     * {@code export --exportWorkflowUser '<owner>' --exportWorkflowType 'all'
-     * --exportWorkflowGroup '' --includeHistory --exportFile '<tmp>/history.zip'}. The tag
-     * check of {@code tag_artifacts} needs it; like every export it appends to the check-in
-     * comments of the exported workflows (spike §3).
-     *
-     * @throws ToolErrorException as {@link #exportHistory}
-     */
-    public byte[] exportHistoryAllGroups(String owner) {
-        checkModuleExport(owner);
-        return export("history.zip", file -> readEntry(server.id(), file, HISTORY_ENTRY),
-            file -> CliCommand.command("export")
-            .quoted("--exportWorkflowUser", owner)
-            .quoted("--exportWorkflowType", "all")
-            .emptyQuoted("--exportWorkflowGroup")
-            .flag("--includeHistory")
-            .path("--exportFile", file)
-            .build());
-    }
-
-    /**
      * {@code module/module.xml} of all modules owned by {@code owner}.
      *
      * @throws ToolErrorException as {@link #exportHistory}

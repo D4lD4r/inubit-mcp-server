@@ -58,7 +58,7 @@ General rules:
 | [`import_artifacts`](#import_artifacts) | import the changed workflows of ONE diagram group (with their changed or new modules), or changed modules, into ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`restore_backup`](#restore_backup) | re-import the backup of an earlier development call | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`set_active`](#set_active) | activate or deactivate ONE workflow on ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
-| [`tag_artifacts`](#tag_artifacts) | tag the head versions of diagram groups (and their modules) | **destructive**, non-idempotent, open world | yes (StartCLI history `export` and `tag`) |
+| [`tag_artifacts`](#tag_artifacts) | tag the head versions of whole diagram groups (and their modules) | **destructive**, non-idempotent, open world | yes (StartCLI history `export` and `tag`) |
 | [`run_e2e_test`](#run_e2e_test) | send a SOAP test message and report what INUBIT did | **destructive**, non-idempotent, open world | yes (SOAP endpoint, REST logs and Queue Manager) |
 
 `restart_process` and `kill_process` are **offered only if at least one node has effective
@@ -963,33 +963,35 @@ reason: "undo layout")`.
 ## `tag_artifacts`
 
 > [acme] Tag the current versions of the technical workflows (and their modules) of the given
-> diagram groups of an owner on ONE development node. Never owner-wide; an existing tag is never
-> moved.
+> diagram groups of an owner on ONE development node. Only whole diagram groups, never
+> owner-wide; an existing tag name is reused and moves to the current versions within these
+> groups only.
 
 **Input**: `node`, `owner`, `diagramGroups` (1–20 distinct names), `tag`, `reason`,
 `confirmationCode`.
 
-- Blank, empty, duplicate or wildcard-like groups are refused (`INVALID_INPUT`) before anything
-  is read — StartCLI would tag **everything** of the owner without a group. A tag that exists on
-  any version of any diagram or module of the owner is refused (tags are never moved); a group
-  without technical workflows is `NOT_FOUND`. The owner may be a user or a user group.
-- One `tag --tagMove '<tag>' --tagWorkflowGroup '<group>' --tagWorkflowType 'technical'
-  --tagUser '<owner>'` per group. **Verification** by history exports: the tag must be on the
-  head versions of exactly the technical workflows of the requested groups and the modules they
-  use. Anything else, or a failing tag command, removes the tag again
-  (`tag --tagDelete`) and the result is `FAILED` with `failure` and `removedAgain: true`.
+- INUBIT tags only **whole diagram groups** (`--tagDiagram` is ignored), so a tag always covers
+  every technical workflow of a requested group and the modules they use. Blank, empty, duplicate
+  or wildcard-like groups are refused (`INVALID_INPUT`) before anything is read — StartCLI would
+  tag **everything** of the owner without a group. A group without technical workflows is
+  `NOT_FOUND`. The owner may be a user or a user group.
+- **Tag names**: an existing tag name is reused. Within the requested groups it moves to the
+  current versions (re-tagging after a new version moves it from the old to the new head);
+  the same tag in other diagram groups stays untouched (probed). Artifacts outside the requested
+  groups are never tagged or untagged.
+- Pre-check and verification export **only the requested groups** with their history — never
+  the whole owner. One `tag --tagMove '<tag>' --tagWorkflowGroup '<group>' --tagWorkflowType
+  'technical' --tagUser '<owner>'` per group. **Verification**: the current version of every
+  technical workflow of the requested groups and of every module they use must carry the tag.
+- On a deviation (`VERIFY_MISMATCH`, report `.reports/tag-<auditId>.txt`) or a failing tag
+  command (`IMPORT_FAILED` at step `tag`) the result is `FAILED` with `failure`; **nothing is
+  removed** — StartCLI removes a tag only for the whole owner, which could take away a tag that
+  marks another group's state, so the server never does. The warning names the groups already
+  tagged and asks to call `tag_artifacts` again.
 - **Result**: `auditId`, `outcome`, `failure`, `tag`, `diagramGroups`, `workflows`, `modules`
-  (how many carry the tag), `removedAgain`, `reports`, `warnings`. **Preview**: `owner`, `tag`,
-  `diagramGroups`, `workflows`, `confirmationCode`, `expiresAt`, `message`; the code
-  is bound to the head versions, so a publish in between is `CONFLICT`.
-
-**Removing the tag again acts owner-wide.** StartCLI deletes a tag only per owner
-(`tag --tagDelete '<tag>' --tagUser '<owner>'`), never per diagram group. It can only remove this
-call's own new tag: the pre-check refused the call if the tag existed on any version of any
-diagram of the owner (all groups and types) or of any module those diagrams use. One case
-remains: a module that no diagram of the owner uses is not part of that history; if it carried a
-tag of the same name, the removal would take that tag away as well. Use unique tag names (e.g.
-with date and time). A history export of unused modules was not probed and is not used.
+  (how many current versions carry the tag), `reports`, `warnings`. **Preview**: `owner`, `tag`,
+  `diagramGroups`, `workflows`, `confirmationCode`, `expiresAt`, `message`; the code is bound to
+  the head versions, so a publish in between is `CONFLICT`.
 
 Every history export appends to the check-in comments of the exported workflows in INUBIT
 (an INUBIT behaviour, see the spike notes).

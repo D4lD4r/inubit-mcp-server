@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
@@ -30,11 +31,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * T021 (feature 004, US4, FR-021, SC-005, research D-16, D-25 M1, M2): {@code tag_artifacts}
- * against a fake tag port — blank, empty and wildcard-like diagram groups and existing tags
- * are refused before any tag command; one tag command per diagram group; verification by
- * history export; a tag that reached anything else (or a failing tag command) is removed again
- * and reported as {@code FAILED}; every call is audited.
+ * T021, T029 (feature 004, US4, FR-021, SC-005, research D-16, D-26): {@code tag_artifacts}
+ * against a fake tag port — blank, empty and wildcard-like diagram groups are refused before
+ * any tag command; only the requested diagram groups are exported (never owner-wide); one tag
+ * command per diagram group; an existing tag name is reused (it moves to the current versions
+ * within the group, other groups keep it); verification by the groups' history exports; a
+ * current version without the tag or a failing tag command is {@code FAILED} and nothing is
+ * removed; every call is audited.
  */
 class TagServiceTest {
 
@@ -83,6 +86,15 @@ class TagServiceTest {
         return ((TagService.Response.Completed) response).outcome();
     }
 
+    /** The outcome of a call that must not be refused (fails on an assertion otherwise). */
+    private static TagOutcome run(TagService service, TagService.TagRequest request) {
+        java.util.concurrent.atomic.AtomicReference<TagService.Response> response =
+            new java.util.concurrent.atomic.AtomicReference<>();
+        assertThat(catchThrowable(() -> response.set(service.tag(request))))
+            .as("the call is not refused").isNull();
+        return completed(response.get());
+    }
+
     private ToolError refusal(TagService service, TagService.TagRequest request) {
         ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
             () -> service.tag(request));
@@ -94,6 +106,12 @@ class TagServiceTest {
         return exception.error();
     }
 
+    /** Research D-26: only the requested groups are exported, and nothing is ever removed. */
+    private void assertGroupScopedOnly() {
+        assertThat(port.calls).as("no owner-wide history export").doesNotContain("history");
+        assertThat(port.calls).as("no tag removal").noneMatch(call -> call.startsWith("delete"));
+    }
+
     @Test
     void eachDiagramGroupIsTaggedOnceAndTheResultVerified() {
         TagOutcome outcome = completed(service().tag(request(List.of("GRP-01", "GRP-02"))));
@@ -102,10 +120,9 @@ class TagServiceTest {
         assertThat(outcome.failure()).isEmpty();
         assertThat(outcome.workflows()).isEqualTo(3);
         assertThat(outcome.modules()).isEqualTo(3);
-        assertThat(outcome.removedAgain()).isFalse();
         assertThat(outcome.diagramGroups()).containsExactly("GRP-01", "GRP-02");
-        assertThat(port.calls).containsExactly("history", "tag REL-1 GRP-01",
-            "tag REL-1 GRP-02", "history GRP-01", "history GRP-02", "history");
+        assertThat(port.calls).containsExactly("history GRP-01", "history GRP-02",
+            "tag REL-1 GRP-01", "tag REL-1 GRP-02", "history GRP-01", "history GRP-02");
         assertThat(port.carrying("REL-1")).containsExactlyInAnyOrder("W-1", "W-2", "W-3", "M-1",
             "M-2", "M-3");
         assertThat(audit).extracting(AuditRecord::capability).containsOnly("tag_artifacts");
@@ -114,7 +131,7 @@ class TagServiceTest {
         assertThat(audit.get(1).inputs()).containsEntry("tag", "REL-1")
             .containsEntry("scope", "diagram groups GRP-01, GRP-02")
             .containsEntry("reason", "Tested state").containsEntry("owner", "jdoe")
-            .doesNotContainKey("ownerKind");
+            .doesNotContainKey("ownerKind").doesNotContainKey("removedAgain");
     }
 
     @Test
@@ -137,14 +154,32 @@ class TagServiceTest {
     }
 
     @Test
-    void aTagThatExistsAnywhereForTheOwnerIsNeverMoved() {
-        port.tagged("M-4", 1, "REL-1");
+    void anExistingTagNameIsReusedAndMovesToTheCurrentVersionsOfTheGroup() {
+        // research D-26: re-tagging a group moves the tag from the old to the head version
+        port.tagged("W-1", 1, "REL-1").tagged("M-1", 1, "REL-1");
 
-        ToolError error = refusal(service(), request(List.of("GRP-01")));
+        TagOutcome outcome = run(service(), request(List.of("GRP-01")));
 
-        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
-        assertThat(error.message()).contains("REL-1", "exists");
-        assertThat(port.calls).containsExactly("history");
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(port.carrying("REL-1")).containsExactlyInAnyOrder("W-1", "W-2", "M-1",
+            "M-2");
+        assertGroupScopedOnly();
+    }
+
+    @Test
+    void theSameTagInAnotherDiagramGroupStaysUntouched() {
+        // research D-26 (probed): --tagMove on one group leaves the tag in other groups alone
+        port.tagged("W-3", 0, "REL-1").tagged("M-3", 0, "REL-1").tagged("W-4", 1, "REL-1");
+
+        TagOutcome outcome = run(service(), request(List.of("GRP-01")));
+
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.workflows()).isEqualTo(2);
+        assertThat(port.carrying("REL-1")).containsExactlyInAnyOrder("W-1", "W-2", "M-1", "M-2",
+            "W-3", "M-3", "W-4");
+        assertThat(port.calls).containsExactly("history GRP-01", "tag REL-1 GRP-01",
+            "history GRP-01");
+        assertGroupScopedOnly();
     }
 
     @Test
@@ -153,12 +188,12 @@ class TagServiceTest {
 
         assertThat(error.code()).isEqualTo(ErrorCode.NOT_FOUND);
         assertThat(error.message()).contains("GRP-09");
+        assertThat(port.calls).containsExactly("history GRP-09");
     }
 
     @Test
-    void aTagThatReachedOtherArtifactsIsRemovedAgainAndReported() {
-        // SC-005 post-check
-        port.tagEverything = true;
+    void aCurrentVersionWithoutTheTagIsAVerifyMismatchAndNothingIsRemoved() {
+        port.missed.add("M-2");
 
         TagOutcome outcome = completed(service().tag(request(List.of("GRP-01"))));
 
@@ -166,20 +201,21 @@ class TagServiceTest {
         assertThat(outcome.failure()).hasValueSatisfying(failure -> {
             assertThat(failure.code()).isEqualTo(ErrorCode.VERIFY_MISMATCH);
             assertThat(failure.step()).isEqualTo("verify");
-            assertThat(failure.message()).contains("W-4");
+            assertThat(failure.message()).contains("M-2");
         });
-        assertThat(outcome.removedAgain()).isTrue();
-        assertThat(port.calls).last().isEqualTo("delete REL-1");
-        assertThat(port.carrying("REL-1")).isEmpty();
+        assertThat(port.carrying("REL-1")).as("nothing is removed")
+            .containsExactlyInAnyOrder("W-1", "W-2", "M-1");
         assertThat(outcome.reports()).singleElement().satisfies(report ->
             assertThat(root.resolve(report)).isRegularFile());
+        assertThat(outcome.warnings()).anyMatch(warning -> warning.contains("tag_artifacts"));
         assertThat(audit).extracting(AuditRecord::outcome).containsExactly(AuditOutcome.PENDING,
             AuditOutcome.FAILED);
-        assertThat(audit.get(1).inputs()).containsEntry("removedAgain", "true");
+        assertThat(audit.get(1).inputs()).doesNotContainKey("removedAgain");
+        assertGroupScopedOnly();
     }
 
     @Test
-    void aFailingTagCommandRemovesTheTagAgain() {
+    void aFailingTagCommandIsReportedAndNothingIsRemoved() {
         port.failOn = "GRP-02";
 
         TagOutcome outcome = completed(service().tag(request(List.of("GRP-01", "GRP-02"))));
@@ -189,8 +225,11 @@ class TagServiceTest {
             assertThat(failure.code()).isEqualTo(ErrorCode.IMPORT_FAILED);
             assertThat(failure.step()).isEqualTo("tag");
         });
-        assertThat(outcome.removedAgain()).isTrue();
-        assertThat(port.carrying("REL-1")).isEmpty();
+        assertThat(port.carrying("REL-1")).as("GRP-01 keeps the tag")
+            .containsExactlyInAnyOrder("W-1", "W-2", "M-1", "M-2");
+        assertThat(outcome.warnings()).anyMatch(warning -> warning.contains("GRP-01")
+            && warning.contains("tag_artifacts"));
+        assertGroupScopedOnly();
     }
 
     @Test
@@ -212,7 +251,7 @@ class TagServiceTest {
 
         assertThat(preview.workflows()).isEqualTo(2);
         assertThat(preview.tag()).isEqualTo("REL-1");
-        assertThat(port.calls).containsExactly("history");
+        assertThat(port.calls).containsExactly("history GRP-01");
         TagOutcome outcome = completed(service.tag(new TagService.TagRequest("dev/node1",
             Optional.empty(), List.of("GRP-01"), "REL-1", "Tested state",
             Optional.of(preview.confirmationCode()), Optional.empty())));

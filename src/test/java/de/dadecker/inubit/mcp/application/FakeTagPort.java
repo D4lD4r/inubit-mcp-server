@@ -16,12 +16,12 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Test double of the tags of one INUBIT 8.1 server (feature 004, research D-16): diagrams with
- * their diagram group, type and versions, modules used by the diagram groups, and StartCLI's
- * tag behaviour as the spike observed it — {@code --tagWorkflowGroup} tags the head versions
- * of the group's technical workflows and their modules, {@code --tagDelete} removes the tag
- * everywhere. Knobs simulate a tag that reaches everything (the spike's ignored
- * {@code --tagDiagram}) and a failing tag command; every call is recorded.
+ * Test double of the tags of one INUBIT 8.1 server (feature 004, research D-16, D-26): diagrams
+ * with their diagram group, type and versions, modules used by the diagram groups, and
+ * StartCLI's tag behaviour as probed — {@code --tagMove} on a diagram group moves the tag to the
+ * head versions of the group's technical workflows and their modules (older versions of those
+ * artifacts lose it) and leaves the same tag on every other artifact untouched. Knobs simulate
+ * an artifact the tag command misses and a failing tag command; every call is recorded.
  */
 final class FakeTagPort implements TagPort {
 
@@ -30,10 +30,10 @@ final class FakeTagPort implements TagPort {
     private final Map<String, String[]> diagrams = new LinkedHashMap<>();
     private final Map<String, List<List<String>>> versions = new LinkedHashMap<>();
     private final Map<String, Set<String>> used = new LinkedHashMap<>();
-    /** The calls, e.g. {@code history}, {@code history GRP-01}, {@code tag REL GRP-01}. */
+    /** The calls, e.g. {@code history GRP-01}, {@code tag REL GRP-01}. */
     final List<String> calls = new CopyOnWriteArrayList<>();
-    /** The next tag command tags every head of the owner. */
-    volatile boolean tagEverything;
+    /** Artifacts (diagram or module names) the tag commands miss. */
+    final Set<String> missed = java.util.concurrent.ConcurrentHashMap.newKeySet();
     /** A tag command for this diagram group fails. */
     volatile String failOn;
 
@@ -76,12 +76,6 @@ final class FakeTagPort implements TagPort {
     }
 
     @Override
-    public synchronized History history(String owner) {
-        calls.add("history");
-        return history(diagrams.keySet(), moduleKeys(null));
-    }
-
-    @Override
     public synchronized History history(String owner, String diagramGroup) {
         calls.add("history " + diagramGroup);
         List<String> names = diagrams.entrySet().stream()
@@ -103,22 +97,20 @@ final class FakeTagPort implements TagPort {
                 ? used.getOrDefault(diagramGroup, Set.of()).contains(key.substring(7))
                 : diagrams.get(key)[0].equals(diagramGroup)
                     && diagrams.get(key)[1].equals("technical");
-            if (tagEverything || inGroup) {
+            if (inGroup) {
+                if (missed.contains(key.replace("module:", ""))) {
+                    return;
+                }
+                list.forEach(tags -> tags.remove(tag));
                 list.get(0).add(tag);
             }
         });
     }
 
-    @Override
-    public synchronized void deleteTag(String tag, String owner) {
-        calls.add("delete " + tag);
-        versions.values().forEach(list -> list.forEach(tags -> tags.remove(tag)));
-    }
-
     private List<String> moduleKeys(String group) {
         Set<String> names = new LinkedHashSet<>();
         used.forEach((g, modules) -> {
-            if (group == null || g.equals(group)) {
+            if (g.equals(group)) {
                 names.addAll(modules);
             }
         });

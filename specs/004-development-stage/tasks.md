@@ -253,7 +253,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   `OWNERS`) is imported with `--importUser 'OWNERS'` (ScriptedProcessLauncher asserts the exact
   command); `owners:` in a profile is now an unknown key (configuration error). Update
   contracts/configuration-delta.md, data-model, docs/setup.md, docs/tools.md, CHANGELOG.
-- [ ] T029 `tag_artifacts` per D-26: no owner-wide history export (`exportHistoryAllGroups` removed if
+- [X] T029 `tag_artifacts` per D-26: no owner-wide history export (`exportHistoryAllGroups` removed if
   unused) and no `--tagDelete`; pre-check and verification export only the requested groups with
   history; an existing tag name is reused (no refusal); verification: the current versions of every
   workflow and module of the requested groups carry the tag — otherwise `outcome: FAILED` with

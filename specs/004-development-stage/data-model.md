@@ -28,7 +28,7 @@ Delta to features 001–003. Decisions D-n are in [research.md](research.md).
 | `Backup` | `auditId`, `node`, `owner`, `scope`, `changeSet` (names), `created` (names), `intendedState` (hashes per artifact), `outcome`, `takenAt`, `zips: List<Path>` | manifest `<auditId>.json` (no secrets) + `<auditId>-<n>.zip` raw scope exports (`rw-------`) (D-13, D-25) |
 | `ImportProtocol` | `entries: List<{type, description, artifact, owner}>`, `total` | parsed fixed-width table (D-8) |
 | `WriteOutcome` | `outcome: EXECUTED \| FAILED`, `failure?: {code, step, message}`, `commit?`, `backupRef`, `created`, `modified`, `notImported`, `rollback?: SUCCEEDED \| FAILED \| NOT_NEEDED`, `createdNotRemoved`, `reports: List<path>`, `warnings` | result of import/restore/activate |
-| `TagOutcome` | `tag`, `diagramGroups`, `workflows: int`, `modules: int`, `removedAgain: boolean` | D-16 |
+| `TagOutcome` | `outcome`, `failure?`, `tag`, `diagramGroups`, `workflows: int`, `modules: int` (current versions carrying the tag), `reports`, `warnings` | D-16, D-26 (nothing removed) |
 
 State of a writing call: `Admitted → Locked → (LocalChangesCommitted) → ChangeSetBuilt → Checked →
 ConflictChecked → (Challenge issued | BackedUp → Assembled → Guarded → Imported → Verified →

@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.TestWiring;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
-import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -20,7 +19,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -44,9 +42,11 @@ import tools.jackson.databind.JsonNode;
  * node is a development node ({@link LiveTarget#resolveDevelopment}). Scenario, into a
  * <b>temporary</b> workspace: export → change one layout
  * value of one workflow → {@code import_artifacts} → verified (the workspace shows the change)
- * → {@code restore_backup} → {@code set_active} off/on (or on/off) → {@code tag_artifacts} with a
- * unique {@code LIVE-<timestamp>} tag → the tag is removed again ({@code tag --tagDelete}) and
- * the history shows it nowhere. Every write needs a confirmation code under
+ * → {@code restore_backup} → {@code set_active} off/on (or on/off) → {@code tag_artifacts} of
+ * the whole diagram group with the fixed tag {@link #TAG}. The tag is never removed (StartCLI
+ * removes a tag only owner-wide, research D-26): it stays as a harmless label on the group's
+ * current versions, and the next run reuses the name, which moves it to the then current
+ * versions. Every write needs a confirmation code under
  * {@code development.confirmation: SERVER}; the test confirms the preview it got. Only counts
  * and timings are printed, never names or content.
  */
@@ -58,6 +58,8 @@ class DevelopmentLiveTest {
     static final String GROUP_VARIABLE = "INUBIT_LIVE_DEV_DIAGRAM_GROUP";
     /** The workflow to change; required, never a default (a group may be shared). */
     static final String WORKFLOW_VARIABLE = "INUBIT_LIVE_DEV_WORKFLOW";
+    /** The tag of every run: reused, never removed, so runs do not pile up tag names. */
+    static final String TAG = "LIVE-TEST";
     private static final Duration WAIT = Duration.ofSeconds(600);
     private static final Pattern X_POS = Pattern.compile("xPos=\"(\\d+)\"");
     private static final Pattern ACTIVE = Pattern.compile("<IsActive>(true|false)</IsActive>");
@@ -77,9 +79,8 @@ class DevelopmentLiveTest {
         owner = owner.strip();
         group = group.strip();
         NodeId node = live.node();
-        String tag = "LIVE-" + DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
-            .withZone(ZoneOffset.UTC).format(Instant.now());
-        boolean tagged = false;
+        String stamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC)
+            .format(Instant.now());
 
         try (TestWiring wiring = live.wiring(workspace);
             McpTestClient client = McpTestClient.start(wiring.toolHandlers(),
@@ -98,7 +99,7 @@ class DevelopmentLiveTest {
             Files.writeString(file, moved, StandardCharsets.UTF_8);
 
             JsonNode imported = write(client, "import_artifacts", Map.of("node", node.value(),
-                "owner", owner, "diagramGroup", group, "reason", "Live test layout " + tag));
+                "owner", owner, "diagramGroup", group, "reason", "Live test layout " + stamp));
             assertThat(imported.path("outcome").asString()).isEqualTo("EXECUTED");
             assertThat(imported.path("modified").size()).isEqualTo(1);
             assertThat(X_POS.matcher(Files.readString(file)).results().findFirst().orElseThrow()
@@ -107,7 +108,7 @@ class DevelopmentLiveTest {
 
             JsonNode restored = write(client, "restore_backup", Map.of("node", node.value(),
                 "backupRef", imported.path("backupRef").asString(), "reason",
-                "Live test restore " + tag));
+                "Live test restore " + stamp));
             assertThat(restored.path("outcome").asString()).isEqualTo("EXECUTED");
             assertThat(X_POS.matcher(Files.readString(file)).results().findFirst().orElseThrow()
                 .group()).isEqualTo(x.group());
@@ -125,32 +126,15 @@ class DevelopmentLiveTest {
             }
 
             JsonNode tagResult = write(client, "tag_artifacts", Map.of("node", node.value(),
-                "owner", owner, "diagramGroups", List.of(group), "tag", tag, "reason",
-                "Live test tag"));
-            tagged = true;
+                "owner", owner, "diagramGroups", List.of(group), "tag", TAG, "reason",
+                "Live test tag " + stamp));
             assertThat(tagResult.path("outcome").asString()).isEqualTo("EXECUTED");
             assertThat(tagResult.path("workflows").asInt()).isPositive();
 
-            TagPort tags = wiring.gateways().tags(node);
-            tags.deleteTag(tag, owner);
-            tagged = false;
-            TagPort.History history = tags.history(owner);
-            long carrying = Stream.concat(history.diagrams().values().stream()
-                .flatMap(d -> d.versions().stream()), history.modules().values().stream()
-                .flatMap(List::stream)).filter(v -> v.tags().contains(tag)).count();
-            assertThat(carrying).as("the live tag was removed again").isZero();
-
             System.err.println("[live] " + node + ": import, restore, set_active x2 and tag of"
-                + " one personal diagram group: " + tagResult.path("workflows").asInt()
-                + " workflow(s), " + tagResult.path("modules").asInt() + " module(s) tagged and"
-                + " untagged, " + Duration.ofNanos(System.nanoTime() - start).toSeconds()
-                + " s");
-        } finally {
-            if (tagged) {
-                try (TestWiring cleanup = live.wiring(workspace)) {
-                    cleanup.gateways().tags(node).deleteTag(tag, owner);
-                }
-            }
+                + " one test diagram group: " + tagResult.path("workflows").asInt()
+                + " workflow(s), " + tagResult.path("modules").asInt() + " module(s) carry "
+                + TAG + ", " + Duration.ofNanos(System.nanoTime() - start).toSeconds() + " s");
         }
     }
 

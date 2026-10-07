@@ -80,16 +80,14 @@ class CliTagRunnerTest {
     }
 
     @Test
-    void aTagIsRemovedForTheOwner() {
-        ScriptedProcessLauncher cli = new ScriptedProcessLauncher()
-            .expect("tag --tagDelete 'REL-2026-10-07' --tagUser 'jdoe'")
-            .replying("tag_delete_ok");
-
-        runner(cli).deleteTag("REL-2026-10-07", "jdoe");
-
-        cli.verifyComplete();
-        assertThat(cli.execCommands()).containsExactly("tag --tagDelete 'REL-2026-10-07'"
-            + " --tagUser 'jdoe'");
+    void aTagIsNeverRemoved() {
+        // research D-26: StartCLI removes a tag only owner-wide, so tag --tagDelete is never
+        // built and the runner offers no removal
+        assertThatThrownBy(() -> CliCommand.command("tag").quoted("--tagDelete", "REL-1"))
+            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT));
+        assertThat(java.util.Arrays.stream(CliTagRunner.class.getMethods())
+            .map(java.lang.reflect.Method::getName)).doesNotContain("deleteTag");
     }
 
     @Test
@@ -104,8 +102,6 @@ class CliTagRunnerTest {
                 .as(values.toString()).isInstanceOfSatisfying(ToolErrorException.class,
                     e -> assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT));
         }
-        assertThatThrownBy(() -> runner.deleteTag("", "jdoe"))
-            .isInstanceOf(ToolErrorException.class);
         assertThat(cli.launches()).isEmpty();
     }
 

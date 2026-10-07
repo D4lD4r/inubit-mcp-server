@@ -30,7 +30,7 @@ class ImportFixturesTest {
     @ParameterizedTest
     @ValueSource(strings = {"import_created", "import_modified", "import_created_and_modified",
         "import_module_only", "import_workflow_only", "import_nok", "import_protocol_mismatch",
-        "import_timeout", "tag_ok", "tag_delete_ok", "finger_user", "finger_not_registered"})
+        "import_timeout", "tag_ok", "finger_user", "finger_not_registered"})
     void everyCaseHasStdoutStderrAndExitCode(String fixtureCase) {
         for (String suffix : List.of(".stdout", ".stderr", ".exit")) {
             assertThat(resource("/fixtures/v8_1/cli/" + fixtureCase + suffix))
@@ -106,7 +106,7 @@ class ImportFixturesTest {
 
     @Test
     void tagRunsPrintNoResultLine() {
-        for (String fixtureCase : List.of("tag_ok", "tag_delete_ok")) {
+        for (String fixtureCase : List.of("tag_ok")) {
             assertThat(exit(fixtureCase)).isZero();
             assertThat(FakeProcessLauncher.fixtureText(fixtureCase + ".stdout"))
                 .doesNotContain("ERROR").doesNotContain("-OK");

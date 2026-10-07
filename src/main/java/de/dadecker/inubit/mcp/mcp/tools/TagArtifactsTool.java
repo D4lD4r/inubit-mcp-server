@@ -12,7 +12,7 @@ import java.util.Objects;
 /**
  * {@code tag_artifacts} (feature 004, contracts/mcp-tools-delta.md, US4): tags the current
  * versions of the technical workflows of the given diagram groups (and their modules) through
- * {@link TagService}, which refuses blank groups and existing tags and verifies the result. The
+ * {@link TagService}, which refuses blank groups and verifies the result. The
  * arguments are validated by the SDK against {@code tag_artifacts.input.json}; the output is
  * {@code {"challenge": …}} (the preview under server confirmation) or {@code {"result": …}}.
  * Refusals before anything is sent are tool errors.
@@ -23,7 +23,8 @@ public final class TagArtifactsTool implements ToolHandler {
 
     static final String DESCRIPTION = "Tag the current versions of the technical workflows (and"
         + " their modules) of the given diagram groups of an owner on ONE development {node}."
-        + " Never owner-wide; an existing tag is never moved.";
+        + " Only whole diagram groups, never owner-wide; an existing tag name is reused and moves"
+        + " to the current versions within these groups only.";
 
     private final TagService service;
 

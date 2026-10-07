@@ -25,9 +25,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     artifacts that call changed, with its own backup, conflict check against the state the call
     left, verification and rollback.
   - `set_active`: activates or deactivates one workflow, built from the server's current state.
-  - `tag_artifacts`: tags the head versions of named diagram groups and their modules (never
-    owner-wide, never moving an existing tag), verified by history exports and removed again on
-    any mismatch.
+  - `tag_artifacts`: tags the head versions of whole named diagram groups and their modules
+    (INUBIT tags only whole groups). Pre-check and verification export only the requested groups
+    (never owner-wide); an existing tag name is reused — it moves to the current versions within
+    the requested groups and stays elsewhere; a mismatch or a failing tag command is reported as
+    `FAILED` and nothing is removed (a tag removal would act owner-wide).
   - `run_e2e_test`: sends a SOAP envelope from the workspace (`e2eTests: FREE | CONFIRM`) with a
     test-id header and reports the response, process instances, errors and log entries, found by
     the test id or, marked uncertain, by workflow and time window.

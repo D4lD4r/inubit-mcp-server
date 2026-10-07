@@ -100,15 +100,15 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=OWN
   workspace**; the audit records go to the profile's audit directory and the backups to
   `~/.inubit-mcp/<profile>/backups` as for every development call.
 - Scenario (research D-23): `export_artifacts` of the group → one layout value (`xPos`) of the
-  first workflow +10 → `import_artifacts` (preview confirmed with its code) → the workspace shows
+  named workflow +10 → `import_artifacts` (preview confirmed with its code) → the workspace shows
   the verified change → `restore_backup` of that import → the original value is back →
-  `set_active` to the other state and back → `tag_artifacts` with a unique `LIVE-<timestamp>`
-  tag → the tag is removed again directly through the tag port (`tag --tagDelete`, not audited)
-  and the owner's history shows it nowhere. A tag left by a failing run is removed in a
-  `finally` block.
+  `set_active` to the other state and back → `tag_artifacts` of the whole diagram group with the
+  fixed tag `LIVE-TEST`. The tag is **never removed** (StartCLI removes a tag only for the whole
+  owner, research D-26): it stays as a harmless label on the group's current versions, and the
+  next run reuses the name, which moves it to the then current versions.
 - Each write creates new versions of the test workflow in INUBIT, and every export appends to
   its check-in comment (INUBIT behaviour). Only counts and timings are printed, e.g.
-  `[live] dev/node1: import, restore, set_active x2 and tag of one personal diagram group: 1 workflow(s), 4 module(s) tagged and untagged, 212 s`.
+  `[live] dev/node1: import, restore, set_active x2 and tag of one test diagram group: 1 workflow(s), 4 module(s) carry LIVE-TEST, 212 s`.
 
 ## Manual write checks (approval only)
 

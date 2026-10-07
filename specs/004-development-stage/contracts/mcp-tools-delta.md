@@ -57,12 +57,17 @@ Result as `import_artifacts` (only that workflow).
 ## `tag_artifacts`
 
 > [acme] Tag the current versions of the technical workflows (and their modules) of the given diagram
-> groups of an owner on ONE development {node}. Never owner-wide; an existing tag is never moved.
+> groups of an owner on ONE development {node}. Only whole diagram groups, never owner-wide; an
+> existing tag name is reused and moves to the current versions within these groups only.
 
 Input: `node`, `owner`, `diagramGroups` (1–20, non-blank), `tag` (`CliCommand.VALUE`), `reason`,
-`confirmationCode`. Result: `{ "tag", "diagramGroups", "workflows": n, "modules": n, "removedAgain":
-false }`. Errors: `INVALID_INPUT` (blank group, existing tag), `VERIFY_MISMATCH` (tag reached other
-artifacts — removed again).
+`confirmationCode`. Result: `{ "outcome", "failure"?, "tag", "diagramGroups", "workflows": n,
+"modules": n, "reports", "warnings" }` (research D-26). Pre-check and verification export only
+the requested groups with history (never owner-wide); an existing tag name is reused. Errors
+before anything is sent: `INVALID_INPUT` (blank, duplicate or wildcard-like group), `NOT_FOUND`
+(group without technical workflows). After sending: `outcome: FAILED` with `failure{IMPORT_FAILED`
+(a tag command failed) `| VERIFY_MISMATCH` (a current version of the requested groups does not
+carry the tag)`}`; nothing is ever removed (no `--tagDelete`).
 
 ## `run_e2e_test`
 

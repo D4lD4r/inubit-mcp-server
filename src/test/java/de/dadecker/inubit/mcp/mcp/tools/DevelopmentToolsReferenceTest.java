@@ -46,11 +46,15 @@ class DevelopmentToolsReferenceTest {
         String reference = folded(TOOLS);
 
         assertThat(reference).contains("created artifacts are not removed",
-            "`failure`", "`rollback`", "`createdNotRemoved`", "`backupRef`", "`removedAgain`",
+            "`failure`", "`rollback`", "`createdNotRemoved`", "`backupRef`",
             "`confirmationCode`", "`development.confirmation`", "`--importUser`",
             "user group", "`TIME_WINDOW_UNCERTAIN`", "`X-Inubit-Mcp-Test-Id`");
         assertThat(reference).doesNotContain("`ownerKind`", "not yet supported",
             "`--importUserGroup '");
+        // T029 (research D-26): tags per whole diagram group, reused, never removed
+        assertThat(reference).contains("an existing tag name is reused",
+            "the same tag in other diagram groups stays", "nothing is removed")
+            .doesNotContain("`removedAgain`", "--tagDelete '", "never moving an existing tag");
     }
 
     @Test

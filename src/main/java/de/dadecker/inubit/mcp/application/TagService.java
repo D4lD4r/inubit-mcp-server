@@ -43,7 +43,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * The use case behind {@code tag_artifacts} (feature 004, US4, FR-021, SC-005; research D-16,
- * D-18, D-25 M1, M2). A release is a set of diagram groups; the server makes sure a tag never
+ * D-18, D-26). A release is a set of whole diagram groups; the server makes sure a tag never
  * reaches more than the requested groups:
  *
  * <ol>
@@ -51,17 +51,20 @@ import org.slf4j.LoggerFactory;
  *       carry (so no wildcard-like value), the tag likewise, the reason; then the
  *       {@link DevelopmentGuard} and the owner (default {@code inventory.owner}), a user or a
  *       user group (research D-26). Nothing is read from INUBIT before;
- *   <li>the owner's history of all diagram groups and types: a tag that exists on any version
- *       of any diagram or module is {@code INVALID_INPUT} (tags are never moved); a requested
- *       group without technical workflows is {@code NOT_FOUND};
+ *   <li>the history of each requested diagram group (research D-26: never an owner-wide
+ *       export, which would append to the check-in history of every workflow of the owner); a
+ *       requested group without technical workflows is {@code NOT_FOUND}. An existing tag name
+ *       is reused: within the requested groups it moves to the current versions, elsewhere it
+ *       stays (probed);
  *   <li>server confirmation: the preview names the groups and the number of workflows, its code
  *       is bound to the inputs and to the head versions of those workflows ({@code CONFLICT}
  *       if they changed);
  *   <li>the {@code PENDING} audit record, then one {@code tag --tagMove} per diagram group;
- *   <li>verification by history exports: the tag must be on the head versions of exactly the
- *       technical workflows of the requested groups and the modules they use. Anything else —
- *       or a failing tag command — removes the tag again ({@code tag --tagDelete}) and the
- *       result is {@code FAILED} with {@code failure{code, step}} and {@code removedAgain}.
+ *   <li>verification by the history exports of the requested groups: the current version of
+ *       every technical workflow of those groups and of every module they use must carry the
+ *       tag. Otherwise — or if a tag command fails — the result is {@code FAILED} with
+ *       {@code failure{code, step}}; nothing is removed (StartCLI removes a tag only
+ *       owner-wide), the warning asks to retry.
  * </ol>
  *
  * <p>Every refusal before anything is sent is a tool error, audited {@code REFUSED}. The
@@ -191,24 +194,17 @@ public final class TagService {
         NodeId node = policy.node();
         TagRequest request = call.request;
         TagPort port = d.tags().apply(node);
-        TagPort.History before = port.history(call.owner);
-        Set<String> carrying = carrying(before, request.tag());
-        if (!carrying.isEmpty()) {
-            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
-                "The tag " + request.tag() + " exists already for " + call.owner + " (on "
-                    + cut(carrying) + "); nothing was sent",
-                "Tags are never moved: an existing tag marks a state someone relies on",
-                "Choose a new tag name").withNode(node));
-        }
+        // research D-26: only the requested groups, never an owner-wide export
         Map<String, Integer> heads = new java.util.TreeMap<>();
-        Set<String> missing = new TreeSet<>(request.diagramGroups());
-        before.diagrams().forEach((name, diagram) -> {
-            if (diagram.type().equals(TECHNICAL)
-                && request.diagramGroups().contains(diagram.diagramGroup())) {
-                missing.remove(diagram.diagramGroup());
-                heads.put(name, head(diagram.versions()));
+        Set<String> missing = new TreeSet<>();
+        for (String group : request.diagramGroups()) {
+            Map<String, TagPort.Diagram> workflows = technicalWorkflows(
+                port.history(call.owner, group), group);
+            if (workflows.isEmpty()) {
+                missing.add(group);
             }
-        });
+            workflows.forEach((name, diagram) -> heads.put(name, head(diagram.versions())));
+        }
         if (!missing.isEmpty()) {
             throw new ToolErrorException(ToolError.of(ErrorCode.NOT_FOUND,
                 "The diagram group(s) " + String.join(", ", missing) + " have no technical"
@@ -268,46 +264,35 @@ public final class TagService {
                 + request.tag(), () -> { });
         WriteOutcome.Failure failure;
         List<String> reports = new ArrayList<>();
-        int workflows = 0;
-        int modules = 0;
+        List<String> tagged = new ArrayList<>();
+        Verification verified = new Verification();
         String step = "tag";
         try {
             for (String group : request.diagramGroups()) {
                 port.tag(request.tag(), group, call.owner);
+                tagged.add(group);
             }
             step = "verify";
-            Set<String> expectedWorkflows = new TreeSet<>();
-            Set<String> expectedModules = new TreeSet<>();
             for (String group : request.diagramGroups()) {
-                TagPort.History history = port.history(call.owner, group);
-                history.diagrams().forEach((name, diagram) -> {
-                    if (diagram.type().equals(TECHNICAL) && diagram.diagramGroup().equals(group)) {
-                        expectedWorkflows.add(name);
-                    }
-                });
-                expectedModules.addAll(history.modules().keySet());
+                verified.add(port.history(call.owner, group), group, request.tag());
             }
-            TagPort.History after = port.history(call.owner);
-            List<String> problems = mismatches(after, request.tag(), expectedWorkflows,
-                expectedModules);
-            if (problems.isEmpty()) {
-                workflows = expectedWorkflows.size();
-                modules = expectedModules.size();
-                call.removedAgain = Optional.of(false);
+            if (verified.problems.isEmpty()) {
                 append(call, auditId, AuditRecord.Step.EXECUTE, call.inputs(),
-                    AuditOutcome.EXECUTED, "Tagged " + workflows + " workflow(s) and " + modules
-                        + " module(s) with " + request.tag() + " and verified them", null);
+                    AuditOutcome.EXECUTED, "Tagged " + verified.workflows() + " workflow(s) and "
+                        + verified.modules() + " module(s) with " + request.tag()
+                        + " and verified them", null);
                 LOG.info("tag_artifacts on {}: EXECUTED (audit id {})", node, auditId);
                 return new Response.Completed(new TagOutcome(auditId,
                     WriteOutcome.Outcome.EXECUTED, Optional.empty(), request.tag(),
-                    request.diagramGroups(), workflows, modules, false, List.of(), List.of()));
+                    request.diagramGroups(), verified.workflows(), verified.modules(),
+                    List.of(), List.of()));
             }
-            String report = report("tag-" + auditId + ".txt", problems);
+            String report = report("tag-" + auditId + ".txt", verified.problems);
             reports.add(report);
             failure = new WriteOutcome.Failure(ErrorCode.VERIFY_MISMATCH, "verify",
-                "The tag is not exactly on the head versions of the requested diagram groups ("
-                    + cut(new TreeSet<>(problems.stream().map(p -> p.substring(0,
-                        p.indexOf(':'))).toList())) + "); see " + report);
+                "The current versions of " + cut(new TreeSet<>(verified.problems.stream()
+                    .map(p -> p.substring(0, p.indexOf(':'))).toList())) + " do not carry the"
+                    + " tag; see " + report);
         } catch (ToolErrorException e) {
             failure = new WriteOutcome.Failure(step.equals("tag") ? ErrorCode.IMPORT_FAILED
                 : ErrorCode.VERIFY_MISMATCH, step, e.error().code() + ": "
@@ -318,69 +303,73 @@ public final class TagService {
                 + " unexpected failure (" + e.getClass().getSimpleName() + ") after the tag"
                 + " was sent");
         }
-        boolean removed;
-        try {
-            port.deleteTag(request.tag(), call.owner);
-            removed = true;
-        } catch (RuntimeException e) {
-            LOG.warn("Removing the tag on {} failed ({})", node, e.getClass().getSimpleName());
-            removed = false;
-        }
-        call.removedAgain = Optional.of(removed);
-        WriteOutcome.Failure reported = removed ? failure : new WriteOutcome.Failure(
-            failure.code(), failure.step(), failure.message() + "; removing the tag again"
-                + " failed: remove " + request.tag() + " in the Workbench");
+        // research D-26: nothing is ever removed (StartCLI removes a tag only owner-wide)
+        String before = step.equals("tag") && !tagged.isEmpty() ? "The tag " + request.tag()
+            + " was set for " + String.join(", ", tagged) + " before the failure. " : "";
+        List<String> warnings = List.of(before + "Nothing was removed; fix the cause and call"
+            + " tag_artifacts again with the same groups (the tag name is reused and moves to the"
+            + " current versions)");
         append(call, auditId, AuditRecord.Step.EXECUTE, call.inputs(), AuditOutcome.FAILED,
-            reported.code() + " at " + reported.step() + ": " + reported.message(), null);
-        LOG.warn("tag_artifacts on {}: FAILED at {} (audit id {}, removed again {})", node,
-            reported.step(), auditId, removed);
+            failure.code() + " at " + failure.step() + ": " + failure.message(), null);
+        LOG.warn("tag_artifacts on {}: FAILED at {} (audit id {})", node, failure.step(),
+            auditId);
         return new Response.Completed(new TagOutcome(auditId, WriteOutcome.Outcome.FAILED,
-            Optional.of(reported), request.tag(), request.diagramGroups(), 0, 0, removed,
-            reports, removed ? List.of("The tag " + request.tag() + " was removed again")
-                : List.of()));
+            Optional.of(failure), request.tag(), request.diagramGroups(), verified.workflows(),
+            verified.modules(), reports, warnings));
     }
 
-    /** What is wrong: a tag outside the request, or a requested head without it. */
-    private static List<String> mismatches(TagPort.History after, String tag,
-        Set<String> workflows, Set<String> modules) {
-        List<String> problems = new ArrayList<>();
-        after.diagrams().forEach((name, diagram) -> check(problems, name, "diagram "
-            + diagram.diagramGroup(), diagram.versions(), tag, workflows.contains(name)));
-        after.modules().forEach((name, versions) -> check(problems, name, "module", versions,
-            tag, modules.contains(name)));
-        workflows.stream().filter(name -> !after.diagrams().containsKey(name))
-            .forEach(name -> problems.add(name + ": the workflow is missing in the history"));
-        modules.stream().filter(name -> !after.modules().containsKey(name))
-            .forEach(name -> problems.add(name + ": the module is missing in the history"));
-        return problems;
-    }
-
-    private static void check(List<String> problems, String name, String what,
-        List<VersionEntry> versions, String tag, boolean requested) {
-        boolean anywhere = versions.stream().anyMatch(v -> v.tags().contains(tag));
-        boolean onHead = !versions.isEmpty() && versions.get(0).tags().contains(tag);
-        if (!requested && anywhere) {
-            problems.add(name + ": " + what + " outside the request carries the tag");
-        } else if (requested && !onHead) {
-            problems.add(name + ": the head version of the " + what + " does not carry the tag");
-        } else if (requested && versions.stream().skip(1).anyMatch(v -> v.tags().contains(tag))) {
-            problems.add(name + ": an older version of the " + what + " carries the tag");
-        }
-    }
-
-    private static Set<String> carrying(TagPort.History history, String tag) {
-        Set<String> names = new TreeSet<>();
+    /** The technical workflows of {@code group} in {@code history}, by name. */
+    private static Map<String, TagPort.Diagram> technicalWorkflows(TagPort.History history,
+        String group) {
+        Map<String, TagPort.Diagram> workflows = new java.util.TreeMap<>();
         history.diagrams().forEach((name, diagram) -> {
-            if (diagram.versions().stream().anyMatch(v -> v.tags().contains(tag))) {
-                names.add(name);
+            if (diagram.type().equals(TECHNICAL) && diagram.diagramGroup().equals(group)) {
+                workflows.put(name, diagram);
             }
         });
-        history.modules().forEach((name, versions) -> {
-            if (versions.stream().anyMatch(v -> v.tags().contains(tag))) {
-                names.add(name);
-            }
-        });
-        return names;
+        return workflows;
+    }
+
+    /**
+     * The verification of research D-26: the current version of every technical workflow of
+     * the requested groups and of every module they use carries the tag. Other versions and
+     * other groups are not looked at (a tag there is left alone).
+     */
+    private static final class Verification {
+
+        final Map<String, Boolean> workflows = new java.util.TreeMap<>();
+        final Map<String, Boolean> modules = new java.util.TreeMap<>();
+        final List<String> problems = new ArrayList<>();
+
+        void add(TagPort.History history, String group, String tag) {
+            technicalWorkflows(history, group).forEach((name, diagram) -> {
+                boolean carries = carriesOnHead(diagram.versions(), tag);
+                workflows.put(name, carries);
+                if (!carries) {
+                    problems.add(name + ": the current version of the workflow (diagram group "
+                        + group + ") does not carry the tag");
+                }
+            });
+            history.modules().forEach((name, versions) -> {
+                boolean carries = carriesOnHead(versions, tag);
+                if (modules.put(name, carries) == null && !carries) {
+                    problems.add(name + ": the current version of the module (used in diagram"
+                        + " group " + group + ") does not carry the tag");
+                }
+            });
+        }
+
+        int workflows() {
+            return (int) workflows.values().stream().filter(Boolean::booleanValue).count();
+        }
+
+        int modules() {
+            return (int) modules.values().stream().filter(Boolean::booleanValue).count();
+        }
+
+        private static boolean carriesOnHead(List<VersionEntry> versions, String tag) {
+            return !versions.isEmpty() && versions.get(0).tags().contains(tag);
+        }
     }
 
     private static int head(List<VersionEntry> versions) {
@@ -478,7 +467,6 @@ public final class TagService {
         final TagRequest request;
         DevelopmentPolicy policy;
         String owner;
-        Optional<Boolean> removedAgain = Optional.empty();
         boolean refused;
 
         Call(TagRequest request) {
@@ -497,8 +485,6 @@ public final class TagService {
             }
             request.confirmationCode().ifPresent(code ->
                 inputs.put(AuditRecord.CONFIRMATION_CODE, code));
-            removedAgain.ifPresent(removed -> inputs.put("removedAgain",
-                String.valueOf(removed)));
             return inputs;
         }
 

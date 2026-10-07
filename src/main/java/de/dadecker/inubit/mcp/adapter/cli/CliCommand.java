@@ -52,8 +52,7 @@ public final class CliCommand {
         // feature 004 (research D-8): no repository path, no metadata
         "import", Set.of("--importFile", "--importWorkflow", "--importWorkflowActive",
             "--importWorkflowInactive", "--importModule", "--importUser", "--returnProtocol"),
-        "tag", Set.of("--tagMove", "--tagDelete", "--tagWorkflowGroup", "--tagWorkflowType",
-            "--tagUser"));
+        "tag", Set.of("--tagMove", "--tagWorkflowGroup", "--tagWorkflowType", "--tagUser"));
     /** Commands that take exactly one process id and nothing else. */
     private static final Set<String> PROCESS_COMMANDS = Set.of("processErrorStart", "kill");
 

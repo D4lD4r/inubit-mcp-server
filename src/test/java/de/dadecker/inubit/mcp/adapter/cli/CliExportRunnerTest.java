@@ -330,35 +330,6 @@ class CliExportRunnerTest {
     }
 
     @Test
-    void theAllGroupsHistoryExportPassesTheLiteralEmptyGroupAndTypeAll() throws IOException {
-        // T021 (research D-16, D-25 M1): the tag pre-check covers every diagram of the owner
-        byte[] zip = FakeProcessLauncher.fixture("export_history_sample.zip");
-        FakeProcessLauncher launcher = writing("export_history_sample", zip);
-
-        byte[] xml = exports(launcher, server().build()).exportHistoryAllGroups("OWNERS");
-
-        assertThat(xml).isEqualTo(entry(zip, "versionHistory.xml"));
-        Path file = exportFile(launcher.last().spec());
-        assertThat(execCommand(launcher.last().spec())).isEqualTo("export --exportWorkflowUser"
-            + " 'OWNERS' --exportWorkflowType 'all' --exportWorkflowGroup '' --includeHistory"
-            + " --exportFile '" + file + "'");
-        assertThat(launcher.last().spec().command()).filteredOn(argument -> argument.equals("''"))
-            .as("'' is part of the single --execCommand argument").isEmpty();
-    }
-
-    @Test
-    void theAllGroupsHistoryExportChecksTheOwnerBeforeLaunching() {
-        FakeProcessLauncher launcher = writing("export_history_sample",
-            FakeProcessLauncher.fixture("export_history_sample.zip"));
-
-        ToolError error = errorOf(() -> exports(launcher, server().build())
-            .exportHistoryAllGroups("O'Brien"));
-
-        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
-        assertThat(launcher.launchCount()).isZero();
-    }
-
-    @Test
     void theModuleExportPassesTheLiteralEmptyArgumentsInsideTheExecCommand() throws IOException {
         byte[] zip = FakeProcessLauncher.fixture("export_modules_sample.zip");
         FakeProcessLauncher launcher = writing("export_modules_sample", zip);

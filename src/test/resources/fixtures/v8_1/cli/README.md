@@ -61,15 +61,15 @@ All on the workflow-only archive shape, `--importWorkflow --importUser 'jdoe'`:
 | 18 | a `###` segment without the `@@@` suffix | `DefaultCommitCommentImport###` — dropped |
 | 19 | the export shape `DefaultCommitCommentImport###REASON-PROBE three###@@@Deploying User: jdoe@@@Server: x@@@Version: 1@@@Export/Deployment: 06.10.2026 20:00:00@@@` | kept as written (the person-written segment survives) |
 
-## Tag (`tag --tagMove|--tagDelete '<tag>' … --tagUser '<owner>'`)
+## Tag (`tag --tagMove '<tag>' … --tagUser '<owner>'`)
 
 | Case | Kind | What it is | Source |
 |---|---|---|---|
 | `tag_ok` | recorded | a successful `tag --tagMove '<tag>' … --tagUser 'jdoe'` of the spike's tag probe (the recording keeps the output, not the options of that run): preamble, one empty line, exit 0 — StartCLI prints **no** result line for `tag` | `t9/tag.txt` |
-| `tag_delete_ok` | **synthetic** | `tag --tagDelete '<tag>' --tagUser 'jdoe'`: the same shape as `tag_ok`. The spike removed a tag this way (spike §6), but its output was not kept; the silent shape of `tag --tagMove` is assumed | derived from `tag_ok` |
 
 Because `tag` prints nothing, the result of a tag call can only be verified by a history export
-(D-16).
+(D-16). There is no tag removal (D-26: `--tagDelete` acts owner-wide), so the former synthetic
+`tag_delete_ok` case was removed.
 
 ## Finger (`finger '<name>'`)
 

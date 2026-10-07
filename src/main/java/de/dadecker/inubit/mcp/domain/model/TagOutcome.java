@@ -7,21 +7,19 @@ import java.util.UUID;
 
 /**
  * The result of {@code tag_artifacts} once a tag command may have been sent (feature 004,
- * research D-16, D-25 M2, data-model.md → TagOutcome): the tag, the diagram groups, how many
- * workflows and modules carry it, or, on failure, what failed and whether the tag was removed
- * again.
+ * research D-16, D-26, data-model.md → TagOutcome): the tag, the diagram groups, how many
+ * workflows and modules carry it on their current version, or, on failure, what failed. A tag
+ * is never removed again.
  *
- * @param failure      {@code IMPORT_FAILED} (a tag command failed) or {@code VERIFY_MISMATCH}
- *                     (the tag is not exactly on the requested head versions)
- * @param workflows    the number of technical workflows that carry the tag
- * @param modules      the number of modules that carry the tag
- * @param removedAgain true if the tag was removed again after a failure
- * @param reports      workspace-relative report files
+ * @param failure   {@code IMPORT_FAILED} (a tag command failed) or {@code VERIFY_MISMATCH} (a
+ *                  current version of the requested groups does not carry the tag)
+ * @param workflows the number of technical workflows whose current version carries the tag
+ * @param modules   the number of modules whose current version carries the tag
+ * @param reports   workspace-relative report files
  */
 public record TagOutcome(UUID auditId, WriteOutcome.Outcome outcome,
     Optional<WriteOutcome.Failure> failure, String tag, List<String> diagramGroups,
-    int workflows, int modules, boolean removedAgain, List<String> reports,
-    List<String> warnings) {
+    int workflows, int modules, List<String> reports, List<String> warnings) {
 
     public TagOutcome {
         Objects.requireNonNull(auditId, "auditId");

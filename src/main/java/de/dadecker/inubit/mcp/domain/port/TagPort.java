@@ -6,10 +6,12 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Tags on one INUBIT server (feature 004, research D-16; 8.1: StartCLI {@code tag} and
+ * Tags on one INUBIT server (feature 004, research D-16, D-26; 8.1: StartCLI {@code tag} and
  * history exports). The smallest unit StartCLI can tag is a diagram group of one owner; a call
  * without a group would tag everything of the owner, so the adapter refuses a blank group
- * before anything is launched. Failures are thrown as
+ * before anything is launched. There is deliberately no owner-wide history (it would append to
+ * the check-in history of every workflow of the owner) and no tag removal (StartCLI removes a
+ * tag only owner-wide). Failures are thrown as
  * {@link de.dadecker.inubit.mcp.domain.model.ToolErrorException} with the server id.
  */
 public interface TagPort {
@@ -45,22 +47,17 @@ public interface TagPort {
      */
     void checkAvailable();
 
-    /** The history of every diagram (all types, all diagram groups) of {@code owner}. */
-    History history(String owner);
-
     /** The history of the technical workflows of {@code diagramGroup} and their modules. */
     History history(String owner, String diagramGroup);
 
     /**
      * Sets {@code tag} on the head versions of the technical workflows of {@code diagramGroup}
-     * of {@code owner} and their modules ({@code tag --tagMove}).
+     * of {@code owner} and their modules ({@code tag --tagMove}); an existing tag of that name
+     * moves to them within the group and stays on every other artifact.
      *
      * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException {@code INVALID_INPUT} for a
      *     blank group or a value StartCLI quoting cannot carry (nothing launched);
      *     {@code IMPORT_FAILED} or {@code TIMEOUT} if StartCLI ran
      */
     void tag(String tag, String diagramGroup, String owner);
-
-    /** Removes {@code tag} from every version of {@code owner} ({@code tag --tagDelete}). */
-    void deleteTag(String tag, String owner);
 }
