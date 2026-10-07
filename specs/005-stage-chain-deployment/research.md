@@ -251,3 +251,43 @@ export, repository import output, the "Path not found" error. Configuration test
 forbidden chain combination; leak tests for packages, ledger and audit; a live test (opt-in) that
 deploys a tagged personal test group from the development node into a second chained group only if
 the operator names a dedicated test target (never production).
+
+## D-16 addendum: rulings of stage 1 (Foundation, T001–T013)
+
+Smallest design-conforming choices where the tasks met the code (2026-10-07):
+
+- **T001 fixtures**: all five cases are synthetic (the raw probe outputs stay private). The
+  success texts `1-OK: Repository path exported successfully.` and `1-OK: Imported successfully`
+  and the refusal `Cannot specify user when repository is tagged.` are also string constants of
+  the 8.1.17 client's StartCLI command classes; the error layout of `export_repository_not_found`
+  and `tag_repository_user_refused` follows the recorded `export-group-missing` (not byte for
+  byte). The client also knows `2-NOK: No workflow group containing workflows for export found.`;
+  the release export treats it like an archive without workflows (`NOT_FOUND`, not probed).
+- **T003**: the three codes are listed in the error table of `docs/tools.md` already, because
+  `DevelopmentToolsReferenceTest` requires every code to be documented; T029 describes them with
+  `deploy_release`.
+- **T005**: the plan's `exportRepositoryFile` is `CliExportRunner.exportRepository(path)` (a file
+  or a folder), as in tasks.md; `CliOutputClassifier` maps `Path not found //ibis:Root…` to
+  `NOT_FOUND`.
+- **T006**: `RepositoryArchive.build(owner, files)` writes a directory entry before the first
+  file of each folder (the probed import shape), keeps the exported metadata (it must name the
+  same path) and refuses key material with `PRECONDITION_FAILED` as the last guard (the planner
+  reports a missing key file as `SECRET_UNRESOLVED`, D-5). `ImportPort.importRepository` returns
+  nothing: there is no protocol; the deployer verifies by a repository export.
+- **T008**: `ImportAssembler.Request.newWorkflowFlag` (`MUST_BE_INACTIVE` for the 004 constructor,
+  `FROM_RELEASE`); `Assembled.active()` reports the intended flag per workflow; with
+  `FROM_RELEASE` the archive states it (an absent `IsActive` is inserted after
+  `CheckinComment`). `ImportArchivePort` is extended when the deployer needs it (T021).
+- **T010**: `FakeInubit` models one diagram group per server; a release of several groups (e.g.
+  SC-007, T028) needs an extension. A release export of an unknown tag returns an archive with
+  an empty `<Workflows/>`.
+- **T011/T013**: `DeployMode` lives in `domain.model` (the derived `StageChain` needs it and the
+  domain depends on nothing else); `StageChain.Exclusion` is the domain form of `ExcludeRule`;
+  `ProfileConfig.stageChain()` derives the chain. `deployConfirmationTtl` is checked in
+  `ConfigValidator` with T011.
+- **T012**: missing StartCLI installations are reported in one error listing every node of the
+  targets and their sources; `EXECUTE` into production checks the effective
+  `write.productionOptIn` of every node, independent of `write.enabled` (the opt-in is the
+  production lock of feature 001).
+- Identifier lists: a literal `INUBIT_` followed by the group name `int` and `_` matches a local
+  rule; tests use neutral variable names (`TARGET_USERNAME`, `HARNESS_USERNAME`).
