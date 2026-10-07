@@ -55,6 +55,8 @@ class DevelopmentLiveTest {
 
     static final String OWNER_VARIABLE = "INUBIT_LIVE_DEV_OWNER";
     static final String GROUP_VARIABLE = "INUBIT_LIVE_DEV_DIAGRAM_GROUP";
+    /** Optional: the workflow to change; without it the first workflow file of the group. */
+    static final String WORKFLOW_VARIABLE = "INUBIT_LIVE_DEV_WORKFLOW";
     private static final Duration WAIT = Duration.ofSeconds(600);
     private static final Pattern X_POS = Pattern.compile("xPos=\"(\\d+)\"");
     private static final Pattern ACTIVE = Pattern.compile("<IsActive>(true|false)</IsActive>");
@@ -154,8 +156,20 @@ class DevelopmentLiveTest {
         }
     }
 
-    /** The first workflow file of the diagram group in the temporary workspace. */
+    /**
+     * The workflow file named by {@code INUBIT_LIVE_DEV_WORKFLOW}, or else the first workflow file
+     * of the diagram group in the temporary workspace.
+     */
     private Path firstWorkflow(NodeId node, String owner, String group) throws IOException {
+        String named = System.getenv(WORKFLOW_VARIABLE);
+        if (named != null && !named.isBlank()) {
+            Path file = workspace.resolve(WorkspacePath.workflow(node.group(), owner, group,
+                named).toRelativePath());
+            if (!Files.isRegularFile(file)) {
+                throw new AssertionError(WORKFLOW_VARIABLE + " names no workflow of the group");
+            }
+            return file;
+        }
         Path directory = workspace.resolve(WorkspacePath.workflow(node.group(), owner, group, "x")
             .toRelativePath()).getParent();
         try (Stream<Path> files = Files.list(directory)) {

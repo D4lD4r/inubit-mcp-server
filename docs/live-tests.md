@@ -86,7 +86,9 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=jdo
 ```
 
 - Without `INUBIT_LIVE_DEV_NODE`, `INUBIT_LIVE_DEV_OWNER` or `INUBIT_LIVE_DEV_DIAGRAM_GROUP` the
-  test is skipped.
+  test is skipped. `INUBIT_LIVE_DEV_WORKFLOW` (optional) names the workflow to change; without it
+  the first workflow file of the group is used. The tag step always covers the whole diagram group
+  (INUBIT tags per group) and is removed again.
 - It **fails before anything is written** unless the node is a development node
   (`development.enabled: true`; the selection is covered offline by `LiveTargetTest`) and the
   owner is a user (`owners.<name>: USER` in the profile or listed in INUBIT's user list). A
