@@ -80,7 +80,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 - [X] T008 `main/adapter/archive/v81/ImportAssembler.java`: the active flag of a new workflow becomes
   a request parameter (`NewWorkflowFlag.MUST_BE_INACTIVE` for 004 callers — unchanged behaviour —,
   `FROM_RELEASE` for deployments); per-workflow intended flag; tests incl. the 004 regression.
-- [ ] T009 `main/adapter/archive/v81/LayoutDiff.java`: decides whether two rendered workflow files
+- [X] T009 `main/adapter/archive/v81/LayoutDiff.java`: decides whether two rendered workflow files
   differ only inside `<StyleSheet>` elements (`xPos`, `yPos`, `labelPosition`, …); tests with a
   moved node, a moved label, a changed edge (not layout-only) and a changed condition.
 - [ ] T010 Test harness: `test/application/FakeInubit.java` learns tag exports (tagged versions per
