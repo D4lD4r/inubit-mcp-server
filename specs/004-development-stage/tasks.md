@@ -188,7 +188,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 7: User Story 5 — SOAP test (Priority: P3)
 
-- [ ] T022 [US5] `main/adapter/soap/SoapE2eClient.java` (`E2ePort`, JDK HttpClient, node TLS via the
+- [X] T022 [US5] `main/adapter/soap/SoapE2eClient.java` (`E2ePort`, JDK HttpClient, node TLS via the
   shared builder) with WireMock tests first (D-17): headers incl. `X-Inubit-Mcp-Test-Id`; envelope
   sent unchanged; timeout; TLS errors mapped.
 - [ ] T023 [US5] `main/application/E2eTestService.java` + `main/mcp/tools/RunE2eTestTool.java` +
