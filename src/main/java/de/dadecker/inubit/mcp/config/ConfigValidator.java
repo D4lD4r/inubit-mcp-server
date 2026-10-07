@@ -598,10 +598,6 @@ public final class ConfigValidator {
     }
 
     /**
-     * Research D-25 (M8): the {@code Server-State} trailer of the workspace history names the
-     * {@code group}, so at most one node per group may be a development node.
-     */
-    /**
      * The stage chain of feature 005 (research D-2, contracts/configuration-delta.md):
      *
      * <ul>
@@ -699,6 +695,10 @@ public final class ConfigValidator {
             .filter(node -> node.id().group().value().equals(name)).toList();
     }
 
+    /**
+     * Research D-25 (M8): the {@code Server-State} trailer of the workspace history names the
+     * {@code group}, so at most one node per group may be a development node.
+     */
     private static void checkOneDevelopmentNodePerGroup(ProfileConfig config,
         Findings findings) {
         Map<String, List<String>> developmentNodes = new TreeMap<>();

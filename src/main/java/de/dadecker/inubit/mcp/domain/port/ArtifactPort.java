@@ -51,4 +51,3 @@ public interface ArtifactPort {
      */
     byte[] exportRepository(String path);
 }
-

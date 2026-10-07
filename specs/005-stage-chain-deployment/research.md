@@ -66,9 +66,11 @@ a non-blank value; `deployConfirmationTtl` is positive and at most `PT2H`. `prod
 existing rules (no `development`, `e2eTests` only `FORBIDDEN`). A target group may also be a
 development group.
 
-`--check-config` prints one line per chain, e.g. `Chain: dev → int → qa → acc → prod (package
-only)`, the exclusions of each target and per node `deploy: from dev (EXECUTE)` or `deploy: from acc
-(PACKAGE_ONLY)`.
+`--check-config` prints a `Chains:` block with one line per chain, e.g. `dev → int → qa → acc →
+prod (package only)`, then per target with exclusions `<group> excludes: diagramGroup GRP-SYS,
+name CFG_*, …`; each node of a target group gets `deploy: from dev (EXECUTE)` or `deploy: from acc
+(PACKAGE_ONLY)` in its line. A chain that cannot be derived (an error of the chain rules) is not
+drawn (`Chains: not shown, see the errors`).
 
 **Alternatives**: node-level `deploy` — rejected: the chain and the release are group concepts;
 nodes are deployed one after another (spec).
