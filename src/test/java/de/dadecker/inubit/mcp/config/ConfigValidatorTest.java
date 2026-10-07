@@ -1657,6 +1657,19 @@ class ConfigValidatorTest {
         }
 
         @Test
+        void theDeployRecordIsTheWriteEnablementOfDeployments() {
+            // stage 3 review M3 (Constitution I): write.* (restart, kill) stays independent
+            assertThat(validate(chain("", """
+                deploy: { from: dev }
+                write: { enabled: false }
+                """, "")).errors()).isEmpty();
+            assertThat(validate(chain("", "", """
+                deploy: { from: dev, mode: PACKAGE_ONLY }
+                write: { enabled: true, productionOptIn: true }
+                """)).errors()).isEmpty();
+        }
+
+        @Test
         void anOptInOnSomeNodesOnlyIsNamedForTheOthers() {
             String yaml = chain("", "", "deploy: { from: dev }").replace("""
                       - name: node1
