@@ -65,7 +65,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   and `--importRepositoryPath` (repository path rule `^/Root(/[A-Za-z0-9_.][A-Za-z0-9_.\- ]{0,199})+$`,
   no `..`); the empty group list `--exportWorkflowGroup ''` only together with `--exportTag`
   (test: refused otherwise).
-- [ ] T005 `main/adapter/cli/CliExportRunner.java`: `exportRelease(owner, tag)` (D-1 command;
+- [X] T005 `main/adapter/cli/CliExportRunner.java`: `exportRelease(owner, tag)` (D-1 command;
   "no diagram group carries the tag" = an archive without workflows → `NOT_FOUND`) and
   `exportRepository(path)` ("Path not found" → `NOT_FOUND`); tests on `ScriptedProcessLauncher` with
   the T001 fixtures.

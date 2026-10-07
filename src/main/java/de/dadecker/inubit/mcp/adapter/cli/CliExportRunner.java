@@ -10,9 +10,11 @@ import de.dadecker.inubit.mcp.domain.model.Names;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileAttribute;
@@ -24,6 +26,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
+import java.util.zip.ZipInputStream;
 
 /**
  * The inventory exports of one server through StartCLI (research R-11; Constitution I, II):
@@ -57,6 +60,9 @@ import java.util.zip.ZipFile;
  *       the whole archive (at most {@link #MAX_ARCHIVE_BYTES}) for the workspace; their values
  *       are checked first ({@code INVALID_INPUT}, a blank diagram group included), and a missing
  *       group or module is {@code NOT_FOUND} ({@link CliOutputClassifier}).
+ *   <li>Feature 005 (research D-1, D-4): {@link #exportRelease} (the tagged diagram groups of an
+ *       owner, the only export with the empty group list) and {@link #exportRepository} (a
+ *       repository file or folder) return the whole archive as well.
  * </ul>
  */
 public final class CliExportRunner {
@@ -180,6 +186,115 @@ public final class CliExportRunner {
             .quoted("--exportModuleUser", owner)
             .path("--exportFile", file)
             .build());
+    }
+
+    /**
+     * The release export of feature 005 (research D-1, D-4): every diagram group of the technical
+     * workflows of {@code owner} that carries {@code tag}, in its tagged version, with the tagged
+     * versions of its modules and referenced repository files: {@code export
+     * --exportWorkflowUser '<owner>' --exportWorkflowType 'technical' --exportWorkflowGroup ''
+     * --exportTag '<tag>' --exportFile '<tmp>/release.zip'}. The empty group list is allowed
+     * only here, together with the validated tag ({@link CliCommand}). An archive without
+     * workflows, or StartCLI's "no workflow group … found", means that no diagram group carries
+     * the tag.
+     *
+     * @throws ToolErrorException {@code INVALID_INPUT} for a blank tag, a wildcard or a value
+     *     StartCLI quoting cannot carry, before anything is launched; {@code NOT_FOUND} if no
+     *     diagram group carries the tag; otherwise as {@link #exportWorkflowGroup}
+     */
+    public byte[] exportRelease(String owner, String tag) {
+        checkReleaseExport(owner, tag);
+        byte[] archive;
+        try {
+            archive = export("release.zip", this::readArchive, file -> CliCommand.command("export")
+                .quoted("--exportWorkflowUser", owner)
+                .quoted("--exportWorkflowType", "technical")
+                .emptyQuoted("--exportWorkflowGroup")
+                .quoted("--exportTag", tag)
+                .path("--exportFile", file)
+                .build());
+        } catch (ToolErrorException e) {
+            if (e.error().code() == ErrorCode.NOT_FOUND) {
+                throw noRelease(owner, tag);
+            }
+            throw e;
+        }
+        if (!hasWorkflows(archive)) {
+            throw noRelease(owner, tag);
+        }
+        return archive;
+    }
+
+    /**
+     * The repository export of feature 005 (research D-1): {@code export --exportRepositoryPath
+     * '<path>' --exportFile '<tmp>/repository.zip'}, a file or a folder; the archive holds
+     * {@code Root/<owner>/<path>/<name>.xml} (metadata) and {@code <name>.dat} (content) per
+     * file. A path that does not exist is {@code NOT_FOUND} (StartCLI: "Path not found").
+     *
+     * @throws ToolErrorException {@code INVALID_INPUT} for a path outside
+     *     {@link CliCommand#REPOSITORY_PATH}, before anything is launched; otherwise as
+     *     {@link #exportWorkflowGroup}
+     */
+    public byte[] exportRepository(String path) {
+        checkRepositoryExport(path);
+        return export("repository.zip", this::readArchive, file -> CliCommand.command("export")
+            .repositoryPath("--exportRepositoryPath", path)
+            .path("--exportFile", file)
+            .build());
+    }
+
+    /** The checks of {@link #exportRelease}; see {@link #checkHistoryExport}. */
+    public void checkReleaseExport(String owner, String tag) {
+        if (tag == null || tag.isBlank()) {
+            throw invalid("The tag must not be empty",
+                "Without a tag StartCLI would export every diagram group of the owner");
+        }
+        if (tag.contains("*") || tag.contains("?")) {
+            throw invalid("The tag " + Names.quote(tag) + " contains a wildcard",
+                "A release is selected by one exact tag name");
+        }
+        quotable("Owner", owner);
+        quotable("Tag", tag);
+        checkPreconditions();
+    }
+
+    /** The checks of {@link #exportRepository}; see {@link #checkHistoryExport}. */
+    public void checkRepositoryExport(String path) {
+        if (!CliCommand.repositoryPathPassable(path)) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
+                "The repository path " + Names.quote(path) + " cannot be passed to StartCLI"
+                    + " safely",
+                "It must match " + CliCommand.REPOSITORY_PATH.pattern() + " and contain no '.'"
+                    + " or '..' segment",
+                "Use the exact repository path below /Root (letters, digits, _ . - and spaces)")
+                .withNode(server.id()));
+        }
+        checkPreconditions();
+    }
+
+    private ToolErrorException noRelease(String owner, String tag) {
+        return new ToolErrorException(ToolError.of(ErrorCode.NOT_FOUND,
+            "No diagram group of " + owner + " carries the tag " + tag + " on " + server.id(),
+            "The tag was not set on the source, is spelled differently (tags are"
+                + " case-sensitive), or belongs to another owner",
+            "Tag the release's diagram groups on the source with tag_artifacts, then retry")
+            .withNode(server.id()));
+    }
+
+    /** True if the export's {@code workflow/workflow.xml} names at least one workflow. */
+    private boolean hasWorkflows(byte[] archive) {
+        try (ZipInputStream in = new ZipInputStream(new ByteArrayInputStream(archive))) {
+            for (ZipEntry entry = in.getNextEntry(); entry != null; entry = in.getNextEntry()) {
+                if (entry.getName().equals("workflow/workflow.xml")) {
+                    return new String(bounded(server.id(), in, entry.getName(),
+                        MAX_ENTRY_BYTES), StandardCharsets.UTF_8).contains("<WorkflowName>");
+                }
+            }
+            return false;
+        } catch (IOException e) {
+            throw unexpected("The release export of " + server.id() + " is not a readable ZIP"
+                + " archive (" + e.getClass().getSimpleName() + ")");
+        }
     }
 
     private void quotable(String label, String value) {
