@@ -213,8 +213,14 @@ assertion before the production code exists. `mvn -q verify` green after every t
   unless development node and owner kind USER; scenario export → layout change → import → verify →
   restore → set_active off/on → tag `LIVE-<ts>` → tag removed; prints counts only. Do not run it in
   this task.
-- [ ] T027 Validation per quickstart A–B (offline) and the identifier guard; quickstart C/D only with
-  the user's approval (recorded in this file).
+- [X] T027 Validation per quickstart A–B (offline) and the identifier guard; quickstart C/D only with
+  the user's approval (recorded in this file). **C/D pending (live run by the main session).**
+  Offline result 2026-10-07: `mvn -q clean verify` green (2062 tests, 3 skipped, 0 failures);
+  `mvn -q -Dtest=NoCustomerIdentifiersTest test` (no clean) ran 20 tests, green;
+  `--check-config` with a temporary profile under a temporary HOME shows
+  `development: on (confirmation SERVER), e2e: CONFIRM (https://…)` for the development node,
+  `development: off, e2e: FORBIDDEN` for production and `Owner kinds: jdoe USER`; the same file
+  with `development.enabled` on the production group fails with exit code 1.
 
 ---
 
