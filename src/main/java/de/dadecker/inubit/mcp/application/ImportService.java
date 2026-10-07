@@ -693,8 +693,10 @@ public final class ImportService {
      * created stays and is listed. The workspace is not changed (the next export records the
      * state).
      */
-    private Response restoreDeployment(Call call, DevelopmentPolicy policy,
+    private Response restoreDeployment(Call call, DevelopmentPolicy admitted,
         BackupStore.Manifest manifest) {
+        DevelopmentPolicy policy = d.guard().forDeploymentRestore(admitted);
+        call.policy = policy;
         NodeId node = policy.node();
         NodeDeployer deployer = d.deployments().orElseThrow(() -> new ToolErrorException(
             ToolError.of(ErrorCode.PRECONDITION_FAILED, "The backup " + manifest.auditId()

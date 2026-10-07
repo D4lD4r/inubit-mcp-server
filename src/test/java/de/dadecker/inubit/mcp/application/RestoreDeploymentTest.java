@@ -216,4 +216,34 @@ class RestoreDeploymentTest extends DeployExecution {
         assertThat(foreign.error().code()).isEqualTo(ErrorCode.NOT_DEVELOPMENT);
         harness.verifyComplete();
     }
+
+    @Test
+    void aDeploymentBackupOnADevelopmentNodeIsStillPreviewedWithTheDeployTtl() {
+        // final review n1: CLIENT confirmation and a 5-minute TTL do not apply
+        harness(false);
+        DeploymentResult deployed = deploy(false);
+        harness.exportGroup(DeployHarness.INT1);
+
+        ImportService.Response first = harness.importService(true).restore(restore(
+            deployed.nodes().get(0).backupRef().orElseThrow(), Optional.empty()));
+
+        assertThat(first).isInstanceOf(ImportService.Response.WriteChallenge.class);
+        assertThat(((ImportService.Response.WriteChallenge) first).preview().expiresAt())
+            .isEqualTo(harness.clock.instant().plus(java.time.Duration.ofMinutes(30)));
+        harness.verifyComplete();
+    }
+
+    @Test
+    void aRestoreAdmittedAsDeploymentRestoreHasTheDeployTtl() {
+        harness(false);
+        DeploymentResult deployed = deploy(false);
+        harness.exportGroup(DeployHarness.INT1);
+
+        ImportService.Response first = harness.importService().restore(restore(
+            deployed.nodes().get(0).backupRef().orElseThrow(), Optional.empty()));
+
+        assertThat(((ImportService.Response.WriteChallenge) first).preview().expiresAt())
+            .isEqualTo(harness.clock.instant().plus(java.time.Duration.ofMinutes(30)));
+        harness.verifyComplete();
+    }
 }

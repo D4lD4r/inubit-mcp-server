@@ -132,6 +132,15 @@ public final class DevelopmentGuard {
     }
 
     /**
+     * {@code policy} as the restore of a deployment backup needs it (final review n1): always
+     * a server code, valid {@code deployConfirmationTtl}, also on a development node.
+     */
+    public DevelopmentPolicy forDeploymentRestore(DevelopmentPolicy policy) {
+        return new DevelopmentPolicy(policy.node(), policy.production(), policy.enabled(),
+            WritePolicy.Confirmation.SERVER, deployTtl, policy.e2eTests(), policy.soapBaseUrl());
+    }
+
+    /**
      * The policy of the node a development tool may run on.
      *
      * @throws ToolErrorException {@code INVALID_INPUT}, {@code TARGET_UNKNOWN},

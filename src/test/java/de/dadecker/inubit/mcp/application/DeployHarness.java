@@ -360,11 +360,22 @@ public final class DeployHarness {
      * is a development stage; {@code int} receives deployments, {@code prod} packages.
      */
     public ImportService importService() {
+        return importService(false);
+    }
+
+    /**
+     * As {@link #importService()}; with {@code developmentTargets} the int nodes are also
+     * development stages with client-side confirmation.
+     */
+    public ImportService importService(boolean developmentTargets) {
         Map<NodeId, de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy> policies =
             new LinkedHashMap<>();
         servers.keySet().forEach(node -> policies.put(node,
             new de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy(node, node.equals(PROD),
-                false, de.dadecker.inubit.mcp.domain.model.WritePolicy.Confirmation.SERVER,
+                developmentTargets && TARGETS.contains(node), developmentTargets
+                    && TARGETS.contains(node)
+                    ? de.dadecker.inubit.mcp.domain.model.WritePolicy.Confirmation.CLIENT
+                    : de.dadecker.inubit.mcp.domain.model.WritePolicy.Confirmation.SERVER,
                 Duration.ofMinutes(5), de.dadecker.inubit.mcp.domain.model.E2ePolicy.FORBIDDEN,
                 Optional.empty())));
         de.dadecker.inubit.mcp.domain.model.StageChain chain = chain(List.of());
