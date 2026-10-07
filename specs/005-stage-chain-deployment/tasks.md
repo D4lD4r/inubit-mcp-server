@@ -109,7 +109,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   `INVALID_INPUT`, unknown → `TARGET_UNKNOWN`), must have `deploy` (else `CHAIN_VIOLATION` naming the
   configured source or "receives no deployments"); tag `VALUE`, not blank, no `*`/`?`; refusals
   audited; test: no StartCLI launch for any refusal.
-- [ ] T015 [US1] `main/application/DeployLock.java` (per target group file lock in
+- [X] T015 [US1] `main/application/DeployLock.java` (per target group file lock in
   `~/.inubit-mcp/<profile>/deployments/<group>.lock`, busy → `DEPLOY_LOCKED`; then the workspace
   lock); `DeployLockTest` with `LockHolder` (second JVM).
 - [ ] T016 [US1] `main/application/ReleaseDiscovery.java`: tag export per source node, render with
