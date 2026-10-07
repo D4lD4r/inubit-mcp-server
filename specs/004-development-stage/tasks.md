@@ -264,7 +264,14 @@ assertion before the production code exists. `mvn -q verify` green after every t
   write-back within the same call and audit record (inputs gain `tag`); tag verification as T029; a tag
   failure after a successful import → `outcome: EXECUTED`, `tag: {applied: false, failure}` and a
   warning to retry `tag_artifacts`; preview shows the tag; schemas and contract updated; tests first.
-- [ ] T031 Live acceptance (main session, user-approved test groups only): user-group owner `OWNERS` in
+- [X] T031 Live acceptance (main session, user-approved test groups only): user-group owner `OWNERS` in
   `GRP-SPIKE`: import with tag → verify → restore → set_active off/on; `DevelopmentLiveTest` adjusted so
   that a user-group owner is allowed only with an explicit `INUBIT_LIVE_DEV_DIAGRAM_GROUP` and
   `INUBIT_LIVE_DEV_WORKFLOW` (never a whole shared group by default); record results here.
+  **Done 2026-10-07** (main session, user-approved test groups of the shared group owner, temporary
+  profile copy): `DevelopmentLiveTest` with the group owner, group `GRP-SPIKE`, workflow
+  `SPIKE_G_Roundtrip`: import, restore, set_active off/on and tag `LIVE-TEST` (1 workflow, 5 modules),
+  96 s. Additionally over MCP: `import_artifacts` with `tag: LIVE-TEST` → `EXECUTED`, tag applied (1
+  workflow, 5 modules); module import with a tag refused before sending; `restore_backup` →
+  `EXECUTED`. Afterwards both test workflows equal their state before the run, no module changed,
+  `LIVE-TEST` only on the test group, the second test group untouched.
