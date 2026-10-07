@@ -62,8 +62,8 @@ development stage, **005 deployment along the stage chain**).
   → qa → acc → prod`. A group without a source never receives deployments.
 - **Source / target**: the target is the group being deployed into; its source is the only group it
   may receive from.
-- **Release**: the versions of one or more named diagram groups of one owner that carry a given tag on
-  the source, together with their modules and repository files.
+- **Release**: all diagram groups of one owner that carry a given tag on the source, in their tagged
+  versions, together with their modules and repository files.
 - **Package**: the frozen content of a release as the preview saw it; what the execute step imports
   (mode EXECUTE) or what is handed to a person (mode PACKAGE_ONLY).
 - **Exclusion**: an artifact of the release that is never deployed (system diagrams by default, plus
@@ -76,13 +76,16 @@ development stage, **005 deployment along the stage chain**).
 - Q: Are layout-only differences deployed? → A: Yes. A workflow that differs from the release only in layout is imported like a changed one (the target ends up exactly like the release); the preview marks it as layout-only.
 - Q: What happens when an artifact was changed directly on the target since it was last deployed (e.g. a hotfix)? → A: Warn and overwrite. Development and deployment stay hybrid: people keep working and deploying in the Workbench, so the server cannot assume that every change went through it. The preview marks such artifacts; after confirmation they are overwritten, and the backup keeps the target's state.
 - Q: Where does the active flag of deployed workflows come from? → A: Existing workflows keep the active flag they have on the target; new workflows take the flag of the release (as on the source).
+- Q: Does the server read the production nodes to build a production package? → A: Yes. A package-only target needs read access (StartCLI login) like any other target: the server exports the affected artifacts from every production node, diffs against them, and the package carries only the new and changed artifacts with the production node's own secret values. Without read access the preview fails; no package is built blind.
+- Q: Are repository files part of a deployment? → A: Yes. The repository files referenced by the release's modules are deployed like modules: new and changed ones are imported, unchanged ones are not, files only on the target stay. Key material (keystores, certificates, private keys) is never deployed; the target keeps its own, and a missing one on the target is SECRET_UNRESOLVED. How INUBIT imports repository files and how they relate to a tag is probed live before the implementation (development stage and test artifacts only).
+- Q: How is a release named for a deployment? → A: By the tag alone. The server determines every diagram group of the owner that carries the tag on the source and deploys them together; the preview lists the groups found, and the confirmation code is bound to exactly that list.
 
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Deploy a tested release to the next stage (Priority: P1)
 
 The developer tagged diagram group "ORDERS" on the development stage with "REL-2026-10-07" after
-testing. They ask the assistant to "deploy REL-2026-10-07 of ORDERS to int". The server checks that
+testing. They ask the assistant to "deploy REL-2026-10-07 to int". The server checks that
 int receives from dev, exports the tagged state from dev and the same artifacts from every int node,
 and returns a preview per node: which workflows and modules are new, which change, which differ only
 in layout, which are excluded, and warnings. The developer approves; the server deploys node by node
@@ -97,8 +100,8 @@ calls per node, the archives, the tag call, the result and the workspace history
 **Acceptance Scenarios**:
 
 1. **Given** a target whose source is the development group and a tag on diagram group ORDERS there,
-   **When** the assistant asks for a deployment, **Then** nothing is written and the result is a
-   preview per target node (new, changed, layout-only, unchanged, excluded, warnings), the paths of the
+   **When** the assistant asks for a deployment of that tag, **Then** nothing is written and the result
+   names ORDERS as the diagram group found and is a preview per target node (new, changed, layout-only, unchanged, excluded, warnings), the paths of the
    difference files and a one-time code.
 2. **Given** a valid preview, **When** the assistant calls again with the code, **Then** each target
    node in turn is backed up, receives only the new and changed artifacts of the release, is verified
@@ -139,8 +142,8 @@ refused without any call to the fake command line.
    **Then** the call is refused with CHAIN_VIOLATION naming the allowed source (int).
 2. **Given** a group without a source (e.g. the development group), **When** the assistant asks to
    deploy into it, **Then** the call is refused with CHAIN_VIOLATION.
-3. **Given** a tag that does not exist on the source for a named diagram group, **When** the
-   assistant asks for a preview, **Then** the call fails with a clear message and nothing is written.
+3. **Given** a tag that no diagram group carries on the source, **When** the assistant asks for a
+   preview, **Then** the call fails with a clear message and nothing is written.
 4. **Given** a source group with two nodes whose tagged content differs, **When** the assistant asks
    for a preview, **Then** the call fails with SOURCE_INCONSISTENT naming the differing artifacts.
 
@@ -259,6 +262,9 @@ The operator describes the chain in the profile and checks it with the configura
 - The release contains a workflow in edit mode on the source: irrelevant (the tagged version is
   exported); a target workflow in edit mode: CONFLICT for that node.
 - The confirmation code has expired or belongs to another preview: refused, nothing written.
+- An old diagram group still carries a reused tag name: it becomes part of the release; the preview
+  lists it with the date of its tagged version, so the developer can move or remove the tag in the
+  source before confirming.
 - A target node is not reachable during the preview: the preview fails for the whole deployment (no
   partial preview can be confirmed).
 - The re-export after an import fails because INUBIT broke the diagram group (spike: missing module):
@@ -290,14 +296,18 @@ The operator describes the chain in the profile and checks it with the configura
 
 **Preview**
 
-- **FR-007**: The assistant MUST be able to request a deployment by naming the target group, the tag
-  and one or more diagram groups of one owner (default: the profile's inventory owner); empty, blank or
-  wildcard-like diagram group names MUST be refused before anything is contacted.
+- **FR-007**: The assistant MUST be able to request a deployment by naming the target group and the tag
+  (owner default: the profile's inventory owner). The server MUST determine every diagram group of the
+  owner that carries the tag on the source; the preview MUST list them, and the confirmation code MUST
+  be bound to exactly that list. An empty, blank or wildcard-like tag MUST be refused before anything
+  is contacted.
 - **FR-008**: The server MUST refuse with CHAIN_VIOLATION, before contacting INUBIT, any target without
   a source; the source is always the target's configured source and cannot be chosen by the caller.
-- **FR-009**: The server MUST export the tagged state of the named diagram groups from every node of
-  the source group; if their content differs, the call MUST fail with SOURCE_INCONSISTENT naming the
-  differing artifacts. A tag missing on any named diagram group MUST fail the call.
+- **FR-009**: The server MUST export the tagged state of those diagram groups from every node of the
+  source group; if their content or the list of tagged diagram groups differs, the call MUST fail with
+  SOURCE_INCONSISTENT naming the differences. A tag found on no diagram group MUST fail the call. If
+  a tagged version is older than the current version of its diagram group on the source, the preview
+  MUST say so (the tagged version is deployed).
 - **FR-010**: The server MUST export the same artifacts (by name) from every target node and classify
   each artifact per node as new, changed, layout-only, unchanged, only on target, or excluded, and
   collect warnings (stage-specific values, shared modules, secrets without counterpart). Layout-only
@@ -305,11 +315,14 @@ The operator describes the chain in the profile and checks it with the configura
 - **FR-011**: The preview MUST freeze the package (content hash of the release and of each target
   node's state), write the differences per node to workspace files, and return a bounded summary, the
   file paths and a one-time code bound to target, tag, diagram groups, owner, package hash and target
-  states.
+  states. A deployment code MUST stay valid long enough to review the preview (default 30 minutes,
+  configurable per profile), independently of the shorter validity of other confirmation codes.
 - **FR-012**: A secret placeholder of the release without a value on a target node MUST be reported as
   SECRET_UNRESOLVED for that node; such a preview MUST NOT be executable. A workflow of the release
   referencing a module that is neither deployed nor present on the target MUST be reported as an error
   that makes the preview not executable.
+- **FR-012a**: The preview MUST run the checks of feature 003 on the release; any ERROR finding MUST make
+  the preview not executable.
 - **FR-013**: Changes made on the target outside this server (for example a hotfix in the Workbench or a
   manual deployment) MUST NOT block a deployment: the preview MUST mark every changed artifact whose
   target version was not written by a deployment of this server with the warning "changed on the
@@ -326,6 +339,12 @@ The operator describes the chain in the profile and checks it with the configura
   the new and changed artifacts of the release unchanged except for secret values, which come from that
   node in memory only, verify by re-export, and on any failure roll the node back from its backup and
   verify the rollback.
+- **FR-015a**: The repository files referenced by the deployed modules MUST be part of the release:
+  new and changed ones MUST be imported with the node's import, unchanged ones MUST NOT, and files that
+  exist only on the target MUST stay. Key-material repository files (keystores, certificates, private
+  keys) MUST NOT be deployed; the target's own MUST be kept, and a missing one on the target MUST be
+  reported as SECRET_UNRESOLVED. Backup, verification and rollback MUST include the repository files
+  of the import.
 - **FR-016**: A deployed workflow that already exists on the target node MUST keep that node's active
   flag; a new workflow MUST take the active flag of the release. The preview MUST show the resulting
   flag per workflow.
@@ -349,7 +368,9 @@ The operator describes the chain in the profile and checks it with the configura
 - **FR-023**: For a target in mode `PACKAGE_ONLY` the server MUST run the same preview and, with the
   code, write per node an import archive (only new and changed artifacts, the node's own secret
   values), a difference report and the warnings to a location readable only by the current user, and
-  return their paths; it MUST NOT send any import, tag or other writing command to that group.
+  return their paths; it MUST NOT send any import, tag or other writing command to that group. The
+  preview of a package-only target MUST read (export) every node of that group like any other target;
+  if a node cannot be read, the preview MUST fail.
 
 **General**
 
@@ -406,6 +427,9 @@ The operator describes the chain in the profile and checks it with the configura
 
 - Features 003 and 004 are in place: workspace, checks, redaction, archive rebuild, backup, rollback,
   verification and group-scoped tagging.
+- INUBIT's import of repository files (archive shape, versioning, relation to a tag) is not known yet;
+  a live probe on the development stage with test artifacts settles it before the implementation,
+  as the spike did for workflows and modules.
 - Artifacts are stage-independent; stage-specific settings live in system diagrams or are set at
   runtime. INUBIT's own deployment mechanism for stage-specific properties is not used.
 - The server can read (export) every node of every chained group, including production, with the
