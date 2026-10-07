@@ -163,7 +163,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 4: User Story 2 — Restore (Priority: P1)
 
-- [ ] T019 [US2] `ImportService.restore` + `main/mcp/tools/RestoreBackupTool.java` + schemas, tests
+- [X] T019 [US2] `ImportService.restore` + `main/mcp/tools/RestoreBackupTool.java` + schemas, tests
   first (D-14): unknown/removed/foreign ref → `NOT_FOUND` without INUBIT contact; conflict check
   against the commit of the referenced call; rollback archive from the backup limited to the call's
   artifacts; verify; commit; created artifacts of the original call reported as not removed.

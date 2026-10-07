@@ -121,8 +121,8 @@ class TemplateGrammarTest {
             .anySatisfy(t -> assertThat(t).contains("mcp/McpServerFactory.java"))
             .anySatisfy(t -> assertThat(t).contains("application/TargetResolver.java"))
             .anySatisfy(t -> assertThat(t).contains("config/ConfigValidator.java"));
-        // feature 004 adds import_artifacts.{input,output}.json
-        assertThat(Files.list(SCHEMAS).count()).isEqualTo(22);
+        // feature 004 adds import_artifacts and restore_backup .{input,output}.json
+        assertThat(Files.list(SCHEMAS).count()).isEqualTo(24);
         assertThat(schemaTemplates()).filteredOn(t -> PLACEHOLDER.matcher(t).find())
             .hasSizeGreaterThan(15);
     }

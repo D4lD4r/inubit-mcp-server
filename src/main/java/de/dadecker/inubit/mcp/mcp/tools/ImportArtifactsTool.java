@@ -77,6 +77,7 @@ public final class ImportArtifactsTool implements ToolHandler {
             context.client()));
         return switch (response) {
             case Response.Challenge challenge -> Map.of("challenge", challenge.preview());
+            case Response.WriteChallenge challenge -> Map.of("challenge", challenge.preview());
             case Response.Completed completed -> Map.of("result", completed.outcome());
         };
     }

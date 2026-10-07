@@ -21,6 +21,8 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
 import de.dadecker.inubit.mcp.domain.model.WorkflowGraph;
+import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
+import de.dadecker.inubit.mcp.domain.model.WritePreview;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.ArchiveCodecPort;
 import de.dadecker.inubit.mcp.domain.port.ArtifactInspectorPort;
@@ -102,10 +104,12 @@ import org.slf4j.LoggerFactory;
 public final class ImportService {
 
     private static final Logger LOG = LoggerFactory.getLogger(ImportService.class);
-    private static final String CAPABILITY = Capability.IMPORT_ARTIFACTS.toolName();
     private static final String RETENTION = "backup_retention";
     private static final Pattern REASON = Pattern.compile("^[^#@\\p{Cntrl}]{1,500}$");
     private static final Pattern CODE = Pattern.compile("^[A-Za-z0-9_-]{22}$");
+    private static final Pattern AUDIT_ID = Pattern.compile(
+        "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
+    private static final String DIAGRAM_GROUP = "diagram group ";
     private static final int MAX_MODULES = 50;
     private static final int MAX_AUDITED_NAMES = 20;
     private static final int MAX_AUDITED_INPUT = 500;
@@ -183,12 +187,35 @@ public final class ImportService {
         }
     }
 
+    /**
+     * The arguments of {@code restore_backup} (research D-14): the audit id of an earlier call
+     * of the development tools whose backup is re-imported.
+     */
+    public record RestoreRequest(String node, String backupRef, String reason,
+        Optional<String> confirmationCode, Optional<String> mcpClient) {
+
+        public RestoreRequest {
+            node = node == null ? "" : node;
+            backupRef = backupRef == null ? "" : backupRef;
+            reason = reason == null ? "" : reason;
+            confirmationCode = confirmationCode == null ? Optional.empty() : confirmationCode;
+            mcpClient = mcpClient == null ? Optional.empty() : mcpClient;
+        }
+    }
+
     /** Either the preview of the first step or the outcome of an execution. */
     public sealed interface Response {
 
         /** Nothing was sent; the preview and its code. */
         record Challenge(ImportPreview preview) implements Response {
             public Challenge {
+                Objects.requireNonNull(preview, "preview");
+            }
+        }
+
+        /** Nothing was sent; the preview of a restore or an activation and its code. */
+        record WriteChallenge(WritePreview preview) implements Response {
+            public WriteChallenge {
                 Objects.requireNonNull(preview, "preview");
             }
         }
@@ -219,7 +246,11 @@ public final class ImportService {
      *     record), or {@code INTERNAL} if an audit record cannot be written
      */
     public Response importArtifacts(ImportRequest request) {
-        Call call = new Call(request);
+        Call call = new Call(Capability.IMPORT_ARTIFACTS, request.node(), request.reason(),
+            request.confirmationCode(), request.mcpClient());
+        call.requested.put("scope", request.diagramGroup().map(g -> "diagram group " + g)
+            .orElseGet(() -> "modules " + String.join(", ", request.modules().stream()
+                .map(ImportScope.Module::name).toList())));
         DevelopmentPolicy policy;
         try {
             validate(request);
@@ -237,8 +268,17 @@ public final class ImportService {
         } catch (RuntimeException e) {
             throw call.refuse(unexpected("checking the request", e));
         }
+        return underLock(call, () -> locked(call, policy, request));
+    }
+
+    /**
+     * Runs {@code body} under the workspace lock (FR-027): a refusal is audited
+     * {@code REFUSED}; once anything was sent, only the last resort of
+     * {@link Call#failedAfterSending} can still throw.
+     */
+    private Response underLock(Call call, Supplier<Response> body) {
         try (WorkspaceLock lock = WorkspaceLock.acquire(d.root())) {
-            return locked(call, policy);
+            return body.get();
         } catch (RuntimeException e) {
             if (call.sent != null) {
                 throw call.failedAfterSending(e);
@@ -247,16 +287,16 @@ public final class ImportService {
                 throw e;
             }
             throw e instanceof ToolErrorException tool ? call.refuse(tool.error())
-                : call.refuse(unexpected("preparing the import", e));
+                : call.refuse(unexpected("preparing the " + call.capability.toolName(), e));
         }
     }
 
-    private Response locked(Call call, DevelopmentPolicy policy) {
+    private Response locked(Call call, DevelopmentPolicy policy, ImportRequest request) {
         NodeId node = policy.node();
         sweep(call);
         d.history().init();
         commitLocalChanges();
-        ImportScope scope = scope(call, node);
+        ImportScope scope = scope(call, request, node);
         ChangeSet changes = builder.build(scope);
         call.changes = changes;
         if (changes.isEmpty()) {
@@ -273,12 +313,12 @@ public final class ImportService {
         int warnings = check(node, changes, auditId);
         OwnerKind kind = d.owners().admitForWrite(node, call.owner);
         call.kind = kind;
-        String inputs = inputFingerprint(node, call);
+        String inputs = inputFingerprint(node, call, request);
         String workspace = workspaceState(changes);
         Optional<String> previewedServer = Optional.empty();
         boolean server = policy.confirmation() == WritePolicy.Confirmation.SERVER;
-        if (server && call.request.confirmationCode().isPresent()) {
-            String previewed = d.challenges().redeem(call.request.confirmationCode().get(),
+        if (server && call.confirmationCode.isPresent()) {
+            String previewed = d.challenges().redeem(call.confirmationCode.get(),
                 Capability.IMPORT_ARTIFACTS, node, inputs);
             Map<String, String> state = parseState(previewed);
             if (!workspace.equals(state.get("workspace"))) {
@@ -301,33 +341,299 @@ public final class ImportService {
         }
         Account account = d.accounts().apply(node);
         ImportArchivePort.Archive archive = d.archives().assemble(build(changes, call,
-            files(changes), fresh.rawExports(), call.request.reason(), account,
+            files(changes), fresh.rawExports(), call.reason, account,
             takenNames(node, changes, call.owner, fresh.targetModules())));
-        if (server && call.request.confirmationCode().isEmpty()) {
+        if (server && call.confirmationCode.isEmpty()) {
             return challenge(call, node, policy, changes, warnings, inputs,
                 "workspace=" + workspace + ";server=" + fresh.fingerprint());
         }
-        return execute(call, node, changes, auditId, fresh, archive, account);
+        ImportPort.Mode mode = scope.diagramGroup().isPresent() ? ImportPort.Mode.WORKFLOW
+            : ImportPort.Mode.MODULE;
+        return execute(call, node, new Plan(changes, archive, mode, mode, this::readOrNull,
+            "import", scope.describe(), List.of(), List.of()), auditId, fresh.rawExports(),
+            account);
+    }
+
+    // --- restore_backup ----------------------------------------------------------------------
+
+    /**
+     * {@code restore_backup} (US2, FR-019, research D-14, D-25 H7): re-imports the backup of an
+     * earlier call of the development tools on the same node, limited to the artifacts that call
+     * changed and that existed before it.
+     *
+     * <ol>
+     *   <li>reason, code and {@code backupRef} (an audit id) are checked, then the guard; the
+     *       backup must exist for this node — unknown, removed (retention sweep at the start)
+     *       or foreign references are {@code NOT_FOUND} before anything is read from INUBIT;
+     *   <li>the owner kind of the backup's owner (user groups refused); the backup is rendered
+     *       in memory;
+     *   <li>the conflict check compares the scope's fresh export with the state the referenced
+     *       call left — the intended-state hashes of its manifest, which a failed call records
+     *       as its last verification saw them; an artifact without recorded state is
+     *       {@code PRECONDITION_FAILED}, a difference or edit mode {@code CONFLICT};
+     *   <li>the archive holds the backed-up artifacts with the target's current secrets; the
+     *       rest is the import sequence with the restore's own backup, verification against the
+     *       backed-up state, commit {@code restore <node>: …} or rollback;
+     *   <li>artifacts the referenced call created stay and are reported (nothing is deleted).
+     * </ol>
+     *
+     * @throws ToolErrorException every refusal before anything is sent (after its audit record)
+     */
+    public Response restore(RestoreRequest request) {
+        Call call = new Call(Capability.RESTORE_BACKUP, request.node(), request.reason(),
+            request.confirmationCode(), request.mcpClient());
+        call.requested.put("backupRef", request.backupRef());
+        DevelopmentPolicy policy;
+        try {
+            validate(request.reason(), request.confirmationCode());
+            if (!AUDIT_ID.matcher(request.backupRef()).matches()) {
+                throw invalid("Invalid backupRef: it is the audit id (a lower-case UUID) of an"
+                        + " earlier call",
+                    "backupRef names the backup of a call of import_artifacts, restore_backup or"
+                        + " set_active",
+                    "Use the backupRef of that call's result exactly as returned");
+            }
+            policy = d.guard().admit(request.node(), Capability.RESTORE_BACKUP);
+            call.policy = policy;
+        } catch (ToolErrorException e) {
+            throw call.refuse(e.error());
+        } catch (RuntimeException e) {
+            throw call.refuse(unexpected("checking the request", e));
+        }
+        return underLock(call, () -> restoreLocked(call, policy, request.backupRef()));
+    }
+
+    private Response restoreLocked(Call call, DevelopmentPolicy policy, String ref) {
+        NodeId node = policy.node();
+        sweep(call);
+        BackupStore.Manifest manifest = d.backups().find(ref)
+            .filter(found -> found.node().equals(node))
+            .orElseThrow(() -> new ToolErrorException(ToolError.of(ErrorCode.NOT_FOUND,
+                "There is no backup " + ref + " of " + node + "; nothing was sent",
+                "The reference is unknown, belongs to another node, or the backup was removed"
+                    + " (backups are kept 30 days; the newest of each scope always)",
+                "Use the backupRef of a recent call on this node; for older states use the"
+                    + " version history in the Workbench").withNode(node)));
+        call.owner = manifest.owner();
+        call.requested.put("scope", manifest.scope());
+        d.history().init();
+        commitLocalChanges();
+        call.kind = d.owners().admitForWrite(node, call.owner);
+        SortedMap<String, byte[]> before = d.codec().prepare(node.group(), call.owner,
+            d.backups().exports(ref)).files();
+        Optional<ChangeSet> restorable = restoreSet(node, manifest, before);
+        if (restorable.isEmpty()) {
+            UUID auditId = d.ids().get();
+            call.append(auditId, AuditRecord.Step.EXECUTE, AuditOutcome.EXECUTED,
+                "Nothing of the backup " + ref + " existed before its call; nothing was sent");
+            List<String> warnings = new ArrayList<>(List.of("The call " + ref + " changed"
+                + " no artifact that existed before it; nothing was sent"));
+            keep(manifest.created(), warnings);
+            return new Response.Completed(new WriteOutcome(auditId,
+                WriteOutcome.Outcome.EXECUTED, Optional.empty(), Optional.empty(),
+                Optional.empty(), List.of(), List.of(), List.of(), Optional.empty(),
+                manifest.created(), List.of(), warnings));
+        }
+        ChangeSet changes = restorable.get();
+        call.changes = changes;
+        UUID auditId = d.ids().get();
+        String inputs = "sha256:" + sha256((node.value() + "\n" + ref + "\n" + call.reason)
+            .getBytes(StandardCharsets.UTF_8));
+        boolean server = policy.confirmation() == WritePolicy.Confirmation.SERVER;
+        Optional<String> previewed = Optional.empty();
+        if (server && call.confirmationCode.isPresent()) {
+            previewed = Optional.of(d.challenges().redeem(call.confirmationCode.get(),
+                Capability.RESTORE_BACKUP, node, inputs));
+        }
+        Fresh fresh = fresh(node, changes);
+        requireStateLeftBy(node, manifest, changes, fresh, auditId);
+        if (previewed.isPresent() && !previewed.get().equals(fresh.fingerprint())) {
+            throw changedSincePreview(node);
+        }
+        Account account = d.accounts().apply(node);
+        ImportArchivePort.Archive archive = d.archives().assemble(build(changes, call, before,
+            fresh.raw(), call.reason, account, Set.of()));
+        if (server && call.confirmationCode.isEmpty()) {
+            List<String> notes = new ArrayList<>(List.of("Re-imports the state before the call "
+                + ref + " (backup taken " + manifest.takenAt() + "); each artifact gets a new"
+                + " version"));
+            if (!manifest.created().isEmpty()) {
+                notes.add("Created by that call and not removed: " + String.join(", ",
+                    manifest.created()));
+            }
+            return writeChallenge(call, node, policy, changes.scope().describe(),
+                changes.modified(), notes, inputs, fresh.fingerprint());
+        }
+        ImportPort.Mode mode = changes.scope().diagramGroup().isPresent()
+            ? ImportPort.Mode.WORKFLOW : ImportPort.Mode.MODULE;
+        return execute(call, node, new Plan(changes, archive, mode, mode, before::get,
+            "restore", changes.scope().describe(), manifest.created(), List.of()), auditId,
+            fresh.raw(), account);
+    }
+
+    /**
+     * The artifacts of the referenced call that existed before it, as rendered from its backup;
+     * empty if there are none.
+     */
+    private static Optional<ChangeSet> restoreSet(NodeId node, BackupStore.Manifest manifest,
+        SortedMap<String, byte[]> before) {
+        String owner = manifest.owner();
+        Optional<String> diagramGroup = manifest.scope().startsWith(DIAGRAM_GROUP)
+            ? Optional.of(manifest.scope().substring(DIAGRAM_GROUP.length()))
+            : Optional.empty();
+        Set<String> names = new HashSet<>(manifest.changeSet());
+        String base = "backup " + manifest.auditId();
+        List<ChangedArtifact> workflows = new ArrayList<>();
+        List<ChangedArtifact> modules = new ArrayList<>();
+        for (String path : before.keySet()) {
+            Optional<WorkspacePath> parsed = workspacePath(path)
+                .filter(p -> p.owner().equals(owner));
+            if (parsed.isEmpty() || !names.contains(parsed.get().segments().get(1))) {
+                continue;
+            }
+            WorkspacePath artifact = parsed.get();
+            String name = artifact.segments().get(1);
+            if (artifact.kind() == WorkspacePath.Kind.WORKFLOW
+                && diagramGroup.filter(artifact.segments().get(0)::equals).isPresent()) {
+                workflows.add(new ChangedArtifact(ArtifactRef.workflow(node.group(), owner,
+                    diagramGroup.get(), name), ChangedArtifact.Kind.MODIFIED, List.of(path),
+                    Optional.of(base)));
+            } else if (artifact.kind() == WorkspacePath.Kind.MODULE_INDEX) {
+                String directory = path.substring(0, path.lastIndexOf('/'));
+                List<String> paths = before.keySet().stream()
+                    .filter(file -> file.startsWith(directory + "/")).toList();
+                modules.add(new ChangedArtifact(ArtifactRef.module(node.group(), owner,
+                    artifact.segments().get(0), name), ChangedArtifact.Kind.MODIFIED, paths,
+                    Optional.of(base)));
+            }
+        }
+        if (workflows.isEmpty() && modules.isEmpty()) {
+            return Optional.empty();
+        }
+        ImportScope scope = diagramGroup.map(group -> ImportScope.diagramGroup(node.group(),
+            owner, group)).orElseGet(() -> ImportScope.modules(node.group(), owner,
+            modules.stream().map(module -> new ImportScope.Module(module.name(),
+                module.ref().pluginType())).toList()));
+        return Optional.of(new ChangeSet(scope, base, workflows, modules, List.of()));
+    }
+
+    /**
+     * Research D-25 H7: every artifact must show the state the referenced call left; a
+     * workflow in Workbench edit mode is a conflict as well.
+     */
+    private void requireStateLeftBy(NodeId node, BackupStore.Manifest manifest,
+        ChangeSet changes, Fresh fresh, UUID auditId) {
+        List<String> unknown = new ArrayList<>();
+        List<String> changed = new ArrayList<>();
+        List<String> editMode = new ArrayList<>();
+        List<String> lines = new ArrayList<>();
+        for (ChangedArtifact artifact : changes.artifacts()) {
+            String left = manifest.intendedState().get(artifact.name());
+            if (left == null) {
+                unknown.add(artifact.name());
+                continue;
+            }
+            String now = ConflictDetector.fingerprint(artifactFiles(fresh.rendered(), artifact));
+            if (!left.equals(now)) {
+                changed.add(artifact.name());
+                lines.add("=== " + ConflictDetector.key(artifact.paths().get(0))
+                    + ": differs from the state the call " + manifest.auditId() + " left ("
+                    + left + " then, " + now + " now)");
+            }
+            if (artifact.ref().kind() == ArtifactRef.Kind.WORKFLOW
+                && fresh.editMode().containsKey(artifact.name())) {
+                editMode.add(artifact.name() + " (by " + fresh.editMode().get(artifact.name())
+                    + ")");
+            }
+        }
+        if (!unknown.isEmpty()) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+                "The state the call " + manifest.auditId() + " left is not recorded for "
+                    + String.join(", ", unknown) + " (outcome " + manifest.outcome()
+                    + "); nothing was sent",
+                "Without that state a change on the server since the call cannot be told"
+                    + " apart; the call did not finish or its last export failed",
+                "Export the scope (export_artifacts), compare it with the version history in the"
+                    + " Workbench and restore there if needed").withNode(node));
+        }
+        if (!changed.isEmpty() || !editMode.isEmpty()) {
+            String report = report("conflict-" + auditId + ".diff", lines.isEmpty()
+                ? List.of("=== edit mode: " + String.join(", ", editMode)) : lines);
+            List<String> parts = new ArrayList<>();
+            if (!changed.isEmpty()) {
+                parts.add("changed on " + node + " since the call " + manifest.auditId() + ": "
+                    + String.join(", ", changed));
+            }
+            if (!editMode.isEmpty()) {
+                parts.add("in Workbench edit mode: " + String.join(", ", editMode));
+            }
+            throw new ToolErrorException(ToolError.of(ErrorCode.CONFLICT,
+                "Nothing was sent: " + String.join("; ", parts) + ". Differences: " + report,
+                "A colleague (or the Workbench) changed or opened the artifacts after that call;"
+                    + " restoring now would overwrite their change without a warning",
+                editMode.isEmpty() ? "Export the scope, decide with the colleague, then restore"
+                    + " the state in the Workbench or import it"
+                    : "Publish or discard the edit in the Workbench, then restore again")
+                .withNode(node));
+        }
+    }
+
+    /** The scope's current state on the node (research D-5), for restore and set_active. */
+    private record Fresh(List<byte[]> raw, SortedMap<String, byte[]> rendered,
+        Map<String, String> editMode, String fingerprint) {
+
+        @Override
+        public String toString() {
+            return "Fresh[" + raw.size() + " exports, " + fingerprint + "]";
+        }
+    }
+
+    private Fresh fresh(NodeId node, ChangeSet changes) {
+        ImportScope scope = changes.scope();
+        ArtifactPort port = d.artifacts().apply(node);
+        List<byte[]> raw = new ArrayList<>();
+        if (scope.diagramGroup().isPresent()) {
+            raw.add(port.exportWorkflowGroup(scope.owner(), scope.diagramGroup().get()));
+        } else {
+            for (ChangedArtifact module : changes.modules()) {
+                raw.add(port.exportModule(scope.owner(), module.ref().pluginType()
+                    .orElseThrow(), module.name()));
+            }
+        }
+        ArchiveCodecPort.PreparedExport prepared = d.codec().prepare(scope.group(),
+            scope.owner(), raw);
+        SortedMap<String, byte[]> rendered = prepared.files();
+        SortedMap<String, byte[]> artifacts = new TreeMap<>();
+        changes.artifacts().forEach(artifact -> artifacts.putAll(artifactFiles(rendered,
+            artifact)));
+        return new Fresh(raw, rendered, prepared.inEditMode(),
+            ConflictDetector.fingerprint(artifacts));
+    }
+
+    private static ToolErrorException changedSincePreview(NodeId node) {
+        return new ToolErrorException(ToolError.of(ErrorCode.CONFLICT,
+            "The scope changed on " + node + " after the preview; nothing was sent",
+            "A colleague imported or published in the scope meanwhile",
+            "Export the scope again, check the change, then preview again").withNode(node));
+    }
+
+    private static Optional<WorkspacePath> workspacePath(String path) {
+        if (path.startsWith(WorkspacePath.META_DIRECTORY + "/")) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(WorkspacePath.parse(Path.of(path)));
+        } catch (IllegalArgumentException e) {
+            return Optional.empty();
+        }
     }
 
     // --- preview -----------------------------------------------------------------------------
 
     private Response challenge(Call call, NodeId node, DevelopmentPolicy policy,
         ChangeSet changes, int warnings, String inputs, String previewState) {
-        WriteChallengeRegistry.Issued issued = d.challenges().issue(
-            Capability.IMPORT_ARTIFACTS, node, inputs, previewState, policy.confirmationTtl());
-        Map<String, String> audited = call.inputs();
-        audited.put(AuditRecord.ISSUED_CONFIRMATION_CODE, issued.code());
-        try {
-            d.audit().append(call.record(d.ids().get(), AuditRecord.Step.PREVIEW, audited,
-                AuditOutcome.CHALLENGE_ISSUED, Optional.of("Preview of the import of "
-                    + changes.scope().describe() + ", code valid until " + issued.expiresAt())));
-        } catch (RuntimeException e) {
-            d.challenges().discard(issued.code());
-            call.refused = true;
-            throw auditFailure(node, e, "the preview was not issued");
-        }
-        LOG.info("import_artifacts on {}: CHALLENGE_ISSUED", node);
+        WriteChallengeRegistry.Issued issued = issue(call, node, policy, inputs, previewState,
+            "the import of " + changes.scope().describe());
         return new Response.Challenge(new ImportPreview(node, changes.scope().describe(),
             changes.baseCommit(), changes.created(), changes.modified(), changes.notImported(),
             warnings, call.kind, issued.code(), issued.expiresAt(), "Nothing was sent. To"
@@ -337,46 +643,110 @@ public final class ImportService {
                 + " the same inputs and confirmationCode before " + issued.expiresAt() + "."));
     }
 
+    /** Issues a code for the preview of {@code what}, audited {@code CHALLENGE_ISSUED}. */
+    private WriteChallengeRegistry.Issued issue(Call call, NodeId node,
+        DevelopmentPolicy policy, String inputs, String previewState, String what) {
+        WriteChallengeRegistry.Issued issued = d.challenges().issue(call.capability, node,
+            inputs, previewState, policy.confirmationTtl());
+        Map<String, String> audited = call.inputs();
+        audited.put(AuditRecord.ISSUED_CONFIRMATION_CODE, issued.code());
+        try {
+            d.audit().append(call.record(d.ids().get(), AuditRecord.Step.PREVIEW, audited,
+                AuditOutcome.CHALLENGE_ISSUED, Optional.of("Preview of " + what
+                    + ", code valid until " + issued.expiresAt())));
+        } catch (RuntimeException e) {
+            d.challenges().discard(issued.code());
+            call.refused = true;
+            throw auditFailure(node, e, "the preview was not issued");
+        }
+        LOG.info("{} on {}: CHALLENGE_ISSUED", call.capability.toolName(), node);
+        return issued;
+    }
+
+    /** The preview of a restore or an activation (research D-2): nothing was sent. */
+    private Response writeChallenge(Call call, NodeId node, DevelopmentPolicy policy,
+        String scope, List<String> modify, List<String> notes, String inputs,
+        String previewState) {
+        WriteChallengeRegistry.Issued issued = issue(call, node, policy, inputs, previewState,
+            call.capability.toolName() + " of " + scope);
+        return new Response.WriteChallenge(new WritePreview(node, scope, modify, notes,
+            call.kind, issued.code(), issued.expiresAt(), "Nothing was sent. To run "
+                + call.capability.toolName() + " for " + scope + " on " + node + ", show this"
+                + " preview to the user and, after their explicit approval, call "
+                + call.capability.toolName() + " again with the same inputs and"
+                + " confirmationCode before " + issued.expiresAt() + "."));
+    }
+
     // --- execution ---------------------------------------------------------------------------
 
-    private Response execute(Call call, NodeId node, ChangeSet changes, UUID auditId,
-        ConflictDetector.Result fresh, ImportArchivePort.Archive archive, Account account) {
-        ImportScope scope = changes.scope();
+    /**
+     * What one writing call sends, how it is verified and how it is undone (import, restore,
+     * set_active).
+     *
+     * @param mode         how the archive is imported
+     * @param rollbackMode how the backup is re-imported on failure
+     * @param expected     the reviewed content each file of the change set must have afterwards
+     *                     ({@code null}: absent)
+     * @param verb         the first word of the history entry ({@code import}, …)
+     * @param subject      what the history entry and the messages name
+     * @param keep         artifacts created by an earlier call that stay (reported, never
+     *                     removed)
+     * @param notes        warnings of a successful call
+     */
+    private record Plan(ChangeSet changes, ImportArchivePort.Archive archive,
+        ImportPort.Mode mode, ImportPort.Mode rollbackMode, Function<String, byte[]> expected,
+        String verb, String subject, List<String> keep, List<String> notes) {
+    }
+
+    /** The outcome of a rollback and the state its verification saw, if it ran. */
+    private record Rollback(WriteOutcome.Rollback state,
+        Optional<SortedMap<String, byte[]>> seen) {
+
+        static Rollback of(WriteOutcome.Rollback state) {
+            return new Rollback(state, Optional.empty());
+        }
+    }
+
+    /**
+     * The backup (the raw exports of the scope, research D-13), the {@code PENDING} audit
+     * record (fail closed), then {@link #send}.
+     */
+    private Response execute(Call call, NodeId node, Plan plan, UUID auditId,
+        List<byte[]> rawExports, Account account) {
+        ChangeSet changes = plan.changes();
         String ref = auditId.toString();
-        d.backups().write(new BackupStore.Manifest(ref, node, call.owner, scope.describe(),
-            names(changes.artifacts()), changes.created(), Map.of(), "PENDING",
-            d.clock().instant(), List.of()), fresh.rawExports());
+        d.backups().write(new BackupStore.Manifest(ref, node, call.owner,
+            changes.scope().describe(), names(changes.artifacts()), changes.created(), Map.of(),
+            "PENDING", d.clock().instant(), List.of()), rawExports);
         call.backupRef = ref;
         try {
             d.audit().append(call.record(auditId, AuditRecord.Step.EXECUTE, call.inputs(),
-                AuditOutcome.PENDING, Optional.of("About to import " + changes.artifacts().size()
-                    + " artifact(s) of " + scope.describe())));
+                AuditOutcome.PENDING, Optional.of("About to send " + changes.artifacts().size()
+                    + " artifact(s) of " + plan.subject() + " (" + plan.verb() + ")")));
         } catch (RuntimeException e) {
             call.refused = true;
             throw auditFailure(node, e, "nothing was sent");
         }
         call.sent = auditId;
         try {
-            return send(call, node, changes, auditId, archive, account);
+            return send(call, node, plan, auditId, account);
         } catch (RuntimeException e) {
-            return unexpectedAfterSending(call, node, changes, auditId, account, e);
+            return unexpectedAfterSending(call, node, plan, auditId, account, e);
         }
     }
 
     /** The import, its protocol, the verification, and the commit or the rollback. */
-    private Response send(Call call, NodeId node, ChangeSet changes, UUID auditId,
-        ImportArchivePort.Archive archive, Account account) {
+    private Response send(Call call, NodeId node, Plan plan, UUID auditId, Account account) {
+        ChangeSet changes = plan.changes();
         ImportScope scope = changes.scope();
-        ImportPort.Mode mode = scope.diagramGroup().isPresent() ? ImportPort.Mode.WORKFLOW
-            : ImportPort.Mode.MODULE;
         List<String> warnings = new ArrayList<>();
         List<String> reports = new ArrayList<>();
         WriteOutcome.Failure failure = null;
         boolean timedOut = false;
         call.step = "import";
         try {
-            ImportProtocol protocol = d.imports().apply(node).importArchive(archive.zip(), mode,
-                call.owner, call.kind);
+            ImportProtocol protocol = d.imports().apply(node).importArchive(
+                plan.archive().zip(), plan.mode(), call.owner, call.kind);
             call.step = "protocol";
             Optional<String> mismatch = protocolMismatch(changes, protocol);
             if (mismatch.isPresent()) {
@@ -404,13 +774,13 @@ public final class ImportService {
                             + current.failure().get());
                 }
             } else {
-                List<String> differences = verify(changes, current.files(), call.request.reason());
+                List<String> differences = verify(plan, current.files(), call.reason);
                 if (differences.isEmpty()) {
                     if (timedOut) {
                         warnings.add("StartCLI timed out, but the re-export shows the import;"
                             + " it was verified");
                     }
-                    return success(call, node, changes, auditId, current, warnings);
+                    return success(call, node, plan, auditId, current, warnings);
                 }
                 if (failure == null) {
                     String report = report("verify-" + auditId + ".diff", differences);
@@ -425,9 +795,8 @@ public final class ImportService {
         if (current.failure().isPresent()) {
             current = export(node, changes);
         }
-        WriteOutcome.Rollback rollback = rollback(call, node, changes, auditId, current,
-            account);
-        return failed(call, node, changes, auditId, failure, rollback, current, reports,
+        Rollback rollback = rollback(call, node, plan, auditId, current, account);
+        return failed(call, node, plan, auditId, failure, rollback, current, reports,
             warnings);
     }
 
@@ -438,10 +807,11 @@ public final class ImportService {
      * not even that result can be produced does {@link Call#failedAfterSending} report an
      * {@code INTERNAL} tool error.
      */
-    private Response unexpectedAfterSending(Call call, NodeId node, ChangeSet changes,
-        UUID auditId, Account account, RuntimeException e) {
-        LOG.error("import_artifacts on {} failed unexpectedly at {} after sending (audit id {})",
-            node, call.step, auditId, e);
+    private Response unexpectedAfterSending(Call call, NodeId node, Plan plan, UUID auditId,
+        Account account, RuntimeException e) {
+        LOG.error("{} on {} failed unexpectedly at {} after sending (audit id {})",
+            call.capability.toolName(), node, call.step, auditId, e);
+        ChangeSet changes = plan.changes();
         WriteOutcome.Failure failure = new WriteOutcome.Failure(ErrorCode.IMPORT_FAILED,
             call.step, "INTERNAL: an unexpected failure (" + e.getClass().getSimpleName()
                 + ") after the import was sent; the state was re-exported and rolled back from"
@@ -454,57 +824,69 @@ public final class ImportService {
             current = new Exported(List.of(), new TreeMap<>(), Optional.of("INTERNAL: "
                 + again.getClass().getSimpleName()));
         }
-        WriteOutcome.Rollback rollback = rollback(call, node, changes, auditId, current,
-            account);
-        return failed(call, node, changes, auditId, failure, rollback, current,
-            new ArrayList<>(), new ArrayList<>());
+        Rollback rollback = rollback(call, node, plan, auditId, current, account);
+        return failed(call, node, plan, auditId, failure, rollback, current, new ArrayList<>(),
+            new ArrayList<>());
     }
 
-    private Response success(Call call, NodeId node, ChangeSet changes, UUID auditId,
+    private Response success(Call call, NodeId node, Plan plan, UUID auditId,
         Exported current, List<String> warnings) {
+        ChangeSet changes = plan.changes();
         call.step = "commit";
         writeBack(changes, current.files());
-        Optional<String> commit = d.history().commitAll("import " + node.value() + ": "
-                + changes.scope().describe() + " (" + changes.artifacts().size()
-                + " artifacts) [" + auditId + "]",
+        Optional<String> commit = d.history().commitAll(plan.verb() + " " + node.value() + ": "
+                + plan.subject() + " (" + changes.artifacts().size() + " artifacts) ["
+                + auditId + "]",
             Map.of(VersionHistoryPort.SERVER_STATE, node.group().value()))
             .map(entry -> entry.commit());
         updateManifest(call, node, changes, auditId, "EXECUTED", current.files());
-        String message = "Imported " + changes.artifacts().size() + " artifact(s) of "
-            + changes.scope().describe() + " and verified them" + commit.map(c -> " (" + c
-                + ")").orElse("");
+        String message = "Sent " + changes.artifacts().size() + " artifact(s) of "
+            + plan.subject() + " (" + plan.verb() + ") and verified them" + commit.map(c -> " ("
+                + c + ")").orElse("");
         appendFinal(call, node, auditId, AuditOutcome.EXECUTED, message);
-        LOG.info("import_artifacts on {}: EXECUTED (audit id {})", node, auditId);
+        LOG.info("{} on {}: EXECUTED (audit id {})", call.capability.toolName(), node, auditId);
+        warnings.addAll(plan.notes());
+        keep(plan.keep(), warnings);
         return new Response.Completed(new WriteOutcome(auditId, WriteOutcome.Outcome.EXECUTED,
             Optional.empty(), commit, Optional.of(auditId.toString()), changes.created(),
-            changes.modified(), changes.notImported(), Optional.empty(), List.of(), List.of(),
+            changes.modified(), changes.notImported(), Optional.empty(), plan.keep(), List.of(),
             warnings));
     }
 
-    private Response failed(Call call, NodeId node, ChangeSet changes, UUID auditId,
-        WriteOutcome.Failure failure, WriteOutcome.Rollback rollback, Exported current,
+    /** The warning for created artifacts that stay: nothing is ever deleted. */
+    private static void keep(List<String> created, List<String> warnings) {
+        if (!created.isEmpty()) {
+            warnings.add("Created and not removed (nothing is ever deleted): " + String.join(
+                ", ", created) + " — delete them in the Workbench if needed");
+        }
+    }
+
+    private Response failed(Call call, NodeId node, Plan plan, UUID auditId,
+        WriteOutcome.Failure failure, Rollback outcome, Exported current,
         List<String> reports, List<String> warnings) {
+        ChangeSet changes = plan.changes();
+        WriteOutcome.Rollback rollback = outcome.state();
         WriteOutcome.Failure reported = failure;
         if (rollback == WriteOutcome.Rollback.FAILED) {
             reported = new WriteOutcome.Failure(failure.code(), failure.step(), failure.message()
                 + "; the rollback failed: the backup " + auditId + " is kept — restore it with"
                 + " restore_backup or in the Workbench");
         }
-        List<String> createdNotRemoved = changes.artifacts().stream()
+        List<String> createdNotRemoved = new ArrayList<>(changes.artifacts().stream()
             .filter(artifact -> artifact.kind() == ChangedArtifact.Kind.NEW)
             .filter(artifact -> current.failure().isPresent()
                 || !artifactFiles(current.files(), artifact).isEmpty())
-            .map(ChangedArtifact::name).toList();
-        if (!createdNotRemoved.isEmpty()) {
-            warnings.add("Created and not removed (nothing is ever deleted): " + String.join(
-                ", ", createdNotRemoved) + " — delete them in the Workbench if needed");
-        }
-        updateManifest(call, node, changes, auditId, "FAILED", current.files());
+            .map(ChangedArtifact::name).toList());
+        createdNotRemoved.addAll(plan.keep());
+        keep(createdNotRemoved, warnings);
+        // research D-25 H7: the state the call left, as its last verification saw it
+        updateManifest(call, node, changes, auditId, "FAILED", outcome.seen()
+            .orElse(current.files()));
         call.rollback = rollback.name();
         appendFinal(call, node, auditId, AuditOutcome.FAILED, reported.code() + " at "
             + reported.step() + ": " + reported.message() + " (rollback " + rollback + ")");
-        LOG.warn("import_artifacts on {}: FAILED at {} (audit id {}, rollback {})", node,
-            reported.step(), auditId, rollback);
+        LOG.warn("{} on {}: FAILED at {} (audit id {}, rollback {})",
+            call.capability.toolName(), node, reported.step(), auditId, rollback);
         return new Response.Completed(new WriteOutcome(auditId, WriteOutcome.Outcome.FAILED,
             Optional.of(reported), Optional.empty(), Optional.of(auditId.toString()),
             changes.created(), changes.modified(), changes.notImported(),
@@ -515,12 +897,13 @@ public final class ImportService {
      * Research D-10, D-25: the modified artifacts go back to the backup's state with the
      * target's current secrets, if they changed; verified by another export.
      */
-    private WriteOutcome.Rollback rollback(Call call, NodeId node, ChangeSet changes,
-        UUID auditId, Exported current, Account account) {
+    private Rollback rollback(Call call, NodeId node, Plan plan, UUID auditId,
+        Exported current, Account account) {
+        ChangeSet changes = plan.changes();
         List<ChangedArtifact> existing = changes.artifacts().stream()
             .filter(artifact -> artifact.kind() == ChangedArtifact.Kind.MODIFIED).toList();
         if (existing.isEmpty()) {
-            return WriteOutcome.Rollback.NOT_NEEDED;
+            return Rollback.of(WriteOutcome.Rollback.NOT_NEEDED);
         }
         try {
             ImportScope scope = changes.scope();
@@ -528,10 +911,10 @@ public final class ImportService {
             SortedMap<String, byte[]> before = d.codec().prepare(scope.group(), call.owner,
                 backup).files();
             if (current.failure().isEmpty() && sameState(existing, before, current.files())) {
-                return WriteOutcome.Rollback.NOT_NEEDED;
+                return Rollback.of(WriteOutcome.Rollback.NOT_NEEDED);
             }
             if (current.failure().isPresent()) {
-                return WriteOutcome.Rollback.FAILED;
+                return Rollback.of(WriteOutcome.Rollback.FAILED);
             }
             ImportArchivePort.Archive archive = d.archives().assemble(build(new ChangeSet(scope,
                     changes.baseCommit(), existing.stream().filter(a -> a.ref().kind()
@@ -539,20 +922,23 @@ public final class ImportService {
                         .toList(), existing.stream().filter(a -> a.ref().kind()
                         == ArtifactRef.Kind.MODULE)
                         .toList(), List.of()), call, before, current.raw(),
-                "Rollback of import " + auditId, account, Set.of()));
+                "Rollback of " + plan.verb() + " " + auditId, account, Set.of()));
             try {
-                d.imports().apply(node).importArchive(archive.zip(), scope.diagramGroup()
-                    .isPresent() ? ImportPort.Mode.WORKFLOW : ImportPort.Mode.MODULE,
+                d.imports().apply(node).importArchive(archive.zip(), plan.rollbackMode(),
                     call.owner, call.kind);
             } catch (ToolErrorException e) {
                 LOG.warn("The rollback import on {} failed: {}", node, e.error().code());
             }
             Exported after = export(node, changes);
-            return after.failure().isEmpty() && sameState(existing, before, after.files())
-                ? WriteOutcome.Rollback.SUCCEEDED : WriteOutcome.Rollback.FAILED;
+            if (after.failure().isPresent()) {
+                return Rollback.of(WriteOutcome.Rollback.FAILED);
+            }
+            return new Rollback(sameState(existing, before, after.files())
+                ? WriteOutcome.Rollback.SUCCEEDED : WriteOutcome.Rollback.FAILED,
+                Optional.of(after.files()));
         } catch (RuntimeException e) {
             LOG.error("The rollback on {} failed", node, e);
-            return WriteOutcome.Rollback.FAILED;
+            return Rollback.of(WriteOutcome.Rollback.FAILED);
         }
     }
 
@@ -635,23 +1021,23 @@ public final class ImportService {
      * Research D-9: every change-set artifact's files equal the workspace (reviewed content),
      * and a workflow's check-in comment carries the reason.
      */
-    private List<String> verify(ChangeSet changes, SortedMap<String, byte[]> rendered,
-        String reason) {
+    private List<String> verify(Plan plan, SortedMap<String, byte[]> rendered, String reason) {
+        ChangeSet changes = plan.changes();
         List<String> differences = new ArrayList<>();
         for (ChangedArtifact artifact : changes.artifacts()) {
             Set<String> paths = new TreeSet<>(artifact.paths());
             paths.addAll(artifactFiles(rendered, artifact).keySet());
             for (String path : paths) {
-                byte[] expected = readOrNull(path);
+                byte[] expected = plan.expected().apply(path);
                 byte[] actual = rendered.get(path);
                 if (!d.archives().equivalent(path, expected, actual)) {
                     differences.add("=== " + path);
-                    differences.add("--- workspace: " + (expected == null ? "(missing)"
+                    differences.add("--- intended: " + (expected == null ? "(missing)"
                         : expected.length + " bytes"));
                     differences.add("+++ " + changes.scope().describe() + " on the server: "
                         + (actual == null ? "(missing)" : actual.length + " bytes"));
                     StringBuilder diff = new StringBuilder();
-                    ConflictDetector.LineDiff.append(diff, path, "workspace", expected, actual);
+                    ConflictDetector.LineDiff.append(diff, path, "intended", expected, actual);
                     differences.addAll(diff.toString().lines().toList());
                 }
             }
@@ -891,7 +1277,7 @@ public final class ImportService {
                 removed.node().value(), Optional.of(removed.node().group().value()), RETENTION,
                 AuditRecord.Step.EXECUTE, inputs, Optional.empty(), AuditOutcome.EXECUTED,
                 Optional.of("Removed the backup taken at " + removed.takenAt() + " (older than"
-                    + " 30 days and not the newest of its scope)"), call.request.mcpClient()));
+                    + " 30 days and not the newest of its scope)"), call.mcpClient));
         }
         if (sweep.skipped() > 0) {
             LOG.warn("{} backup manifest(s) could not be trusted and were kept", sweep.skipped());
@@ -907,25 +1293,14 @@ public final class ImportService {
         }
     }
 
-    private static ImportScope scope(Call call, NodeId node) {
-        ImportRequest request = call.request;
+    private static ImportScope scope(Call call, ImportRequest request, NodeId node) {
         return request.diagramGroup().map(group -> ImportScope.diagramGroup(node.group(),
             call.owner, group)).orElseGet(() -> ImportScope.modules(node.group(), call.owner,
             request.modules()));
     }
 
     private static void validate(ImportRequest request) {
-        if (!REASON.matcher(request.reason()).matches() || request.reason().isBlank()) {
-            throw invalid("Invalid reason: it must be 1-500 characters without #, @ and"
-                    + " control characters",
-                "The reason becomes the check-in comment; # and @ separate its segments",
-                "Give a short plain-text reason");
-        }
-        if (request.confirmationCode().filter(code -> !CODE.matcher(code).matches())
-            .isPresent()) {
-            throw invalid("Invalid confirmationCode", "A confirmation code has 22 URL-safe"
-                + " Base64 chars", "Use the code of the preview exactly as returned");
-        }
+        validate(request.reason(), request.confirmationCode());
         boolean group = request.diagramGroup().filter(g -> !g.isBlank()).isPresent();
         if (group == !request.modules().isEmpty()) {
             throw invalid("Give either diagramGroup or modules, not both and not neither",
@@ -938,8 +1313,21 @@ public final class ImportService {
         }
     }
 
-    private String inputFingerprint(NodeId node, Call call) {
-        ImportRequest request = call.request;
+    /** The reason and the code of every writing call. */
+    private static void validate(String reason, Optional<String> confirmationCode) {
+        if (!REASON.matcher(reason).matches() || reason.isBlank()) {
+            throw invalid("Invalid reason: it must be 1-500 characters without #, @ and"
+                    + " control characters",
+                "The reason becomes the check-in comment; # and @ separate its segments",
+                "Give a short plain-text reason");
+        }
+        if (confirmationCode.filter(code -> !CODE.matcher(code).matches()).isPresent()) {
+            throw invalid("Invalid confirmationCode", "A confirmation code has 22 URL-safe"
+                + " Base64 chars", "Use the code of the preview exactly as returned");
+        }
+    }
+
+    private String inputFingerprint(NodeId node, Call call, ImportRequest request) {
         StringBuilder text = new StringBuilder(node.value()).append('\n').append(call.owner)
             .append('\n').append(request.diagramGroup().orElse("")).append('\n');
         request.modules().forEach(module -> text.append(module.name()).append('/')
@@ -1043,7 +1431,13 @@ public final class ImportService {
     /** One call: its request, what is known so far and the refusal path. */
     private final class Call {
 
-        final ImportRequest request;
+        final Capability capability;
+        final String node;
+        final String reason;
+        final Optional<String> confirmationCode;
+        final Optional<String> mcpClient;
+        /** The audited inputs of the request after the reason (scope, backupRef, …). */
+        final Map<String, String> requested = new LinkedHashMap<>();
         DevelopmentPolicy policy;
         String owner;
         OwnerKind kind;
@@ -1056,17 +1450,20 @@ public final class ImportService {
         /** The step reached after sending: import, protocol, verify, commit. */
         String step = "import";
 
-        Call(ImportRequest request) {
-            this.request = request;
+        Call(Capability capability, String node, String reason,
+            Optional<String> confirmationCode, Optional<String> mcpClient) {
+            this.capability = capability;
+            this.node = node;
+            this.reason = reason;
+            this.confirmationCode = confirmationCode;
+            this.mcpClient = mcpClient;
         }
 
         /** The sanitized inputs, in a fixed order; never content or secrets. */
         Map<String, String> inputs() {
             Map<String, String> inputs = new LinkedHashMap<>();
-            inputs.put("reason", bounded(request.reason()));
-            inputs.put("scope", bounded(request.diagramGroup().map(g -> "diagram group " + g)
-                .orElseGet(() -> "modules " + String.join(", ", request.modules().stream()
-                    .map(ImportScope.Module::name).toList()))));
+            inputs.put("reason", bounded(reason));
+            requested.forEach((key, value) -> inputs.put(key, bounded(value)));
             if (owner != null) {
                 inputs.put("owner", bounded(owner));
             }
@@ -1080,10 +1477,11 @@ public final class ImportService {
                     : String.join(", ", names.subList(0, MAX_AUDITED_NAMES)) + ", …+"
                         + (names.size() - MAX_AUDITED_NAMES));
             }
-            request.confirmationCode().ifPresent(code ->
-                inputs.put(AuditRecord.CONFIRMATION_CODE, code));
+            confirmationCode.ifPresent(code -> inputs.put(AuditRecord.CONFIRMATION_CODE, code));
             if (backupRef != null) {
-                inputs.put("backupRef", backupRef);
+                // a restore names the backup it restores as backupRef, its own differently
+                inputs.put(requested.containsKey("backupRef") ? "newBackupRef" : "backupRef",
+                    backupRef);
             }
             if (rollback != null) {
                 inputs.put("rollback", rollback);
@@ -1095,9 +1493,9 @@ public final class ImportService {
             AuditOutcome outcome, Optional<String> reason) {
             Optional<NodeId> node = node();
             return new AuditRecord(auditId, d.clock().instant(), d.profile(),
-                node.map(NodeId::value).orElse(bounded(request.node())), group(), CAPABILITY,
-                step, inputs, node.map(id -> d.accounts().apply(id).user()), outcome,
-                reason.map(Call::bounded), request.mcpClient());
+                node.map(NodeId::value).orElse(bounded(this.node)), group(),
+                capability.toolName(), step, inputs, node.map(id -> d.accounts().apply(id)
+                    .user()), outcome, reason.map(Call::bounded), mcpClient);
         }
 
         void append(UUID auditId, AuditRecord.Step step, AuditOutcome outcome, String reason) {
@@ -1111,7 +1509,8 @@ public final class ImportService {
          * {@code INTERNAL} tool error naming the backup that holds the state before.
          */
         ToolErrorException failedAfterSending(RuntimeException e) {
-            LOG.error("import_artifacts failed unexpectedly after sending (audit id {})", sent, e);
+            LOG.error("{} failed unexpectedly after sending (audit id {})",
+                capability.toolName(), sent, e);
             String message = "Unexpected failure after the import was sent ("
                 + e.getClass().getSimpleName() + "): the change set may have been imported"
                 + " without verification; the backup " + sent + " holds the state before";
@@ -1132,8 +1531,8 @@ public final class ImportService {
         /** Audits {@code error} as {@code REFUSED}; discards a presented code. */
         ToolErrorException refuse(ToolError error) {
             refused = true;
-            request.confirmationCode().ifPresent(d.challenges()::discard);
-            boolean execute = request.confirmationCode().isPresent() || (policy != null
+            confirmationCode.ifPresent(d.challenges()::discard);
+            boolean execute = confirmationCode.isPresent() || (policy != null
                 && policy.confirmation() == WritePolicy.Confirmation.CLIENT);
             try {
                 d.audit().append(record(d.ids().get(), execute ? AuditRecord.Step.EXECUTE
@@ -1149,7 +1548,7 @@ public final class ImportService {
                     "Fix the audit directory (auditDirectory in the configuration), then"
                         + " retry"));
             }
-            LOG.info("import_artifacts on {}: REFUSED ({})", bounded(request.node()),
+            LOG.info("{} on {}: REFUSED ({})", capability.toolName(), bounded(node),
                 error.code());
             return new ToolErrorException(error);
         }
@@ -1159,7 +1558,7 @@ public final class ImportService {
                 return Optional.of(policy.node());
             }
             try {
-                NodeId id = NodeId.parse(request.node());
+                NodeId id = NodeId.parse(node);
                 return d.policies().apply(id) == null ? Optional.empty() : Optional.of(id);
             } catch (RuntimeException e) {
                 return Optional.empty();
@@ -1168,7 +1567,7 @@ public final class ImportService {
 
         private Optional<String> group() {
             try {
-                return Optional.of(switch (Target.parse(request.node())) {
+                return Optional.of(switch (Target.parse(node)) {
                     case Target.Group group -> group.id().value();
                     case Target.Node node -> node.id().group().value();
                 });

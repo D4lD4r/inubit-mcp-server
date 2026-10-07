@@ -1,0 +1,183 @@
+{
+  "type": "object",
+  "description": "Either the preview of the first step (challenge) or the outcome of the execution (result); refusals before anything is sent are tool errors",
+  "properties": {
+    "challenge": {
+      "$ref": "#/$defs/Challenge"
+    },
+    "result": {
+      "$ref": "#/$defs/Result"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "challenge"
+      ]
+    },
+    {
+      "required": [
+        "result"
+      ]
+    }
+  ],
+  "$defs": {
+    "Challenge": {
+      "type": "object",
+      "description": "Nothing was sent; call the tool again with the same inputs and confirmationCode before expiresAt",
+      "required": [
+        "node",
+        "scope",
+        "modify",
+        "notes",
+        "ownerKind",
+        "confirmationCode",
+        "expiresAt",
+        "message"
+      ],
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "modify": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The artifacts that would be re-imported (each gets a new version)"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ownerKind": {
+          "enum": [
+            "USER",
+            "USER_GROUP"
+          ]
+        },
+        "confirmationCode": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{22}$"
+        },
+        "expiresAt": {
+          "type": "string",
+          "description": "ISO-8601 UTC"
+        },
+        "message": {
+          "type": "string",
+          "description": "What to do next"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Result": {
+      "type": "object",
+      "required": [
+        "auditId",
+        "outcome",
+        "created",
+        "modified",
+        "notImported",
+        "createdNotRemoved",
+        "reports",
+        "warnings"
+      ],
+      "properties": {
+        "auditId": {
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "EXECUTED",
+            "FAILED"
+          ]
+        },
+        "failure": {
+          "type": "object",
+          "required": [
+            "code",
+            "step",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "IMPORT_FAILED",
+                "VERIFY_MISMATCH"
+              ]
+            },
+            "step": {
+              "type": "string",
+              "description": "import, protocol or verify"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "commit": {
+          "type": "string",
+          "description": "The history entry of the verified state"
+        },
+        "backupRef": {
+          "type": "string",
+          "description": "The backup of the state before the call (restore_backup)"
+        },
+        "created": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "modified": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notImported": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rollback": {
+          "enum": [
+            "NOT_NEEDED",
+            "SUCCEEDED",
+            "FAILED"
+          ]
+        },
+        "createdNotRemoved": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Created by a failed call; nothing is deleted \u2014 delete them in the Workbench if needed"
+        },
+        "reports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Workspace-relative report files"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

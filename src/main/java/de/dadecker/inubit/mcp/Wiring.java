@@ -57,6 +57,7 @@ import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListInventoryTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
+import de.dadecker.inubit.mcp.mcp.tools.RestoreBackupTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -80,7 +81,8 @@ import java.util.function.Predicate;
  * of US4 ({@code restart_process}, {@code kill_process}) are added only if
  * {@link #anyWriteEnabled()} (contracts/mcp-tools.md, Story 4 / AS 6); their service, the write
  * guard and the audit log ({@code auditDirectory}, written only on a write call) are built in any
- * case. Feature 004: {@code import_artifacts} only if {@link #anyDevelopmentNode()}; its service
+ * case. Feature 004: {@code import_artifacts} and {@code restore_backup} only if
+ * {@link #anyDevelopmentNode()}; their service
  * shares the audit log and the check service, and keeps its backups in
  * {@code ~/.inubit-mcp/<profile>/backups} (created on the first import).
  *
@@ -105,6 +107,7 @@ final class Wiring implements AutoCloseable {
     private final ExportArtifactsTool exportArtifacts;
     private final CheckArtifactsTool checkArtifacts;
     private final ImportArtifactsTool importArtifacts;
+    private final RestoreBackupTool restoreBackup;
     private final CliResources cliResources;
     private final Thread cleanupHook;
 
@@ -181,7 +184,7 @@ final class Wiring implements AutoCloseable {
         // feature 004: the development tools (offered only with a development node)
         Map<NodeId, DevelopmentPolicy> development = new HashMap<>();
         servers.forEach(server -> development.put(server.id(), server.developmentPolicy()));
-        this.importArtifacts = new ImportArtifactsTool(new ImportService(
+        ImportService imports = new ImportService(
             new ImportService.Dependencies(workspace, profile.name(),
                 new DevelopmentGuard(targets, development::get,
                     node -> gateways.imports(node).checkAvailable()),
@@ -196,7 +199,9 @@ final class Wiring implements AutoCloseable {
                 new WriteChallengeRegistry(clock.clock()),
                 new BackupStore(BackupStore.defaultRoot(Path.of(System.getProperty(
                     "user.home")), profile.name()), clock.clock()),
-                audit, clock.clock(), UUID::randomUUID)));
+                audit, clock.clock(), UUID::randomUUID));
+        this.importArtifacts = new ImportArtifactsTool(imports);
+        this.restoreBackup = new RestoreBackupTool(imports);
         // last step (N2): SIGTERM (and System.exit) stop running StartCLI work and delete the
         // export directories
         Runtime.getRuntime().addShutdownHook(cleanupHook);
@@ -235,6 +240,7 @@ final class Wiring implements AutoCloseable {
         }
         if (anyDevelopmentNode()) {
             handlers.add(importArtifacts);
+            handlers.add(restoreBackup);
         }
         return List.copyOf(handlers);
     }

@@ -104,6 +104,46 @@ class DevelopmentAuditTest {
     }
 
     @Test
+    void aRestoreIsAuditedWithTheBackupItRestoresAndItsOwnBackup() throws IOException {
+        ImportHarness harness = edited();
+        harness.exportGroup().importApplied().exportGroup();
+        String ref = ((ImportService.Response.Completed) harness.service().importArtifacts(
+            harness.group("Audited change"))).outcome().backupRef().orElseThrow();
+        harness.exportGroup().importApplied().exportGroup();
+
+        WriteOutcome outcome = ((ImportService.Response.Completed) harness.service().restore(
+            new ImportService.RestoreRequest("dev/node1", ref, "Audited undo",
+                java.util.Optional.empty(), java.util.Optional.empty()))).outcome();
+
+        List<AuditRecord> records = harness.audit("restore_backup");
+        assertThat(records).extracting(AuditRecord::outcome).containsExactly(
+            AuditOutcome.PENDING, AuditOutcome.EXECUTED);
+        assertThat(records).allSatisfy(record -> assertThat(record.inputs())
+            .containsEntry("reason", "Audited undo").containsEntry("backupRef", ref)
+            .containsEntry("scope", "diagram group GRP-01").containsEntry("owner", "jdoe")
+            .containsEntry("ownerKind", "USER").containsEntry("changeSet", "Workflow-0001")
+            .containsEntry("newBackupRef", outcome.auditId().toString()));
+        assertThat(records.toString()).doesNotContain("xPos");
+    }
+
+    @Test
+    void aRefusedRestoreIsAuditedWithItsReference() throws IOException {
+        ImportHarness harness = edited();
+        String ref = java.util.UUID.randomUUID().toString();
+
+        assertThatThrownBy(() -> harness.service().restore(new ImportService.RestoreRequest(
+            "dev/node1", ref, "Unknown", java.util.Optional.empty(),
+            java.util.Optional.empty()))).isInstanceOf(ToolErrorException.class);
+
+        assertThat(harness.audit("restore_backup")).singleElement().satisfies(record -> {
+            assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED);
+            assertThat(record.inputs()).containsEntry("backupRef", ref);
+            assertThat(record.reason()).hasValueSatisfying(reason ->
+                assertThat(reason).startsWith("NOT_FOUND"));
+        });
+    }
+
+    @Test
     void aLongChangeSetIsCutInTheAudit() throws IOException {
         ImportHarness harness = new ImportHarness(temp, ExportHarness.large(25, 100), "jdoe",
             "GRP-01");

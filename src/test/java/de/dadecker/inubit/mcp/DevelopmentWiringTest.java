@@ -70,14 +70,14 @@ class DevelopmentWiringTest {
 
     @Test
     void withoutADevelopmentNodeNoDevelopmentToolIsOffered() {
-        assertThat(toolNames("")).doesNotContain("import_artifacts");
+        assertThat(toolNames("")).doesNotContain("import_artifacts", "restore_backup");
         assertThat(toolNames("development:\n  enabled: false")).doesNotContain(
-            "import_artifacts");
+            "import_artifacts", "restore_backup");
     }
 
     @Test
-    void aDevelopmentNodeOffersImportArtifacts() {
-        assertThat(toolNames("development:\n  enabled: true")).contains("import_artifacts")
-            .doesNotContain("restart_process");
+    void aDevelopmentNodeOffersTheDevelopmentTools() {
+        assertThat(toolNames("development:\n  enabled: true")).contains("import_artifacts",
+            "restore_backup").doesNotContain("restart_process");
     }
 }
