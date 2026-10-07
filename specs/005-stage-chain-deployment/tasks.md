@@ -129,7 +129,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 - [X] T019 [US1] `main/application/DeploymentLedger.java` (`deployments/ledger.json`, owner-only,
   atomic write; node → artifact → fingerprint, auditId, tag, time; no content); tests incl.
   permissions and a leak check.
-- [ ] T020 [US1] `main/application/DeployService.java` preview: guard, locks, discovery, checks,
+- [X] T020 [US1] `main/application/DeployService.java` preview: guard, locks, discovery, checks,
   planning, `WriteChallengeRegistry` capability `DEPLOY_RELEASE` keyed by the target group, preview
   state per D-6, TTL `deployConfirmationTtl`, code only if every plan is executable; audit
   `CHALLENGE_ISSUED`; `DeployServiceTest` previews (US1 AS1, AS3–AS7; US2 AS1–AS4; a target node

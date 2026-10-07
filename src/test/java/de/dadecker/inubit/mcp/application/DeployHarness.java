@@ -134,6 +134,7 @@ public final class DeployHarness {
         this.backups = new BackupStore(profileHome.resolve("backups"), clock);
         this.workspace = new ExportHarness(root);
         this.history = workspace.history;
+        this.ledger = new DeploymentLedger(profileHome.resolve("deployments"));
         for (NodeId node : List.of(SOURCE, SOURCE2, INT1, INT2, INT3, PROD)) {
             this.servers.put(node, servers.apply(node));
             cli.put(node, new ScriptedProcessLauncher());
@@ -250,6 +251,72 @@ public final class DeployHarness {
                     new ConnectorFlags(false, false, false), Optional.empty())).toList();
             }
         };
+    }
+
+    // --- the deployment service (feature 005, stage 2) ----------------------------------------
+
+    /** The codes the deployment service issues. */
+    public final WriteChallengeRegistry challenges = new WriteChallengeRegistry(clock);
+    /** The deployment ledger below {@link #profileHome}. */
+    public final DeploymentLedger ledger;
+
+    /** The deploy lock directory {@code <profile>/deployments}. */
+    public Path deployments() {
+        return profileHome.resolve("deployments");
+    }
+
+    /**
+     * The chain {@code dev → int (exclude) → prod (package only)} with the nodes of this
+     * harness.
+     */
+    public static de.dadecker.inubit.mcp.domain.model.StageChain chain(
+        List<de.dadecker.inubit.mcp.domain.model.StageChain.Exclusion> exclude) {
+        Map<de.dadecker.inubit.mcp.domain.model.GroupId,
+            de.dadecker.inubit.mcp.domain.model.StageChain.ChainLink> targets =
+            new LinkedHashMap<>();
+        targets.put(INT1.group(), new de.dadecker.inubit.mcp.domain.model.StageChain.ChainLink(
+            SOURCE.group(), de.dadecker.inubit.mcp.domain.model.DeployMode.EXECUTE, exclude));
+        targets.put(PROD.group(), new de.dadecker.inubit.mcp.domain.model.StageChain.ChainLink(
+            INT1.group(), de.dadecker.inubit.mcp.domain.model.DeployMode.PACKAGE_ONLY,
+            List.of()));
+        return new de.dadecker.inubit.mcp.domain.model.StageChain(targets);
+    }
+
+    /** The feature-003 checks on a rendered release below {@code root} (no server lookups). */
+    public ReleasePlanner.ReleaseChecker releaseChecker() {
+        de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector inspector =
+            new de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector();
+        return (releaseRoot, paths) -> new ArtifactCheckService(releaseRoot, inspector,
+            new de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner(releaseRoot),
+            group -> Optional.empty(), node -> {
+                throw new AssertionError("no server lookups");
+            }, node -> Optional.empty(), ResultLimiter.withDefaults(), clock)
+            .checkPaths(paths, false);
+    }
+
+    /** The release planner on the real 8.1 archive adapters. */
+    public ReleasePlanner planner() {
+        return new ReleasePlanner(new ReleasePlanner.Dependencies(this::artifacts,
+            this::inventory, new de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec(),
+            new de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives(),
+            new de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives(),
+            releaseChecker(), node -> new ImportService.Account(OWNER, node.name()
+                + ".example.test"), root, clock));
+    }
+
+    /** {@code deploy_release} on this harness with the chain {@link #chain}. */
+    public DeployService deployService(
+        List<de.dadecker.inubit.mcp.domain.model.StageChain.Exclusion> exclude) {
+        de.dadecker.inubit.mcp.domain.model.StageChain chain = chain(exclude);
+        List<NodeId> nodes = new java.util.ArrayList<>(servers.keySet());
+        DeployGuard guard = new DeployGuard(chain, new TargetResolver(nodes),
+            group -> Optional.of(OWNER), audit::add, "acme", clock, java.util.UUID::randomUUID);
+        return new DeployService(new DeployService.Dependencies(root, deployments(), "acme",
+            guard, new ReleaseDiscovery(this::artifacts,
+                new de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec(),
+                new de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives(), root),
+            planner(), ledger, challenges, java.time.Duration.ofMinutes(30), audit::add, clock,
+            java.util.UUID::randomUUID));
     }
 
     // --- scripting (per node, in launch order) -----------------------------------------------

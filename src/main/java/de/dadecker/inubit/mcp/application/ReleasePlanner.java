@@ -353,6 +353,7 @@ public final class ReleasePlanner {
         writeDiff(base + ".diff", node, release, parts, target, targetRepository, artifacts,
             group, owner);
         NodePlan plan = new NodePlan(node, artifacts, warnings, errors, fingerprint,
+            artifactStates(artifacts, parts, target, targetRepository, group, owner),
             base + ".diff", base + ".txt");
         writeSummary(plan, admitted, auditId);
         return plan;
@@ -639,6 +640,37 @@ public final class ReleasePlanner {
     }
 
     // --- state and reports ---------------------------------------------------------------------
+
+    /** The fingerprint of the node's current version of every release artifact it has. */
+    private Map<String, String> artifactStates(List<PlannedArtifact> artifacts, Parts parts,
+        SortedMap<String, byte[]> target, Map<String, byte[]> targetRepository, GroupId group,
+        String owner) {
+        Map<String, String> states = new TreeMap<>();
+        for (PlannedArtifact artifact : artifacts) {
+            SortedMap<String, byte[]> files = new TreeMap<>();
+            switch (artifact.kind()) {
+                case WORKFLOW -> {
+                    String path = parts.workflowPaths().get(artifact.name());
+                    if (path != null && target.containsKey(path)) {
+                        files.put(path, target.get(path));
+                    }
+                }
+                case MODULE -> files.putAll(below(target, moduleDirectory(group, owner,
+                    artifact.group().orElseThrow(), artifact.name())));
+                case REPOSITORY_FILE -> {
+                    byte[] content = targetRepository.get(artifact.name());
+                    if (content != null) {
+                        files.put("repository:" + artifact.name(), content);
+                    }
+                }
+            }
+            if (!files.isEmpty() && artifact.artifactClass() != ArtifactClass.ONLY_ON_TARGET) {
+                states.put(NodePlan.key(artifact), ConflictDetector.fingerprint(
+                    ReleaseDiscovery.canonical(d.releases(), files)));
+            }
+        }
+        return states;
+    }
 
     private String fingerprint(SortedMap<String, byte[]> target,
         Map<String, byte[]> repository, Map<String, String> editMode) {

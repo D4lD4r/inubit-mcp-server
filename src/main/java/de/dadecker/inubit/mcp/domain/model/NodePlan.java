@@ -13,11 +13,15 @@ import java.util.Optional;
  * executable iff it has no error.
  *
  * @param targetFingerprint the node's state as the preview saw it (research D-6)
+ * @param artifactStates    {@link #key artifact key} → fingerprint of the node's current
+ *                          version of a release artifact it has (for the deployment ledger,
+ *                          research D-8)
  * @param diffFile          workspace-relative difference file, placeholders only
  * @param summaryFile       workspace-relative summary file
  */
 public record NodePlan(NodeId node, List<PlannedArtifact> artifacts, List<Warning> warnings,
-    List<PlanError> errors, String targetFingerprint, String diffFile, String summaryFile) {
+    List<PlanError> errors, String targetFingerprint, Map<String, String> artifactStates,
+    String diffFile, String summaryFile) {
 
     /** What a planned artifact is. */
     public enum Kind {
@@ -81,6 +85,7 @@ public record NodePlan(NodeId node, List<PlannedArtifact> artifacts, List<Warnin
         warnings = List.copyOf(warnings);
         errors = List.copyOf(errors);
         Objects.requireNonNull(targetFingerprint, "targetFingerprint");
+        artifactStates = Map.copyOf(artifactStates);
         Objects.requireNonNull(diffFile, "diffFile");
         Objects.requireNonNull(summaryFile, "summaryFile");
     }
@@ -107,6 +112,18 @@ public record NodePlan(NodeId node, List<PlannedArtifact> artifacts, List<Warnin
         List<PlanError> allErrors = new java.util.ArrayList<>(errors);
         allErrors.addAll(moreErrors);
         return new NodePlan(node, artifacts, allWarnings, allErrors, targetFingerprint,
-            diffFile, summaryFile);
+            artifactStates, diffFile, summaryFile);
+    }
+
+    /**
+     * The key of an artifact in the ledger: {@code workflow:<diagram group>/<name>},
+     * {@code module:<plugin type>/<name>} or {@code repository:<path>}.
+     */
+    public static String key(PlannedArtifact artifact) {
+        return switch (artifact.kind()) {
+            case WORKFLOW -> "workflow:" + artifact.group().orElse("") + "/" + artifact.name();
+            case MODULE -> "module:" + artifact.group().orElse("") + "/" + artifact.name();
+            case REPOSITORY_FILE -> "repository:" + artifact.name();
+        };
     }
 }
