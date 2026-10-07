@@ -518,5 +518,84 @@ class ReleasePlannerTest {
             .doesNotContain("int/node1 diagram Workflow-0001");
         harness.verifyComplete();
     }
+
+    // --- stage 2 review fixes -----------------------------------------------------------------
+
+    private static final String PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\n"
+        + "U1lOVEhFVElDLU5PVC1BLUtFWS1yZXZpZXctbTE=\n-----END PRIVATE KEY-----\n";
+
+    @Test
+    void keyMaterialOnlyOnTheTargetIsExcludedAndNeverPrinted() throws IOException {
+        // review M1: the target keeps its own key material, whatever the release holds
+        harness = harnessQuietly(false);
+        ReleaseDiscovery.Release release = release();
+        harness.servers.get(DeployHarness.INT1).putRepositoryFile(DeployHarness.RELEASE_XSL,
+            PRIVATE_KEY);
+        harness.exportGroup(DeployHarness.INT1)
+            .exportRepository(DeployHarness.INT1, DeployHarness.RELEASE_XSL);
+
+        NodePlan plan = plan(release, List.of());
+
+        assertThat(classes(plan)).containsEntry(DeployHarness.RELEASE_XSL,
+            ArtifactClass.EXCLUDED);
+        assertThat(plan.executable()).isTrue();
+        assertThat(read(plan.diffFile()) + read(plan.summaryFile()) + plan)
+            .doesNotContain("U1lOVEhFVElDLU5PVC1BLUtFWS1yZXZpZXctbTE=", "PRIVATE KEY");
+        assertThat(plan.artifactStates()).doesNotContainKey("repository:"
+            + DeployHarness.RELEASE_XSL);
+        harness.verifyComplete();
+    }
+
+    @Test
+    void aReferencedRepositoryPathStartCliCannotTakeIsAnErrorOfThatFileOnly() {
+        // review m2
+        harness = harnessQuietly(false);
+        String odd = "/Root/jdoe/xsd/odd'name.xsd";
+        ReleaseDiscovery.Release release = release(server -> {
+            server.putRepositoryFile(odd, "<xs:schema/>");
+            server.publishModule("Module-0001", module("<Property name=\"IsModuleTemplate\"",
+                "<Property name=\"Note\">href=\"inubitrepository:" + odd + "\"</Property>\n"
+                    + "\t<Property name=\"IsModuleTemplate\""));
+        });
+        harness.exportGroup(DeployHarness.INT1)
+            .exportRepository(DeployHarness.INT1, DeployHarness.RELEASE_XSL);
+
+        NodePlan plan = plan(release, List.of());
+
+        assertThat(classes(plan)).containsEntry(odd, ArtifactClass.EXCLUDED)
+            .containsEntry("Module-0001", ArtifactClass.CHANGED);
+        assertThat(plan.errors()).singleElement().satisfies(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
+            assertThat(error.artifact()).isEqualTo(odd);
+        });
+        harness.verifyComplete();
+    }
+
+    @Test
+    void aModuleWhoseSecretValueAloneDiffersIsUnchangedAndNoValueIsPrinted()
+        throws IOException {
+        // review m6: placeholders are compared as placeholders
+        harness = harnessQuietly(false);
+        String sourceValue = "AES-U1lOVEgtQUVTLVNPVVJDRS0wMQ";
+        String targetValue = "AES-U1lOVEgtQUVTLVRBUkdFVC0wMQ";
+        ReleaseDiscovery.Release release = release(server -> server.publishModule("Module-0001",
+            module("<Property name=\"IsModuleTemplate\"", "<Property name=\"Password\""
+                + " type=\"Password\" encrypted=\"true\">" + sourceValue + "</Property>\n\t"
+                + "<Property name=\"IsModuleTemplate\"")));
+        harness.servers.get(DeployHarness.INT1).publishModule("Module-0001",
+            module("<Property name=\"IsModuleTemplate\"", "<Property name=\"Password\""
+                + " type=\"Password\" encrypted=\"true\">" + targetValue + "</Property>\n\t"
+                + "<Property name=\"IsModuleTemplate\""));
+        harness.exportGroup(DeployHarness.INT1)
+            .exportRepository(DeployHarness.INT1, DeployHarness.RELEASE_XSL);
+
+        NodePlan plan = plan(release, List.of());
+
+        assertThat(classes(plan)).containsEntry("Module-0001", ArtifactClass.UNCHANGED);
+        assertThat(plan.executable()).isTrue();
+        assertThat(read(plan.diffFile()) + read(plan.summaryFile()) + plan)
+            .doesNotContain(sourceValue, targetValue);
+        harness.verifyComplete();
+    }
 }
 

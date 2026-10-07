@@ -244,4 +244,60 @@ class RepositoryArchiveTest {
         assertThat(file("/Root/jdoe/xsd/a.xsd", "secret-ish content"))
             .asString().contains("/Root/jdoe/xsd/a.xsd").doesNotContain("secret-ish");
     }
+
+    // --- stage 2 review m1: private keys in DER and PGP ----------------------------------------
+
+    private static byte[] der(int tag, byte[]... children) {
+        java.io.ByteArrayOutputStream content = new java.io.ByteArrayOutputStream();
+        for (byte[] child : children) {
+            content.writeBytes(child);
+        }
+        byte[] body = content.toByteArray();
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        out.write(tag);
+        if (body.length < 128) {
+            out.write(body.length);
+        } else {
+            out.write(0x82);
+            out.write(body.length >> 8);
+            out.write(body.length & 0xff);
+        }
+        out.writeBytes(body);
+        return out.toByteArray();
+    }
+
+    private static byte[] integer(int value) {
+        return der(0x02, new byte[] {(byte) value});
+    }
+
+    @Test
+    void privateKeysInDerAndPgpAreKeyMaterial() throws Exception {
+        java.security.KeyPairGenerator rsa = java.security.KeyPairGenerator.getInstance("RSA");
+        rsa.initialize(1024);
+        byte[] pkcs8 = rsa.generateKeyPair().getPrivate().getEncoded();
+        java.security.KeyPairGenerator ec = java.security.KeyPairGenerator.getInstance("EC");
+        ec.initialize(256);
+        byte[] ecPkcs8 = ec.generateKeyPair().getPrivate().getEncoded();
+        byte[] oid = der(0x06, new byte[] {0x2a, (byte) 0x86, 0x48, (byte) 0x86, (byte) 0xf7,
+            0x0d, 0x01, 0x05, 0x0d});
+        byte[] encrypted = der(0x30, der(0x30, oid, der(0x30)), der(0x04, new byte[32]));
+        byte[] pkcs1 = der(0x30, integer(0), integer(5), integer(3), integer(7), integer(11),
+            integer(13), integer(1), integer(2), integer(3));
+        byte[] sec1 = der(0x30, integer(1), der(0x04, new byte[32]), der(0xa0, der(0x06,
+            new byte[] {0x2a, (byte) 0x86, 0x48, (byte) 0xce, 0x3d, 0x03, 0x01, 0x07})));
+        byte[] pgp = ("-----BEGIN PGP PRIVATE KEY BLOCK-----\n\nAAAA\n"
+            + "-----END PGP PRIVATE KEY BLOCK-----\n").getBytes(StandardCharsets.UTF_8);
+
+        for (byte[] key : List.of(pkcs8, ecPkcs8, encrypted, pkcs1, sec1, pgp)) {
+            assertThat(RepositoryArchive.isKeyMaterial("/Root/jdoe/data/blob.bin", key))
+                .isTrue();
+        }
+        // an ASN.1 sequence of another shape, and trailing garbage, are no key
+        assertThat(RepositoryArchive.isKeyMaterial("/Root/jdoe/data/a.bin",
+            der(0x30, integer(2), integer(3)))).isFalse();
+        byte[] trailing = java.util.Arrays.copyOf(pkcs1, pkcs1.length + 1);
+        assertThat(RepositoryArchive.isKeyMaterial("/Root/jdoe/data/b.bin", trailing))
+            .isFalse();
+    }
 }
+

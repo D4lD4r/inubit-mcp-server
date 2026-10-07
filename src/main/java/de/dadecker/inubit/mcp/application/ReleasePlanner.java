@@ -55,6 +55,9 @@ import java.util.regex.Pattern;
  *       material and certificates ({@link ReleaseArchivePort#keyMaterial}), and a repository
  *       file outside {@code /Root/<owner>/} (another owner's area, warning
  *       {@code OUTSIDE_OWNER_REPOSITORY}; stage 2 ruling) are {@code EXCLUDED}: never sent.
+ *       Key material is recognized in the release's <em>and</em> in the node's content and is
+ *       never diffed or printed; a referenced path StartCLI cannot take is {@code EXCLUDED}
+ *       with an error of that file alone (stage 2 review M1, m2).
  *   <li><b>Target state</b>: the node's export of every release diagram group (a missing group
  *       is all new), of every release module not contained in them (module export, missing =
  *       new; in plugin type and name order) and of every repository file that is not excluded
@@ -177,9 +180,12 @@ public final class ReleasePlanner {
         Set<String> pathExcluded = new TreeSet<>();
         Set<String> keyMaterial = new TreeSet<>();
         Set<String> outsideOwner = new TreeSet<>();
+        Set<String> unpassable = new TreeSet<>();
         parts.repository().forEach((path, content) -> {
             if (excluded(admitted.exclude(), StageChain.Exclusion.Kind.REPOSITORY_PATH, path)) {
                 pathExcluded.add(path);
+            } else if (!repositoryPathPassable(path)) {
+                unpassable.add(path);
             } else if (d.releases().keyMaterial(path, content)) {
                 keyMaterial.add(path);
             } else if (!path.startsWith(ownArea)) {
@@ -213,13 +219,20 @@ public final class ReleasePlanner {
         SortedMap<String, byte[]> target = new TreeMap<>(prepared.files());
         Map<String, byte[]> targetRepository = new TreeMap<>();
         for (String path : parts.repository().keySet()) {
-            if (pathExcluded.contains(path)) {
+            if (pathExcluded.contains(path) || unpassable.contains(path)) {
                 continue;
             }
             exported(node, () -> port.exportRepository(path)).map(zip -> d.releases()
                 .repositoryFiles(zip).get(path)).ifPresent(content ->
                     targetRepository.put(path, content));
         }
+        // review M1: key material on either side stays on the target and is never shown
+        targetRepository.forEach((path, content) -> {
+            if (d.releases().keyMaterial(path, content) && !keyMaterial.contains(path)) {
+                keyMaterial.add(path);
+                outsideOwner.remove(path);
+            }
+        });
 
         // classes and flags
         List<PlannedArtifact> artifacts = new ArrayList<>();
@@ -267,9 +280,15 @@ public final class ReleasePlanner {
         Map<String, ArtifactClass> repositoryClasses = new LinkedHashMap<>();
         parts.repository().forEach((path, content) -> {
             if (pathExcluded.contains(path) || keyMaterial.contains(path)
-                || outsideOwner.contains(path)) {
+                || outsideOwner.contains(path) || unpassable.contains(path)) {
                 artifacts.add(new PlannedArtifact(Kind.REPOSITORY_FILE, path, Optional.empty(),
                     ArtifactClass.EXCLUDED, Optional.empty(), false));
+                if (unpassable.contains(path)) {
+                    errors.add(new PlanError(ErrorCode.PRECONDITION_FAILED, path, "The"
+                        + " repository path " + path + " cannot be passed to StartCLI (letters,"
+                        + " digits, _ . - and spaces below /Root only); it can be neither read"
+                        + " on " + node + " nor deployed"));
+                }
                 if (keyMaterial.contains(path) && !targetRepository.containsKey(path)) {
                     errors.add(new PlanError(ErrorCode.SECRET_UNRESOLVED, path, "The key"
                         + " material " + path + " is missing on " + node + "; key material is"
@@ -372,8 +391,9 @@ public final class ReleasePlanner {
                 Path path = releaseRoot.resolve(file.getKey());
                 Files.createDirectories(path.getParent());
                 Files.write(path, file.getValue());
-                if (!file.getKey().startsWith(META)) {
-                    tops.add(file.getKey().substring(0, file.getKey().indexOf('/')));
+                int slash = file.getKey().indexOf('/');
+                if (!file.getKey().startsWith(META) && slash > 0) {
+                    tops.add(file.getKey().substring(0, slash));
                 }
             }
         } catch (IOException e) {
@@ -460,6 +480,23 @@ public final class ReleasePlanner {
         return rules.stream().filter(rule -> rule.kind() == kind).anyMatch(rule ->
             kind == StageChain.Exclusion.Kind.DIAGRAM_GROUP ? rule.pattern().equals(value)
                 : glob(rule.pattern()).matcher(value).matches());
+    }
+
+    /** The StartCLI rule of repository paths ({@code CliCommand.REPOSITORY_PATH}). */
+    private static final Pattern REPOSITORY_PATH =
+        Pattern.compile("^/Root(/[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199})+$");
+
+    /** True if StartCLI can take {@code path} (stage 2 review m2). */
+    static boolean repositoryPathPassable(String path) {
+        if (!REPOSITORY_PATH.matcher(path).matches()) {
+            return false;
+        }
+        for (String segment : path.split("/")) {
+            if (segment.equals(".") || segment.equals("..")) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** {@code *} any characters within a segment, {@code **} any characters. */
@@ -664,7 +701,8 @@ public final class ReleasePlanner {
                     }
                 }
             }
-            if (!files.isEmpty() && artifact.artifactClass() != ArtifactClass.ONLY_ON_TARGET) {
+            if (!files.isEmpty() && artifact.artifactClass() != ArtifactClass.ONLY_ON_TARGET
+                && artifact.artifactClass() != ArtifactClass.EXCLUDED) {
                 states.put(NodePlan.key(artifact), ConflictDetector.fingerprint(
                     ReleaseDiscovery.canonical(d.releases(), files)));
             }
@@ -710,9 +748,13 @@ public final class ReleasePlanner {
                         }
                     });
                 }
-                case REPOSITORY_FILE -> diff(out, "repository:" + artifact.name(), node,
-                    targetRepository.get(artifact.name()), parts.repository()
-                        .get(artifact.name()));
+                case REPOSITORY_FILE -> {
+                    byte[] before = targetRepository.get(artifact.name());
+                    byte[] after = parts.repository().get(artifact.name());
+                    if (!java.util.Arrays.equals(before, after)) { // byte for byte (n4)
+                        diff(out, "repository:" + artifact.name(), node, before, after);
+                    }
+                }
             }
         }
         write(relative, out.toString());

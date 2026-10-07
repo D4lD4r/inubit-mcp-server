@@ -71,8 +71,9 @@ public final class RepositoryArchive {
      * True if the repository file holds key material or a certificate, which is never deployed
      * (FR-015a; the target keeps its own): a key or keystore ({@link KeyMaterial}), a file name
      * ending in {@code .cer}, {@code .crt}, {@code .der}, {@code .pem}, {@code .p7b},
-     * {@code .p7c} or {@code .spc}, PEM text with {@code BEGIN CERTIFICATE} or
-     * {@code BEGIN PKCS7}, or a DER X.509 certificate.
+     * {@code .p7c} or {@code .spc}, PEM text with {@code BEGIN CERTIFICATE},
+     * {@code BEGIN PKCS7} or {@code BEGIN PGP PRIVATE KEY BLOCK}, a DER X.509 certificate or a
+     * DER private key ({@link #isDerPrivateKey}).
      */
     public static boolean isKeyMaterial(String path, byte[] content) {
         if (KeyMaterial.hasKeyName(path) || KeyMaterial.isKeyMaterial(content)
@@ -81,10 +82,98 @@ public final class RepositoryArchive {
         }
         String text = new String(content, java.nio.charset.StandardCharsets.ISO_8859_1);
         if (text.contains("-----BEGIN CERTIFICATE") || text.contains("-----BEGIN TRUSTED"
-            + " CERTIFICATE") || text.contains("-----BEGIN PKCS7")) {
+            + " CERTIFICATE") || text.contains("-----BEGIN PKCS7")
+            || text.contains("-----BEGIN PGP PRIVATE KEY BLOCK")) {
             return true;
         }
-        return isDerCertificate(content);
+        return isDerCertificate(content) || isDerPrivateKey(content);
+    }
+
+    /**
+     * A DER private key (stage 2 review m1), by the shape of its outer {@code SEQUENCE}, which
+     * must span the whole content: PKCS#8 {@code PrivateKeyInfo} (INTEGER, SEQUENCE starting
+     * with an OID, OCTET STRING, …), PKCS#8 {@code EncryptedPrivateKeyInfo} (SEQUENCE starting
+     * with an OID, OCTET STRING), PKCS#1 {@code RSAPrivateKey} (at least nine INTEGERs) or SEC1
+     * {@code ECPrivateKey} (INTEGER 1, OCTET STRING, optional {@code [0]}/{@code [1]}).
+     */
+    static boolean isDerPrivateKey(byte[] content) {
+        List<int[]> children = derChildren(content, 0, content.length, true);
+        if (children == null || children.isEmpty()) {
+            return false;
+        }
+        int[] first = children.get(0);
+        if (children.size() >= 3 && first[0] == 0x02 && children.get(1)[0] == 0x30
+            && children.get(2)[0] == 0x04 && startsWithOid(content, children.get(1))) {
+            return true; // PKCS#8
+        }
+        if (children.size() == 2 && first[0] == 0x30 && children.get(1)[0] == 0x04
+            && startsWithOid(content, first)) {
+            return true; // EncryptedPrivateKeyInfo
+        }
+        if (children.size() >= 9 && children.stream().limit(9).allMatch(c -> c[0] == 0x02)) {
+            return true; // PKCS#1
+        }
+        return children.size() >= 2 && children.size() <= 4 && first[0] == 0x02
+            && first[2] == 1 && content[first[1]] == 1 && children.get(1)[0] == 0x04
+            && children.stream().skip(2).allMatch(c -> c[0] == 0xa0 || c[0] == 0xa1); // SEC1
+    }
+
+    private static boolean startsWithOid(byte[] content, int[] sequence) {
+        List<int[]> inner = derChildren(content, sequence[1], sequence[1] + sequence[2], false);
+        return inner != null && !inner.isEmpty() && inner.get(0)[0] == 0x06;
+    }
+
+    /**
+     * The children {@code {tag, content offset, content length}} of the SEQUENCE at
+     * {@code from} (if {@code outer}, it must span exactly {@code [from, to)}), or the elements
+     * between {@code from} and {@code to}; {@code null} if the bytes are no such DER.
+     */
+    private static List<int[]> derChildren(byte[] der, int from, int to, boolean outer) {
+        int start = from;
+        int end = to;
+        if (outer) {
+            int[] sequence = element(der, from, to);
+            if (sequence == null || sequence[0] != 0x30 || sequence[1] + sequence[2] != to) {
+                return null;
+            }
+            start = sequence[1];
+            end = to;
+        }
+        List<int[]> children = new ArrayList<>();
+        int at = start;
+        while (at < end) {
+            int[] child = element(der, at, end);
+            if (child == null) {
+                return null;
+            }
+            children.add(child);
+            at = child[1] + child[2];
+        }
+        return children;
+    }
+
+    /** {@code {tag, content offset, content length}} of the element at {@code at}, or null. */
+    private static int[] element(byte[] der, int at, int limit) {
+        if (at + 2 > limit) {
+            return null;
+        }
+        int tag = der[at] & 0xff;
+        int length = der[at + 1] & 0xff;
+        int offset = at + 2;
+        if (length > 0x80) {
+            int bytes = length & 0x7f;
+            if (bytes > 3 || offset + bytes > limit) {
+                return null;
+            }
+            length = 0;
+            for (int i = 0; i < bytes; i++) {
+                length = (length << 8) | (der[offset + i] & 0xff);
+            }
+            offset += bytes;
+        } else if (length == 0x80) {
+            return null;
+        }
+        return offset + length <= limit ? new int[] {tag, offset, length} : null;
     }
 
     private static boolean isDerCertificate(byte[] content) {
