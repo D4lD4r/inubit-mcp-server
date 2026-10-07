@@ -1,0 +1,102 @@
+package de.dadecker.inubit.mcp.domain.port;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.SortedSet;
+import java.util.TreeSet;
+
+/**
+ * The version-specific archive work of a deployment (feature 005, research D-4, D-5): the
+ * release export in the shape the workspace codec reads, the versions an export states, and the
+ * comparisons of rendered workspace files the classification needs. The application never reads
+ * the formats itself. Failures are thrown as
+ * {@link de.dadecker.inubit.mcp.domain.model.ToolErrorException}.
+ */
+public interface ReleaseArchivePort {
+
+    /**
+     * A release export without the traces of the tag.
+     *
+     * @param export         the archive in the shape of a diagram group export (every tagged
+     *                       diagram group in it): {@code version="head"}, no {@code tag}
+     *                       attribute, no {@code @@@Tag: …@@@}, no {@code usertags.xml}
+     * @param diagramGroups  the diagram groups of the release
+     * @param taggedVersions workflow or module name → its tagged version
+     */
+    record ReleaseExport(byte[] export, SortedSet<String> diagramGroups,
+        Map<String, Integer> taggedVersions) {
+        public ReleaseExport {
+            export = Objects.requireNonNull(export, "export").clone();
+            diagramGroups = new TreeSet<>(diagramGroups);
+            taggedVersions = Map.copyOf(taggedVersions);
+        }
+
+        @Override
+        public byte[] export() {
+            return export.clone();
+        }
+
+        @Override
+        public String toString() {
+            return "ReleaseExport[" + diagramGroups + ", " + taggedVersions.size()
+                + " artifacts]";
+        }
+    }
+
+    /** One property whose value differs between the release and the target (names a value). */
+    record PropertyChange(String property, String releaseValue, String targetValue) {
+        public PropertyChange {
+            Objects.requireNonNull(property, "property");
+            Objects.requireNonNull(releaseValue, "releaseValue");
+            Objects.requireNonNull(targetValue, "targetValue");
+        }
+
+        /** The property name only; never the values. */
+        @Override
+        public String toString() {
+            return "PropertyChange[" + property + "]";
+        }
+    }
+
+    /**
+     * The release export {@code releaseExport} (an owner-wide export by tag, research D-1) in
+     * the shape of a diagram group export.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException {@code UNEXPECTED_RESPONSE}
+     *     if it is not a readable export
+     */
+    ReleaseExport normalize(byte[] releaseExport);
+
+    /** Workflow or module name → its current version, from a (head) export's comments. */
+    Map<String, Integer> versions(byte[] export);
+
+    /**
+     * The reviewed content of a rendered workspace file, for fingerprints: XML normalized and
+     * without what differs between nodes or exports of the same content (check-in comment, last
+     * update, UIDs, edit mode); other files unchanged.
+     */
+    byte[] canonical(String path, byte[] file);
+
+    /**
+     * True if two versions of the rendered workspace file {@code path} have the same reviewed
+     * content (XML normalized; check-in comment, last update, UIDs, edit mode and — for
+     * workflows — the {@code IsActive} flag ignored).
+     */
+    boolean equivalent(String path, byte[] release, byte[] target);
+
+    /** True if the rendered workflow files differ only in layout ({@code StyleSheet}). */
+    boolean layoutOnly(String path, byte[] release, byte[] target);
+
+    /** True if the repository file is key material or a certificate (FR-015a). */
+    boolean keyMaterial(String repositoryPath, byte[] content);
+
+    /** The modules the nodes of a rendered workflow file run, in node order, without repeats. */
+    List<String> modulesOf(byte[] workflowFile);
+
+    /**
+     * The simple properties (with a text value) whose value differs between two versions of a
+     * rendered workflow or module file, in document order.
+     */
+    List<PropertyChange> changedProperties(String path, byte[] release, byte[] target);
+}

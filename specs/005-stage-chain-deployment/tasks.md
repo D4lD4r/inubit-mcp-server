@@ -112,7 +112,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 - [X] T015 [US1] `main/application/DeployLock.java` (per target group file lock in
   `~/.inubit-mcp/<profile>/deployments/<group>.lock`, busy → `DEPLOY_LOCKED`; then the workspace
   lock); `DeployLockTest` with `LockHolder` (second JVM).
-- [ ] T016 [US1] `main/application/ReleaseDiscovery.java`: tag export per source node, render with
+- [X] T016 [US1] `main/application/ReleaseDiscovery.java`: tag export per source node, render with
   the codec, fingerprint compare (`SOURCE_INCONSISTENT` with `.reports/deploy-<auditId>/source.diff`),
   `NOT_FOUND` when no group carries the tag, "tagged version older than head" note; tests.
 - [ ] T017 [US1] `main/application/ReleasePlanner.java` + `ArtifactClassifier`: per target node
