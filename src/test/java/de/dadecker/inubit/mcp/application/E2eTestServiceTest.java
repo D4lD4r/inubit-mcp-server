@@ -119,8 +119,11 @@ class E2eTestServiceTest {
         client.close();
     }
 
+    /** Feature 005 (T027): the node is no development stage, its group receives deployments. */
+    private boolean deploymentTarget;
+
     private E2eTestService service() {
-        DevelopmentPolicy dev = new DevelopmentPolicy(DEV, false, true,
+        DevelopmentPolicy dev = new DevelopmentPolicy(DEV, false, !deploymentTarget,
             WritePolicy.Confirmation.SERVER, Duration.ofMinutes(5), policy,
             Optional.of(URI.create("https://localhost:" + wireMock.httpsPort())));
         LogPort logs = new LogPort() {
@@ -169,7 +172,9 @@ class E2eTestServiceTest {
         return new E2eTestService(new E2eTestService.Dependencies(root,
             root.resolve("backups"), "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV)), Map.of(DEV, dev)::get,
-                node -> { }), node -> client, node -> logs, node -> processes,
+                node -> { }, group -> deploymentTarget ? Optional.of(
+                    de.dadecker.inubit.mcp.domain.model.DeployMode.EXECUTE) : Optional.empty(),
+                Duration.ofMinutes(30)), node -> client, node -> logs, node -> processes,
             node -> Duration.ofMinutes(15),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),
             new WriteChallengeRegistry(clock), audit::add, clock, UUID::randomUUID));
@@ -249,6 +254,22 @@ class E2eTestServiceTest {
             .containsEntry("envelope", "samples/order.xml").containsKey("payloadSha256")
             .containsEntry("testId", testId);
         assertThat(audit.toString()).doesNotContain("order id");
+    }
+
+    @Test
+    void aNodeOfAGroupThatReceivesDeploymentsRunsTheTestAsItsE2eTestsAllows() {
+        // feature 005 (T027)
+        wireMock.stubFor(post(urlEqualTo(PATH)).willReturn(aResponse().withStatus(200)
+            .withBody("<ok/>")));
+        deploymentTarget = true;
+
+        E2eRun run = completed(service().run(request()));
+
+        assertThat(run.status()).contains(200);
+        assertThat(audit).extracting(AuditRecord::outcome).containsExactly(AuditOutcome.PENDING,
+            AuditOutcome.EXECUTED);
+        policy = E2ePolicy.FORBIDDEN;
+        assertThat(refusal(service(), request()).code()).isEqualTo(ErrorCode.E2E_FORBIDDEN);
     }
 
     @Test

@@ -115,4 +115,14 @@ class DevelopmentWiringTest {
         assertThat(toolNames("", "deploy:\n  from: dev\n  mode: PACKAGE_ONLY"))
             .doesNotContain("restore_backup");
     }
+
+    @Test
+    void runE2eTestIsOfferedOnANonProductionTargetThatAllowsIt() {
+        // feature 005 (T027): dev receives deployments here (from prod), without development
+        String target = "deploy:\n  from: prod\ne2e:\n  soap:\n"
+            + "    baseUrl: https://inubit-dev.example.test:8443\n";
+        assertThat(toolNames(target + "e2eTests: CONFIRM")).contains("run_e2e_test",
+            "deploy_release").doesNotContain("import_artifacts");
+        assertThat(toolNames(target + "e2eTests: FORBIDDEN")).doesNotContain("run_e2e_test");
+    }
 }

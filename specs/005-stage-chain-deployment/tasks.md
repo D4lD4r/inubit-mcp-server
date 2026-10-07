@@ -172,7 +172,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   backup of kind `DEPLOYMENT`, always with preview and server code; restore covers workflows,
   modules and repository files of that deployment on that node; created artifacts listed;
   `RestoreDeploymentTest`.
-- [ ] T027 `DevelopmentGuard` / `Wiring`: `run_e2e_test` on nodes of non-production groups with
+- [X] T027 `DevelopmentGuard` / `Wiring`: `run_e2e_test` on nodes of non-production groups with
   `deploy`, governed by `e2eTests`; registration condition widened; tests.
 
 ## Phase 8: Polish & Cross-Cutting

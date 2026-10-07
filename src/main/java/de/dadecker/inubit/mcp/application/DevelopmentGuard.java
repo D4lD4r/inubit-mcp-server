@@ -23,7 +23,9 @@ import java.util.function.Function;
  *   <li>The input must be one configured node: a group id is {@code INVALID_INPUT}, an unknown
  *       id {@code TARGET_UNKNOWN}.
  *   <li>A node that is not a development stage ({@code development.enabled} false, the default,
- *       or no policy at all: fail closed) is {@code NOT_DEVELOPMENT}.
+ *       or no policy at all: fail closed) is {@code NOT_DEVELOPMENT} — except for
+ *       {@code run_e2e_test} on a non-production node of a group that receives deployments
+ *       (feature 005, T027), which its {@code e2eTests} governs.
  *   <li>A development node of a production group is {@code PRODUCTION_PROTECTED} (defence in
  *       depth: the configuration validation rejects it at startup).
  *   <li>{@code run_e2e_test} needs {@code e2eTests} other than {@code FORBIDDEN}
@@ -150,7 +152,11 @@ public final class DevelopmentGuard {
                 terms.render("Use a development {node} (list_nodes) and deploy to production"
                     + " through the stage chain"));
         }
-        if (policy == null || !policy.enabled()) {
+        // feature 005 (T027): end-to-end tests also on the nodes of a group that receives
+        // deployments, as its e2eTests allows; nothing else of feature 004
+        boolean target = capability == Capability.RUN_E2E_TEST && policy != null
+            && deployModes.apply(id.group()).isPresent();
+        if ((policy == null || !policy.enabled()) && !target) {
             throw refused(ErrorCode.NOT_DEVELOPMENT, id,
                 id + terms.render(" is not a development {node}; ") + capability.toolName()
                     + " is refused there and nothing was sent",

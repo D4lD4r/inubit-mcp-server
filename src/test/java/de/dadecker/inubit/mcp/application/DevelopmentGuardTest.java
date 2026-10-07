@@ -186,6 +186,7 @@ class DevelopmentGuardTest {
     @Test
     void endToEndTestsNeedADevelopmentNodeFirst() {
         policies = Map.of(TEST, policy(TEST, false, false, E2ePolicy.FREE));
+        deployModes = Map.of(); // and test receives no deployments
 
         assertThat(refusal("test/node1", Capability.RUN_E2E_TEST).code())
             .isEqualTo(ErrorCode.NOT_DEVELOPMENT);
@@ -225,5 +226,46 @@ class DevelopmentGuardTest {
         assertThat(refusal("test", Capability.RESTORE_BACKUP).code())
             .isEqualTo(ErrorCode.INVALID_INPUT);
         assertThat(cliChecks).isEmpty();
+    }
+
+    // --- feature 005, T027: end-to-end tests on the nodes of a target group -------------------
+
+    @ParameterizedTest
+    @EnumSource(value = E2ePolicy.class, names = {"FREE", "CONFIRM"})
+    void endToEndTestsRunOnANodeOfAGroupThatReceivesDeployments(E2ePolicy e2e) {
+        policies = Map.of(TEST, policy(TEST, false, false, e2e));
+
+        DevelopmentPolicy admitted = guard().admit("test/node1", Capability.RUN_E2E_TEST);
+
+        assertThat(admitted.node()).isEqualTo(TEST);
+        assertThat(admitted.e2eTests()).isEqualTo(e2e);
+        assertThat(cliChecks).isEmpty();
+    }
+
+    @Test
+    void onATargetNodeOnlyTheEndToEndTestIsAdmitted() {
+        policies = Map.of(TEST, policy(TEST, false, false, E2ePolicy.FREE));
+
+        for (Capability capability : List.of(Capability.IMPORT_ARTIFACTS,
+            Capability.SET_ACTIVE, Capability.TAG_ARTIFACTS, Capability.RESTORE_BACKUP)) {
+            assertThat(refusal("test/node1", capability).code()).as(capability.toolName())
+                .isEqualTo(ErrorCode.NOT_DEVELOPMENT);
+        }
+    }
+
+    @Test
+    void endToEndTestsOnATargetNodeFollowItsE2eTestsSetting() {
+        assertThat(refusal("test/node1", Capability.RUN_E2E_TEST).code())
+            .isEqualTo(ErrorCode.E2E_FORBIDDEN);
+    }
+
+    @Test
+    void endToEndTestsNeverRunOnAProductionTarget() {
+        // the configuration check rejects e2eTests on production; the guard refuses anyway
+        policies = Map.of(PROD, policy(PROD, true, false, E2ePolicy.FREE));
+        deployModes = Map.of(PROD.group(), DeployMode.EXECUTE);
+
+        assertThat(refusal("prod/node1", Capability.RUN_E2E_TEST).code())
+            .isEqualTo(ErrorCode.NOT_DEVELOPMENT);
     }
 }

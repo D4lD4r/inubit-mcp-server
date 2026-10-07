@@ -9,7 +9,7 @@
     "node": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]{0,31}/[a-z0-9][a-z0-9-]{0,31}$",
-      "description": "Id of exactly one development {node} (`<{group}>/<{node}>`) whose e2eTests allow the test"
+      "description": "Id of exactly one development {node}, or of one non-production {node} whose {group} receives deployments (`<{group}>/<{node}>`); its e2eTests must allow the test"
     },
     "envelope": {
       "type": "string",

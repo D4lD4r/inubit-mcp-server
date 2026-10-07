@@ -401,11 +401,13 @@ final class Wiring implements AutoCloseable {
 
     /**
      * True if at least one development node allows end-to-end tests ({@code e2eTests} other
-     * than {@code FORBIDDEN}, feature 004, contracts/mcp-tools-delta.md).
+     * than {@code FORBIDDEN}, feature 004, contracts/mcp-tools-delta.md), or a non-production
+     * node of a group that receives deployments (feature 005, T027).
      */
     boolean anyE2eNode() {
         return servers.stream().map(EffectiveNodeConfig::developmentPolicy)
-            .anyMatch(policy -> policy.enabled() && policy.e2eTests() != E2ePolicy.FORBIDDEN);
+            .anyMatch(policy -> policy.e2eTests() != E2ePolicy.FORBIDDEN && (policy.enabled()
+                || (!policy.production() && chain.link(policy.node().group()).isPresent())));
     }
 
     /** True if at least one server has effective write access (Story 4 / AS 6). */
