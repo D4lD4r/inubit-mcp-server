@@ -99,7 +99,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
   `write.productionOptIn: true` on every node, every node of target and source has `cli.home`,
   exclude entry "exactly one of `diagramGroup`, `name` (glob), `repositoryPath` (glob); non-blank";
   `ConfigValidatorTest` per rule.
-- [ ] T013 [US6] `main/domain/model/StageChain.java` (derived; `render()` →
+- [X] T013 [US6] `main/domain/model/StageChain.java` (derived; `render()` →
   `dev → int → qa → prod (package only)`), `main/config/ConfigSummary.java`: `Chains:` block,
   exclusions, per node `deploy: from <group> (EXECUTE | PACKAGE_ONLY)`; `ConfigSummaryTest`.
 

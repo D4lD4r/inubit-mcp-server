@@ -4,10 +4,13 @@ import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
+import de.dadecker.inubit.mcp.domain.model.StageChain;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
 
@@ -17,8 +20,10 @@ import java.util.function.Predicate;
  * group the nodes with their id, the effective write flag, the development and end-to-end test
  * settings (feature 004, once any node configures them; with the SOAP base address but never
  * its user information), CLI
- * availability and the source variable of each credential, then all
- * warnings and errors.
+ * availability, the {@code deploy} line of a node whose group receives deployments (feature 005)
+ * and the source variable of each credential, then all warnings and errors. Feature 005 adds a
+ * {@code Chains:} block (one line per stage chain and the exclusions of each target) before the
+ * groups.
  * Groups and nodes are named with the profile's display names (FR-007). Values and URLs are never
  * printed.
  */
@@ -62,6 +67,11 @@ public final class ConfigSummary {
         boolean development = config.resolvableNodes().stream().map(
             EffectiveNodeConfig::developmentPolicy).anyMatch(policy -> policy.enabled()
                 || policy.e2eTests() != E2ePolicy.FORBIDDEN);
+        // feature 005: the stage chain, once any group has deploy
+        Map<String, DeployConfig> deploys = new LinkedHashMap<>();
+        config.groups().forEach(group -> group.deploy()
+            .ifPresent(deploy -> deploys.putIfAbsent(group.name(), deploy)));
+        appendChains(out, config, deploys);
         GroupId group = null;
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
             if (!server.id().group().equals(group)) {
@@ -73,6 +83,9 @@ public final class ConfigSummary {
                 .append(writeFlag(server))
                 .append(development ? ", " + development(server) : "")
                 .append(", cli: ").append(cliAvailable(server) ? "available" : "unavailable");
+            Optional.ofNullable(deploys.get(server.id().group().value())).ifPresent(deploy ->
+                out.append(", deploy: from ").append(deploy.from().strip()).append(" (")
+                    .append(deploy.mode()).append(')'));
             Optional<NodeCredentials> serverCredentials = credentials.all().stream()
                 .filter(c -> c.node().equals(server.id()))
                 .findFirst();
@@ -92,6 +105,34 @@ public final class ConfigSummary {
             ? "Result: FAILED (" + report.errors().size() + " error(s))"
             : "Result: OK").append('\n');
         return out.toString();
+    }
+
+    /**
+     * Feature 005 (research D-2): {@code Chains:} with one line per chain and, per target with
+     * exclusions, {@code <group> excludes: <key> <pattern>, …}. A chain that cannot be derived
+     * (an invalid {@code deploy} record or a cycle, reported among the errors) is not drawn.
+     */
+    private static void appendChains(StringBuilder out, ProfileConfig config,
+        Map<String, DeployConfig> deploys) {
+        if (deploys.isEmpty()) {
+            return;
+        }
+        StageChain chain;
+        try {
+            chain = config.stageChain();
+        } catch (IllegalArgumentException e) {
+            out.append("Chains: not shown, see the errors\n");
+            return;
+        }
+        out.append("Chains:\n");
+        chain.render().forEach(line -> out.append("  ").append(line).append('\n'));
+        chain.targets().forEach((target, link) -> {
+            if (!link.exclude().isEmpty()) {
+                out.append("  ").append(target).append(" excludes: ").append(String.join(", ",
+                    link.exclude().stream().map(StageChain.Exclusion::toString).toList()))
+                    .append('\n');
+            }
+        });
     }
 
     /** CLI home configured and {@code startcli} found (data-model.md → NodeSummary). */
