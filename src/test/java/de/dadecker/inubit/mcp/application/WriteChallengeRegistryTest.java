@@ -264,4 +264,45 @@ class WriteChallengeRegistryTest {
         assertThat(error.toString()).doesNotContain(STATE).doesNotContain(INPUTS)
             .doesNotContain(code);
     }
+
+    // --- feature 005 (T020, research D-6): deploy_release, keyed by the target group ----------
+
+    @Test
+    void aDeploymentCodeIsBoundToItsTargetGroup() {
+        de.dadecker.inubit.mcp.domain.model.GroupId integration =
+            new de.dadecker.inubit.mcp.domain.model.GroupId("int");
+        WriteChallengeRegistry.Issued issued = registry.issue(
+            WriteChallengeRegistry.DEPLOY_RELEASE, integration, "inputs", "state",
+            Duration.ofMinutes(30));
+        WriteChallengeRegistry.Issued other = registry.issue(
+            WriteChallengeRegistry.DEPLOY_RELEASE, integration, "inputs", "state",
+            Duration.ofMinutes(30));
+
+        assertThat(issued.expiresAt()).isEqualTo(NOW.plus(Duration.ofMinutes(30)));
+        assertThat(registry.redeem(issued.code(), WriteChallengeRegistry.DEPLOY_RELEASE,
+            integration, "inputs")).isEqualTo("state");
+        ToolErrorException wrongGroup = catchThrowableOfType(ToolErrorException.class,
+            () -> registry.redeem(other.code(), WriteChallengeRegistry.DEPLOY_RELEASE,
+                new de.dadecker.inubit.mcp.domain.model.GroupId("qa"), "inputs"));
+        assertThat(wrongGroup.error().code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
+        assertThat(wrongGroup.error().nextStep()).contains("deploy_release");
+    }
+
+    @Test
+    void aNodeCodeNeverConfirmsADeploymentAndTheOtherWayRound() {
+        NodeId node = NodeId.parse("int/node1");
+        WriteChallengeRegistry.Issued nodeCode = registry.issue(Capability.IMPORT_ARTIFACTS,
+            node, "inputs", "state", Duration.ofMinutes(5));
+        WriteChallengeRegistry.Issued groupCode = registry.issue(
+            WriteChallengeRegistry.DEPLOY_RELEASE, node.group(), "inputs", "state",
+            Duration.ofMinutes(5));
+
+        assertThat(catchThrowableOfType(ToolErrorException.class, () -> registry.redeem(
+            nodeCode.code(), WriteChallengeRegistry.DEPLOY_RELEASE, node.group(), "inputs"))
+            .error().code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
+        assertThat(catchThrowableOfType(ToolErrorException.class, () -> registry.redeem(
+            groupCode.code(), Capability.IMPORT_ARTIFACTS, node, "inputs")).error().code())
+            .isEqualTo(ErrorCode.CONFIRMATION_INVALID);
+    }
 }
+
