@@ -1444,12 +1444,16 @@ public final class ImportService {
      * True if the person-written part of a check-in comment is exactly
      * {@code DefaultCommitCommentImport###<reason>###} (research D-11): the part before the
      * export suffix ({@code @@@…}), with the copies of the empty last segment that every export
-     * appends ({@code ###…}) counted once.
+     * appends ({@code ###…}) counted once. INUBIT puts one more {@code DefaultCommitCommentImport###}
+     * in front of the comment of a <em>created module</em> (005 live acceptance), so one extra
+     * prefix is accepted too.
      */
     static boolean carriesReason(String comment, String reason) {
         int suffix = comment.indexOf("@@@");
         String head = suffix < 0 ? comment : comment.substring(0, suffix);
-        return head.replaceFirst("(###)+$", "###").equals(COMMENT_PREFIX + reason + "###");
+        String person = head.replaceFirst("(###)+$", "###");
+        String expected = COMMENT_PREFIX + reason + "###";
+        return person.equals(expected) || person.equals(COMMENT_PREFIX + expected);
     }
 
     /** Research D-25 (H5): only the change-set files and their .meta records. */
