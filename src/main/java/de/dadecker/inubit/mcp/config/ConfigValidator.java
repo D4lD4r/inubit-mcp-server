@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
@@ -16,6 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -122,7 +124,11 @@ public final class ConfigValidator {
         checkResultLimits(config.resultLimits(), findings);
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
             checkServer(server, credentials, findings);
+            checkDevelopment(server, findings);
         }
+        checkOneDevelopmentNodePerGroup(config, findings);
+        checkE2eNodeNames(config, findings);
+        checkOwners(config, findings);
         boolean cliConfigured = config.resolvableNodes().stream()
             .anyMatch(EffectiveNodeConfig::cliConfigured);
         if (!windows && cliConfigured && !CliPaths.exportRootUsable(tempDirectory)) {
@@ -494,6 +500,125 @@ public final class ConfigValidator {
             findings.error(id + ": confirmationTtl must be at most PT1H");
         }
         checkPositive(id, "inventory.cacheTtl", server.inventory().cacheTtl(), findings);
+    }
+
+    /**
+     * The development settings of feature 004 (research D-1, contracts/configuration-delta.md):
+     * neither {@code development.enabled} nor an {@code e2eTests} other than {@code FORBIDDEN} on
+     * a production {@code group} or node; {@code e2eTests} other than {@code FORBIDDEN} needs
+     * {@code e2e.soap.baseUrl}, which must be an absolute {@code https} URL ({@code http} is a
+     * warning: development stages may run plain HTTP) — but never together with the e2e basic
+     * authentication variables, which must not travel in clear text (review m-c).
+     */
+    private void checkDevelopment(EffectiveNodeConfig server, Findings findings) {
+        String id = server.id().value();
+        EffectiveNodeConfig.Development development = server.development();
+        if (server.production() && development.enabled()) {
+            findings.termError("%s: development.enabled is not allowed in production {groups};"
+                + " development tools write to INUBIT and are never offered there", id);
+        }
+        E2ePolicy e2eTests = development.e2eTests();
+        if (server.production() && e2eTests != E2ePolicy.FORBIDDEN) {
+            findings.termError("%s: e2eTests %s is not allowed in production {groups}; use"
+                + " FORBIDDEN (the default)", id, e2eTests);
+        }
+        if (e2eTests != E2ePolicy.FORBIDDEN && development.soapBaseUrl().isEmpty()) {
+            findings.termError("%s: e2eTests %s needs e2e.soap.baseUrl (for the {group} or the"
+                + " {node})", id, e2eTests);
+        }
+        development.soapBaseUrl().ifPresent(url -> {
+            String scheme = url.getScheme() == null ? ""
+                : url.getScheme().toLowerCase(Locale.ROOT);
+            if (url.getHost() == null || !(scheme.equals("https") || scheme.equals("http"))) {
+                findings.error(id + ": e2e.soap.baseUrl must be an absolute https:// URL"
+                    + " (http:// is accepted with a warning)");
+            } else if (scheme.equals("http")) {
+                List<String> credentials = e2eCredentialVariables(server);
+                if (e2eTests != E2ePolicy.FORBIDDEN && !credentials.isEmpty()) {
+                    findings.error(id + ": e2e.soap.baseUrl uses http:// while the e2e basic"
+                        + " authentication is set (" + String.join(", ", credentials) + "); the"
+                        + " credentials would travel in clear text — use https:// or unset them");
+                } else {
+                    findings.warning(id + ": e2e.soap.baseUrl uses http://; SOAP test messages"
+                        + " are sent unencrypted");
+                }
+            }
+        });
+    }
+
+    /** The set e2e basic-authentication variables of {@code server} (names only). */
+    private List<String> e2eCredentialVariables(EffectiveNodeConfig server) {
+        List<String> set = new ArrayList<>();
+        for (String kind : CredentialVariables.E2E_KINDS) {
+            for (String variable : server.credentialVariables().candidates(kind)) {
+                String value = environment.get(variable);
+                if (value != null && !value.isEmpty()) {
+                    set.add(variable);
+                }
+            }
+        }
+        return set;
+    }
+
+    /**
+     * Review m-d: in a {@code group} where any node allows end-to-end tests, a node named
+     * {@code e2e} would read {@code <PREFIX>_<GROUP>_E2E_USERNAME} as its own username.
+     */
+    private static void checkE2eNodeNames(ProfileConfig config, Findings findings) {
+        Map<String, List<EffectiveNodeConfig>> byGroup = new TreeMap<>();
+        config.resolvableNodes().forEach(server -> byGroup.computeIfAbsent(
+            server.id().group().value(), group -> new ArrayList<>()).add(server));
+        byGroup.values().forEach(nodes -> {
+            boolean e2e = nodes.stream().anyMatch(server -> server.development().e2eTests()
+                != E2ePolicy.FORBIDDEN);
+            nodes.stream().filter(server -> e2e && server.id().name().equalsIgnoreCase("e2e"))
+                .forEach(server -> findings.termError("%s: the {node} name '%s' clashes with the"
+                    + " e2e basic-authentication variables of its {group} (%s is its username"
+                    + " variable as well); rename the {node} or set e2eTests: FORBIDDEN for the"
+                    + " {group}", server.id().value(), server.id().name(),
+                    server.credentialVariables().groupVariable(CredentialVariables.E2E_USERNAME)));
+        });
+    }
+
+    /**
+     * Research D-25 (M8): the {@code Server-State} trailer of the workspace history names the
+     * {@code group}, so at most one node per group may be a development node.
+     */
+    private static void checkOneDevelopmentNodePerGroup(ProfileConfig config,
+        Findings findings) {
+        Map<String, List<String>> developmentNodes = new TreeMap<>();
+        for (EffectiveNodeConfig server : config.resolvableNodes()) {
+            if (server.development().enabled()) {
+                developmentNodes.computeIfAbsent(server.id().group().value(),
+                    group -> new ArrayList<>())
+                    .add(server.id().name());
+            }
+        }
+        developmentNodes.forEach((group, nodes) -> {
+            if (nodes.size() > 1) {
+                findings.termError("{Group} '%s' has %s development {nodes} (%s); at most one"
+                    + " {node} per {group} may set development.enabled: true (the workspace"
+                    + " history records the server state per {group})", group, nodes.size(),
+                    String.join(", ", nodes));
+            }
+        });
+    }
+
+    /**
+     * {@code owners.<name>} (research D-21): the names are passed to StartCLI
+     * ({@code --importUser} / {@code --importUserGroup}), so they follow the same rule as
+     * {@code inventory.owner}. The kinds are checked when the file is read. A name is not echoed;
+     * its position is.
+     */
+    private static void checkOwners(ProfileConfig config, Findings findings) {
+        int position = 0;
+        for (String owner : config.owners().keySet()) {
+            position++;
+            if (!CLI_VALUE_PATTERN.matcher(owner).matches()) {
+                findings.error("owners: the name of entry " + position + " (sorted by name) must"
+                    + " match " + CLI_VALUE_PATTERN.pattern());
+            }
+        }
     }
 
     private static void checkBaseUrl(EffectiveNodeConfig server, Findings findings) {

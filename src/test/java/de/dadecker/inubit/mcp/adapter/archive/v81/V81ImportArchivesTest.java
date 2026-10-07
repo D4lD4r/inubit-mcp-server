@@ -1,0 +1,108 @@
+package de.dadecker.inubit.mcp.adapter.archive.v81;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.port.ImportArchivePort.Archive;
+import de.dadecker.inubit.mcp.domain.port.ImportArchivePort.Artifact;
+import de.dadecker.inubit.mcp.domain.port.ImportArchivePort.Build;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
+import org.junit.jupiter.api.Test;
+
+/**
+ * T016 support (feature 004, research D-6, D-9, D-11): the 8.1 import archive port — the
+ * assembler with the target's secrets of all its exports, and the comparison of reviewed
+ * content that ignores what INUBIT rewrites on an import.
+ */
+class V81ImportArchivesTest {
+
+    private static final GroupId GROUP = new GroupId("dev");
+    private final V81ImportArchives archives = new V81ImportArchives();
+
+    private static byte[] bytes(String text) {
+        return text.getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void theArchiveCarriesTheSecretsOfTheTargetsExports() {
+        byte[] export = ArtifactFixtures.bytes("grp-b.zip");
+        var raw = new ArchiveReader().read(export);
+        var files = new TreeMap<>(WorkspaceWriter.render(new SecretRedactor().redact(raw), GROUP,
+            "OWNERS").files());
+
+        Archive archive = archives.assemble(new Build(GROUP, "OWNERS", Optional.of("GRP-02"),
+            List.of(new Artifact("Workflow-0006", Optional.empty(), false)), List.of(), files,
+            List.of(ArtifactFixtures.bytes("module-one.zip"), export), "Fix it", "jdoe",
+            "inubit-dev-1.example.test", "07.10.2026 10:00:00", Set.of()));
+
+        String workflow = new String(ArtifactFixtures.entries(archive.zip())
+            .get("workflow/workflow.xml"), StandardCharsets.UTF_8);
+        assertThat(workflow).contains("synthetic-literal-0001")
+            .contains("DefaultCommitCommentImport###Fix it###");
+        assertThat(archive.workflows()).containsExactly("Workflow-0006");
+        assertThat(archive.toString()).doesNotContain("synthetic");
+    }
+
+    @Test
+    void reviewedContentIgnoresWhatAnImportRewrites() {
+        String before = "<Workflow><WorkflowName>W</WorkflowName><WorkflowUId/>"
+            + "<CheckinComment>JD: x</CheckinComment><CheckoutUser>jdoe</CheckoutUser>"
+            + "<IsActive>false</IsActive><WorkflowModule><StyleSheet xPos=\"1\"/>"
+            + "</WorkflowModule></Workflow>";
+        String after = "<Workflow>\n  <WorkflowName>W</WorkflowName>\n  <WorkflowUId>a:b</WorkflowUId>"
+            + "<CheckinComment>DefaultCommitCommentImport###r###</CheckinComment>"
+            + "<IsActive>false</IsActive><WorkflowModule><StyleSheet xPos=\"1\"/>"
+            + "</WorkflowModule></Workflow>";
+        String moved = after.replace("xPos=\"1\"", "xPos=\"2\"");
+        String index = "<Module><ModuleName>M</ModuleName><CheckinComment>a</CheckinComment>"
+            + "<LastUpdate>01.01.2026 00:00:00</LastUpdate></Module>";
+
+        assertThat(archives.equivalent("dev/o/workflows/G/W.xml", bytes(before), bytes(after)))
+            .isTrue();
+        assertThat(archives.equivalent("dev/o/workflows/G/W.xml", bytes(before), bytes(moved)))
+            .isFalse();
+        assertThat(archives.equivalent("dev/o/modules/A/M/index.xml", bytes(index),
+            bytes(index.replace("01.01.2026", "07.10.2026").replace(">a<", ">b<")))).isTrue();
+        assertThat(archives.equivalent("dev/o/modules/A/M/x.bin", bytes("a"), bytes("a")))
+            .isTrue();
+        assertThat(archives.equivalent("dev/o/modules/A/M/x.bin", bytes("a"), bytes("b")))
+            .isFalse();
+        assertThat(archives.equivalent("dev/o/modules/A/M/x.bin", bytes("a"), null)).isFalse();
+    }
+
+    @Test
+    void theCheckinCommentIsRead() {
+        assertThat(archives.checkinComment(bytes("<Workflow><CheckinComment>Default"
+            + "CommitCommentImport###r###</CheckinComment></Workflow>")))
+            .contains("DefaultCommitCommentImport###r###");
+        assertThat(archives.checkinComment(bytes("<Properties/>"))).isEmpty();
+        assertThat(archives.checkinComment(bytes("not xml"))).isEmpty();
+        assertThat(Map.of()).isEmpty();
+    }
+
+    @Test
+    void theActiveFlagOfAWorkflowFileIsReadAndSet() {
+        // T020 (research D-15): set_active changes only IsActive of the server's workflow
+        byte[] inactive = bytes("<Workflow>\n  <WorkflowName>W</WorkflowName>\n"
+            + "  <IsActive>false</IsActive>\n  <XPathVersion>3.1</XPathVersion>\n</Workflow>\n");
+
+        byte[] active = archives.withActive(inactive, true);
+
+        assertThat(archives.active(inactive)).contains(false);
+        assertThat(archives.active(active)).contains(true);
+        assertThat(new String(active, StandardCharsets.UTF_8))
+            .isEqualTo(new String(XmlNormalizer.normalize(XmlTree.parse(new String(inactive,
+                StandardCharsets.UTF_8).replace("false", "true").getBytes(StandardCharsets.UTF_8))
+                .root()), StandardCharsets.UTF_8));
+        assertThat(archives.withActive(active, false)).isEqualTo(XmlNormalizer.normalize(
+            XmlTree.parse(inactive).root()));
+        assertThat(archives.active(bytes("<Workflow><WorkflowName>W</WorkflowName></Workflow>")))
+            .isEmpty();
+        assertThat(archives.active(bytes("not xml"))).isEmpty();
+    }
+}

@@ -70,6 +70,21 @@ public interface GatewayFactory {
         return forServer(server).artifacts();
     }
 
+    /** The import port of {@code server} (feature 004); the default asks the gateway. */
+    default ImportPort imports(NodeId server) {
+        return forServer(server).imports();
+    }
+
+    /** The tag port of {@code server} (feature 004); the default asks the gateway. */
+    default TagPort tags(NodeId server) {
+        return forServer(server).tags();
+    }
+
+    /** The user directory of {@code server} (feature 004); the default asks the gateway. */
+    default UserDirectoryPort users(NodeId server) {
+        return forServer(server).users();
+    }
+
     /**
      * The gateway of {@code server} if its adapter set is known without contacting the server:
      * a configured version line, or a detected (or cached fallback) {@code AUTO} version. Never

@@ -4,11 +4,14 @@ import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
+import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.domain.port.TagPort;
+import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -30,6 +33,9 @@ final class V81Gateway implements Gateway {
     private final InventoryPort inventory;
     private final ProcessControlPort processControl;
     private final ArtifactPort artifacts;
+    private final ImportPort imports;
+    private final TagPort tags;
+    private final UserDirectoryPort users;
     private final CredentialGuard guard;
 
     /**
@@ -51,6 +57,9 @@ final class V81Gateway implements Gateway {
         this.inventory = ports.inventory();
         this.processControl = ports.processControl();
         this.artifacts = ports.artifacts();
+        this.imports = ports.imports();
+        this.tags = ports.tags();
+        this.users = ports.users();
         this.guard = Objects.requireNonNull(guard, "guard");
     }
 
@@ -104,14 +113,33 @@ final class V81Gateway implements Gateway {
         return artifacts;
     }
 
+    @Override
+    public ImportPort imports() {
+        return imports;
+    }
+
+    @Override
+    public TagPort tags() {
+        return tags;
+    }
+
+    @Override
+    public UserDirectoryPort users() {
+        return users;
+    }
+
     /**
-     * The ports of US2 (REST), US3 (REST and CLI exports), US4 (CLI) and feature 003 (CLI
-     * exports), created once per server
+     * The ports of US2 (REST), US3 (REST and CLI exports), US4 (CLI), feature 003 (CLI
+     * exports) and feature 004 (CLI imports and tags, REST user list), created once per server
      * with its client and credential guard.
      */
     record Ports(ProcessQueryPort processes, LogPort logs, InventoryPort inventory,
-        ProcessControlPort processControl, ArtifactPort artifacts) {
+        ProcessControlPort processControl, ArtifactPort artifacts, ImportPort imports,
+        TagPort tags, UserDirectoryPort users) {
         Ports {
+            Objects.requireNonNull(imports, "imports");
+            Objects.requireNonNull(tags, "tags");
+            Objects.requireNonNull(users, "users");
             Objects.requireNonNull(processes, "processes");
             Objects.requireNonNull(logs, "logs");
             Objects.requireNonNull(inventory, "inventory");

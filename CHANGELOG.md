@@ -7,6 +7,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Development on a development stage (feature 004), offered only if a node has
+  `development.enabled: true` (never on production groups) and refusing every other node with
+  `NOT_DEVELOPMENT`:
+  - `import_artifacts`: imports the changed workflows of one diagram group (with their changed or
+    new modules), or changed modules, from the workspace. The server enforces the sequence: checks
+    of `check_artifacts`, conflict detection against the last verified server state (changed on
+    the server, Workbench edit mode), server-side confirmation by default (preview and one-time
+    code bound to inputs, workspace and server state, re-checked before sending), a backup,
+    an archive with only the changed artifacts and the target's current secret values (in
+    memory), protocol matching, verification by re-export with the reason in the check-in
+    comment, then the commit with a `Server-State` trailer — or a rollback from the backup.
+    Created artifacts are never removed (listed instead).
+  - `restore_backup`: re-imports the backup of an earlier development call, limited to the
+    artifacts that call changed, with its own backup, conflict check against the state the call
+    left, verification and rollback.
+  - `set_active`: activates or deactivates one workflow, built from the server's current state.
+  - `tag_artifacts`: tags the head versions of named diagram groups and their modules (never
+    owner-wide, never moving an existing tag), verified by history exports and removed again on
+    any mismatch.
+  - `run_e2e_test`: sends a SOAP envelope from the workspace (`e2eTests: FREE | CONFIRM`) with a
+    test-id header and reports the response, process instances, errors and log entries, found by
+    the test id or, marked uncertain, by workflow and time window.
+- Settings `development.enabled`, `development.confirmation`, `e2eTests`, `e2e.soap.baseUrl` and
+  the profile-level `owners`; optional end-to-end basic authentication from
+  `<PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME` / `_E2E_PASSWORD`; `--check-config` shows the
+  development and end-to-end settings per node and the owner kinds.
+- Backups in `~/.inubit-mcp/<profile>/backups`, kept 30 days (the newest per scope always);
+  removals are audited. Every call of the development tools is audited.
+- Writes for user-group owners are refused until INUBIT's behaviour for them has been verified.
+
 ## [0.2.0] - 2026-10-06
 
 ### Added

@@ -4,7 +4,8 @@ A local [Model Context Protocol](https://modelcontextprotocol.io) server (stdio,
 an AI assistant such as Claude Code operate and diagnose **INUBIT 8.1** integration servers: check
 health, find failed or hanging process instances and read the matching logs, inspect the inventory
 of diagrams and modules, and — only where explicitly allowed — restart or kill a single process
-instance. It uses the INUBIT REST API wherever possible and the INUBIT command-line client
+instance. On a configured **development stage** it brings workspace changes back into INUBIT,
+switches workflows on or off, tags tested states, restores backups and sends SOAP test messages. It uses the INUBIT REST API wherever possible and the INUBIT command-line client
 (StartCLI) only where REST cannot do the job. One server process serves one **profile** (one
 customer or project, one YAML file); several profiles run side by side as separate registrations.
 
@@ -22,11 +23,17 @@ customer or project, one YAML file); several profiles run side by side as separa
 | `kill_process` | kill ONE process instance on ONE node (two-step confirmation) | REST + StartCLI |
 | `export_artifacts` | export technical workflows (by diagram group) or modules into a local, git-versioned workspace as readable files, secrets replaced by placeholders | StartCLI `export` (read-only) |
 | `check_artifacts` | check workspace files offline: workflow structure, referenced modules, a stylesheet run with deterministic stand-ins, XML/XSD validation | only the module list for modules missing locally |
+| `import_artifacts` | import the changed workflows of one diagram group (with changed or new modules), or changed modules, into one development node — checked, conflict-free, backed up, verified, rolled back on failure | StartCLI `export` + `import` |
+| `restore_backup` | re-import the backup of an earlier development call | StartCLI `export` + `import` |
+| `set_active` | activate or deactivate one workflow on a development node | StartCLI `export` + `import` |
+| `tag_artifacts` | tag the head versions of named diagram groups (never owner-wide, never moving a tag), verified | StartCLI history `export` + `tag` |
+| `run_e2e_test` | send a SOAP envelope from the workspace to a development node and report the response, processes, errors and logs it caused | SOAP + REST |
 
 The two write tools are registered only if at least one node of the profile has effective write
 access, `export_artifacts` only if a node has a StartCLI installation; with the default
 configuration and no client installation the server offers the six read-only tools and
-`check_artifacts`. Inputs, outputs and example prompts: [docs/tools.md](docs/tools.md); the
+`check_artifacts`. The development tools are registered only if a node has
+`development.enabled: true` (never on production), `run_e2e_test` only where `e2eTests` allows it. Inputs, outputs and example prompts: [docs/tools.md](docs/tools.md); the
 workspace: [docs/setup.md](docs/setup.md#artifact-workspace).
 
 ## Safety model
@@ -52,6 +59,12 @@ workspace: [docs/setup.md](docs/setup.md#artifact-workspace).
   and its local git history; secrets are replaced before anything is written, and nothing is ever
   sent anywhere. `check_artifacts` runs stylesheets without access to the server's environment,
   files outside the workspace or the network.
+- **Development stage only, never deleting.** The development tools refuse every node that is
+  not a development stage. Each write is checked first, refused on a conflict with a colleague's
+  change or an open Workbench edit, backed up (owner-only, 30 days), sends only what changed with
+  the target's own secret values, is verified by a re-export and rolled back from the backup on
+  failure; by default it needs a server-issued confirmation code. Nothing is ever deleted in
+  INUBIT. Writes for user-group owners are not yet supported.
 - **TLS on.** Self-signed server certificates are handled with a dedicated trust store plus a
   certificate pin, never by switching verification off.
 
@@ -162,7 +175,8 @@ The build produces the single executable JAR `target/inubit-mcp-server-<version>
 - [docs/tools.md](docs/tools.md) — tool reference with inputs, outputs and example prompts
 - [docs/migration-001-to-002.md](docs/migration-001-to-002.md) — migrating a configuration file of
   the earlier `stages`/`servers` format
-- [docs/live-tests.md](docs/live-tests.md) — opt-in, read-only tests against a non-production server
+- [docs/live-tests.md](docs/live-tests.md) — opt-in tests against a non-production server (read-only,
+  and a development test on a personal diagram group)
 - [docs/release-checks.md](docs/release-checks.md) — checks before a release
 - [specs/](specs/) — specifications, plans and contracts of the features (Spec Kit)
 - [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md)

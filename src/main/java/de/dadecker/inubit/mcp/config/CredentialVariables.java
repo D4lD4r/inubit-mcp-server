@@ -22,8 +22,13 @@ public record CredentialVariables(String prefix, NodeId node) {
     public static final String USERNAME = "USERNAME";
     public static final String PASSWORD = "PASSWORD";
     public static final String TRUSTSTORE_PASSWORD = "TRUSTSTORE_PASSWORD";
-    /** Every kind, in this order. */
+    /** Every kind of the node credentials, in this order. */
     public static final List<String> KINDS = List.of(USERNAME, PASSWORD, TRUSTSTORE_PASSWORD);
+    /** The optional basic authentication of the SOAP end-to-end tests (feature 004). */
+    public static final String E2E_USERNAME = "E2E_USERNAME";
+    public static final String E2E_PASSWORD = "E2E_PASSWORD";
+    /** The kinds of the end-to-end test credentials. */
+    public static final List<String> E2E_KINDS = List.of(E2E_USERNAME, E2E_PASSWORD);
 
     public CredentialVariables {
         Objects.requireNonNull(prefix, "prefix");

@@ -37,7 +37,9 @@ import java.util.function.Supplier;
  *       files and history untouched (FR-018);
  *   <li>replace the affected sub-trees (FR-017) — a failure while writing restores the owner's
  *       directories from the last history entry (safe because step 2 committed everything);
- *   <li>commit {@code export <group>/<node>: <what> (<n> files)} if anything changed;
+ *   <li>commit {@code export <group>/<node>: <what> (<n> files)} if anything changed, with the
+ *       trailer {@code Server-State: <group>}: the entry records a server state, the base of
+ *       later imports (feature 004, research D-3, D-25);
  *   <li>release the lock.
  * </ol>
  */
@@ -162,7 +164,8 @@ public final class WorkspaceService {
                 List<PathChange> changes = history.status();
                 export = changes.isEmpty() ? Optional.empty()
                     : history.commitAll("export " + node.value() + ": " + what + " ("
-                        + changes.size() + " files)");
+                        + changes.size() + " files)",
+                        Map.of(VersionHistoryPort.SERVER_STATE, node.group().value()));
             } catch (RuntimeException e) {
                 throw undo(prepared, e);
             }

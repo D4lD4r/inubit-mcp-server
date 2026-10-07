@@ -3,6 +3,8 @@ package de.dadecker.inubit.mcp.domain.port;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.SortedMap;
 
 /**
  * Turns export archives into workspace files (feature 003, research D-2 – D-6): read, redact
@@ -34,6 +36,15 @@ public interface ArchiveCodecPort {
          * create, change or delete; restoring them undoes a failed write.
          */
         List<String> scope();
+
+        /**
+         * The rendered (redacted) files, read-only: workspace-relative path → content, the
+         * {@code .meta/} records included (feature 004, research D-5). Nothing is written.
+         */
+        SortedMap<String, byte[]> files();
+
+        /** The workflows in Workbench edit mode ({@code CheckoutUser}): name → user. */
+        Map<String, String> inEditMode();
 
         /**
          * Writes the files below {@code root}, replacing the exported sub-trees (artifacts no

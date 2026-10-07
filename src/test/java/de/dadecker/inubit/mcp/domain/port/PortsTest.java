@@ -83,6 +83,27 @@ class PortsTest {
     }
 
     @Test
+    void aGatewayWithoutImportOrUserAdapterReportsThemAsUnavailableForItsNode() {
+        // feature 004 (T014)
+        assertThatThrownBy(() -> new PreviousGateway().imports())
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                assertThat(e.error().node()).contains(NODE);
+            });
+        assertThatThrownBy(() -> new PreviousGateway().users())
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.NOT_CONFIGURED);
+                assertThat(e.error().node()).contains(NODE);
+            });
+        // T021
+        assertThatThrownBy(() -> new PreviousGateway().tags())
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                assertThat(e.error().node()).contains(NODE);
+            });
+    }
+
+    @Test
     void anXsltRequestCopiesItsParameters() {
         Map<String, String> params = new HashMap<>(Map.of("lang", "de"));
         XsltRequest request = new XsltRequest(Path.of("a.xsl"), Path.of("in.xml"), params,
@@ -103,8 +124,10 @@ class PortsTest {
 
     @Test
     void theHistoryPortOffersNoWayToTransmitTheHistory() {
-        // FR-007: never a remote, push, fetch or clone
+        // FR-007: never a remote, push, fetch or clone; feature 004 (T007): the only writing
+        // methods are init, commitAll and restore, the others read
         assertThat(Arrays.stream(VersionHistoryPort.class.getMethods()).map(Method::getName))
-            .containsExactlyInAnyOrder("init", "status", "commitAll", "restore");
+            .containsExactlyInAnyOrder("init", "status", "commitAll", "commitAll", "restore",
+                "lastServerState", "serverStateOf", "show", "changedPaths", "localChanges");
     }
 }

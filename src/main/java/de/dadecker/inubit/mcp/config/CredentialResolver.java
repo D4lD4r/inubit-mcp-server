@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Stream;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -67,6 +68,35 @@ public final class CredentialResolver {
     /** The variables of {@code node} under this resolver's prefix. */
     public CredentialVariables variables(NodeId node) {
         return new CredentialVariables(prefix, node);
+    }
+
+    /**
+     * The optional basic authentication of the SOAP end-to-end tests of a node (feature 004,
+     * research D-25 H8): {@code <PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME} and
+     * {@code …_E2E_PASSWORD}, node-specific before group-wide, like the node credentials.
+     */
+    public record E2eCredentials(SourcedValue<String> username, SourcedValue<Secret> password) {
+        public E2eCredentials {
+            Objects.requireNonNull(username, "username");
+            Objects.requireNonNull(password, "password");
+        }
+    }
+
+    /**
+     * The end-to-end test credentials of {@code server}: both variables set and a safe username
+     * ({@link #isSafeUsername}), else none. The password is registered with the scrubber.
+     */
+    public Optional<E2eCredentials> e2e(NodeId server) {
+        Optional<SourcedValue<String>> username = lookup(server, CredentialVariables.E2E_USERNAME)
+            .filter(value -> isSafeUsername(value.value()));
+        Optional<SourcedValue<String>> password = lookup(server,
+            CredentialVariables.E2E_PASSWORD);
+        if (username.isEmpty() || password.isEmpty()) {
+            return Optional.empty();
+        }
+        SourcedValue<Secret> secret = register(password.get());
+        scrubber.registerBasicAuth(username.get().value(), secret.value());
+        return Optional.of(new E2eCredentials(username.get(), secret));
     }
 
     /** {@link #resolve(List, Set)} without other known profiles. */
@@ -135,11 +165,20 @@ public final class CredentialResolver {
             + names.get(1) + ")";
     }
 
-    /** Groups every derived name by the groups/nodes it is derived for. */
+    /** Groups every derived name of the node credentials by the groups/nodes it is for. */
     private Map<String, Set<String>> owners(List<NodeId> servers) {
+        return owners(servers, KINDS);
+    }
+
+    /**
+     * Groups every derived name of {@code kinds} by the groups/nodes it is derived for. The
+     * end-to-end kinds count as known names (no typo warning) but not for the collision check:
+     * a node named {@code e2e} clashes only where e2e tests are allowed (ConfigValidator).
+     */
+    private Map<String, Set<String>> owners(List<NodeId> servers, List<String> kinds) {
         Map<String, Set<String>> owners = new LinkedHashMap<>();
         for (NodeId server : servers) {
-            for (String kind : KINDS) {
+            for (String kind : kinds) {
                 String serverVariable = variables(server).nodeVariable(kind);
                 String stageVariable = variables(server).groupVariable(kind);
                 owners.computeIfAbsent(serverVariable, k -> new TreeSet<>())
@@ -167,7 +206,8 @@ public final class CredentialResolver {
 
     private List<String> unmatchedPasswordVariables(List<NodeId> servers,
         Set<String> otherProfiles) {
-        Set<String> known = owners(servers).keySet();
+        Set<String> known = owners(servers, Stream.concat(KINDS.stream(),
+            CredentialVariables.E2E_KINDS.stream()).toList()).keySet();
         Set<String> unmatched = new TreeSet<>();
         for (String variable : environment.keySet()) {
             if (variable.startsWith(prefix + "_") && variable.endsWith("_" + PASSWORD)

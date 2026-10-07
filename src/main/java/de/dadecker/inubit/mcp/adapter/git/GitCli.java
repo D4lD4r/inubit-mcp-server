@@ -5,6 +5,7 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchedProcess;
 import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.HistoryEntry;
 import de.dadecker.inubit.mcp.domain.model.PathChange;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
@@ -21,11 +22,13 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -59,6 +62,15 @@ public final class GitCli implements VersionHistoryPort {
 
     static final Duration TIMEOUT = Duration.ofSeconds(30);
     static final List<String> IGNORED = List.of(".tests/", ".reports/", ".lock");
+    private static final Pattern COMMIT = Pattern.compile("^[0-9a-f]{7,40}$");
+    private static final Pattern CONTROL = Pattern.compile("\\p{Cntrl}");
+    private static final Pattern TRAILER_KEY = Pattern.compile("^[A-Za-z][A-Za-z0-9-]{0,63}$");
+    private static final Pattern TRAILER_VALUE = Pattern.compile("^[^\\p{Cntrl}]{1,200}$");
+    /** Field and record separators of the {@code git log} format (unit and record separator). */
+    private static final String FIELD = "%x1f";
+    private static final String RECORD = "%x1e";
+    private static final String FIELD_CHAR = "\u001f";
+    private static final String RECORD_CHAR = "\u001e";
     private static final Duration KILL_GRACE = Duration.ofSeconds(2);
     private static final long MAX_OUTPUT_BYTES = 64L << 20;
 
@@ -144,14 +156,54 @@ public final class GitCli implements VersionHistoryPort {
         return List.copyOf(changes);
     }
 
+    /**
+     * Records every change with {@code message}; the trailers (feature 004, research D-3) follow
+     * as the last paragraph, {@code <key>: <value>} per line, so that {@code git log
+     * --format=%(trailers)} reads them.
+     *
+     * @throws IllegalArgumentException for a message with control characters (a line break
+     *     could forge a trailer paragraph, review I1), a trailer key that is not a single token
+     *     or a value that is empty or contains control characters
+     */
     @Override
-    public Optional<HistoryEntry> commitAll(String message) {
+    public Optional<HistoryEntry> commitAll(String message, Map<String, String> trailers) {
         Objects.requireNonNull(message, "message");
+        Objects.requireNonNull(trailers, "trailers");
+        if (CONTROL.matcher(message).find()) {
+            throw new IllegalArgumentException("A history message is one line without control"
+                + " characters");
+        }
+        StringBuilder full = new StringBuilder(message);
+        if (!trailers.isEmpty()) {
+            full.append("\n");
+            trailers.forEach((key, value) -> {
+                if (key == null || !TRAILER_KEY.matcher(key).matches() || value == null
+                    || !TRAILER_VALUE.matcher(value).matches()) {
+                    throw new IllegalArgumentException("A trailer is a token key and a"
+                        + " non-empty value without control characters");
+                }
+                full.append("\n").append(key).append(": ").append(value);
+            });
+        }
         run("add", "-A");
-        String staged = run("diff", "--cached", "--name-status", "-z", "--no-renames");
-        String[] fields = staged.split("\0");
+        List<PathChange> changes = parseNameStatus(run("diff", "--cached", "--name-status",
+            "-z", "--no-renames"));
+        if (changes.isEmpty()) {
+            return Optional.empty();
+        }
+        run("commit", "-q", "--no-verify", "-m", full.toString());
+        String commit = run("rev-parse", "--short", "HEAD").strip();
+        return Optional.of(new HistoryEntry(commit, message, changes));
+    }
+
+    /** {@code --name-status -z --no-renames} output: status and path, NUL-separated. */
+    private static List<PathChange> parseNameStatus(String output) {
+        String[] fields = output.split("\0");
         List<PathChange> changes = new ArrayList<>();
         for (int i = 0; i + 1 < fields.length; i += 2) {
+            if (fields[i].isEmpty()) {
+                continue;
+            }
             PathChange.Kind kind = switch (fields[i].charAt(0)) {
                 case 'A' -> PathChange.Kind.ADDED;
                 case 'D' -> PathChange.Kind.DELETED;
@@ -159,12 +211,7 @@ public final class GitCli implements VersionHistoryPort {
             };
             changes.add(new PathChange(fields[i + 1], kind));
         }
-        if (changes.isEmpty()) {
-            return Optional.empty();
-        }
-        run("commit", "-q", "--no-verify", "-m", message);
-        String commit = run("rev-parse", "--short", "HEAD").strip();
-        return Optional.of(new HistoryEntry(commit, message, changes));
+        return List.copyOf(changes);
     }
 
     /**
@@ -187,6 +234,149 @@ public final class GitCli implements VersionHistoryPort {
         run("clean", "-f", "-d", "-q", "--", pathspec);
     }
 
+    /**
+     * Walks the entries that touched {@code path}, newest first, and returns the first that
+     * records a server state of {@code group}: its {@code Server-State} trailer names the group,
+     * or it has no such trailer and its subject is a feature-003 export of the group
+     * ({@code export <group>/<node>: …}, research D-25).
+     */
+    @Override
+    public Optional<String> lastServerState(GroupId group, String path) {
+        Objects.requireNonNull(group, "group");
+        String pathspec = checkPath(path);
+        if (!hasCommits()) {
+            return Optional.empty();
+        }
+        String output = run("log", "--format=%H" + FIELD + "%s" + FIELD + "%(trailers:key="
+            + SERVER_STATE + ",valueonly,separator=%x1d)" + RECORD, "--", pathspec);
+        String exportPrefix = "export " + group.value() + "/";
+        for (String record : output.split(RECORD_CHAR)) {
+            // not strip(): the separators count as white space in Java
+            String[] fields = record.replaceFirst("^\n+", "").split(FIELD_CHAR, -1);
+            if (fields.length < 3 || fields[0].isEmpty()) {
+                continue;
+            }
+            if (isServerState(group, fields[1], fields[2])) {
+                return Optional.of(fields[0]);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * An entry records a server state of {@code group} if its {@code Server-State} trailer names
+     * the group, or, without any such trailer, its subject is a feature-003 export of the group.
+     */
+    private static boolean isServerState(GroupId group, String subject, String trailers) {
+        List<String> states = trailers.isBlank() ? List.of()
+            : Stream.of(trailers.split("\u001d")).map(String::strip).toList();
+        return states.contains(group.value())
+            || states.isEmpty() && subject.startsWith("export " + group.value() + "/");
+    }
+
+    /**
+     * One walk over the entries that touched {@code subtree}, newest first: a file's newest entry
+     * decides whether it is a local change, its newest server-state entry is its base.
+     */
+    @Override
+    public List<LocalChange> localChanges(GroupId group, String subtree) {
+        Objects.requireNonNull(group, "group");
+        String pathspec = checkPath(subtree);
+        if (!hasCommits()) {
+            return List.of();
+        }
+        String output = run("log", "--format=" + RECORD + "%H" + FIELD + "%s" + FIELD
+            + "%(trailers:key=" + SERVER_STATE + ",valueonly,separator=%x1d)" + FIELD,
+            "--name-status", "-z", "--no-renames", "--", pathspec);
+        Map<String, String> newestStatus = new LinkedHashMap<>();
+        Map<String, Boolean> newestIsState = new HashMap<>();
+        Map<String, String> states = new HashMap<>();
+        for (String record : output.split(RECORD_CHAR)) {
+            String[] fields = record.split(FIELD_CHAR, 4);
+            if (fields.length < 4 || fields[0].isEmpty()) {
+                continue;
+            }
+            boolean state = isServerState(group, fields[1], fields[2]);
+            List<String> tokens = Stream.of(fields[3].split("\0"))
+                .map(token -> token.replaceFirst("^\n+", "")).filter(t -> !t.isEmpty())
+                .toList();
+            for (int i = 0; i + 1 < tokens.size(); i += 2) {
+                String path = tokens.get(i + 1);
+                if (!newestStatus.containsKey(path)) {
+                    newestStatus.put(path, tokens.get(i));
+                    newestIsState.put(path, state);
+                }
+                if (state) {
+                    // a server state that removed the file means: no longer on the server
+                    states.putIfAbsent(path, tokens.get(i).startsWith("D") ? "" : fields[0]);
+                }
+            }
+        }
+        List<LocalChange> changes = new ArrayList<>();
+        newestStatus.forEach((path, status) -> {
+            if (newestIsState.get(path)) {
+                return;
+            }
+            Optional<String> base = Optional.ofNullable(states.get(path))
+                .filter(commit -> !commit.isEmpty());
+            boolean deleted = status.startsWith("D");
+            if (deleted && base.isEmpty()) {
+                return; // added and removed again locally
+            }
+            changes.add(new LocalChange(path, deleted ? PathChange.Kind.DELETED
+                : base.isEmpty() ? PathChange.Kind.ADDED : PathChange.Kind.MODIFIED, base));
+        });
+        return List.copyOf(changes);
+    }
+
+    /**
+     * {@code git cat-file blob <commit>:<path>}; a missing file or a directory is empty.
+     *
+     * @throws IllegalArgumentException if {@code commit} is not a commit of this history
+     */
+    @Override
+    public Optional<byte[]> show(String commit, String path) {
+        String object = checkCommit(commit) + ":" + checkPath(path);
+        if (execute(true, "cat-file", "-e", commit + "^{commit}") == null) {
+            throw new IllegalArgumentException("The commit is not in the workspace history");
+        }
+        String type = run(true, "cat-file", "-t", object).strip();
+        if (!type.equals("blob")) {
+            return Optional.empty();
+        }
+        return Optional.of(runBytes("cat-file", "blob", object));
+    }
+
+    /** {@code git diff --name-status --no-renames <fromCommit> HEAD -- <subtree>}. */
+    @Override
+    public List<PathChange> changedPaths(String fromCommit, String subtree) {
+        String from = checkCommit(fromCommit);
+        String pathspec = checkPath(subtree);
+        String output = run("diff", "--name-status", "-z", "--no-renames", from, "HEAD", "--",
+            pathspec);
+        return parseNameStatus(output);
+    }
+
+    private boolean hasCommits() {
+        return !run(true, "rev-parse", "--verify", "-q", "HEAD").isEmpty();
+    }
+
+    /** A commit id of this history: 7 to 40 lower-case hex digits, never an option or a name. */
+    private static String checkCommit(String commit) {
+        if (commit == null || !COMMIT.matcher(commit).matches()) {
+            throw new IllegalArgumentException("A commit must be 7 to 40 lower-case hex digits");
+        }
+        return commit;
+    }
+
+    /** A path inside the workspace, relative, not below {@code .git}. */
+    private String checkPath(String path) {
+        if (path == null || path.isEmpty()) {
+            throw new IllegalArgumentException("A path must be inside the workspace (not .git)");
+        }
+        return checkSubtree(Path.of(path));
+    }
+
     private String checkSubtree(Path subtree) {
         Objects.requireNonNull(subtree, "subtree");
         Path normalized = subtree.normalize();
@@ -203,12 +393,21 @@ public final class GitCli implements VersionHistoryPort {
         return run(false, arguments);
     }
 
+    private String run(boolean tolerateFailure, String... arguments) {
+        byte[] output = execute(tolerateFailure, arguments);
+        return output == null ? "" : new String(output, StandardCharsets.UTF_8);
+    }
+
+    private byte[] runBytes(String... arguments) {
+        return execute(false, arguments);
+    }
+
     /**
      * Runs {@code git <fixed options> <arguments>} in the workspace root.
      *
-     * @param tolerateFailure return an empty text instead of failing on a non-zero exit
+     * @param tolerateFailure return {@code null} instead of failing on a non-zero exit
      */
-    private String run(boolean tolerateFailure, String... arguments) {
+    private byte[] execute(boolean tolerateFailure, String... arguments) {
         List<String> command = new ArrayList<>();
         command.add(executable);
         command.add("-c");
@@ -264,12 +463,12 @@ public final class GitCli implements VersionHistoryPort {
         String error = stderr.text();
         if (process.exitValue() != 0) {
             if (tolerateFailure) {
-                return "";
+                return null;
             }
             throw unusable(name + " failed in the workspace " + root + " (exit "
                 + process.exitValue() + ")", error.strip());
         }
-        return stdout.text();
+        return stdout.bytes();
     }
 
     /**
@@ -361,6 +560,10 @@ public final class GitCli implements VersionHistoryPort {
         }
 
         String text() {
+            return new String(bytes(), StandardCharsets.UTF_8);
+        }
+
+        byte[] bytes() {
             try {
                 reader.join(KILL_GRACE);
             } catch (InterruptedException e) {
@@ -373,7 +576,7 @@ public final class GitCli implements VersionHistoryPort {
                     "Check the workspace directory"));
             }
             synchronized (bytes) {
-                return bytes.toString(StandardCharsets.UTF_8);
+                return bytes.toByteArray();
             }
         }
     }

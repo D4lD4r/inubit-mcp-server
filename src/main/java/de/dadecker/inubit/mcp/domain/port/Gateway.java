@@ -63,4 +63,45 @@ public interface Gateway {
             "This adapter line has no artifact adapter",
             "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
     }
+
+    /**
+     * Imports into this server (feature 004). The default is for gateways without an import
+     * adapter.
+     *
+     * @throws ToolErrorException {@code CLI_UNAVAILABLE} with the server id, unless the
+     *     version-specific gateway provides an adapter
+     */
+    default ImportPort imports() {
+        throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
+            "Imports are not available for " + node(),
+            "This adapter line has no import adapter",
+            "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
+    }
+
+    /**
+     * Tags on this server (feature 004). The default is for gateways without a tag adapter.
+     *
+     * @throws ToolErrorException {@code CLI_UNAVAILABLE} with the server id, unless the
+     *     version-specific gateway provides an adapter
+     */
+    default TagPort tags() {
+        throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
+            "Tags are not available for " + node(),
+            "This adapter line has no tag adapter",
+            "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
+    }
+
+    /**
+     * The user administration of this server, read-only (feature 004, research D-21). The
+     * default is for gateways without such an adapter.
+     *
+     * @throws ToolErrorException {@code NOT_CONFIGURED} with the server id, unless the
+     *     version-specific gateway provides an adapter
+     */
+    default UserDirectoryPort users() {
+        throw new ToolErrorException(ToolError.of(ErrorCode.NOT_CONFIGURED,
+            "The user list of " + node() + " cannot be read",
+            "This adapter line has no user directory adapter",
+            "Set owners.<name> in the profile").withNode(node()));
+    }
 }

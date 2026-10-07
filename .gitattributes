@@ -4,3 +4,6 @@
 *.zip binary
 *.p12 binary
 *.jar binary
+
+# StartCLI recordings keep INUBIT's line ends byte for byte (import protocol and finger use CRLF)
+src/test/resources/fixtures/v8_1/cli/*.stdout -text

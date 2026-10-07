@@ -82,6 +82,33 @@ class LiveTargetTest {
     }
 
     @Test
+    void theDevelopmentLiveTestAcceptsOnlyADevelopmentNode() throws IOException {
+        // feature 004 (T026, research D-23): never a node that is no development stage
+        Path file = profileFile("acme");
+        credentials("INUBIT_ACME");
+        env.put("INUBIT_MCP_PROFILE", "acme");
+        env.put("INUBIT_LIVE_DEV_NODE", "test/node1");
+
+        assertThatThrownBy(() -> LiveTarget.resolveDevelopment(env, home, false))
+            .isInstanceOf(AssertionError.class)
+            .hasMessageContaining("test/node1 is not a development node");
+
+        Files.writeString(file, Files.readString(file).replace("  - name: test\n",
+            "  - name: test\n    development:\n      enabled: true\n"));
+        assertThat(LiveTarget.resolveDevelopment(env, home, false).node())
+            .isEqualTo(NodeId.parse("test/node1"));
+    }
+
+    @Test
+    void withoutTheDevelopmentNodeVariableTheDevelopmentLiveTestIsSkipped() {
+        env.put("INUBIT_LIVE_NODE", "test/node1");
+
+        assertThatThrownBy(() -> LiveTarget.resolveDevelopment(env, home, false))
+            .isInstanceOf(TestAbortedException.class)
+            .hasMessageContaining("INUBIT_LIVE_DEV_NODE");
+    }
+
+    @Test
     void withoutTheNodeVariableTheLiveTestIsSkipped() {
         assertThatThrownBy(this::resolve)
             .isInstanceOf(TestAbortedException.class)

@@ -1,0 +1,12 @@
+JAVA_HOME is set
+Password: 
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+TYPE        DESCRIPTION                                      DIAGRAM/MODULE                                   GROUP/USER
+INFORMATION Module [SPIKE_C_XSLT-Converter-01] was modified. SPIKE_Roundtrip_Claude/SPIKE_C_XSLT-Converter-01 jdoe  
+INFORMATION Module [SPIKE_C_Assign-03] was created.          SPIKE_Roundtrip_Claude/SPIKE_C_Assign-03         jdoe  
+INFORMATION Module [SPIKE_C_Assign-02] was modified.         SPIKE_Roundtrip_Claude/SPIKE_C_Assign-02         jdoe  
+INFORMATION Module [SPIKE_C_Assign-01] was modified.         SPIKE_Roundtrip_Claude/SPIKE_C_Assign-01         jdoe  
+INFORMATION Module [SPIKE_C_Demux-01] was modified.          SPIKE_Roundtrip_Claude/SPIKE_C_Demux-01          jdoe  
+INFORMATION Diagram [SPIKE_Roundtrip_Claude] was modified.   SPIKE_Roundtrip_Claude                           jdoe  
+Total: 6
+

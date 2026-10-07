@@ -1,0 +1,55 @@
+{
+  "type": "object",
+  "required": [
+    "node",
+    "envelope",
+    "path"
+  ],
+  "properties": {
+    "node": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}/[a-z0-9][a-z0-9-]{0,31}$",
+      "description": "Id of exactly one development {node} (`<{group}>/<{node}>`) whose e2eTests allow the test"
+    },
+    "envelope": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "description": "Workspace-relative path of the SOAP envelope file (not below .git, .meta or .reports); sent unchanged. Passwords must be ${secret:…} placeholders"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "^[^?#\\\\\\s]+$",
+      "description": "Endpoint path relative to e2e.soap.baseUrl, e.g. /ibis/ws/Service-01 (no scheme, host, .. or query)"
+    },
+    "soapAction": {
+      "type": "string",
+      "maxLength": 500,
+      "pattern": "^[^\"\\u0000-\\u001F\\u007F]*$",
+      "description": "The SOAPAction header value"
+    },
+    "workflow": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+      "description": "The tested workflow: its instances in the time window are shown when no log entry names the test id"
+    },
+    "timeoutSeconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 120,
+      "description": "How long to wait for the answer (default 60)"
+    },
+    "includeExcerpt": {
+      "type": "boolean",
+      "description": "Return at most 2 KB of the response (default false; the response is always saved to a workspace file)"
+    },
+    "confirmationCode": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$",
+      "description": "The code from the preview (only where e2eTests is CONFIRM)"
+    }
+  },
+  "additionalProperties": false
+}

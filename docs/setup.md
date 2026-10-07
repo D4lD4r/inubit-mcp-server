@@ -367,6 +367,80 @@ reads only workspace files, sees no environment variables or system properties o
 ends after **60 s** and writes at most 64 MiB of output. Inline stylesheets of assignments are not
 run. Details: [tools.md](tools.md#check_artifacts).
 
+### Development settings
+
+The development tools of feature 004 — `import_artifacts`, `restore_backup`, `set_active`,
+`tag_artifacts` and `run_e2e_test` — **write to INUBIT**. They are offered only if at least one
+node is a development stage, and they refuse every other node (`NOT_DEVELOPMENT`). Tool
+reference: [tools.md](tools.md#development-on-a-development-stage-feature-004).
+
+| Setting | Level | Default | Meaning |
+|---|---|---|---|
+| `development.enabled` | defaults, group, node | `false` | the node is a development stage; **not allowed on `production: true` groups** (startup error); at most one development-enabled node per group |
+| `development.confirmation` | defaults, group, node | `SERVER` | `SERVER`: every write first returns a preview and a one-time code (bound to the inputs and the server state, valid `confirmationTtl`); `CLIENT`: the write runs on the first call and the MCP client must ask the user |
+| `e2eTests` | defaults, group, node | `FORBIDDEN` | `FREE`, `CONFIRM` (preview and code first) or `FORBIDDEN`; `FREE`/`CONFIRM` need `e2e.soap.baseUrl` and are not allowed on production |
+| `e2e.soap.baseUrl` | group, node | — | the base address of the node's SOAP endpoints; `https` (plain `http` gives a startup warning), no query or fragment; the node's `tls` settings apply |
+| `owners.<name>` | profile | — | `USER` or `USER_GROUP`: the kind of an owner, overriding the lookup in INUBIT's user list |
+
+The node wins over the group, the group over `defaults`.
+
+```yaml
+owners:
+  jdoe: USER                 # optional; otherwise INUBIT's user list decides
+groups:
+  - name: dev
+    development:
+      enabled: true          # confirmation defaults to SERVER
+    e2eTests: CONFIRM
+    e2e:
+      soap:
+        baseUrl: https://inubit-dev-1.example.test:8443
+    nodes:
+      - name: node1
+        baseUrl: https://inubit-dev-1.example.test:8443
+```
+
+- **Owners.** An import addresses one owner. Its kind comes from the profile's `owners` or from
+  INUBIT's user list (read-only REST call); a name that is neither is refused with the hint to
+  set `owners.<name>`. **User-group owners are not yet supported** for writes: their imports and
+  tags are refused until INUBIT's behaviour for them has been probed on a development stage. Use
+  them on personal diagram groups of a user.
+- **Secrets.** Placeholders `${secret:…}` in the workspace are replaced by the values currently on
+  the target node, in memory and in the private temporary import file only (deleted after the
+  import). A placeholder without a value on the target is refused (`SECRET_UNRESOLVED`).
+- **End-to-end tests.** Envelopes are workspace files; a WS-Security password must stay a
+  placeholder. An optional HTTP basic authentication for the SOAP endpoints comes only from the
+  variables `<PREFIX>_<GROUP>_E2E_USERNAME` / `<PREFIX>_<GROUP>_E2E_PASSWORD` (node-specific
+  `<PREFIX>_<GROUP>_<NODE>_E2E_USERNAME` / `_E2E_PASSWORD` win), like the node credentials;
+  without both, no `Authorization` header is sent. Responses are stored below
+  `<workspace>/.tests/e2e/` and removed after 30 days.
+- **Backups.** Every write first stores the raw export of its scope in
+  `~/.inubit-mcp/<profile>/backups` (`<auditId>-<n>.zip` plus a manifest `<auditId>.json` with
+  names and hashes only; directory `rwx------`, files `rw-------`). The ZIPs hold the server's
+  secret values — keep the directory private. Backups are kept **30 days**; the newest backup of
+  each node, owner and scope is always kept; older ones are removed at the next writing call and
+  each removal is audited (`backup_retention`). `restore_backup` takes the `backupRef` of a
+  result.
+- **Audit.** Every call of the development tools — refused, previewed, executed or failed — is
+  audited like restart and kill (capabilities `import_artifacts`, `restore_backup`, `set_active`,
+  `tag_artifacts`, `run_e2e_test`, `backup_retention`), with the reason, scope, owner, owner kind,
+  change-set names, backup reference, rollback state, the endpoint path and the payload hash —
+  never content or secrets.
+- **Safety.** Nothing is ever deleted in INUBIT (artifacts a failed import created stay and are
+  listed); writes go only to development nodes; a conflict with a colleague's change or an open
+  Workbench edit refuses the write; every write is verified by a re-export and rolled back from
+  the backup on failure.
+
+`--check-config` shows, once a node is a development stage or allows end-to-end tests, per node
+`development: on (confirmation SERVER)` or `development: off` and `e2e: FREE (<url>)`,
+`e2e: CONFIRM (<url>)` or `e2e: FORBIDDEN`, and lists the owner kinds once:
+
+```text
+Owner kinds: jdoe USER
+Group dev:
+  Node dev/node1: read-only, development: on (confirmation SERVER), e2e: CONFIRM (https://inubit-dev-1.example.test:8443), cli: available, username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD
+```
+
 ## 4. Credentials: environment variables
 
 Credentials come only from environment variables. Their names start with the profile's
@@ -537,7 +611,8 @@ java -jar target/inubit-mcp-server-*.jar --profile acme --check-config
 
 It validates the file, resolves the credential variables and prints to **stdout** the profile,
 its terminology, the credential variable scheme and the audit directory, then per group one line
-per node — id, read-only or write flag, CLI
+per node — id, read-only or write flag, the development settings (if any node has them, see
+[Development settings](#development-settings)), CLI
 availability and the **names** of the variables used (never their values) — followed by
 warnings and errors. Groups and nodes are named with the profile's terminology. It does not
 start the MCP server and creates nothing. Example for the complete example profile of section 3,

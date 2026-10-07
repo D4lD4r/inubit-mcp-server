@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "required": [
+    "node",
+    "diagramGroup",
+    "workflow",
+    "active",
+    "reason"
+  ],
+  "properties": {
+    "node": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}/[a-z0-9][a-z0-9-]{0,31}$",
+      "description": "Id of exactly one development {node} (`<{group}>/<{node}>`); {group} ids are rejected"
+    },
+    "owner": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+      "description": "The owner (user) of the workflow; default: inventory.owner of the {node}"
+    },
+    "diagramGroup": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+      "description": "The diagram group of the workflow"
+    },
+    "workflow": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+      "description": "The workflow to switch; its workspace file must not have unimported edits"
+    },
+    "active": {
+      "type": "boolean",
+      "description": "true activates, false deactivates"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "^[^#@\\u0000-\\u001F\\u007F]{1,500}$",
+      "description": "Why; becomes the check-in comment of the new version and is audited (no # or @)"
+    },
+    "confirmationCode": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$",
+      "description": "The code from the preview of the first call; executes the change"
+    }
+  },
+  "additionalProperties": false
+}

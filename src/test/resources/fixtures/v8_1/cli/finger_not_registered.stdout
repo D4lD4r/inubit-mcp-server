@@ -1,0 +1,22 @@
+JAVA_HOME is set
+Password: 
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+ERROR 22:27:52,260 [main      ] CLI                       ERROR
+com.inubit.ibis.utils.InubitException: Exception from service object: @Start@IError@@@Internal INUBIT error!@End@@Start@UserIsNotRegistered@@@The user or group "OWNERS" is not registered in the INUBIT Process Engine.@@@OWNERS@End@
+	at com.inubit.ibis.soap.IBISSoapClient.throwAsInubitExceptionIfSet(IBISSoapClient.java:326) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.soap.IBISSoapClient.getObject(IBISSoapClient.java:1605) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.cmds.FingerCommand.getUserFromServer(FingerCommand.java:41) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.cmds.FingerCommand.execute(FingerCommand.java:29) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.executors.RawCommandExecutor.processCommand(RawCommandExecutor.java:91) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.executors.BaseCommandExecutor.processCommandLine(BaseCommandExecutor.java:43) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.executors.RawCommandExecutor.start(RawCommandExecutor.java:65) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.executors.ScriptableCommandExecutor.executeRawCommand(ScriptableCommandExecutor.java:351) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.executors.ScriptableCommandExecutor.processCommand(ScriptableCommandExecutor.java:334) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.executors.ScriptableCommandExecutor.processLine(ScriptableCommandExecutor.java:160) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.CLI.execute(CLI.java:247) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.CLI.main(CLI.java:86) ~[ibis.jar:8.1.17]
+EXECUTION ERROR
+Exception from service object:
+Internal INUBIT error!
+The user or group "OWNERS" is not registered in the INUBIT Process Engine.
+

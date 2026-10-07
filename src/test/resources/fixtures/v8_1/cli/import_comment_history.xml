@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<VersionInformation>
+    <Workflows>
+        <WorkflowGroup Name="SPIKE">
+            <Workflow Name="SPIKE_Roundtrip_Claude" Type="technical">
+                <Version>
+                    <versionNode>13</versionNode>
+                    <CheckinUser>jdoe</CheckinUser>
+                    <CheckinComment>JD: Spike</CheckinComment>
+                    <DateTime>06.10.2026 08:22:13</DateTime>
+                </Version>
+                <Version>
+                    <versionNode>14</versionNode>
+                    <CheckinUser>jdoe</CheckinUser>
+                    <CheckinComment>DefaultCommitCommentImport###JD: Spike############@@@Deploying User: jdoe@@@Server: inubit-dev-1.example.test@@@Version: 13@@@Export/Deployment: 06.10.2026 23:10:31@@@</CheckinComment>
+                    <DateTime>06.10.2026 23:10:49</DateTime>
+                </Version>
+                <Version>
+                    <versionNode>15</versionNode>
+                    <CheckinUser>jdoe</CheckinUser>
+                    <CheckinComment>DefaultCommitCommentImport###JD: Spike###############@@@Deploying User: jdoe@@@Server: inubit-dev-1.example.test@@@Version: 14@@@Export/Deployment: 06.10.2026 23:10:52@@@</CheckinComment>
+                    <DateTime>06.10.2026 23:11:12</DateTime>
+                </Version>
+                <Version>
+                    <versionNode>16</versionNode>
+                    <CheckinUser>jdoe</CheckinUser>
+                    <CheckinComment>DefaultCommitCommentImport###JD: Spike###############@@@Deploying User: jdoe@@@Server: inubit-dev-1.example.test@@@Version: 14@@@Export/Deployment: 06.10.2026 23:10:52@@@</CheckinComment>
+                    <DateTime>06.10.2026 23:11:17</DateTime>
+                </Version>
+                <Version>
+                    <versionNode>17</versionNode>
+                    <CheckinUser>jdoe</CheckinUser>
+                    <CheckinComment>DefaultCommitCommentImport###</CheckinComment>
+                    <DateTime>06.10.2026 23:11:35</DateTime>
+                </Version>
+                <Version>
+                    <versionNode>18</versionNode>
+                    <CheckinUser>jdoe</CheckinUser>
+                    <CheckinComment>DefaultCommitCommentImport###</CheckinComment>
+                    <DateTime>06.10.2026 23:11:57</DateTime>
+                </Version>
+                <Version>
+                    <versionNode>19</versionNode>
+                    <CheckinUser>jdoe</CheckinUser>
+                    <CheckinComment>DefaultCommitCommentImport###REASON-PROBE three###@@@Deploying User: jdoe@@@Server: x@@@Version: 1@@@Export/Deployment: 06.10.2026 20:00:00@@@</CheckinComment>
+                    <DateTime>06.10.2026 23:12:02</DateTime>
+                </Version>
+            </Workflow>
+        </WorkflowGroup>
+    </Workflows>
+</VersionInformation>

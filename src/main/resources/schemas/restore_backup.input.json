@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "required": [
+    "node",
+    "backupRef",
+    "reason"
+  ],
+  "properties": {
+    "node": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}/[a-z0-9][a-z0-9-]{0,31}$",
+      "description": "Id of exactly one development {node} (`<{group}>/<{node}>`); the backup must have been taken there"
+    },
+    "backupRef": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "The backupRef (audit id) from the result of import_artifacts, restore_backup or set_active"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "^[^#@\\u0000-\\u001F\\u007F]{1,500}$",
+      "description": "Why; becomes the check-in comment of the new versions and is audited (no # or @)"
+    },
+    "confirmationCode": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$",
+      "description": "The code from the preview of the first call; executes the restore"
+    }
+  },
+  "additionalProperties": false
+}

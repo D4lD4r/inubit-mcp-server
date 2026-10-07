@@ -304,6 +304,31 @@ class CredentialResolverTest {
     }
 
     @Test
+    void theE2eBasicAuthComesFromItsOwnVariablesNodeBeforeGroup() {
+        // feature 004 (T023, research D-25 H8): only from configuration, never a tool input
+        env.put("INUBIT_DEV_USERNAME", "jdoe");
+        env.put("INUBIT_DEV_PASSWORD", "pw");
+        env.put("INUBIT_DEV_E2E_USERNAME", "e2e-user");
+        env.put("INUBIT_DEV_E2E_PASSWORD", "e2e-group-pw");
+        env.put("INUBIT_DEV_NODE1_E2E_PASSWORD", "e2e-node-pw");
+        CredentialResolver resolver = new CredentialResolver(env, scrubber, "INUBIT");
+
+        assertThat(resolver.resolve(List.of(DEV)).warnings()).as("not a typo").isEmpty();
+        assertThat(resolver.e2e(DEV)).hasValueSatisfying(e2e -> {
+            assertThat(e2e.username().value()).isEqualTo("e2e-user");
+            assertThat(e2e.username().sourceVariable()).isEqualTo("INUBIT_DEV_E2E_USERNAME");
+            assertThat(e2e.password().value().reveal()).isEqualTo("e2e-node-pw");
+            assertThat(e2e.password().sourceVariable())
+                .isEqualTo("INUBIT_DEV_NODE1_E2E_PASSWORD");
+        });
+        assertThat(scrubber.scrub("sent e2e-node-pw")).doesNotContain("e2e-node-pw");
+
+        env.remove("INUBIT_DEV_E2E_USERNAME");
+        assertThat(new CredentialResolver(env, scrubber, "INUBIT").e2e(DEV))
+            .as("a password without a username is no basic authentication").isEmpty();
+    }
+
+    @Test
     void unmatchedPasswordVariableProducesAWarningWithoutItsValue() {
         env.put("INUBIT_DEV_USERNAME", "jdoe");
         env.put("INUBIT_DEV_PASSWORD", "pw");

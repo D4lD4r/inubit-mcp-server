@@ -1,0 +1,50 @@
+{
+  "type": "object",
+  "required": [
+    "node",
+    "diagramGroups",
+    "tag",
+    "reason"
+  ],
+  "properties": {
+    "node": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}/[a-z0-9][a-z0-9-]{0,31}$",
+      "description": "Id of exactly one development {node} (`<{group}>/<{node}>`); {group} ids are rejected"
+    },
+    "owner": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+      "description": "The owner (user) of the diagram groups; default: inventory.owner of the {node}"
+    },
+    "diagramGroups": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "uniqueItems": true,
+      "description": "The diagram groups to tag; never empty or blank (StartCLI would tag everything of the owner)",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$"
+      }
+    },
+    "tag": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+      "description": "The new tag, e.g. REL-2026-10-07; a tag that exists for the owner is refused (never moved)"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "^[^#@\\u0000-\\u001F\\u007F]{1,500}$",
+      "description": "Why; audited (no # or @)"
+    },
+    "confirmationCode": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$",
+      "description": "The code from the preview of the first call; sets the tag"
+    }
+  },
+  "additionalProperties": false
+}

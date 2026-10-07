@@ -1,0 +1,6 @@
+RECORDED, NEUTRALIZED – GET /ibis/rest/user/users?type=processEngineUser
+Read-only recording on the development node (2026-10-06, feature 004 T001, research D-21/D-25).
+Every user entry was replaced by a fictitious one (jdoe, User01…User57, *@example.test,
+First<nn>/Last<nn>); structure, entry count, attribute sets and order are unchanged. The list
+holds users only; the shared user-group owner OWNERS is not listed. Details:
+../cli/README.md, section "REST".

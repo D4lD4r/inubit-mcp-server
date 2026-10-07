@@ -110,4 +110,38 @@ class VersionHistoryParserTest {
             .isInstanceOfSatisfying(ToolErrorException.class, e ->
                 assertThat(e.error().code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE));
     }
+
+    @Test
+    void theHistoryWithGroupsAndTypesServesTheTagCheck() {
+        // T021 (research D-16): which diagram group each diagram belongs to, and its tags
+        String xml = """
+            <VersionInformation><Workflows>
+              <WorkflowGroup Name="GRP-01">
+                <Workflow Name="W-1" Type="technical">
+                  <Version><versionNode>1</versionNode></Version>
+                  <Version><versionNode>2</versionNode><Tags><Tag>REL-1</Tag></Tags></Version>
+                </Workflow>
+              </WorkflowGroup>
+              <WorkflowGroup Name="GRP-02">
+                <Workflow Name="W-2" Type="bpd">
+                  <Version><versionNode>3</versionNode></Version>
+                </Workflow>
+              </WorkflowGroup>
+            </Workflows><Modules>
+              <Module Name="M-1"><Version><versionNode>4</versionNode><Tags><Tag>REL-1</Tag>
+                <Tag>OLD</Tag></Tags></Version></Module>
+            </Modules></VersionInformation>""";
+
+        var history = VersionHistoryParser.parseHistory(NodeId.parse("dev/node1"),
+            xml.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        assertThat(history.diagrams()).containsOnlyKeys("W-1", "W-2");
+        assertThat(history.diagrams().get("W-1").diagramGroup()).isEqualTo("GRP-01");
+        assertThat(history.diagrams().get("W-1").type()).isEqualTo("technical");
+        assertThat(history.diagrams().get("W-1").versions().get(0).version()).isEqualTo(2);
+        assertThat(history.diagrams().get("W-1").versions().get(0).tags())
+            .containsExactly("REL-1");
+        assertThat(history.diagrams().get("W-2").diagramGroup()).isEqualTo("GRP-02");
+        assertThat(history.modules().get("M-1").get(0).tags()).containsExactly("REL-1", "OLD");
+    }
 }

@@ -49,6 +49,11 @@ public final class TestWiring implements AutoCloseable {
         return wiring.toolHandlers();
     }
 
+    /** The gateways of the wiring (e.g. for a live test's own read or cleanup). */
+    public de.dadecker.inubit.mcp.domain.port.GatewayFactory gateways() {
+        return wiring.gateways();
+    }
+
     @Override
     public void close() {
         wiring.close();

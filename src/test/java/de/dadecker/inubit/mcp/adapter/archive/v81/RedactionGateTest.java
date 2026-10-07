@@ -24,9 +24,13 @@ import org.junit.jupiter.api.Test;
  */
 class RedactionGateTest {
 
-    /** The classes allowed to take an {@link ExportArchive} (outer class names). */
-    private static final Set<String> MAY_TAKE_UNREDACTED =
-        Set.of("ArchiveReader", "SecretRedactor", "ExportArchive", "RedactedArchive");
+    /**
+     * The classes allowed to take an {@link ExportArchive} (outer class names). Feature 004
+     * (research D-6): {@link SecretValues} reads the target's values from a raw export; it only
+     * answers lookups and produces nothing a writer accepts.
+     */
+    private static final Set<String> MAY_TAKE_UNREDACTED = Set.of("ArchiveReader",
+        "SecretRedactor", "ExportArchive", "RedactedArchive", "SecretValues");
 
     @Test
     void onlyTheRedactorCanSealAnArchive() {

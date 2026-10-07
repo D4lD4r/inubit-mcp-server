@@ -1314,4 +1314,255 @@ class ConfigValidatorTest {
             assertThat(home.resolve(".inubit-mcp/acme/workspace")).isDirectory();
         }
     }
+
+    /** Feature 004 (T004, research D-1, D-21, D-25, contracts/configuration-delta.md). */
+    @Nested
+    class Development {
+
+        private static String profile(String devGroup, String prodGroup) {
+            return """
+                profile:
+                  name: acme
+                groups:
+                  - name: dev
+                """ + devGroup.indent(4) + """
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-dev.example.test:8443
+                  - name: prod
+                    production: true
+                """ + prodGroup.indent(4) + """
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-prod.example.test:8443
+                """;
+        }
+
+        @Test
+        void aDevelopmentGroupWithE2eTestsHasNoFindings() {
+            ValidationReport report = validate(profile("""
+                development:
+                  enabled: true
+                e2eTests: CONFIRM
+                e2e:
+                  soap:
+                    baseUrl: https://inubit-dev.example.test:8443
+                """, "e2eTests: FORBIDDEN\n") + """
+                owners:
+                  OWNERS: USER_GROUP
+                  jdoe: USER
+                """);
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).isEmpty();
+        }
+
+        @Test
+        void e2eBasicAuthOverPlainHttpIsAnError() {
+            // review m-c: the e2e credentials must not travel in clear text
+            String http = profile("""
+                development:
+                  enabled: true
+                e2eTests: FREE
+                e2e:
+                  soap:
+                    baseUrl: http://inubit-dev.example.test:8080
+                """, "");
+            assertThat(validate(http).errors()).isEmpty();
+
+            env.put("INUBIT_ACME_DEV_E2E_USERNAME", "e2e-user");
+            env.put("INUBIT_ACME_DEV_E2E_PASSWORD", "e2e-validator-pw");
+            ValidationReport report = validate(http);
+
+            assertThat(report.errors()).singleElement().asString()
+                .contains("dev/node1", "http://", "INUBIT_ACME_DEV_E2E_USERNAME")
+                .doesNotContain("e2e-validator-pw");
+        }
+
+        @Test
+        void aNodeNamedE2eIsAnErrorWhereItsGroupAllowsE2eTests() {
+            // review m-d: <PREFIX>_<GROUP>_E2E_USERNAME would be the node's own USERNAME
+            String yaml = """
+                profile:
+                  name: acme
+                groups:
+                  - name: dev
+                %s
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-dev.example.test:8443
+                      - name: e2e
+                        baseUrl: https://inubit-dev-2.example.test:8443
+                """;
+            assertThat(validate(yaml.formatted("")).errors()).isEmpty();
+
+            ValidationReport report = validate(yaml.formatted("""
+                    e2eTests: CONFIRM
+                    e2e:
+                      soap:
+                        baseUrl: https://inubit-dev.example.test:8443
+                """.stripTrailing()));
+
+            assertThat(report.errors()).anySatisfy(error -> assertThat(error)
+                .contains("dev/e2e", "e2e", "INUBIT_ACME_DEV_E2E_USERNAME"));
+        }
+
+        @Test
+        void theDerivedVariableNamesIncludeTheE2eVariables() {
+            // review m-g: another profile's e2e variables are known, not typos
+            ProfileConfig config = new ConfigLoader(Map.of(), HOME, false).parse(profile("", ""),
+                HOME.resolve("config.yaml")).config();
+
+            assertThat(config.credentialVariableNames()).contains("INUBIT_ACME_DEV_E2E_USERNAME",
+                "INUBIT_ACME_DEV_E2E_PASSWORD", "INUBIT_ACME_DEV_NODE1_E2E_PASSWORD");
+        }
+
+        @Test
+        void developmentOnAProductionGroupIsAnError() {
+            ValidationReport report = validate(profile("", """
+                development:
+                  enabled: true
+                """));
+
+            assertThat(report.errors()).singleElement().asString()
+                .contains("prod/node1", "development.enabled", "production");
+        }
+
+        @Test
+        void developmentInheritedFromTheDefaultsByAProductionGroupIsAnError() {
+            ValidationReport report = validate(profile("", "") + """
+                defaults:
+                  development:
+                    enabled: true
+                """);
+
+            assertThat(report.errors()).anySatisfy(error -> assertThat(error)
+                .contains("prod/node1", "development.enabled"));
+        }
+
+        @Test
+        void e2eTestsOtherThanForbiddenOnAProductionGroupAreAnError() {
+            for (String policy : List.of("FREE", "CONFIRM")) {
+                ValidationReport report = validate(profile("", """
+                    e2eTests: %s
+                    e2e:
+                      soap:
+                        baseUrl: https://inubit-prod.example.test:8443
+                    """.formatted(policy)));
+
+                assertThat(report.errors()).as(policy).singleElement().asString()
+                    .contains("prod/node1", "e2eTests " + policy, "production");
+            }
+        }
+
+        @Test
+        void e2eTestsWithoutASoapBaseUrlAreAnError() {
+            ValidationReport report = validate(profile("e2eTests: FREE\n", ""));
+
+            assertThat(report.errors()).singleElement().asString()
+                .contains("dev/node1", "e2e.soap.baseUrl");
+        }
+
+        @Test
+        void aPlainHttpSoapBaseUrlIsAWarning() {
+            ValidationReport report = validate(profile("""
+                e2eTests: FREE
+                e2e:
+                  soap:
+                    baseUrl: http://inubit-dev.example.test:8080
+                """, ""));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).singleElement().asString()
+                .contains("dev/node1", "e2e.soap.baseUrl", "http://");
+        }
+
+        @Test
+        void aSoapBaseUrlMustBeAnAbsoluteHttpUrlWithoutQuery() {
+            ValidationReport relative = validate(profile("""
+                e2e:
+                  soap:
+                    baseUrl: /ibis/ws
+                """, ""));
+            ValidationReport ftp = validate(profile("""
+                e2e:
+                  soap:
+                    baseUrl: ftp://inubit-dev.example.test
+                """, ""));
+            ValidationReport query = validate(profile("""
+                e2e:
+                  soap:
+                    baseUrl: https://inubit-dev.example.test:8443/?x=1
+                """, ""));
+
+            assertThat(relative.errors()).singleElement().asString()
+                .contains("dev/node1", "e2e.soap.baseUrl", "absolute");
+            assertThat(ftp.errors()).singleElement().asString()
+                .contains("dev/node1", "e2e.soap.baseUrl", "absolute");
+            assertThat(query.errors()).singleElement().asString()
+                .contains("e2e.soap.baseUrl", "query or fragment");
+        }
+
+        @Test
+        void anOwnerNameThatCannotBePassedToStartCliIsAnError() {
+            ValidationReport report = validate(profile("", "") + """
+                owners:
+                  "-x": USER
+                """);
+
+            assertThat(report.errors()).singleElement().asString()
+                .contains("owners", CLI_VALUE_RULE);
+        }
+
+        @Test
+        void moreThanOneDevelopmentNodeInAGroupIsAnError() {
+            ValidationReport report = validate("""
+                profile:
+                  name: acme
+                groups:
+                  - name: dev
+                    development:
+                      enabled: true
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-dev-1.example.test:8443
+                      - name: node2
+                        baseUrl: https://inubit-dev-2.example.test:8443
+                      - name: node3
+                        baseUrl: https://inubit-dev-3.example.test:8443
+                        development:
+                          enabled: false
+                """);
+
+            assertThat(report.errors()).singleElement().asString()
+                .contains("dev", "node1", "node2", "at most one").doesNotContain("node3");
+        }
+
+        @Test
+        void oneDevelopmentNodePerGroupIsFine() {
+            ValidationReport report = validate("""
+                profile:
+                  name: acme
+                groups:
+                  - name: dev
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-dev-1.example.test:8443
+                        development:
+                          enabled: true
+                      - name: node2
+                        baseUrl: https://inubit-dev-2.example.test:8443
+                  - name: test
+                    development:
+                      enabled: true
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-test.example.test:8443
+                """);
+
+            assertThat(report.errors()).isEmpty();
+        }
+    }
+
+    private static final String CLI_VALUE_RULE = ConfigValidator.CLI_VALUE_PATTERN.pattern();
 }

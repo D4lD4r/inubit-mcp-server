@@ -4,7 +4,10 @@ The default build (`mvn verify`) is fully offline: the REST and CLI adapters are
 recorded fixtures and WireMock, and no INUBIT server is contacted. Tests tagged `@Tag("live")`
 are excluded from it (`surefire.excludedGroups=live`).
 
-Live tests are **opt-in**, **read-only** and **never run against production** (Constitution III).
+Live tests are **opt-in** and **never run against production** (Constitution III). All of them are
+read-only except the development live test of feature 004 (see
+[Development live test](#development-live-test-feature-004)), which writes to dedicated test
+workflows of a personal diagram group on a development node only.
 
 ## Run
 
@@ -69,6 +72,41 @@ and `[live] test/node1: find_processes(ERROR, PT24H) total 244, page 20, 311 ms;
 the fixed group `GRP-41`).
 Configuration loading, the target selection and the production refusal are shared
 (`live/LiveTarget`).
+
+## Development live test (feature 004)
+
+`live/DevelopmentLiveTest` exercises the development tools against a real **development** node.
+It **writes to INUBIT**, so it runs only when started explicitly — starting it is the approval of
+exactly this scenario — and only on a **personal** diagram group of a **user** with dedicated,
+disposable test workflows (never a shared owner, never production):
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=jdoe \
+  INUBIT_LIVE_DEV_DIAGRAM_GROUP=SPIKE mvn verify -Plive -Dtest=DevelopmentLiveTest
+```
+
+- Without `INUBIT_LIVE_DEV_NODE`, `INUBIT_LIVE_DEV_OWNER` or `INUBIT_LIVE_DEV_DIAGRAM_GROUP` the
+  test is skipped. `INUBIT_LIVE_DEV_WORKFLOW` (optional) names the workflow to change; without it
+  the first workflow file of the group is used. The tag step always covers the whole diagram group
+  (INUBIT tags per group) and is removed again.
+- It **fails before anything is written** unless the node is a development node
+  (`development.enabled: true`; the selection is covered offline by `LiveTargetTest`) and the
+  owner is a user (`owners.<name>: USER` in the profile or listed in INUBIT's user list). A
+  production group is refused as for every live test.
+- Use a temporary copy of the profile if it needs `development.enabled: true`; never edit the
+  real file under `~/.config/inubit-mcp/` for a test run. The test works in a **temporary
+  workspace**; the audit records go to the profile's audit directory and the backups to
+  `~/.inubit-mcp/<profile>/backups` as for every development call.
+- Scenario (research D-23): `export_artifacts` of the group → one layout value (`xPos`) of the
+  first workflow +10 → `import_artifacts` (preview confirmed with its code) → the workspace shows
+  the verified change → `restore_backup` of that import → the original value is back →
+  `set_active` to the other state and back → `tag_artifacts` with a unique `LIVE-<timestamp>`
+  tag → the tag is removed again directly through the tag port (`tag --tagDelete`, not audited)
+  and the owner's history shows it nowhere. A tag left by a failing run is removed in a
+  `finally` block.
+- Each write creates new versions of the test workflow in INUBIT, and every export appends to
+  its check-in comment (INUBIT behaviour). Only counts and timings are printed, e.g.
+  `[live] dev/node1: import, restore, set_active x2 and tag of one personal diagram group: 1 workflow(s), 4 module(s) tagged and untagged, 212 s`.
 
 ## Manual write checks (approval only)
 

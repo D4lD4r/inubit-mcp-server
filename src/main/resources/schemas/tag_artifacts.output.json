@@ -1,0 +1,167 @@
+{
+  "type": "object",
+  "description": "Either the preview of the first step (challenge) or the outcome of the execution (result); refusals before anything is sent are tool errors",
+  "properties": {
+    "challenge": {
+      "$ref": "#/$defs/Challenge"
+    },
+    "result": {
+      "$ref": "#/$defs/Result"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "challenge"
+      ]
+    },
+    {
+      "required": [
+        "result"
+      ]
+    }
+  ],
+  "$defs": {
+    "Challenge": {
+      "type": "object",
+      "description": "Nothing was sent; call the tool again with the same inputs and confirmationCode before expiresAt",
+      "required": [
+        "node",
+        "owner",
+        "tag",
+        "diagramGroups",
+        "workflows",
+        "ownerKind",
+        "confirmationCode",
+        "expiresAt",
+        "message"
+      ],
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "diagramGroups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "workflows": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Technical workflows whose head versions (and modules) get the tag"
+        },
+        "ownerKind": {
+          "enum": [
+            "USER",
+            "USER_GROUP"
+          ]
+        },
+        "confirmationCode": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{22}$"
+        },
+        "expiresAt": {
+          "type": "string",
+          "description": "ISO-8601 UTC"
+        },
+        "message": {
+          "type": "string",
+          "description": "What to do next"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Result": {
+      "type": "object",
+      "required": [
+        "auditId",
+        "outcome",
+        "tag",
+        "diagramGroups",
+        "workflows",
+        "modules",
+        "removedAgain",
+        "reports",
+        "warnings"
+      ],
+      "properties": {
+        "auditId": {
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "EXECUTED",
+            "FAILED"
+          ]
+        },
+        "failure": {
+          "type": "object",
+          "required": [
+            "code",
+            "step",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "IMPORT_FAILED",
+                "VERIFY_MISMATCH"
+              ]
+            },
+            "step": {
+              "type": "string",
+              "description": "tag or verify"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "tag": {
+          "type": "string"
+        },
+        "diagramGroups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "workflows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "modules": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "removedAgain": {
+          "type": "boolean",
+          "description": "True if the tag was removed again after a failure"
+        },
+        "reports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Workspace-relative report files"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

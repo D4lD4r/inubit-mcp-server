@@ -4,8 +4,10 @@ The MCP tools of the INUBIT MCP server, for users of an MCP client such as Claud
 authoritative contract is
 [contracts/mcp-tools.md](../specs/001-inubit-mcp-mvp/contracts/mcp-tools.md); the JSON schemas
 the server announces are in `src/main/resources/schemas/`; the two workspace tools of feature 003
-follow [contracts/mcp-tools-delta.md](../specs/003-artifact-workspace/contracts/mcp-tools-delta.md).
-All ten tools are described here; each section quotes the description the server announces in
+follow [contracts/mcp-tools-delta.md](../specs/003-artifact-workspace/contracts/mcp-tools-delta.md),
+the five development tools of feature 004
+[their delta](../specs/004-development-stage/contracts/mcp-tools-delta.md).
+All fifteen tools are described here; each section quotes the description the server announces in
 `tools/list` for a profile `acme` without description and with the default terminology
 (Group/Node).
 
@@ -53,6 +55,11 @@ General rules:
 | [`kill_process`](#restart_process--kill_process) | delete ONE process instance on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `kill`) |
 | [`export_artifacts`](#export_artifacts) | export technical workflows or modules into the local workspace and its history | read-only for INUBIT, non-idempotent (records a history entry), open world | yes (StartCLI `export`, read-only) |
 | [`check_artifacts`](#check_artifacts) | check workspace files offline: structure, a stylesheet run, XML/XSD | read-only, idempotent, open world | only to look up modules missing in the workspace (module list) |
+| [`import_artifacts`](#import_artifacts) | import the changed workflows of ONE diagram group (with their changed or new modules), or changed modules, into ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
+| [`restore_backup`](#restore_backup) | re-import the backup of an earlier development call | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
+| [`set_active`](#set_active) | activate or deactivate ONE workflow on ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
+| [`tag_artifacts`](#tag_artifacts) | tag the head versions of diagram groups (and their modules) | **destructive**, non-idempotent, open world | yes (StartCLI history `export` and `tag`) |
+| [`run_e2e_test`](#run_e2e_test) | send a SOAP test message and report what INUBIT did | **destructive**, non-idempotent, open world | yes (SOAP endpoint, REST logs and Queue Manager) |
 
 `restart_process` and `kill_process` are **offered only if at least one node has effective
 write access** (`write.enabled: true`, and on a `production: true` group also
@@ -61,6 +68,11 @@ default configuration the server is read-only and `tools/list` does not contain 
 
 `export_artifacts` is **offered only if at least one node has a StartCLI installation**
 (`cliHome`); `check_artifacts` is always offered.
+
+The development tools of feature 004 are **offered only if at least one node is a development
+stage** (`development.enabled: true`, never on production groups; see
+[setup.md](setup.md#development-settings)); `run_e2e_test` only if, in addition, such a node's
+`e2eTests` is not `FORBIDDEN`. Every other node is refused with `NOT_DEVELOPMENT`.
 
 ## Common shapes: Page and ToolError
 
@@ -106,6 +118,11 @@ other nodes are still reported.
 | `WRITE_DISABLED`, `PRODUCTION_PROTECTED`, `CONFIRMATION_INVALID`, `PRECONDITION_FAILED` | refusals of `restart_process` / `kill_process` (see their refusal table); `PRECONDITION_FAILED` also when the workspace is busy (another export or check is running) or not usable |
 | `CONFIRMATION_REQUIRED`, `UNSUPPORTED_VERSION` | reserved in the catalogue, not returned by this version: the first write call returns a `challenge`, and 9.x servers run with the 8.1 adapters and a warning |
 | `NOT_CONFIGURED` | a setting the tool needs is not configured for this node, e.g. `inventory.owner` for `list_inventory` / `get_inventory_item`; `nextStep` names the setting ("set inventory.owner for <group>/<node> or in defaults") |
+| `NOT_DEVELOPMENT` | a development tool was called for a node that is not a development stage |
+| `CONFLICT` | the artifacts changed on the server since the export (or since the referenced call), or a workflow is open in Workbench edit mode; nothing was sent, the difference is in `.reports/conflict-<auditId>.diff` |
+| `SECRET_UNRESOLVED` | a `${secret:…}` placeholder has no value on the target (names artifact and property path, never a value); nothing was sent |
+| `IMPORT_FAILED`, `VERIFY_MISMATCH` | only inside the `failure` of a development tool's result: a StartCLI write failed or its protocol did not match, or the re-export (history export for tags) did not show the intended state |
+| `E2E_FORBIDDEN` | `run_e2e_test` on a node whose `e2eTests` is `FORBIDDEN` (the default) |
 | `INTERNAL` | an unexpected error inside the MCP server, the server is shutting down, or an audit record could not be written |
 
 ## `list_nodes`
@@ -799,3 +816,215 @@ usable); `INTERNAL`. Server lookup failures are findings (`MODULE_UNVERIFIED`), 
 ["dev/OWNERS/workflows/GRP-01"])`; "Run the stylesheet of Map-Order on this test message" →
 `check_artifacts(xslt: {stylesheet: "dev/OWNERS/modules/XSLT Converter/Map-Order/xslt.stylesheet.xsl",
 input: "inputs/order.xml"})`.
+
+## Development on a development stage (feature 004)
+
+The five development tools write to INUBIT. The server, not the assistant, enforces the order of
+every write; each step that refuses sends nothing to INUBIT:
+
+1. the node must be a **development stage** (`NOT_DEVELOPMENT` otherwise, never production);
+   the inputs are checked (names StartCLI quoting can carry, a `reason` of 1–500 characters
+   without `#`, `@` or control characters — it becomes the person-written segment of the
+   check-in comment);
+2. the workspace lock (one workspace operation at a time; `tag_artifacts` and `run_e2e_test`
+   do not touch the workspace and take no lock); uncommitted edits are recorded as
+   `local changes` first;
+3. the change set against the **last verified server state** of each artifact (its last export
+   or development call in the workspace history);
+4. the checks of `check_artifacts` — any `ERROR` refuses with `PRECONDITION_FAILED` and the path
+   of the findings report;
+5. the owner kind: a user (from the profile's `owners` or INUBIT's user list). **user-group
+   owners are not yet supported** for writes (`PRECONDITION_FAILED` "not yet verified") until
+   INUBIT's behaviour for them has been probed;
+6. the **conflict check** on a fresh export: an artifact changed on the server since its base, a
+   new artifact that already exists, or a workflow in Workbench **edit mode** is a `CONFLICT`;
+7. with `development.confirmation` `SERVER` (the default) the first call returns a **preview**
+   (`challenge`) and a one-time `confirmationCode` bound to the inputs, the workspace and the
+   server state; the second call with the code repeats the conflict check right before sending
+   (`CONFLICT` if the server changed, `CONFIRMATION_INVALID` if inputs or workspace changed —
+   "preview again"). With `CLIENT` the first call runs and the MCP client must ask the user;
+8. the **backup** (the raw export of the scope, owner-only, `backupRef` = the call's audit id),
+   the `PENDING` audit record, then the StartCLI import of an archive with **only** the changed
+   artifacts and the target's **current secret values** (taken from the fresh export in memory;
+   a placeholder without a value is `SECRET_UNRESOLVED`);
+9. the import protocol must name exactly the sent artifacts; the scope is exported again and
+   every sent artifact must equal the intended state, with exactly the reason in its check-in
+   comment;
+10. success: only the changed files and their `.meta/` records are replaced by the verified
+    server state and committed with a `Server-State` trailer; failure: **rollback**.
+
+**Failure model.** Refusals before anything is sent are tool errors (`isError: true`):
+`NOT_DEVELOPMENT`, `INVALID_INPUT`, `PRECONDITION_FAILED`, `CONFLICT`, `SECRET_UNRESOLVED`,
+`CONFIRMATION_INVALID`, `CLI_UNAVAILABLE`, `AUTH_FAILED`, `NOT_FOUND`. Once anything may have been
+sent the call returns a **result** with `outcome: FAILED`, a `failure` `{code: IMPORT_FAILED |
+VERIFY_MISMATCH, step: import | protocol | verify | commit | tag, message}` and the `rollback`
+state. An unexpected internal error after sending is reported the same way (`IMPORT_FAILED` at
+the step reached).
+
+**Rollback semantics.** After any failure the scope is exported again; if a modified artifact
+changed, the backup is re-imported (with the target's current secrets) and verified:
+`rollback` is `NOT_NEEDED`, `SUCCEEDED` or `FAILED` (then the message names the kept backup —
+restore it with `restore_backup` or in the Workbench). Nothing in this feature deletes anything:
+**created artifacts are not removed**, so artifacts a failed call created are listed in
+`createdNotRemoved` — delete them in the Workbench if needed. A StartCLI timeout is decided by the
+re-export: if it shows the intended state, the call succeeded.
+
+**Backups** are kept 30 days in `~/.inubit-mcp/<profile>/backups` (the newest per node, owner and
+scope always); older ones are removed at the start of the next writing call, each removal audited
+(`backup_retention`).
+
+**Result** of `import_artifacts`, `restore_backup` and `set_active` (fields without a value are
+absent):
+
+| Field | Meaning |
+|---|---|
+| `auditId` | the id of the call's audit records |
+| `outcome` | `EXECUTED` or `FAILED` |
+| `failure` | `{code, step, message}` on failure |
+| `commit` | the history entry of the verified state |
+| `backupRef` | the backup of the state before the call (input of `restore_backup`) |
+| `created`, `modified`, `notImported` | artifact names; workspace files changed outside the scope |
+| `rollback` | `NOT_NEEDED`, `SUCCEEDED`, `FAILED` (failures only) |
+| `createdNotRemoved` | artifacts created (by this or the restored call) and not removed |
+| `reports`, `warnings` | workspace-relative report files (`.reports/verify-<auditId>.diff`, …); notes |
+
+## `import_artifacts`
+
+> [acme] Import the changed workflows of ONE diagram group (with their changed or new modules),
+> or changed single modules, from the workspace into ONE development node. The server checks the
+> files, refuses on conflicts (changed on the server or open in the Workbench), backs up,
+> imports only what changed, verifies by re-export and rolls back on failure. Secrets are taken
+> from the node.
+
+**Input**: `node` (one node id), `owner` (default `inventory.owner`), exactly one of
+`diagramGroup` or `modules` (1–50 `{name, pluginType?}`), `reason`, `confirmationCode`.
+
+- Changed workflows of the diagram group go with their **changed or new** modules; unchanged
+  referenced modules are not sent (every import creates a new version). A module import sends
+  module-only archives. Changes outside the scope stay and are listed in `notImported`.
+- Refused with `INVALID_INPUT`: a deleted workflow or module file ("deleting artifacts is not
+  supported"), any change below `repository/`, a new workflow whose file does not say
+  `IsActive` `false` (INUBIT creates it inactive; switch it on with `set_active`), a workflow file
+  that names another owner in `UserOrUserGroupName`. `PRECONDITION_FAILED`: a referenced module
+  that is neither sent nor on the node (INUBIT would break the diagram group), a new name the
+  owner already uses for another workflow or module, no exported base ("export the scope
+  first"). UIDs and module file names of modified artifacts come from the node's fresh export,
+  never from `.meta/`.
+- **Preview** (`challenge`): `scope`, `baseCommit`, `create`, `modify`, `notImported`,
+  `checkWarnings`, `ownerKind`, `confirmationCode`, `expiresAt`, `message`.
+
+**Example prompt**: "Import the layout change of GRP-01 to dev with reason 'layout'" →
+`import_artifacts(node: "dev/node1", diagramGroup: "GRP-01", reason: "layout")` returns the
+preview; after the user approves, the same call with `confirmationCode`.
+
+## `restore_backup`
+
+> [acme] Re-import the backup taken by an earlier development call on ONE node, limited to the
+> artifacts that call changed; same checks, conflict detection, verification and rollback.
+
+**Input**: `node`, `backupRef` (the `backupRef`/`auditId` of an earlier result, a UUID),
+`reason`, `confirmationCode`.
+
+- An unknown, removed (older than 30 days and not the newest of its scope) or foreign (another
+  node) reference is `NOT_FOUND` before anything is read from INUBIT; a malformed one
+  `INVALID_INPUT`.
+- Only artifacts the referenced call changed **and that existed before it** are re-imported;
+  created ones stay and are reported in `createdNotRemoved`.
+- The conflict check compares the server with the **state the referenced call left** (recorded in
+  its backup manifest; for a failed call the state its last verification saw): a change since
+  then, or edit mode, is `CONFLICT`; a call without a recorded state is `PRECONDITION_FAILED`.
+- The restore takes its own backup (its `backupRef`) and rolls back on failure like an import;
+  the secrets come from the node's **current** export (old passwords never come back).
+- **Preview** (`challenge`): `scope`, `modify`, `notes`, `ownerKind`, `confirmationCode`,
+  `expiresAt`, `message`.
+
+**Example prompt**: "Undo that import" → `restore_backup(node: "dev/node1", backupRef: "…",
+reason: "undo layout")`.
+
+## `set_active`
+
+> [acme] Activate or deactivate ONE workflow on ONE development node (INUBIT creates a new
+> version).
+
+**Input**: `node`, `owner`, `diagramGroup`, `workflow`, `active` (boolean), `reason`,
+`confirmationCode`.
+
+- The archive holds **only that workflow**, built from the node's **fresh export** with
+  `IsActive` changed (never from the workspace), imported with `--importWorkflowActive` or
+  `--importWorkflowInactive`; the verification checks `IsActive`; a rollback re-imports the
+  previous state with the previous flag.
+- Refused with `PRECONDITION_FAILED` if the workspace file of the workflow has **unimported
+  edits** (import them first) or was never exported; `CONFLICT` if the workflow changed on the
+  server or is in edit mode (other workflows of the group do not matter).
+- A workflow already in the requested state sends nothing. The result's warnings note the new
+  version INUBIT creates.
+
+## `tag_artifacts`
+
+> [acme] Tag the current versions of the technical workflows (and their modules) of the given
+> diagram groups of an owner on ONE development node. Never owner-wide; an existing tag is never
+> moved.
+
+**Input**: `node`, `owner`, `diagramGroups` (1–20 distinct names), `tag`, `reason`,
+`confirmationCode`.
+
+- Blank, empty, duplicate or wildcard-like groups are refused (`INVALID_INPUT`) before anything
+  is read — StartCLI would tag **everything** of the owner without a group. A tag that exists on
+  any version of any diagram or module of the owner is refused (tags are never moved); a group
+  without technical workflows is `NOT_FOUND`. User-group owners are refused as above.
+- One `tag --tagMove '<tag>' --tagWorkflowGroup '<group>' --tagWorkflowType 'technical'
+  --tagUser '<owner>'` per group. **Verification** by history exports: the tag must be on the
+  head versions of exactly the technical workflows of the requested groups and the modules they
+  use. Anything else, or a failing tag command, removes the tag again
+  (`tag --tagDelete`) and the result is `FAILED` with `failure` and `removedAgain: true`.
+- **Result**: `auditId`, `outcome`, `failure`, `tag`, `diagramGroups`, `workflows`, `modules`
+  (how many carry the tag), `removedAgain`, `reports`, `warnings`. **Preview**: `owner`, `tag`,
+  `diagramGroups`, `workflows`, `ownerKind`, `confirmationCode`, `expiresAt`, `message`; the code
+  is bound to the head versions, so a publish in between is `CONFLICT`.
+
+**Removing the tag again acts owner-wide.** StartCLI deletes a tag only per owner
+(`tag --tagDelete '<tag>' --tagUser '<owner>'`), never per diagram group. It can only remove this
+call's own new tag: the pre-check refused the call if the tag existed on any version of any
+diagram of the owner (all groups and types) or of any module those diagrams use. One case
+remains: a module that no diagram of the owner uses is not part of that history; if it carried a
+tag of the same name, the removal would take that tag away as well. Use unique tag names (e.g.
+with date and time). A history export of unused modules was not probed and is not used.
+
+Every history export appends to the check-in comments of the exported workflows in INUBIT
+(an INUBIT behaviour, see the spike notes).
+
+## `run_e2e_test`
+
+> [acme] Send a SOAP envelope from the workspace to an endpoint of ONE node and report the
+> response and the process instances, errors and log entries it caused. Allowed only where
+> e2eTests permits.
+
+**Input**: `node`, `envelope` (workspace path), `path` (relative to `e2e.soap.baseUrl`),
+`soapAction`, `workflow` (for the fallback), `timeoutSeconds` (1–120, default 60),
+`includeExcerpt` (default `false`), `confirmationCode` (only where `e2eTests` is `CONFIRM`).
+
+- Policy per node: `FREE` (one call), `CONFIRM` (preview with `endpoint`, `payloadBytes`,
+  `soapAction`, and a code bound to the inputs and the payload hash), `FORBIDDEN` (the default,
+  always on production: `E2E_FORBIDDEN`).
+- The envelope must be a regular file inside the workspace (real path; not below `.git`,
+  `.meta`, `.reports`); an envelope with a `Password` element holding a value other than a
+  `${secret:…}` placeholder is refused. The endpoint path must stay below the base address (no
+  scheme, host, `..`, query). Optional basic authentication comes only from the variables
+  `<PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME` / `_E2E_PASSWORD`; redirects are never followed.
+- The envelope is sent unchanged with `Content-Type: text/xml; charset=utf-8`, `SOAPAction` and
+  a unique test id in the header `X-Inubit-Mcp-Test-Id`. The response goes to
+  `.tests/e2e/<auditId>.response.xml` (files older than 30 days are removed); `excerpt` (at most
+  2 KB) only with `includeExcerpt: true`.
+- **Correlation**: the system and audit logs are searched for the test id in
+  `[start − 5 s, end + 30 s]`; found entries give the process instances by their process ids
+  (`correlation: BY_TEST_ID`). Otherwise the instances and system log entries of `workflow` in
+  that window are returned, marked `TIME_WINDOW_UNCERTAIN` (other traffic may be among them). A
+  timeout keeps all of this (`timedOut: true`, no `status`); unreadable logs are a warning.
+- **Result**: `auditId`, `testId`, `endpoint`, `status`, `durationMs`, `timedOut`,
+  `responseFile`, `excerpt`, `correlation`, `processes`, `errors`, `logEntries` (at most 20 each),
+  `truncated`, `warnings`. Errors: `E2E_FORBIDDEN`, `INVALID_INPUT`, `UNREACHABLE`, `TLS_ERROR`.
+  The audit records only the payload hash, never the envelope.
+
+**Example prompt**: "Send samples/order.xml to /ibis/ws/Service-01 on dev" →
+`run_e2e_test(node: "dev/node1", envelope: "samples/order.xml", path: "/ibis/ws/Service-01",
+workflow: "Order-Inbound")`.
