@@ -241,3 +241,30 @@ assertion before the production code exists. `mvn -q verify` green after every t
 1. **MVP** = Phases 1–3 (import with checks, conflicts, backup, secrets, verify, rollback).
 2. Restore (P1) right after, then activate, tag, SOAP test, config check, polish.
 3. Live acceptance on the personal diagram group with a temporary profile copy, then PR.
+
+---
+
+## Phase 10: Follow-up 2026-10-07 — owner kind removed, tags per diagram group (research D-26)
+
+- [ ] T028 Remove the owner kind (D-26): always `import --importUser '<owner>'` (also for `set_active`,
+  `restore_backup` and rollbacks); delete `OwnerKindResolver`, `UserDirectoryPort`, `V81UserDirectory`,
+  the `owners` setting (loader, validator, `ConfigSummary` line, docs), the `requireVerified` refusal and
+  `fixtures/v8_1/rest/user_users.*` if no longer used; tests first: a user-group owner (fixture
+  `OWNERS`) is imported with `--importUser 'OWNERS'` (ScriptedProcessLauncher asserts the exact
+  command); `owners:` in a profile is now an unknown key (configuration error). Update
+  contracts/configuration-delta.md, data-model, docs/setup.md, docs/tools.md, CHANGELOG.
+- [ ] T029 `tag_artifacts` per D-26: no owner-wide history export (`exportHistoryAllGroups` removed if
+  unused) and no `--tagDelete`; pre-check and verification export only the requested groups with
+  history; an existing tag name is reused (no refusal); verification: the current versions of every
+  workflow and module of the requested groups carry the tag — otherwise `outcome: FAILED` with
+  `failure{VERIFY_MISMATCH}` and nothing removed; tests first incl. "same tag in another group stays"
+  (fake history) and "no launch of tag --tagDelete ever"; docs/tools.md updated (tag semantics).
+- [ ] T030 `import_artifacts` optional `tag` (D-26): only with a diagram-group scope (module scope +
+  tag → `INVALID_INPUT` before anything is sent); applied after a successful verification and
+  write-back within the same call and audit record (inputs gain `tag`); tag verification as T029; a tag
+  failure after a successful import → `outcome: EXECUTED`, `tag: {applied: false, failure}` and a
+  warning to retry `tag_artifacts`; preview shows the tag; schemas and contract updated; tests first.
+- [ ] T031 Live acceptance (main session, user-approved test groups only): user-group owner `OWNERS` in
+  `GRP-SPIKE`: import with tag → verify → restore → set_active off/on; `DevelopmentLiveTest` adjusted so
+  that a user-group owner is allowed only with an explicit `INUBIT_LIVE_DEV_DIAGRAM_GROUP` and
+  `INUBIT_LIVE_DEV_WORKFLOW` (never a whole shared group by default); record results here.
