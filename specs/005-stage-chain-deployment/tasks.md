@@ -182,16 +182,25 @@ assertion before the production code exists. `mvn -q verify` green after every t
 - [X] T029 Docs: `docs/tools.md` (`deploy_release`, widened `restore_backup`/`run_e2e_test`, three
   error codes), `docs/setup.md` (chain, modes, exclusions, deploy TTL, files), `README.md` tool table
   and safety model, `docs/live-tests.md` (deployment live test), `CHANGELOG.md` `[Unreleased]`.
-- [ ] T030 `test/live/DeploymentLiveTest.java` (`@Tag("live")`, env names a chained test target the
+- [X] T030 `test/live/DeploymentLiveTest.java` (`@Tag("live")`, env names a chained test target the
   operator approved, never production; **ask the user to approve the live target before running
   it**): tag → preview → execute → redeploy unchanged → restore;
   checks that nothing outside the test group changed.
   *Code written (`live/DeploymentLiveTest`, `LiveTarget.resolveDeployment` with offline tests in
   `LiveTargetTest`); run pending user approval of the live target.*
-- [ ] T031 Validation: `mvn -q clean verify`, guard test without `clean` (not skipped), quickstart
+- [X] T031 Validation: `mvn -q clean verify`, guard test without `clean` (not skipped), quickstart
   table; live acceptance only after the user approved the test target.
-  *Offline part done (clean verify green, guard test run, quickstart table walked); live part
-  pending user approval of the live target.*
+  *Offline part done (clean verify green, guard test run, quickstart table walked).*
+  *Live acceptance 2026-10-07 (approved by the user: source group of the development stage, its
+  successor with two nodes, a disposable test diagram group of the shared owner, a fresh tag, a
+  temporary profile copy): `DeploymentLiveTest` passed — 6 artifacts imported, redeploy
+  `UNCHANGED` on both nodes (only the tag), restore of the deployed node, no other artifact
+  changed; 242 s. Two earlier runs found a test bug (`NodeId` in a `TreeMap`) and a real defect:
+  INUBIT stores the comment of a **created module** as `DefaultCommitCommentImport###<archive
+  comment>`, so the reason check reported `VERIFY_MISMATCH` and the node was rolled back (created
+  artifacts stay; the stop rule left the second node untouched) — fixed in `carriesReason`
+  (also covers feature 004). Not exercised live: CHANGED artifacts with a restore that re-imports,
+  repository files (the test group references none).*
 
 ---
 

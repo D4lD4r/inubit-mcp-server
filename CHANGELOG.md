@@ -33,6 +33,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `run_e2e_test` also runs on non-production nodes of groups that receive deployments, as their
   `e2eTests` allows; it is offered where such a node allows it.
 
+### Fixed
+
+- `import_artifacts` (and deployments): a newly created module was reported as `VERIFY_MISMATCH`
+  and rolled back, because INUBIT puts one more `DefaultCommitCommentImport###` in front of the
+  check-in comment of a created module; the reason check accepts that form.
+
 ## [0.3.0] - 2026-10-07
 
 ### Added

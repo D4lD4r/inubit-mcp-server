@@ -461,3 +461,12 @@ Review fixes of stage 3 and the rulings of T025–T031.
   `deployConfirmationTtl`, also on a development node (`DevelopmentGuard.forDeploymentRestore`).
 - **Final review n2**: the package README asks for the node's StartCLI options (user, URL, trust
   store, host name verification) as configured for that node.
+
+### D-16 addendum: live acceptance (2026-10-07)
+
+- INUBIT keeps the archive's check-in comment for updates and for a **created workflow**, but
+  stores the comment of a **created module** as `DefaultCommitCommentImport###<archive comment>`
+  (one more prefix). `ImportService.carriesReason` accepts that one extra prefix; the first live
+  run had reported a correct deployment as `VERIFY_MISMATCH` and rolled the node back (rollback and
+  stop rule behaved as specified).
+
