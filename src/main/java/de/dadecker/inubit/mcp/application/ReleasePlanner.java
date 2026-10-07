@@ -759,23 +759,8 @@ public final class ReleasePlanner {
         String owner) {
         Map<String, String> states = new TreeMap<>();
         for (PlannedArtifact artifact : artifacts) {
-            SortedMap<String, byte[]> files = new TreeMap<>();
-            switch (artifact.kind()) {
-                case WORKFLOW -> {
-                    String path = parts.workflowPaths().get(artifact.name());
-                    if (path != null && target.containsKey(path)) {
-                        files.put(path, target.get(path));
-                    }
-                }
-                case MODULE -> files.putAll(below(target, moduleDirectory(group, owner,
-                    artifact.group().orElseThrow(), artifact.name())));
-                case REPOSITORY_FILE -> {
-                    byte[] content = targetRepository.get(artifact.name());
-                    if (content != null) {
-                        files.put("repository:" + artifact.name(), content);
-                    }
-                }
-            }
+            SortedMap<String, byte[]> files = files(artifact, parts.workflowPaths(), target,
+                targetRepository, group, owner);
             if (!files.isEmpty() && artifact.artifactClass() != ArtifactClass.ONLY_ON_TARGET
                 && artifact.artifactClass() != ArtifactClass.EXCLUDED) {
                 states.put(NodePlan.key(artifact), ConflictDetector.fingerprint(
@@ -783,6 +768,61 @@ public final class ReleasePlanner {
             }
         }
         return states;
+    }
+
+    /**
+     * The fingerprints of {@code artifacts} in {@code state} (e.g. a verified re-export), computed
+     * exactly like {@link NodePlan#artifactStates()}: for the deployment ledger.
+     */
+    public Map<String, String> artifactStates(DeployGuard.Admitted admitted,
+        ReleaseDiscovery.Release release, List<PlannedArtifact> artifacts, NodeState state) {
+        return artifactStates(artifacts, parts(release, admitted.target()),
+            new TreeMap<>(state.rendered()), state.repository(), admitted.target(),
+            admitted.owner());
+    }
+
+    /**
+     * The files of {@code artifact} in the release (workspace paths; a repository file as
+     * {@code repository:<path>} with its content).
+     */
+    public SortedMap<String, byte[]> releaseFiles(DeployGuard.Admitted admitted,
+        ReleaseDiscovery.Release release, PlannedArtifact artifact) {
+        Parts parts = parts(release, admitted.target());
+        return files(artifact, parts.workflowPaths(), new TreeMap<>(release.files()),
+            parts.repository(), admitted.target(), admitted.owner());
+    }
+
+    /** The files of {@code artifact} in {@code state}, keyed like {@link #releaseFiles}. */
+    public SortedMap<String, byte[]> nodeFiles(DeployGuard.Admitted admitted,
+        ReleaseDiscovery.Release release, PlannedArtifact artifact, NodeState state) {
+        return files(artifact, parts(release, admitted.target()).workflowPaths(),
+            new TreeMap<>(state.rendered()), state.repository(), admitted.target(),
+            admitted.owner());
+    }
+
+    private static SortedMap<String, byte[]> files(PlannedArtifact artifact,
+        Map<String, String> workflowPaths, SortedMap<String, byte[]> rendered,
+        Map<String, byte[]> repository, GroupId group, String owner) {
+        SortedMap<String, byte[]> files = new TreeMap<>();
+        switch (artifact.kind()) {
+            case WORKFLOW -> {
+                String path = workflowPaths.getOrDefault(artifact.name(), WorkspacePath.workflow(
+                    group, owner, artifact.group().orElse(""), artifact.name()).toRelativePath()
+                    .toString().replace('\\', '/'));
+                if (rendered.containsKey(path)) {
+                    files.put(path, rendered.get(path));
+                }
+            }
+            case MODULE -> files.putAll(below(rendered, moduleDirectory(group, owner,
+                artifact.group().orElseThrow(), artifact.name())));
+            case REPOSITORY_FILE -> {
+                byte[] content = repository.get(artifact.name());
+                if (content != null) {
+                    files.put("repository:" + artifact.name(), content);
+                }
+            }
+        }
+        return files;
     }
 
     private String fingerprint(SortedMap<String, byte[]> target,
