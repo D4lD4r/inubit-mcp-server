@@ -61,7 +61,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 - [X] T003 [P] `main/domain/model/ErrorCode.java`: `CHAIN_VIOLATION`, `SOURCE_INCONSISTENT`,
   `DEPLOY_LOCKED` with Javadoc; extend `DevelopmentToolsReferenceTest` expectations (docs must list
   them, filled in T029).
-- [ ] T004 `main/adapter/cli/CliCommand.java`: allow `--exportTag` (`VALUE`), `--exportRepositoryPath`
+- [X] T004 `main/adapter/cli/CliCommand.java`: allow `--exportTag` (`VALUE`), `--exportRepositoryPath`
   and `--importRepositoryPath` (repository path rule `^/Root(/[A-Za-z0-9_.][A-Za-z0-9_.\- ]{0,199})+$`,
   no `..`); the empty group list `--exportWorkflowGroup ''` only together with `--exportTag`
   (test: refused otherwise).
