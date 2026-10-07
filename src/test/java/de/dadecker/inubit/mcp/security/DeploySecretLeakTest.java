@@ -28,13 +28,15 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
 
 /**
- * Stage 3 review m2, T025 (feature 005, FR-016, SC-004, Constitution II): a deployment sends
+ * Stage 3 review m2, T025, final review m4 (feature 005, FR-016, SC-004, Constitution II), for
+ * every secret form of feature 003 ({@link #forms}): a deployment sends
  * each target node its own secret values — they are inside that node's import archive (and
  * inside the package of a package-only node) and nowhere else: not in the results, the reports,
  * the ledger, the audit, the backup manifests, the workspace or the logs; the source's values
@@ -44,15 +46,89 @@ import org.slf4j.LoggerFactory;
 class DeploySecretLeakTest {
 
     static final String TAG = "TAG-01";
-    static final String SOURCE_VALUE = "AES-U1lOVEgtREVQTE9ZLVNPVVJDRS0wMQ";
-    static final Map<NodeId, String> TARGET_VALUES = new LinkedHashMap<>();
+    /** Who holds a value: the source group or one target node. */
+    static final String SOURCE = "source";
 
-    static {
-        TARGET_VALUES.put(DeployHarness.INT1, "AES-U1lOVEgtREVQTE9ZLUlOVDEtMDE");
-        TARGET_VALUES.put(DeployHarness.INT2, "AES-U1lOVEgtREVQTE9ZLUlOVDItMDE");
-        TARGET_VALUES.put(DeployHarness.INT3, "AES-U1lOVEgtREVQTE9ZLUlOVDMtMDE");
-        TARGET_VALUES.put(DeployHarness.PROD, "AES-U1lOVEgtREVQTE9ZLVBST0QtMDE");
+    /**
+     * One secret form of feature 003 (SecretPaths, SC-004), put into Module-0005 with a value
+     * that differs on the source and on every target node.
+     *
+     * @param inject the module text with the form holding {@code value}
+     * @param value  the value of the holder ({@link #SOURCE} or a node id)
+     */
+    record Form(String name, java.util.function.BiFunction<String, String, String> inject,
+        java.util.function.Function<String, String> value) {
+        @Override
+        public String toString() {
+            return name;
+        }
     }
+
+    private static String b64(String text) {
+        return java.util.Base64.getEncoder().encodeToString(text.getBytes(
+            StandardCharsets.UTF_8));
+    }
+
+    /** {@code element} before the {@code IsModuleTemplate} property. */
+    private static String property(String text, String element) {
+        String anchor = "<Property name=\"IsModuleTemplate\"";
+        if (!text.contains(anchor)) {
+            throw new IllegalStateException("module-0005.xml changed");
+        }
+        return text.replace(anchor, element + "\n\t" + anchor);
+    }
+
+    private static Form typed(String name, String element) {
+        return new Form(name, (text, value) -> property(text, element.formatted(value)),
+            holder -> b64("synthetic-" + name + "-" + holder));
+    }
+
+    static List<Form> forms() {
+        return List.of(
+            typed("legacy", "<Property name=\"Password\" type=\"Password\""
+                + " encrypted=\"true\">%s</Property>"),
+            new Form("AES-", (text, value) -> property(text, ("<Property name=\"Password\""
+                + " type=\"Password\" encrypted=\"true\">%s</Property>").formatted(value)),
+                holder -> "AES-" + b64("synthetic-aes-" + holder)),
+            new Form("AESG", (text, value) -> property(text, ("<Property name=\"Password\""
+                + " type=\"Password\" encrypted=\"true\">%s</Property>").formatted(value)),
+                holder -> "AESGs1-y+" + b64("synthetic-aesg-" + holder) + ":U1lOVEhJVjE"),
+            typed("plain", "<Property name=\"Login.Password\" type=\"Password\">%s</Property>"),
+            typed("masked", "<Property name=\"var.userPassword\" type=\"MaskedString\""
+                + " encrypted=\"true\">%s</Property>"),
+            typed("keystore", "<Property name=\"WS-Security.Client.KeyStore\""
+                + " type=\"KeyStore\">%s</Property>"),
+            typed("untyped-keystore", "<Property name=\"SSLKeyStoreRemoteConnector\">%s"
+                + "</Property>"),
+            typed("untyped-password", "<Property name=\"SSLKeyStorePasswordRemoteConnector\">"
+                + "%s</Property>"),
+            typed("smime-keystore", "<Property name=\"smime.keystore.data\">%s</Property>"),
+            typed("smime-password", "<Property name=\"smime.keystore.alias.password\">%s"
+                + "</Property>"),
+            typed("x509-with-key", "<Property name=\"Mime.Sign.X509\" type=\"X509\">%s"
+                + "</Property>"),
+            typed("internal-document", "<Property name=\"clientStore\""
+                + " type=\"InternalDocument\" documentName=\"client.pfx\">%s</Property>"),
+            typed("pem-private-key", "<Property name=\"signingKey\">-----BEGIN EC PRIVATE"
+                + " KEY-----\n%s\n-----END EC PRIVATE KEY-----</Property>"),
+            new Form("source-variable", (text, value) -> text.replace(
+                "<Property name=\"xslt.sourceVariables\" type=\"Map\" />",
+                "<Property name=\"xslt.sourceVariables\" type=\"Map\">\n\t\t<Property"
+                    + " name=\"ISServerName\">" + value + "</Property>\n\t</Property>"),
+                holder -> "synthetic-sv-" + b64(holder)));
+    }
+
+    private Form form;
+
+    /** Every value of the form: the source's and each target node's. */
+    private List<String> values() {
+        List<String> values = new ArrayList<>(List.of(form.value().apply(SOURCE)));
+        TARGETS.forEach(node -> values.add(form.value().apply(node.value())));
+        return values;
+    }
+
+    static final List<NodeId> TARGETS = List.of(DeployHarness.INT1, DeployHarness.INT2,
+        DeployHarness.INT3, DeployHarness.PROD);
 
     static final String MODULE_IMPORT = "--importModule --importUser 'jdoe' --returnProtocol";
 
@@ -82,23 +158,23 @@ class DeploySecretLeakTest {
         context.getLogger("de.dadecker").setLevel(previousLevel);
     }
 
-    /** Module-0005 carries a password property: the source's value or the node's own. */
-    private static void password(FakeServer server, String value) {
+    /** Module-0005 carries the form: the source's value or the node's own. */
+    private void secret(FakeServer server, String holder) {
+        String value = form.value().apply(holder);
         server.publishModule("Module-0005", text -> {
-            String anchor = "<Property name=\"IsModuleTemplate\"";
-            if (!text.contains(anchor)) {
+            String changed = form.inject().apply(text, value);
+            if (changed.equals(text)) {
                 throw new IllegalStateException("module-0005.xml changed");
             }
-            return text.replace(anchor, "<Property name=\"Password\" type=\"Password\""
-                + " encrypted=\"true\">" + value + "</Property>\n\t" + anchor);
+            return changed;
         });
     }
 
-    private void harness() throws IOException {
+    private void harness(Form secretForm) throws IOException {
+        form = secretForm;
         harness = new DeployHarness(temp);
-        DeployHarness.SOURCES.forEach(node -> password(harness.servers.get(node),
-            SOURCE_VALUE));
-        TARGET_VALUES.forEach((node, value) -> password(harness.servers.get(node), value));
+        DeployHarness.SOURCES.forEach(node -> secret(harness.servers.get(node), SOURCE));
+        TARGETS.forEach(node -> secret(harness.servers.get(node), node.value()));
         harness.tagged(DeployHarness.GROUP, TAG);
     }
 
@@ -114,9 +190,11 @@ class DeploySecretLeakTest {
             .exportRepository(node, DeployHarness.RELEASE_XSL));
     }
 
-    @Test
-    void eachTargetGetsItsOwnSecretValuesAndNoValueLeavesTheImportArchive() throws IOException {
-        harness();
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("forms")
+    void eachTargetGetsItsOwnSecretValuesAndNoValueLeavesTheImportArchive(Form secretForm)
+        throws IOException {
+        harness(secretForm);
         intReads();
         DeploymentPreview preview = harness.deployService(List.of()).deploy(request("int",
             Optional.empty())).preview().orElseThrow();
@@ -137,11 +215,12 @@ class DeploySecretLeakTest {
             List<byte[]> sent = harness.servers.get(node).imported;
             assertThat(sent).hasSize(1);
             String archive = archiveText(sent.get(0));
-            assertThat(archive).as(node.value()).contains(TARGET_VALUES.get(node))
-                .doesNotContain(SOURCE_VALUE);
-            TARGET_VALUES.forEach((other, value) -> {
+            assertThat(archive).as(node.value()).contains(form.value().apply(node.value()))
+                .doesNotContain(form.value().apply(SOURCE));
+            TARGETS.forEach(other -> {
                 if (!other.equals(node)) {
-                    assertThat(archive).as(node + " holds " + other).doesNotContain(value);
+                    assertThat(archive).as(node + " holds " + other)
+                        .doesNotContain(form.value().apply(other.value()));
                 }
             });
         }
@@ -149,10 +228,12 @@ class DeploySecretLeakTest {
         harness.verifyComplete();
     }
 
-    @Test
-    void aPackageHoldsTheProductionNodesOwnValuesOnlyInItsArchives() throws IOException {
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("forms")
+    void aPackageHoldsTheProductionNodesOwnValuesOnlyInItsArchives(Form secretForm)
+        throws IOException {
         // T025: prod receives from int, package only
-        harness();
+        harness(secretForm);
         DeployHarness.TARGETS.forEach(node -> {
             harness.servers.get(node).publishModule("Module-0005", text -> text.replace(
                 "IsModuleTemplate", "IsModuleTemplateX"));
@@ -186,13 +267,14 @@ class DeploySecretLeakTest {
                 throw new java.io.UncheckedIOException(e);
             }
         }).collect(Collectors.joining("\n"));
-        assertThat(packaged).contains(TARGET_VALUES.get(DeployHarness.PROD));
-        TARGET_VALUES.forEach((node, value) -> {
+        assertThat(packaged).contains(form.value().apply(DeployHarness.PROD.value()));
+        TARGETS.forEach(node -> {
             if (!node.equals(DeployHarness.PROD)) {
-                assertThat(packaged).as(node.value()).doesNotContain(value);
+                assertThat(packaged).as(node.value())
+                    .doesNotContain(form.value().apply(node.value()));
             }
         });
-        assertThat(packaged).doesNotContain(SOURCE_VALUE);
+        assertThat(packaged).doesNotContain(form.value().apply(SOURCE));
         assertNoLeak(preview.toString() + result, archives);
         assertThat(harness.servers.get(DeployHarness.PROD).imported).isEmpty();
         harness.verifyComplete();
@@ -212,8 +294,7 @@ class DeploySecretLeakTest {
             .stream().noneMatch(path::startsWith)));
         places.put("audit", harness.audit.toString());
         places.put("logs", logText());
-        List<String> values = new ArrayList<>(TARGET_VALUES.values());
-        values.add(SOURCE_VALUE);
+        List<String> values = new ArrayList<>(values());
         values.add(DeployHarness.PASSWORD);
         places.forEach((place, text) -> values.forEach(value ->
             assertThat(text).as(place).doesNotContain(value)));
