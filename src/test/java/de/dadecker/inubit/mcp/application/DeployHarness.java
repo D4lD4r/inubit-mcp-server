@@ -126,6 +126,15 @@ public final class DeployHarness {
     /** The harness with the server {@code servers} gives for each node. */
     public DeployHarness(Path temp, java.util.function.Function<NodeId, FakeServer> servers)
         throws IOException {
+        this(temp, servers, List.of(SOURCE, SOURCE2, INT1, INT2, INT3, PROD));
+    }
+
+    /**
+     * The harness with only the nodes {@code nodes} (e.g. two target nodes for SC-007), each
+     * with the server {@code servers} gives.
+     */
+    public DeployHarness(Path temp, java.util.function.Function<NodeId, FakeServer> servers,
+        List<NodeId> nodes) throws IOException {
         this.root = Files.createDirectories(temp.resolve("workspace"));
         this.cliHome = Files.createDirectories(temp.resolve("client"));
         this.profileHome = Files.createDirectories(temp.resolve("profile"));
@@ -135,7 +144,7 @@ public final class DeployHarness {
         this.workspace = new ExportHarness(root);
         this.history = workspace.history;
         this.ledger = new DeploymentLedger(profileHome.resolve("deployments"));
-        for (NodeId node : List.of(SOURCE, SOURCE2, INT1, INT2, INT3, PROD)) {
+        for (NodeId node : nodes) {
             this.servers.put(node, servers.apply(node));
             cli.put(node, new ScriptedProcessLauncher());
         }

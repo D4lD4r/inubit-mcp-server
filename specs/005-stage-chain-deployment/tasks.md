@@ -177,7 +177,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 
 ## Phase 8: Polish & Cross-Cutting
 
-- [ ] T028 Performance check for SC-007 on `DeployHarness` (5 groups, 20 workflows, 100 modules, 2
+- [X] T028 Performance check for SC-007 on `DeployHarness` (5 groups, 20 workflows, 100 modules, 2
   nodes; harness overhead well below the budget).
 - [ ] T029 Docs: `docs/tools.md` (`deploy_release`, widened `restore_backup`/`run_e2e_test`, three
   error codes), `docs/setup.md` (chain, modes, exclusions, deploy TTL, files), `README.md` tool table
