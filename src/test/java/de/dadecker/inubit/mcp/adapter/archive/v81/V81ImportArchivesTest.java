@@ -105,4 +105,26 @@ class V81ImportArchivesTest {
             .isEmpty();
         assertThat(archives.active(bytes("not xml"))).isEmpty();
     }
+
+    @Test
+    void aDeploymentBuildTakesTheFlagOfANewWorkflowFromTheRelease() {
+        // feature 005 (T017, research D-7): a new active workflow is no error for a deployment
+        byte[] export = ArtifactFixtures.bytes("grp-a.zip");
+        var raw = new ArchiveReader().read(export);
+        var files = new TreeMap<>(WorkspaceWriter.render(new SecretRedactor().redact(raw),
+            new GroupId("int"), "jdoe").files());
+        String path = "int/jdoe/workflows/GRP-01/Workflow-0001.xml";
+        files.put(path, bytes(new String(files.get(path), StandardCharsets.UTF_8)
+            .replace("<IsActive>false</IsActive>", "<IsActive>true</IsActive>")));
+
+        Archive archive = archives.assemble(new Build(new GroupId("int"), "jdoe",
+            Optional.of("GRP-01"), List.of(new Artifact("Workflow-0001", Optional.empty(), true)),
+            List.of(), files, List.of(), "deploy TAG-01 from dev", "jdoe",
+            "inubit-int-1.example.test", "07.10.2026 10:00:00", Set.of(), true));
+
+        assertThat(archive.active()).containsExactly(Map.entry("Workflow-0001", true));
+        assertThat(new Build(GROUP, "o", Optional.empty(), List.of(), List.of(), files, List.of(),
+            "r", "u", "h", "07.10.2026 10:00:00", Set.of()).fromRelease()).isFalse();
+    }
 }
+
