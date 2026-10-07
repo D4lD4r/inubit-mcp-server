@@ -155,6 +155,17 @@ public final class V81ReleaseArchives implements ReleaseArchivePort {
         return List.copyOf(changes);
     }
 
+    @Override
+    public Map<String, byte[]> repositoryFiles(byte[] archive) {
+        Map<String, byte[]> entries = entries(archive);
+        byte[] repository = entries.containsKey("Repository.zip") ? entries.get("Repository.zip")
+            : archive;
+        Map<String, byte[]> files = new java.util.TreeMap<>();
+        RepositoryArchive.read(repository).forEach(file -> files.put(file.path(),
+            file.content()));
+        return files;
+    }
+
     // --- helpers -------------------------------------------------------------------------------
 
     /** Simple properties ({@code <Property name="…">text</Property>}) below {@code element}. */

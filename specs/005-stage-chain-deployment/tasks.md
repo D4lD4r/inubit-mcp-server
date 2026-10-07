@@ -115,7 +115,7 @@ assertion before the production code exists. `mvn -q verify` green after every t
 - [X] T016 [US1] `main/application/ReleaseDiscovery.java`: tag export per source node, render with
   the codec, fingerprint compare (`SOURCE_INCONSISTENT` with `.reports/deploy-<auditId>/source.diff`),
   `NOT_FOUND` when no group carries the tag, "tagged version older than head" note; tests.
-- [ ] T017 [US1] `main/application/ReleasePlanner.java` + `ArtifactClassifier`: per target node
+- [X] T017 [US1] `main/application/ReleasePlanner.java` + `ArtifactClassifier`: per target node
   exports (groups, missing modules, repository files), classes `NEW`/`UNCHANGED`/`LAYOUT_ONLY`/
   `CHANGED`/`EXCLUDED`/`ONLY_ON_TARGET`, resulting active flag ("existing keep the target's, new
   take the release's"), errors (name in another diagram group via REST model list, plugin-type

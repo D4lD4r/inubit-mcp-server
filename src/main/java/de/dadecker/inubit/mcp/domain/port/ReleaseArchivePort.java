@@ -99,4 +99,12 @@ public interface ReleaseArchivePort {
      * rendered workflow or module file, in document order.
      */
     List<PropertyChange> changedProperties(String path, byte[] release, byte[] target);
+
+    /**
+     * Repository path ({@code /Root/…}) → content of the repository files of a repository
+     * export or of the {@code Repository.zip} of a diagram group or release export, key material
+     * included (memory only).
+     */
+    Map<String, byte[]> repositoryFiles(byte[] archive);
 }
+

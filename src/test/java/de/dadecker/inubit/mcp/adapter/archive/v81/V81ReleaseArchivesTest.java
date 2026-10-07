@@ -106,9 +106,9 @@ class V81ReleaseArchivesTest {
 
     @Test
     void namesChangedSimplePropertiesInDocumentOrder() {
-        byte[] release = ("<Properties version=\"4.1\"><Property name=\"Url\">https://a.example.test"
-            + "</Property><Property name=\"Same\">x</Property><Property name=\"Port\">1"
-            + "</Property></Properties>").getBytes(StandardCharsets.UTF_8);
+        byte[] release = ("<Properties version=\"4.1\"><Property name=\"Url\">"
+            + "https://a.example.test</Property><Property name=\"Same\">x</Property>"
+            + "<Property name=\"Port\">1</Property></Properties>").getBytes(StandardCharsets.UTF_8);
         byte[] target = text(release).replace("a.example", "b.example").replace(">1<", ">2<")
             .getBytes(StandardCharsets.UTF_8);
 
@@ -123,4 +123,14 @@ class V81ReleaseArchivesTest {
         assertThat(archives.keyMaterial("/Root/jdoe/xsd/a.xsd", "<x/>".getBytes(
             StandardCharsets.UTF_8))).isFalse();
     }
+
+    @Test
+    void readsTheRepositoryFilesOfARepositoryOrAGroupExport() {
+        assertThat(archives.repositoryFiles(cliFixture("export_repository.zip")).keySet())
+            .containsExactly("/Root/jdoe/xsd/order.xsd", "/Root/jdoe/xsd/release.xsl");
+        assertThat(archives.repositoryFiles(cliFixture("export_release.zip")).keySet())
+            .containsExactly("/Root/jdoe/xsd/release.xsl");
+        assertThat(archives.repositoryFiles(ArtifactFixtures.bytes("grp-a.zip"))).isEmpty();
+    }
 }
+
