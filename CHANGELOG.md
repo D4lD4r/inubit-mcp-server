@@ -25,6 +25,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.4.2] - 2026-10-08
 
+Not tagged or released on its own; its changes are part of the 0.4.3 release.
+
 ### Fixed
 
 - `import_artifacts`: an embedded stylesheet or WSDL that ends with a line break (as an editor
@@ -219,8 +221,8 @@ First public release.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
 [Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.3...HEAD
-[0.4.3]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.2...v0.4.3
-[0.4.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.1...v0.4.2
+[0.4.3]: https://github.com/D4lD4r/inubit-mcp-server/compare/983fa42dc6ebcdd8fe32e6a2b5b5aefeef1296fc...v0.4.3
+[0.4.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.1...983fa42dc6ebcdd8fe32e6a2b5b5aefeef1296fc
 [0.4.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.2.0...v0.3.0
