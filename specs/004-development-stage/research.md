@@ -395,3 +395,46 @@ approval) and in the personal test group:
   same audited call); a module import with `tag` is refused before anything is sent. A failing tag
   after a successful import does not roll back the import: the result is `EXECUTED` with a tag failure
   and the warning to retry `tag_artifacts`.
+
+## D-27 Import after a rolled-back import (0.4.2, development server 2026-10-08)
+
+Observed on a development node: a diagram-group import with a new XSLT module whose hand-written
+stylesheet ended with a line break failed with `VERIFY_MISMATCH` (INUBIT stored the embedded
+stylesheet without the final line break; exported stylesheets never end with one, `index.xml` and
+`module.xml` always do). The rollback restored the workflow (with its own check-in comment) and left
+the new module (`createdNotRemoved`, nothing is ever deleted). From then on every import of the group
+was a `CONFLICT`: the workflow "changed since the export" (only its check-in comment differed), the
+module "exists already"; after a group export plus a single module export (the group export lacks a
+module no workflow uses) the module "changed since the export" because the group view had none of its
+files. StartCLI 8.1.17 has no overwrite option; a module of the same name simply becomes a new version,
+so INUBIT itself was no obstacle. **Decisions**:
+
+- **Embedded documents as INUBIT stores them** (D-9): the archive embeds an escaped XML document
+  (`XmlDocument`, `WsdlData`) without trailing whitespace; the comparison of reviewed content
+  (`ImportArchivePort.equivalent`, used by the change set, the conflict check and the verification)
+  takes `.xsl` and `.wsdl` files without trailing whitespace and with any line ends. Whitespace at the
+  end of a line stays significant: 24 of 35 exported stylesheets of the development server have such
+  lines, so INUBIT keeps them. Whether INUBIT keeps the CR of a CRLF line end is not observed; both
+  forms are accepted. Binary (`InternalDocument`) documents stay byte for byte.
+- **Reviewed content in the conflict check** (D-5): base and server state are compared with the same
+  equivalence as the verification, so what an import or a rollback rewrites (`CheckinComment`,
+  `LastUpdate`, UIDs) is no conflict; a change of content and an open Workbench edit (`CheckoutUser`)
+  still are. The rollback therefore needs no re-export of the workspace.
+- **New artifacts the server has already** (supersedes the "new one that exists is a conflict" rule of
+  D-25): a workflow or module that is new in the workspace but on the server is compared with the
+  server: identical content → not sent (`identical` in the preview, its server state is written back
+  after a successful import), otherwise updated as a new version (`ChangedArtifact.Kind.EXISTING`,
+  listed in `modify` and in `existing` of the preview, which the user confirms). A module name the owner
+  uses for a module of another plugin type (listed, but `NOT_FOUND` for this plugin type) stays a
+  conflict. Recognising the `createdNotRemoved` of an own audit record is not needed: the comparison
+  with the server covers every origin.
+- **Same extent for base and server state**: a module of the change set that the export of the diagram
+  group lacks is exported on its own (conflict check, verification, rollback, restore); its base is its
+  own export. A file of a module counts as changed only if it differs from the newest server state of
+  its **artifact** (workflow file or module directory): an export that wrote a file unchanged is no
+  history entry of the file itself, so a file committed as a local change before stayed a candidate.
+- **Readable difference reports**: `.reports/conflict-*.diff` and `verify-*.diff` add a note for what the
+  lines do not show (`\ missing trailing newline (server now)`, other line ends, trailing whitespace
+  only, a missing file).
+- `list_nodes` reports `developmentEnabled` (`development.enabled && !production`) next to
+  `writeEnabled`, which governs restart and kill only.

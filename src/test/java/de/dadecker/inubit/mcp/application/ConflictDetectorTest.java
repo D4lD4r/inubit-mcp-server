@@ -180,7 +180,9 @@ class ConflictDetectorTest {
     }
 
     @Test
-    void aNewArtifactThatExistsOnTheServerMeanwhileIsAConflict() throws IOException {
+    void aNewArtifactThatExistsOnTheServerMeanwhileIsUpdatedOrNotSentIfIdentical()
+        throws IOException {
+        // 0.4.2: no conflict — e.g. created by an import that was rolled back
         String copy = Files.readString(root.resolve(workflow("Workflow-0001")))
             .replace("Workflow-0001", "Workflow-0100");
         Files.writeString(root.resolve(workflow("Workflow-0100")), copy);
@@ -192,11 +194,42 @@ class ConflictDetectorTest {
                 "<WorkflowName>Workflow-0001</WorkflowName>",
                 "<WorkflowName>Workflow-0100</WorkflowName>")));
 
+        ChangeSet identical = detector().detect(DEV, changes, UUID.randomUUID()).changes();
+
+        assertThat(identical.isEmpty()).isTrue();
+        assertThat(identical.identicalNames()).containsExactly("Workflow-0100");
+
+        harness.artifacts.exports.put("GRP-01", ExportHarness.rewrite("grp-a.zip",
+            "workflow/workflow.xml", xml -> xml.replace(
+                "<WorkflowName>Workflow-0001</WorkflowName>",
+                "<WorkflowName>Workflow-0100</WorkflowName>").replaceFirst(
+                    "(<WorkflowName>Workflow-0100</WorkflowName>(?s:.*?))xPos=\"120\"",
+                    "$1xPos=\"125\"")));
+
+        ChangeSet existing = detector().detect(DEV, changes, UUID.randomUUID()).changes();
+
+        assertThat(existing.created()).isEmpty();
+        assertThat(existing.modified()).containsExactly("Workflow-0100");
+        assertThat(existing.existing()).containsExactly("Workflow-0100");
+        assertThat(existing.identical()).isEmpty();
+    }
+
+    @Test
+    void whatARollbackRewritesIsNoConflictWithReviewedContent() throws IOException {
+        // 0.4.2: the rollback's check-in comment and last update are no change of content
+        ChangeSet changes = editWorkflow("Workflow-0001", "xPos=\"120\"", "xPos=\"140\"");
+        harness.artifacts.exports.put("GRP-01", ExportHarness.rewrite("grp-a.zip",
+            "workflow/workflow.xml", xml -> xml.replaceAll("<CheckinComment>[^<]*"
+                + "</CheckinComment>", "<CheckinComment>DefaultCommitCommentImport###Rollback"
+                + " of import x###</CheckinComment>")));
+        ConflictDetector reviewed = new ConflictDetector(root, harness.history,
+            new ArchiveCodec(), node -> harness.artifacts, node -> inventory(),
+            new de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives()::equivalent);
+
+        assertThat(reviewed.detect(DEV, changes, UUID.randomUUID()).changes().modified())
+            .containsExactly("Workflow-0001");
         assertThatThrownBy(() -> detector().detect(DEV, changes, UUID.randomUUID()))
-            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
-                assertThat(e.error().code()).isEqualTo(ErrorCode.CONFLICT);
-                assertThat(e.error().message()).contains("Workflow-0100", "exists on");
-            });
+            .isInstanceOf(ToolErrorException.class);
     }
 
     @Test
@@ -211,5 +244,30 @@ class ConflictDetectorTest {
         assertThat(ConflictDetector.fingerprint(new java.util.TreeMap<>(java.util.Map.of(
             workflow("Workflow-0001"), "a".getBytes(StandardCharsets.UTF_8)))))
             .isNotEqualTo(first);
+    }
+
+    @Test
+    void theDifferenceReportNamesDifferencesThatAreNotVisible() {
+        // 0.4.2: "@@ line 16 @@" alone did not say that only the final line break differed
+        StringBuilder diff = new StringBuilder();
+        ConflictDetector.LineDiff.append(diff, "a.xsl", "intended", "server now",
+            bytes("<a>\n</a>\n"), bytes("<a>\n</a>"));
+        ConflictDetector.LineDiff.append(diff, "b.xsl", "intended", "server now",
+            bytes("<a>\r\n</a>"), bytes("<a>\n</a>"));
+        ConflictDetector.LineDiff.append(diff, "c.xsl", "intended", "server now",
+            bytes("<a> \n</a>"), bytes("<a>\n</a>"));
+        ConflictDetector.LineDiff.append(diff, "d.xml", "intended", "server now",
+            bytes("<a/>"), null);
+
+        assertThat(diff.toString())
+            .contains("--- a.xsl (intended)", "+++ a.xsl (server now)",
+                "\\ missing trailing newline (server now)")
+            .contains("\\ line ends differ: CRLF (intended), LF (server now)")
+            .contains("-<a> \n+<a>\n\\ the lines differ in trailing whitespace only")
+            .contains("\\ the file is missing (server now)");
+    }
+
+    private static byte[] bytes(String text) {
+        return text.getBytes(StandardCharsets.UTF_8);
     }
 }
