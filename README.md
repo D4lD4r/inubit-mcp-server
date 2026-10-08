@@ -8,9 +8,9 @@ instance. On a configured **development stage** it brings workspace changes back
 switches workflows on or off, tags tested states, restores backups and sends SOAP test messages.
 Along a configured **stage chain** it deploys a tagged release into the next group, node by node
 — or, for a package-only group such as production, prepares import packages for a person. It uses
-the INUBIT REST API wherever possible and the INUBIT command-line client
-(StartCLI) only where REST cannot do the job. One server process serves one **profile** (one
-customer or project, one YAML file); several profiles run side by side as separate registrations.
+the INUBIT REST API wherever possible and the INUBIT command-line client (StartCLI) only where REST
+cannot do the job. One server process serves one **profile** (one customer or project, one YAML
+file); several profiles run side by side as separate registrations.
 
 ## Tools
 
@@ -33,26 +33,33 @@ customer or project, one YAML file); several profiles run side by side as separa
 | `run_e2e_test` | send a SOAP envelope from the workspace to a development node (or a non-production node of a target group) and report the response, processes, errors and logs it caused | SOAP + REST |
 | `deploy_release` | deploy the diagram groups that carry a tag from a group into the next group of the stage chain, node by node (preview and code first; backed up, verified, rolled back per node), or write import packages for a package-only group | StartCLI `export`, `import`, `tag`; REST |
 
-The two write tools are registered only if at least one node of the profile has effective write
-access, `export_artifacts` only if a node has a StartCLI installation; with the default
-configuration and no client installation the server offers the six read-only tools and
-`check_artifacts`. The development tools are registered only if a node has
-`development.enabled: true` (never on production), `run_e2e_test` only where `e2eTests` allows it.
-`deploy_release` is registered only if a group has a `deploy` record (feature 005); with a group
-in mode `EXECUTE` also `restore_backup` (for deployment backups), and `run_e2e_test` where a
-target node's `e2eTests` allows it. Inputs, outputs and example prompts: [docs/tools.md](docs/tools.md); the
-workspace: [docs/setup.md](docs/setup.md#artifact-workspace).
+Which tools a profile offers depends on its configuration; every tool that changes INUBIT needs its
+own explicit setting:
+
+| Tools | Offered when |
+|---|---|
+| the six read-only tools and `check_artifacts` | always |
+| `export_artifacts` | a node has a StartCLI installation |
+| `restart_process`, `kill_process` | a node has effective write access (`write.enabled`) |
+| `import_artifacts`, `restore_backup`, `set_active`, `tag_artifacts` | a node has `development.enabled: true` (never on production) |
+| `deploy_release` | a group has a `deploy` record (stage chain); with a target in mode `EXECUTE` also `restore_backup` for deployment backups |
+| `run_e2e_test` | a development node, or a non-production node of a deployment target, allows it (`e2eTests`) |
+
+Inputs, outputs and example prompts: [docs/tools.md](docs/tools.md); configuration, workspace,
+development stages and the stage chain: [docs/setup.md](docs/setup.md).
 
 ## Safety model
 
-- **Read-only by default.** `restart_process` and `kill_process` are off unless
-  `write.enabled: true` is set for a group or node. They act on exactly one process instance on one
-  node; there are no bulk operations.
+- **Read-only by default.** Without configuration the server only reads. Every kind of write has
+  its own explicit setting per group or node: `write.enabled` for `restart_process` and
+  `kill_process` (exactly one process instance on one node, no bulk operations),
+  `development.enabled` for the development tools, and a `deploy` record for deployments.
 - **Production lock.** On groups marked `production: true`, writes additionally require
-  `write.productionOptIn: true`.
+  `write.productionOptIn: true`; development settings and end-to-end tests are not allowed there.
 - **Two-step confirmation.** By default the server issues a short-lived, one-time confirmation code
-  for each write, bound to the node, the action, the process instance and its state; the action
-  runs only when that code comes back and the instance has not changed.
+  for each write, bound to the node, the action and the state it previewed (process instance,
+  workspace and server state, or release and target nodes); the action runs only when that code
+  comes back and nothing it was bound to has changed. Deployments always need it.
 - **Audit.** Every write call that reaches the server (refused, previewed, executed or failed) is
   appended to an owner-only JSON Lines audit log per profile; if the record cannot be written, the
   action is not executed.
@@ -90,14 +97,18 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
 
 - A **Java 21** (or newer) runtime to run the server.
 - **INUBIT 8.1** servers reachable over HTTPS, and an INUBIT account per group or node with rights
-  to read logs, monitoring and models.
+  to read logs, monitoring and models; where the development tools or deployments are used, also
+  with rights to export, import and tag the owner's diagrams and modules.
 - Only for the CLI-based parts (`restart_process`, `kill_process`, the module list and version
-  histories of the inventory tools): a local **INUBIT 8.1 Workbench client installation** with
+  histories of the inventory tools, and every tool that exports, imports or tags artifacts —
+  `export_artifacts`, the development tools and `deploy_release`, which needs it for the nodes of
+  the source and the target group): a local **INUBIT 8.1 Workbench client installation** with
   StartCLI (`bin/startcli.sh`) matching the servers' patch level, a Java 17 runtime for StartCLI,
   and "CLI login access" for the account. The INUBIT client is **not included** in this project.
   Without it, the REST-based tools work and CLI-based parts report `CLI_UNAVAILABLE`. CLI-based
   tools are not supported on Windows in this version.
-- Only for the artifact workspace (`export_artifacts`): **git 2.32** or newer on `PATH`.
+- Only for the artifact workspace (`export_artifacts`, the development tools and
+  `deploy_release`): **git 2.32** or newer on `PATH`.
 
 ## Installation in Claude Code
 
@@ -108,7 +119,7 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
    `~/.local/lib`:
 
    ```bash
-   VERSION=0.1.0
+   VERSION=0.4.0
    shasum -a 256 -c "inubit-mcp-server-$VERSION.jar.sha256"   # Linux: sha256sum -c …
    mkdir -p ~/.local/lib && mv "inubit-mcp-server-$VERSION.jar" ~/.local/lib/
    ```
@@ -135,8 +146,9 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
            baseUrl: https://node1.dev.example.test:8443
    ```
 
-   Terminology, inventory owner, StartCLI, write access, TLS trust store and certificate pin are
-   described in [docs/setup.md](docs/setup.md#3-configuration-file).
+   Terminology, inventory owner, StartCLI, write access, development stages, the stage chain,
+   end-to-end tests, the workspace, TLS trust store and certificate pin are described in
+   [docs/setup.md](docs/setup.md#3-configuration-file).
 
 4. **Set the credential variables** in your shell profile (e.g. `~/.zshrc`). By default their
    names are `INUBIT_<PROFILE>_<GROUP>[_<NODE>]_USERNAME` / `_PASSWORD`
@@ -187,12 +199,14 @@ The build produces the single executable JAR `target/inubit-mcp-server-<version>
 ## Documentation
 
 - [docs/setup.md](docs/setup.md) — configuration, credentials, TLS, `--check-config`, registration,
-  several profiles side by side
-- [docs/tools.md](docs/tools.md) — tool reference with inputs, outputs and example prompts
+  several profiles side by side, the artifact workspace, development stages, the stage chain and
+  deployments
+- [docs/tools.md](docs/tools.md) — tool reference with inputs, outputs, error codes and example
+  prompts
 - [docs/migration-001-to-002.md](docs/migration-001-to-002.md) — migrating a configuration file of
   the earlier `stages`/`servers` format
-- [docs/live-tests.md](docs/live-tests.md) — opt-in tests against a non-production server (read-only,
-  and a development test on a personal diagram group)
+- [docs/live-tests.md](docs/live-tests.md) — opt-in tests against non-production servers: read-only,
+  a development test on a test diagram group, and a deployment test on an approved target group
 - [docs/release-checks.md](docs/release-checks.md) — checks before a release
 - [specs/](specs/) — specifications, plans and contracts of the features (Spec Kit)
 - [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md)
@@ -202,8 +216,9 @@ The build produces the single executable JAR `target/inubit-mcp-server-<version>
 This software is provided "AS IS", without warranties or conditions of any kind, and without any
 liability of the authors or contributors for any damage or other consequences arising from its
 use, as stated in sections 7 and 8 of the [Apache License 2.0](LICENSE). You use it at your own
-risk. The write tools can restart and kill process instances on INUBIT servers; enable them only
-where you are allowed to do so, and always test against non-production systems first.
+risk. The write tools can restart and kill process instances, import, activate and tag workflows
+and modules, and deploy releases on INUBIT servers; enable them only where you are allowed to do
+so, and always test against non-production systems first.
 
 ## Trademark
 

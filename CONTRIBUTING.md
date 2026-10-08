@@ -11,8 +11,10 @@ mvn -B clean verify
 ```
 
 The default build is fully offline (recorded fixtures, WireMock, a fake StartCLI) and must stay
-green; CI runs the same command on every push to `main` and every pull request against `main`. Tests against a real server are
-opt-in, read-only and never run against production ([docs/live-tests.md](docs/live-tests.md)).
+green; CI runs the same command on every push to `main` and every pull request against `main`.
+Tests against a real server are opt-in and never run against production
+([docs/live-tests.md](docs/live-tests.md)): the basic live test only reads; the development and
+deployment live tests write, only to test artifacts on targets the operator approved.
 
 ## How to change things
 

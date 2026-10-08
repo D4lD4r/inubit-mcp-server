@@ -3,8 +3,11 @@
 The MCP tools of the INUBIT MCP server, for users of an MCP client such as Claude Code. The
 authoritative contract is
 [contracts/mcp-tools.md](../specs/001-inubit-mcp-mvp/contracts/mcp-tools.md); the JSON schemas
-the server announces are in `src/main/resources/schemas/`; the two workspace tools of feature 003
-follow [contracts/mcp-tools-delta.md](../specs/003-artifact-workspace/contracts/mcp-tools-delta.md),
+the server announces are in `src/main/resources/schemas/`; the renamed names, the profile prefix
+and the terminology of feature 002 follow
+[its delta](../specs/002-customer-agnostic-config/contracts/mcp-tools-delta.md), the two workspace
+tools of feature 003
+[contracts/mcp-tools-delta.md](../specs/003-artifact-workspace/contracts/mcp-tools-delta.md),
 the five development tools of feature 004
 [their delta](../specs/004-development-stage/contracts/mcp-tools-delta.md), `deploy_release` of
 feature 005 [its delta](../specs/005-stage-chain-deployment/contracts/mcp-tools-delta.md).
@@ -121,13 +124,14 @@ other nodes are still reported.
 | `INVALID_INPUT` | the arguments are well-formed but not valid (time format, a filter the log type does not support, a group id for a write tool, …) |
 | `CLI_UNAVAILABLE` | StartCLI cannot be used: no `cliHome` or JDK, Windows, or an unusable `java.io.tmpdir` |
 | `UNEXPECTED_RESPONSE` | INUBIT or StartCLI answered in an unexpected way (status, format); see `excerpt` |
-| `WRITE_DISABLED`, `PRODUCTION_PROTECTED`, `CONFIRMATION_INVALID`, `PRECONDITION_FAILED` | refusals of `restart_process` / `kill_process` (see their refusal table); `PRECONDITION_FAILED` also when the workspace is busy (another export or check is running) or not usable |
+| `WRITE_DISABLED` | only `restart_process` / `kill_process`: `write.enabled` is not `true` for the node (see their refusal table) |
+| `PRODUCTION_PROTECTED`, `CONFIRMATION_INVALID`, `PRECONDITION_FAILED` | refusals of `restart_process` / `kill_process` (see their refusal table), of the development tools and of `deploy_release`; `PRECONDITION_FAILED` also when the workspace is busy (another workspace operation is running) or not usable |
 | `CONFIRMATION_REQUIRED`, `UNSUPPORTED_VERSION` | reserved in the catalogue, not returned by this version: the first write call returns a `challenge`, and 9.x servers run with the 8.1 adapters and a warning |
 | `NOT_CONFIGURED` | a setting the tool needs is not configured for this node, e.g. `inventory.owner` for `list_inventory` / `get_inventory_item`; `nextStep` names the setting ("set inventory.owner for <group>/<node> or in defaults") |
-| `NOT_DEVELOPMENT` | a development tool was called for a node that is not a development stage |
+| `NOT_DEVELOPMENT` | a development tool was called for a node that is not a development stage (for `run_e2e_test`: nor a non-production node of a deployment target; a production node is always refused) |
 | `CONFLICT` | the artifacts changed on the server since the export (or since the referenced call), or a workflow is open in Workbench edit mode; nothing was sent, the difference is in `.reports/conflict-<auditId>.diff` |
 | `SECRET_UNRESOLVED` | a `${secret:…}` placeholder has no value on the target (names artifact and property path, never a value); nothing was sent |
-| `IMPORT_FAILED`, `VERIFY_MISMATCH` | only inside the `failure` of a development tool's result: a StartCLI write failed or its protocol did not match, or the re-export (history export for tags) did not show the intended state |
+| `IMPORT_FAILED`, `VERIFY_MISMATCH` | only inside the `failure` of a development tool's result or of a `deploy_release` node: a StartCLI write failed or its protocol did not match, or the re-export (history export for tags) did not show the intended state |
 | `E2E_FORBIDDEN` | `run_e2e_test` on a node whose `e2eTests` is `FORBIDDEN` (the default) |
 | `CHAIN_VIOLATION` | a deployment into a group that does not receive deployments from the requested source (no `deploy` record, feature 005) |
 | `SOURCE_INCONSISTENT` | the nodes of a deployment's source group do not hold the same release (feature 005) |
@@ -632,8 +636,9 @@ exist. Both tools are annotated `destructiveHint: true`, `idempotentHint: false`
 
 **Decision flow** (every step that ends the flow writes an audit record):
 
-1. `node` must be one configured node: a group id → `INVALID_INPUT`, an unknown id →
-   `TARGET_UNKNOWN`. (Malformed ids are already rejected by the input schema.)
+1. `node` must be one configured node: a group id → `INVALID_INPUT` (defence in depth;
+   normally rejected by the input schema), an unknown id → `TARGET_UNKNOWN`. (Malformed ids are
+   already rejected by the input schema.)
 2. Production group without `write.productionOptIn` → `PRODUCTION_PROTECTED`, **whatever
    `write.enabled` says**; also a production server with `write.confirmation: CLIENT` (normally
    already a startup error).
@@ -668,7 +673,7 @@ preview and confirmation is reported (`NOT_FOUND` / `PRECONDITION_FAILED`) and n
 
 | Refusal code | When |
 |---|---|
-| `INVALID_INPUT` | a group id instead of a node id; malformed `processId`, code or reason |
+| `INVALID_INPUT` | a group id instead of a node id (defence in depth; normally rejected by the input schema); malformed `processId`, code or reason |
 | `TARGET_UNKNOWN` | the server is not configured |
 | `PRODUCTION_PROTECTED` | production group without `write.productionOptIn`, or with `write.confirmation: CLIENT` |
 | `WRITE_DISABLED` | `write.enabled` is not `true` for the server |
@@ -694,10 +699,11 @@ confirmationCode: "…")` returns `outcome: EXECUTED` with `stateAfter`.
 
 `export_artifacts` and `check_artifacts` work on the profile's **workspace**, a local directory
 with its own git history (setting `workspace`, default `~/.inubit-mcp/<profile>/workspace`; see
-[setup.md](setup.md#artifact-workspace)). Only one export or check runs at a time: a second call
-is refused at once with `PRECONDITION_FAILED` ("another export or check is running"), also across
-the processes of one profile. Paths in results are workspace-relative with `/`. Fields without a
-value are **absent, never `null`**.
+[setup.md](setup.md#artifact-workspace)). Only one workspace operation runs at a time (export,
+check, import, restore, `set_active`, `deploy_release` preview or execution): a second call is
+refused at once with `PRECONDITION_FAILED` (the workspace is busy), also across the processes of
+one profile. Paths in results are workspace-relative with `/`. Fields without a value are
+**absent, never `null`**.
 
 ## `export_artifacts`
 
@@ -1042,8 +1048,10 @@ Every history export appends to the check-in comments of the exported workflows 
 - Admitted on a development node, and (feature 005) on a non-production node whose group
   receives deployments — in both cases only as its `e2eTests` allows.
 - Policy per node: `FREE` (one call), `CONFIRM` (preview with `endpoint`, `payloadBytes`,
-  `soapAction`, and a code bound to the inputs and the payload hash), `FORBIDDEN` (the default,
-  always on production: `E2E_FORBIDDEN`).
+  `soapAction`, and a code bound to the inputs and the payload hash), `FORBIDDEN` (the default:
+  `E2E_FORBIDDEN`). A node of a production group is refused before its policy is read
+  (`NOT_DEVELOPMENT`), as is a node that is neither a development node nor a node of a group that
+  receives deployments.
 - The envelope must be a regular file inside the workspace (real path; not below `.git`,
   `.meta`, `.reports`); an envelope with a `Password` element holding a value other than a
   `${secret:…}` placeholder is refused. The endpoint path must stay below the base address (no
@@ -1060,7 +1068,8 @@ Every history export appends to the check-in comments of the exported workflows 
   timeout keeps all of this (`timedOut: true`, no `status`); unreadable logs are a warning.
 - **Result**: `auditId`, `testId`, `endpoint`, `status`, `durationMs`, `timedOut`,
   `responseFile`, `excerpt`, `correlation`, `processes`, `errors`, `logEntries` (at most 20 each),
-  `truncated`, `warnings`. Errors: `E2E_FORBIDDEN`, `INVALID_INPUT`, `UNREACHABLE`, `TLS_ERROR`.
+  `truncated`, `warnings`. Errors: `NOT_DEVELOPMENT`, `E2E_FORBIDDEN`, `TARGET_UNKNOWN`,
+  `INVALID_INPUT`, `CONFIRMATION_INVALID`, `UNREACHABLE`, `TLS_ERROR`.
   The audit records only the payload hash, never the envelope.
 
 **Example prompt**: "Send samples/order.xml to /ibis/ws/Service-01 on dev" →
@@ -1088,8 +1097,8 @@ target), `confirmationCode`.
 The release is every diagram group of the owner that carries `tag` on the source, exported by tag
 from **every** source node; the nodes must hold the same release (`SOURCE_INCONSISTENT`
 otherwise, the differing paths in `.reports/deploy-<auditId>/source.diff`). A tag on no diagram
-group is `NOT_FOUND`. A tagged version older than the source's head is noted
-(`OLDER_THAN_HEAD`); the tagged one is deployed. Only technical workflows are read; system
+group is `NOT_FOUND`. A tagged version older than the source's head is listed in the
+challenge's `olderThanHead`; the tagged one is deployed. Only technical workflows are read; system
 diagrams are never read and never deployed. Repository files that the release's modules
 reference (`inubitrepository:`) belong to it; key material (keys, certificates) and files
 outside `/Root/<owner>/` are never deployed.
@@ -1107,8 +1116,21 @@ files below `.reports/deploy-<auditId>/`, placeholders only, never secret values
 | `OUTSIDE_CHAIN` | a changed or layout-only artifact on the node is not what the last deployment of this server wrote there (changed outside the chain, or no earlier deployment) |
 | `SHARED_MODULE` | a changed module is also used by workflows on the node that are not part of the release |
 | `STAGE_SPECIFIC_VALUE` | a changed property looks like a host, URL, port or login: check that the target needs the release's value |
-| `OLDER_THAN_HEAD` | the tag marks a version older than the head on the source |
 | `OUTSIDE_OWNER_REPOSITORY` | a referenced repository file outside `/Root/<owner>/`: never deployed |
+
+A tagged version older than the head on the source is not a node warning (`OLDER_THAN_HEAD`
+never appears in `warnings`); it is listed once for the release in the challenge's
+`olderThanHead`.
+
+The `challenge` itself carries `auditId`, `target`, `source`, `tag`, `owner`, `mode` (`EXECUTE`
+or `PACKAGE_ONLY`), `diagramGroups` (the diagram groups of the release), `olderThanHead` (one
+entry `<workflow> (<diagram group>): tagged version <n>, head <m>` per workflow whose tagged
+version is older than the head on the source), `nodes` (one plan per target node with the fields
+above and its own `executable`), `notes` (facts for the reader, e.g. that system diagrams are
+never read), `executable` (true only if every node plan is executable), `confirmationCode` and
+`expiresAt` (only if `executable` is true) and `message` (what to do next). `diagramGroups`,
+`olderThanHead` and the lists of a plan are bounded by `resultLimits.maxItems` (`<list>Truncated`
+names how many were left out).
 
 Errors that make a node plan not executable (there is then **no code**): a workflow in Workbench
 edit mode on the node (`CONFLICT`), a secret or key material the node does not have
@@ -1145,10 +1167,12 @@ node, in configuration order:
 
 A node with nothing to import is `UNCHANGED` and only gets the tag. A failure before a node is
 written (its backup, its `PENDING` record, its re-check) leaves it `NOT_STARTED` with `failure`
-step `backup`, `pending` or `recheck`. If every node is `DEPLOYED` or `UNCHANGED`, the verified
-state is committed to the workspace (`deploy <target> ← <source>: <tag> [<auditId>]`, trailer
-`Server-State: <target>`); a failing commit is a warning. Artifacts are never deleted: what a
-failed node created stays and is listed in `created`.
+step `backup`, `pending` or `recheck`; a package that cannot be written leaves it `NOT_STARTED`
+with step `package`, an unexpected failure before anything was sent with step `deploy`. If every
+node is `DEPLOYED` or `UNCHANGED`, the verified state is committed to the workspace
+(`deploy <target> ← <source>: <tag> [<auditId>]`, trailer `Server-State: <target>`); a failing
+commit is a warning. Artifacts are never deleted: what a failed node created stays and is listed
+in `created`.
 
 **Package-only target** (`deploy.mode: PACKAGE_ONLY`, e.g. production): the same preview; the call
 with the code writes per node a package to
@@ -1156,8 +1180,8 @@ with the code writes per node a package to
 `rw-------`): the import archives of step 3 with **that node's own secret values**, `diff.txt`,
 `warnings.txt` (with what the release leaves out) and `README.md` with the StartCLI commands in
 import order. **No import, tag or other writing command is ever sent** to such a group; the
-state is `PACKAGED`, the outcome `PACKAGED`, nothing is committed. Packages are kept 30 days, the
-newest per target always.
+state is `PACKAGED`, the outcome `PACKAGED`, nothing is committed. A node with nothing to import
+is `UNCHANGED` without a package. Packages are kept 30 days, the newest per target always.
 
 **Result** (`result`): `auditId`, `outcome` (`EXECUTED`, `FAILED`, `PACKAGED`), `target`,
 `source`, `tag`, `nodes` (every node of the target: `node`, `state` — `DEPLOYED`, `UNCHANGED`,
@@ -1170,13 +1194,18 @@ that node with [`restore_backup`](#restore_backup).
 Every call — refused, previewed, executed, failed, packaged — is audited (capability
 `deploy_release`; a group record and one record per node with the same audit id), with target,
 source, tag, diagram groups, node states, backup references and artifact names; never content or
-secret values. A second deployment into the same group meanwhile is refused (`DEPLOY_LOCKED`).
+secret values. A second deployment into the same group meanwhile is refused (`DEPLOY_LOCKED`),
+a call while another workspace operation runs with `PRECONDITION_FAILED`. Other refusals:
+`INVALID_INPUT` (a node id as `target`, a tag with a wildcard, a malformed code), `TARGET_UNKNOWN`,
+`NOT_CONFIGURED` (no owner), `CONFIRMATION_INVALID`.
 
 | Code | Likely cause | Next step |
 |---|---|---|
-| `CHAIN_VIOLATION` | the target has no `deploy` record: it receives no deployments (or a node id was meant as the group) | deploy into a group of the chain; the message lists them (e.g. `int (from dev), prod (from int, package only)`) |
+| `CHAIN_VIOLATION` | the target has no `deploy` record: it receives no deployments | deploy into a group of the chain; the message lists them (e.g. `int (from dev), prod (from int, package only)`) |
 | `SOURCE_INCONSISTENT` | the nodes of the source group do not hold the same release: a node was not updated or tagged like the others | bring every source node to the same state and tag it there, then call `deploy_release` again without code; the differences are in `.reports/deploy-<auditId>/source.diff` |
 | `DEPLOY_LOCKED` | another `deploy_release` into the same group (in this or another MCP server process of the profile) has not finished | wait until it has finished, then call again |
+| `PRECONDITION_FAILED` | the workspace is busy: another workspace operation (export, check, import, restore, `set_active`, another deployment) is running | wait until the other operation has finished, then call again |
+| `NOT_CONFIGURED` | no `owner` was given and the target has no `inventory.owner` | pass `owner`, or set `inventory.owner` for the target group or in `defaults` |
 
 **Example prompt**: "Deploy REL-2026-10-07 to int" → `deploy_release(target: "int", tag:
 "REL-2026-10-07")` returns the preview; after the user approves, the same call with

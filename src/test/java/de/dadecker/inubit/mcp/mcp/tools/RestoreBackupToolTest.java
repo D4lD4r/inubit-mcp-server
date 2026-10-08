@@ -74,6 +74,9 @@ class RestoreBackupToolTest {
         JsonNode tool = client.listTools().path("tools").get(0);
         assertThat(tool.path("name").asString()).isEqualTo("restore_backup");
         assertThat(tool.path("description").asString()).isEqualTo(DESCRIPTION);
+        // feature 005: also a deployment backup on a node of a target group
+        assertThat(tool.path("annotations").path("title").asString())
+            .isEqualTo("Restore a development or deployment backup on an INUBIT node");
         assertThat(tool.path("annotations").path("destructiveHint").asBoolean()).isTrue();
         assertThat(tool.path("annotations").path("idempotentHint").asBoolean()).isFalse();
         JsonNode schema = tool.path("inputSchema");

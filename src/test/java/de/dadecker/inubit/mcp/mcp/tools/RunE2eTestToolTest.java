@@ -133,6 +133,9 @@ class RunE2eTestToolTest {
 
         assertThat(tool.path("name").asString()).isEqualTo("run_e2e_test");
         assertThat(tool.path("description").asString()).isEqualTo(DESCRIPTION);
+        // feature 005: also on a non-production node of a deployment target, not only development
+        assertThat(tool.path("annotations").path("title").asString())
+            .isEqualTo("Send a SOAP test message to an INUBIT node");
         assertThat(tool.path("annotations").path("destructiveHint").asBoolean()).isTrue();
         assertThat(tool.path("annotations").path("idempotentHint").asBoolean()).isFalse();
         JsonNode schema = tool.path("inputSchema");

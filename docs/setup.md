@@ -1,8 +1,12 @@
 # Setup
 
 How to build, configure and register the INUBIT MCP server. The authoritative configuration
-reference is [contracts/configuration.md](../specs/001-inubit-mcp-mvp/contracts/configuration.md);
-this guide walks through it. All host names below are examples (`*.example.test`).
+reference is [contracts/configuration.md](../specs/002-customer-agnostic-config/contracts/configuration.md)
+of feature 002 with the deltas of feature 003
+([workspace](../specs/003-artifact-workspace/contracts/configuration-delta.md)), 004
+([development stage](../specs/004-development-stage/contracts/configuration-delta.md)) and 005
+([stage chain](../specs/005-stage-chain-deployment/contracts/configuration-delta.md)); this guide
+walks through it. All host names below are examples (`*.example.test`).
 
 ## 1. Prerequisites
 
@@ -10,11 +14,11 @@ this guide walks through it. All host names below are examples (`*.example.test`
 |---|---|
 | JDK 21 or newer on `PATH` (`java -version`) | runs the server |
 | Maven 3.9+ (`mvn -v`) | only to build the JAR from source; a released JAR can be downloaded instead ([README](../README.md#installation-in-claude-code)) |
-| INUBIT 8.1.17 client installation (Workbench), e.g. `/opt/inubit/client` with `bin/startcli.sh` | CLI-backed tools only (process restart/kill, module list and version histories of the inventory); must match the servers' patch level |
+| INUBIT 8.1.17 client installation (Workbench), e.g. `/opt/inubit/client` with `bin/startcli.sh` | CLI-backed tools only (process restart/kill, module list and version histories of the inventory, `export_artifacts`, every development tool except `run_e2e_test`, and `deploy_release`, which needs it on every node of a target group and of its source group); must match the servers' patch level |
 | Temurin (or another) JDK **17** | StartCLI 8.1 runs on Java 17, not on the JDK of the server |
-| An INUBIT account per group (or node) with rights to read logs, monitoring and models, plus "CLI login access" for CLI-backed tools | REST and CLI access |
+| An INUBIT account per group (or node) with rights to read logs, monitoring and models, plus "CLI login access" for CLI-backed tools, and rights to export, import and tag the owner's diagrams and modules where the development tools or deployments are used | REST and CLI access |
 | `openssl` and `keytool` (part of the JDK) | only for a self-signed server certificate (section 5) |
-| `git` 2.32 or newer on `PATH` (`git --version`) | only for the artifact workspace (`export_artifacts`, section 3); the history stays local |
+| `git` 2.32 or newer on `PATH` (`git --version`) | only for the history of the artifact workspace (`export_artifacts`, `import_artifacts`, `restore_backup`, `set_active`, `deploy_release`; section 3); the history stays local |
 
 Without a client installation the REST-backed tools still work; CLI-backed parts report
 `CLI_UNAVAILABLE`. CLI-backed tools are not supported on Windows in this version.
@@ -223,7 +227,7 @@ configurable in `defaults`, per group or per node:
 |---|---|---|
 | `inventory.owner` | none (required for the inventory tools) | the owning Workbench user or user group whose diagrams and modules are listed. It is inserted into StartCLI commands, so it must match `^[A-Za-z0-9_.][A-Za-z0-9_.\- ]{0,199}$` (startup error otherwise). Without an owner for a node, `list_inventory` and `get_inventory_item` return `NOT_CONFIGURED` for that node ("set inventory.owner for <group>/<node> or in defaults"); all other tools work. `--check-config` warns once when no owner is set anywhere while a CLI is configured |
 | `inventory.cacheTtl` | `PT10M` | how long diagram lists, module lists and version histories are cached per node; tools accept `refresh: true` to bypass it |
-| `cliExportTimeout` | `PT120S` | timeout of one StartCLI export (module list about 10–15 s, version history of a diagram group about 5 s on DEV); also the budget of the module usage index (reading the nodes of every technical workflow over REST, about 2–3 s on DEV); separate from `cliTimeout` |
+| `cliExportTimeout` | `PT120S` | timeout of one StartCLI export, import or tag command (module list about 10–15 s, version history of a diagram group about 5 s on DEV); also the budget of the module usage index (reading the nodes of every technical workflow over REST, about 2–3 s on DEV); separate from `cliTimeout` |
 
 ```yaml
 defaults:
@@ -281,8 +285,11 @@ kill instances, and restart the MCP client (e.g. Claude Code) after changing the
 ### Audit log
 
 Every call of `restart_process` or `kill_process` that reaches the tool — refused, previewed,
-executed or failed — is appended to the audit log before the result is returned. Calls whose
-arguments violate the input schema (group id instead of a node id, malformed process id or code, reason over 500
+executed or failed — is appended to the audit log before the result is returned; so is every
+call of the development tools and of `deploy_release`
+([Development settings](#development-settings),
+[Stage chain and deployments](#stage-chain-and-deployments)). Calls whose arguments violate the
+input schema (group id instead of a node id, malformed process id or code, reason over 500
 chars, unknown property) are rejected by the MCP SDK before the tool runs and are not audited;
 they cannot change anything.
 
@@ -300,16 +307,19 @@ they cannot change anything.
   ```
 
 - Fields: `auditId`, `timestamp`, `profile` (the profile name), `node`, `group`, `capability`
-  (`restart_process` /
-  `kill_process`), `step` (`PREVIEW` for the first call of a two-step confirmation, `EXECUTE`
-  otherwise), `inputs` (`processId`, `confirmationCode` / `issuedConfirmationCode` as
-  `sha256:` + 16 hex chars only, `reason`), `account` (the INUBIT username), `outcome`, `reason`
-  (refusal or failure code and message, or the result), `mcpClient` (name/version the client
-  sent in `initialize`). Absent values are omitted.
+  (`restart_process`, `kill_process`, the development tools `import_artifacts`,
+  `restore_backup`, `set_active`, `tag_artifacts`, `run_e2e_test`, `backup_retention` for the
+  removal of old backups, and `deploy_release`), `step` (`PREVIEW` for the first call of a
+  two-step confirmation, `EXECUTE` otherwise), `inputs` (for restart and kill: `processId`,
+  `confirmationCode` / `issuedConfirmationCode` as `sha256:` + 16 hex chars only, `reason`),
+  `account` (the INUBIT username), `outcome`, `reason` (refusal or failure code and message, or
+  the result), `mcpClient` (name/version the client sent in `initialize`). Absent values are
+  omitted.
 - Outcomes: `CHALLENGE_ISSUED` (preview), `PENDING` (written **before** StartCLI runs; if it
   cannot be written, the action is not executed), then `EXECUTED` or `FAILED` with the same
-  `auditId`; `REFUSED` for every refusal. A confirmed restart therefore leaves three records:
-  `CHALLENGE_ISSUED`, `PENDING`, `EXECUTED`.
+  `auditId`; `REFUSED` for every refusal; `PACKAGED` for a node of a package-only deployment
+  target. A confirmed restart therefore leaves three records: `CHALLENGE_ISSUED`, `PENDING`,
+  `EXECUTED`.
 - Secrets are scrubbed from every field; passwords never appear.
 
 ### Artifact workspace
@@ -354,7 +364,9 @@ workspace: ~/work/acme-inubit   # default: ~/.inubit-mcp/<profile.name>/workspac
   lives only in a private temporary directory that is deleted after each export.
 - Only **technical workflows** are exported (with their modules); system diagrams and other
   diagram types are not.
-- One export or check at a time: a second call is refused at once while another one runs.
+- One workspace operation at a time (export, check, import, restore, `set_active`,
+  `deploy_release` preview and execution): a second call is refused at once with
+  `PRECONDITION_FAILED` while another one runs.
 
 **What `check_artifacts` can test locally**: workflow structure (edges, ids, Demultiplexer keys,
 parent references, modules, variables, repository references), well-formedness and XSD validity,
@@ -373,15 +385,18 @@ run. Details: [tools.md](tools.md#check_artifacts).
 
 The development tools of feature 004 — `import_artifacts`, `restore_backup`, `set_active`,
 `tag_artifacts` and `run_e2e_test` — **write to INUBIT**. They are offered only if at least one
-node is a development stage, and they refuse every other node (`NOT_DEVELOPMENT`). Tool
-reference: [tools.md](tools.md#development-on-a-development-stage-feature-004).
+node is a development stage, and they refuse every other node (`NOT_DEVELOPMENT`), with two
+exceptions of the stage chain ([Stage chain and deployments](#stage-chain-and-deployments)):
+`restore_backup` of a deployment backup on a node of an `EXECUTE` target, and `run_e2e_test` on a
+non-production node of a deployment target. Tool reference:
+[tools.md](tools.md#development-on-a-development-stage-feature-004).
 
 | Setting | Level | Default | Meaning |
 |---|---|---|---|
 | `development.enabled` | defaults, group, node | `false` | the node is a development stage; **not allowed on `production: true` groups** (startup error); at most one development-enabled node per group |
 | `development.confirmation` | defaults, group, node | `SERVER` | `SERVER`: every write first returns a preview and a one-time code (bound to the inputs and the server state, valid `confirmationTtl`); `CLIENT`: the write runs on the first call and the MCP client must ask the user |
 | `e2eTests` | defaults, group, node | `FORBIDDEN` | `FREE`, `CONFIRM` (preview and code first) or `FORBIDDEN`; `FREE`/`CONFIRM` need `e2e.soap.baseUrl` and are not allowed on production |
-| `e2e.soap.baseUrl` | group, node | — | the base address of the node's SOAP endpoints; `https` (plain `http` gives a startup warning), no query or fragment; the node's `tls` settings apply |
+| `e2e.soap.baseUrl` | group, node | — | the base address of the node's SOAP endpoints; `https` (plain `http` gives a startup warning, and a startup error if the e2e basic-authentication variables are set for a node that allows tests), no query or fragment; the node's `tls` settings apply |
 
 The node wins over the group, the group over `defaults`.
 
@@ -500,8 +515,9 @@ groups:
   tag, the owner and the preview state; it cannot be switched off.
 - **Restore and end-to-end tests on targets.** `restore_backup` restores a deployment backup on the
   node it was taken on (always with preview and code); `run_e2e_test` runs on a non-production
-  node of a group with `deploy` as its `e2eTests` allows (production stays `FORBIDDEN`). Both are
-  offered without a development node in that case.
+  node of a group with `deploy` as its `e2eTests` allows (production stays `FORBIDDEN`). Without a
+  development node, `restore_backup` is offered once a target group has mode `EXECUTE`, and
+  `run_e2e_test` once a non-production node of a target group allows it.
 - **Files** (owner-only, not configurable): `~/.inubit-mcp/<profile>/deployments/` holds the
   ledger `<group>.ledger.json` (which state this server deployed on which node; changes made
   outside the chain are reported as `OUTSIDE_CHAIN`) and the lock `<group>.lock` (one deployment
@@ -697,12 +713,16 @@ java -jar target/inubit-mcp-server-*.jar --profile acme --check-config
 ```
 
 It validates the file, resolves the credential variables and prints to **stdout** the profile,
-its terminology, the credential variable scheme and the audit directory, then per group one line
-per node — id, read-only or write flag, the development settings (if any node has them, see
-[Development settings](#development-settings)), CLI
-availability and the **names** of the variables used (never their values) — followed by
-warnings and errors. Groups and nodes are named with the profile's terminology. It does not
-start the MCP server and creates nothing. Example for the complete example profile of section 3,
+its terminology, the credential variable scheme, the audit directory and the workspace, then — if
+a group has a `deploy` record — a `Chains:` block (one line per stage chain, then the exclusions
+of each target, see [Stage chain and deployments](#stage-chain-and-deployments)), then per group
+one line per node — id, read-only or write flag, the development settings (if any node has them,
+see [Development settings](#development-settings)), CLI availability, for a node of a target
+group `deploy: from <group> (<mode>)`, and the **names** of the variables used (never their
+values) — followed by warnings and errors. Groups and nodes are named with the profile's
+terminology. It does not start the MCP server; the only thing it may create is a missing
+workspace directory with its missing parents (owner-only, `rwx------`; shown as `(created)`).
+Example for the complete example profile of section 3,
 saved as `~/.config/inubit-mcp/acme.yaml` (`--profile acme --check-config`):
 
 ```text
@@ -758,10 +778,13 @@ Claude Code was started with.
 
 1. Open a new shell that has the `INUBIT_*` variables (`env | grep -c '^INUBIT_'` shows a
    count, never print the values) and start `claude` from it.
-2. `/mcp` shows `inubit-acme` as connected with the six read-only tools `list_nodes`,
-   `get_health`, `find_processes`, `query_logs`, `list_inventory` and `get_inventory_item`.
-   `restart_process` and `kill_process` appear only when at least one server has effective write
-   access (section 3, "Write settings").
+2. `/mcp` shows `inubit-acme` as connected with at least the six read-only tools `list_nodes`,
+   `get_health`, `find_processes`, `query_logs`, `list_inventory` and `get_inventory_item`, and
+   `check_artifacts`. `export_artifacts` appears when a node has a StartCLI installation
+   (`cli.home`), `restart_process` and `kill_process` when at least one node has effective write
+   access (section 3, "Write settings"), the development tools when a node has
+   `development.enabled: true`, and `deploy_release` when a group has a `deploy` record; the full
+   list is in the [README](../README.md#tools).
 3. Ask "Which INUBIT systems do you know?" (`list_nodes`) and "Is dev up?" (`get_health`); see
    [tools.md](tools.md) for all tools and example prompts.
 

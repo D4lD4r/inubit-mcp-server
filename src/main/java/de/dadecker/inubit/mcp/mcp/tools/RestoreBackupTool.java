@@ -46,7 +46,8 @@ public final class RestoreBackupTool implements ToolHandler {
     /** Destructive, non-idempotent, open world (FR-026, Constitution I). */
     @Override
     public ToolHints annotations() {
-        return ToolHints.destructive("Restore a backup on a development INUBIT node");
+        return ToolHints.destructive(
+            "Restore a development or deployment backup on an INUBIT {node}");
     }
 
     @Override
