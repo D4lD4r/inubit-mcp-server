@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.ImportAssembler.Request;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Node;
 import de.dadecker.inubit.mcp.domain.port.ImportArchivePort;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -16,7 +17,8 @@ import java.util.TreeMap;
 /**
  * The 8.1 {@link ImportArchivePort} (feature 004): {@link ImportAssembler} with the secret
  * values, identities (UIDs, module file names, diagram group context) and versions of the
- * target's raw exports, and the comparison of reviewed content.
+ * target's raw exports, and the comparison of reviewed content — embedded text documents as
+ * INUBIT stores them (0.4.2).
  */
 public final class V81ImportArchives implements ImportArchivePort {
 
@@ -46,6 +48,9 @@ public final class V81ImportArchives implements ImportArchivePort {
     public boolean equivalent(String path, byte[] expected, byte[] actual) {
         if (expected == null || actual == null) {
             return expected == actual;
+        }
+        if (path.endsWith(".xsl") || path.endsWith(".wsdl")) {
+            return Arrays.equals(stored(expected), stored(actual));
         }
         if (!path.endsWith(".xml")) {
             return Arrays.equals(expected, actual);
@@ -98,6 +103,17 @@ public final class V81ImportArchives implements ImportArchivePort {
                 List.of(new XmlTree.Text(text))));
         }
         return XmlNormalizer.normalize(root.withChildren(children));
+    }
+
+    /**
+     * An embedded text document (stylesheet, WSDL) as INUBIT stores it (0.4.2): without the
+     * trailing whitespace that INUBIT drops (observed on 8.1: the final line break of a
+     * stylesheet), and with LF line ends: whether INUBIT keeps a CR of a CRLF line end is not
+     * observed, so either is accepted.
+     */
+    private static byte[] stored(byte[] document) {
+        return new String(document, StandardCharsets.UTF_8).replace("\r\n", "\n")
+            .stripTrailing().getBytes(StandardCharsets.UTF_8);
     }
 
     /** The root without the volatile children of a workflow or a module index entry. */

@@ -159,7 +159,7 @@ is never part of the result.
 ```json
 {"profile":{"name":"acme","description":"ACME test"},
  "terminology":{"group":{"singular":"Umgebung","plural":"Umgebungen"},"node":{"singular":"Knoten","plural":"Knoten"}},
- "groups":[{"name":"test","production":false,"nodes":[{"id":"test/node1","group":"test","node":"node1","production":false,"writeEnabled":false,"confirmationMode":"SERVER","versionLine":"AUTO","cliAvailable":true}]}]}
+ "groups":[{"name":"test","production":false,"nodes":[{"id":"test/node1","group":"test","node":"node1","production":false,"writeEnabled":false,"developmentEnabled":true,"confirmationMode":"SERVER","versionLine":"AUTO","cliAvailable":true}]}]}
 ```
 
 | `NodeSummary` field | Meaning |
@@ -167,7 +167,8 @@ is never part of the result.
 | `id` | `<group>/<node>`, e.g. `test/node1` |
 | `group`, `node` | the two parts of the id |
 | `production` | the group is configured with `production: true` |
-| `writeEnabled` | effective write access: `write.enabled && (!production \|\| write.productionOptIn)` |
+| `writeEnabled` | restart and kill allowed: `write.enabled && (!production \|\| write.productionOptIn)`; does **not** govern the development tools |
+| `developmentEnabled` | a development stage: `development.enabled && !production`; `import_artifacts`, `restore_backup`, `set_active` and `tag_artifacts` work on this node |
 | `confirmationMode` | `SERVER` (two-step confirmation by the MCP server) or `CLIENT` |
 | `versionLine` | as configured: `AUTO`, `V8_1` or `V9_X` |
 | `cliAvailable` | a CLI home is configured and its `bin/startcli.sh` (`.bat` on Windows) exists |
@@ -928,6 +929,18 @@ optionally `tag` (only with `diagramGroup`).
   owner already uses for another workflow or module, no exported base ("export the scope
   first"). UIDs and module file names of modified artifacts come from the node's fresh export,
   never from `.meta/`.
+- **Conflicts** (`CONFLICT`, nothing sent, differences in `.reports/conflict-<auditId>.diff`): an
+  artifact of the scope whose **content** changed on the node since the export, or a workflow open
+  in the Workbench (edit mode). What every import or rollback rewrites — check-in comment, last
+  update, UIDs — is no conflict, so a rolled-back import needs no new export. A module of the
+  change set that the diagram group's export lacks (no workflow uses it) is exported on its own.
+- **New, but on the node already** (e.g. left by a rolled-back import, `createdNotRemoved`): an
+  artifact that is new in the workspace and identical on the node is not sent (`identical`); with
+  other content it is updated as a new version (`modify` and `existing`). Only a module name the
+  owner uses for a module of another plugin type stays a conflict.
+- Embedded stylesheets and WSDLs are sent and compared as INUBIT stores them: a trailing line
+  break (or other trailing whitespace) and CRLF versus LF line ends are no difference. The
+  difference reports note what the lines do not show (`\ missing trailing newline (server now)`).
 - **Tag** (optional): after the verified import and the write-back, the diagram group is tagged
   exactly as `tag_artifacts` does it (one `tag --tagMove` for the group, verified by the group's
   history export; an existing tag name is reused) — in the same call and under the same audit id
@@ -938,8 +951,11 @@ optionally `tag` (only with `diagramGroup`).
   (`IMPORT_FAILED` at `tag` or `VERIFY_MISMATCH` at `verify`) and a warning to retry with
   `tag_artifacts`; nothing is removed. A failed or empty import sets no tag (`applied: false`,
   no failure). The confirmation code is bound to the tag as well.
-- **Preview** (`challenge`): `scope`, `baseCommit`, `create`, `modify`, `notImported`,
-  `checkWarnings`, `tag` (if requested), `confirmationCode`, `expiresAt`, `message`.
+- **Preview** (`challenge`): `scope`, `baseCommit`, `create`, `modify`, `existing` (new in the
+  workspace, on the node already: updated as a new version), `identical` (new in the workspace,
+  identical on the node: not sent), `notImported`, `checkWarnings`, `tag` (if requested),
+  `confirmationCode`, `expiresAt`, `message`. The result notes `existing` and `identical` in
+  `warnings`.
 
 **Example prompt**: "Import the layout change of GRP-01 to dev with reason 'layout'" →
 `import_artifacts(node: "dev/node1", diagramGroup: "GRP-01", reason: "layout")` returns the

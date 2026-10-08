@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.VersionLine;
+import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
@@ -39,7 +40,9 @@ class ListNodesToolTest {
                 .write(true, false, ConfirmationMode.CLIENT).cliHome(CLI_HOME)
                 .versionLine(VersionLine.AUTO).build(),
             TestNodeConfig.node().id("dev/inubit02")
-                .baseUrl("https://inubit02.dev.example.test:8443").build(),
+                .baseUrl("https://inubit02.dev.example.test:8443")
+                .development(new EffectiveNodeConfig.Development(true, ConfirmationMode.SERVER,
+                    E2ePolicy.FORBIDDEN, Optional.empty())).build(),
             TestNodeConfig.node().id("prod/inubit01")
                 .baseUrl("https://inubit01.prod.example.test:8443").production(true)
                 .write(true, false, ConfirmationMode.SERVER).cliHome(Path.of("/missing"))
@@ -104,6 +107,10 @@ class ListNodesToolTest {
             JsonNode dev2 = groups.get(0).path("nodes").get(1);
             assertThat(dev2.path("id").asString()).isEqualTo("dev/inubit02");
             assertThat(dev2.path("writeEnabled").asBoolean()).as("write disabled").isFalse();
+            // 0.4.2: the development tools (import) do not depend on write.enabled
+            assertThat(dev2.path("developmentEnabled").asBoolean()).as("development stage")
+                .isTrue();
+            assertThat(dev1.path("developmentEnabled").asBoolean()).isFalse();
             assertThat(dev2.path("cliAvailable").asBoolean()).as("no CLI home").isFalse();
 
             JsonNode prod1 = groups.get(1).path("nodes").get(0);
@@ -132,8 +139,8 @@ class ListNodesToolTest {
             JsonNode node = result.path("structuredContent").path("groups").path(0)
                 .path("nodes").path(0);
             assertThat(node.propertyNames()).containsExactly("id", "group", "node",
-                "production", "writeEnabled", "confirmationMode", "versionLine",
-                "cliAvailable");
+                "production", "writeEnabled", "developmentEnabled", "confirmationMode",
+                "versionLine", "cliAvailable");
         }
     }
 

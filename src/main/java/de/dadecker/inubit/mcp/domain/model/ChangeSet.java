@@ -12,9 +12,17 @@ import java.util.stream.Stream;
  *
  * @param baseCommit  the last server state of the scope (the base of new artifacts)
  * @param notImported workspace-relative files that changed outside the scope
+ * @param identical   artifacts new in the workspace that the server has with the same content
+ *                    (0.4.2): not sent, their server state is recorded after a successful import
  */
 public record ChangeSet(ImportScope scope, String baseCommit, List<ChangedArtifact> workflows,
-    List<ChangedArtifact> modules, List<String> notImported) {
+    List<ChangedArtifact> modules, List<String> notImported, List<ChangedArtifact> identical) {
+
+    /** A change set before it was compared with the server (nothing identical yet). */
+    public ChangeSet(ImportScope scope, String baseCommit, List<ChangedArtifact> workflows,
+        List<ChangedArtifact> modules, List<String> notImported) {
+        this(scope, baseCommit, workflows, modules, notImported, List.of());
+    }
 
     public ChangeSet {
         Objects.requireNonNull(scope, "scope");
@@ -22,6 +30,7 @@ public record ChangeSet(ImportScope scope, String baseCommit, List<ChangedArtifa
         workflows = List.copyOf(workflows);
         modules = List.copyOf(modules);
         notImported = List.copyOf(notImported);
+        identical = List.copyOf(identical);
     }
 
     /** True if nothing is to be sent (SC-003). */
@@ -39,9 +48,23 @@ public record ChangeSet(ImportScope scope, String baseCommit, List<ChangedArtifa
         return names(ChangedArtifact.Kind.NEW);
     }
 
-    /** The names of the artifacts the import modifies (workflows first). */
+    /**
+     * The names of the artifacts the import modifies, {@link #existing()} included (workflows
+     * first).
+     */
     public List<String> modified() {
-        return names(ChangedArtifact.Kind.MODIFIED);
+        return artifacts().stream().filter(ChangedArtifact::onServer)
+            .map(ChangedArtifact::name).toList();
+    }
+
+    /** The names of the artifacts new in the workspace that the import updates on the server. */
+    public List<String> existing() {
+        return names(ChangedArtifact.Kind.EXISTING);
+    }
+
+    /** The names of {@link #identical()}. */
+    public List<String> identicalNames() {
+        return identical.stream().map(ChangedArtifact::name).toList();
     }
 
     /** Every file of the change set, workspace-relative. */

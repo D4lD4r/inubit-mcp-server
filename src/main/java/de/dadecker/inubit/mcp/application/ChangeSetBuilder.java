@@ -20,7 +20,6 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -39,8 +38,11 @@ import java.util.stream.Stream;
  *
  * <ul>
  *   <li>Candidates are the owner's files whose newest history entry is not a server state of the
- *       group ({@link VersionHistoryPort#localChanges}); a candidate counts only if its content
- *       differs from its own last server state (an undone edit is no change).
+ *       group ({@link VersionHistoryPort#localChanges}); a candidate counts only if its reviewed
+ *       content ({@link ContentEquivalence}) differs from the newest server state of its
+ *       artifact (an undone edit is no change). That is the state of the workflow file or of the
+ *       module directory (0.4.2): an export that wrote a file unchanged is no history entry of
+ *       the file, but of its module.
  *   <li>Diagram-group scope: the changed and new workflows of the diagram group, and the changed
  *       or new modules that these workflows reference. Module scope: the named modules (each
  *       must be in the workspace). Every other change of the owner is listed as not imported.
@@ -61,14 +63,23 @@ public final class ChangeSetBuilder {
     private final Path root;
     private final VersionHistoryPort history;
     private final ArtifactInspectorPort inspector;
+    private final ContentEquivalence equivalence;
 
-    /**
-     * @param root      the workspace root
-     * @param history   its history
-     * @param inspector reads the workflows (referenced modules)
-     */
+    /** Compares byte by byte. */
     public ChangeSetBuilder(Path root, VersionHistoryPort history,
         ArtifactInspectorPort inspector) {
+        this(root, history, inspector, ContentEquivalence.BYTES);
+    }
+
+    /**
+     * @param root        the workspace root
+     * @param history     its history
+     * @param inspector   reads the workflows (referenced modules)
+     * @param equivalence what counts as the same content
+     */
+    public ChangeSetBuilder(Path root, VersionHistoryPort history,
+        ArtifactInspectorPort inspector, ContentEquivalence equivalence) {
+        this.equivalence = Objects.requireNonNull(equivalence, "equivalence");
         this.root = Objects.requireNonNull(root, "root");
         this.history = Objects.requireNonNull(history, "history");
         this.inspector = Objects.requireNonNull(inspector, "inspector");
@@ -91,7 +102,7 @@ public final class ChangeSetBuilder {
         String base = history.serverStateOf(group, scopeDirectory);
 
         List<LocalChange> changes = history.localChanges(group, ownerDirectory).stream()
-            .filter(this::differs).toList();
+            .filter(change -> differs(group, change)).toList();
         List<String> repository = new ArrayList<>();
         Map<String, LocalChange> workflows = new TreeMap<>();
         Map<List<String>, List<LocalChange>> modules = new TreeMap<>(
@@ -216,17 +227,19 @@ public final class ChangeSetBuilder {
         return found.get(0);
     }
 
-    /** True if the candidate's content differs from its own last server state. */
-    private boolean differs(LocalChange change) {
-        if (change.kind() != PathChange.Kind.MODIFIED) {
+    /** True if the candidate's content differs from the newest server state of its artifact. */
+    private boolean differs(GroupId group, LocalChange change) {
+        Path file = root.resolve(change.path());
+        if (change.kind() == PathChange.Kind.DELETED || !Files.isRegularFile(file)) {
             return true;
         }
-        Optional<byte[]> before = history.show(change.serverState().orElseThrow(),
-            change.path());
-        Path file = root.resolve(change.path());
+        String key = ConflictDetector.key(change.path());
+        Optional<String> base = key == null ? change.serverState()
+            : history.lastServerState(group, key).or(change::serverState);
+        Optional<byte[]> before = base.flatMap(commit -> history.show(commit, change.path()));
         try {
-            return before.isEmpty() || !Files.isRegularFile(file)
-                || !Arrays.equals(before.get(), Files.readAllBytes(file));
+            return before.isEmpty() || !equivalence.equivalent(change.path(), before.get(),
+                Files.readAllBytes(file));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

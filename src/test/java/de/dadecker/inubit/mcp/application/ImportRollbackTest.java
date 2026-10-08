@@ -244,6 +244,10 @@ class ImportRollbackTest {
 
             @Override
             public boolean equivalent(String path, byte[] expected, byte[] actual) {
+                // 0.4.2: the change set and the conflict check compare too; fail after sending
+                if (harness.inubit.imported.isEmpty()) {
+                    return port.equivalent(path, expected, actual);
+                }
                 throw new IllegalStateException("boom");
             }
 
