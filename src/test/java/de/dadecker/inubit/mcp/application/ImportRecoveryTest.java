@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * 0.4.2: the import of a diagram group with a new XSLT module, as it went wrong on a development
+ * 0.4.2 and 0.4.3: the import of a diagram group with a new XSLT module, as it went wrong on a development
  * server — the stylesheet's final line break failed the verification, the rollback left the new
  * module on the server, and from then on every import of the group was a conflict.
  *
@@ -31,9 +31,12 @@ import org.junit.jupiter.api.io.TempDir;
  *   <li>The check-in comment of a rollback is no conflict; a change of content still is.
  *   <li>A module that the diagram group's export lacks (no workflow uses it) is looked up on its
  *       own, so its base and its server state have the same extent.
+ *   <li>0.4.3: an unchanged module of the workspace that a changed workflow now uses, on the
+ *       server but outside the group's export, is shown as identical (or is a conflict if it
+ *       changed on the server since its export).
  * </ul>
  */
-@Timeout(60)
+@Timeout(120)
 class ImportRecoveryTest {
 
     private static final String XSLT = "XSLT Converter";
@@ -204,10 +207,8 @@ class ImportRecoveryTest {
             });
     }
 
-    @Test
-    void aModuleExportedOnItsOwnAfterTheRollbackIsNoConflict() {
-        failedFirstImport();
-        // what the user did: export the group and the unused module again, redo the change
+    /** What the user did after the rollback: export the group and the unused module again. */
+    private void exportGroupAndModuleAgain() {
         harness.exports.artifacts.exports.put("GRP-01", harness.inubit.exportWorkflowGroup());
         harness.exports.service().export(new WorkspaceService.ExportRequest(ImportHarness.DEV,
             "jdoe", List.of("GRP-01"), List.of()));
@@ -216,28 +217,85 @@ class ImportRecoveryTest {
         harness.exports.service().export(new WorkspaceService.ExportRequest(ImportHarness.DEV,
             "jdoe", List.of(), List.of(new WorkspaceService.ModuleRef(MODULE,
                 Optional.of(XSLT)))));
+    }
+
+    @Test
+    void anUnchangedModuleOutsideTheGroupViewIsPreviewedAsIdentical() {
+        // 0.4.3: the changed workflow now uses a module that the group's export lacks; the
+        // preview shows that it is bound to the module on the server
+        failedFirstImport();
+        exportGroupAndModuleAgain();
         harness.edit(harness.workflow("Workflow-0001"), "Module-0001", MODULE);
         harness.edit(harness.workflow("Workflow-0001"), "xPos=\"120\"", "xPos=\"140\"");
-        harness.exportGroup().importApplied().exportGroup();
+        harness.confirmation = WritePolicy.Confirmation.SERVER;
+        harness.exportGroup().exportModule(XSLT, MODULE);
+        ImportService service = harness.service();
 
-        WriteOutcome outcome = run("New query module");
+        ImportService.Response response = service.importArtifacts(
+            harness.group("New query module"));
+
+        ImportPreview preview = ((ImportService.Response.Challenge) response).preview();
+        assertThat(preview.create()).isEmpty();
+        assertThat(preview.modify()).containsExactly("Workflow-0001");
+        assertThat(preview.existing()).isEmpty();
+        assertThat(preview.identical()).containsExactly(MODULE);
+        assertThat(preview.message()).contains("identical on dev/node1: " + MODULE);
+
+        harness.exportGroup().exportModule(XSLT, MODULE).importApplied().exportGroup();
+        WriteOutcome outcome = ((ImportService.Response.Completed) service.importArtifacts(
+            ImportHarness.confirmed(harness.group("New query module"),
+                preview.confirmationCode()))).outcome();
+        harness.cli.verifyComplete();
 
         assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.created()).isEmpty();
         assertThat(outcome.modified()).containsExactly("Workflow-0001");
+        assertThat(outcome.identical()).contains(List.of(MODULE));
+        assertThat(outcome.warnings()).anyMatch(w -> w.contains("identical") && w.contains(
+            MODULE));
         assertThat(lastArchiveModuleFile()).isNull();
+        assertThat(harness.exports.history.status()).isEmpty();
+    }
+
+    @Test
+    void anUnchangedModuleOutsideTheGroupViewThatChangedOnTheServerIsAConflict() {
+        failedFirstImport();
+        exportGroupAndModuleAgain();
+        harness.edit(harness.workflow("Workflow-0001"), "Module-0001", MODULE);
+        harness.inubit.changeModule(MODULE, xml -> xml.replace("match=\"/\"",
+            "match=\"/*\""));
+        harness.exportGroup().exportModule(XSLT, MODULE);
+
+        assertThatThrownBy(() -> harness.service().importArtifacts(harness.group("Again")))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.CONFLICT);
+                assertThat(e.error().message()).contains("changed on dev/node1 since the"
+                    + " export: " + MODULE);
+            });
+        harness.cli.verifyComplete();
+    }
+
+    @Test
+    void unchangedModulesOfTheGroupViewAreNotListedAsIdentical() throws IOException {
+        ImportHarness plain = ImportHarness.grpA(temp.resolve("plain"));
+        plain.inubit.onlyUsedModules = true;
+        plain.edit(plain.workflow("Workflow-0001"), "xPos=\"120\"", "xPos=\"140\"");
+        plain.confirmation = WritePolicy.Confirmation.SERVER;
+        plain.exportGroup();
+
+        ImportPreview preview = ((ImportService.Response.Challenge) plain.service()
+            .importArtifacts(plain.group("Layout"))).preview();
+
+        plain.cli.verifyComplete();
+        assertThat(preview.modify()).containsExactly("Workflow-0001");
+        assertThat(preview.identical()).isEmpty();
+        assertThat(preview.existing()).isEmpty();
     }
 
     @Test
     void aChangedModuleThatTheGroupExportLacksIsComparedWithItsOwnExport() {
         failedFirstImport();
-        harness.exports.artifacts.exports.put("GRP-01", harness.inubit.exportWorkflowGroup());
-        harness.exports.service().export(new WorkspaceService.ExportRequest(ImportHarness.DEV,
-            "jdoe", List.of("GRP-01"), List.of()));
-        harness.exports.artifacts.exports.put(MODULE, harness.inubit.exportModule(XSLT,
-            MODULE));
-        harness.exports.service().export(new WorkspaceService.ExportRequest(ImportHarness.DEV,
-            "jdoe", List.of(), List.of(new WorkspaceService.ModuleRef(MODULE,
-                Optional.of(XSLT)))));
+        exportGroupAndModuleAgain();
         harness.edit(harness.workflow("Workflow-0001"), "Module-0001", MODULE);
         harness.edit(module + "/xslt.stylesheet.xsl", "match=\"/\"", "match=\"/*\"");
         harness.exportGroup().exportModule(XSLT, MODULE).importApplied().exportGroup();
@@ -246,6 +304,7 @@ class ImportRecoveryTest {
 
         assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
         assertThat(outcome.modified()).containsExactly("Workflow-0001", MODULE);
+        assertThat(outcome.identical()).contains(List.of());
         assertThat(lastArchiveModuleFile()).contains("match=\"/*\"");
     }
 }

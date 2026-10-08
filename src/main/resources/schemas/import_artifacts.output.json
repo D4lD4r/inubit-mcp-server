@@ -47,7 +47,7 @@
         "create": { "type": "array", "items": { "type": "string" } },
         "modify": { "type": "array", "items": { "type": "string" }, "description": "The artifacts the import changes, existing included" },
         "existing": { "type": "array", "items": { "type": "string" }, "description": "New in the workspace, but on the {node} already (e.g. left by a rolled-back import): updated as a new version" },
-        "identical": { "type": "array", "items": { "type": "string" }, "description": "New in the workspace and identical on the {node}: not sent" },
+        "identical": { "type": "array", "items": { "type": "string" }, "description": "On the {node} with the workspace's content, not sent; the workflows are bound to them as they are: new in the workspace (e.g. left by a rolled-back import), or unchanged modules the workflows use from outside the diagram group's export" },
         "notImported": { "type": "array", "items": { "type": "string" }, "description": "Changed workspace files outside the scope" },
         "checkWarnings": { "type": "integer", "minimum": 0 },
         "tag": { "type": "string", "description": "The tag set on the diagram group after the verified import" },
@@ -89,6 +89,7 @@
         "notImported": { "type": "array", "items": { "type": "string" } },
         "rollback": { "enum": ["NOT_NEEDED", "SUCCEEDED", "FAILED"] },
         "createdNotRemoved": { "type": "array", "items": { "type": "string" }, "description": "Created by a failed call; nothing is deleted — delete them in the Workbench if needed" },
+        "identical": { "type": "array", "items": { "type": "string" }, "description": "Not sent because the {node} has them with the workspace's content (new in the workspace, or modules the workflows use from outside the diagram group's export); the workflows are bound to them as they are" },
         "reports": { "type": "array", "items": { "type": "string" }, "description": "Workspace-relative report files" },
         "warnings": { "type": "array", "items": { "type": "string" } },
         "tag": {

@@ -26,7 +26,7 @@ file); several profiles run side by side as separate registrations.
 | `kill_process` | kill ONE process instance on ONE node (two-step confirmation) | REST + StartCLI |
 | `export_artifacts` | export technical workflows (by diagram group) or modules into a local, git-versioned workspace as readable files, secrets replaced by placeholders | StartCLI `export` (read-only) |
 | `check_artifacts` | check workspace files offline: workflow structure, referenced modules, a stylesheet run with deterministic stand-ins, XML/XSD validation | only the module list for modules missing locally |
-| `import_artifacts` | import the changed workflows of one diagram group (with changed or new modules), or changed modules, into one development node — checked, conflict-free, backed up, verified, rolled back on failure | StartCLI `export` + `import` |
+| `import_artifacts` | import the changed workflows of one diagram group (with changed or new modules), or changed modules, into one development node — checked, conflict-free, backed up, verified, rolled back on failure; the preview lists modules the node has already as `existing` (updated as a new version) or `identical` (not sent, the workflows are bound to them) | StartCLI `export` + `import` |
 | `restore_backup` | re-import the backup of an earlier development call, or of a deployment on one node of a target group | StartCLI `export` + `import` |
 | `set_active` | activate or deactivate one workflow on a development node | StartCLI `export` + `import` |
 | `tag_artifacts` | tag the head versions of whole named diagram groups (never owner-wide; an existing tag name is reused), verified | StartCLI history `export` + `tag` |

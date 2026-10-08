@@ -50,6 +50,10 @@ import java.util.stream.Stream;
  *   <li>A modified artifact of the change set whose files differ from its base, or that no
  *       longer exists, is a conflict; so is every other artifact of the scope that differs from
  *       its own base (D-25).
+ *   <li>An unchanged module of the workspace that a workflow of the change set uses, but that the
+ *       export of the diagram group lacks, is exported on its own and compared with its base
+ *       (0.4.3): unchanged it is identical (shown in the preview, the workflow is bound to it),
+ *       changed on the server it is a conflict.
  *   <li>A new artifact that the server has already (e.g. created by an import that was rolled
  *       back) is no conflict (0.4.2): with the same content it is identical and not sent,
  *       otherwise the import updates it ({@link ChangedArtifact.Kind#EXISTING}), which the
@@ -153,7 +157,7 @@ public final class ConflictDetector {
         }
         ScopeExports.Exported exported = withNode(node, () -> ScopeExports.export(
             artifacts.apply(node), codec, changes, module -> module.onServer()
-                || listed.contains(module.name())));
+                || listed.contains(module.name()), wholeScope));
         List<byte[]> raw = exported.raw();
         PreparedExport prepared = exported.prepared();
         SortedMap<String, byte[]> rendered = prepared.files();
@@ -199,6 +203,28 @@ public final class ConflictDetector {
                 && prepared.inEditMode().containsKey(artifact.name())) {
                 editMode.add(artifact.name() + " (by " + prepared.inEditMode()
                     .get(artifact.name()) + ")");
+            }
+        }
+        // 0.4.3: an unchanged module a workflow uses from outside the export of the diagram group
+        // is shown as identical, so the preview says that the workflow is bound to it
+        for (ArtifactRef module : changes.referenced()) {
+            String key = ScopeExports.key(scope, module);
+            if (!exported.separate().contains(key) || paths(server, key).isEmpty()) {
+                continue;
+            }
+            Optional<String> base = history.lastServerState(scope.group(), key);
+            if (base.isEmpty()) {
+                continue;
+            }
+            covered.add(key);
+            List<String> files = workspaceFiles(key);
+            Set<String> all = new TreeSet<>(paths(server, key));
+            all.addAll(files);
+            if (compare(base.get(), all, server, diff)) {
+                changed.add(module.name());
+            } else {
+                identical.add(new ChangedArtifact(module, ChangedArtifact.Kind.MODIFIED, files,
+                    base));
             }
         }
         // research D-25: the other artifacts of the scope are compared as well
@@ -251,7 +277,7 @@ public final class ConflictDetector {
                 && path.kind() != WorkspacePath.Kind.REPOSITORY)
             .forEach(path -> targetModules.add(path.segments().get(1)));
         ChangeSet compared = new ChangeSet(scope, changes.baseCommit(), workflows, modules,
-            changes.notImported(), identical);
+            changes.notImported(), identical, changes.referenced());
         return new Result(compared, raw, fingerprint(server), targetModules, rendered);
     }
 

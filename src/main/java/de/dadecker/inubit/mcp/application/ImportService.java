@@ -404,7 +404,8 @@ public final class ImportService {
                     + " the node; nothing was sent");
             return new Response.Completed(new WriteOutcome(auditId, WriteOutcome.Outcome.EXECUTED,
                 Optional.empty(), Optional.empty(), Optional.empty(), List.of(), List.of(),
-                changes.notImported(), Optional.empty(), List.of(), List.of(), notes, tag));
+                changes.notImported(), Optional.empty(), List.of(), List.of(), notes, tag,
+                Optional.of(changes.identicalNames())));
         }
         Account account = d.accounts().apply(node);
         ImportArchivePort.Archive archive = d.archives().assemble(build(changes, call,
@@ -421,7 +422,7 @@ public final class ImportService {
             fresh.rawExports(), account);
     }
 
-    /** The notes on new artifacts the node has already (0.4.2). */
+    /** The notes on artifacts the node has already (0.4.2, 0.4.3). */
     private static List<String> serverNotes(NodeId node, ChangeSet changes) {
         List<String> notes = new ArrayList<>();
         if (!changes.existing().isEmpty()) {
@@ -439,8 +440,9 @@ public final class ImportService {
     }
 
     private static String identicalNote(NodeId node, ChangeSet changes) {
-        return "New in the workspace and identical on " + node + " (e.g. left by a rolled-back"
-            + " import), not sent: " + String.join(", ", changes.identicalNames());
+        return "On " + node + " already and identical to the workspace, not sent (the workflows"
+            + " use them as they are; e.g. left by a rolled-back import or outside the diagram"
+            + " group's export): " + String.join(", ", changes.identicalNames());
     }
 
     // --- set_active ----------------------------------------------------------------------------
@@ -991,8 +993,9 @@ public final class ImportService {
             + String.join(", ", changes.existing()) + " are new in the workspace but exist on "
             + node + " already (e.g. left by a rolled-back import): they will be updated as a"
             + " new version.";
-        String identical = changes.identical().isEmpty() ? "" : " Not sent, because identical"
-            + " on " + node + ": " + String.join(", ", changes.identicalNames()) + ".";
+        String identical = changes.identical().isEmpty() ? "" : " Not sent, because they exist"
+            + " identical on " + node + ": " + String.join(", ", changes.identicalNames())
+            + " (the workflows are bound to them as they are).";
         return new Response.Challenge(new ImportPreview(node, changes.scope().describe(),
             changes.baseCommit(), changes.created(), changes.modified(), changes.existing(),
             changes.identicalNames(), changes.notImported(), warnings, call.tag, issued.code(),
@@ -1233,7 +1236,7 @@ public final class ImportService {
         return new Response.Completed(new WriteOutcome(auditId, WriteOutcome.Outcome.EXECUTED,
             Optional.empty(), commit, Optional.of(auditId.toString()), changes.created(),
             changes.modified(), changes.notImported(), Optional.empty(), plan.keep(), reports,
-            warnings, tag));
+            warnings, tag, identical(call, changes)));
     }
 
     /**
@@ -1271,6 +1274,12 @@ public final class ImportService {
             + " diagram group with tag_artifacts if needed");
         return Optional.of(new WriteOutcome.TagResult(call.tag.get(), false, 0, 0,
             Optional.empty()));
+    }
+
+    /** {@code import_artifacts} only (0.4.3): the artifacts that were identical on the node. */
+    private static Optional<List<String>> identical(Call call, ChangeSet changes) {
+        return call.capability == Capability.IMPORT_ARTIFACTS
+            ? Optional.of(changes.identicalNames()) : Optional.empty();
     }
 
     /** The warning for created artifacts that stay: nothing is ever deleted. */
@@ -1311,7 +1320,8 @@ public final class ImportService {
         return new Response.Completed(new WriteOutcome(auditId, WriteOutcome.Outcome.FAILED,
             Optional.of(reported), Optional.empty(), Optional.of(auditId.toString()),
             changes.created(), changes.modified(), changes.notImported(),
-            Optional.of(rollback), createdNotRemoved, reports, warnings, tag));
+            Optional.of(rollback), createdNotRemoved, reports, warnings, tag,
+            identical(call, changes)));
     }
 
     /**

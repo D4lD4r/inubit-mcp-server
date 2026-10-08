@@ -912,7 +912,9 @@ absent):
 > or changed single modules, from the workspace into ONE development node. The server checks the
 > files, refuses on conflicts (changed on the server or open in the Workbench), backs up,
 > imports only what changed, verifies by re-export and rolls back on failure. Secrets are taken
-> from the node.
+> from the node. The preview also lists what the node has already: `existing` (new in the
+> workspace, updated as a new version) and `identical` (same content, not sent; the workflows
+> are bound to it as it is).
 
 **Input**: `node` (one node id), `owner` (default `inventory.owner`), exactly one of
 `diagramGroup` or `modules` (1–50 `{name, pluginType?}`), `reason`, `confirmationCode`, and
@@ -938,6 +940,12 @@ optionally `tag` (only with `diagramGroup`).
   artifact that is new in the workspace and identical on the node is not sent (`identical`); with
   other content it is updated as a new version (`modify` and `existing`). Only a module name the
   owner uses for a module of another plugin type stays a conflict.
+- **Modules the workflows use from outside the group's export**: an unchanged workspace module
+  that a changed workflow references but that the diagram group's export lacks (no workflow on the
+  node uses it yet, e.g. one exported on its own) is looked up on its own. If it equals its
+  exported base it is listed in `identical` — the workflow is bound to the module on the node as it
+  is; if it changed on the node since that export it is a `CONFLICT`. Unchanged modules inside
+  the group's export are not listed.
 - Embedded stylesheets and WSDLs are sent and compared as INUBIT stores them: a trailing line
   break (or other trailing whitespace) and CRLF versus LF line ends are no difference. The
   difference reports note what the lines do not show (`\ missing trailing newline (server now)`).
@@ -953,9 +961,10 @@ optionally `tag` (only with `diagramGroup`).
   no failure). The confirmation code is bound to the tag as well.
 - **Preview** (`challenge`): `scope`, `baseCommit`, `create`, `modify`, `existing` (new in the
   workspace, on the node already: updated as a new version), `identical` (new in the workspace,
-  identical on the node: not sent), `notImported`, `checkWarnings`, `tag` (if requested),
-  `confirmationCode`, `expiresAt`, `message`. The result notes `existing` and `identical` in
-  `warnings`.
+  identical on the node, or an unchanged referenced module outside the group's export: not
+  sent, the workflows are bound to it), `notImported`, `checkWarnings`, `tag` (if requested),
+  `confirmationCode`, `expiresAt`, `message`. The result carries `identical` as well and notes
+  `existing` and `identical` in `warnings`.
 
 **Example prompt**: "Import the layout change of GRP-01 to dev with reason 'layout'" →
 `import_artifacts(node: "dev/node1", diagramGroup: "GRP-01", reason: "layout")` returns the

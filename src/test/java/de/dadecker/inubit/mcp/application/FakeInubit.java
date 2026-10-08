@@ -215,6 +215,18 @@ public final class FakeInubit {
         entries.put(WORKFLOWS, after.getBytes(StandardCharsets.UTF_8));
     }
 
+    /** A colleague changes the file of module {@code name} on the server. */
+    public synchronized void changeModule(String name,
+        java.util.function.UnaryOperator<String> change) {
+        String file = "module/" + name.toLowerCase(Locale.ROOT) + ".xml";
+        String before = new String(entries.get(file), StandardCharsets.UTF_8);
+        String after = change.apply(before);
+        if (after.equals(before)) {
+            throw new IllegalStateException("the change does not apply");
+        }
+        entries.put(file, after.getBytes(StandardCharsets.UTF_8));
+    }
+
     /** The text of the current workflow file of the diagram group. */
     public synchronized String workflowXml() {
         return new String(entries.get(WORKFLOWS), StandardCharsets.UTF_8);

@@ -44,8 +44,10 @@ import java.util.stream.Stream;
  *       module directory (0.4.2): an export that wrote a file unchanged is no history entry of
  *       the file, but of its module.
  *   <li>Diagram-group scope: the changed and new workflows of the diagram group, and the changed
- *       or new modules that these workflows reference. Module scope: the named modules (each
- *       must be in the workspace). Every other change of the owner is listed as not imported.
+ *       or new modules that these workflows reference; the unchanged modules of the workspace
+ *       they reference are listed as {@link ChangeSet#referenced()} (0.4.3). Module scope: the
+ *       named modules (each must be in the workspace). Every other change of the owner is listed
+ *       as not imported.
  *   <li>A modified artifact's base is its own last server state; a new artifact (never in a
  *       server state) has none and takes the scope's (review M4). Without any server state of
  *       the scope: {@code PRECONDITION_FAILED} "export the scope first".
@@ -166,8 +168,30 @@ public final class ChangeSetBuilder {
             }
             changedModules.add(module(scope, key, files));
         });
+        Set<String> sent = new HashSet<>();
+        changedModules.forEach(module -> sent.add(module.name()));
+        List<ArtifactRef> unchanged = new ArrayList<>();
+        new TreeSet<>(referenced).stream().filter(name -> !sent.contains(name))
+            .forEach(name -> unchanged.addAll(workspaceModules(scope, ownerDirectory, name)));
         return new ChangeSet(scope, base, changedWorkflows, changedModules,
-            List.copyOf(notImported));
+            List.copyOf(notImported), List.of(), unchanged);
+    }
+
+    /** The modules named {@code name} in the owner's workspace, of any plugin type. */
+    private List<ArtifactRef> workspaceModules(ImportScope scope, String ownerDirectory,
+        String name) {
+        Path modules = root.resolve(ownerDirectory).resolve("modules");
+        if (!Files.isDirectory(modules)) {
+            return List.of();
+        }
+        try (Stream<Path> types = Files.list(modules)) {
+            return types.filter(type -> Files.isRegularFile(type.resolve(NameCodec.encode(name))
+                    .resolve(INDEX))).sorted()
+                .map(type -> ArtifactRef.module(scope.group(), scope.owner(),
+                    NameCodec.decode(type.getFileName().toString()), name)).toList();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /** A module of the scope with every current file of its directory. */
