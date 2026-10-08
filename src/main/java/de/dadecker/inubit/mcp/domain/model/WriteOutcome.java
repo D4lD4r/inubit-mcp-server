@@ -16,6 +16,10 @@ import java.util.UUID;
  * @param backupRef         the audit id whose backup holds the state before the call
  * @param rollback          absent on success
  * @param reports           workspace-relative report files (differences, protocols)
+ * @param identical         {@code import_artifacts} only (0.4.3): artifacts that were not sent
+ *                          because the node has them with the workspace's content — new in the
+ *                          workspace, or modules the workflows use from outside the diagram
+ *                          group's export; the workflows are bound to them as they are
  * @param tag               the tag an {@code import_artifacts} call was asked to set on its
  *                          diagram group (research D-26)
  */
@@ -23,7 +27,7 @@ public record WriteOutcome(UUID auditId, Outcome outcome, Optional<Failure> fail
     Optional<String> commit, Optional<String> backupRef, List<String> created,
     List<String> modified, List<String> notImported, Optional<Rollback> rollback,
     List<String> createdNotRemoved, List<String> reports, List<String> warnings,
-    Optional<TagResult> tag) {
+    Optional<TagResult> tag, Optional<List<String>> identical) {
 
     /** The call's outcome. */
     public enum Outcome {
@@ -80,9 +84,20 @@ public record WriteOutcome(UUID auditId, Outcome outcome, Optional<Failure> fail
         reports = List.copyOf(reports);
         warnings = List.copyOf(warnings);
         tag = tag == null ? Optional.empty() : tag;
+        identical = identical == null ? Optional.empty() : identical.map(List::copyOf);
         if ((outcome == Outcome.FAILED) != failure.isPresent()) {
             throw new IllegalArgumentException("A failed outcome, and only it, has a failure");
         }
+    }
+
+    /** An outcome without the import's identical artifacts ({@code restore_backup}, …). */
+    public WriteOutcome(UUID auditId, Outcome outcome, Optional<Failure> failure,
+        Optional<String> commit, Optional<String> backupRef, List<String> created,
+        List<String> modified, List<String> notImported, Optional<Rollback> rollback,
+        List<String> createdNotRemoved, List<String> reports, List<String> warnings,
+        Optional<TagResult> tag) {
+        this(auditId, outcome, failure, commit, backupRef, created, modified, notImported,
+            rollback, createdNotRemoved, reports, warnings, tag, Optional.empty());
     }
 
     /** An outcome without a tag (every call but a tagged {@code import_artifacts}). */

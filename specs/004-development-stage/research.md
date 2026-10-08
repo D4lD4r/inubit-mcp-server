@@ -438,3 +438,17 @@ so INUBIT itself was no obstacle. **Decisions**:
   only, a missing file).
 - `list_nodes` reports `developmentEnabled` (`development.enabled && !production`) next to
   `writeEnabled`, which governs restart and kill only.
+
+### D-27 addendum: modules a workflow is bound to (0.4.3, development server 2026-10-08)
+
+After 0.4.2 the import of the diagram group succeeded, and the changed workflow now uses the module
+the rolled-back import had left. The preview, however, listed only the workflow (`identical: []`):
+the change set holds only modules with local changes, and the module (exported on its own,
+unchanged since) never reached the comparison with the server. **Decision**: in diagram-group scope
+the change set lists the unchanged workspace modules that its workflows reference
+(`ChangeSet.referenced`). Those the export of the diagram group lacks are exported on their own and
+compared with their exported base: unchanged they are `identical` (preview and result; the workflow
+is bound to the module on the node as it is, nothing is sent), changed on the node since the export
+they are a `CONFLICT`. Referenced modules inside the group's export are compared as before (D-25) and
+are not listed, so `identical` names only what the user could not see otherwise. The result of
+`import_artifacts` carries `identical` too (absent for `restore_backup` and `set_active`).

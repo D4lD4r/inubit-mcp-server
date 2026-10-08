@@ -12,16 +12,22 @@ import java.util.stream.Stream;
  *
  * @param baseCommit  the last server state of the scope (the base of new artifacts)
  * @param notImported workspace-relative files that changed outside the scope
- * @param identical   artifacts new in the workspace that the server has with the same content
- *                    (0.4.2): not sent, their server state is recorded after a successful import
+ * @param identical   artifacts the server has with the workspace's content (0.4.2, 0.4.3): new
+ *                    in the workspace, or {@code referenced} modules outside the export of the
+ *                    diagram group; not sent, their server state is recorded after a successful
+ *                    import
+ * @param referenced  diagram-group scope (0.4.3): the unchanged modules of the workspace that the
+ *                    workflows of the change set use; not sent, but compared with the server if
+ *                    the export of the diagram group lacks them
  */
 public record ChangeSet(ImportScope scope, String baseCommit, List<ChangedArtifact> workflows,
-    List<ChangedArtifact> modules, List<String> notImported, List<ChangedArtifact> identical) {
+    List<ChangedArtifact> modules, List<String> notImported, List<ChangedArtifact> identical,
+    List<ArtifactRef> referenced) {
 
-    /** A change set before it was compared with the server (nothing identical yet). */
+    /** A change set without unchanged referenced modules, not compared with the server yet. */
     public ChangeSet(ImportScope scope, String baseCommit, List<ChangedArtifact> workflows,
         List<ChangedArtifact> modules, List<String> notImported) {
-        this(scope, baseCommit, workflows, modules, notImported, List.of());
+        this(scope, baseCommit, workflows, modules, notImported, List.of(), List.of());
     }
 
     public ChangeSet {
@@ -31,6 +37,7 @@ public record ChangeSet(ImportScope scope, String baseCommit, List<ChangedArtifa
         modules = List.copyOf(modules);
         notImported = List.copyOf(notImported);
         identical = List.copyOf(identical);
+        referenced = List.copyOf(referenced);
     }
 
     /** True if nothing is to be sent (SC-003). */
