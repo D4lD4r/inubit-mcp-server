@@ -79,6 +79,7 @@ import org.slf4j.LoggerFactory;
  *   <li>the conflict check on a fresh export ({@link ConflictDetector}), repeated right before
  *       every import; every module a workflow references must be imported or exist on the
  *       target; with a code, a server state other than the previewed one is {@code CONFLICT};
+ *       a new artifact the target has already is updated, or not sent if identical (0.4.2);
  *   <li>the import archive with only the change set and the target's current secrets;
  *   <li>server confirmation without a code: the preview with a code, audited — nothing sent;
  *   <li>the backup (the raw export of the scope and a manifest), then the {@code PENDING}
@@ -288,9 +289,10 @@ public final class ImportService {
 
     public ImportService(Dependencies dependencies) {
         this.d = Objects.requireNonNull(dependencies, "dependencies");
-        this.builder = new ChangeSetBuilder(d.root(), d.history(), d.inspector());
+        this.builder = new ChangeSetBuilder(d.root(), d.history(), d.inspector(),
+            d.archives()::equivalent);
         this.detector = new ConflictDetector(d.root(), d.history(), d.codec(), d.artifacts(),
-            d.inventory());
+            d.inventory(), d.archives()::equivalent);
     }
 
     /**
@@ -389,6 +391,21 @@ public final class ImportService {
                 "A colleague imported or published in the scope meanwhile",
                 "Export the scope again, check the change, then import again").withNode(node));
         }
+        // 0.4.2: new artifacts the server has already are updated, or not sent if identical
+        changes = fresh.changes();
+        call.changes = changes;
+        if (changes.isEmpty()) {
+            List<String> notes = new ArrayList<>(List.of("Nothing to send: "
+                + identicalNote(node, changes)));
+            Optional<WriteOutcome.TagResult> tag = notTagged(call, notes, "nothing was"
+                + " imported");
+            call.append(auditId, AuditRecord.Step.EXECUTE, AuditOutcome.EXECUTED,
+                "Nothing to send in " + scope.describe() + ": the new artifacts are identical on"
+                    + " the node; nothing was sent");
+            return new Response.Completed(new WriteOutcome(auditId, WriteOutcome.Outcome.EXECUTED,
+                Optional.empty(), Optional.empty(), Optional.empty(), List.of(), List.of(),
+                changes.notImported(), Optional.empty(), List.of(), List.of(), notes, tag));
+        }
         Account account = d.accounts().apply(node);
         ImportArchivePort.Archive archive = d.archives().assemble(build(changes, call,
             files(changes), fresh.rawExports(), call.reason, account,
@@ -400,8 +417,30 @@ public final class ImportService {
         ImportPort.Mode mode = scope.diagramGroup().isPresent() ? ImportPort.Mode.WORKFLOW
             : ImportPort.Mode.MODULE;
         return execute(call, node, new Plan(changes, archive, mode, mode, this::readOrNull,
-            "import", scope.describe(), List.of(), List.of()), auditId, fresh.rawExports(),
-            account);
+            "import", scope.describe(), List.of(), serverNotes(node, changes)), auditId,
+            fresh.rawExports(), account);
+    }
+
+    /** The notes on new artifacts the node has already (0.4.2). */
+    private static List<String> serverNotes(NodeId node, ChangeSet changes) {
+        List<String> notes = new ArrayList<>();
+        if (!changes.existing().isEmpty()) {
+            notes.add(existingNote(node, changes));
+        }
+        if (!changes.identical().isEmpty()) {
+            notes.add(identicalNote(node, changes));
+        }
+        return notes;
+    }
+
+    private static String existingNote(NodeId node, ChangeSet changes) {
+        return "New in the workspace, but on " + node + " already (e.g. left by a rolled-back"
+            + " import), updated as a new version: " + String.join(", ", changes.existing());
+    }
+
+    private static String identicalNote(NodeId node, ChangeSet changes) {
+        return "New in the workspace and identical on " + node + " (e.g. left by a rolled-back"
+            + " import), not sent: " + String.join(", ", changes.identicalNames());
     }
 
     // --- set_active ----------------------------------------------------------------------------
@@ -912,19 +951,10 @@ public final class ImportService {
     }
 
     private Fresh fresh(NodeId node, ChangeSet changes) {
-        ImportScope scope = changes.scope();
-        ArtifactPort port = d.artifacts().apply(node);
-        List<byte[]> raw = new ArrayList<>();
-        if (scope.diagramGroup().isPresent()) {
-            raw.add(port.exportWorkflowGroup(scope.owner(), scope.diagramGroup().get()));
-        } else {
-            for (ChangedArtifact module : changes.modules()) {
-                raw.add(port.exportModule(scope.owner(), module.ref().pluginType()
-                    .orElseThrow(), module.name()));
-            }
-        }
-        ArchiveCodecPort.PreparedExport prepared = d.codec().prepare(scope.group(),
-            scope.owner(), raw);
+        ScopeExports.Exported exported = ScopeExports.export(d.artifacts().apply(node),
+            d.codec(), changes, module -> true);
+        List<byte[]> raw = exported.raw();
+        ArchiveCodecPort.PreparedExport prepared = exported.prepared();
         SortedMap<String, byte[]> rendered = prepared.files();
         SortedMap<String, byte[]> artifacts = new TreeMap<>();
         changes.artifacts().forEach(artifact -> artifacts.putAll(artifactFiles(rendered,
@@ -957,9 +987,16 @@ public final class ImportService {
         ChangeSet changes, int warnings, String inputs, String previewState) {
         WriteChallengeRegistry.Issued issued = issue(call, node, policy, inputs, previewState,
             "the import of " + changes.scope().describe());
+        String existing = changes.existing().isEmpty() ? "" : " Of modify, "
+            + String.join(", ", changes.existing()) + " are new in the workspace but exist on "
+            + node + " already (e.g. left by a rolled-back import): they will be updated as a"
+            + " new version.";
+        String identical = changes.identical().isEmpty() ? "" : " Not sent, because identical"
+            + " on " + node + ": " + String.join(", ", changes.identicalNames()) + ".";
         return new Response.Challenge(new ImportPreview(node, changes.scope().describe(),
-            changes.baseCommit(), changes.created(), changes.modified(), changes.notImported(),
-            warnings, call.tag, issued.code(), issued.expiresAt(), "Nothing was sent. To"
+            changes.baseCommit(), changes.created(), changes.modified(), changes.existing(),
+            changes.identicalNames(), changes.notImported(), warnings, call.tag, issued.code(),
+            issued.expiresAt(), "Nothing was sent." + existing + identical + " To"
                 + " import " + changes.artifacts().size() + " artifact(s) of "
                 + changes.scope().describe() + " into " + node + call.tag.map(tag -> " and then"
                     + " tag the diagram group with " + tag).orElse("") + ", show this preview to"
@@ -1285,7 +1322,7 @@ public final class ImportService {
         Exported current, Account account) {
         ChangeSet changes = plan.changes();
         List<ChangedArtifact> existing = changes.artifacts().stream()
-            .filter(artifact -> artifact.kind() == ChangedArtifact.Kind.MODIFIED).toList();
+            .filter(ChangedArtifact::onServer).toList();
         if (existing.isEmpty()) {
             return Rollback.of(WriteOutcome.Rollback.NOT_NEEDED);
         }
@@ -1421,7 +1458,8 @@ public final class ImportService {
                     differences.add("+++ " + changes.scope().describe() + " on the server: "
                         + (actual == null ? "(missing)" : actual.length + " bytes"));
                     StringBuilder diff = new StringBuilder();
-                    ConflictDetector.LineDiff.append(diff, path, "intended", expected, actual);
+                    ConflictDetector.LineDiff.append(diff, path, "intended", "server now",
+                        expected, actual);
                     differences.addAll(diff.toString().lines().toList());
                 }
             }
@@ -1456,10 +1494,15 @@ public final class ImportService {
         return person.equals(expected) || person.equals(COMMENT_PREFIX + expected);
     }
 
-    /** Research D-25 (H5): only the change-set files and their .meta records. */
+    /**
+     * Research D-25 (H5): only the change-set files and their .meta records — and those of the
+     * new artifacts that were identical on the node (0.4.2), so their server state is recorded.
+     */
     private void writeBack(ChangeSet changes, SortedMap<String, byte[]> rendered) {
+        List<ChangedArtifact> artifacts = new ArrayList<>(changes.artifacts());
+        artifacts.addAll(changes.identical());
         try {
-            for (ChangedArtifact artifact : changes.artifacts()) {
+            for (ChangedArtifact artifact : artifacts) {
                 for (Map.Entry<String, byte[]> file : artifactFiles(rendered, artifact)
                     .entrySet()) {
                     write(file.getKey(), file.getValue());
@@ -1513,28 +1556,13 @@ public final class ImportService {
     }
 
     private Exported export(NodeId node, ChangeSet changes) {
-        ImportScope scope = changes.scope();
         try {
-            ArtifactPort port = d.artifacts().apply(node);
-            List<byte[]> raw = new ArrayList<>();
-            if (scope.diagramGroup().isPresent()) {
-                raw.add(port.exportWorkflowGroup(scope.owner(), scope.diagramGroup().get()));
-            } else {
-                for (ChangedArtifact module : changes.modules()) {
-                    try {
-                        raw.add(port.exportModule(scope.owner(), module.ref().pluginType()
-                            .orElseThrow(), module.name()));
-                    } catch (ToolErrorException e) {
-                        // review I3: a new module that was not created is simply absent
-                        if (module.kind() != ChangedArtifact.Kind.NEW
-                            || e.error().code() != ErrorCode.NOT_FOUND) {
-                            throw e;
-                        }
-                    }
-                }
-            }
-            return new Exported(raw, d.codec().prepare(scope.group(), scope.owner(), raw)
-                .files(), Optional.empty());
+            // review I3: a new module that was not created is simply absent; a module of the
+            // change set that the diagram group's export lacks is exported on its own (0.4.2)
+            ScopeExports.Exported exported = ScopeExports.export(d.artifacts().apply(node),
+                d.codec(), changes, module -> changes.scope().diagramGroup().isEmpty()
+                    || module.onServer());
+            return new Exported(exported.raw(), exported.prepared().files(), Optional.empty());
         } catch (ToolErrorException e) {
             return new Exported(List.of(), new TreeMap<>(), Optional.of(e.error().code() + ": "
                 + e.error().message()));

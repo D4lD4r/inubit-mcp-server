@@ -40,26 +40,31 @@ import java.util.stream.Stream;
 
 /**
  * Whether the server still holds what the workspace started from (feature 004, research D-5,
- * D-25, FR-008): the scope is exported fresh and rendered in memory
+ * D-25, FR-008): the scope is exported fresh ({@link ScopeExports}: the diagram group, and each
+ * module of the change set that its export lacks on its own) and rendered in memory
  * ({@link PreparedExport#files()}), then compared file by file with each artifact's own base
- * ({@link VersionHistoryPort#show}).
+ * ({@link VersionHistoryPort#show}) by reviewed content ({@link ContentEquivalence}): what an
+ * import or a rollback rewrites (check-in comment, last update, UIDs) is no conflict (0.4.2).
  *
  * <ul>
- *   <li>A modified artifact of the change set whose files differ from its base, that no longer
- *       exists, or a new one that exists on the server already, is a conflict; so is every
- *       other artifact of the scope that differs from its own base (D-25). A module import
- *       exports only the modified modules; whether a new module exists is decided by the
- *       owner's module list (review I3: StartCLI answers {@code NOT_FOUND} for a module that
- *       does not exist).
+ *   <li>A modified artifact of the change set whose files differ from its base, or that no
+ *       longer exists, is a conflict; so is every other artifact of the scope that differs from
+ *       its own base (D-25).
+ *   <li>A new artifact that the server has already (e.g. created by an import that was rolled
+ *       back) is no conflict (0.4.2): with the same content it is identical and not sent,
+ *       otherwise the import updates it ({@link ChangedArtifact.Kind#EXISTING}), which the
+ *       preview shows. Whether a new module exists is decided by the owner's module list
+ *       (review I3); a listed name without a module of that plugin type is a conflict.
  *   <li>A workflow of the change set with a {@code CheckoutUser} is in Workbench edit mode: a
  *       conflict naming the user INUBIT reports (a publish would overwrite the import, or the
  *       import the edit).
  *   <li>Any conflict is {@code CONFLICT}: the differences go to
  *       {@code .reports/conflict-<auditId>.diff}, whose path the message names; nothing else is
  *       written.
- *   <li>Otherwise the result hands back the raw exports (for the secret values and the backup),
- *       the fingerprint of the rendered scope (for the confirmation, research D-2) and the
- *       target's modules of the owner (for the referenced-module rule, D-25).
+ *   <li>Otherwise the result hands back the change set as compared, the raw exports (for the
+ *       secret values and the backup), the fingerprint of the rendered scope (for the
+ *       confirmation, research D-2) and the target's modules of the owner (for the
+ *       referenced-module rule, D-25).
  * </ul>
  */
 public final class ConflictDetector {
@@ -70,15 +75,18 @@ public final class ConflictDetector {
     /**
      * What the fresh export showed.
      *
+     * @param changes       the change set as compared: new artifacts the server has already are
+     *                      {@code EXISTING} or, with the same content, identical (not sent)
      * @param rawExports    the raw (unredacted) exports, in memory only
      * @param fingerprint   {@code sha256:<hex>} over the rendered artifact files of the scope
      * @param targetModules the module names of the owner on the target
      * @param rendered      the rendered (redacted) files of the export, {@code .meta/} included
      */
-    public record Result(List<byte[]> rawExports, String fingerprint, Set<String> targetModules,
-        SortedMap<String, byte[]> rendered) {
+    public record Result(ChangeSet changes, List<byte[]> rawExports, String fingerprint,
+        Set<String> targetModules, SortedMap<String, byte[]> rendered) {
 
         public Result {
+            Objects.requireNonNull(changes, "changes");
             rawExports = rawExports.stream().map(byte[]::clone).toList();
             Objects.requireNonNull(fingerprint, "fingerprint");
             targetModules = Set.copyOf(targetModules);
@@ -96,14 +104,24 @@ public final class ConflictDetector {
     private final ArchiveCodecPort codec;
     private final Function<NodeId, ArtifactPort> artifacts;
     private final Function<NodeId, InventoryPort> inventory;
+    private final ContentEquivalence equivalence;
 
-    /**
-     * @param root      the workspace root (for {@code .reports/})
-     * @param artifacts the exports of a node
-     * @param inventory the module list of a node
-     */
+    /** Compares byte by byte. */
     public ConflictDetector(Path root, VersionHistoryPort history, ArchiveCodecPort codec,
         Function<NodeId, ArtifactPort> artifacts, Function<NodeId, InventoryPort> inventory) {
+        this(root, history, codec, artifacts, inventory, ContentEquivalence.BYTES);
+    }
+
+    /**
+     * @param root        the workspace root (for {@code .reports/})
+     * @param artifacts   the exports of a node
+     * @param inventory   the module list of a node
+     * @param equivalence what counts as the same content
+     */
+    public ConflictDetector(Path root, VersionHistoryPort history, ArchiveCodecPort codec,
+        Function<NodeId, ArtifactPort> artifacts, Function<NodeId, InventoryPort> inventory,
+        ContentEquivalence equivalence) {
+        this.equivalence = Objects.requireNonNull(equivalence, "equivalence");
         this.root = Objects.requireNonNull(root, "root");
         this.history = Objects.requireNonNull(history, "history");
         this.codec = Objects.requireNonNull(codec, "codec");
@@ -127,33 +145,46 @@ public final class ConflictDetector {
      */
     public Result detect(NodeId node, ChangeSet changes, UUID auditId, boolean wholeScope) {
         ImportScope scope = changes.scope();
-        List<byte[]> raw = export(node, changes);
-        PreparedExport prepared = withNode(node, () -> codec.prepare(scope.group(),
-            scope.owner(), raw));
-        SortedMap<String, byte[]> rendered = prepared.files();
-        SortedMap<String, byte[]> server = artifactFiles(rendered);
-
         // review I3: the owner's module list tells whether a new module exists already
         Set<String> listed = new LinkedHashSet<>();
         if (wholeScope) {
             inventory.apply(node).listModules(scope.owner())
                 .forEach(entry -> listed.add(entry.item().name()));
         }
+        ScopeExports.Exported exported = withNode(node, () -> ScopeExports.export(
+            artifacts.apply(node), codec, changes, module -> module.onServer()
+                || listed.contains(module.name())));
+        List<byte[]> raw = exported.raw();
+        PreparedExport prepared = exported.prepared();
+        SortedMap<String, byte[]> rendered = prepared.files();
+        SortedMap<String, byte[]> server = artifactFiles(rendered);
+
         List<String> changed = new ArrayList<>();
         List<String> editMode = new ArrayList<>();
         List<String> exists = new ArrayList<>();
+        List<ChangedArtifact> workflows = new ArrayList<>();
+        List<ChangedArtifact> modules = new ArrayList<>();
+        List<ChangedArtifact> identical = new ArrayList<>();
         StringBuilder diff = new StringBuilder();
         Set<String> covered = new TreeSet<>();
         for (ChangedArtifact artifact : changes.artifacts()) {
             String key = key(artifact.paths().get(0));
             covered.add(key);
             List<String> serverPaths = paths(server, key);
+            ChangedArtifact compared = artifact;
             if (artifact.kind() == ChangedArtifact.Kind.NEW) {
-                if (!serverPaths.isEmpty() || (artifact.ref().kind() == ArtifactRef.Kind.MODULE
-                    && listed.contains(artifact.name()))) {
+                if (!serverPaths.isEmpty()) {
+                    // 0.4.2: e.g. left by a rolled-back import — identical, or a new version
+                    if (sameAsWorkspace(artifact, serverPaths, server)) {
+                        identical.add(artifact);
+                        continue;
+                    }
+                    compared = artifact.existing();
+                } else if (artifact.ref().kind() == ArtifactRef.Kind.MODULE
+                    && listed.contains(artifact.name())) {
                     exists.add(artifact.name());
-                    diff.append("=== ").append(key).append(": exists on ").append(node)
-                        .append(" although the workspace creates it\n");
+                    diff.append("=== ").append(key).append(": the name is used on ")
+                        .append(node).append(" by a module of another plugin type\n");
                 }
             } else {
                 Set<String> all = new TreeSet<>(serverPaths);
@@ -162,6 +193,8 @@ public final class ConflictDetector {
                     changed.add(artifact.name());
                 }
             }
+            (artifact.ref().kind() == ArtifactRef.Kind.WORKFLOW ? workflows : modules)
+                .add(compared);
             if (artifact.ref().kind() == ArtifactRef.Kind.WORKFLOW
                 && prepared.inEditMode().containsKey(artifact.name())) {
                 editMode.add(artifact.name() + " (by " + prepared.inEditMode()
@@ -212,12 +245,14 @@ public final class ConflictDetector {
                     : "Publish or discard the edit in the Workbench, export the scope again, then"
                         + " import again").withNode(node));
         }
-        Set<String> modules = new LinkedHashSet<>(listed);
+        Set<String> targetModules = new LinkedHashSet<>(listed);
         server.keySet().stream().map(ConflictDetector::parse).flatMap(Optional::stream)
             .filter(path -> path.kind() != WorkspacePath.Kind.WORKFLOW
                 && path.kind() != WorkspacePath.Kind.REPOSITORY)
-            .forEach(path -> modules.add(path.segments().get(1)));
-        return new Result(raw, fingerprint(server), modules, rendered);
+            .forEach(path -> targetModules.add(path.segments().get(1)));
+        ChangeSet compared = new ChangeSet(scope, changes.baseCommit(), workflows, modules,
+            changes.notImported(), identical);
+        return new Result(compared, raw, fingerprint(server), targetModules, rendered);
     }
 
     /**
@@ -242,39 +277,42 @@ public final class ConflictDetector {
         }
     }
 
-    private List<byte[]> export(NodeId node, ChangeSet changes) {
-        ImportScope scope = changes.scope();
-        ArtifactPort port = artifacts.apply(node);
-        List<byte[]> raw = new ArrayList<>();
-        if (scope.diagramGroup().isPresent()) {
-            raw.add(port.exportWorkflowGroup(scope.owner(), scope.diagramGroup().get()));
-        } else {
-            // review I3: a new module does not exist yet (StartCLI would answer NOT_FOUND)
-            for (ChangedArtifact module : changes.modules()) {
-                if (module.kind() == ChangedArtifact.Kind.MODIFIED) {
-                    raw.add(port.exportModule(scope.owner(), module.ref().pluginType()
-                        .orElseThrow(), module.name()));
-                }
-            }
-        }
-        return raw;
-    }
-
     /** True (and the difference appended) if a file of {@code paths} differs from its base. */
     private boolean compare(String base, Set<String> paths, SortedMap<String, byte[]> server,
         StringBuilder diff) {
         boolean differs = false;
         for (String path : paths) {
-            Optional<byte[]> before = history.show(base, path);
+            byte[] before = history.show(base, path).orElse(null);
             byte[] now = server.get(path);
-            boolean equal = before.isEmpty() ? now == null
-                : now != null && Arrays.equals(before.get(), now);
-            if (!equal) {
+            if (!equivalence.equivalent(path, before, now)) {
                 differs = true;
-                LineDiff.append(diff, path, base, before.orElse(null), now);
+                LineDiff.append(diff, path, "workspace base " + base.substring(0,
+                    Math.min(12, base.length())), "server now", before, now);
             }
         }
         return differs;
+    }
+
+    /** True if the workspace files of a new artifact have the server's content. */
+    private boolean sameAsWorkspace(ChangedArtifact artifact, List<String> serverPaths,
+        SortedMap<String, byte[]> server) {
+        Set<String> all = new TreeSet<>(serverPaths);
+        all.addAll(artifact.paths());
+        for (String path : all) {
+            if (!equivalence.equivalent(path, workspaceFile(path), server.get(path))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private byte[] workspaceFile(String path) {
+        Path file = root.resolve(path);
+        try {
+            return Files.isRegularFile(file) ? Files.readAllBytes(file) : null;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /** The artifact files of a rendering: no {@code .meta/}, no repository files. */
@@ -356,33 +394,81 @@ public final class ConflictDetector {
         }
     }
 
-    /** A small line difference: the lines between the common head and tail of two texts. */
+    /**
+     * A small line difference: the lines between the common head and tail of two texts, and a
+     * note ({@code \\ …}) for what the lines do not show (0.4.2): a missing file, a missing
+     * trailing newline, other line ends, whitespace at the end of a line, other bytes.
+     */
     static final class LineDiff {
 
         private LineDiff() {
         }
 
-        static void append(StringBuilder out, String path, String base, byte[] before,
-            byte[] after) {
-            out.append("--- ").append(path).append(" (workspace base ")
-                .append(base, 0, Math.min(12, base.length())).append(")\n");
-            out.append("+++ ").append(path).append(" (server now)\n");
-            List<String> a = lines(before);
-            List<String> b = lines(after);
+        static void append(StringBuilder out, String path, String before, String after,
+            byte[] a, byte[] b) {
+            out.append("--- ").append(path).append(" (").append(before).append(")\n");
+            out.append("+++ ").append(path).append(" (").append(after).append(")\n");
+            List<String> left = lines(a);
+            List<String> right = lines(b);
             int head = 0;
-            while (head < a.size() && head < b.size() && a.get(head).equals(b.get(head))) {
+            while (head < left.size() && head < right.size()
+                && left.get(head).equals(right.get(head))) {
                 head++;
             }
             int tail = 0;
-            while (tail < a.size() - head && tail < b.size() - head
-                && a.get(a.size() - 1 - tail).equals(b.get(b.size() - 1 - tail))) {
+            while (tail < left.size() - head && tail < right.size() - head
+                && left.get(left.size() - 1 - tail).equals(right.get(right.size() - 1 - tail))) {
                 tail++;
             }
             out.append("@@ line ").append(head + 1).append(" @@\n");
-            a.subList(head, a.size() - tail).forEach(line -> out.append('-').append(line)
-                .append('\n'));
-            b.subList(head, b.size() - tail).forEach(line -> out.append('+').append(line)
-                .append('\n'));
+            List<String> removed = left.subList(head, left.size() - tail);
+            List<String> added = right.subList(head, right.size() - tail);
+            removed.forEach(line -> out.append('-').append(line).append('\n'));
+            added.forEach(line -> out.append('+').append(line).append('\n'));
+            notes(out, before, after, a, b, removed, added);
+        }
+
+        private static void notes(StringBuilder out, String before, String after, byte[] a,
+            byte[] b, List<String> removed, List<String> added) {
+            if (a == null || b == null) {
+                out.append("\\ the file is missing (").append(a == null ? before : after)
+                    .append(")\n");
+                return;
+            }
+            boolean visible = false;
+            if (removed.size() == added.size() && !removed.isEmpty()) {
+                boolean whitespace = true;
+                for (int i = 0; i < removed.size(); i++) {
+                    whitespace &= !removed.get(i).equals(added.get(i))
+                        && removed.get(i).stripTrailing().equals(added.get(i).stripTrailing());
+                }
+                if (whitespace) {
+                    out.append("\\ the lines differ in trailing whitespace only\n");
+                }
+                visible = !whitespace;
+            } else {
+                visible = !removed.isEmpty() || !added.isEmpty();
+            }
+            String left = new String(a, StandardCharsets.UTF_8);
+            String right = new String(b, StandardCharsets.UTF_8);
+            boolean newlineLeft = left.endsWith("\n");
+            boolean newlineRight = right.endsWith("\n");
+            if (newlineLeft != newlineRight) {
+                out.append("\\ missing trailing newline (").append(newlineLeft ? after : before)
+                    .append(")\n");
+            }
+            boolean crlfLeft = left.contains("\r\n");
+            boolean crlfRight = right.contains("\r\n");
+            if (crlfLeft != crlfRight) {
+                out.append("\\ line ends differ: ").append(crlfLeft ? "CRLF" : "LF").append(" (")
+                    .append(before).append("), ").append(crlfRight ? "CRLF" : "LF").append(" (")
+                    .append(after).append(")\n");
+            }
+            if (!visible && newlineLeft == newlineRight && crlfLeft == crlfRight
+                && removed.isEmpty()) {
+                out.append("\\ the files differ in bytes the lines do not show (e.g. encoding,"
+                    + " byte order mark or the XML serialization)\n");
+            }
         }
 
         private static List<String> lines(byte[] content) {

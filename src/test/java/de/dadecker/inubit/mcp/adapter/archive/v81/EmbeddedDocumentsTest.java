@@ -151,6 +151,31 @@ class EmbeddedDocumentsTest {
             .isEqualTo(edited);
     }
 
+    @Test
+    void anEmbeddedXmlDocumentIsWrittenWithoutTrailingLineBreaksAsInubitStoresIt() {
+        // 0.4.2: INUBIT stores the property without the line break a text editor appends
+        Element properties = properties("<Properties><Property name=\"xslt.stylesheet\""
+            + " type=\"XmlDocument\">@file:xslt.stylesheet.xsl</Property></Properties>");
+        byte[] edited = "<xsl:stylesheet/>\r\n  \n".getBytes(StandardCharsets.UTF_8);
+
+        Element embedded = EmbeddedDocuments.embed(properties, List.of(new Document(
+            "xslt.stylesheet", "xslt.stylesheet.xsl", Encoding.ESCAPED_XML, edited)));
+
+        assertThat(value(embedded, "xslt.stylesheet")).isEqualTo("<xsl:stylesheet/>");
+    }
+
+    @Test
+    void trailingSpacesInsideAnEmbeddedXmlDocumentStay() {
+        Element properties = properties("<Properties><Property name=\"xslt.stylesheet\""
+            + " type=\"XmlDocument\">@file:xslt.stylesheet.xsl</Property></Properties>");
+        byte[] edited = "<a>  \n</a>".getBytes(StandardCharsets.UTF_8);
+
+        Element embedded = EmbeddedDocuments.embed(properties, List.of(new Document(
+            "xslt.stylesheet", "xslt.stylesheet.xsl", Encoding.ESCAPED_XML, edited)));
+
+        assertThat(value(embedded, "xslt.stylesheet")).isEqualTo("<a>  \n</a>");
+    }
+
     private static String gzipBase64(String text) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (GZIPOutputStream gzip = new GZIPOutputStream(out)) {

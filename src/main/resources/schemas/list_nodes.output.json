@@ -38,7 +38,7 @@
               "type": "object",
               "description": "NodeSummary (data-model.md); never URLs, usernames or credentials",
               "required": ["id", "group", "node", "production", "writeEnabled",
-                "confirmationMode", "versionLine", "cliAvailable"],
+                "developmentEnabled", "confirmationMode", "versionLine", "cliAvailable"],
               "properties": {
                 "id": { "type": "string", "description": "{Node} id `<{group}>/<{node}>`, e.g. test/node1" },
                 "group": { "type": "string" },
@@ -46,7 +46,11 @@
                 "production": { "type": "boolean" },
                 "writeEnabled": {
                   "type": "boolean",
-                  "description": "write.enabled && (!production || productionOptIn)"
+                  "description": "Restart and kill allowed: write.enabled && (!production || productionOptIn); does not govern the development tools"
+                },
+                "developmentEnabled": {
+                  "type": "boolean",
+                  "description": "Development tools allowed: `development.enabled && !production`; import_artifacts, restore_backup, set_active and tag_artifacts work on this {node}"
                 },
                 "confirmationMode": { "enum": ["SERVER", "CLIENT"] },
                 "versionLine": { "enum": ["AUTO", "V8_1", "V9_X"] },

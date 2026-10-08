@@ -39,7 +39,9 @@ import java.util.zip.GZIPOutputStream;
  *       {@code documentName}/{@code documentContentType} ({@code xsd}, {@code xml}, otherwise
  *       {@code bin}), any other XmlDocument {@code xml}. The property text becomes
  *       {@code @file:<file name>}.
- *   <li>Re-embedding puts the XML text back (the serializer escapes it as INUBIT does) and
+ *   <li>Re-embedding puts the XML text back (the serializer escapes it as INUBIT does) without
+ *       trailing whitespace, which INUBIT does not store (0.4.2: a stylesheet saved by an editor
+ *       ends with a line break, its export never does), and
  *       re-encodes InternalDocuments like INUBIT (Java's {@code GZIPOutputStream} and plain
  *       base64, which reproduces the recorded values byte for byte); it recomputes
  *       {@code documentSize} and a sibling {@code <property>MD5} (e.g.
@@ -147,7 +149,8 @@ public final class EmbeddedDocuments {
     private static Element embedded(Element property, Document document) {
         byte[] content = document.content();
         return switch (document.encoding()) {
-            case ESCAPED_XML -> property.withText(new String(content, StandardCharsets.UTF_8));
+            case ESCAPED_XML -> property.withText(new String(content, StandardCharsets.UTF_8)
+                .stripTrailing());
             case GZIP_BASE64 -> withSize(property, content)
                 .withText(Base64.getEncoder().encodeToString(gzip(content)));
             case BASE64 -> withSize(property, content)

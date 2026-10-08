@@ -11,12 +11,17 @@ import java.util.Optional;
  * {@code confirmationCode} before {@code expiresAt}.
  *
  * @param scope         the scope as text ({@code diagram group G} / {@code modules a, b})
+ * @param modify        the artifacts the import changes, {@code existing} included
+ * @param existing      new in the workspace, but on the node already: the import updates them
+ *                      as a new version (0.4.2, e.g. left by a rolled-back import)
+ * @param identical     new in the workspace and identical on the node: not sent (0.4.2)
  * @param checkWarnings the number of WARNING findings of the checks
  * @param tag           the tag set on the diagram group after the verified import (research
  *                      D-26)
  */
 public record ImportPreview(NodeId node, String scope, String baseCommit, List<String> create,
-    List<String> modify, List<String> notImported, int checkWarnings, Optional<String> tag,
+    List<String> modify, List<String> existing, List<String> identical,
+    List<String> notImported, int checkWarnings, Optional<String> tag,
     String confirmationCode, Instant expiresAt, String message) {
 
     public ImportPreview {
@@ -25,6 +30,8 @@ public record ImportPreview(NodeId node, String scope, String baseCommit, List<S
         Objects.requireNonNull(baseCommit, "baseCommit");
         create = List.copyOf(create);
         modify = List.copyOf(modify);
+        existing = List.copyOf(existing);
+        identical = List.copyOf(identical);
         notImported = List.copyOf(notImported);
         tag = tag == null ? Optional.empty() : tag;
         Objects.requireNonNull(confirmationCode, "confirmationCode");

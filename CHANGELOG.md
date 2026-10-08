@@ -7,6 +7,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-08
+
+### Fixed
+
+- `import_artifacts`: an embedded stylesheet or WSDL that ends with a line break (as an editor
+  saves it) no longer fails the verification with `VERIFY_MISMATCH`. INUBIT stores embedded XML
+  documents without trailing whitespace: the archive is built that way, and the change set, the
+  conflict check and the verification compare `.xsl` and `.wsdl` files without trailing
+  whitespace and with either line end.
+- `import_artifacts`: after a rolled-back import, the next import of the same diagram group is no
+  longer a `CONFLICT`. The conflict check compares reviewed content, so the check-in comment and
+  last update a rollback wrote are no change; a new artifact the node has already (e.g. a module
+  the rollback left, `createdNotRemoved`) is not sent if identical, otherwise updated as a new
+  version and shown as such in the preview (`existing`, `identical`). A module of the change set
+  that the diagram group's export lacks is exported on its own, and a module file that an export
+  wrote unchanged no longer counts as a local change. Content changes on the node and workflows
+  open in the Workbench are still conflicts.
+- The conflict and verification difference reports note differences the lines do not show
+  (missing trailing newline, line ends, trailing whitespace, a missing file).
+
+### Changed
+
+- `list_nodes` reports `developmentEnabled` (`development.enabled && !production`); the
+  description of `writeEnabled` says that it governs restart and kill only.
+
 ## [0.4.1] - 2026-10-08
 
 ### Changed
@@ -177,7 +202,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.2.0...v0.3.0

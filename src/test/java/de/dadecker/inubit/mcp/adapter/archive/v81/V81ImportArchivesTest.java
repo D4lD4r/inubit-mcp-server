@@ -126,5 +126,27 @@ class V81ImportArchivesTest {
         assertThat(new Build(GROUP, "o", Optional.empty(), List.of(), List.of(), files, List.of(),
             "r", "u", "h", "07.10.2026 10:00:00", Set.of()).fromRelease()).isFalse();
     }
-}
 
+    @Test
+    void anEmbeddedTextDocumentIsComparedAsInubitStoresIt() {
+        // 0.4.2: INUBIT drops the trailing line break of an embedded stylesheet
+        String path = "dev/o/modules/XSLT Converter/M/xslt.stylesheet.xsl";
+        String stylesheet = "<xsl:stylesheet>\n  <xsl:template match=\"/\"/>\n</xsl:stylesheet>";
+
+        assertThat(archives.equivalent(path, bytes(stylesheet + "\n"), bytes(stylesheet)))
+            .isTrue();
+        assertThat(archives.equivalent(path, bytes(stylesheet + " \r\n\n"), bytes(stylesheet)))
+            .isTrue();
+        assertThat(archives.equivalent(path, bytes(stylesheet.replace("\n", "\r\n")),
+            bytes(stylesheet))).isTrue();
+        assertThat(archives.equivalent("dev/o/modules/A/M/WsdlData.wsdl", bytes("<d/>\n"),
+            bytes("<d/>"))).isTrue();
+        // content, trailing spaces inside and binary documents still count
+        assertThat(archives.equivalent(path, bytes(stylesheet), bytes(stylesheet
+            .replace("/\"", "/x\"")))).isFalse();
+        assertThat(archives.equivalent(path, bytes(stylesheet.replace("\n  <", "  \n  <")),
+            bytes(stylesheet))).isFalse();
+        assertThat(archives.equivalent("dev/o/modules/A/M/x.bin", bytes("a\n"), bytes("a")))
+            .isFalse();
+    }
+}
