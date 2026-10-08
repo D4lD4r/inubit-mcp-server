@@ -7,6 +7,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-10-08
+
+### Fixed
+
+- `import_artifacts`: the preview now lists, under `identical`, an unchanged workspace module that a
+  changed workflow references but that the diagram group's export lacks (e.g. a module exported on
+  its own, or left by a rolled-back import). Before, the import bound the workflow to that module
+  without the preview saying so. Such a module is exported on its own and compared with its
+  exported base. If it changed on the node since that export, the import is a `CONFLICT`.
+  Unchanged modules inside the group's export are not listed.
+
+### Changed
+
+- The result of `import_artifacts` carries `identical` as well. The tool description, README and
+  `docs/tools.md` explain `existing` and `identical`.
+
 ## [0.4.2] - 2026-10-08
 
 ### Fixed
@@ -202,7 +218,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.3.0...v0.4.0

@@ -31,7 +31,9 @@ class ImportArtifactsToolTest {
         + " the workspace into ONE development node. The server checks the files, refuses on"
         + " conflicts (changed on the server or open in the Workbench), backs up, imports only"
         + " what changed, verifies by re-export and rolls back on failure. Secrets are taken"
-        + " from the node.";
+        + " from the node. The preview also lists what the node has already: `existing` (new"
+        + " in the workspace, updated as a new version) and `identical` (same content, not"
+        + " sent; the workflows are bound to it as it is).";
 
     @TempDir
     Path temp;
