@@ -38,10 +38,23 @@ import java.util.stream.Stream;
  *   <li>Argument arrays only, never a shell; the working directory is the workspace root.
  *   <li>Every call carries {@code -c core.hooksPath=<empty directory>}, {@code -c
  *       commit.gpgsign=false}, {@code -c core.autocrlf=false}, {@code -c core.quotepath=false},
- *       {@code -c user.name=INUBIT MCP (<profile>)} and {@code -c
- *       user.email=inubit-mcp@localhost}, so that hooks, signing, line-ending conversion and the
- *       identity of the person's git configuration have no effect; commits also pass
- *       {@code --no-verify}.
+ *       {@code -c gc.autoDetach=false}, {@code -c maintenance.autoDetach=false}, {@code -c
+ *       user.name=INUBIT MCP (<profile>)} and {@code -c user.email=inubit-mcp@localhost}, so
+ *       that hooks, signing, line-ending conversion and the identity of the person's git
+ *       configuration have no effect; commits also pass {@code --no-verify}.
+ *   <li>The automatic maintenance a command triggers ({@code git maintenance run --auto}, which
+ *       runs {@code gc --auto} or a geometric repack depending on the git version) runs in the
+ *       foreground of that call instead of detaching. A detached maintenance outlives the call,
+ *       still writes below {@code .git/objects} while the next call runs and so breaks the
+ *       serialization by the workspace lock. {@code maintenance.autoDetach} is set as well
+ *       because git prefers it over {@code gc.autoDetach}, also when it comes from the
+ *       repository's own configuration. Automatic maintenance stays enabled (rather than
+ *       {@code gc.auto=0}) so that the workspace does not grow loose objects without bound. In
+ *       production a commit roughly every 6700 new objects takes a few seconds longer (measured
+ *       about 2.5 s for 8000 loose objects in a workspace of 40000 XML files, 1 s for an
+ *       all-into-one repack of 53 packs), well within the timeout; should it exceed the timeout,
+ *       the commit is already recorded, the call reports {@code TIMEOUT} and the stopped
+ *       maintenance leaves the repository intact.
  *   <li>The environment is minimal: {@code PATH} of the server plus
  *       {@code GIT_TERMINAL_PROMPT=0}, {@code GIT_CONFIG_NOSYSTEM=1} and
  *       {@code GIT_CONFIG_GLOBAL=/dev/null} (no system or global configuration, e.g. no
@@ -413,6 +426,7 @@ public final class GitCli implements VersionHistoryPort {
         command.add("-c");
         command.add("core.hooksPath=" + emptyHooksDirectory());
         Stream.of("commit.gpgsign=false", "core.autocrlf=false", "core.quotepath=false",
+            "gc.autoDetach=false", "maintenance.autoDetach=false",
             "user.name=INUBIT MCP (" + profile + ")", "user.email=inubit-mcp@localhost")
             .forEach(option -> {
                 command.add("-c");
