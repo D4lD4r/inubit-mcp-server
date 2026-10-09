@@ -8,10 +8,14 @@ Requires JDK 21+ and Maven 3.9+.
 
 ```bash
 mvn -B clean verify
+python3 -I -m unittest discover -s tools/tests -v
 ```
 
 The default build is fully offline (recorded fixtures, WireMock, a fake StartCLI) and must stay
-green; CI runs the same command on every push to `main` and every pull request against `main`.
+green; CI runs both commands on every push to `main` and every pull request against `main`. The
+second one tests the operator tool `tools/inubit-cert-check.py` (Python 3.9+ standard library,
+`openssl`; tests that need `keytool` skip themselves without a JDK). It never shows a dialog and
+contacts only servers it starts on 127.0.0.1.
 Tests against a real server are opt-in and never run against production
 ([docs/live-tests.md](docs/live-tests.md)): the basic live test only reads; the development and
 deployment live tests write, only to test artifacts on targets the operator approved.
