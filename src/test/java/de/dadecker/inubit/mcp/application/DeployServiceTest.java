@@ -397,5 +397,67 @@ class DeployServiceTest {
         assertThat(harness.challenges.pending()).isZero();
         nothingWritten();
     }
-}
 
+    // --- feature 007: a ledger written by 0.5.0 (FR-009, contract P-5) -----------------------
+
+    private static final String WORKFLOW_KEY = "workflow:GRP-01/Workflow-0001";
+
+    /**
+     * A release that changes Workflow-0001; the ledger of every target as 0.5.0 wrote it after
+     * deploying the targets' current state: Workflow-0001 over the legacy canonical form.
+     */
+    private void legacyLedger() {
+        source(server -> server.publishWorkflow("Workflow-0001", xml -> xml.replace(
+            "<ConnectionId>5</ConnectionId>", "<ConnectionId>7</ConnectionId>")));
+        targets();
+        DeploymentPreview first = preview();
+        first.plans().forEach(plan -> {
+            String legacy = harness.workflowState(plan.node(), "Workflow-0001", true);
+            assertThat(plan.artifactStates().get(WORKFLOW_KEY)).isNotNull()
+                .isNotEqualTo(legacy);
+            Map<String, DeploymentLedger.Entry> entries = new java.util.TreeMap<>();
+            plan.artifactStates().forEach((key, fingerprint) -> entries.put(key,
+                new DeploymentLedger.Entry(key.equals(WORKFLOW_KEY) ? legacy : fingerprint,
+                    first.auditId().toString(), TAG, Instant.parse("2026-10-06T10:00:00Z"))));
+            harness.ledger.record(plan.node(), entries);
+        });
+        harness.audit.clear();
+    }
+
+    @Test
+    void aLedgerWrittenBeforeTheUpgradeIsNoOutsideChange() {
+        harness(false);
+        legacyLedger();
+        source(server -> { });
+        targets();
+
+        DeploymentPreview preview = preview();
+
+        assertThat(preview.plans()).allSatisfy(plan -> {
+            assertThat(artifact(plan, "Workflow-0001").artifactClass())
+                .isEqualTo(ArtifactClass.CHANGED);
+            assertThat(plan.warnings()).isEmpty();
+        });
+        nothingWritten();
+    }
+
+    @Test
+    void aRealOutsideChangeIsWarnedWithALedgerWrittenBeforeTheUpgrade() {
+        harness(false);
+        legacyLedger();
+        harness.servers.get(DeployHarness.INT3).publishWorkflow("Workflow-0001", xml -> xml
+            .replace(DeployHarness.connections("4/9", "3/6"), DeployHarness.connections("3/6",
+                "4/10")));
+        source(server -> { });
+        targets();
+
+        DeploymentPreview preview = preview();
+
+        assertThat(preview.plans().get(0).warnings()).isEmpty();
+        assertThat(preview.plans().get(2).warnings()).singleElement().satisfies(warning -> {
+            assertThat(warning.kind()).isEqualTo(NodePlan.WarningKind.OUTSIDE_CHAIN);
+            assertThat(warning.artifact()).isEqualTo("Workflow-0001");
+        });
+        nothingWritten();
+    }
+}

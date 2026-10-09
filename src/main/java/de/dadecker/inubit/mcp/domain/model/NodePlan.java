@@ -16,12 +16,16 @@ import java.util.Optional;
  * @param artifactStates    {@link #key artifact key} → fingerprint of the node's current
  *                          version of a release artifact it has (for the deployment ledger,
  *                          research D-8)
+ * @param legacyArtifactStates the same fingerprints as 0.5.0 and earlier computed them, with
+ *                          the connections of a workflow module in file order: only to
+ *                          recognise ledger entries written by those versions (feature 007,
+ *                          contract P-5); remove after 0.5.x
  * @param diffFile          workspace-relative difference file, placeholders only
  * @param summaryFile       workspace-relative summary file
  */
 public record NodePlan(NodeId node, List<PlannedArtifact> artifacts, List<Warning> warnings,
     List<PlanError> errors, String targetFingerprint, Map<String, String> artifactStates,
-    String diffFile, String summaryFile) {
+    Map<String, String> legacyArtifactStates, String diffFile, String summaryFile) {
 
     /** What a planned artifact is. */
     public enum Kind {
@@ -86,6 +90,7 @@ public record NodePlan(NodeId node, List<PlannedArtifact> artifacts, List<Warnin
         errors = List.copyOf(errors);
         Objects.requireNonNull(targetFingerprint, "targetFingerprint");
         artifactStates = Map.copyOf(artifactStates);
+        legacyArtifactStates = Map.copyOf(legacyArtifactStates);
         Objects.requireNonNull(diffFile, "diffFile");
         Objects.requireNonNull(summaryFile, "summaryFile");
     }
@@ -112,7 +117,7 @@ public record NodePlan(NodeId node, List<PlannedArtifact> artifacts, List<Warnin
         List<PlanError> allErrors = new java.util.ArrayList<>(errors);
         allErrors.addAll(moreErrors);
         return new NodePlan(node, artifacts, allWarnings, allErrors, targetFingerprint,
-            artifactStates, diffFile, summaryFile);
+            artifactStates, legacyArtifactStates, diffFile, summaryFile);
     }
 
     /**

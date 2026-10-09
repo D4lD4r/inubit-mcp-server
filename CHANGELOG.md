@@ -7,6 +7,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-09
+
+### Fixed
+
+- INUBIT writes the outgoing connections of a workflow module in a non-deterministic order. Every
+  comparison now ignores that order: `import_artifacts`, `set_active` and `restore_backup` no
+  longer end in a false `VERIFY_MISMATCH`, a needless rollback, a false `rollback: FAILED` or a
+  false `CONFLICT`; `deploy_release` classifies such workflows as `UNCHANGED` (or `LAYOUT_ONLY`
+  if their layout differs as well), finds the source nodes consistent and verifies and rolls back
+  without a false mismatch. Fingerprints of previews, backups and the deployment ledger are
+  computed with the connections in one order.
+- Real differences are still found: a connection added, removed or changed (target, id, label
+  position), any other content change and a different order of the workflow modules themselves.
+  What is imported, deployed, restored or stored is unchanged, and difference reports still show
+  the renderings as the server wrote them.
+- Fingerprints that 0.5.0 or earlier recorded in backups and in the deployment ledger are still
+  recognised, so restoring such a backup or the next deployment preview is not refused or warned
+  about for content that is unchanged. Known limitation: a fingerprint recorded by 0.5.0 or
+  earlier while the server showed one connection order is not recognised after the order
+  flipped, so restoring such an old backup is refused with `CONFLICT` (nothing is changed) and
+  the next deployment preview may warn `OUTSIDE_CHAIN` for that workflow.
+- `export_artifacts`, and the write-back after an import or a deployment, keep a workspace
+  workflow file that differs from the server's new rendering only in that order: no rewritten
+  file, no commit and no `MODIFIED` entry for it. The workspace still holds only renderings as
+  the server wrote them.
+
 ## [0.5.0] - 2026-10-09
 
 ### Added
@@ -234,7 +260,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/D4lD4r/inubit-mcp-server/compare/983fa42dc6ebcdd8fe32e6a2b5b5aefeef1296fc...v0.4.3
 [0.4.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.1...983fa42dc6ebcdd8fe32e6a2b5b5aefeef1296fc

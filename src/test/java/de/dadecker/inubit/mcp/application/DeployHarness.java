@@ -341,7 +341,8 @@ public final class DeployHarness {
                 new de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec(),
                 new de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives(), root),
             planner(), ledger, challenges, java.time.Duration.ofMinutes(30), serviceAudit, clock,
-            java.util.UUID::randomUUID, deployer(serviceAudit), history));
+            java.util.UUID::randomUUID, deployer(serviceAudit), history,
+            new de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives()));
     }
 
     /** The node deployer on the real 8.1 adapters of this harness. */
@@ -584,5 +585,56 @@ public final class DeployHarness {
     public List<String> launches() {
         return cli.entrySet().stream().flatMap(entry -> entry.getValue().execCommands().stream()
             .map(line -> entry.getKey() + " " + line)).toList();
+    }
+
+    // --- feature 007: the order of a module's connections ------------------------------------
+
+    /**
+     * The connections ({@code moduleOutId/ConnectionId}) of a workflow module, in this order, as
+     * {@link FakeServer#publishWorkflow} and {@link FakeServer#tamperNextImport} see a workflow
+     * (normalized, root {@code Workflow}).
+     */
+    public static String connections(String... keys) {
+        StringBuilder text = new StringBuilder();
+        for (String key : keys) {
+            String[] parts = key.split("/");
+            text.append("    <Connection moduleOutId=\"").append(parts[0]).append("\">\n")
+                .append("      <ConnectionId>").append(parts[1]).append("</ConnectionId>\n")
+                .append("    </Connection>\n");
+        }
+        return text.toString();
+    }
+
+    /**
+     * {@code xml} (a workflow of {@link FakeServer}) with the two connections of
+     * {@code Workflow-0001}/{@code Module-0002} ({@code 4/9}, {@code 3/6}) swapped.
+     */
+    public static String swapModule0002(String xml) {
+        String pair = connections("4/9", "3/6");
+        String swapped = connections("3/6", "4/9");
+        if (xml.contains(pair)) {
+            return xml.replace(pair, swapped);
+        }
+        if (xml.contains(swapped)) {
+            return xml.replace(swapped, pair);
+        }
+        throw new IllegalStateException("the connections of Module-0002 are not in the file");
+    }
+
+    /**
+     * The state of workflow {@code name} of {@code GRP-01} on {@code node} as 0.5.0 recorded it
+     * (in a deploy backup or the ledger): the fingerprint over its legacy canonical form, with
+     * the connections in file order; {@code legacy} false gives today's form.
+     */
+    @SuppressWarnings("deprecation")
+    public String workflowState(NodeId node, String name, boolean legacy) {
+        byte[] export = servers.get(node).exportWorkflowGroup(GROUP).orElseThrow();
+        String path = node.group().value() + "/" + OWNER + "/workflows/" + GROUP + "/" + name
+            + ".xml";
+        byte[] file = new de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec().prepare(
+            node.group(), OWNER, List.of(export)).files().get(path);
+        var releases = new de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives();
+        return ConflictDetector.fingerprint(new java.util.TreeMap<>(Map.of(path, legacy
+            ? releases.legacyCanonical(path, file) : releases.canonical(path, file))));
     }
 }

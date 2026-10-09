@@ -292,7 +292,7 @@ public final class ImportService {
         this.builder = new ChangeSetBuilder(d.root(), d.history(), d.inspector(),
             d.archives()::equivalent);
         this.detector = new ConflictDetector(d.root(), d.history(), d.codec(), d.artifacts(),
-            d.inventory(), d.archives()::equivalent);
+            d.inventory(), d.archives()::equivalent, d.archives()::connectionOrdered);
     }
 
     /**
@@ -537,7 +537,7 @@ public final class ImportService {
                 Capability.SET_ACTIVE, node, inputs));
         }
         ConflictDetector.Result fresh = detector.detect(node, changes, auditId, false);
-        String state = ConflictDetector.fingerprint(artifactFiles(fresh.rendered(), workflow));
+        String state = fingerprint(artifactFiles(fresh.rendered(), workflow));
         if (previewed.isPresent() && !previewed.get().equals(state)) {
             throw changedSincePreview(node);
         }
@@ -883,7 +883,9 @@ public final class ImportService {
 
     /**
      * Research D-25 H7: every artifact must show the state the referenced call left; a
-     * workflow in Workbench edit mode is a conflict as well.
+     * workflow in Workbench edit mode is a conflict as well. A state recorded by 0.5.0 or
+     * earlier (over the renderings, connections in file order) is recognised too (feature 007,
+     * contract P-5).
      */
     private void requireStateLeftBy(NodeId node, BackupStore.Manifest manifest,
         ChangeSet changes, Fresh fresh, UUID auditId) {
@@ -897,8 +899,10 @@ public final class ImportService {
                 unknown.add(artifact.name());
                 continue;
             }
-            String now = ConflictDetector.fingerprint(artifactFiles(fresh.rendered(), artifact));
-            if (!left.equals(now)) {
+            SortedMap<String, byte[]> files = artifactFiles(fresh.rendered(), artifact);
+            String now = fingerprint(files);
+            // feature 007 (contract P-5): 0.5.0 and earlier recorded it over the renderings
+            if (!left.equals(now) && !left.equals(ConflictDetector.fingerprint(files))) {
                 changed.add(artifact.name());
                 lines.add("=== " + ConflictDetector.key(artifact.paths().get(0))
                     + ": differs from the state the call " + manifest.auditId() + " left ("
@@ -961,8 +965,7 @@ public final class ImportService {
         SortedMap<String, byte[]> artifacts = new TreeMap<>();
         changes.artifacts().forEach(artifact -> artifacts.putAll(artifactFiles(rendered,
             artifact)));
-        return new Fresh(raw, rendered, prepared.inEditMode(),
-            ConflictDetector.fingerprint(artifacts));
+        return new Fresh(raw, rendered, prepared.inEditMode(), fingerprint(artifacts));
     }
 
     private static ToolErrorException changedSincePreview(NodeId node) {
@@ -1507,6 +1510,8 @@ public final class ImportService {
     /**
      * Research D-25 (H5): only the change-set files and their .meta records — and those of the
      * new artifacts that were identical on the node (0.4.2), so their server state is recorded.
+     * A workflow file that differs from the server's rendering only in the order of a module's
+     * connections is kept (feature 007, contract P-6).
      */
     private void writeBack(ChangeSet changes, SortedMap<String, byte[]> rendered) {
         List<ChangedArtifact> artifacts = new ArrayList<>(changes.artifacts());
@@ -1515,7 +1520,9 @@ public final class ImportService {
             for (ChangedArtifact artifact : artifacts) {
                 for (Map.Entry<String, byte[]> file : artifactFiles(rendered, artifact)
                     .entrySet()) {
-                    write(file.getKey(), file.getValue());
+                    if (!keptInWorkspace(file.getKey(), file.getValue())) {
+                        write(file.getKey(), file.getValue());
+                    }
                     byte[] meta = rendered.get(".meta/" + file.getKey() + ".json");
                     if (meta != null) {
                         write(".meta/" + file.getKey() + ".json", meta);
@@ -1527,10 +1534,33 @@ public final class ImportService {
         }
     }
 
+    /**
+     * True if the workspace keeps its workflow file {@code path} instead of the server's
+     * {@code rendered} one: they differ only in the order of a module's connections (feature
+     * 007, contract P-6). Only an existing {@code .xml} file is read.
+     */
+    private boolean keptInWorkspace(String path, byte[] rendered) {
+        if (!path.endsWith(".xml")) {
+            return false;
+        }
+        byte[] existing = readOrNull(path);
+        return existing != null && d.archives().differsOnlyInConnectionOrder(path, existing,
+            rendered);
+    }
+
     private void write(String path, byte[] content) throws IOException {
         Path file = d.root().resolve(path);
         Files.createDirectories(file.getParent());
         Files.write(file, content);
+    }
+
+    /**
+     * The fingerprint of rendered files (feature 007, contract P-4): over their
+     * connection-ordered form, so that the order INUBIT writes a workflow module's connections
+     * in does not count; what was rendered stays as it is.
+     */
+    private String fingerprint(SortedMap<String, byte[]> files) {
+        return ConflictDetector.fingerprint(files, d.archives()::connectionOrdered);
     }
 
     /** The rendered files of {@code artifact}: its workflow file or its module directory. */
@@ -1661,7 +1691,7 @@ public final class ImportService {
             for (ChangedArtifact artifact : changes.artifacts()) {
                 SortedMap<String, byte[]> files = artifactFiles(rendered, artifact);
                 if (!files.isEmpty()) {
-                    intended.put(artifact.name(), ConflictDetector.fingerprint(files));
+                    intended.put(artifact.name(), fingerprint(files));
                 }
             }
             BackupStore.Manifest manifest = d.backups().find(auditId.toString()).orElseThrow();

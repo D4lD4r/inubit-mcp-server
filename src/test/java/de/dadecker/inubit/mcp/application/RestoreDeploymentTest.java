@@ -279,4 +279,60 @@ class RestoreDeploymentTest extends DeployExecution {
             .isEqualTo(restored.auditId().toString());
         harness.verifyComplete();
     }
+
+    // --- feature 007: states recorded by 0.5.0 (FR-009, contract P-5) -----------------------
+
+    private static final String WORKFLOW_KEY = "workflow:GRP-01/Workflow-0001";
+
+    /**
+     * Replaces the recorded state of Workflow-0001 in the backup {@code backupRef} with the
+     * fingerprint 0.5.0 computed: over the legacy canonical form, connections in file order.
+     */
+    private void recordLegacyWorkflowState(String backupRef) {
+        BackupStore.Manifest manifest = harness.backups.find(backupRef).orElseThrow();
+        String legacy = harness.workflowState(DeployHarness.INT1, "Workflow-0001", true);
+        // Module-0002 lists 4/9 before 3/6: the legacy value is not today's
+        assertThat(manifest.intendedState().get(WORKFLOW_KEY)).isEqualTo(harness.workflowState(
+            DeployHarness.INT1, "Workflow-0001", false)).isNotEqualTo(legacy);
+        java.util.Map<String, String> states = new java.util.TreeMap<>(
+            manifest.intendedState());
+        states.put(WORKFLOW_KEY, legacy);
+        harness.backups.update(manifest.with(manifest.outcome(), states));
+    }
+
+    @Test
+    void aDeploymentBackupRecordedBeforeTheUpgradeIsStillRestorable() {
+        harness(false);
+        String backupRef = deploy(false).nodes().get(0).backupRef().orElseThrow();
+        recordLegacyWorkflowState(backupRef);
+        harness.exportGroup(DeployHarness.INT1);
+
+        ImportService.Response first = harness.importService().restore(restore(backupRef,
+            Optional.empty()));
+
+        assertThat(first).isInstanceOf(ImportService.Response.WriteChallenge.class);
+        assertThat(((ImportService.Response.WriteChallenge) first).preview().modify())
+            .contains("Workflow-0001");
+        harness.verifyComplete();
+    }
+
+    @Test
+    void aRealChangeSinceADeploymentRecordedBeforeTheUpgradeIsAConflict() {
+        harness(false);
+        String backupRef = deploy(false).nodes().get(0).backupRef().orElseThrow();
+        recordLegacyWorkflowState(backupRef);
+        harness.servers.get(DeployHarness.INT1).publishWorkflow("Workflow-0001", xml -> xml
+            .replace(DeployHarness.connections("4/9", "3/6"), DeployHarness.connections("3/6",
+                "4/10")));
+        harness.exportGroup(DeployHarness.INT1);
+
+        ToolErrorException e = org.assertj.core.api.Assertions.catchThrowableOfType(
+            ToolErrorException.class, () -> harness.importService().restore(restore(backupRef,
+                Optional.empty())));
+
+        assertThat(e).isNotNull();
+        assertThat(e.error().code()).isEqualTo(ErrorCode.CONFLICT);
+        assertThat(e.error().message()).contains("Workflow-0001");
+        harness.verifyComplete();
+    }
 }

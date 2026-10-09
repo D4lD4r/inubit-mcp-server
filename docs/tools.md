@@ -886,6 +886,19 @@ restore it with `restore_backup` or in the Workbench). Nothing in this feature d
 `createdNotRemoved` — delete them in the Workbench if needed. A StartCLI timeout is decided by the
 re-export: if it shows the intended state, the call succeeded.
 
+**Order of connections (0.5.1).** INUBIT writes the outgoing connections of a workflow module in
+a non-deterministic order. Conflict checks, verification, rollback checks and every fingerprint
+(confirmation codes, backups, the deployment ledger) of the development tools and of
+`deploy_release` ignore that order; the order of the workflow modules themselves still counts.
+`export_artifacts` and the write-back after an import or a deployment keep a workspace workflow
+file that differs from the server's new rendering only in that order, so no file is rewritten and
+nothing is reported as `MODIFIED`. Real differences — a connection added, removed or changed,
+including its label position — are still reported, and difference reports show the files as the
+server wrote them. Fingerprints recorded by 0.5.0 or earlier are still recognised. Known
+limitation: such a fingerprint is not recognised after the server flipped the order since it was
+recorded, so restoring that old backup is refused with `CONFLICT` (nothing is changed) and the
+next deployment preview may warn `OUTSIDE_CHAIN` for that workflow.
+
 **Backups** are kept 30 days in `~/.inubit-mcp/<profile>/backups` (the newest per node, owner and
 scope always); older ones are removed at the start of the next writing call, each removal audited
 (`backup_retention`).
