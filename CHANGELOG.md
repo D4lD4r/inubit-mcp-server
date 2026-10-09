@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- The automatic git maintenance (`gc --auto` or geometric repack) that a commit in the workspace
+  triggers now runs in the foreground of that commit instead of detaching. A detached
+  maintenance outlived the call and kept writing packs while the next git call or the cleanup of
+  the workspace ran (seen as a sporadic test failure "Failed to delete temp directory …
+  .git/objects/pack"). Such a commit now takes a few seconds longer roughly every 6700 new
+  objects.
+
 ## [0.5.1] - 2026-10-09
 
 ### Fixed
