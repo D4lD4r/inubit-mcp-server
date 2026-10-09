@@ -20,6 +20,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -29,6 +31,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -41,6 +44,7 @@ class GitCliTest {
 
     private static final List<String> FIXED_OPTIONS = List.of(
         "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false", "-c", "core.quotepath=false",
+        "-c", "gc.autoDetach=false", "-c", "maintenance.autoDetach=false",
         "-c", "user.name=INUBIT MCP (acme)", "-c", "user.email=inubit-mcp@localhost");
 
     @TempDir
@@ -247,6 +251,51 @@ class GitCliTest {
                 || name.contains("fetch") || name.contains("clone") || name.contains("pull"));
         assertThat(launches).noneMatch(spec -> spec.command().stream().anyMatch(argument ->
             List.of("remote", "push", "fetch", "clone", "pull").contains(argument)));
+    }
+
+    @Test
+    void theAutomaticMaintenanceACommitTriggersHasFinishedWhenTheCallReturns()
+        throws IOException, InterruptedException, NoSuchAlgorithmException {
+        git.init();
+        // Tiny thresholds in the repository's own configuration: the gc strategy (older git)
+        // repacks once objects/17 holds two loose objects, the geometric strategy every time;
+        // a repository-local autoDetach must not move the maintenance to the background either.
+        inspect("config", "gc.auto", "1");
+        inspect("config", "maintenance.geometric-repack.auto", "-1");
+        inspect("config", "maintenance.autoDetach", "true");
+        for (String content : contentsWhoseBlobIdStartsWith17(2)) {
+            write("dev/" + content.strip() + ".txt", content);
+        }
+
+        git.commitAll("export").orElseThrow();
+
+        Path objects = root.resolve(".git/objects");
+        assertThat(objects.resolve("maintenance.lock")).as("maintenance still running")
+            .doesNotExist();
+        assertThat(root.resolve(".git/gc.pid")).as("gc still running").doesNotExist();
+        assertThat(objects.resolve("17")).as("loose objects not yet packed")
+            .satisfiesAnyOf(directory -> assertThat(directory).doesNotExist(),
+                directory -> assertThat(directory).isEmptyDirectory());
+        try (Stream<Path> packs = Files.list(objects.resolve("pack"))) {
+            assertThat(packs.map(Path::getFileName).map(Path::toString))
+                .anyMatch(name -> name.endsWith(".pack"))
+                .noneMatch(name -> name.startsWith("tmp_"));
+        }
+    }
+
+    private static List<String> contentsWhoseBlobIdStartsWith17(int count)
+        throws NoSuchAlgorithmException {
+        List<String> contents = new ArrayList<>();
+        for (int i = 0; contents.size() < count; i++) {
+            String content = "gc-" + i + "\n";
+            byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+            MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
+            sha1.update(("blob " + bytes.length + "\0").getBytes(StandardCharsets.UTF_8));
+            if ((sha1.digest(bytes)[0] & 0xff) == 0x17) {
+                contents.add(content);
+            }
+        }
+        return contents;
     }
 
     @Test
