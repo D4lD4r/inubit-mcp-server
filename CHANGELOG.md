@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-09
+
 ### Added
 
 - `tools/inubit-cert-check.py` (feature 006): an operator tool for changed server certificates of
@@ -232,7 +234,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/D4lD4r/inubit-mcp-server/compare/983fa42dc6ebcdd8fe32e6a2b5b5aefeef1296fc...v0.4.3
 [0.4.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.1...983fa42dc6ebcdd8fe32e6a2b5b5aefeef1296fc
 [0.4.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.0...v0.4.1

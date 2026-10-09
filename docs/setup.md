@@ -740,7 +740,7 @@ ignores `x-*` keys):
 ```yaml
 x-cert-check:
   java: /Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home/bin/java  # keytool: same directory
-  serverJar: ~/lib/inubit-mcp-server-0.4.3.jar
+  serverJar: ~/lib/inubit-mcp-server-0.5.0.jar
 ```
 
 Update `serverJar` together with the JAR the launcher runs, and `java` when the JDK changes.
