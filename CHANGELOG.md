@@ -7,6 +7,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `tools/inubit-cert-check.py` (feature 006): an operator tool for changed server certificates of
+  a stage. `--check` compares the certificate every server presents with the stage's pin (text or
+  `--json`; exit 0, 10 changed, 20 unreachable). `--accept STAGE FINGERPRINT` adopts a certificate
+  only after re-verifying it on every server of the stage: backups, trust-store import, single-line
+  pin change, validation with the server's `--check-config`, rollback on any failure or interrupt,
+  one audit line. `--interactive` (for the launcher) asks in a desktop dialog when the server
+  starts and never writes to stdout; `--prune` removes superseded trust-store entries and
+  `--forget` drops a remembered rejection. Python 3.9 standard library only, tests in `tools/tests`
+  (also run in CI). See `docs/setup.md`, section 5 "Certificate changes".
+
 ## [0.4.3] - 2026-10-08
 
 ### Fixed

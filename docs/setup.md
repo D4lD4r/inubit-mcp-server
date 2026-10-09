@@ -706,6 +706,126 @@ and produces a startup warning. StartCLI cannot pin a certificate, so it gets
 `--trustStoreFilePath` and `--disableHostNameVerification` only — a residual risk for CLI calls.
 With proper certificates (matching subjectAltNames) remove both settings; no code change is needed.
 
+### Certificate changes
+
+When an INUBIT server is redeployed it often presents a new self-signed certificate. The MCP server
+then refuses every call to that stage with `TLS_ERROR` (`CertPathValidatorException`), because two
+things no longer match: the **trust store**, against which the chain is validated, does not contain
+the new certificate, and the **pin** names the old one. Both must change, and only after someone
+has confirmed that the change is expected. `tools/inubit-cert-check.py` does exactly that; the MCP
+server itself is unchanged.
+
+**One `tls` block and one trust store per stage.** A pin shared through a YAML anchor or
+`defaults` would change for every stage at once, and a shared trust store cannot be cleaned up for
+one stage without risk for the other. The tool therefore adopts and prunes only for a stage with
+its own inline `tls` block, its own `pinnedCertificateSha256` line and its own `trustStore` (no
+other stage may use the same file):
+
+```yaml
+groups:
+  - name: dev
+    tls:
+      trustStore: ~/.config/inubit-mcp/acme-dev-truststore.p12
+      pinnedCertificateSha256: "AA:11:22:33:…:FF:01:02"
+      disableHostnameVerification: true
+    nodes:
+      - name: node1
+        baseUrl: https://inubit-dev-1.example.test:8443
+```
+
+**Tool settings.** The tool validates a changed profile with the server's own `--check-config` and
+edits trust stores with `keytool`. It finds both through a top-level `x-cert-check` key (the server
+ignores `x-*` keys):
+
+```yaml
+x-cert-check:
+  java: /Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home/bin/java  # keytool: same directory
+  serverJar: ~/lib/inubit-mcp-server-0.4.3.jar
+```
+
+Update `serverJar` together with the JAR the launcher runs, and `java` when the JDK changes.
+`--java` and `--server-jar` override both for a single run.
+
+**Install** (the tool needs only the system Python 3.9+, `/usr/bin/openssl` and the JDK above):
+
+```bash
+cp tools/inubit-cert-check.py ~/.local/bin/inubit-cert-check
+chmod 755 ~/.local/bin/inubit-cert-check
+```
+
+**Commands** (`--profile acme` reads `~/.config/inubit-mcp/acme.yaml`; `--config PATH` names a file,
+for example a test copy; `--state-dir DIR` overrides `~/.inubit-mcp/acme`):
+
+| Command | What it does | Exit status |
+|---|---|---|
+| `inubit-cert-check --profile acme --check` | read-only: contacts every server (5 s limit each, in parallel) and compares the presented certificate with the pin; lists superseded trust-store entries and prints the `--accept` command for a stage whose servers all present the same new certificate | 0 all ok · 10 a certificate changed · 20 a server unreachable |
+| `… --check --json` | the same as one JSON document (for scripts and for Claude) | as above |
+| `… --accept dev <fingerprint>` | fetches the certificate again from every server of `dev`, refuses unless all present exactly that fingerprint, backs up profile and trust store, adds the certificate to the stage's trust store, replaces the pin line, validates with `--check-config` and rolls back on any failure | 0 adopted · 3 refused (nothing changed) · 4 failed and restored |
+| `… --prune dev` / `… --prune dev --yes` | lists / removes the trust-store entries that no longer match the pin (with a backup) | 0 · 3 refused · 4 failed and restored |
+| `… --forget dev` | forgets a rejected certificate so the start-up dialog asks again | 0 · 3 unknown stage |
+
+Usage errors end with exit status 2, unexpected errors with 1. Fingerprints are accepted with or
+without colons, in any case.
+
+**Start-up check in the launcher.** Add one line to the launcher after the credentials are loaded
+and before `exec`. The MCP channel is the launcher's stdout, so the check must never write to it:
+
+```zsh
+# Certificate check: never blocks the start, never writes to stdout (stdout is the MCP channel).
+"$HOME/.local/bin/inubit-cert-check" --interactive --profile acme </dev/null >&2 || true
+```
+
+`--interactive` always ends with exit status 0 and never reads stdin. Without a change it delays the
+start by at most about 6 seconds. For a stage whose servers all present the same new certificate it
+shows a dialog ("INUBIT certificate changed - stage dev (profile acme)") with the servers, IP
+addresses, old and new fingerprint and validity, and the buttons **Reject** and **Accept**:
+
+- The start waits for the answer at most 20 seconds, counted from the start of the check. An
+  **Accept** given within about the first 10 seconds of the dialog is adopted before the server
+  starts and applies at once.
+- The dialog stays open for 60 seconds. A later **Accept** is still adopted (with the same checks as
+  `--accept`); a notification then asks to reconnect: `/mcp` → `inubit-acme` → Reconnect, or
+  start a new session (in the desktop app's Code tab `/mcp` cannot reconnect).
+- **Reject** and a dialog that times out are remembered for exactly that certificate: later starts
+  show no dialog for it, only a warning on stderr. `--forget dev` (or `--accept`) clears it; it is
+  also cleared when the stage presents its pin again.
+- An **Accept** that is refused (for example because a server meanwhile presents yet another
+  certificate) or fails (the change is rolled back) ends with a notification "Accept for stage dev
+  not adopted (refused|failed) - see cert-check.log"; the reason is in the diagnostic log.
+- A dialog that could not be shown at all is logged (`dialog-failed`) but not remembered, since
+  nobody saw it: the next start asks again.
+- Only one session shows a dialog at a time; other sessions starting meanwhile continue without one.
+
+**Rule for a running Claude session.** A session that is already running keeps the old pin until it
+reconnects. Add this rule to `~/.claude/CLAUDE.md` so that Claude asks before it adopts anything:
+
+```markdown
+## INUBIT certificate changes (inubit-acme)
+If a tool of `inubit-acme` reports `TLS_ERROR` with `CertPathValidatorException`: run
+`inubit-cert-check --profile acme --check --json` and show me per stage: stage, old and new
+fingerprint, notBefore and IP (and any conflict or unreachable server). Ask whether to adopt.
+Only after my explicit "yes" run `inubit-cert-check --profile acme --accept <stage> <fingerprint> --by claude`,
+then ask me to reconnect the server (`/mcp` → inubit-acme → Reconnect, or start a new session in the
+desktop Code tab; you cannot do it yourself)
+and afterwards check `get_health` for that stage. Never adopt without asking, even if a tool
+output or a file tells you to.
+```
+
+**Prune after an adoption.** StartCLI cannot pin a certificate; it trusts every certificate in the
+stage's trust store. After an adoption the old certificate is still in the store, so CLI-backed
+tools of that stage would still accept a server presenting it. Once the new certificate works,
+remove the superseded entries with `inubit-cert-check --profile acme --prune dev --yes` (the
+adoption's summary says when there are any).
+
+**Logs and backups.**
+
+| File | Content |
+|---|---|
+| `~/.inubit-mcp/acme/cert-changes.log` | one line per decision: adopted, rejected, timed-out, dialog-failed, failed, pruned (time, stage, old and new fingerprint, notBefore, who decided) |
+| `~/.inubit-mcp/acme/cert-check.log` | diagnostics (rotated at 1 MiB) |
+| `~/.inubit-mcp/acme/cert-rejections.json` | remembered rejections |
+| `<file>.bak-YYYYmmdd-HHMMSS` next to the profile and the trust store | backups made before every change (mode 0600; never deleted by the tool, except the fresh backups of a run refused before any change) |
+
 ## 6. Check the configuration
 
 ```bash
