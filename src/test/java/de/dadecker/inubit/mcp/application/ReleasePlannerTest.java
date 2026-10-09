@@ -158,6 +158,44 @@ class ReleasePlannerTest {
     }
 
     @Test
+    void connectionsInAnotherOrderAreUnchangedAndWithAnotherLabelLayoutOnly() {
+        // feature 007 (US2 scenario 2): INUBIT writes a module's connections in any order
+        harness = harnessQuietly(false);
+        ReleaseDiscovery.Release release = release();
+        FakeServer target = harness.servers.get(DeployHarness.INT1);
+        target.publishWorkflow("Workflow-0001", DeployHarness::swapModule0002);
+        // Workflow-0002/Module-0006: 4/9, 11/6 swapped, and a label position on 11/6
+        target.publishWorkflow("Workflow-0002", xml -> xml.replace(DeployHarness.connections(
+            "4/9", "11/6"), DeployHarness.connections("11/6", "4/9").replace(
+                "<ConnectionId>6</ConnectionId>", "<ConnectionId>6</ConnectionId>"
+                    + "<StyleSheet labelPosition=\"50.0\"/>")));
+        harness.exportGroup(DeployHarness.INT1)
+            .exportRepository(DeployHarness.INT1, DeployHarness.RELEASE_XSL);
+
+        NodePlan plan = plan(release, List.of());
+
+        assertThat(classes(plan)).containsEntry("Workflow-0001", ArtifactClass.UNCHANGED)
+            .containsEntry("Workflow-0002", ArtifactClass.LAYOUT_ONLY);
+        harness.verifyComplete();
+    }
+
+    @Test
+    void connectionsInAnotherOrderWithAnotherTargetAreChanged() {
+        harness = harnessQuietly(false);
+        ReleaseDiscovery.Release release = release();
+        harness.servers.get(DeployHarness.INT1).publishWorkflow("Workflow-0001", xml -> xml
+            .replace(DeployHarness.connections("4/9", "3/6"), DeployHarness.connections("3/6",
+                "2/9")));
+        harness.exportGroup(DeployHarness.INT1)
+            .exportRepository(DeployHarness.INT1, DeployHarness.RELEASE_XSL);
+
+        NodePlan plan = plan(release, List.of());
+
+        assertThat(classes(plan)).containsEntry("Workflow-0001", ArtifactClass.CHANGED);
+        harness.verifyComplete();
+    }
+
+    @Test
     void onAnEmptyTargetEverythingIsNewWithTheReleasesFlags() {
         harness = harnessQuietly(true);
         ReleaseDiscovery.Release release = release(server -> server.publishWorkflow(

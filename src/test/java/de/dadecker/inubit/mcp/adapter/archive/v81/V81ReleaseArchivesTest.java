@@ -160,4 +160,63 @@ class V81ReleaseArchivesTest {
         assertThat(archives.repositoryExport(ArtifactFixtures.bytes("module-one.zip")))
             .isFalse();
     }
+
+    // --- feature 007: the order of a module's connections (contract P-3) -------------------
+
+    @Test
+    void connectionsInAnotherOrderAreTheSameContent() {
+        byte[] a = ConnectionOrderFixtures.bytes("workflow-a.xml");
+        byte[] b = ConnectionOrderFixtures.bytes("workflow-b.xml");
+
+        assertThat(archives.equivalent(WORKFLOW, a, b)).isTrue();
+        assertThat(archives.canonical(WORKFLOW, a)).isEqualTo(archives.canonical(WORKFLOW, b));
+        // no difference is left, so none of them lies in the layout only
+        assertThat(archives.layoutOnly(WORKFLOW, a, b)).isFalse();
+    }
+
+    @Test
+    void anotherOrderWithAnotherLabelPositionIsLayoutOnly() {
+        byte[] a = ConnectionOrderFixtures.bytes("workflow-a.xml");
+        byte[] moved = ConnectionOrderFixtures.realDifferences().get(
+            ConnectionOrderFixtures.LABEL_POSITION).getBytes(StandardCharsets.UTF_8);
+
+        assertThat(archives.equivalent(WORKFLOW, a, moved)).isFalse();
+        assertThat(archives.layoutOnly(WORKFLOW, a, moved)).isTrue();
+        assertThat(archives.canonical(WORKFLOW, a)).isNotEqualTo(archives.canonical(WORKFLOW,
+            moved));
+    }
+
+    @Test
+    void realDifferencesOfConnectionsStayChanges() {
+        byte[] a = ConnectionOrderFixtures.bytes("workflow-a.xml");
+
+        ConnectionOrderFixtures.realDifferences().forEach((difference, text) -> {
+            byte[] other = text.getBytes(StandardCharsets.UTF_8);
+            assertThat(archives.equivalent(WORKFLOW, a, other)).as(difference).isFalse();
+            assertThat(archives.canonical(WORKFLOW, a)).as(difference).isNotEqualTo(
+                archives.canonical(WORKFLOW, other));
+            assertThat(archives.layoutOnly(WORKFLOW, a, other)).as(difference).isEqualTo(
+                difference.equals(ConnectionOrderFixtures.LABEL_POSITION));
+        });
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void theLegacyCanonicalFormKeepsTheConnectionOrder() {
+        // recognises fingerprints recorded by <= 0.5.0 (contract P-5)
+        byte[] a = ConnectionOrderFixtures.bytes("workflow-a.xml");
+        byte[] b = ConnectionOrderFixtures.bytes("workflow-b.xml");
+        String legacy = text(archives.legacyCanonical(WORKFLOW, a));
+
+        assertThat(legacy).doesNotContain("CheckinComment").containsSubsequence(
+            "moduleOutId=\"315\"", "moduleOutId=\"171\"", "moduleOutId=\"315\"",
+            "moduleOutId=\"171\"");
+        assertThat(legacy).isEqualTo(text(a).replace("  <CheckinComment>JD: Fixture###"
+            + "</CheckinComment>\n", ""));
+        assertThat(archives.legacyCanonical(WORKFLOW, b)).isEqualTo(archives.canonical(WORKFLOW,
+            b)).isNotEqualTo(archives.legacyCanonical(WORKFLOW, a));
+        byte[] unreadable = "<Workflow>".getBytes(StandardCharsets.UTF_8);
+        assertThat(archives.legacyCanonical(WORKFLOW, unreadable)).isEqualTo(unreadable)
+            .isNotSameAs(unreadable);
+    }
 }

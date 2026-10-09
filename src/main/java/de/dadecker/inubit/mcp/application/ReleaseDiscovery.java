@@ -165,10 +165,26 @@ public final class ReleaseDiscovery {
      */
     static SortedMap<String, byte[]> canonical(ReleaseArchivePort releases,
         SortedMap<String, byte[]> files) {
+        return canonical(files, releases::canonical);
+    }
+
+    /**
+     * As {@link #canonical(ReleaseArchivePort, SortedMap)}, but in the form 0.5.0 and earlier
+     * used ({@link ReleaseArchivePort#legacyCanonical}): only to recognise fingerprints those
+     * versions recorded (feature 007, contract P-5).
+     */
+    @SuppressWarnings("deprecation")
+    static SortedMap<String, byte[]> legacyCanonical(ReleaseArchivePort releases,
+        SortedMap<String, byte[]> files) {
+        return canonical(files, releases::legacyCanonical);
+    }
+
+    private static SortedMap<String, byte[]> canonical(SortedMap<String, byte[]> files,
+        java.util.function.BiFunction<String, byte[], byte[]> form) {
         SortedMap<String, byte[]> canonical = new TreeMap<>();
         files.forEach((path, content) -> {
             if (!path.startsWith(".meta/")) {
-                canonical.put(path, releases.canonical(path, content));
+                canonical.put(path, form.apply(path, content));
             }
         });
         return canonical;

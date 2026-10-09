@@ -110,11 +110,32 @@ public interface ImportArchivePort {
     /**
      * True if two versions of the workspace file {@code path} have the same reviewed content:
      * XML compared normalized, ignoring what INUBIT rewrites on every import ({@code
-     * CheckinComment}, {@code LastUpdate}, UIDs, {@code CheckoutUser}); an embedded text
-     * document (stylesheet, WSDL) as INUBIT stores it, without trailing whitespace and with any
-     * line ends (0.4.2); other files byte by byte.
+     * CheckinComment}, {@code LastUpdate}, UIDs, {@code CheckoutUser}) and the order of the
+     * connections of a workflow module (feature 007); an embedded text document (stylesheet,
+     * WSDL) as INUBIT stores it, without trailing whitespace and with any line ends (0.4.2);
+     * other files byte by byte.
      */
     boolean equivalent(String path, byte[] expected, byte[] actual);
+
+    /**
+     * The rendering of the workspace file {@code path} with only the order of the workflow
+     * modules' connections normalized (feature 007, contract P-2): INUBIT writes the outgoing
+     * connections of a module in a non-deterministic order. XML comes back normalized, with the
+     * direct {@code Connection} children of each {@code WorkflowModule} in one order; everything
+     * else is kept, the volatile elements too. Any other file, and XML that cannot be read,
+     * comes back as an unchanged copy. Only for fingerprints and for keeping a workspace file
+     * that differs in that order only — never imported or written.
+     */
+    byte[] connectionOrdered(String path, byte[] file);
+
+    /**
+     * True if {@code existing} (the workspace file {@code path}) and {@code rendered} (a new
+     * server rendering of it) are two renderings of a workflow that differ only in the order of
+     * the modules' connections (feature 007, contract P-6): then the workspace keeps
+     * {@code existing}, which is a genuine server rendering as well. False for any other file
+     * or difference, formatting included.
+     */
+    boolean differsOnlyInConnectionOrder(String path, byte[] existing, byte[] rendered);
 
     /** The {@code CheckinComment} text of a workflow or module index file, if any. */
     Optional<String> checkinComment(byte[] file);

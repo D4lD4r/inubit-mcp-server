@@ -129,6 +129,40 @@ class WorkspaceExportTest {
     }
 
     @Test
+    void aReExportWithSwappedConnectionsIsUnchanged() {
+        // feature 007 (US3, FR-008): INUBIT writes a module's connections in any order
+        WorkspaceService service = harness.service();
+        service.export(diagramGroups("jdoe", "GRP-01"));
+        SortedMap<String, String> before = harness.snapshot();
+        harness.artifacts.exports.put("GRP-01", ExportHarness.rewrite("grp-a.zip",
+            "workflow/workflow.xml", ImportHarness::swapModule0002));
+
+        ExportResult second = service.export(diagramGroups("jdoe", "GRP-01"));
+
+        assertThat(second.unchanged()).as(() -> String.valueOf(second.export())).isTrue();
+        assertThat(harness.snapshot()).isEqualTo(before);
+        assertThat(harness.log()).hasSize(1);
+    }
+
+    @Test
+    void aReExportWithSwappedAndChangedConnectionsIsModified() {
+        WorkspaceService service = harness.service();
+        service.export(diagramGroups("jdoe", "GRP-01"));
+        harness.artifacts.exports.put("GRP-01", ExportHarness.rewrite("grp-a.zip",
+            "workflow/workflow.xml", xml -> ImportHarness.swapModule0002(xml).replace(
+                ImportHarness.connections(false, "3/6", "4/9"), ImportHarness.connections(
+                    false, "3/6", "4/10"))));
+
+        ExportResult second = service.export(diagramGroups("jdoe", "GRP-01"));
+
+        assertThat(second.export()).hasValueSatisfying(entry -> assertThat(entry.changes())
+            .containsExactly(new PathChange(workflow("jdoe", "GRP-01", "Workflow-0001"),
+                PathChange.Kind.MODIFIED)));
+        assertThat(harness.snapshot().get(workflow("jdoe", "GRP-01", "Workflow-0001")))
+            .contains("<ConnectionId>10</ConnectionId>");
+    }
+
+    @Test
     void aReExportWhoseCheckinCommentsGrewIsUnchanged() {
         // live acceptance (SC-001): INUBIT appends ### segments to every workflow's check-in
         // comment on each export, also before the @@@Deploying User suffix

@@ -74,6 +74,46 @@ class ImportServiceTest {
     }
 
     @Test
+    void aWorkflowTheServerHasWithSwappedConnectionsKeepsItsWorkspaceFile() throws IOException {
+        // feature 007 (US3, contract P-6): Workflow-0100 is new in the workspace and identical on
+        // the server except for the order of the connections of Module-0002; the write-back
+        // keeps the workspace file, so the order flip is not committed
+        ImportHarness harness = ImportHarness.grpA(temp);
+        String created = harness.workflow("Workflow-0100");
+        harness.write(created, harness.read(harness.workflow("Workflow-0001"))
+            .replace("Workflow-0001", "Workflow-0100"));
+        byte[] before = harness.read(created).getBytes(StandardCharsets.UTF_8);
+        harness.inubit.changeWorkflows(xml -> {
+            java.util.regex.Matcher workflow = java.util.regex.Pattern.compile("(?s)<Workflow "
+                + "[^>]*><WorkflowName>Workflow-0001</WorkflowName>.*?</Workflow>").matcher(xml);
+            assertThat(workflow.find()).isTrue();
+            String copy = ImportHarness.swapModule0002(workflow.group().replace("Workflow-0001",
+                "Workflow-0100"));
+            return xml.replace("</WorkflowGroup>", copy + "</WorkflowGroup>");
+        });
+        harness.edit(harness.workflow("Workflow-0001"), "xPos=\"120\"", "xPos=\"140\"");
+        harness.exportGroup().importApplied().exportGroup();
+
+        WriteOutcome outcome = completed(harness.service().importArtifacts(
+            harness.group("Move the converter")));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.identical()).hasValueSatisfying(names -> assertThat(names)
+            .containsExactly("Workflow-0100"));
+        assertThat(harness.inubit.workflowXml()).contains(ImportHarness.connections(true, "3/6",
+            "4/9"));
+        assertThat(harness.read(created).getBytes(StandardCharsets.UTF_8)).isEqualTo(before);
+        // its .meta record holds the server's volatile values (the UId of the server's copy)
+        assertThat(harness.root.resolve(".meta/" + created + ".json")).isRegularFile();
+        assertThat(harness.read(".meta/" + created + ".json"))
+            .contains("-6f1dbb5:1a10fc4fb59:-7fff");
+        assertThat(harness.exports.git("show", "--name-only", "--format=", "HEAD").lines())
+            .contains(harness.workflow("Workflow-0001")).doesNotContain(created);
+        assertThat(harness.exports.history.status()).isEmpty();
+    }
+
+    @Test
     void aChangedModuleOfAChangedWorkflowGoesWithItAndOtherChangesStay() throws IOException {
         ImportHarness harness = ImportHarness.grpA(temp);
         harness.edit(harness.workflow("Workflow-0001"), "xPos=\"120\"", "xPos=\"140\"");

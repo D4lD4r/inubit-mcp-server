@@ -11,20 +11,16 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.TreeMap;
 
 /**
  * The 8.1 {@link ImportArchivePort} (feature 004): {@link ImportAssembler} with the secret
  * values, identities (UIDs, module file names, diagram group context) and versions of the
  * target's raw exports, and the comparison of reviewed content — embedded text documents as
- * INUBIT stores them (0.4.2).
+ * INUBIT stores them (0.4.2), the connections of a workflow module in any order (feature 007,
+ * {@link WorkflowComparison}).
  */
 public final class V81ImportArchives implements ImportArchivePort {
-
-    /** What INUBIT rewrites on every import, or what a workspace file keeps in .meta/. */
-    private static final Set<String> VOLATILE = Set.of("CheckinComment", "LastUpdate",
-        "WorkflowUId", "ModuleUId", "CheckoutUser");
 
     @Override
     public Archive assemble(Build build) {
@@ -56,11 +52,29 @@ public final class V81ImportArchives implements ImportArchivePort {
             return Arrays.equals(expected, actual);
         }
         try {
-            return Arrays.equals(XmlNormalizer.normalize(reviewed(XmlTree.parse(expected)
-                .root())), XmlNormalizer.normalize(reviewed(XmlTree.parse(actual).root())));
+            return Arrays.equals(compared(expected), compared(actual));
         } catch (RuntimeException e) {
             return Arrays.equals(expected, actual);
         }
+    }
+
+    @Override
+    public byte[] connectionOrdered(String path, byte[] file) {
+        if (!path.endsWith(".xml")) {
+            return file.clone();
+        }
+        try {
+            return XmlNormalizer.normalize(WorkflowComparison.connectionsOrdered(
+                XmlTree.parse(file).root()));
+        } catch (RuntimeException e) {
+            return file.clone();
+        }
+    }
+
+    @Override
+    public boolean differsOnlyInConnectionOrder(String path, byte[] existing, byte[] rendered) {
+        return path.endsWith(".xml") && WorkflowComparison.differsOnlyInConnectionOrder(existing,
+            rendered);
     }
 
     @Override
@@ -116,18 +130,14 @@ public final class V81ImportArchives implements ImportArchivePort {
             .stripTrailing().getBytes(StandardCharsets.UTF_8);
     }
 
-    /** The root without the volatile children of a workflow or a module index entry. */
-    private static Element reviewed(Element root) {
-        if (!root.localName().equals("Workflow") && !root.localName().equals("Module")) {
-            return root;
-        }
-        List<Node> children = new ArrayList<>();
-        for (Node child : root.children()) {
-            if (!(child instanceof Element element && VOLATILE.contains(element.localName()))) {
-                children.add(child);
-            }
-        }
-        return root.withChildren(children);
+    /**
+     * The comparison form of an XML file: normalized, without the volatile children of a
+     * workflow or a module index entry, the connections of the workflow modules in one order
+     * (feature 007).
+     */
+    private static byte[] compared(byte[] xml) {
+        return XmlNormalizer.normalize(WorkflowComparison.connectionsOrdered(
+            WorkflowComparison.reviewed(XmlTree.parse(xml).root(), false)));
     }
 
     private static ImportAssembler.Artifact artifact(Artifact artifact) {

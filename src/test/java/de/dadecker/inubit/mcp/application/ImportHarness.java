@@ -415,4 +415,44 @@ public final class ImportHarness {
         return audit.stream().filter(record -> record.capability().equals(capability))
             .toList();
     }
+
+    // --- feature 007: the order of a module's connections ------------------------------------
+
+    /**
+     * The connections ({@code moduleOutId/ConnectionId}) of a workflow module of
+     * {@code grp-a.zip}, in this order, as the fake server stores its workflow file: indented
+     * like the normalized archive after an import ({@code normalized}), else in one line as in
+     * the fixture.
+     */
+    public static String connections(boolean normalized, String... keys) {
+        StringBuilder text = new StringBuilder();
+        for (String key : keys) {
+            String[] parts = key.split("/");
+            text.append(normalized ? "          " : "").append("<Connection moduleOutId=\"")
+                .append(parts[0]).append("\">").append(normalized ? "\n            " : "")
+                .append("<ConnectionId>").append(parts[1]).append("</ConnectionId>")
+                .append(normalized ? "\n          " : "").append("</Connection>")
+                .append(normalized ? "\n" : "");
+        }
+        return text.toString();
+    }
+
+    /**
+     * {@code xml} (a workflow file of the fake server) with the two connections of
+     * {@code Workflow-0001}/{@code Module-0002} ({@code 4/9}, {@code 3/6}) swapped, in either
+     * form and either order; nothing else changes.
+     */
+    public static String swapModule0002(String xml) {
+        for (boolean normalized : new boolean[] {true, false}) {
+            String pair = connections(normalized, "4/9", "3/6");
+            String swapped = connections(normalized, "3/6", "4/9");
+            if (xml.contains(pair)) {
+                return xml.replace(pair, swapped);
+            }
+            if (xml.contains(swapped)) {
+                return xml.replace(swapped, pair);
+            }
+        }
+        throw new IllegalStateException("the connections of Module-0002 are not in the file");
+    }
 }

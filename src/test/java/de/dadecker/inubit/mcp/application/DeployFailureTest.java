@@ -110,6 +110,43 @@ class DeployFailureTest extends DeployExecution {
     }
 
     @Test
+    void aReExportWithSwappedConnectionsIsVerifiedWithoutRollback() {
+        // feature 007 (US2 scenario 1): INUBIT writes a module's connections in any order
+        harness(false);
+        source(server -> server.publishWorkflow("Workflow-0001", xml -> xml.replace(
+            "<ConnectionId>5</ConnectionId>", "<ConnectionId>7</ConnectionId>")), true);
+        DeployHarness.TARGETS.forEach(this::nodeExports);
+        DeploymentPreview preview = harness.deployService(List.of()).deploy(request(
+            java.util.Optional.empty())).preview().orElseThrow();
+        String workflow = "--importWorkflow --importWorkflowInactive --importUser 'jdoe'"
+            + " --returnProtocol";
+        executeStart();
+        for (var node : DeployHarness.TARGETS) {
+            nodeExports(node); // re-check
+            harness.importRepositoryApplied(node).importApplied(node, MODULE_IMPORT)
+                .importApplied(node, workflow);
+            if (node.equals(DeployHarness.INT1)) {
+                harness.cli.get(node).then(spec -> harness.servers.get(DeployHarness.INT1)
+                    .tamperNextImport = new String[] {DeployHarness.connections("4/9", "3/6"),
+                        DeployHarness.connections("3/6", "4/9")});
+            }
+            nodeExports(node); // verification
+            harness.tagVerified(node, "GRP-01", TAG);
+        }
+
+        DeploymentResult result = execute(preview);
+
+        assertThat(result.outcome()).isEqualTo(DeploymentResult.Outcome.EXECUTED);
+        assertThat(result.nodes()).extracting(NodeOutcome::state).containsExactly(
+            State.DEPLOYED, State.DEPLOYED, State.DEPLOYED);
+        assertThat(node(result, 0).imported()).contains("Workflow-0001");
+        assertThat(harness.servers.get(DeployHarness.INT1).imported).hasSize(2);
+        assertThat(String.join("", connections(DeployHarness.INT1)))
+            .isNotEqualTo(String.join("", connections(DeployHarness.INT2)));
+        harness.verifyComplete();
+    }
+
+    @Test
     void aFailingRollbackIsReportedAndTheBackupKept() {
         harness(false);
         DeploymentPreview preview = preview();
@@ -241,6 +278,54 @@ class DeployFailureTest extends DeployExecution {
             .readString(harness.root.resolve(report))).contains("Workflow-0001",
                 DeployHarness.RELEASE_XSL, "IsActive", "protocol"));
         assertThat(node(result, 1).state()).isEqualTo(State.NOT_STARTED);
+        harness.verifyComplete();
+    }
+
+    @Test
+    void aRollbackWhoseReExportHasSwappedConnectionsIsRolledBack() throws java.io.IOException {
+        // feature 007: the rollback's check compares the backup and the node without the order
+        // of a module's connections
+        harness(false);
+        String old = DeployHarness.RELEASE_XSL_V1.replace("'v1'", "'v0'");
+        DeployHarness.TARGETS.forEach(node -> harness.servers.get(node)
+            .putRepositoryFile(DeployHarness.RELEASE_XSL, old));
+        source(server -> server.publishWorkflow("Workflow-0001", xml -> xml.replace(
+            "<ConnectionId>5</ConnectionId>", "<ConnectionId>7</ConnectionId>")), true);
+        DeployHarness.TARGETS.forEach(this::nodeExports);
+        DeploymentPreview preview = harness.deployService(List.of()).deploy(request(
+            java.util.Optional.empty())).preview().orElseThrow();
+        executeStart();
+        nodeExports(DeployHarness.INT1); // re-check
+        harness.importRepositoryApplied(DeployHarness.INT1)
+            .importApplied(DeployHarness.INT1, MODULE_IMPORT)
+            .importApplied(DeployHarness.INT1, "--importWorkflow --importWorkflowInactive"
+                + " --importUser 'jdoe' --returnProtocol");
+        harness.cli.get(DeployHarness.INT1).then(spec -> harness.servers.get(
+            DeployHarness.INT1).tamperNextImport = new String[] {"<ConnectionId>7<",
+                "<ConnectionId>9<"}); // a real difference: verification fails
+        nodeExports(DeployHarness.INT1);
+        harness.importRepositoryApplied(DeployHarness.INT1)
+            .importApplied(DeployHarness.INT1, MODULE_IMPORT)
+            .importApplied(DeployHarness.INT1, "--importWorkflow --importUser 'jdoe'"
+                + " --returnProtocol");
+        harness.cli.get(DeployHarness.INT1).then(spec -> harness.servers.get(
+            DeployHarness.INT1).tamperNextImport = new String[] {DeployHarness.connections(
+                "4/9", "3/6"), DeployHarness.connections("3/6", "4/9")}); // the rollback's order
+        nodeExports(DeployHarness.INT1); // verification of the rollback
+
+        DeploymentResult result = execute(preview);
+
+        NodeOutcome first = node(result, 0);
+        assertThat(first.failure()).get().satisfies(failure -> assertThat(failure.code())
+            .isEqualTo(ErrorCode.VERIFY_MISMATCH));
+        assertThat(first.state()).isEqualTo(State.ROLLED_BACK);
+        // Workflow-0001 is back (5), with Module-0002's connections 3/6, 4/9 swapped
+        assertThat(connections(DeployHarness.INT1)).startsWith("<ConnectionId>5<",
+            "<ConnectionId>6<", "<ConnectionId>9<").doesNotContain("<ConnectionId>7<");
+        for (String report : result.reports()) {
+            assertThat(java.nio.file.Files.readString(harness.root.resolve(report)))
+                .doesNotContain("not back to its state before");
+        }
         harness.verifyComplete();
     }
 

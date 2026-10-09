@@ -286,4 +286,75 @@ class RestoreServiceTest {
             .containsExactly(AuditOutcome.CHALLENGE_ISSUED, AuditOutcome.PENDING,
                 AuditOutcome.EXECUTED);
     }
+
+    // --- feature 007: INUBIT writes a module's connections in any order (US1, FR-009) --------
+
+    /**
+     * Replaces the recorded state of {@code ref} with the fingerprint 0.5.0 computed: over the
+     * rendering the call left (the workspace file it wrote back), connections in file order.
+     */
+    private static String recordLegacyState(ImportHarness harness, String ref) {
+        String file = harness.workflow("Workflow-0001");
+        // Module-0002 lists 4/9 before 3/6: the ordered form differs from this rendering
+        assertThat(harness.read(file)).containsSubsequence("moduleOutId=\"4\"",
+            "moduleOutId=\"3\"");
+        String legacy = ConflictDetector.fingerprint(new java.util.TreeMap<>(Map.of(file,
+            harness.read(file).getBytes(StandardCharsets.UTF_8))));
+        BackupStore.Manifest m = harness.backups.find(ref).orElseThrow();
+        harness.backups.update(new BackupStore.Manifest(m.auditId(), m.node(), m.owner(),
+            m.scope(), m.changeSet(), m.created(), Map.of("Workflow-0001", legacy), m.outcome(),
+            m.takenAt(), m.zips(), m.kind(), m.groups(), m.repositoryPaths(), m.tag(),
+            m.source()));
+        return legacy;
+    }
+
+    @Test
+    void connectionsSwappedOnTheServerAfterTheCallAndThePreviewAreNoChange() throws IOException {
+        ImportHarness harness = ImportHarness.grpA(temp);
+        String ref = imported(harness);
+        harness.confirmation = WritePolicy.Confirmation.SERVER;
+        ImportService service = harness.service();
+        harness.exportGroup();
+        WritePreview preview = ((ImportService.Response.WriteChallenge) service.restore(
+            restore(ref))).preview();
+        harness.inubit.changeWorkflows(ImportHarness::swapModule0002);
+        harness.exportGroup().importRestored().exportGroup();
+
+        WriteOutcome outcome = completed(service.restore(new ImportService.RestoreRequest(
+            "dev/node1", ref, "Undo the move", Optional.of(preview.confirmationCode()),
+            Optional.empty())));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(workflow0001(harness.inubit.workflowXml())).contains("xPos=\"120\"");
+    }
+
+    @Test
+    void aStateRecordedBeforeTheUpgradeIsStillRecognised() throws IOException {
+        ImportHarness harness = ImportHarness.grpA(temp);
+        String ref = imported(harness);
+        recordLegacyState(harness, ref);
+        harness.exportGroup().importRestored().exportGroup();
+
+        WriteOutcome outcome = completed(harness.service().restore(restore(ref)));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(workflow0001(harness.inubit.workflowXml())).contains("xPos=\"120\"");
+    }
+
+    @Test
+    void aRealChangeSinceACallRecordedBeforeTheUpgradeIsAConflict() throws IOException {
+        ImportHarness harness = ImportHarness.grpA(temp);
+        String ref = imported(harness);
+        recordLegacyState(harness, ref);
+        harness.inubit.changeWorkflows(xml -> xml.replace(ImportHarness.connections(true,
+            "4/9", "3/6"), ImportHarness.connections(true, "4/9", "3/7")));
+        harness.exportGroup();
+
+        ToolError error = refusal(harness, harness.service(), restore(ref), 1);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CONFLICT);
+        assertThat(error.message()).contains("Workflow-0001", ".reports/conflict-");
+    }
 }

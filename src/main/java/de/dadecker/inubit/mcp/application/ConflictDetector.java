@@ -34,6 +34,7 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -67,8 +68,8 @@ import java.util.stream.Stream;
  *       written.
  *   <li>Otherwise the result hands back the change set as compared, the raw exports (for the
  *       secret values and the backup), the fingerprint of the rendered scope (for the
- *       confirmation, research D-2) and the target's modules of the owner (for the
- *       referenced-module rule, D-25).
+ *       confirmation, research D-2; feature 007: over the connection-ordered renderings) and the
+ *       target's modules of the owner (for the referenced-module rule, D-25).
  * </ul>
  */
 public final class ConflictDetector {
@@ -77,12 +78,20 @@ public final class ConflictDetector {
     private static final String REPORTS = ".reports";
 
     /**
+     * The rendered bytes as they are: byte-exact fingerprints, for tests of the detector. The
+     * import service fingerprints the connection-ordered renderings instead (feature 007,
+     * {@code ImportArchivePort::connectionOrdered}).
+     */
+    public static final BiFunction<String, byte[], byte[]> RENDERED = (path, file) -> file;
+
+    /**
      * What the fresh export showed.
      *
      * @param changes       the change set as compared: new artifacts the server has already are
      *                      {@code EXISTING} or, with the same content, identical (not sent)
      * @param rawExports    the raw (unredacted) exports, in memory only
-     * @param fingerprint   {@code sha256:<hex>} over the rendered artifact files of the scope
+     * @param fingerprint   {@code sha256:<hex>} over the rendered artifact files of the scope,
+     *                      in the form the detector fingerprints them in
      * @param targetModules the module names of the owner on the target
      * @param rendered      the rendered (redacted) files of the export, {@code .meta/} included
      */
@@ -109,14 +118,18 @@ public final class ConflictDetector {
     private final Function<NodeId, ArtifactPort> artifacts;
     private final Function<NodeId, InventoryPort> inventory;
     private final ContentEquivalence equivalence;
+    private final BiFunction<String, byte[], byte[]> fingerprinted;
 
-    /** Compares byte by byte. */
+    /** Compares byte by byte; fingerprints the {@link #RENDERED} bytes (tests). */
     public ConflictDetector(Path root, VersionHistoryPort history, ArchiveCodecPort codec,
         Function<NodeId, ArtifactPort> artifacts, Function<NodeId, InventoryPort> inventory) {
         this(root, history, codec, artifacts, inventory, ContentEquivalence.BYTES);
     }
 
     /**
+     * Fingerprints the {@link #RENDERED} bytes (tests); production code passes the
+     * connection-ordered form to the full constructor.
+     *
      * @param root        the workspace root (for {@code .reports/})
      * @param artifacts   the exports of a node
      * @param inventory   the module list of a node
@@ -125,6 +138,17 @@ public final class ConflictDetector {
     public ConflictDetector(Path root, VersionHistoryPort history, ArchiveCodecPort codec,
         Function<NodeId, ArtifactPort> artifacts, Function<NodeId, InventoryPort> inventory,
         ContentEquivalence equivalence) {
+        this(root, history, codec, artifacts, inventory, equivalence, RENDERED);
+    }
+
+    /**
+     * @param fingerprinted the form of a rendered file that enters the fingerprint (feature 007:
+     *                      {@code ImportArchivePort::connectionOrdered})
+     */
+    public ConflictDetector(Path root, VersionHistoryPort history, ArchiveCodecPort codec,
+        Function<NodeId, ArtifactPort> artifacts, Function<NodeId, InventoryPort> inventory,
+        ContentEquivalence equivalence, BiFunction<String, byte[], byte[]> fingerprinted) {
+        this.fingerprinted = Objects.requireNonNull(fingerprinted, "fingerprinted");
         this.equivalence = Objects.requireNonNull(equivalence, "equivalence");
         this.root = Objects.requireNonNull(root, "root");
         this.history = Objects.requireNonNull(history, "history");
@@ -278,7 +302,8 @@ public final class ConflictDetector {
             .forEach(path -> targetModules.add(path.segments().get(1)));
         ChangeSet compared = new ChangeSet(scope, changes.baseCommit(), workflows, modules,
             changes.notImported(), identical, changes.referenced());
-        return new Result(compared, raw, fingerprint(server), targetModules, rendered);
+        return new Result(compared, raw, fingerprint(server, fingerprinted), targetModules,
+            rendered);
     }
 
     /**
@@ -301,6 +326,22 @@ public final class ConflictDetector {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /**
+     * {@link #fingerprint(SortedMap)} over the files in the form {@code form} gives them (feature
+     * 007, contract P-4: the connection-ordered renderings, so that the order INUBIT writes the
+     * connections of a workflow module in does not count); {@code .meta/} stays out.
+     */
+    public static String fingerprint(SortedMap<String, byte[]> files,
+        BiFunction<String, byte[], byte[]> form) {
+        SortedMap<String, byte[]> formed = new TreeMap<>();
+        files.forEach((path, content) -> {
+            if (!path.startsWith(META)) {
+                formed.put(path, form.apply(path, content));
+            }
+        });
+        return fingerprint(formed);
     }
 
     /** True (and the difference appended) if a file of {@code paths} differs from its base. */

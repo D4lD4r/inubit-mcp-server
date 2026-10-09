@@ -267,4 +267,73 @@ class WorkspaceWriterTest {
             ".meta/dev/OWNERS/modules/XSLT Converter/Module-0023/index.xml.json"))
             .contains("\"positions\"").containsPattern("(?s)\"position\" : 0.*\"position\" : 1");
     }
+
+    // --- feature 007: INUBIT writes a module's connections in any order (contract P-6) -------
+
+    private static final String WORKFLOW = "dev/jdoe/workflows/GRP-01/Workflow-0001.xml";
+    /** The connections of Workflow-0001/Module-0002 as the export archive holds them. */
+    private static final String PAIR = "<Connection moduleOutId=\"4\"><ConnectionId>9"
+        + "</ConnectionId></Connection><Connection moduleOutId=\"3\"><ConnectionId>6"
+        + "</ConnectionId></Connection>";
+    private static final String SWAPPED = "<Connection moduleOutId=\"3\"><ConnectionId>6"
+        + "</ConnectionId></Connection><Connection moduleOutId=\"4\"><ConnectionId>9"
+        + "</ConnectionId></Connection>";
+
+    /** {@code grp-a.zip} with the workflow archive changed by {@code change}. */
+    private static Rendered grpA(java.util.function.UnaryOperator<String> change) {
+        Map<String, byte[]> entries = new LinkedHashMap<>(ArtifactFixtures.entries("grp-a.zip"));
+        String workflows = new String(entries.get("workflow/workflow.xml"),
+            StandardCharsets.UTF_8);
+        String changed = change.apply(workflows);
+        assertThat(changed).isNotEqualTo(workflows);
+        entries.put("workflow/workflow.xml", changed.getBytes(StandardCharsets.UTF_8));
+        return WorkspaceWriter.render(redacted(ArtifactFixtures.zip(entries)), DEV, "jdoe");
+    }
+
+    @Test
+    void aWorkflowFileThatDiffersOnlyInConnectionOrderIsKept() throws IOException {
+        WorkspaceWriter.write(root, WorkspaceWriter.render(redacted("grp-a.zip"), DEV, "jdoe"));
+        byte[] before = Files.readAllBytes(root.resolve(WORKFLOW));
+        Rendered swapped = grpA(xml -> xml.replace(PAIR, SWAPPED));
+        assertThat(swapped.files().get(WORKFLOW)).isNotEqualTo(before);
+
+        WorkspaceWriter.write(root, swapped);
+
+        assertThat(Files.readAllBytes(root.resolve(WORKFLOW))).isEqualTo(before);
+    }
+
+    @Test
+    void aRealDifferenceBesideAnotherConnectionOrderIsWrittenExactly() throws IOException {
+        WorkspaceWriter.write(root, WorkspaceWriter.render(redacted("grp-a.zip"), DEV, "jdoe"));
+        Rendered changed = grpA(xml -> xml.replace(PAIR, SWAPPED.replace(">9<", ">10<")));
+
+        WorkspaceWriter.write(root, changed);
+
+        assertThat(Files.readAllBytes(root.resolve(WORKFLOW)))
+            .isEqualTo(changed.files().get(WORKFLOW));
+    }
+
+    @Test
+    void aNewWorkflowFileIsWrittenAsRendered() throws IOException {
+        Rendered swapped = grpA(xml -> xml.replace(PAIR, SWAPPED));
+
+        WorkspaceWriter.write(root, swapped);
+
+        assertThat(Files.readAllBytes(root.resolve(WORKFLOW)))
+            .isEqualTo(swapped.files().get(WORKFLOW));
+    }
+
+    @Test
+    void aWorkflowFileWithOtherFormattingIsRewrittenEvenIfOnlyTheOrderDiffers()
+        throws IOException {
+        // only a genuine rendering is kept: a file formatted otherwise gets the new rendering
+        WorkspaceWriter.write(root, WorkspaceWriter.render(redacted("grp-a.zip"), DEV, "jdoe"));
+        Path file = root.resolve(WORKFLOW);
+        Files.writeString(file, Files.readString(file).replace("\n  <", "\n    <"));
+        Rendered swapped = grpA(xml -> xml.replace(PAIR, SWAPPED));
+
+        WorkspaceWriter.write(root, swapped);
+
+        assertThat(Files.readAllBytes(file)).isEqualTo(swapped.files().get(WORKFLOW));
+    }
 }

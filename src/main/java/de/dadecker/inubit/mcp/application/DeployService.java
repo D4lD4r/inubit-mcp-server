@@ -18,6 +18,7 @@ import de.dadecker.inubit.mcp.domain.model.DeploymentResult;
 import de.dadecker.inubit.mcp.domain.model.PathChange;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
 import de.dadecker.inubit.mcp.domain.port.AuditPort;
+import de.dadecker.inubit.mcp.domain.port.ImportArchivePort;
 import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -81,8 +82,10 @@ public final class DeployService {
     public record Dependencies(Path root, Path deployments, String profile, DeployGuard guard,
         ReleaseDiscovery discovery, ReleasePlanner planner, DeploymentLedger ledger,
         WriteChallengeRegistry challenges, Duration ttl, AuditPort audit, Clock clock,
-        Supplier<UUID> ids, NodeDeployer deployer, VersionHistoryPort history) {
+        Supplier<UUID> ids, NodeDeployer deployer, VersionHistoryPort history,
+        ImportArchivePort archives) {
         public Dependencies {
+            Objects.requireNonNull(archives, "archives");
             Objects.requireNonNull(deployer, "deployer");
             Objects.requireNonNull(history, "history");
             Objects.requireNonNull(root, "root");
@@ -293,7 +296,11 @@ public final class DeployService {
             admitted.tag(), outcome, outcomes, commit, reports, warnings);
     }
 
-    /** Writes the verified state of the target into the workspace and commits it (D-12). */
+    /**
+     * Writes the verified state of the target into the workspace and commits it (D-12). A
+     * workflow file that differs from the verified rendering only in the order of a module's
+     * connections is kept (feature 007, contract P-6).
+     */
     private Optional<String> commit(DeployGuard.Admitted admitted, UUID auditId,
         ReleasePlanner.NodeState verified) {
         VersionHistoryPort history = d.history();
@@ -307,6 +314,11 @@ public final class DeployService {
         try {
             for (Map.Entry<String, byte[]> file : verified.rendered().entrySet()) {
                 Path path = d.root().resolve(file.getKey());
+                if (file.getKey().endsWith(".xml") && java.nio.file.Files.isRegularFile(path)
+                    && d.archives().differsOnlyInConnectionOrder(file.getKey(),
+                        java.nio.file.Files.readAllBytes(path), file.getValue())) {
+                    continue;
+                }
                 java.nio.file.Files.createDirectories(path.getParent());
                 java.nio.file.Files.write(path, file.getValue());
             }
@@ -433,7 +445,9 @@ public final class DeployService {
 
     /**
      * {@code OUTSIDE_CHAIN} for every changed or layout-only artifact whose current state on the
-     * node is not what the last deployment of this server wrote (research D-8).
+     * node is not what the last deployment of this server wrote (research D-8). A ledger entry
+     * written by 0.5.0 or earlier (connections of a workflow module in file order) is recognised
+     * too (feature 007, contract P-5).
      */
     private List<Warning> outsideChain(NodePlan plan) {
         Map<String, DeploymentLedger.Entry> entries = d.ledger().entries(plan.node());
@@ -446,7 +460,8 @@ public final class DeployService {
             String key = NodePlan.key(artifact);
             DeploymentLedger.Entry entry = entries.get(key);
             String state = plan.artifactStates().get(key);
-            if (entry == null || !entry.fingerprint().equals(state)) {
+            if (entry == null || (!entry.fingerprint().equals(state)
+                && !entry.fingerprint().equals(plan.legacyArtifactStates().get(key)))) {
                 warnings.add(new Warning(WarningKind.OUTSIDE_CHAIN, artifact.name(),
                     "changed on the target outside the chain" + (entries.isEmpty()
                         ? " (no earlier deployment by this server)" : entry == null

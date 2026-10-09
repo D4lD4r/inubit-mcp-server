@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workflow version="head" workflowType="technical">
+  <WorkflowName>Workflow-0001</WorkflowName>
+  <UserOrUserGroupName>jdoe</UserOrUserGroupName>
+  <CheckinComment>JD: Fixture###</CheckinComment>
+  <IsActive>false</IsActive>
+  <XPathVersion>3.1</XPathVersion>
+  <WorkflowModule moduleType="technical">
+    <ModuleId>10</ModuleId>
+    <ModuleName>Module-0010</ModuleName>
+    <OriginalModuleName>Module-0010</OriginalModuleName>
+    <StyleSheet xPos="120" yPos="230"/>
+    <Connection moduleOutId="171">
+      <ConnectionId>174</ConnectionId>
+      <StyleSheet labelPosition="60.833333333333336"/>
+    </Connection>
+    <Connection moduleOutId="315">
+      <ConnectionId>63</ConnectionId>
+      <StyleSheet labelPosition="49.705882352941174"/>
+    </Connection>
+  </WorkflowModule>
+  <WorkflowModule moduleType="technical">
+    <ModuleId>11</ModuleId>
+    <ModuleName>Module-0011</ModuleName>
+    <OriginalModuleName>Module-0011</OriginalModuleName>
+    <StyleSheet xPos="320" yPos="230"/>
+    <Connection moduleOutId="171">
+      <ConnectionId>174</ConnectionId>
+      <StyleSheet labelPosition="60.833333333333336"/>
+    </Connection>
+    <Connection moduleOutId="315">
+      <ConnectionId>63</ConnectionId>
+      <StyleSheet labelPosition="49.705882352941174"/>
+    </Connection>
+  </WorkflowModule>
+</Workflow>
