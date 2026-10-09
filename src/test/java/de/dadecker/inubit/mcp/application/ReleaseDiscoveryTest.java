@@ -166,5 +166,28 @@ class ReleaseDiscoveryTest {
         assertThat(release.diagramGroups()).containsExactly("GRP-01");
         harness.verifyComplete();
     }
-}
 
+    @Test
+    void connectionsInAnotherOrderOnOneSourceNodeAreNoInconsistency() throws IOException {
+        // feature 007 (US2 scenario 3): INUBIT writes a module's connections in any order
+        harness.tagged("GRP-01", "TAG-01");
+        releaseExports("TAG-01");
+        harness.exportGroup(DeployHarness.SOURCE);
+        String unswapped = discovery().discover(admitted("TAG-01"), AUDIT_ID).fingerprint();
+        DeployHarness other = new DeployHarness(temp.resolve("swapped"));
+        other.servers.get(DeployHarness.SOURCE).publishWorkflow("Workflow-0001",
+            DeployHarness::swapModule0002);
+        other.tagged("GRP-01", "TAG-01");
+        DeployHarness.SOURCES.forEach(node -> other.exportRelease(node, "TAG-01"));
+        other.exportGroup(DeployHarness.SOURCE);
+
+        ReleaseDiscovery.Release release = new ReleaseDiscovery(other::artifacts,
+            new ArchiveCodec(), new V81ReleaseArchives(), other.root).discover(
+                admitted("TAG-01"), AUDIT_ID);
+
+        assertThat(release.diagramGroups()).containsExactly("GRP-01");
+        assertThat(release.fingerprint()).isEqualTo(unswapped);
+        harness.verifyComplete();
+        other.verifyComplete();
+    }
+}

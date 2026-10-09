@@ -788,10 +788,15 @@ public final class NodeDeployer {
             != ArtifactClass.NEW).toList();
         Map<String, String> states = d.planner().artifactStates(admitted, release, existing,
             now);
+        // feature 007 (contract P-5): a deploy backup of 0.5.0 or earlier recorded the states
+        // with the connections of a workflow module in file order
+        Map<String, String> legacy = d.planner().legacyArtifactStates(admitted, release,
+            existing, now);
         List<String> changed = new ArrayList<>();
         for (PlannedArtifact artifact : existing) {
             String key = NodePlan.key(artifact);
-            if (!manifest.intendedState().get(key).equals(states.get(key))) {
+            String recorded = manifest.intendedState().get(key);
+            if (!recorded.equals(states.get(key)) && !recorded.equals(legacy.get(key))) {
                 changed.add(artifact.name());
             }
         }

@@ -315,7 +315,9 @@ public final class WorkspaceWriter {
      * Writes {@code rendered} below {@code root}: the affected sub-trees are replaced (files not
      * rendered again are deleted, empty directories removed), all rendered files written. A
      * module that a diagram group exported before but no longer does is removed, unless another
-     * export record of the owner still names it (FR-017).
+     * export record of the owner still names it (FR-017). An existing file is kept if only its
+     * check-in comment history grew ({@code .meta}) or, for a workflow, only the order of a
+     * module's connections differs (feature 007).
      */
     public static void write(Path root, Rendered rendered) {
         try {
@@ -360,13 +362,27 @@ public final class WorkspaceWriter {
                 }
                 byte[] existing = Files.readAllBytes(target);
                 if (!Arrays.equals(existing, file.getValue())
-                    && !onlyTheCommentHistoryGrew(file.getKey(), existing, file.getValue())) {
+                    && !onlyTheCommentHistoryGrew(file.getKey(), existing, file.getValue())
+                    && !onlyTheConnectionOrderFlipped(file.getKey(), existing,
+                        file.getValue())) {
                     Files.write(target, file.getValue());
                 }
             }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    /**
+     * True if {@code path} is a workflow file whose stored and new renderings differ only in the
+     * order INUBIT wrote the connections of a workflow module in (feature 007, FR-008, contract
+     * P-6): the stored file, itself a server rendering, is kept, so that a re-export with the
+     * other order changes no file. The workspace never holds a re-sorted form.
+     */
+    private static boolean onlyTheConnectionOrderFlipped(String path, byte[] existing,
+        byte[] rendered) {
+        return !path.startsWith(WorkspacePath.META_DIRECTORY + "/") && path.endsWith(".xml")
+            && WorkflowComparison.differsOnlyInConnectionOrder(existing, rendered);
     }
 
     /**

@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.domain.port.ImportArchivePort.Archive;
 import de.dadecker.inubit.mcp.domain.port.ImportArchivePort.Artifact;
 import de.dadecker.inubit.mcp.domain.port.ImportArchivePort.Build;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -148,5 +149,79 @@ class V81ImportArchivesTest {
             bytes(stylesheet))).isFalse();
         assertThat(archives.equivalent("dev/o/modules/A/M/x.bin", bytes("a\n"), bytes("a")))
             .isFalse();
+    }
+
+    // --- feature 007: the order of a module's connections (contract P-2) -------------------
+
+    private static final String WORKFLOW = "dev/jdoe/workflows/GRP-01/Workflow-0001.xml";
+
+    private static String text(byte[] bytes) {
+        return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    /** The rendered workspace file of {@code Workflow-0001} of {@code grp-a.zip}. */
+    private static String grpA() {
+        return text(WorkspaceWriter.render(new SecretRedactor().redact(new ArchiveReader().read(
+            ArtifactFixtures.bytes("grp-a.zip"))), GROUP, "jdoe").files().get(
+                "dev/jdoe/workflows/GRP-01/Workflow-0001.xml"));
+    }
+
+    @Test
+    void connectionsInAnotherOrderAreEquivalent() {
+        byte[] a = ConnectionOrderFixtures.bytes("workflow-a.xml");
+        byte[] b = ConnectionOrderFixtures.bytes("workflow-b.xml");
+        String module0002 = """
+                <Connection moduleOutId="4">
+                  <ConnectionId>9</ConnectionId>
+                </Connection>
+                <Connection moduleOutId="3">
+                  <ConnectionId>6</ConnectionId>
+                </Connection>
+            """;
+        String swapped = """
+                <Connection moduleOutId="3">
+                  <ConnectionId>6</ConnectionId>
+                </Connection>
+                <Connection moduleOutId="4">
+                  <ConnectionId>9</ConnectionId>
+                </Connection>
+            """;
+
+        assertThat(archives.equivalent(WORKFLOW, a, b)).isTrue();
+        assertThat(archives.equivalent(WORKFLOW, bytes(grpA()), bytes(
+            ConnectionOrderFixtures.edit(grpA(), module0002, swapped)))).isTrue();
+    }
+
+    @Test
+    void realDifferencesOfConnectionsStayDifferences() {
+        byte[] a = ConnectionOrderFixtures.bytes("workflow-a.xml");
+
+        ConnectionOrderFixtures.realDifferences().forEach((difference, other) ->
+            assertThat(archives.equivalent(WORKFLOW, a, bytes(other))).as(difference).isFalse());
+    }
+
+    @Test
+    void theConnectionOrderedRenderingKeepsEverythingElse() {
+        byte[] a = ConnectionOrderFixtures.bytes("workflow-a.xml");
+        byte[] b = ConnectionOrderFixtures.bytes("workflow-b.xml");
+        String withVolatile = "<Workflow><WorkflowName>W</WorkflowName><LastUpdate>01.01.2026"
+            + " 00:00:00</LastUpdate><WorkflowUId>u</WorkflowUId><WorkflowModule>"
+            + "<Connection moduleOutId=\"2\"/><Connection moduleOutId=\"1\"/></WorkflowModule>"
+            + "</Workflow>";
+
+        assertThat(archives.connectionOrdered(WORKFLOW, a)).isEqualTo(
+            archives.connectionOrdered(WORKFLOW, b)).isEqualTo(b);
+        assertThat(text(archives.connectionOrdered(WORKFLOW, bytes(withVolatile))))
+            .contains("<LastUpdate>01.01.2026 00:00:00</LastUpdate>", "<WorkflowUId>u<")
+            .containsSubsequence("moduleOutId=\"1\"", "moduleOutId=\"2\"");
+        // an embedded document, another file and unparsable XML: an unchanged copy
+        for (String path : List.of("dev/jdoe/modules/XSLT Converter/M/xslt.stylesheet.xsl",
+            "dev/jdoe/modules/A/M/x.bin", WORKFLOW)) {
+            byte[] file = bytes(path.endsWith(".xml") ? "<Workflow><WorkflowModule>" : "<x>\n"
+                + "  <b/><a/>\n</x>\n");
+            byte[] copy = archives.connectionOrdered(path, file);
+            assertThat(copy).as(path).isEqualTo(file).isNotSameAs(file);
+        }
+        assertThat(Arrays.equals(a, b)).isFalse();
     }
 }

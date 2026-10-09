@@ -14,6 +14,7 @@ import de.dadecker.inubit.mcp.domain.model.WritePreview;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -238,5 +239,93 @@ class SetActiveTest {
 
         assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
         harness.cli.verifyComplete();
+    }
+
+    // --- feature 007: INUBIT writes a module's connections in any order (US1) ----------------
+
+    @Test
+    void connectionsSwappedOnTheServerAfterThePreviewDoNotBlockTheActivation()
+        throws IOException {
+        ImportHarness harness = ImportHarness.grpA(temp);
+        harness.confirmation = WritePolicy.Confirmation.SERVER;
+        ImportService service = harness.service();
+        harness.exportGroup();
+        WritePreview preview = ((ImportService.Response.WriteChallenge) service.setActive(
+            request("Workflow-0001", true))).preview();
+        harness.inubit.changeWorkflows(ImportHarness::swapModule0002);
+        harness.exportGroup().importApplied(ACTIVE).exportGroup();
+
+        WriteOutcome outcome = completed(service.setActive(new ImportService.ActivationRequest(
+            "dev/node1", Optional.empty(), "GRP-01", "Workflow-0001", true, "Switch it",
+            Optional.of(preview.confirmationCode()), Optional.empty())));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(element(harness.inubit.workflowXml(), "Workflow-0001"))
+            .contains("<IsActive>true</IsActive>");
+    }
+
+    @Test
+    void anotherConnectionOnTheServerAfterThePreviewIsAConflict() throws IOException {
+        ImportHarness harness = ImportHarness.grpA(temp);
+        harness.confirmation = WritePolicy.Confirmation.SERVER;
+        ImportService service = harness.service();
+        harness.exportGroup();
+        WritePreview preview = ((ImportService.Response.WriteChallenge) service.setActive(
+            request("Workflow-0001", true))).preview();
+        harness.inubit.changeWorkflows(xml -> xml.replace(ImportHarness.connections(false,
+            "4/9", "3/6"), ImportHarness.connections(false, "4/9", "3/7")));
+        harness.exportGroup();
+
+        ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
+            () -> service.setActive(new ImportService.ActivationRequest("dev/node1",
+                Optional.empty(), "GRP-01", "Workflow-0001", true, "Switch it",
+                Optional.of(preview.confirmationCode()), Optional.empty())));
+
+        assertThat(exception).as("expected a refusal").isNotNull();
+        assertThat(exception.error().code()).isEqualTo(ErrorCode.CONFLICT);
+        harness.cli.verifyComplete();
+        assertThat(harness.inubit.imported).isEmpty();
+    }
+
+    /**
+     * Re-exports GRP-01 with {@code change} applied on the server and in the export, then
+     * activates Workflow-0001: the check for unimported edits compares the workspace file with
+     * its last server state, which must hold whether the export kept or wrote the file.
+     */
+    private WriteOutcome activateAfterReExport(java.util.function.UnaryOperator<String> change)
+        throws IOException {
+        ImportHarness harness = ImportHarness.grpA(temp);
+        harness.inubit.changeWorkflows(change);
+        Map<String, byte[]> entries = new java.util.LinkedHashMap<>(ArtifactFixtures
+            .entries(ImportHarness.withoutEditMode()));
+        entries.put("workflow/workflow.xml", change.apply(new String(entries.get(
+            "workflow/workflow.xml"), StandardCharsets.UTF_8)).getBytes(StandardCharsets.UTF_8));
+        harness.exports.artifacts.exports.put("GRP-01", ArtifactFixtures.zip(entries));
+        harness.exports.service().export(new WorkspaceService.ExportRequest(ImportHarness.DEV,
+            "jdoe", List.of("GRP-01"), List.of()));
+        harness.exportGroup().importApplied(ACTIVE).exportGroup();
+
+        WriteOutcome outcome = completed(harness.service().setActive(request("Workflow-0001",
+            true)));
+
+        harness.cli.verifyComplete();
+        return outcome;
+    }
+
+    @Test
+    void anExportThatKeptTheFileForAnotherConnectionOrderDoesNotBlockTheActivation()
+        throws IOException {
+        WriteOutcome outcome = activateAfterReExport(ImportHarness::swapModule0002);
+
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+    }
+
+    @Test
+    void anExportThatWroteTheFileDoesNotBlockTheActivation() throws IOException {
+        WriteOutcome outcome = activateAfterReExport(xml -> xml.replace(
+            "xPos=\"520\" yPos=\"130\"", "xPos=\"530\" yPos=\"130\""));
+
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
     }
 }

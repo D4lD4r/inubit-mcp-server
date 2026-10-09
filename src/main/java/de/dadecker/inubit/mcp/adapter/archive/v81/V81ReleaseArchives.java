@@ -40,7 +40,9 @@ import java.util.zip.ZipOutputStream;
  *   <li>{@link #equivalent} compares reviewed content: XML normalized, without the check-in
  *       comment, last update, UIDs and edit mode of a workflow or module entry, and without a
  *       workflow's {@code IsActive} (an existing workflow keeps the target's flag, a new one has
- *       no counterpart); other files byte by byte.
+ *       no counterpart); the connections of each workflow module in one order (feature 007,
+ *       {@link WorkflowComparison}); other files byte by byte. {@link #canonical} is the same
+ *       form with the flag, for fingerprints.
  *   <li>{@link #layoutOnly} is {@link LayoutDiff} on the reviewed forms.
  *   <li>{@link #keyMaterial} is {@link RepositoryArchive#isKeyMaterial}.
  * </ul>
@@ -52,8 +54,6 @@ public final class V81ReleaseArchives implements ReleaseArchivePort {
     private static final String USER_TAGS = "usertags.xml";
     private static final Pattern TAG_SEGMENT = Pattern.compile("@@@Tag: [^@]*@@@");
     private static final Pattern NUMBER = Pattern.compile("^\\d{1,9}$");
-    private static final Set<String> VOLATILE = Set.of("CheckinComment", "LastUpdate",
-        "WorkflowUId", "ModuleUId", "CheckoutUser");
 
     @Override
     public ReleaseExport normalize(byte[] releaseExport) {
@@ -88,7 +88,18 @@ public final class V81ReleaseArchives implements ReleaseArchivePort {
     @Override
     public byte[] canonical(String path, byte[] file) {
         try {
-            return XmlNormalizer.normalize(reviewed(XmlTree.parse(file).root(), false));
+            return compared(XmlTree.parse(file).root(), false);
+        } catch (RuntimeException e) {
+            return file.clone();
+        }
+    }
+
+    @Deprecated
+    @Override
+    public byte[] legacyCanonical(String path, byte[] file) {
+        try {
+            return XmlNormalizer.normalize(WorkflowComparison.reviewed(XmlTree.parse(file).root(),
+                false));
         } catch (RuntimeException e) {
             return file.clone();
         }
@@ -104,16 +115,14 @@ public final class V81ReleaseArchives implements ReleaseArchivePort {
         } catch (RuntimeException e) {
             return Arrays.equals(release, target);
         }
-        return Arrays.equals(XmlNormalizer.normalize(reviewed(left, true)),
-            XmlNormalizer.normalize(reviewed(right, true)));
+        return Arrays.equals(compared(left, true), compared(right, true));
     }
 
     @Override
     public boolean layoutOnly(String path, byte[] release, byte[] target) {
         try {
-            return LayoutDiff.layoutOnly(XmlNormalizer.normalize(reviewed(XmlTree.parse(release)
-                .root(), true)), XmlNormalizer.normalize(reviewed(XmlTree.parse(target).root(),
-                true)));
+            return LayoutDiff.layoutOnly(compared(XmlTree.parse(release).root(), true),
+                compared(XmlTree.parse(target).root(), true));
         } catch (RuntimeException e) {
             return false;
         }
@@ -211,23 +220,14 @@ public final class V81ReleaseArchives implements ReleaseArchivePort {
     }
 
     /**
-     * The root without the volatile children of a workflow or module entry; with
-     * {@code withoutActive} also without a workflow's {@code IsActive}.
+     * The normalized comparison form of {@code root} ({@link WorkflowComparison}): without the
+     * volatile children of a workflow or module entry — with {@code withoutActive} also without
+     * a workflow's {@code IsActive} — and with the connections of each workflow module in one
+     * order (feature 007).
      */
-    private static Element reviewed(Element root, boolean withoutActive) {
-        boolean workflow = root.localName().equals("Workflow");
-        if (!workflow && !root.localName().equals("Module")) {
-            return root;
-        }
-        List<Node> children = new ArrayList<>();
-        for (Node child : root.children()) {
-            if (child instanceof Element element && (VOLATILE.contains(element.localName())
-                || (withoutActive && workflow && element.localName().equals("IsActive")))) {
-                continue;
-            }
-            children.add(child);
-        }
-        return root.withChildren(children);
+    private static byte[] compared(Element root, boolean withoutActive) {
+        return XmlNormalizer.normalize(WorkflowComparison.connectionsOrdered(
+            WorkflowComparison.reviewed(root, withoutActive)));
     }
 
     /**

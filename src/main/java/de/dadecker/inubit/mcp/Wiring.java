@@ -274,7 +274,7 @@ final class Wiring implements AutoCloseable {
                 new ReleaseDiscovery(gateways::artifacts, codec, releases, workspace), planner,
                 ledger, challenges, config.defaults().effectiveDeployConfirmationTtl(), audit,
                 clock.clock(), UUID::randomUUID, nodeDeployer, new GitCli(workspace, profile.name(),
-                    new SystemProcessLauncher(), environment)));
+                    new SystemProcessLauncher(), environment), importArchives));
             this.deployRelease = Optional.of(new DeployReleaseTool(deploy,
                 config.resultLimits().maxItems()));
         }

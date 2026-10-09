@@ -129,6 +129,38 @@ class ImportConfirmationTest {
     }
 
     @Test
+    void connectionsSwappedOnTheServerAfterThePreviewAreNoChange() {
+        // feature 007 (US1 scenario 4): INUBIT writes a module's connections in any order
+        ImportPreview preview = preview("Move it");
+        harness.inubit.changeWorkflows(ImportHarness::swapModule0002);
+        harness.exportGroup().importApplied().exportGroup();
+
+        ImportService.Response response = service.importArtifacts(ImportHarness.confirmed(
+            harness.group("Move it"), preview.confirmationCode()));
+
+        harness.cli.verifyComplete();
+        assertThat(response).isInstanceOf(ImportService.Response.Completed.class);
+        assertThat(((ImportService.Response.Completed) response).outcome().outcome())
+            .isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(harness.inubit.imported).hasSize(1);
+    }
+
+    @Test
+    void anotherConnectionOnTheServerAfterThePreviewIsAConflict() {
+        ImportPreview preview = preview("Move it");
+        harness.inubit.changeWorkflows(xml -> ImportHarness.swapModule0002(xml).replace(
+            ImportHarness.connections(false, "3/6", "4/9"), ImportHarness.connections(false,
+                "3/6", "4/10")));
+        harness.exportGroup();
+
+        ToolError error = refusal(ImportHarness.confirmed(harness.group("Move it"),
+            preview.confirmationCode()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CONFLICT);
+        harness.cli.verifyComplete();
+    }
+
+    @Test
     void anExpiredCodeIsInvalid() {
         ImportPreview preview = preview("Move it");
         harness.clock.advance(Duration.ofMinutes(6));

@@ -130,6 +130,78 @@ class DeployExecuteTest extends DeployExecution {
     }
 
     @Test
+    void aVerifiedRenderingWithSwappedConnectionsDoesNotRewriteTheWorkspaceFile()
+        throws java.io.IOException {
+        // feature 007 (US3, contract P-6): the commit keeps a workflow file that differs only in
+        // the order of a module's connections
+        harness(false);
+        DeploymentPreview first = preview();
+        executeStart();
+        DeployHarness.TARGETS.forEach(this::deployed);
+        execute(first);
+        String file = "int/jdoe/workflows/GRP-01/Workflow-0001.xml";
+        byte[] before = java.nio.file.Files.readAllBytes(harness.root.resolve(file));
+        String commits = harness.workspace.git("log", "--format=%H", "--", file);
+        // the node whose verified state is committed presents the connections swapped
+        harness.servers.get(DeployHarness.INT3).publishWorkflow("Workflow-0001",
+            DeployHarness::swapModule0002);
+
+        DeploymentPreview second = preview();
+        executeStart();
+        DeployHarness.TARGETS.forEach(node -> {
+            nodeExports(node);
+            harness.tagVerified(node, "GRP-01", TAG);
+        });
+        DeploymentResult result = execute(second);
+
+        assertThat(result.outcome()).isEqualTo(DeploymentResult.Outcome.EXECUTED);
+        assertThat(java.nio.file.Files.readAllBytes(harness.root.resolve(file)))
+            .isEqualTo(before);
+        assertThat(harness.workspace.git("log", "--format=%H", "--", file)).isEqualTo(commits);
+        harness.verifyComplete();
+    }
+
+    @Test
+    void aVerifiedRenderingWithARealChangeIsWrittenAndCommitted() throws java.io.IOException {
+        // every other case writes the verified rendering exactly (contract P-6)
+        harness(false);
+        DeploymentPreview first = preview();
+        executeStart();
+        DeployHarness.TARGETS.forEach(this::deployed);
+        execute(first);
+        String file = "int/jdoe/workflows/GRP-01/Workflow-0001.xml";
+        byte[] before = java.nio.file.Files.readAllBytes(harness.root.resolve(file));
+        Consumer<FakeServer> change = server -> server.publishWorkflow("Workflow-0001", xml -> xml
+            .replace("<ConnectionId>5</ConnectionId>", "<ConnectionId>7</ConnectionId>"));
+        source(change, true);
+        DeployHarness.TARGETS.forEach(this::nodeExports);
+        DeploymentPreview second = harness.deployService(List.of()).deploy(request(
+            Optional.empty())).preview().orElseThrow();
+        executeStart();
+        DeployHarness.TARGETS.forEach(node -> {
+            nodeExports(node);
+            harness.importApplied(node, "--importWorkflow --importWorkflowInactive --importUser"
+                + " 'jdoe' --returnProtocol");
+            nodeExports(node);
+            harness.tagVerified(node, "GRP-01", TAG);
+        });
+
+        DeploymentResult result = execute(second);
+
+        assertThat(result.outcome()).isEqualTo(DeploymentResult.Outcome.EXECUTED);
+        byte[] verified = new de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec().prepare(
+            DeployHarness.INT3.group(), "jdoe", List.of(harness.servers.get(DeployHarness.INT3)
+                .exportWorkflowGroup("GRP-01").orElseThrow())).files().get(file);
+        byte[] now = java.nio.file.Files.readAllBytes(harness.root.resolve(file));
+        assertThat(now).isNotEqualTo(before).isEqualTo(verified);
+        assertThat(new String(now, java.nio.charset.StandardCharsets.UTF_8))
+            .contains("<ConnectionId>7</ConnectionId>");
+        assertThat(harness.workspace.git("show", "--name-only", "--format=", "HEAD").lines())
+            .contains(file);
+        harness.verifyComplete();
+    }
+
+    @Test
     void newWorkflowsTakeTheReleasesFlagInOneArchivePerFlag() {
         harness(true);
         source(server -> server.publishWorkflow("Workflow-0001", xml -> xml.replace(
@@ -172,6 +244,41 @@ class DeployExecuteTest extends DeployExecution {
         assertThat(target.active("Workflow-0001")).contains(true);
         assertThat(target.active("Workflow-0002")).contains(false);
         assertThat(target.importFlags).containsExactly(false, true);
+        harness.verifyComplete();
+    }
+
+    @Test
+    void aTargetWhoseConnectionsSwappedSinceThePreviewIsStillDeployed() {
+        // feature 007 (US2 scenario 4): INUBIT writes a module's connections in any order
+        harness(false);
+        DeploymentPreview preview = preview();
+        harness.servers.get(DeployHarness.INT2).publishWorkflow("Workflow-0001",
+            DeployHarness::swapModule0002);
+        executeStart();
+        DeployHarness.TARGETS.forEach(this::deployed);
+
+        DeploymentResult result = execute(preview);
+
+        assertThat(result.outcome()).isEqualTo(DeploymentResult.Outcome.EXECUTED);
+        assertThat(result.nodes()).extracting(DeploymentResult.NodeOutcome::state)
+            .containsExactly(State.DEPLOYED, State.DEPLOYED, State.DEPLOYED);
+        harness.verifyComplete();
+    }
+
+    @Test
+    void aTargetWithAnotherConnectionSinceThePreviewIsAConflict() {
+        harness(false);
+        DeploymentPreview preview = preview();
+        harness.servers.get(DeployHarness.INT2).publishWorkflow("Workflow-0001", xml -> xml
+            .replace(DeployHarness.connections("4/9", "3/6"), DeployHarness.connections("3/6",
+                "4/10")));
+        executeStart();
+
+        ToolErrorException e = failure(preview);
+
+        assertThat(e.error().code()).isEqualTo(ErrorCode.CONFLICT);
+        assertThat(harness.launches()).noneMatch(line -> line.contains(" import ")
+            || line.contains(" tag "));
         harness.verifyComplete();
     }
 

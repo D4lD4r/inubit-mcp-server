@@ -74,18 +74,34 @@ public interface ReleaseArchivePort {
     /**
      * The reviewed content of a rendered workspace file, for fingerprints: XML normalized and
      * without what differs between nodes or exports of the same content (check-in comment, last
-     * update, UIDs, edit mode); other files unchanged.
+     * update, UIDs, edit mode, the order of the connections of a workflow module); other files
+     * unchanged. Only compared or hashed, never imported or written.
      */
     byte[] canonical(String path, byte[] file);
 
     /**
+     * The reviewed content as {@link #canonical} computed it up to 0.5.0, with the connections
+     * of the workflow modules in the order of the file (feature 007, contract P-3, P-5): only to
+     * recognise fingerprints that 0.5.0 or earlier recorded (deploy backups, the deployment
+     * ledger); new fingerprints always use {@link #canonical}.
+     *
+     * @deprecated only for fingerprints recorded by ≤ 0.5.0; remove after 0.5.x
+     */
+    @Deprecated
+    byte[] legacyCanonical(String path, byte[] file);
+
+    /**
      * True if two versions of the rendered workspace file {@code path} have the same reviewed
-     * content (XML normalized; check-in comment, last update, UIDs, edit mode and — for
-     * workflows — the {@code IsActive} flag ignored).
+     * content (XML normalized; check-in comment, last update, UIDs, edit mode, the order of the
+     * connections of a workflow module and — for workflows — the {@code IsActive} flag
+     * ignored).
      */
     boolean equivalent(String path, byte[] release, byte[] target);
 
-    /** True if the rendered workflow files differ only in layout ({@code StyleSheet}). */
+    /**
+     * True if the rendered workflow files differ only in layout ({@code StyleSheet}), with the
+     * connections of each workflow module in one order.
+     */
     boolean layoutOnly(String path, byte[] release, byte[] target);
 
     /** True if the repository file is key material or a certificate (FR-015a). */

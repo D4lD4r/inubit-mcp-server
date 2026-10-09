@@ -63,6 +63,81 @@ class ImportRollbackTest {
         assertThat(workflow0001(before)).contains("xPos=\"120\"");
     }
 
+    // --- feature 007: INUBIT writes a module's connections in any order (US1) ----------------
+
+    /** The tamper that swaps the connections 4/9, 3/6 of Workflow-0001/Module-0002. */
+    private static String[] swapped() {
+        return new String[] {ImportHarness.connections(true, "4/9", "3/6"),
+            ImportHarness.connections(true, "3/6", "4/9")};
+    }
+
+    private static boolean noVerifyReport(Path root) throws IOException {
+        Path reports = root.resolve(".reports");
+        if (!java.nio.file.Files.isDirectory(reports)) {
+            return true;
+        }
+        try (var files = java.nio.file.Files.list(reports)) {
+            return files.noneMatch(file -> file.getFileName().toString().startsWith("verify-"));
+        }
+    }
+
+    @Test
+    void aReExportWithSwappedConnectionsIsExecutedWithoutRollback() throws IOException {
+        harness.inubit.tamperNextImport = swapped();
+        harness.exportGroup().importApplied().exportGroup();
+
+        ImportService.Response response = harness.service().importArtifacts(
+            harness.group("Risky change"));
+
+        harness.cli.verifyComplete();
+        WriteOutcome outcome = ((ImportService.Response.Completed) response).outcome();
+        assertThat(workflow0001(harness.inubit.workflowXml())).as("the server swapped them")
+            .contains(ImportHarness.connections(true, "3/6", "4/9"));
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.failure()).isEmpty();
+        assertThat(outcome.rollback()).isEmpty();
+        assertThat(outcome.reports()).noneMatch(report -> report.startsWith(".reports/verify-"));
+        assertThat(noVerifyReport(harness.root)).isTrue();
+        assertThat(harness.inubit.imported).hasSize(1);
+    }
+
+    @Test
+    void aReExportWithAnotherConnectionIsStillAVerifyMismatch() {
+        harness.inubit.tamperNextImport = new String[] {ImportHarness.connections(true, "4/9",
+            "3/6"), ImportHarness.connections(true, "3/6", "4/10")};
+        harness.exportGroup().importApplied().exportGroup().importApplied().exportGroup();
+
+        WriteOutcome outcome = run();
+
+        assertThat(outcome.failure()).hasValueSatisfying(failure -> {
+            assertThat(failure.code()).isEqualTo(ErrorCode.VERIFY_MISMATCH);
+            assertThat(failure.step()).isEqualTo("verify");
+        });
+        assertThat(outcome.rollback()).contains(WriteOutcome.Rollback.SUCCEEDED);
+        assertThat(outcome.reports()).anyMatch(r -> r.startsWith(".reports/verify-"));
+        restored();
+    }
+
+    @Test
+    void aRollbackWhoseReExportHasSwappedConnectionsSucceeded() {
+        harness.exportGroup();
+        harness.cli.expect("import ").then(spec -> {
+            harness.inubit.importArchive(ImportHarness.read(
+                de.dadecker.inubit.mcp.adapter.cli.ScriptedProcessLauncher.importFile(spec)));
+            // the rollback's import comes back with the connections in the other order
+            harness.inubit.tamperNextImport = swapped();
+        }).replying("import_nok");
+        harness.exportGroup().importApplied().exportGroup();
+
+        WriteOutcome outcome = run();
+
+        assertThat(outcome.failure().orElseThrow().code()).isEqualTo(ErrorCode.IMPORT_FAILED);
+        assertThat(workflow0001(harness.inubit.workflowXml())).as("the server swapped them")
+            .contains(ImportHarness.connections(true, "3/6", "4/9"));
+        assertThat(outcome.rollback()).contains(WriteOutcome.Rollback.SUCCEEDED);
+        restored();
+    }
+
     @Test
     void aRefusedImportThatChangedNothingNeedsNoRollback() {
         harness.exportGroup().importRefused().exportGroup();
@@ -249,6 +324,17 @@ class ImportRollbackTest {
                     return port.equivalent(path, expected, actual);
                 }
                 throw new IllegalStateException("boom");
+            }
+
+            @Override
+            public byte[] connectionOrdered(String path, byte[] file) {
+                return port.connectionOrdered(path, file);
+            }
+
+            @Override
+            public boolean differsOnlyInConnectionOrder(String path, byte[] existing,
+                byte[] rendered) {
+                return port.differsOnlyInConnectionOrder(path, existing, rendered);
             }
 
             @Override

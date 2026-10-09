@@ -311,7 +311,8 @@ public final class ReleasePlanner {
         writeDiff(base + ".diff", node, release, parts, target, targetRepository, artifacts,
             group, owner);
         NodePlan plan = new NodePlan(node, artifacts, warnings, errors, fingerprint,
-            artifactStates(artifacts, parts, target, targetRepository, group, owner),
+            artifactStates(artifacts, parts, target, targetRepository, group, owner, false),
+            artifactStates(artifacts, parts, target, targetRepository, group, owner, true),
             base + ".diff", base + ".txt");
         writeSummary(plan, admitted, auditId);
         return plan;
@@ -753,18 +754,22 @@ public final class ReleasePlanner {
 
     // --- state and reports ---------------------------------------------------------------------
 
-    /** The fingerprint of the node's current version of every release artifact it has. */
+    /**
+     * The fingerprint of the node's current version of every release artifact it has; with
+     * {@code legacy} as 0.5.0 and earlier computed it (feature 007, contract P-5).
+     */
     private Map<String, String> artifactStates(List<PlannedArtifact> artifacts, Parts parts,
         SortedMap<String, byte[]> target, Map<String, byte[]> targetRepository, GroupId group,
-        String owner) {
+        String owner, boolean legacy) {
         Map<String, String> states = new TreeMap<>();
         for (PlannedArtifact artifact : artifacts) {
             SortedMap<String, byte[]> files = files(artifact, parts.workflowPaths(), target,
                 targetRepository, group, owner);
             if (!files.isEmpty() && artifact.artifactClass() != ArtifactClass.ONLY_ON_TARGET
                 && artifact.artifactClass() != ArtifactClass.EXCLUDED) {
-                states.put(NodePlan.key(artifact), ConflictDetector.fingerprint(
-                    ReleaseDiscovery.canonical(d.releases(), files)));
+                states.put(NodePlan.key(artifact), ConflictDetector.fingerprint(legacy
+                    ? ReleaseDiscovery.legacyCanonical(d.releases(), files)
+                    : ReleaseDiscovery.canonical(d.releases(), files)));
             }
         }
         return states;
@@ -778,7 +783,20 @@ public final class ReleasePlanner {
         ReleaseDiscovery.Release release, List<PlannedArtifact> artifacts, NodeState state) {
         return artifactStates(artifacts, parts(release, admitted.target()),
             new TreeMap<>(state.rendered()), state.repository(), admitted.target(),
-            admitted.owner());
+            admitted.owner(), false);
+    }
+
+    /**
+     * As {@link #artifactStates(DeployGuard.Admitted, ReleaseDiscovery.Release, List,
+     * NodeState)}, computed like 0.5.0 and earlier did (connections of a workflow module in file
+     * order): only to recognise a state those versions recorded in a deploy backup (feature
+     * 007, contract P-5); never recorded.
+     */
+    public Map<String, String> legacyArtifactStates(DeployGuard.Admitted admitted,
+        ReleaseDiscovery.Release release, List<PlannedArtifact> artifacts, NodeState state) {
+        return artifactStates(artifacts, parts(release, admitted.target()),
+            new TreeMap<>(state.rendered()), state.repository(), admitted.target(),
+            admitted.owner(), true);
     }
 
     /**
