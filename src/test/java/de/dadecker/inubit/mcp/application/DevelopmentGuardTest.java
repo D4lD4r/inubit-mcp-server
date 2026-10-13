@@ -228,6 +228,23 @@ class DevelopmentGuardTest {
         assertThat(cliChecks).isEmpty();
     }
 
+    // --- feature 008, T013: a write of repository files is always confirmed on the server ------
+
+    @ParameterizedTest
+    @EnumSource(Confirmation.class)
+    void aRepositoryWriteIsAlwaysConfirmedOnTheServerAndKeepsTheRest(Confirmation configured) {
+        DevelopmentPolicy policy = new DevelopmentPolicy(DEV, false, true, configured,
+            Duration.ofMinutes(7), E2ePolicy.CONFIRM,
+            Optional.of(URI.create("https://inubit-dev.example.test:8443")), true);
+
+        DevelopmentPolicy write = guard().forRepositoryWrite(policy);
+
+        assertThat(write).isEqualTo(new DevelopmentPolicy(DEV, false, true, Confirmation.SERVER,
+            Duration.ofMinutes(7), E2ePolicy.CONFIRM,
+            Optional.of(URI.create("https://inubit-dev.example.test:8443")), true));
+        assertThat(cliChecks).isEmpty();
+    }
+
     // --- feature 005, T027: end-to-end tests on the nodes of a target group -------------------
 
     @ParameterizedTest

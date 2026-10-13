@@ -182,7 +182,7 @@ task.
     extensions.
   - An exported file keeps its `.meta` metadata unchanged except `contentSize`/`contentMD5`, and an
     upload with the node's metadata (EXISTING) keeps that metadata the same way.
-- [ ] T013 (after T009) `main/application/DevelopmentGuard.java`: `forRepositoryWrite(policy)` returns the
+- [X] T013 (after T009) `main/application/DevelopmentGuard.java`: `forRepositoryWrite(policy)` returns the
   policy with `confirmation = SERVER`, like `forDeploymentRestore` (D-6). Tests in
   `test/application/DevelopmentGuardTest.java`.
 

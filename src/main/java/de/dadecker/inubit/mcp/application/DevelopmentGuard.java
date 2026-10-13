@@ -143,6 +143,16 @@ public final class DevelopmentGuard {
     }
 
     /**
+     * Feature 008 (research D-6): {@code policy} as a write of repository files needs it —
+     * always a server code; everything else, the code's validity included, stays as configured.
+     */
+    public DevelopmentPolicy forRepositoryWrite(DevelopmentPolicy policy) {
+        return new DevelopmentPolicy(policy.node(), policy.production(), policy.enabled(),
+            WritePolicy.Confirmation.SERVER, policy.confirmationTtl(), policy.e2eTests(),
+            policy.soapBaseUrl(), policy.repositoryWrite());
+    }
+
+    /**
      * The policy of the node a development tool may run on.
      *
      * @throws ToolErrorException {@code INVALID_INPUT}, {@code TARGET_UNKNOWN},
