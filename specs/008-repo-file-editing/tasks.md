@@ -119,7 +119,7 @@ task.
   - `%XX` decoding;
   - a URI as a string literal in an `xsl:variable` is **not** a reference (spike section 10);
   - unparsable XML gives no references and no exception.
-- [ ] T007 Refactor `main/adapter/archive/v81/WorkspaceInspector.java` and
+- [X] T007 Refactor `main/adapter/archive/v81/WorkspaceInspector.java` and
   `main/application/ArtifactCheckService.java` to use the T006 scanner, which removes the duplicate
   `inubitrepository:` regex. The existing tests must stay green without changes.
 - [ ] T008 Test first in `test/domain/model/RepositoryClosureTest.java`, then
@@ -539,7 +539,9 @@ node's content equals the content before the import byte for byte.
   targets production.
 - [ ] T048 [P] `CHANGELOG.md` `[Unreleased]`: feature 008, with the behaviour change of exports
   (transitive repository closure), the new key `development.repository`, the new scopes, the new code
-  and the backup manifest fix.
+  and the backup manifest fix. Under "Fixed": `check_artifacts` decodes percent-escaped repository
+  paths before the existence check (no false `REPOSITORY_REF_MISSING` for e.g. `a%20b.xsd`), and its
+  messages show the decoded path (T007 review r2).
 - [ ] T049 Validate per quickstart.md:
   - `mvn -q clean verify`;
   - `mvn -q -Dtest=NoCustomerIdentifiersTest test` with the local lists (it must run, not skip);

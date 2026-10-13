@@ -82,8 +82,6 @@ public final class ArtifactCheckService {
 
     private static final Pattern DEMUX_KEY = Pattern.compile("^(.+)\\((\\d+)\\)@@@.*$");
     private static final Pattern DEFAULT_OUTPUT = Pattern.compile("^(.+)\\((\\d+)\\)$");
-    private static final Pattern REPOSITORY_REFERENCE =
-        Pattern.compile("inubitrepository:/+([^\"'<>&\\s]+)");
     private static final String SYSTEM_VARIABLE_PREFIX = "IS";
     private static final Set<String> SKIPPED = Set.of(".git", ".meta", ".tests", ".reports");
     private static final Set<String> XML_EXTENSIONS = Set.of("xml", "xsd", "xsl", "xslt",
@@ -594,12 +592,9 @@ public final class ArtifactCheckService {
         } catch (IOException e) {
             return; // binary documents carry no references
         }
-        Set<String> missing = new LinkedHashSet<>();
-        Matcher matcher = REPOSITORY_REFERENCE.matcher(text);
-        while (matcher.find()) {
-            if (!repositoryFileExists(path, matcher.group(1)) && missing.add(matcher.group(1))) {
-                findings.add(missingRepositoryFile(file, path, Optional.empty(),
-                    matcher.group(1)));
+        for (String reference : inspector.repositoryUris(text)) {
+            if (!repositoryFileExists(path, reference)) {
+                findings.add(missingRepositoryFile(file, path, Optional.empty(), reference));
             }
         }
     }
@@ -611,24 +606,26 @@ public final class ArtifactCheckService {
      */
     private static CheckFinding missingRepositoryFile(String file, WorkspacePath artifact,
         Optional<String> location, String reference) {
-        String[] segments = java.net.URLDecoder.decode(reference.replace("+", "%2B"),
-            StandardCharsets.UTF_8).split("/");
-        if (segments.length > 2 && segments[0].equals("Root")
-            && !segments[1].equals(artifact.owner())) {
+        String[] segments = reference.split("/");
+        if (segments.length > 3 && segments[1].equals("Root")
+            && !segments[2].equals(artifact.owner())) {
             return new CheckFinding(Severity.WARNING, Check.STRUCTURE, file, location,
-                "REPOSITORY_REF_UNVERIFIED", "inubitrepository:/" + reference + " belongs to"
+                "REPOSITORY_REF_UNVERIFIED", "inubitrepository:" + reference + " belongs to"
                     + " the repository of another owner, which is not part of this export;"
                     + " export that owner's artifacts to verify it");
         }
         return new CheckFinding(Severity.ERROR, Check.STRUCTURE, file, location,
-            "REPOSITORY_REF_MISSING", "inubitrepository:/" + reference
+            "REPOSITORY_REF_MISSING", "inubitrepository:" + reference
                 + " is not in the repository of the workspace");
     }
 
-    /** A repository file of any owner of the group, or withheld as key material. */
+    /**
+     * A repository file of any owner of the group, or withheld as key material;
+     * {@code repositoryPath} is a full repository path ({@code /Root/…}).
+     */
     private boolean repositoryFileExists(WorkspacePath artifact, String repositoryPath) {
         Path group = root.resolve(artifact.group().value());
-        List<String> segments = List.of(repositoryPath.split("/"));
+        List<String> segments = List.of(repositoryPath.substring(1).split("/"));
         if (segments.stream().anyMatch(s -> s.isEmpty() || s.equals("..") || s.equals("."))) {
             return false;
         }

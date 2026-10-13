@@ -39,9 +39,15 @@ import javax.xml.XMLConstants;
  *
  * <p>{@code %XX} escapes are decoded per path segment as UTF-8; a {@code +} stays a plus. Content
  * that is not well-formed XML has no references.
+ *
+ * <p>{@link #uriPaths} is the second mode, for {@code check_artifacts}: every
+ * {@code inubitrepository:} URI of a text, structural or not.
  */
 final class RepositoryReferences {
 
+    /** {@code inubitrepository:/Root/…} up to a quote, bracket, ampersand or white space. */
+    private static final Pattern REPOSITORY_URI =
+        Pattern.compile("inubitrepository:/+([^\"'<>&\\s]+)");
     private static final String XSLT_NAMESPACE = "http://www.w3.org/1999/XSL/Transform";
     private static final Set<String> XSLT_IMPORTS = Set.of("import", "include");
     private static final Set<String> SCHEMA_IMPORTS = Set.of("import", "include", "redefine");
@@ -60,6 +66,24 @@ final class RepositoryReferences {
             return List.of(); // not well-formed XML
         }
         return List.copyOf(references);
+    }
+
+    /**
+     * The repository paths of every {@code inubitrepository:} URI in {@code text}, wherever it
+     * stands (also in a string literal, an escaped stylesheet or text that is no XML); each once,
+     * in order. The wider coverage of {@code check_artifacts} (research D-3).
+     */
+    static List<String> uriPaths(String text) {
+        Set<String> paths = new LinkedHashSet<>();
+        Matcher matcher = REPOSITORY_URI.matcher(text);
+        while (matcher.find()) {
+            List<String> segments = new ArrayList<>();
+            for (String segment : matcher.group(1).split("/")) {
+                segments.add(unescape(segment));
+            }
+            paths.add("/" + String.join("/", segments));
+        }
+        return List.copyOf(paths);
     }
 
     private static void document(WorkspacePath from, Element root,
@@ -140,14 +164,8 @@ final class RepositoryReferences {
 
     private static void uris(WorkspacePath from, String text,
         Set<RepositoryReference> references) {
-        Matcher matcher = WorkspaceInspector.REPOSITORY_REFERENCE.matcher(text);
-        while (matcher.find()) {
-            List<String> segments = new ArrayList<>();
-            for (String segment : matcher.group(1).split("/")) {
-                segments.add(unescape(segment));
-            }
-            references.add(new RepositoryReference(from, "/" + String.join("/", segments),
-                Kind.URI));
+        for (String path : uriPaths(text)) {
+            references.add(new RepositoryReference(from, path, Kind.URI));
         }
     }
 

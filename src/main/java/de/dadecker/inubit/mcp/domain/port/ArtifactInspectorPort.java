@@ -34,4 +34,12 @@ public interface ArtifactInspectorPort {
      * well-formed XML.
      */
     List<RepositoryReference> repositoryReferences(WorkspacePath from, byte[] content);
+
+    /**
+     * The full repository paths ({@code /Root/…}, {@code %XX} decoded) of every
+     * {@code inubitrepository:} URI in {@code text}, wherever it stands, also in a string literal
+     * or a {@code document()} call and in text that is no XML; each once, in order. The wider
+     * coverage of {@code check_artifacts} (research D-3).
+     */
+    List<String> repositoryUris(String text);
 }

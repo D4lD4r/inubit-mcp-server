@@ -290,6 +290,67 @@ class ArtifactCheckServiceTest {
             });
     }
 
+    // --- T007: check_artifacts flags every inubitrepository: URI (research D-3) ----------------
+
+    @Test
+    void aMissingDocumentTargetInAnInlineWorkflowStylesheetIsMissing() throws IOException {
+        export(defect("repository-ref-missing"), "jdoe");
+        rewrite("dev/jdoe/workflows/GRP-01/Workflow-0001.xml", xml -> xml.replace(
+            "&lt;xsl:import href=\"inubitrepository:/Root/jdoe/xsl/missing.xsl\"/>",
+            "&lt;xsl:variable name=\"lookup\""
+                + " select=\"document('inubitrepository:/Root/jdoe/xml/lookup.xml')\"/>"));
+
+        assertThat(service().checkPaths(List.of("dev/jdoe/workflows"), false)).singleElement()
+            .satisfies(finding -> {
+                assertThat(finding.code()).isEqualTo("REPOSITORY_REF_MISSING");
+                assertThat(finding.message()).contains("/Root/jdoe/xml/lookup.xml");
+            });
+    }
+
+    @Test
+    void aMissingDocumentTargetInAnEmbeddedStylesheetIsMissing() throws IOException {
+        export(ArtifactFixtures.bytes("grp-b.zip"), "OWNERS");
+        String stylesheet = embedded("xslt.stylesheet.xsl");
+        rewrite(stylesheet, xsl -> xsl.replaceFirst("<xsl:template",
+            "<xsl:variable name=\"lookup\""
+                + " select=\"document('inubitrepository:/Root/OWNERS/xml/lookup.xml')\"/>"
+                + "<xsl:template"));
+
+        assertThat(repositoryFindings()).singleElement().satisfies(finding -> {
+            assertThat(finding.code()).isEqualTo("REPOSITORY_REF_MISSING");
+            assertThat(finding.path()).isEqualTo(stylesheet);
+            assertThat(finding.message()).contains("/Root/OWNERS/xml/lookup.xml");
+        });
+    }
+
+    @Test
+    void aMissingUriInAnEmbeddedDocumentThatIsNoXmlIsMissing() throws IOException {
+        export(ArtifactFixtures.bytes("grp-b.zip"), "OWNERS");
+        String json = "dev/OWNERS/modules/JSON Validator/Module-0018/JSONStaticSchema.bin";
+        rewrite(json, schema -> schema.replace("\"$schema\"",
+            "\"$comment\": \"inubitrepository:/Root/OWNERS/json/missing.json\", \"$schema\""));
+
+        assertThat(repositoryFindings()).singleElement().satisfies(finding -> {
+            assertThat(finding.code()).isEqualTo("REPOSITORY_REF_MISSING");
+            assertThat(finding.path()).isEqualTo(json);
+            assertThat(finding.message()).contains("/Root/OWNERS/json/missing.json");
+        });
+    }
+
+    /** The workspace path of the first embedded document named {@code name}. */
+    private String embedded(String name) throws IOException {
+        try (Stream<Path> files = Files.walk(root.resolve("dev/OWNERS/modules"))) {
+            return files.filter(f -> f.getFileName().toString().equals(name)).sorted()
+                .findFirst().map(f -> root.relativize(f).toString().replace('\\', '/'))
+                .orElseThrow();
+        }
+    }
+
+    private List<CheckFinding> repositoryFindings() {
+        return service().checkPaths(List.of("dev"), false).stream()
+            .filter(f -> f.code().startsWith("REPOSITORY_REF")).toList();
+    }
+
     @Test
     void aMissingParentIsAnError() throws IOException {
         export(ArtifactFixtures.bytes("grp-b.zip"), "OWNERS");

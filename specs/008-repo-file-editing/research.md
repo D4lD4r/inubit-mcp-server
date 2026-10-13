@@ -134,6 +134,18 @@ It is used in three places:
   string-literal false positives.
 - Following only `inubitrepository:` URIs. Rejected: XSDs normally use relative `xs:include`.
 
+**Two uses of the scanner (decision during T007 review)**: the closure (export, import) follows only
+**structural** references: `xsl:import`/`xsl:include`/`xs:import`/`xs:include`/`xs:redefine`, and
+`inubitrepository:` URIs outside XSLT and schema documents. These are what INUBIT's export carries
+(spike section 10). `check_artifacts` keeps its previous, wider coverage:
+- every `inubitrepository:` URI in modules, embedded documents and workflow texts, including
+  `document('inubitrepository:…')` calls and URIs in `xsl:variable`;
+- raw-text scanning of documents that are not well-formed XML.
+
+The check is a superset of the closure, so a missing structural reference is always reported, and a
+missing runtime lookup file still is too. The scanner offers both modes from one pattern and one
+decoding.
+
 **Effect on feature 003**: an export can now write more repository files than before, namely the
 indirectly referenced ones. This is a behaviour change. It is documented in `docs/setup.md` and
 the CHANGELOG and covered by `WorkspaceWriterTest`.
