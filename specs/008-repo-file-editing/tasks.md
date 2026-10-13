@@ -326,7 +326,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
   change on the node between preview and execute gives `CONFLICT` and a change in the workspace
   gives `CONFIRMATION_INVALID` (feature-004 contract, docs/tools.md; T023 review). Test in
   `test/application/RepositoryImportTest.java`.
-- [ ] T024 [US1] Switch enforcement (FR-004, D-5). Write failing tests in
+- [X] T024 [US1] Switch enforcement (FR-004, D-5). Write failing tests in
   `test/application/RepositoryImportTest.java`:
   - On a `READ_ONLY` node, a change set with a MODIFIED repository file is refused with
     `REPOSITORY_WRITE_DENIED` **before any CLI launch**.

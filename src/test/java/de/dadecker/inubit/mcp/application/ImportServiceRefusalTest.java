@@ -252,9 +252,10 @@ class ImportServiceRefusalTest {
     void aReferencedRepositoryFileIsRefusedUntilRepositoryFilesCanBeSent() throws IOException {
         // feature 008 interim (T021, T023): a change set with repository files is previewed, but
         // its execution is refused until RepositoryStep sends them (T031): workflows and modules
-        // never go without their repository files (FR-004)
+        // never go without their repository files (FR-004); the node may write repository files
         ImportHarness harness = ImportHarness.grpA(temp);
         harness.confirmation = WritePolicy.Confirmation.SERVER;
+        harness.repositoryWrite(ImportHarness.DEV, true);
         String schema = "<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"/>\n";
         String file = harness.repositoryFile("xsd/a.xsd", schema, "application/x-xsd+xml");
         harness.exports.history.commitAll("export dev/jdoe: repository", java.util.Map.of(

@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.application;
 import de.dadecker.inubit.mcp.domain.model.ArtifactClass;
 import de.dadecker.inubit.mcp.domain.model.ChangeSet;
 import de.dadecker.inubit.mcp.domain.model.ChangedArtifact;
+import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.RepositoryUpload;
@@ -60,6 +61,10 @@ import java.util.function.Supplier;
  *       ({@link ReleaseArchivePort#repositoryArchiveFromFiles}) with {@code INVALID_INPUT}; a
  *       MODIFIED file whose {@code .meta} metadata is no longer readable with
  *       {@code PRECONDITION_FAILED}.
+ *   <li><b>Switch</b> (FR-004, D-5 step 5): on a node whose {@code development.repository} is
+ *       {@code READ_ONLY}, a change set with a repository file to send is refused with
+ *       {@code REPOSITORY_WRITE_DENIED} ({@link #requireWritable}); before the node read already
+ *       if a file is MODIFIED in the workspace ({@link #requireWritableBeforeRead}).
  *   <li><b>Uploads</b> ({@link RepositoryUpload}) of the files to send: MODIFIED with the
  *       {@code .meta} metadata, EXISTING with the node's metadata from the export (it keeps the
  *       node's content type and description), {@code create} without (synthesized on build).
@@ -230,6 +235,46 @@ final class RepositoryStep {
             changes.workflows(), changes.modules(), repository, changes.notImported(), identical,
             changes.referenced());
         return new NodeState(classified, held, raw, fingerprint(held), uploads);
+    }
+
+    /**
+     * The cheap pre-check of the switch right after the change set is built, before anything is
+     * read (research D-5 step 5): a repository file MODIFIED in the workspace differs from its
+     * base and is always sent, so on a read-only node the call is refused at once.
+     *
+     * @throws ToolErrorException {@code REPOSITORY_WRITE_DENIED} naming the change set's
+     *     repository files
+     */
+    static void requireWritableBeforeRead(DevelopmentPolicy policy, ChangeSet changes) {
+        if (changes.repository().stream()
+            .anyMatch(file -> file.kind() == ChangedArtifact.Kind.MODIFIED)) {
+            requireWritable(policy, changes);
+        }
+    }
+
+    /**
+     * The switch check after the node read ({@link NodeState#changes()}), before anything is
+     * sent: every repository file still in the change set is created or modified, the identical
+     * ones are not; reading is always allowed (FR-004).
+     *
+     * @throws ToolErrorException {@code REPOSITORY_WRITE_DENIED} naming the repository files to
+     *     send, if the node is read-only and there is one
+     */
+    static void requireWritable(DevelopmentPolicy policy, ChangeSet changes) {
+        if (policy.repositoryWrite() || changes.repository().isEmpty()) {
+            return;
+        }
+        NodeId node = policy.node();
+        throw new ToolErrorException(ToolError.of(ErrorCode.REPOSITORY_WRITE_DENIED,
+            "development.repository is READ_ONLY on " + node + "; the change set holds the"
+                + " repository files " + String.join(", ", changes.repository().stream()
+                    .map(ChangedArtifact::name).toList()) + " to send, so the whole call is"
+                + " refused and nothing was sent",
+            "Repository files may only be written on a development node whose"
+                + " development.repository is WRITE; reading them is always allowed",
+            "Revert the repository files in the workspace (git restore), or ask the"
+                + " administrator to set development.repository: WRITE on " + node
+                + "; then import again").withNode(node));
     }
 
     /**

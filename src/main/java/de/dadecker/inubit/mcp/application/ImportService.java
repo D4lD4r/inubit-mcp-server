@@ -73,7 +73,10 @@ import org.slf4j.LoggerFactory;
  *       {@link DevelopmentGuard} — nothing reads INUBIT before;
  *   <li>the workspace lock for the whole call (FR-027), the backup retention sweep (audited),
  *       uncommitted edits recorded as local changes;
- *   <li>the change set ({@link ChangeSetBuilder}); an empty one sends nothing (SC-003);
+ *   <li>the change set ({@link ChangeSetBuilder}); an empty one sends nothing (SC-003); on a
+ *       node whose {@code development.repository} is {@code READ_ONLY}, a repository file
+ *       MODIFIED in the workspace refuses the call at once ({@code REPOSITORY_WRITE_DENIED},
+ *       feature 008, FR-004);
  *   <li>the checks of feature 003 on the change set — an ERROR refuses with a findings report;
  *   <li>with a confirmation code: the code must match the inputs and the workspace of its
  *       preview ({@code CONFIRMATION_INVALID} otherwise, "preview again");
@@ -82,7 +85,8 @@ import org.slf4j.LoggerFactory;
  *       target; with a code, a server state other than the previewed one is {@code CONFLICT};
  *       a new artifact the target has already is updated, or not sent if identical (0.4.2);
  *       repository files are read and classified by {@link RepositoryStep}, and their node state
- *       joins the server state (feature 008, research D-5);
+ *       joins the server state (feature 008, research D-5); on a read-only node, any repository
+ *       file to create or modify refuses the whole call ({@code REPOSITORY_WRITE_DENIED});
  *   <li>the import archive with only the change set and the target's current secrets;
  *   <li>server confirmation without a code: the preview with a code, audited — nothing sent;
  *   <li>the backup (the raw export of the scope and a manifest), then the {@code PENDING}
@@ -361,6 +365,7 @@ public final class ImportService {
         ImportScope scope = scope(call, request, node);
         ChangeSet changes = builder.build(scope);
         call.changes = changes;
+        RepositoryStep.requireWritableBeforeRead(policy, changes);
         if (changes.isEmpty()) {
             UUID auditId = d.ids().get();
             List<String> warnings = new ArrayList<>(List.of("Nothing changed in the workspace"
@@ -396,6 +401,7 @@ public final class ImportService {
         ConflictDetector.Result fresh = detector.detect(node, changes, auditId);
         if (!changes.repository().isEmpty()) {
             fresh = fresh.withRepository(repository.nodeState(node, fresh.changes(), auditId));
+            RepositoryStep.requireWritable(policy, fresh.changes());
         }
         requireReferencedModules(node, changes, fresh.targetModules());
         if (previewedServer.isPresent() && !previewedServer.get().equals(fresh.fingerprint())) {
