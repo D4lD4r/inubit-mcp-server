@@ -142,12 +142,15 @@ public final class ConfigSummary {
 
     /**
      * Feature 004 (FR-005): {@code development: on (confirmation …) | off, e2e: FREE (<url>) |
-     * CONFIRM (<url>) | FORBIDDEN}; the URL without user information.
+     * CONFIRM (<url>) | FORBIDDEN}; the URL without user information. Feature 008: a development
+     * node adds {@code repository: write | read-only} (the effective switch) after its
+     * confirmation.
      */
     private static String development(EffectiveNodeConfig server) {
         DevelopmentPolicy policy = server.developmentPolicy();
         String development = policy.enabled() ? "development: on (confirmation "
-            + policy.confirmation() + ")" : "development: off";
+            + policy.confirmation() + "), repository: "
+            + (policy.repositoryWrite() ? "write" : "read-only") : "development: off";
         String e2e = "e2e: " + policy.e2eTests() + (policy.e2eTests() == E2ePolicy.FORBIDDEN
             ? "" : policy.soapBaseUrl().map(url -> " (" + withoutUserInfo(url) + ")")
                 .orElse(""));

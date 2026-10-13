@@ -100,15 +100,52 @@ class ConfigSummaryTest {
             """);
 
         assertThat(summary).contains("test/inubit01: read-only, development: on (confirmation"
-            + " SERVER), e2e: CONFIRM (https://inubit-test.example.test:8443/soap), cli:");
+            + " SERVER), repository: read-only, e2e: CONFIRM (https://inubit-test.example.test:8443/soap), cli:");
         assertThat(summary).contains("test/inubit02: read-only, development: on (confirmation"
-            + " CLIENT), e2e: FREE (https://inubit-test.example.test:8443/soap), cli:");
+            + " CLIENT), repository: read-only, e2e: FREE (https://inubit-test.example.test:8443/soap), cli:");
         assertThat(summary).contains("prod/inubit01: read-only, development: off, e2e:"
             + " FORBIDDEN, cli:");
         // research D-26: there are no owner kinds any more
         assertThat(summary).doesNotContain("Owner kinds");
         assertThat(render(CONFIG)).as("a profile without development settings prints as"
             + " before").doesNotContain("Owner kinds", "development:", "e2e:");
+    }
+
+    // --- feature 008 T016: the repository switch (contracts/configuration-delta.md) ------------
+
+    @Test
+    void developmentNodesShowTheEffectiveRepositorySwitch() {
+        String summary = render("""
+            profile:
+              name: acme
+            defaults:
+              development:
+                repository: WRITE
+            groups:
+              - name: dev
+                development:
+                  enabled: true
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit-dev-01.example.test:8443
+                  - name: node2
+                    baseUrl: https://inubit-dev-02.example.test:8443
+                    development:
+                      repository: READ_ONLY
+              - name: test
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit-test-01.example.test:8443
+            """);
+
+        assertThat(summary).contains("dev/node1: read-only, development: on (confirmation"
+            + " SERVER), repository: write, e2e: FORBIDDEN, cli:");
+        assertThat(summary).contains("dev/node2: read-only, development: on (confirmation"
+            + " SERVER), repository: read-only, e2e: FORBIDDEN, cli:");
+        assertThat(summary.lines().filter(line -> line.contains("Node test/node1")).findFirst())
+            .as("the inherited WRITE has no effect and is not shown off the development stage")
+            .get().asString().contains("development: off, e2e: FORBIDDEN")
+            .doesNotContain("repository:");
     }
 
     // --- T034: the workspace line (FR-004) -------------------------------------------------------
