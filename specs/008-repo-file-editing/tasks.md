@@ -68,7 +68,7 @@ task.
     - the duration of one repository export and one import;
     - whether a group tag covers a repository file referenced only by another repository file;
     - whether a diagram-group export puts such an indirectly referenced file into `Repository.zip`.
-- [ ] T002 Neutralize the T001 outputs into
+- [X] T002 Neutralize the T001 outputs into
   `fixtures/cli/export_repository_folder.{zip,stdout,stderr,exit}` (nested folders, one `.xsd`
   including another relatively), `import_repository_new_files.{stdout,stderr,exit}`,
   `export_repository_after_import.zip` and `export_repository_types.zip` (one file per extension).

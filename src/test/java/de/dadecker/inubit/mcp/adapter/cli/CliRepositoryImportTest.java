@@ -100,6 +100,19 @@ class CliRepositoryImportTest {
     }
 
     @Test
+    void theRecordedImportOfNewFilesInNewFoldersSucceeds() throws IOException {
+        // T002 (feature 008, probe P-2): no progress text ends with a line break, so the
+        // 1-OK message follows the last one on the same line
+        cli.expect(Pattern.compile("^import --importFile '[^']+/import\\.zip'"
+                + " --importRepositoryPath '/Root/jdoe'$"))
+            .replying("import_repository_new_files");
+
+        imports().importRepository(ARCHIVE, "jdoe");
+
+        assertTempRootEmpty();
+    }
+
+    @Test
     void aRefusedImportIsImportFailed() throws IOException {
         cli.expect("import ").replying("import_nok");
 

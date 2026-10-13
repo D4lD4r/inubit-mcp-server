@@ -161,6 +161,49 @@ class V81ReleaseArchivesTest {
             .isFalse();
     }
 
+    // --- feature 008: nested folders (probe P-2, T002) -----------------------------------------
+
+    private static final String MAIN = "/Root/jdoe/xsd/P8/folder/main.xsd";
+    private static final String INCLUDED = "/Root/jdoe/xsd/P8/folder/sub/included.xsd";
+
+    @Test
+    void readsTheFilesOfANestedFolderExport() {
+        byte[] folder = cliFixture("export_repository_folder.zip");
+
+        assertThat(archives.repositoryExport(folder)).isTrue();
+        Map<String, byte[]> files = archives.repositoryFiles(folder);
+        assertThat(files).hasSize(16).containsKeys("/Root/jdoe/xsd/probe.xsd",
+            "/Root/jdoe/xsd/probe.xsl", MAIN, INCLUDED, "/Root/jdoe/xsd/P8/types/probe.wsdl",
+            "/Root/jdoe/xsd/P8/untyped/probe.xslt", "/Root/jdoe/xsd/P8/nested/inner-uri.xsl");
+        assertThat(text(files.get(MAIN)))
+            .contains("<xs:include schemaLocation=\"sub/included.xsd\"/>");
+        // LF only, no trailing newline: the bytes the probe sent
+        assertThat(files.get(INCLUDED)).hasSize(193).doesNotContain((byte) '\r')
+            .endsWith((byte) '>');
+    }
+
+    @Test
+    void theExportAfterTheImportHoldsTheNewFilesInVersionOne() {
+        byte[] after = cliFixture("export_repository_after_import.zip");
+        Map<String, byte[]> later = archives.repositoryFiles(
+            cliFixture("export_repository_folder.zip"));
+
+        Map<String, byte[]> files = archives.repositoryFiles(after);
+        assertThat(files).hasSize(14).containsKeys(MAIN, INCLUDED)
+            .doesNotContainKey("/Root/jdoe/xsd/P8/nested/inner-uri.xsl");
+        assertThat(files.get(MAIN)).isEqualTo(later.get(MAIN));
+        assertThat(files.get(INCLUDED)).isEqualTo(later.get(INCLUDED));
+        // probe.xsd was changed by that import and restored by a later one
+        assertThat(text(files.get("/Root/jdoe/xsd/probe.xsd"))).contains("\"probe8\"");
+        assertThat(text(later.get("/Root/jdoe/xsd/probe.xsd"))).contains("\"probe4\"");
+        Map<String, String> metadata = new java.util.TreeMap<>();
+        RepositoryArchive.read(after).forEach(file -> metadata.put(file.path(),
+            text(file.metadata())));
+        assertThat(metadata.get(MAIN)).contains("version=\"1.0\"", "anonymousRead=\"false\"")
+            .doesNotContain("<Description");
+        assertThat(metadata.get("/Root/jdoe/xsd/probe.xsd")).contains("version=\"1.5\"");
+    }
+
     // --- feature 007: the order of a module's connections (contract P-3) -------------------
 
     @Test

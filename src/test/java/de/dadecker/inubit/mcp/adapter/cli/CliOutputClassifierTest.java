@@ -65,6 +65,14 @@ class CliOutputClassifierTest {
     }
 
     @Test
+    void aMessageAfterAnImportsProgressTextOnTheSameLineIsRead() {
+        CliOutput output = classifier.parse(fixture("import_repository_new_files"));
+
+        assertThat(output.okMessages()).containsExactly("Imported successfully");
+        assertThat(output.nokMessages()).isEmpty();
+    }
+
+    @Test
     void thePickedUpLineIsPreambleOnStdoutToo() {
         CliOutput output = classifier.parse(new CliResult(0, PICKED_UP + PREAMBLE
             + "1-OK: done.\n", "", Duration.ZERO, false));

@@ -172,6 +172,20 @@ class CliDeployExportsTest {
     }
 
     @Test
+    void theRecordedExportOfANestedFolderReturnsItsArchive() throws IOException {
+        // T002 (feature 008, probe P-2): subfolders come in the same archive
+        byte[] folder = FakeProcessLauncher.fixture("export_repository_folder.zip");
+        cli.expect(Pattern.compile("^export --exportRepositoryPath '/Root/jdoe/xsd' --exportFile"
+                + " '[^']+/repository\\.zip'$"))
+            .writingExportFile(folder).replying("export_repository_folder");
+
+        assertThat(exports().exportRepository("/Root/jdoe/xsd")).isEqualTo(folder);
+        assertThat(ArtifactFixtures.entries(folder)).containsKeys("Root/jdoe/xsd/P8/folder/",
+            "Root/jdoe/xsd/P8/folder/sub/", "Root/jdoe/xsd/P8/folder/sub/included.xsd.dat");
+        assertTempRootEmpty();
+    }
+
+    @Test
     void aMissingRepositoryPathIsNotFound() throws IOException {
         cli.expect("export --exportRepositoryPath '/Root/jdoe/xsd/no-such-dir'")
             .replying("export_repository_not_found");
