@@ -217,7 +217,7 @@ visible in `--check-config` and `list_nodes`.
 - [X] T016 [P] [US2] `main/config/ConfigSummary.java`: append `, repository: write` or
   `, repository: read-only` after `development: on (confirmation …)` on development nodes only. The
   literal `development: on (confirmation SERVER)` stays. Test in `test/config/ConfigSummaryTest.java`.
-- [ ] T017 [P] [US2] `main/domain/model/NodeSummary.java`: add `repositoryWrite: boolean`, filled in
+- [X] T017 [P] [US2] `main/domain/model/NodeSummary.java`: add `repositoryWrite: boolean`, filled in
   `EffectiveNodeConfig.summary()`. In `res/schemas/list_nodes.output.json` add the required
   `repositoryWrite` after `confirmationMode`. Update the field order in
   `test/mcp/tools/ListNodesToolTest.java`.

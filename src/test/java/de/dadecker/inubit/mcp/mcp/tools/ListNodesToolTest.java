@@ -42,7 +42,7 @@ class ListNodesToolTest {
             TestNodeConfig.node().id("dev/inubit02")
                 .baseUrl("https://inubit02.dev.example.test:8443")
                 .development(new EffectiveNodeConfig.Development(true, ConfirmationMode.SERVER,
-                    E2ePolicy.FORBIDDEN, Optional.empty(), false)).build(),
+                    E2ePolicy.FORBIDDEN, Optional.empty(), true)).build(),
             TestNodeConfig.node().id("prod/inubit01")
                 .baseUrl("https://inubit01.prod.example.test:8443").production(true)
                 .write(true, false, ConfirmationMode.SERVER).cliHome(Path.of("/missing"))
@@ -111,6 +111,9 @@ class ListNodesToolTest {
             assertThat(dev2.path("developmentEnabled").asBoolean()).as("development stage")
                 .isTrue();
             assertThat(dev1.path("developmentEnabled").asBoolean()).isFalse();
+            assertThat(dev2.path("repositoryWrite").asBoolean()).as("008 repository WRITE")
+                .isTrue();
+            assertThat(dev1.path("repositoryWrite").asBoolean()).isFalse();
             assertThat(dev2.path("cliAvailable").asBoolean()).as("no CLI home").isFalse();
 
             JsonNode prod1 = groups.get(1).path("nodes").get(0);
@@ -140,7 +143,7 @@ class ListNodesToolTest {
                 .path("nodes").path(0);
             assertThat(node.propertyNames()).containsExactly("id", "group", "node",
                 "production", "writeEnabled", "developmentEnabled", "confirmationMode",
-                "versionLine", "cliAvailable");
+                "repositoryWrite", "versionLine", "cliAvailable");
         }
     }
 

@@ -12,6 +12,8 @@ import java.util.Objects;
  *                           governs the development tools (import, restore, set_active, tag)
  *                           (0.4.2)
  * @param confirmationMode   {@code SERVER} or {@code CLIENT} (of {@code write})
+ * @param repositoryWrite    the effective {@code development.repository} is {@code WRITE} on a
+ *                           development stage: the repository file tools may write (008, D-13)
  * @param versionLine        {@code AUTO}, {@code V8_1} or {@code V9_X} as configured
  * @param cliAvailable       CLI home configured and {@code startcli} script found
  */
@@ -23,6 +25,7 @@ public record NodeSummary(
     boolean writeEnabled,
     boolean developmentEnabled,
     String confirmationMode,
+    boolean repositoryWrite,
     String versionLine,
     boolean cliAvailable) {
 
