@@ -161,7 +161,7 @@ task.
   - `describe()` gives `repository paths a, b`.
 
   Tests in `test/domain/model/ImportScopeTest.java`.
-- [ ] T011 [P] `main/domain/model/ChangeSet.java`: add `repository: List<ChangedArtifact>` (kind
+- [X] T011 [P] `main/domain/model/ChangeSet.java`: add `repository: List<ChangedArtifact>` (kind
   `REPOSITORY_FILE`, `ref.name` = full path `/Root/<owner>/…`, exactly one `REPOSITORY` path).
   `isEmpty`, `artifacts`, `paths`, `created`, `modified` and `existing` must include it. Add a
   compatibility constructor without `repository` (an empty list), so the call sites in
@@ -281,6 +281,14 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
 - [ ] T021 [US1] Implement the classification in `main/application/ChangeSetBuilder.java`. It
   replaces the refusal at lines 134-139 and uses `RepositoryClosure`, the existing
   `LocalChange.serverState` base, `RepositoryPaths` and `ReleaseArchivePort.keyMaterial`.
+  Carry-over from earlier reviews:
+  - pass `changes.repository()` through every place that rebuilds a `ChangeSet` with the
+    compatibility constructors (`ConflictDetector.java:303`, `ImportService.java:526/881/1353`,
+    `ChangeSetBuilder.java:176`), so repository files are never dropped (T011 review);
+  - `RepositoryPaths.full(owner, relative)` does not validate `owner`; validate it, or check
+    `passable` on the result, before relying on it (T010 review);
+  - the scanner decodes `%2F` inside a segment into a hidden `/`, which the closure cannot detect;
+    refuse such references in `RepositoryReferences` (T006/T008 reviews).
 
 ### Node state, conflicts, switch and preview
 
