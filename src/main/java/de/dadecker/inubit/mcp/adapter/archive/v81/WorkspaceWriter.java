@@ -13,6 +13,8 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.NameCodec;
+import de.dadecker.inubit.mcp.domain.model.RepositoryClosure;
+import de.dadecker.inubit.mcp.domain.model.RepositoryReference;
 import de.dadecker.inubit.mcp.domain.model.SecretPlaceholder;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -33,6 +35,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
@@ -46,10 +49,13 @@ import java.util.stream.Stream;
  *   <li>One file per workflow ({@code workflows/<diagram group>/<workflow>.xml}, root
  *       {@code Workflow}); per module {@code module.xml} (embedded documents as
  *       {@code @file:} references, {@link EmbeddedDocuments}), {@code index.xml} (the index
- *       entry; a module listed twice is written once) and one file per embedded document; the
- *       repository files referenced by an exported artifact ({@code inubitrepository:} URIs or
- *       their {@code /Root/…} path in any text), and only those; a file withheld as key material
- *       is not written, its {@code .meta/} record holds a placeholder (review I3).
+ *       entry; a module listed twice is written once) and one file per embedded document.
+ *   <li>The repository files of the export's {@code Repository.zip} that the exported artifacts
+ *       reach by structural references ({@link RepositoryReferences#scan}), also through other
+ *       repository files ({@link RepositoryClosure}, research D-3), and only those; a URI in a
+ *       string literal is no reference. Files below another owner's root are never written, a
+ *       warning counts them. A file withheld as key material is not written, its {@code .meta/}
+ *       record holds a placeholder (review I3).
  *   <li>Every XML file goes through {@link XmlNormalizer}; embedded documents are written as
  *       decoded. Volatile values go to {@code .meta/} ({@link MetaStore}): UIDs, the export suffix
  *       of check-in comments, the enclosing XML context, module file names and encodings,
@@ -139,7 +145,7 @@ public final class WorkspaceWriter {
         SortedMap<String, byte[]> files = new TreeMap<>();
         Set<String> subtrees = new LinkedHashSet<>();
         List<String> warnings = new ArrayList<>();
-        List<String> texts = new ArrayList<>();
+        List<RepositoryReference> references = new ArrayList<>();
         Set<String> usedModules = new HashSet<>();
 
         for (WorkflowGroupXml diagramGroup : export.workflowGroups()) {
@@ -159,7 +165,7 @@ public final class WorkspaceWriter {
                     "groupPosition", workflow.context().groupPosition(),
                     "position", workflow.context().position()));
                 files.put(slash(path.metaPath()), MetaStore.serialize(meta));
-                texts.add(new String(xml, StandardCharsets.UTF_8));
+                references.addAll(RepositoryReferences.scan(path, xml));
                 workflow.element().child("CheckoutUser").map(Element::text)
                     .filter(user -> !user.isBlank())
                     .ifPresent(user -> warnings.add("Workflow " + workflow.name()
@@ -186,7 +192,7 @@ public final class WorkspaceWriter {
             files.put(slash(indexPath.metaPath()), MetaStore.serialize(meta));
             ModuleXml module = export.moduleFiles().get(entry.name());
             if (module != null) {
-                module(group, owner, module, files, texts);
+                module(group, owner, module, files, references);
             }
         }
         List<Map<String, String>> exportedModules = index.values().stream()
@@ -216,11 +222,16 @@ public final class WorkspaceWriter {
                 + " another owner) and were not written");
         }
 
+        Map<String, RepositoryFile> repository = new HashMap<>();
+        export.repository().values().forEach(file -> repository.put("/" + file.path(), file));
+        RepositoryClosure closure = RepositoryClosure.of(owner, references, reference ->
+            Optional.ofNullable(repository.get(reference)).map(file -> RepositoryReferences.scan(
+                WorkspacePath.repository(group, owner, reference), file.content())));
         int withheld = 0;
-        for (RepositoryFile file : export.repository().values()) {
-            String reference = "/" + file.path();
-            if (texts.stream().noneMatch(text -> text.contains(reference))) {
-                continue;
+        for (String reference : closure.included()) {
+            RepositoryFile file = repository.get(reference);
+            if (file == null) {
+                continue; // referenced, but not in the export: check_artifacts reports it
             }
             WorkspacePath path = WorkspacePath.repository(group, owner, file.path());
             Map<String, Object> meta = new LinkedHashMap<>();
@@ -239,25 +250,31 @@ public final class WorkspaceWriter {
             warnings.add(withheld + " repository file(s) with key material were not written;"
                 + " .meta holds a placeholder");
         }
+        long otherOwner = closure.outsideOwner().stream().map(RepositoryReference::to)
+            .filter(repository::containsKey).distinct().count();
+        if (otherOwner > 0) {
+            warnings.add(otherOwner + " repository file(s) of another owner are part of the"
+                + " export and were not written");
+        }
         checkCaseCollisions(files.keySet());
         return new Rendered(files, List.copyOf(subtrees), warnings);
     }
 
     private static void module(GroupId group, String owner, ModuleXml module,
-        SortedMap<String, byte[]> files, List<String> texts) {
+        SortedMap<String, byte[]> files, List<RepositoryReference> references) {
         Extracted extracted = EmbeddedDocuments.extract(module.element());
         WorkspacePath path = WorkspacePath.module(group, owner, module.pluginType(),
             module.name());
         byte[] xml = XmlNormalizer.normalize(extracted.properties());
         files.put(slash(path.toRelativePath()), xml);
-        texts.add(new String(xml, StandardCharsets.UTF_8));
+        references.addAll(RepositoryReferences.scan(path, xml));
         SortedMap<String, Object> embedded = new TreeMap<>();
         for (Document document : extracted.documents()) {
             int dot = document.fileName().lastIndexOf('.');
             WorkspacePath file = WorkspacePath.embedded(group, owner, module.pluginType(),
                 module.name(), document.property(), document.fileName().substring(dot + 1));
             files.put(slash(file.toRelativePath()), document.content());
-            texts.add(new String(document.content(), StandardCharsets.UTF_8));
+            references.addAll(RepositoryReferences.scan(file, document.content()));
             embedded.put(document.fileName(), Map.of("property", document.property(),
                 "encoding", document.encoding().name()));
         }

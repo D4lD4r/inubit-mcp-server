@@ -240,7 +240,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
 
 ### References in export and check
 
-- [ ] T018 [US1] Write a failing test in `test/adapter/archive/v81/WorkspaceWriterTest.java`, then
+- [X] T018 [US1] Write a failing test in `test/adapter/archive/v81/WorkspaceWriterTest.java`, then
   in `main/adapter/archive/v81/WorkspaceWriter.java` replace the substring test with the T006/T008
   closure within the export's `Repository.zip` (D-3):
   - a schema included only by another schema is written (INUBIT's group export carries it in

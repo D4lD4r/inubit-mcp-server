@@ -151,6 +151,14 @@ The check is a superset of the closure, so a missing structural reference is alw
 missing runtime lookup file still is too. The scanner offers both modes from one pattern and one
 decoding.
 
+**Open question (T018 review)**: module index entries name schemas without a scheme, e.g.
+`<InputMessageTypeSchema>/Root/<owner>/xsd/msg.xsd</InputMessageTypeSchema>` (fixture
+`export_modules_sample.zip`). Neither the old substring test nor the scanner treats these as
+references, so such a schema is not part of the closure for export, check or import. It can still
+be exported and imported through the repository-path scope. Whether INUBIT's group export carries
+message-type schemas in `Repository.zip`, and whether the closure should start from them, is
+undecided and needs the person's decision (and possibly a read-only probe).
+
 **Effect on feature 003**: an export can now write more repository files than before, namely the
 indirectly referenced ones. This is a behaviour change. It is documented in `docs/setup.md` and
 the CHANGELOG and covered by `WorkspaceWriterTest`.
