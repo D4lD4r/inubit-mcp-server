@@ -7,7 +7,7 @@ client. Reads covered the shared owner's artifacts and, for secrets, the next st
 went to two test workflows in one person's own diagram group**. Names below are neutral
 (`<owner>`, `<user>`, `SPIKE…`); counts are from the real system.
 
-## Summary for features 003–005
+## Summary for features 003–005 and 008
 
 | Question | Answer | Consequence |
 |---|---|---|
@@ -30,6 +30,15 @@ went to two test workflows in one person's own diagram group**. Names below are 
 | Repository references (section 10) | a group export carries the files its modules reference by `inubitrepository:` in `xsl:import`/`xs:import`; a string literal is no reference | the release's repository files come from the export, not from a text search |
 | Tags on repository files (section 10) | a group-scoped tag also tags the referenced repository files; `--tagRepositoryPath` with `--tagUser` is refused | tagging the diagram groups is enough; never combine those options |
 | Release export (section 10) | `export --exportWorkflowGroup '' --exportTag <tag>` returns only the tagged diagram groups in their tagged versions, with tagged modules and repository files, without touching other groups' comments | a release is discovered with one export per source node (feature 005) |
+| Content type on repository import (section 11) | a sent `contentType` is stored unchanged; without one INUBIT stores `application/octet-stream`, it derives nothing from the extension | the server sends a content type for every repository file it imports (feature 008) |
+| Observed content types (section 11) | `.xsd` `application/x-xsd+xml`, `.xsl` `application/xslt+xml`, `.xml` `application/xml`; INUBIT's own type for `.xslt` and `.wsdl` was not observed | the content-type table for new files (research D-7 of feature 008) |
+| Repository folder import (section 11) | an import creates new folders and subfolders from the archive; re-exported content is byte-identical, also LF-only without a trailing newline | verification by byte comparison per folder export |
+| Repository versions (section 11) | every import creates a new version and prepends `DefaultCommitCommentImport@@@`, also a restore of earlier content (and, section 10, unchanged content); a sent `version` is ignored | verify compares content only; identical files are not sent; the `.meta` record changes after every import, rollbacks included |
+| Metadata of new repository files (section 11) | INUBIT sets `version="1.0"`, `anonymousRead="false"` and its own `uuid`, and drops an empty `<Description/>` | the synthesized metadata of a new file carries no `anonymousRead` (research D-7 of feature 008) |
+| Repository import output (section 11) | `1-OK: Imported successfully` follows the progress text `Completed = … MB / … MB` on the **same line** | the output classifier accepts the progress text before `n-OK` |
+| Durations (section 11) | repository export 2.4–2.7 s, repository import 2.3–2.8 s, diagram-group export 2.9–4.1 s, `tag` 3.8 s (small files) | one StartCLI call per folder keeps a 20-file import well inside 2 minutes (SC-001 of feature 008) |
+| Tags on indirectly referenced files (section 11) | a group tag also tags repository files referenced only by another repository file (relative and `inubitrepository:` `xsl:import`) | no warning for indirectly referenced files under a tag (research D-12 of feature 008) |
+| Group export of indirectly referenced files (section 11) | the diagram-group export, head and by tag, puts such files into `Repository.zip` | the transitive reference closure of feature 008 matches INUBIT's own export (research D-3) |
 
 ## 1. StartCLI
 
@@ -233,3 +242,69 @@ neutral (`<owner>`, `<path>`, `<tag>`).
 
 Neutralized, synthetic fixtures of these shapes: `src/test/resources/fixtures/v8_1/cli/README.md`
 (feature 005 section).
+
+## 11. Repository files on the development stage (feature 008)
+
+Probes P-1 to P-3 of
+[feature 008](../../specs/008-repo-file-editing/research.md) (research D-3, D-7, D-8, D-12), run on
+2026-10-13 with StartCLI 8.1.17 on the development stage and approved by the person. All writes
+went to the person's personal test repository area (`/Root/<owner>/<test folder>`) and personal
+test diagram group (`<test diagram group>`); nothing else was touched and nothing was deleted.
+Names below are neutral (`<owner>`, `<test folder>`, `<test diagram group>`, `<tag>`). Neutralized
+recordings: `src/test/resources/fixtures/v8_1/cli/README.md` (feature 008 section).
+
+- **Content type on import (P-1)**: a `contentType` sent in the archive's metadata is stored
+  unchanged, for every extension tried. Without one, INUBIT stores `application/octet-stream` for
+  every file, `.xsd` and `.xml` included: it derives **nothing** from the file extension. The
+  server therefore has to send a content type for every file it imports.
+- **Observed content types (P-1)**: existing files of the person's repository root that no probe
+  created have `application/x-xsd+xml` (`.xsd`) and `application/xml` (`.xml`); `.xsl` has
+  `application/xslt+xml` (the feature-005 fixture `export_repository.zip`, and the person's only
+  `.xsl`, which a feature-005 probe imported with that type). There was no existing `.xslt` or
+  `.wsdl` file: the values sent for them (`application/xslt+xml`, `application/wsdl+xml`) were the
+  probe's own choice, and INUBIT stored them unchanged. INUBIT's own default for `.xslt` and
+  `.wsdl` (for example from a Workbench upload) was **not** observed.
+- **Folder import (P-2)**: one import of an archive with directory entries for a new folder and a
+  new subfolder below `<test folder>`, two new files (`main.xsd` in the folder, `included.xsd` in
+  the subfolder) and one changed existing file created both folders and both files. The re-export
+  of `<test folder>` (recursive, subfolders included) returned all three files **byte-identical**
+  to what was sent, including `included.xsd` with LF line ends and no trailing newline.
+- **Versions (P-2)**: **every** import creates a new version of each file in the archive, also the
+  restore of earlier content at the end (one file went `1.4` → `1.5` → `1.6` over a change and the
+  restore, the other `1.1` → `1.2` → `1.3`); section 10 found the same for unchanged content. Each import prepends one more
+  `DefaultCommitCommentImport@@@` to `versionComment` and changes `modified`. A `version` sent in
+  the archive is ignored; INUBIT assigns the next one. The metadata of a re-export therefore
+  differs after every import, a rollback to the earlier content included; only the content can
+  match what was sent.
+- **Metadata of new files (P-1, P-2)**: all 14 files created by the probes came back with
+  `version="1.0"`, `versionComment="DefaultCommitCommentImport@@@null"`, `anonymousRead="false"` and
+  a distinct `uuid` assigned by INUBIT (none was sent). The empty `<Description/>` the probe sent
+  was dropped (the stored `<Property …/>` has no child). The two existing probe files, created by
+  feature-005 probe imports whose archives carried `anonymousRead="true"`, have `"true"`.
+- **Created files stay**: an import cannot delete; the files the probes created are still on the
+  node (14 files below `<test folder>`).
+- **Import output (P-2)**: the repository import prints the progress text `Completed = 0 MB / 0 MB `
+  twice, each time after a carriage return and without a line break, so `1-OK: Imported
+  successfully` stands **on the same line** as the second progress text (section 10 described them
+  as separate lines). A classifier that looks for `n-OK` only at the start of a line misses it;
+  `CliOutputClassifier` accepts the progress text before the message since feature 008.
+- **Durations**: one repository export took 2.4–2.7 s (seven calls, a repository export with
+  `--exportTag` included), one repository import 2.3–2.8 s (five calls), a diagram-group export of
+  `<test diagram group>` 3.5–4.1 s at head and 2.9 s by tag, one `tag --tagMove` 3.8 s. The files
+  were small (under 1 KiB); larger files were not timed.
+- **Tags on indirectly referenced files (P-3)**: the modules of `<test diagram group>` reference
+  only one stylesheet `A`, by `inubitrepository:/Root/<owner>/<test folder>/A.xsl`; `A` imports a
+  second stylesheet by a **relative** `xsl:import` and a third one by an `inubitrepository:`
+  `xsl:import`. After `tag --tagMove <tag> --tagUser <owner> --tagWorkflowType technical
+  --tagWorkflowGroup <test diagram group>`, a repository export of `<test folder>` with
+  `--exportTag <tag>` returned exactly these three files, each with `tagName`; the other files of
+  the folder were not returned. The group tag therefore also covers repository files that only
+  another repository file references.
+- **Group export of indirectly referenced files (P-3)**: before the two nested stylesheets existed,
+  the group's `Repository.zip` held `A` only; afterwards it held all three files, both in the head
+  export and in the export by `--exportTag <tag>`. INUBIT's diagram-group export follows references
+  inside repository files, relative and `inubitrepository:` alike.
+- **Not probed**: chains deeper than one level of indirection, and `xs:include` / `xs:import` in
+  schemas as the indirect reference (the indirect references above are `xsl:import`).
+- **Leftovers**: the tag `<tag>` stayed on `<test diagram group>` and on the three stylesheets in
+  their tagged versions, because StartCLI removes a tag only owner-wide.

@@ -58,7 +58,7 @@ Refusals:
 
 | Code | When | Contacts the node? |
 |---|---|---|
-| `INVALID_INPUT` | a deleted repository file in scope; a file below another owner's root; key material (keystore, private key, certificate); `${secret:` in the content; a file over 10 MiB; more than 50 files to send; the extension of a file to be **created** (absent on the node, so known only after the node read) not in the content-type table (the message lists `.xsd .xsl .xslt .wsdl .xml`, as finalized by P-1); a file the node already holds keeps the node's content type; a path the CLI rules refuse; `tag` with `repositoryPaths` | no |
+| `INVALID_INPUT` | a deleted repository file in scope; a file below another owner's root; key material (keystore, private key, certificate); `${secret:` in the content; a file over 10 MiB; more than 50 files to send; the extension of a file to be **created** (absent on the node, so known only after the node read) not in the content-type table of research D-7: `.xsd` → `application/x-xsd+xml`, `.xsl` and `.xslt` → `application/xslt+xml`, `.wsdl` → `application/wsdl+xml`, `.xml` → `application/xml` (the message lists `.xsd .xsl .xslt .wsdl .xml`); a file the node already holds keeps the node's content type; a path the CLI rules refuse; `tag` with `repositoryPaths` | no |
 | `PRECONDITION_FAILED` | a repository file with a `Server-State` base whose `.meta` record is missing or unreadable ("export the path first"); a file without any base is NEW and follows `create` / `modify`+`existing` (research D-4) | no |
 | `REPOSITORY_WRITE_DENIED` | the node is read-only and a file would be created or modified; the whole call is refused and the paths are named | only to read, nothing is sent (a call with a file changed in the workspace is refused before any read) |
 | `CONFLICT` | the node's content differs from the base of a changed file; written to `.reports/conflict-<auditId>.diff` | read only |
@@ -83,9 +83,10 @@ Challenge: the existing fields, plus:
 ```
 
 Result: the existing fields. `created`, `modified`, `identical` and `createdNotRemoved` carry
-repository paths. `tag` gains an optional `repositoryFiles` list (D-12). Warnings name references
-that were not followed (`… outside the owner's repository root`) and repository files that are only
-referenced indirectly under a tag.
+repository paths. `tag` gains an optional `repositoryFiles` list (D-12): the imported repository
+paths in the closure of the group's modules, direct and indirect, which INUBIT's group tag covers
+(probe P-3). Warnings name references that were not followed (`… outside the owner's repository
+root`).
 
 Order of execution: backup, `PENDING` audit record, repository import, artifact import (if any),
 verification (repository files byte for byte; workflows and modules as before, including the

@@ -1,8 +1,10 @@
 # Research: Editing INUBIT Repository Files on a Development Stage (feature 008)
 
 Decisions for [plan.md](plan.md). The code locations come from an analysis of `main` at `c9b70fa`.
-Facts about INUBIT come from the spike ([spike section 10](../../docs/research/spike-development-deployment.md))
-unless a decision names a live probe (P-n) that must run before the step that depends on it.
+Facts about INUBIT come from the spike
+([spike sections 10 and 11](../../docs/research/spike-development-deployment.md)). Section 11
+holds the results of the live probes P-1 to P-3 (task T001), which the decisions below name where
+they depend on them.
 
 ## Starting point (verified in the code)
 
@@ -117,9 +119,12 @@ It is used in three places:
    module export become the transitive closure within the export's `Repository.zip`, no longer only
    files named in artifact texts. Without this, a schema imported only by another schema would
    never reach the workspace, and the import could not have a base for it.
-   Whether INUBIT's diagram-group export puts indirectly referenced files into `Repository.zip` is
-   checked by probe P-3. If it does not, the closure still filters what is written, and nested files
-   reach the workspace through the repository-path export (D-10). The docs then say so.
+   Probe P-3 (spike section 11) showed that INUBIT's own diagram-group export, at head and by tag,
+   puts indirectly referenced files into `Repository.zip`: files that only another repository file
+   references, by a relative `xsl:import` or by an `inubitrepository:` `xsl:import`. The closure
+   therefore writes what INUBIT exports and only drops what no structural reference reaches.
+   Chains deeper than one level and schema `xs:include`/`xs:import` as the indirect reference were
+   not probed; the closure treats them the same way.
 3. **Check** (FR-008): `check_artifacts` scans repository files too. A nested reference that is
    missing gives the existing `REPOSITORY_REF_MISSING` / `REPOSITORY_REF_UNVERIFIED`.
 
@@ -254,9 +259,17 @@ logic, so the 2,000-line `ImportService` only delegates. It takes over the repos
 **Rationale**: putting everything repository-specific in one class keeps `ImportService` readable
 and lets the repository logic be tested on its own with `FakeServer`.
 
+**Durations (P-2, spike section 11)**: one repository export took 2.4–2.7 s, one repository import
+2.3–2.8 s, a diagram-group export 2.9–4.1 s and a `tag` 3.8 s, all with small files. For SC-001
+(20 files in 3 folders) the repository part needs 3 exports for the preview, 1 import and 3 exports
+for the verification: 7 calls, about 17–19 s. A diagram-group import adds the feature-004 artifact
+exports, import and optional tag, a few calls of about 3–4 s each. This leaves a wide margin
+within the 2 minutes; files of up to 1 MiB were not timed.
+
 **Alternatives considered**:
-- One export per file. Rejected: StartCLI starts a JVM per call, and 20 calls would use up most of
-  SC-001's 2 minutes.
+- One export per file. Rejected: StartCLI starts a JVM per call. For 20 files that is 20 exports
+  for the preview, 1 import and 20 exports for the verification, 41 calls or about 100–110 s by the
+  P-2 durations, which would use up almost all of SC-001's 2 minutes.
 - One export of the owner root. Rejected: it can be very large (Constitution VI) and runs into the
   archive limits.
 
@@ -284,30 +297,59 @@ inputs, workspace hash and server fingerprint.
 - A NEW file gets a synthesized `<Property name="<file>" type="RepositoryFile" path="<repository
   path>" contentType="<type>"><Description/></Property>`, built by a new
   `RepositoryMetadata.forNewFile` in `adapter/archive/v81`. `RepositoryArchive.importMetadata`
-  then adds `contentSize` and `contentMD5`.
-- The content type comes from a fixed table:
+  then adds `contentSize` and `contentMD5`. This is the form probe P-1 sent and INUBIT accepted.
+- The content type comes from a fixed table (final after P-1, spike section 11):
 
   | Extension | Content type | Source |
   |---|---|---|
-  | `.xsl`, `.xslt` | `application/xslt+xml` | fixture `export_repository.zip` (`.xsl`); `.xslt` by P-1 |
-  | `.xsd` | `application/x-xsd+xml` | fixture `export_repository.zip` |
-  | `.wsdl`, `.xml` | to be determined | P-1 |
+  | `.xsd` | `application/x-xsd+xml` | INUBIT's type on existing files no probe created (P-1); fixture `export_repository.zip` |
+  | `.xsl` | `application/xslt+xml` | fixture `export_repository.zip`; kept by INUBIT on import (P-1) |
+  | `.xslt` | `application/xslt+xml` | same language as `.xsl`; kept by INUBIT on import (P-1) |
+  | `.wsdl` | `application/wsdl+xml` | the registered media type of WSDL; kept by INUBIT on import (P-1) |
+  | `.xml` | `application/xml` | INUBIT's type on an existing file no probe created (P-1) |
 
+  Why this table:
+  - INUBIT stores the type that is sent and derives nothing from the extension. A file sent
+    without a type becomes `application/octet-stream` (P-1). So every created file needs a type
+    from the table, and every other file is sent with its metadata (`.meta` or the node's, below).
+  - `.xsd`, `.xsl` and `.xml` use the types INUBIT already has on such files.
+  - For `.xslt` and `.wsdl` INUBIT's own default (for example from a Workbench upload) was not
+    observed, because no such file existed. `.xslt` gets the `.xsl` type because both hold XSLT.
+    `.wsdl` gets the registered media type. The spec requires both extensions (assumption "at least
+    `.xsd`, `.xsl`, `.xslt`, `.wsdl`, `.xml`"). If a Workbench-created file shows another type, only
+    the type of files this server creates differs; references go by path, not by type.
 - Every other extension is refused for a `create` file (FR-017), after the node read, and the error
   names the supported extensions.
-- A MODIFIED file keeps its `.meta` metadata (`contentType`, `Description`, `uuid`; INUBIT ignores
-  `uuid`, spike section 10).
+- **`anonymousRead` is not synthesized.** INUBIT gives a new file without it `anonymousRead="false"`
+  (all 14 files the probes created), while the existing probe files have `"true"`, which the
+  feature-005 probe archives had sent.
+  - Without the attribute a created file gets INUBIT's own default for imports. The server does not
+    choose a wider setting than INUBIT does; the meaning of `anonymousRead` was not probed.
+  - A MODIFIED or EXISTING file keeps the value from its metadata (below).
+  - Anyone who needs `"true"` on a new file sets it in the Workbench. The next export or write-back
+    brings it into `.meta`.
+- Other values INUBIT sets on a created file and that need no synthesis (P-1, P-2):
+  - `version="1.0"`;
+  - `versionComment="DefaultCommitCommentImport@@@null"`;
+  - its own `uuid`.
+
+  INUBIT drops the empty `<Description/>`. The `.meta` written back from the re-export records
+  these values.
+- A MODIFIED file keeps its `.meta` metadata (`contentType`, `Description`, `uuid`, `anonymousRead`;
+  INUBIT ignores `uuid` and `version`, spike sections 10 and 11).
 - An EXISTING file (new in the workspace, already on the node) has no `.meta` record. It takes the
   metadata of the node's file from the node-state export (D-5), so it keeps the node's content type
   and description whatever its extension (spec FR-017, clarification of 2026-10-13).
 - After a verified import, `.meta` is rewritten from the node's re-export.
 
-**Probe P-1** (before the step that implements D-7): in the person's personal test repository area,
-export existing repository files of each type (or create one per extension in the Workbench and
+**Probe P-1** (run in T001, results in spike section 11): in the person's personal test repository
+area, export existing repository files of each type (or create one per extension in the Workbench and
 export it), and record INUBIT's `contentType` for `.xslt`, `.wsdl` and `.xml`. Then import one
-synthesized new file per extension and check, by re-export, that the content type is kept. If
-INUBIT replaces the content type, the table is still used and the observed value goes into the
-recorded fixture.
+synthesized new file per extension and check, by re-export, that the content type is kept.
+- **Result**: the sent type is kept for all five extensions (`export_repository_types.zip`).
+  Without a type INUBIT stores `application/octet-stream`.
+- `.xml` and `.xsd` were observed on existing files. No `.xslt` or `.wsdl` file existed, so the
+  table above decides them.
 
 ## D-8 Execute, verify, roll back and write back (FR-015, FR-015a, FR-016)
 
@@ -334,7 +376,13 @@ recorded fixture.
    - A call with repository files only skips `importArchive`.
 3. **Verify.**
    - Re-export per folder. Every sent file must be byte-identical to the workspace content. This is
-     the deployment rule; feature 005's live test shows byte identity for imported content.
+     the deployment rule; feature 005's live test and P-2 (an LF-only file without a trailing
+     newline included) show byte identity for imported content.
+   - Only the content is compared, never the metadata. Every import creates a new version, also
+     for unchanged content or a restore of earlier content, and adds one
+     `DefaultCommitCommentImport@@@` to `versionComment`; a sent `version` is ignored (P-2, spike
+     sections 10 and 11). The re-exported metadata therefore never equals what was sent. This is
+     also why `identical` files are not sent (FR-017): sending them would only add versions.
    - The reason is not checked on repository files, because INUBIT ignores their version comment
      (FR-015a).
    - A mismatch is `VERIFY_MISMATCH` with `.reports/verify-<auditId>.diff`.
@@ -342,20 +390,32 @@ recorded fixture.
    - On any failure after sending, re-import the previous content of the modified files from the
      backup exports. This happens before the artifact rollback, so the artifacts are restored
      against the old files.
-   - Verify by re-export.
+   - Verify by re-export, by content only as in step 3. The rolled-back files get a new version on
+     the node even though their content equals the backup (P-2).
    - Created files stay and are listed in `createdNotRemoved`, because an import cannot delete.
 5. **Write back.**
    - Only the **sent** repository files and their `.meta` records are rewritten from the re-export.
      The folder export also returns unrelated files of the folder; those are ignored.
    - The single `import <node>: … [auditId]` commit with `Server-State: <group>` also covers them,
      which makes the commit the new base (FR-016).
+   - The rewritten `.meta` differs from the previous record after every import (`version`,
+     `versionComment`, `modified`), even for unchanged content. The same holds on the node after a
+     rollback or a restore (D-9): the content is back, the metadata is not. No step compares
+     `.meta` records. After a rollback the workspace keeps its previous `.meta`, whose `version` is
+     then older than the node's. That is harmless, because INUBIT ignores a sent `version`.
 
-**Probe P-2** (before the execute step): on the personal test repository area,
+**Probe P-2** (run in T001, results in spike section 11): on the personal test repository area,
 1. Import a folder of two new files and one changed file from a synthesized archive (with folder
    entries for a new subfolder).
 2. Re-export the folder, then compare bytes for an LF-only file without a trailing newline.
 3. Re-import the previous content.
 4. Measure the duration of one repository export and one import for the SC-001 estimate.
+
+**Result**:
+- New folders and subfolders are created from the archive.
+- The re-export is byte-identical, the LF-only file without a trailing newline included.
+- Every import, the restore included, creates a new version (step 3 above).
+- The durations are in D-5.
 
 ## D-9 Restore (FR-018)
 
@@ -413,15 +473,23 @@ paths.
 
 **Decision**:
 - The tag verification stays as in feature 004.
-- `result.tag` gets an optional `repositoryFiles` list: the imported repository paths that the
-  group's modules reference **directly**. Spike section 10 says these carry the group tag.
-- A transitively included file gets the warning
-  `repository file <path> is referenced only indirectly; INUBIT's group tag may not cover it`.
+- `result.tag` gets an optional `repositoryFiles` list: the imported repository paths in the
+  closure (D-3) of the group's modules, whether a module references them directly or only another
+  repository file does. Spike sections 10 and 11 show that INUBIT's group tag covers both.
+- No warning for indirectly referenced files. The warning planned before P-3 is dropped.
 
-**Probe P-3** (before the tag part of the import step): check whether a group-scoped tag also tags a
-repository file that only another repository file references, and whether a diagram-group export puts
-such a file into `Repository.zip` (D-3). If it does, drop the warning and list
-every included path.
+**Probe P-3** (run in T001, results in spike section 11): check whether a group-scoped tag also
+tags a repository file that only another repository file references, and whether a diagram-group
+export puts such a file into `Repository.zip` (D-3). If it does, drop the warning and list every
+included path.
+
+**Result**: yes to both.
+- The group's modules referenced one stylesheet. That stylesheet imported a second one by a
+  relative `xsl:import` and a third one by an `inubitrepository:` `xsl:import`.
+- After the group tag, a repository export by tag returned all three files with `tagName`.
+- The diagram-group export, at head and by tag, held all three in `Repository.zip`.
+- Deeper chains and schema includes as the indirect reference were not probed. The list follows
+  the closure for them as well; it is information, not verified (spec edge case "Tag").
 
 ## D-13 `list_nodes` and `--check-config` (FR-006)
 

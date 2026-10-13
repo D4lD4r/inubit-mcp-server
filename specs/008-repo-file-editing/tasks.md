@@ -81,7 +81,7 @@ task.
     `ScriptedProcessLauncher`.
 
   Run the identifier check before committing.
-- [ ] T003 Add section 11 "Repository files on the development stage (feature 008)" with the
+- [X] T003 Add section 11 "Repository files on the development stage (feature 008)" with the
   P-1…P-3 facts to `docs/research/spike-development-deployment.md`, plus one row per fact in its
   summary table (generic names only). Finalize the content-type table in `research.md` D-7 and in
   the `INVALID_INPUT` row of `contracts/mcp-tools-delta.md`, and decide the D-12 warning (keep it
@@ -93,9 +93,9 @@ task.
     relative `href`/`schemaLocation` in repository files);
   - `metadata()` emits the stored `contentType`.
 
-  The transitive group export follows what probe P-3 (T001) observed: if INUBIT does not put
-  indirectly referenced files into `Repository.zip`, FakeServer does not either, and T018 and the
-  docs say that nested files reach the workspace through the repository-path export (US3).
+  The transitive group export follows what probe P-3 (T001) observed: INUBIT puts files that only
+  another repository file references into `Repository.zip`, at head and by tag, so FakeServer does
+  too (spike section 11, research D-3).
 
   Add a helper to `test/application/ImportHarness.java` that writes a repository file into the
   workspace at `<group>/<owner>/repository/Root/<owner>/<path>` with `.meta`. The per-node switch
@@ -243,7 +243,8 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
 - [ ] T018 [US1] Write a failing test in `test/adapter/archive/v81/WorkspaceWriterTest.java`, then
   in `main/adapter/archive/v81/WorkspaceWriter.java` replace the substring test with the T006/T008
   closure within the export's `Repository.zip` (D-3):
-  - a schema included only by another schema is written;
+  - a schema included only by another schema is written (INUBIT's group export carries it in
+    `Repository.zip`, P-3);
   - a URI string literal no longer forces a file;
   - two repository paths that differ only in letter case give `INVALID_INPUT` naming both (D-10).
 - [ ] T019 [P] [US1] Write a failing test in `test/application/ArtifactCheckServiceTest.java`, then
@@ -430,9 +431,10 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
 - [ ] T033 [US1] Implement the repository rollback in `main/application/RepositoryStep.java`, called
   first from `ImportService.rollback`.
 - [ ] T034 [US1] Tag information (D-12, from the P-3 result):
-  - `WriteOutcome.tag.repositoryFiles` lists the imported paths that the group's modules reference
-    directly;
-  - an indirectly included path gives a warning, unless P-3 showed that tags cover it;
+  - `WriteOutcome.tag.repositoryFiles` lists the imported paths in the closure of the group's
+    modules, both those a module references directly and those only another repository file
+    references (P-3: INUBIT's group tag covers both);
+  - an indirectly included path gives no warning;
   - add `repositoryFiles` to `res/schemas/import_artifacts.output.json`.
 
   Test in `test/application/RepositoryImportTest.java`.
