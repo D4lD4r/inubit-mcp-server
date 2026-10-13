@@ -55,7 +55,7 @@ task.
 
 ## Phase 1: Setup
 
-- [ ] T001 Run probes P-1, P-2 and P-3 from research.md (D-7, D-8, D-12) against the personal test
+- [X] T001 Run probes P-1, P-2 and P-3 from research.md (D-7, D-8, D-12) against the personal test
   repository area of the development node:
   - Show the person the exact StartCLI commands (export and import paths, file names) and wait for
     an explicit "yes" before any import.
