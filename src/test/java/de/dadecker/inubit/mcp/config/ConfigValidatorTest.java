@@ -1549,6 +1549,181 @@ class ConfigValidatorTest {
         }
     }
 
+    /**
+     * Feature 008 (T014, research D-2, contracts/configuration-delta.md): only an explicitly set
+     * {@code development.repository: WRITE} can be wrong; an inherited one is silently read-only
+     * on a node that is not a development node.
+     */
+    @Nested
+    class RepositorySwitch {
+
+        private static final String WRITE = """
+            development:
+              repository: WRITE
+            """;
+
+        /** Group {@code dev} with the development node {@code node1}, {@code int}, {@code prod}. */
+        private static String profile(String defaults, String devGroup, String intGroup,
+            String intNode, String prodGroup, String prodNode) {
+            return """
+                profile:
+                  name: acme
+                """ + defaults + """
+                groups:
+                  - name: dev
+                """ + devGroup.indent(4) + """
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-dev-1.example.test:8443
+                        development:
+                          enabled: true
+                      - name: node2
+                        baseUrl: https://inubit-dev-2.example.test:8443
+                  - name: int
+                """ + intGroup.indent(4) + """
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-int.example.test:8443
+                """ + intNode.indent(8) + """
+                  - name: prod
+                    production: true
+                """ + prodGroup.indent(4) + """
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-prod.example.test:8443
+                """ + prodNode.indent(8);
+        }
+
+        private static Map<String, Boolean> repositoryWrite(String yaml) {
+            Map<String, Boolean> effective = new java.util.TreeMap<>();
+            new ConfigLoader(Map.of(), HOME, false).parse(yaml, HOME.resolve("config.yaml"))
+                .config().resolvableNodes().forEach(node -> effective.put(node.id().value(),
+                    node.development().repositoryWrite()));
+            return effective;
+        }
+
+        @Test
+        void writeSetOnANodeThatIsNotADevelopmentNodeIsAnError() {
+            ValidationReport report = validate(profile("", "", "", WRITE, "", ""));
+
+            assertThat(report.errors()).singleElement().asString()
+                .contains("int/node1", "development.repository", "WRITE", "development.enabled");
+            assertThat(report.warnings()).isEmpty();
+        }
+
+        @Test
+        void writeSetOnADevelopmentNodeIsValid() {
+            String yaml = profile("", "", "", "", "", "").replace("""
+                        development:
+                          enabled: true
+                """, """
+                        development:
+                          enabled: true
+                          repository: WRITE
+                """);
+
+            ValidationReport report = validate(yaml);
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).isEmpty();
+            assertThat(repositoryWrite(yaml)).containsEntry("dev/node1", true)
+                .containsEntry("dev/node2", false);
+        }
+
+        @Test
+        void writeSetOnAProductionGroupIsAnError() {
+            ValidationReport report = validate(profile("", "", "", "", WRITE, ""));
+
+            assertThat(report.errors()).singleElement().asString()
+                .contains("prod", "development.repository", "WRITE", "production")
+                .doesNotContain("prod/node1");
+            assertThat(report.warnings()).isEmpty();
+        }
+
+        @Test
+        void writeSetOnANodeOfAProductionGroupIsOneError() {
+            // the node is no development node either; the production rule names it once
+            ValidationReport report = validate(profile("", "", "", "", "", WRITE));
+
+            assertThat(report.errors()).singleElement().asString()
+                .contains("prod/node1", "development.repository", "WRITE", "production");
+            assertThat(report.warnings()).isEmpty();
+        }
+
+        @Test
+        void writeInTheDefaultsTakesEffectOnlyOnTheDevelopmentNode() {
+            // D-2 differs from development.enabled
+            // (developmentInheritedFromTheDefaultsByAProductionGroupIsAnError): an inherited
+            // WRITE is no error, not even for the production group
+            String yaml = profile("""
+                defaults:
+                  development:
+                    repository: WRITE
+                """, "", "", "", "", "");
+
+            ValidationReport report = validate(yaml);
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).isEmpty();
+            assertThat(repositoryWrite(yaml)).isEqualTo(Map.of("dev/node1", true,
+                "dev/node2", false, "int/node1", false, "prod/node1", false));
+        }
+
+        @Test
+        void writeOnANonProductionGroupWithoutADevelopmentNodeIsAWarning() {
+            ValidationReport report = validate(profile("", "", WRITE, "", "", ""));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).singleElement().asString()
+                .contains("int", "development.repository", "WRITE", "no effect");
+            assertThat(validate(profile("", WRITE, "", "", "", "")).warnings())
+                .as("dev has a development node").isEmpty();
+        }
+
+        @Test
+        void aNodeWithReadOnlyBeatsAGroupWithWrite() {
+            String yaml = profile("", WRITE, "", "", "", "").replace("""
+                        development:
+                          enabled: true
+                """, """
+                        development:
+                          enabled: true
+                          repository: READ_ONLY
+                """);
+
+            ValidationReport report = validate(yaml);
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).isEmpty();
+            assertThat(repositoryWrite(yaml)).containsEntry("dev/node1", false);
+        }
+
+        @Test
+        void theMessagesUseTheProfilesTerminology() {
+            String yaml = profile("", "", WRITE, WRITE, WRITE, WRITE).replace("""
+                profile:
+                  name: acme
+                """, """
+                profile:
+                  name: acme
+                terminology:
+                  group: { singular: Umgebung, plural: Umgebungen }
+                  node: { singular: Knoten, plural: Knoten }
+                """);
+
+            ValidationReport report = validate(yaml);
+
+            assertThat(report.errors()).hasSize(3);
+            assertThat(report.warnings()).hasSize(1);
+            List<String> messages = new ArrayList<>(report.errors());
+            messages.addAll(report.warnings());
+            assertThat(messages).allSatisfy(message -> assertThat(message)
+                .contains("development.repository")
+                .containsAnyOf("Umgebung", "Knoten")
+                .doesNotContainPattern("(?i)\\b(stages?|servers?|groups?|nodes?)\\b"));
+        }
+    }
+
     private static final String CLI_VALUE_RULE = ConfigValidator.CLI_VALUE_PATTERN.pattern();
 
     /** Feature 005 (T011, research D-2): the lifetime of a deployment's confirmation code. */

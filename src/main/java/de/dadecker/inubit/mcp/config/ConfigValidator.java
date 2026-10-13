@@ -132,6 +132,7 @@ public final class ConfigValidator {
             checkDevelopment(server, findings);
         }
         checkOneDevelopmentNodePerGroup(config, findings);
+        checkRepositorySwitch(config, findings);
         checkE2eNodeNames(config, findings);
         checkChain(config, findings);
         boolean cliConfigured = config.resolvableNodes().stream()
@@ -717,6 +718,48 @@ public final class ConfigValidator {
                     String.join(", ", nodes));
             }
         });
+    }
+
+    /**
+     * Feature 008 (research D-2, contracts/configuration-delta.md): only where
+     * {@code development.repository: WRITE} is set explicitly, so on the raw records. An error on
+     * a production group or any of its nodes and on a node without the effective
+     * {@code development.enabled: true}; a warning on a non-production group without such a
+     * node. A {@code WRITE} inherited from {@code defaults} or the group is never a finding.
+     */
+    private static void checkRepositorySwitch(ProfileConfig config, Findings findings) {
+        Defaults defaults = config.defaults();
+        for (GroupConfig group : config.groups()) {
+            if (group.production()) {
+                if (isWrite(group.development())) {
+                    findings.termError("{Group} '%s': development.repository: WRITE is not"
+                        + " allowed in production {groups}", group.name());
+                }
+                group.nodes().stream().filter(node -> isWrite(node.development()))
+                    .forEach(node -> findings.termError("%s/%s: development.repository: WRITE"
+                        + " is not allowed in production {groups}", group.name(), node.name()));
+                continue;
+            }
+            boolean anyDevelopmentNode = false;
+            for (NodeConfig node : group.nodes()) {
+                boolean developmentEnabled = node.development().enabled()
+                    .or(group.development()::enabled).or(defaults.development()::enabled)
+                    .orElse(Defaults.BUILTIN_DEVELOPMENT_ENABLED);
+                anyDevelopmentNode |= developmentEnabled;
+                if (!developmentEnabled && isWrite(node.development())) {
+                    findings.termError("%s/%s: development.repository: WRITE needs"
+                        + " development.enabled: true on the {node}", group.name(), node.name());
+                }
+            }
+            if (!anyDevelopmentNode && isWrite(group.development())) {
+                findings.termWarning("{Group} '%s': development.repository: WRITE has no effect;"
+                    + " the {group} has no {node} with development.enabled: true", group.name());
+            }
+        }
+    }
+
+    private static boolean isWrite(DevelopmentConfig development) {
+        return development.repository().equals(Optional.of(RepositoryMode.WRITE));
     }
 
     private static void checkBaseUrl(EffectiveNodeConfig server, Findings findings) {

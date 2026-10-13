@@ -201,7 +201,7 @@ visible in `--check-config` and `list_nodes`.
 - Check the `--check-config` line and the `list_nodes` field.
 - The refusal of an import on a read-only node is proven in T024.
 
-- [ ] T014 [US2] Write failing tests in `test/config/ConfigValidatorTest.java` (D-2):
+- [X] T014 [US2] Write failing tests in `test/config/ConfigValidatorTest.java` (D-2):
   - an explicit `development.repository: WRITE` on a node that is not a development stage is a
     startup error;
   - `WRITE` on a `production: true` group, or on any of its nodes, is a startup error;
@@ -211,7 +211,7 @@ visible in `--check-config` and `list_nodes`.
     effect");
   - a node with `READ_ONLY` beats a group with `WRITE`;
   - messages use `{group}`/`{node}` terminology (`MessageTerminologyTest`).
-- [ ] T015 [US2] Implement `ConfigValidator.checkRepositorySwitch` on the raw
+- [X] T015 [US2] Implement `ConfigValidator.checkRepositorySwitch` on the raw
   `ProfileConfig.groups()` / `defaults()` with `Findings.termError`/`termWarning`, called from
   `validate` in `main/config/ConfigValidator.java`.
 - [ ] T016 [P] [US2] `main/config/ConfigSummary.java`: append `, repository: write` or
