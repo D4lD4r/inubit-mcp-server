@@ -367,4 +367,42 @@ class RepositoryChangeSetTest {
         assertThat(error.message()).contains("/Root/jdoe/xsd/a.xsd");
         assertThat(error.nextStep()).contains("export the path first");
     }
+
+    // --- T026: where the files to send are used (FR-012, edge cases "Shared use", "Reference
+    // chains") ---------------------------------------------------------------------------------
+
+    @Test
+    void repositoryUseNamesTheArtifactsOutsideTheScopeThatReachAFile() {
+        // Module-0001 names a.xsd, which includes b.xsd: Module-0001 uses b.xsd through a.xsd
+        String b = "/Root/jdoe/xsd/b.xsd";
+        String pluginType = Path.of(harness.moduleDirectory("Module-0001")).getParent()
+            .getFileName().toString();
+
+        ChangeSetBuilder.RepositoryUse byPaths = builder().repositoryUse(paths("xsd"),
+            List.of(b));
+        ChangeSetBuilder.RepositoryUse byGroup = builder().repositoryUse(group(), List.of(b));
+
+        assertThat(byPaths.referrers()).as("a.xsd is in the scope, Module-0001 is not")
+            .containsOnlyKeys(b);
+        assertThat(byPaths.referrers().get(b))
+            .containsExactly("Module-0001 (" + pluginType + " module)");
+        assertThat(byGroup.referrers()).as("Workflow-0001 uses Module-0001, a.xsd is in its"
+            + " closure").isEmpty();
+        assertThat(byPaths.outsideOwner()).isEmpty();
+    }
+
+    @Test
+    void repositoryUseListsTheReferencesThatLeaveTheOwnersRoot() {
+        harness.edit(file("xsd/b.xsd"), "</xs:schema>",
+            "<xs:include schemaLocation=\"inubitrepository:/Root/other/x.xsd\"/></xs:schema>");
+
+        ChangeSetBuilder.RepositoryUse use = builder().repositoryUse(paths("xsd/a.xsd"),
+            List.of("/Root/jdoe/xsd/a.xsd"));
+
+        assertThat(use.outsideOwner()).singleElement().satisfies(reference -> {
+            assertThat(reference.to()).isEqualTo("/Root/other/x.xsd");
+            assertThat(reference.from().toRelativePath().toString().replace('\\', '/'))
+                .isEqualTo(file("xsd/b.xsd"));
+        });
+    }
 }

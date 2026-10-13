@@ -5,7 +5,9 @@ import de.dadecker.inubit.mcp.domain.model.ChangeSet;
 import de.dadecker.inubit.mcp.domain.model.ChangedArtifact;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.ImportPreview;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.RepositoryReference;
 import de.dadecker.inubit.mcp.domain.model.RepositoryUpload;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -29,6 +31,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.SortedMap;
+import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Function;
@@ -69,10 +72,14 @@ import java.util.function.Supplier;
  *       {@code .meta} metadata, EXISTING with the node's metadata from the export (it keeps the
  *       node's content type and description), {@code create} without (synthesized on build).
  * </ol>
+ *
+ * <p>Preview of the files to send ({@link #preview}, FR-012, research D-5 step 4) and the
+ * warnings of a change set with repository files ({@link #warnings}).
  */
 final class RepositoryStep {
 
     private static final int MAX_SENT_FILES = 50;
+    private static final int MAX_NAMED = 20;
 
     /**
      * What the node holds of a change set's repository files.
@@ -102,6 +109,26 @@ final class RepositoryStep {
         public String toString() {
             return "NodeState[" + files.size() + " files, " + rawExports.size() + " exports, "
                 + uploads.size() + " uploads]";
+        }
+    }
+
+    /**
+     * The repository part of a preview.
+     *
+     * @param references per file to send that workspace artifacts outside the scope use: at most
+     *                   20 of them and whether there are more
+     * @param diff       {@code .reports/repository-<auditId>.diff}, if a file is to be modified
+     * @param sharedUse  the warning on the shared use, with the path of
+     *                   {@code .reports/repository-references-<auditId>.txt}, which lists every
+     *                   artifact; if any file is used outside the scope
+     */
+    record Preview(List<ImportPreview.RepositoryReferences> references, Optional<String> diff,
+        Optional<String> sharedUse) {
+
+        Preview {
+            references = List.copyOf(references);
+            Objects.requireNonNull(diff, "diff");
+            Objects.requireNonNull(sharedUse, "sharedUse");
         }
     }
 
@@ -235,6 +262,95 @@ final class RepositoryStep {
             changes.workflows(), changes.modules(), repository, changes.notImported(), identical,
             changes.referenced());
         return new NodeState(classified, held, raw, fingerprint(held), uploads);
+    }
+
+    /**
+     * The repository part of the preview of the files to send in {@code state} (FR-012, research
+     * D-5 step 4, edge case "Shared use"); writes the reports below {@code .reports/}:
+     *
+     * <ul>
+     *   <li>{@code repository-<auditId>.diff}: per file to modify (MODIFIED or EXISTING) the line
+     *       differences between the node and the workspace; key material is only named, never
+     *       shown (the workspace never holds any, ChangeSetBuilder refuses it);
+     *   <li>{@code repository-references-<auditId>.txt}: per file every workspace artifact
+     *       outside the scope, of any owner of the group, that uses it ({@code use}), only if
+     *       there is any.
+     * </ul>
+     */
+    Preview preview(NodeId node, NodeState state, ChangeSetBuilder.RepositoryUse use,
+        UUID auditId) {
+        StringBuilder diff = new StringBuilder();
+        List<ImportPreview.RepositoryReferences> references = new ArrayList<>();
+        StringBuilder used = new StringBuilder();
+        List<String> counts = new ArrayList<>();
+        for (ChangedArtifact file : state.changes().repository()) {
+            String path = file.name();
+            if (file.onServer()) {
+                byte[] now = state.files().get(path);
+                if (releases.keyMaterial(path, now)) {
+                    diff.append("=== ").append(path).append(": differs on ").append(node)
+                        .append(" from the workspace (key material, not shown)\n");
+                } else {
+                    ConflictDetector.LineDiff.append(diff, path, "on " + node, "workspace", now,
+                        workspace(file));
+                }
+            }
+            SortedSet<String> names = use.referrers().get(path);
+            if (names != null) {
+                references.add(new ImportPreview.RepositoryReferences(path, names.stream()
+                    .limit(MAX_NAMED).toList(), names.size() > MAX_NAMED));
+                counts.add(path + " (" + names.size() + ")");
+                used.append(path).append(" (").append(names.size()).append("):\n");
+                names.forEach(name -> used.append("  ").append(name).append('\n'));
+            }
+        }
+        Optional<String> diffReport = diff.isEmpty() ? Optional.empty() : Optional.of(
+            ConflictDetector.report(root, "repository-" + auditId + ".diff", diff.toString()));
+        Optional<String> sharedUse = Optional.empty();
+        if (!references.isEmpty()) {
+            String report = ConflictDetector.report(root, "repository-references-" + auditId
+                + ".txt", "Workspace artifacts (of every owner of the group) outside "
+                + state.changes().scope().describe() + " that use the repository files to send"
+                + " to " + node + ":\n\n" + used);
+            sharedUse = Optional.of("Workspace artifacts outside the scope (of every owner of"
+                + " the group in the workspace) use repository files of this import, which"
+                + " change for them too: " + String.join(", ", counts) + "; every artifact: "
+                + report);
+        }
+        return new Preview(references, diffReport, sharedUse);
+    }
+
+    /**
+     * The warnings of a call whose change set had repository files ({@code changes} after the
+     * node read, also if they all turned out identical), for its preview and its result: every
+     * reference the closure did not follow because it leaves the owner's repository root
+     * (FR-011; at most 20, then how many more), and, if a file is to be modified, that
+     * references on the node which the workspace does not hold cannot be listed (edge case
+     * "Shared use").
+     */
+    static List<String> warnings(NodeId node, ChangeSet changes,
+        ChangeSetBuilder.RepositoryUse use) {
+        String root = "/Root/" + changes.scope().owner() + "/";
+        List<String> warnings = new ArrayList<>();
+        List<RepositoryReference> outside = use.outsideOwner();
+        outside.stream().limit(MAX_NAMED).forEach(reference -> warnings.add(reference.from()
+            .toRelativePath().toString().replace('\\', '/') + " references " + reference.to()
+            + ", outside the owner's repository root " + root + ": not followed and not"
+            + " imported"));
+        if (outside.size() > MAX_NAMED) {
+            warnings.add((outside.size() - MAX_NAMED) + " more references outside the owner's"
+                + " repository root " + root + " were not followed");
+        }
+        List<String> modified = changes.repository().stream().filter(ChangedArtifact::onServer)
+            .map(ChangedArtifact::name).toList();
+        if (!modified.isEmpty()) {
+            warnings.add("Artifacts on " + node + " that the workspace does not hold (of any"
+                + " owner) may use "
+                + String.join(", ", modified) + " as well; such references cannot be listed."
+                + " Export the users of these files, or check them in the Workbench, before"
+                + " approving");
+        }
+        return warnings;
     }
 
     /**

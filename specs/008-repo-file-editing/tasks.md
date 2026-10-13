@@ -357,7 +357,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
     server-issued code is never silently ignored. If no repository file is left to send after the
     node read, the redeemed code still binds inputs and state, and the call proceeds without a
     repository import.
-- [ ] T026 [US1] Preview fields (FR-012, D-5).
+- [X] T026 [US1] Preview fields (FR-012, D-5).
   - Repository paths appear in `create`, `modify`, `existing` and `identical` as `/Root/<owner>/…`.
   - `repositoryReferences`: "up to 20 workspace artifacts outside the scope … with a truncation
     marker", with the full list in `.reports/repository-references-<auditId>.txt`.
@@ -439,6 +439,8 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
     re-assert in `RepositoryImportTest.aClientNodeGetsAServerCodeForARepositoryFileToSendAndRunsOnlyWithIt`
     that the import really runs with the code (`importRepository`, then `importArchive`) and nothing
     without it, and cover the execute side of `aRepositoryOnlyChangeSetGetsAPreview` (T025 notes).
+  - assert that the result after an actual repository import carries the outside-owner warning and
+    the shared-use note (T026 reviews).
 - [ ] T032 [US1] Write failing tests in `test/application/RepositoryImportFailureTest.java`:
   - the repository import reports NOK;
   - a repository verify mismatch;

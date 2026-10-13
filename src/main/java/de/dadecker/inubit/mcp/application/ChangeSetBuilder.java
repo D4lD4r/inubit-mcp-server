@@ -5,6 +5,7 @@ import de.dadecker.inubit.mcp.domain.model.ChangeSet;
 import de.dadecker.inubit.mcp.domain.model.ChangedArtifact;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.ImportPreview;
 import de.dadecker.inubit.mcp.domain.model.ImportScope;
 import de.dadecker.inubit.mcp.domain.model.NameCodec;
 import de.dadecker.inubit.mcp.domain.model.PathChange;
@@ -24,14 +25,21 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.Predicate;
@@ -125,11 +133,8 @@ public final class ChangeSetBuilder {
      */
     public ChangeSet build(ImportScope scope) {
         GroupId group = scope.group();
-        String ownerDirectory = group.value() + "/" + NameCodec.encode(scope.owner());
-        String scopeDirectory = scope.diagramGroup()
-            .map(name -> slash(WorkspacePath.workflow(group, scope.owner(), name, "x")
-                .toRelativePath().getParent()))
-            .orElse(ownerDirectory + (scope.repositoryPaths().isEmpty() ? "/modules" : ""));
+        String ownerDirectory = ownerDirectory(scope);
+        String scopeDirectory = scopeDirectory(scope, ownerDirectory);
         String base = history.serverStateOf(group, scopeDirectory);
 
         List<LocalChange> changes = history.localChanges(group, ownerDirectory).stream()
@@ -224,24 +229,10 @@ public final class ChangeSetBuilder {
     private List<ChangedArtifact> repository(ImportScope scope, String ownerDirectory,
         String scopeDirectory, Set<List<String>> wanted, Map<String, LocalChange> changes,
         Set<String> notImported) {
-        Predicate<String> inScope;
-        if (scope.repositoryPaths().isEmpty()) {
-            inScope = closure(scope, ownerDirectory, scopeDirectory, wanted).included()::contains;
-        } else {
-            List<String> prefixes = new ArrayList<>();
-            for (String relative : scope.repositoryPaths()) {
-                try {
-                    prefixes.add(RepositoryPaths.full(scope.owner(), relative));
-                } catch (IllegalArgumentException e) {
-                    throw invalid("The owner " + scope.owner() + " is no repository root StartCLI"
-                            + " can take; nothing was sent",
-                        "Repository paths are imported below /Root/<owner>",
-                        "Give an owner of letters, digits, '_', '.', '-' and spaces");
-                }
-            }
-            inScope = full -> prefixes.stream().anyMatch(prefix -> full.equals(prefix)
-                || full.startsWith(prefix + "/"));
-        }
+        Predicate<String> inScope = scope.repositoryPaths().isEmpty()
+            ? closure(scope, start(scope, ownerDirectory, scopeDirectory, wanted))
+                .included()::contains
+            : inPaths(scope);
         List<LocalChange> files = new ArrayList<>();
         changes.forEach((path, change) -> {
             if (inScope.test(fullPath(change))) {
@@ -332,12 +323,153 @@ public final class ChangeSetBuilder {
     }
 
     /**
-     * The repository files that the modules of a diagram-group or module scope reach (research
-     * D-3): for a diagram group the workflows of {@code scopeDirectory} and every module they
-     * use, for a module scope the modules {@code wanted}.
+     * Where the repository files {@code paths} (full repository paths, the files to send) are
+     * used (feature 008, FR-011, FR-012, edge cases "Shared use" and "Reference chains"):
+     *
+     * <ul>
+     *   <li>{@code referrers}: every file of the group's workspace, of every owner, is scanned
+     *       once, and only if {@code paths} is not empty; a file uses a repository file if it
+     *       references it directly or through a chain of repository files. The artifacts of the
+     *       scope (for a diagram group its workflows and every module they use, for a module
+     *       scope the modules, and the owner's repository files of the scope's closure or below
+     *       the repository paths) are left out; the artifacts of other owners never belong to
+     *       the scope.
+     *   <li>{@code outsideOwner}: the references the closure of the scope (for repository paths:
+     *       of {@code paths}) did not follow because they leave the owner's root.
+     * </ul>
+     *
+     * @throws ToolErrorException {@code INVALID_INPUT} as {@link #build} for a named module that
+     *     is not in the workspace or an owner StartCLI cannot take
      */
-    private RepositoryClosure closure(ImportScope scope, String ownerDirectory,
-        String scopeDirectory, Set<List<String>> wanted) {
+    RepositoryUse repositoryUse(ImportScope scope, Collection<String> paths) {
+        String ownerDirectory = ownerDirectory(scope);
+        Set<String> inScope = new HashSet<>();
+        Predicate<String> repositoryInScope;
+        RepositoryClosure closure;
+        if (scope.repositoryPaths().isEmpty()) {
+            Set<List<String>> wanted = new HashSet<>();
+            for (ImportScope.Module module : scope.modules()) {
+                wanted.add(locate(scope, ownerDirectory, module));
+            }
+            List<String> start = start(scope, ownerDirectory, scopeDirectory(scope,
+                ownerDirectory), wanted);
+            inScope.addAll(start);
+            closure = closure(scope, start);
+            repositoryInScope = closure.included()::contains;
+        } else {
+            repositoryInScope = inPaths(scope);
+            closure = closure(scope, paths.stream().map(path -> slash(WorkspacePath.repository(
+                scope.group(), scope.owner(), path).toRelativePath())).toList());
+        }
+
+        Map<String, List<WorkspacePath>> usedBy = new HashMap<>();
+        for (String file : paths.isEmpty() ? List.<String>of() : files(scope.group().value())) {
+            parse(file).ifPresent(from -> inspector.repositoryReferences(from,
+                read(root.resolve(file))).forEach(reference -> usedBy.computeIfAbsent(
+                    reference.to(), to -> new ArrayList<>()).add(from)));
+        }
+        SortedMap<String, SortedSet<String>> referrers = new TreeMap<>();
+        for (String path : paths) {
+            SortedSet<String> names = new TreeSet<>();
+            Set<String> seen = new HashSet<>(List.of(path));
+            Deque<String> worklist = new ArrayDeque<>(seen);
+            while (!worklist.isEmpty()) {
+                for (WorkspacePath from : usedBy.getOrDefault(worklist.removeFirst(), List.of())) {
+                    boolean own = from.owner().equals(scope.owner());
+                    if (from.kind() == WorkspacePath.Kind.REPOSITORY) {
+                        String full = "/" + String.join("/", from.segments());
+                        if (seen.add(full)) {
+                            worklist.add(full);
+                        }
+                        if (!own || !repositoryInScope.test(full)) {
+                            names.add(artifactName(scope.owner(), from));
+                        }
+                    } else if (!own || !inScope.contains(slash(from.toRelativePath()))) {
+                        names.add(artifactName(scope.owner(), from));
+                    }
+                }
+            }
+            names.remove(path);
+            if (!names.isEmpty()) {
+                referrers.put(path, names);
+            }
+        }
+        return new RepositoryUse(referrers, closure.outsideOwner());
+    }
+
+    /**
+     * See {@link #repositoryUse}.
+     *
+     * @param referrers    full repository path → the names of the workspace artifacts outside
+     *                     the scope that use it ({@link ImportPreview.RepositoryReferences}); only
+     *                     paths with any
+     * @param outsideOwner the references that were not followed
+     */
+    record RepositoryUse(SortedMap<String, SortedSet<String>> referrers,
+        List<RepositoryReference> outsideOwner) {
+
+        RepositoryUse {
+            referrers = Collections.unmodifiableSortedMap(new TreeMap<>(referrers));
+            outsideOwner = List.copyOf(outsideOwner);
+        }
+    }
+
+    /**
+     * The name of the artifact of {@code file} in {@link RepositoryUse#referrers}: a workflow as
+     * {@code <workflow> (<diagram group>)}, a module as {@code <module> (<plugin type> module)},
+     * a repository file by its full path; another owner's artifact with {@code owner <name>}
+     * (e.g. {@code Mapping-0007 (GRP-02, owner bob)}, {@code /Root/bob/y.xsd (owner bob)}).
+     */
+    private static String artifactName(String owner, WorkspacePath file) {
+        List<String> segments = file.segments();
+        String other = file.owner().equals(owner) ? "" : "owner " + file.owner();
+        return switch (file.kind()) {
+            case WORKFLOW -> segments.get(1) + " (" + segments.get(0)
+                + (other.isEmpty() ? "" : ", " + other) + ")";
+            case REPOSITORY -> "/" + String.join("/", segments)
+                + (other.isEmpty() ? "" : " (" + other + ")");
+            default -> segments.get(1) + " (" + segments.get(0) + " module"
+                + (other.isEmpty() ? "" : ", " + other) + ")";
+        };
+    }
+
+    /** {@code <group>/<owner>}, workspace-relative. */
+    private static String ownerDirectory(ImportScope scope) {
+        return scope.group().value() + "/" + NameCodec.encode(scope.owner());
+    }
+
+    /** The directory whose last server state is the base of the scope. */
+    private static String scopeDirectory(ImportScope scope, String ownerDirectory) {
+        return scope.diagramGroup()
+            .map(name -> slash(WorkspacePath.workflow(scope.group(), scope.owner(), name, "x")
+                .toRelativePath().getParent()))
+            .orElse(ownerDirectory + (scope.repositoryPaths().isEmpty() ? "/modules" : ""));
+    }
+
+    /** True for a full repository path at or below the repository paths of {@code scope}. */
+    private static Predicate<String> inPaths(ImportScope scope) {
+        List<String> prefixes = new ArrayList<>();
+        for (String relative : scope.repositoryPaths()) {
+            try {
+                prefixes.add(RepositoryPaths.full(scope.owner(), relative));
+            } catch (IllegalArgumentException e) {
+                throw invalid("The owner " + scope.owner() + " is no repository root StartCLI"
+                        + " can take; nothing was sent",
+                    "Repository paths are imported below /Root/<owner>",
+                    "Give an owner of letters, digits, '_', '.', '-' and spaces");
+            }
+        }
+        return full -> prefixes.stream().anyMatch(prefix -> full.equals(prefix)
+            || full.startsWith(prefix + "/"));
+    }
+
+    /**
+     * The workspace files a diagram-group or module scope starts its closure from (research
+     * D-3): for a diagram group the workflows of {@code scopeDirectory} and every file of every
+     * module they use, for a module scope every file of the modules {@code wanted}.
+     */
+    private List<String> start(ImportScope scope, String ownerDirectory, String scopeDirectory,
+        Set<List<String>> wanted) {
         List<String> start = new ArrayList<>();
         if (scope.diagramGroup().isPresent()) {
             Set<String> used = new TreeSet<>();
@@ -360,6 +492,11 @@ public final class ChangeSetBuilder {
                     key.get(0), key.get(1)).toRelativePath().getParent())));
             }
         }
+        return start;
+    }
+
+    /** The repository files that the workspace files {@code start} reach (research D-3). */
+    private RepositoryClosure closure(ImportScope scope, List<String> start) {
         List<RepositoryReference> references = new ArrayList<>();
         for (String file : start) {
             parse(file).ifPresent(path -> references.addAll(inspector.repositoryReferences(path,

@@ -95,6 +95,9 @@ import org.slf4j.LoggerFactory;
  *   <li>the import archive with only the workflows and modules of the change set and the
  *       target's current secrets (none for repository files alone);
  *   <li>server confirmation without a code: the preview with a code, audited — nothing sent;
+ *       with repository files to send, it also names the workspace artifacts outside the scope
+ *       that use them, writes their node diff and warns of references outside the owner's
+ *       repository root and on the node ({@link RepositoryStep#preview}, feature 008, FR-012);
  *   <li>the backup (the raw export of the scope and a manifest), then the {@code PENDING}
  *       audit record (fail closed), then the StartCLI import — always with
  *       {@code --importUser <owner>}, for users and user groups alike (research D-26);
@@ -395,15 +398,24 @@ public final class ImportService {
             previewedServer = redeem(call, node, inputs, workspace);
         }
         ConflictDetector.Result fresh = detector.detect(node, changes, auditId);
+        // T026: with repository files to send, their node state and where they are used; with
+        // repository files at all, the warnings of the preview and the result
+        RepositoryStep.NodeState nodeState = null;
+        ChangeSetBuilder.RepositoryUse use = null;
+        List<String> repositoryWarnings = List.of();
         if (repositoryFiles) {
             // research D-6: only the node read tells whether a repository file is to be sent,
             // so the mode decision and the redeem follow it; a presented code is always redeemed
-            fresh = fresh.withRepository(repository.nodeState(node, fresh.changes(), auditId));
+            RepositoryStep.NodeState read = repository.nodeState(node, fresh.changes(), auditId);
+            fresh = fresh.withRepository(read);
             RepositoryStep.requireWritable(policy, fresh.changes());
+            use = builder.repositoryUse(scope, names(fresh.changes().repository()));
+            repositoryWarnings = RepositoryStep.warnings(node, fresh.changes(), use);
             if (!fresh.changes().repository().isEmpty()) {
                 policy = d.guard().forRepositoryWrite(policy);
                 call.policy = policy;
                 server = policy.confirmation() == WritePolicy.Confirmation.SERVER;
+                nodeState = read;
             }
             if (call.confirmationCode.isPresent()) {
                 previewedServer = redeem(call, node, inputs, workspace);
@@ -422,6 +434,7 @@ public final class ImportService {
         if (changes.isEmpty()) {
             List<String> notes = new ArrayList<>(List.of("Nothing to send: "
                 + identicalNote(node, changes)));
+            notes.addAll(repositoryWarnings);
             Optional<WriteOutcome.TagResult> tag = notTagged(call, notes, "nothing was"
                 + " imported");
             call.append(auditId, AuditRecord.Step.EXECUTE, AuditOutcome.EXECUTED,
@@ -439,8 +452,10 @@ public final class ImportService {
                 files(changes), fresh.rawExports(), call.reason, account,
                 takenNames(node, changes, call.owner, fresh.targetModules())));
         if (server && call.confirmationCode.isEmpty()) {
-            return challenge(call, node, policy, changes, warnings, inputs,
-                "workspace=" + workspace + ";server=" + fresh.fingerprint());
+            return challenge(call, node, policy, changes, warnings, nodeState == null
+                ? Optional.empty() : Optional.of(repository.preview(node, nodeState, use,
+                    auditId)), repositoryWarnings, inputs, "workspace=" + workspace
+                    + ";server=" + fresh.fingerprint());
         }
         if (!changes.repository().isEmpty()) {
             // feature 008 interim: refused until RepositoryStep sends repository files (T031);
@@ -455,9 +470,10 @@ public final class ImportService {
         }
         ImportPort.Mode mode = scope.diagramGroup().isPresent() ? ImportPort.Mode.WORKFLOW
             : ImportPort.Mode.MODULE;
+        List<String> notes = serverNotes(node, changes);
+        notes.addAll(repositoryWarnings);
         return execute(call, node, new Plan(changes, archive, mode, mode, this::readOrNull,
-            "import", scope.describe(), List.of(), serverNotes(node, changes)), auditId,
-            fresh.rawExports(), account);
+            "import", scope.describe(), List.of(), notes), auditId, fresh.rawExports(), account);
     }
 
     /**
@@ -1048,8 +1064,17 @@ public final class ImportService {
 
     // --- preview -----------------------------------------------------------------------------
 
+    /**
+     * @param repositoryPreview  with repository files to send (feature 008, FR-012)
+     * @param repositoryWarnings {@link RepositoryStep#warnings}, if the change set had
+     *                           repository files
+     */
     private Response challenge(Call call, NodeId node, DevelopmentPolicy policy,
-        ChangeSet changes, int warnings, String inputs, String previewState) {
+        ChangeSet changes, int warnings, Optional<RepositoryStep.Preview> repositoryPreview,
+        List<String> repositoryWarnings, String inputs, String previewState) {
+        List<String> notes = new ArrayList<>();
+        repositoryPreview.flatMap(RepositoryStep.Preview::sharedUse).ifPresent(notes::add);
+        notes.addAll(repositoryWarnings);
         WriteChallengeRegistry.Issued issued = issue(call, node, policy, inputs, previewState,
             "the import of " + changes.scope().describe());
         String existing = changes.existing().isEmpty() ? "" : " Of modify, "
@@ -1061,8 +1086,11 @@ public final class ImportService {
             + " (the workflows are bound to them as they are).";
         return new Response.Challenge(new ImportPreview(node, changes.scope().describe(),
             changes.baseCommit(), changes.created(), changes.modified(), changes.existing(),
-            changes.identicalNames(), changes.notImported(), warnings, call.tag, issued.code(),
-            issued.expiresAt(), "Nothing was sent." + existing + identical + " To"
+            changes.identicalNames(), changes.notImported(), warnings, call.tag,
+            repositoryPreview.map(RepositoryStep.Preview::references),
+            repositoryPreview.flatMap(RepositoryStep.Preview::diff),
+            notes.isEmpty() ? Optional.empty() : Optional.of(notes),
+            issued.code(), issued.expiresAt(), "Nothing was sent." + existing + identical + " To"
                 + " import " + changes.artifacts().size() + " artifact(s) of "
                 + changes.scope().describe() + " into " + node + call.tag.map(tag -> " and then"
                     + " tag the diagram group with " + tag).orElse("") + ", show this preview to"

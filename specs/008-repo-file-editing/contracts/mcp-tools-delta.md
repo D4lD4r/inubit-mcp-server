@@ -79,8 +79,13 @@ Challenge: the existing fields, plus:
     {"path": "/Root/jdoe/schemas/order.xsd", "artifacts": ["Mapping-0007 (GRP-02)"], "truncated": false}
   ],
   "repositoryDiff": ".reports/repository-<auditId>.diff",
+  "warnings": ["<workspace file> references /Root/<other>/…, outside the owner's repository root /Root/<owner>/: not followed and not imported", "…"],
   "confirmationCode": "…", "expiresAt": "…", "message": "…"}}
 ```
+
+`warnings` (optional, added in T026) carries the references outside the owner's repository root that
+were not followed, the shared-use note, and the note that artifacts on the node which the workspace
+does not hold cannot be listed.
 
 Result: the existing fields. `created`, `modified`, `identical` and `createdNotRemoved` carry
 repository paths. `tag` gains an optional `repositoryFiles` list (D-12): the imported repository

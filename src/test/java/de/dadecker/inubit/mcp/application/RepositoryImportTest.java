@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -48,12 +49,20 @@ import org.junit.jupiter.api.io.TempDir;
  * a node with {@code development.confirmation: CLIENT}; the code is redeemed after the node read,
  * and always if the change set holds repository files. Until T031 the confirmed call stops at the
  * interim execute guard of T020+T021, so these tests see that guard instead of an import.
+ *
+ * <p>T026 (FR-012, research D-5 step 4, edge cases "Shared use" and "Reference chains"): the
+ * preview lists the repository files by their full path, names up to 20 workspace artifacts
+ * outside the scope that use each file to send (all of them in a report), writes the line
+ * differences between the node and the workspace of every file to modify, and warns of
+ * references that leave the owner's repository root and of references on the node that the
+ * workspace cannot show.
  */
 @Timeout(60)
 class RepositoryImportTest {
 
     private static final String A = "/Root/jdoe/xsd/a.xsd";
     private static final String B = "/Root/jdoe/xsd/b.xsd";
+    private static final String C = "/Root/jdoe/xsd/c.xsd";
 
     @TempDir
     Path temp;
@@ -118,14 +127,19 @@ class RepositoryImportTest {
     }
 
     private ImportPreview preview(ImportService on) {
+        ImportPreview preview = challenge(on);
+        assertThat(preview.create()).as("b.xsd is absent on the node").contains(B);
+        assertThat(preview.modify()).containsExactly("Workflow-0001", "Module-0003", A);
+        return preview;
+    }
+
+    /** The first call on {@code on}: the node read, then the preview. */
+    private ImportPreview challenge(ImportService on) {
         nodeRead();
         ImportService.Response response = on.importArtifacts(harness.group("Schemas"));
         harness.cli.verifyComplete();
         assertThat(response).isInstanceOf(ImportService.Response.Challenge.class);
-        ImportPreview preview = ((ImportService.Response.Challenge) response).preview();
-        assertThat(preview.create()).as("b.xsd is absent on the node").contains(B);
-        assertThat(preview.modify()).containsExactly("Workflow-0001", "Module-0003", A);
-        return preview;
+        return ((ImportService.Response.Challenge) response).preview();
     }
 
     private ToolError confirmedRefusal(ImportPreview preview) {
@@ -475,5 +489,183 @@ class RepositoryImportTest {
         assertThat(outcome.identical()).hasValueSatisfying(names -> assertThat(names)
             .containsExactly(B));
         assertThat(node.repositoryImports).isEmpty();
+    }
+
+    // --- T026: the preview of repository files (FR-012, research D-5 step 4) ------------------
+
+    /** Lets module {@code module} name {@code repositoryPath} by URI in property {@code name}. */
+    private void reference(String module, String name, String repositoryPath) {
+        harness.edit(harness.moduleDirectory(module) + "/module.xml", "</Properties>",
+            "<Property name=\"" + name + "\">inubitrepository:" + repositoryPath
+                + "</Property></Properties>");
+    }
+
+    /** The content of the only report file whose name starts with {@code prefix}. */
+    private String report(String prefix) throws IOException {
+        try (Stream<Path> files = Files.list(harness.root.resolve(".reports"))) {
+            List<Path> found = files.filter(file -> file.getFileName().toString()
+                .startsWith(prefix)).toList();
+            assertThat(found).as(prefix).hasSize(1);
+            return Files.readString(found.get(0));
+        }
+    }
+
+    @Test
+    void thePreviewListsRepositoryFilesByFullPathAndWritesTheNodeDiff() {
+        // a.xsd is MODIFIED, b.xsd is on the node with other content (modify and existing), the
+        // new c.xsd is identical on the node
+        node.putRepositoryFile(B, schema("someone else's b"));
+        node.putRepositoryFile(C, schema("c"));
+        harness.write(file(C), schema("c"));
+        reference("Module-0003", "x.c", C);
+
+        ImportPreview preview = challenge(service);
+
+        assertThat(preview.create()).isEmpty();
+        assertThat(preview.modify()).containsExactly("Workflow-0001", "Module-0003", A, B);
+        assertThat(preview.existing()).containsExactly(B);
+        assertThat(preview.identical()).containsExactly(C);
+        assertThat(preview.repositoryDiff()).hasValueSatisfying(path -> {
+            assertThat(path).matches("\\.reports/repository-[0-9a-f-]{36}\\.diff");
+            assertThat(harness.read(path))
+                .contains("--- " + A + " (on dev/node1)", "+++ " + A + " (workspace)",
+                    "+  <xs:element name=\"added\"/>")
+                .contains("--- " + B + " (on dev/node1)",
+                    "-  <xs:element name=\"someone else's b\"/>", "+  <xs:element name=\"b\"/>")
+                .doesNotContain(C);
+        });
+    }
+
+    @Test
+    void aFileToCreateHasNoDiffAndNoNoteOnReferencesOnTheNode() {
+        // only b.xsd is sent, and the node does not hold it
+        revertA();
+
+        ImportPreview preview = challenge(service);
+
+        assertThat(preview.create()).containsExactly(B);
+        assertThat(preview.repositoryDiff()).isEmpty();
+        assertThat(preview.repositoryReferences()).hasValue(List.of());
+        assertThat(preview.warnings()).isEmpty();
+        assertThat(harness.root.resolve(".reports")).doesNotExist();
+    }
+
+    @Test
+    void thePreviewNamesTwentyArtifactsOutsideTheScopeThatUseAFileAndReportsAll()
+        throws IOException {
+        // US1 scenario 11: 25 schemas outside the scope include b.xsd; Mapping-0007 of the
+        // diagram group GRP-02 names a.xsd
+        for (int i = 1; i <= 25; i++) {
+            harness.write(file(String.format("/Root/jdoe/other/s%02d.xsd", i)), "<xs:schema"
+                + " xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"><xs:include"
+                + " schemaLocation=\"../xsd/b.xsd\"/></xs:schema>\n");
+        }
+        harness.write(WorkspacePath.workflow(ImportHarness.DEV.group(), "jdoe", "GRP-02",
+            "Mapping-0007").toRelativePath().toString(), "<Workflow><Property>"
+            + "inubitrepository:" + A + "</Property></Workflow>\n");
+
+        ImportPreview preview = preview();
+
+        assertThat(preview.repositoryReferences()).hasValueSatisfying(references -> {
+            assertThat(references).extracting(ImportPreview.RepositoryReferences::path)
+                .containsExactly(A, B);
+            assertThat(references.get(0).artifacts()).containsExactly("Mapping-0007 (GRP-02)");
+            assertThat(references.get(0).truncated()).isFalse();
+            assertThat(references.get(1).artifacts()).hasSize(20)
+                .startsWith("/Root/jdoe/other/s01.xsd").endsWith("/Root/jdoe/other/s20.xsd");
+            assertThat(references.get(1).truncated()).isTrue();
+        });
+        String report = report("repository-references-");
+        for (int i = 1; i <= 25; i++) {
+            assertThat(report).contains(String.format("/Root/jdoe/other/s%02d.xsd", i));
+        }
+        assertThat(report).contains(A, B, "Mapping-0007 (GRP-02)");
+        assertThat(preview.warnings()).hasValueSatisfying(warnings -> assertThat(warnings)
+            .anySatisfy(warning -> assertThat(warning)
+                .contains(A + " (1)", B + " (25)", ".reports/repository-references-")));
+    }
+
+    @Test
+    void thePreviewWarnsOfReferencesOutsideTheOwnersRootAndOfReferencesOnTheNode() {
+        // Module-0003 also names a schema of another owner: not followed, not imported
+        reference("Module-0003", "x.other", "/Root/other/x.xsd");
+
+        ImportPreview preview = preview();
+
+        assertThat(preview.warnings()).hasValueSatisfying(warnings -> assertThat(warnings)
+            .anySatisfy(warning -> assertThat(warning).contains(
+                harness.moduleDirectory("Module-0003") + "/module.xml", "/Root/other/x.xsd",
+                "outside the owner's repository root /Root/jdoe/", "not followed"))
+            .anySatisfy(warning -> assertThat(warning)
+                .contains(A, "on dev/node1", "cannot be listed").doesNotContain(B)));
+    }
+
+    @Test
+    void artifactsOfAnotherOwnerOfTheGroupAreNamedWithTheirOwner() throws IOException {
+        // bob's workflow names a.xsd; bob's schema y.xsd includes b.xsd, and bob's workflow
+        // Mapping-0009 names y.xsd: it uses b.xsd through y.xsd
+        harness.write(WorkspacePath.workflow(ImportHarness.DEV.group(), "bob", "GRP-02",
+            "Mapping-0008").toRelativePath().toString(), "<Workflow><Property>"
+            + "inubitrepository:" + A + "</Property></Workflow>\n");
+        harness.write(WorkspacePath.repository(ImportHarness.DEV.group(), "bob",
+            "/Root/bob/y.xsd").toRelativePath().toString(), "<xs:schema"
+            + " xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"><xs:include"
+            + " schemaLocation=\"inubitrepository:" + B + "\"/></xs:schema>\n");
+        harness.write(WorkspacePath.workflow(ImportHarness.DEV.group(), "bob", "GRP-02",
+            "Mapping-0009").toRelativePath().toString(), "<Workflow><Property>"
+            + "inubitrepository:/Root/bob/y.xsd</Property></Workflow>\n");
+
+        ImportPreview preview = preview();
+
+        assertThat(preview.repositoryReferences()).hasValueSatisfying(references -> {
+            assertThat(references).extracting(ImportPreview.RepositoryReferences::path)
+                .containsExactly(A, B);
+            assertThat(references.get(0).artifacts())
+                .containsExactly("Mapping-0008 (GRP-02, owner bob)");
+            assertThat(references.get(1).artifacts()).containsExactly(
+                "/Root/bob/y.xsd (owner bob)", "Mapping-0009 (GRP-02, owner bob)");
+        });
+        assertThat(report("repository-references-")).contains(
+            "Mapping-0008 (GRP-02, owner bob)", "/Root/bob/y.xsd (owner bob)",
+            "Mapping-0009 (GRP-02, owner bob)");
+    }
+
+    @Test
+    void aReferenceOutsideTheOwnersRootIsReportedAlsoIfTheRepositoryFilesAreAllIdentical() {
+        // FR-011: b.xsd is identical on the node and not sent; Module-0003 still names a schema
+        // of another owner, which the closure did not follow
+        revertA();
+        node.putRepositoryFile(B, schema("b"));
+        reference("Module-0003", "x.other", "/Root/other/x.xsd");
+        ImportService client = client();
+        nodeRead();
+        harness.importApplied().exportGroup();
+
+        ImportService.Response response = client.importArtifacts(harness.group("Schemas"));
+
+        harness.cli.verifyComplete();
+        assertThat(response).isInstanceOf(ImportService.Response.Completed.class);
+        WriteOutcome outcome = ((ImportService.Response.Completed) response).outcome();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.warnings())
+            .anySatisfy(warning -> assertThat(warning).contains("/Root/other/x.xsd",
+                "outside the owner's repository root /Root/jdoe/", "not followed"))
+            .noneSatisfy(warning -> assertThat(warning).contains("cannot be listed"));
+    }
+
+    @Test
+    void thePreviewOfAllIdenticalRepositoryFilesWarnsOfAReferenceOutsideTheOwnersRoot() {
+        revertA();
+        node.putRepositoryFile(B, schema("b"));
+        reference("Module-0003", "x.other", "/Root/other/x.xsd");
+
+        ImportPreview preview = challenge(service);
+
+        assertThat(preview.identical()).containsExactly(B);
+        assertThat(preview.repositoryReferences()).isEmpty();
+        assertThat(preview.repositoryDiff()).isEmpty();
+        assertThat(preview.warnings()).hasValueSatisfying(warnings -> assertThat(warnings)
+            .singleElement().satisfies(warning -> assertThat(warning)
+                .contains("/Root/other/x.xsd", "not followed")));
     }
 }

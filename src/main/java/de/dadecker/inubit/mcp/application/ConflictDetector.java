@@ -470,11 +470,18 @@ public final class ConflictDetector {
      * returns that path (also for the repository conflicts of {@link RepositoryStep}).
      */
     static String report(Path root, UUID auditId, String diff) {
-        String name = "conflict-" + auditId + ".diff";
+        return report(root, "conflict-" + auditId + ".diff", diff);
+    }
+
+    /**
+     * Writes {@code text} to {@code .reports/<name>} below {@code root} and returns that path
+     * (feature 008: the preview reports of {@link RepositoryStep}).
+     */
+    static String report(Path root, String name, String text) {
         Path file = root.resolve(REPORTS).resolve(name);
         try {
             Files.createDirectories(file.getParent());
-            Files.writeString(file, diff, StandardCharsets.UTF_8);
+            Files.writeString(file, text, StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
