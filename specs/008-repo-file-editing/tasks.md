@@ -371,7 +371,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
   Change `main/domain/model/ImportPreview.java` and `res/schemas/import_artifacts.output.json`
   (`additionalProperties: false`; the new fields are optional). Test in
   `test/application/RepositoryImportTest.java`, asserting both warnings.
-- [ ] T027 [US1] Audit (FR-019, D-11).
+- [X] T027 [US1] Audit (FR-019, D-11).
   - One input `repository.<n>` = `<create|modify|existing|identical> /Root/<owner>/<path>
     sha256:<16 hex>` per file, each within `MAX_AUDITED_INPUT` = 500.
   - `scope` = `repository paths …`.
@@ -441,6 +441,10 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
     without it, and cover the execute side of `aRepositoryOnlyChangeSetGetsAPreview` (T025 notes).
   - assert that the result after an actual repository import carries the outside-owner warning and
     the shared-use note (T026 reviews).
+  - PENDING/EXECUTED records of a real repository import list every sent file with its operation and
+    hash; update `thePreviewAndTheConfirmedCallAuditEveryRepositoryFileWithOperationAndHash`, which
+    expects the interim guard's REFUSED today; compute the audit hashes once when `call.changes` is
+    set, so an unreadable file cannot break the FAILED record (T027 notes and review).
 - [ ] T032 [US1] Write failing tests in `test/application/RepositoryImportFailureTest.java`:
   - the repository import reports NOK;
   - a repository verify mismatch;

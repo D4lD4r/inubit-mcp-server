@@ -14,11 +14,18 @@ import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.ImportArchivePort;
 import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
+import de.dadecker.inubit.mcp.infra.AuditLog;
+import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -27,6 +34,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Feature 008: a development import whose change set holds repository files.
@@ -56,6 +65,11 @@ import org.junit.jupiter.api.io.TempDir;
  * differences between the node and the workspace of every file to modify, and warns of
  * references that leave the owner's repository root and of references on the node that the
  * workspace cannot show.
+ *
+ * <p>T027 (FR-019, research D-11): every audit record of such a call lists each repository file
+ * as {@code repository.<n>} with its operation, full path and the hash of its workspace content,
+ * never the content. Until T031 the records of a call that sends repository files end at the
+ * interim execute guard.
  */
 @Timeout(60)
 class RepositoryImportTest {
@@ -64,8 +78,14 @@ class RepositoryImportTest {
     private static final String B = "/Root/jdoe/xsd/b.xsd";
     private static final String C = "/Root/jdoe/xsd/c.xsd";
 
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+
     @TempDir
     Path temp;
+
+    /** The audit log of the T027 tests, outside the workspace. */
+    @TempDir
+    Path auditDirectory;
 
     private ImportHarness harness;
     private ImportService service;
@@ -667,5 +687,129 @@ class RepositoryImportTest {
         assertThat(preview.warnings()).hasValueSatisfying(warnings -> assertThat(warnings)
             .singleElement().satisfies(warning -> assertThat(warning)
                 .contains("/Root/other/x.xsd", "not followed")));
+    }
+
+    // --- T027: the audit of repository files (FR-019, research D-11) ---------------------------
+
+    /**
+     * The records of {@code import_artifacts} as the audit log writes them, one JSON object per
+     * line; no line holds content of a repository file.
+     */
+    private List<JsonNode> auditLines() throws IOException {
+        AuditLog log = new AuditLog(auditDirectory, new SecretScrubber());
+        harness.audit("import_artifacts").forEach(log::append);
+        List<JsonNode> lines = new ArrayList<>();
+        try (Stream<Path> files = Files.list(auditDirectory)) {
+            for (Path file : files.sorted().toList()) {
+                for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+                    assertThat(line).as("no content of a repository file")
+                        .doesNotContain("xs:schema", "xs:element");
+                    lines.add(JSON.readTree(line));
+                }
+            }
+        }
+        return lines;
+    }
+
+    /** The inputs {@code repository.1}, {@code repository.2}, … of one record, in this order. */
+    private static List<String> repositoryInputs(JsonNode record) {
+        List<String> values = new ArrayList<>();
+        for (int n = 1; record.path("inputs").has("repository." + n); n++) {
+            values.add(record.path("inputs").path("repository." + n).asString());
+        }
+        return values;
+    }
+
+    /** {@code sha256:} and the first 16 hex chars of the workspace content of a file. */
+    private String hash(String repositoryPath) {
+        try {
+            return "sha256:" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(Files.readAllBytes(harness.root.resolve(file(repositoryPath)))))
+                .substring(0, 16);
+        } catch (IOException | NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Test
+    void thePreviewAndTheConfirmedCallAuditEveryRepositoryFileWithOperationAndHash()
+        throws IOException {
+        // until T031 the confirmed call stops at the interim execute guard (EXECUTE, REFUSED)
+        ImportPreview preview = preview();
+        nodeRead();
+        assertThat(confirmedRefusal(preview).message()).contains("does not import yet");
+
+        List<JsonNode> records = auditLines();
+
+        assertThat(records).extracting(record -> record.path("outcome").asString())
+            .containsExactly("CHALLENGE_ISSUED", "REFUSED");
+        assertThat(records.get(1).path("step").asString()).isEqualTo("EXECUTE");
+        assertThat(records).allSatisfy(record -> assertThat(repositoryInputs(record))
+            .containsExactly("modify " + A + " " + hash(A), "create " + B + " " + hash(B)));
+    }
+
+    @Test
+    void aRefusalBeforeTheNodeReadAuditsTheRepositoryFilesOfTheWorkspace() throws IOException {
+        denied(readOnly());
+
+        assertThat(auditLines()).singleElement().satisfies(record -> {
+            assertThat(record.path("outcome").asString()).isEqualTo("REFUSED");
+            assertThat(repositoryInputs(record))
+                .containsExactly("modify " + A + " " + hash(A), "create " + B + " " + hash(B));
+        });
+    }
+
+    @Test
+    void aRefusalAfterTheNodeReadAuditsTheOperationTheNodeReadFound() throws IOException {
+        // b.xsd is NEW in the workspace and on the node with other content: existing
+        revertA();
+        node.putRepositoryFile(B, schema("someone else's b"));
+        ImportService readOnly = readOnly();
+        nodeRead();
+
+        denied(readOnly);
+
+        assertThat(auditLines()).singleElement().satisfies(record -> assertThat(
+            repositoryInputs(record)).containsExactly("existing " + B + " " + hash(B)));
+    }
+
+    @Test
+    void anExecutionWithoutARepositoryFileToSendAuditsTheIdenticalOnes() throws IOException {
+        // the preview of an all-identical change set, then its execution (FR-017: not sent)
+        revertA();
+        node.putRepositoryFile(B, schema("b"));
+        nodeRead();
+        String code = ((ImportService.Response.Challenge) service.importArtifacts(
+            harness.group("Schemas"))).preview().confirmationCode();
+        nodeRead();
+        harness.importApplied().exportGroup();
+        service.importArtifacts(ImportHarness.confirmed(harness.group("Schemas"), code));
+        harness.cli.verifyComplete();
+
+        List<JsonNode> records = auditLines();
+
+        assertThat(records).extracting(record -> record.path("outcome").asString())
+            .startsWith("CHALLENGE_ISSUED").endsWith("EXECUTED");
+        assertThat(records).allSatisfy(record -> assertThat(repositoryInputs(record))
+            .containsExactly("identical " + B + " " + hash(B)));
+    }
+
+    @Test
+    void aPathTooLongForTheInputLimitIsShortenedButKeepsOperationAndHash() throws IOException {
+        String longPath = "/Root/jdoe/" + "d".repeat(200) + "/" + "e".repeat(200) + "/"
+            + "f".repeat(150) + ".xsd";
+        harness.write(file(longPath), schema("long"));
+        reference("Module-0003", "x.long", longPath);
+
+        denied(readOnly());
+
+        assertThat(auditLines()).singleElement().satisfies(record -> {
+            List<String> inputs = repositoryInputs(record);
+            assertThat(inputs).hasSize(3)
+                .allSatisfy(value -> assertThat(value).hasSizeLessThanOrEqualTo(500));
+            assertThat(inputs).filteredOn(value -> value.startsWith("create /Root/jdoe/ddd"))
+                .singleElement().satisfies(value -> assertThat(value).hasSize(500)
+                    .endsWith("… " + hash(longPath)));
+        });
     }
 }

@@ -468,7 +468,9 @@ This answers the open minor finding of spec review round 2. The same check appli
 **Decision**:
 - `Call.inputs` gets one key per repository file: `repository.<n>` =
   `<create|modify|existing|identical> /Root/<owner>/<path> sha256:<16 hex>`. Each value stays
-  within the existing 500-character limit (`MAX_AUDITED_INPUT`), at most 50 keys.
+  within the existing 500-character limit (`MAX_AUDITED_INPUT`; a longer path is cut with "…", the
+  hash is kept). One key per file: at most 50 files are sent, but identical files and refused
+  oversized change sets are listed too, so 50 is the normal case, not a cap (T027 review).
 - `scope` shows `repository paths a, b`.
 - The matching rule is gone, because there is only the switch. The refusal reason names the switch:
   `REPOSITORY_WRITE_DENIED: development.repository is READ_ONLY on <node>`.

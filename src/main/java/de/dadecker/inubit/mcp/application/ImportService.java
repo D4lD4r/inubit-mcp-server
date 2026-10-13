@@ -119,7 +119,9 @@ import org.slf4j.LoggerFactory;
  *       cannot be removed.
  * </ol>
  *
- * <p>Every refusal before anything is sent is a tool error, audited {@code REFUSED}.
+ * <p>Every refusal before anything is sent is a tool error, audited {@code REFUSED}. Every audit
+ * record of a change set with repository files lists each of them as {@code repository.<n>}
+ * with operation, path and content hash (feature 008, FR-019, research D-11).
  */
 public final class ImportService {
 
@@ -408,6 +410,8 @@ public final class ImportService {
             // so the mode decision and the redeem follow it; a presented code is always redeemed
             RepositoryStep.NodeState read = repository.nodeState(node, fresh.changes(), auditId);
             fresh = fresh.withRepository(read);
+            // the audit records from here on name the operations the node read found (FR-019)
+            call.changes = fresh.changes();
             RepositoryStep.requireWritable(policy, fresh.changes());
             use = builder.repositoryUse(scope, names(fresh.changes().repository()));
             repositoryWarnings = RepositoryStep.warnings(node, fresh.changes(), use);
@@ -2054,6 +2058,19 @@ public final class ImportService {
                     ? String.join(", ", names)
                     : String.join(", ", names.subList(0, MAX_AUDITED_NAMES)) + ", …+"
                         + (names.size() - MAX_AUDITED_NAMES));
+                int n = 0;
+                for (ChangedArtifact file : changes.repository()) {
+                    inputs.put("repository." + ++n, repositoryInput(switch (file.kind()) {
+                        case NEW -> "create";
+                        case MODIFIED -> "modify";
+                        case EXISTING -> "existing";
+                    }, file));
+                }
+                for (ChangedArtifact file : changes.identical()) {
+                    if (file.ref().kind() == ArtifactRef.Kind.REPOSITORY_FILE) {
+                        inputs.put("repository." + ++n, repositoryInput("identical", file));
+                    }
+                }
             }
             confirmationCode.ifPresent(code -> inputs.put(AuditRecord.CONFIRMATION_CODE, code));
             if (backupRef != null) {
@@ -2068,6 +2085,22 @@ public final class ImportService {
                 inputs.put("tagApplied", tagApplied);
             }
             return inputs;
+        }
+
+        /**
+         * The input of one repository file (FR-019, research D-11): {@code <operation> <full
+         * path> sha256:<16 hex>}, the operation as far as known when the record is written (a
+         * NEW file is {@code create} until the node read classifies it), the hash of its
+         * workspace content, which is what the import sends (for an {@code identical} file
+         * also the node's). A path too long for {@link #MAX_AUDITED_INPUT} is cut, the hash
+         * kept. Never the content.
+         */
+        private String repositoryInput(String operation, ChangedArtifact file) {
+            String hash = " sha256:" + sha256(Optional.ofNullable(readOrNull(file.paths()
+                .get(0))).orElse(new byte[0])).substring(0, 16);
+            String value = operation + " " + file.name();
+            return value.length() + hash.length() <= MAX_AUDITED_INPUT ? value + hash
+                : value.substring(0, MAX_AUDITED_INPUT - hash.length() - 1) + "…" + hash;
         }
 
         AuditRecord record(UUID auditId, AuditRecord.Step step, Map<String, String> inputs,
