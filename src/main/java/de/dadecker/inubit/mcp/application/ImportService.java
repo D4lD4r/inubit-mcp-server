@@ -15,6 +15,7 @@ import de.dadecker.inubit.mcp.domain.model.ImportScope;
 import de.dadecker.inubit.mcp.domain.model.NameCodec;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.PathChange;
+import de.dadecker.inubit.mcp.domain.model.RepositoryPaths;
 import de.dadecker.inubit.mcp.domain.model.Target;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -216,24 +217,35 @@ public final class ImportService {
     }
 
     /**
-     * The arguments of {@code import_artifacts}: exactly one of {@code diagramGroup} and
-     * {@code modules}; {@code owner} defaults to the node's {@code inventory.owner}; the optional
+     * The arguments of {@code import_artifacts}: exactly one of {@code diagramGroup},
+     * {@code modules} and {@code repositoryPaths} (relative to {@code /Root/<owner>}, feature
+     * 008); {@code owner} defaults to the node's {@code inventory.owner}; the optional
      * {@code tag} is set on the diagram group after the verified import (research D-26, only
      * with {@code diagramGroup}).
      */
     public record ImportRequest(String node, Optional<String> owner,
-        Optional<String> diagramGroup, List<ImportScope.Module> modules, String reason,
-        Optional<String> confirmationCode, Optional<String> mcpClient, Optional<String> tag) {
+        Optional<String> diagramGroup, List<ImportScope.Module> modules,
+        List<String> repositoryPaths, String reason, Optional<String> confirmationCode,
+        Optional<String> mcpClient, Optional<String> tag) {
 
         public ImportRequest {
             node = node == null ? "" : node;
             owner = owner == null ? Optional.empty() : owner;
             diagramGroup = diagramGroup == null ? Optional.empty() : diagramGroup;
             modules = modules == null ? List.of() : List.copyOf(modules);
+            repositoryPaths = repositoryPaths == null ? List.of() : List.copyOf(repositoryPaths);
             reason = reason == null ? "" : reason;
             confirmationCode = confirmationCode == null ? Optional.empty() : confirmationCode;
             mcpClient = mcpClient == null ? Optional.empty() : mcpClient;
             tag = tag == null ? Optional.empty() : tag;
+        }
+
+        /** A request for a diagram group or modules. */
+        public ImportRequest(String node, Optional<String> owner, Optional<String> diagramGroup,
+            List<ImportScope.Module> modules, String reason, Optional<String> confirmationCode,
+            Optional<String> mcpClient, Optional<String> tag) {
+            this(node, owner, diagramGroup, modules, List.of(), reason, confirmationCode,
+                mcpClient, tag);
         }
 
         /** A request without a tag. */
@@ -330,8 +342,9 @@ public final class ImportService {
         Call call = new Call(Capability.IMPORT_ARTIFACTS, request.node(), request.reason(),
             request.confirmationCode(), request.mcpClient());
         call.requested.put("scope", request.diagramGroup().map(g -> "diagram group " + g)
-            .orElseGet(() -> "modules " + String.join(", ", request.modules().stream()
-                .map(ImportScope.Module::name).toList())));
+            .orElseGet(() -> request.repositoryPaths().isEmpty() ? "modules " + String.join(
+                ", ", request.modules().stream().map(ImportScope.Module::name).toList())
+                : "repository paths " + String.join(", ", request.repositoryPaths())));
         request.tag().ifPresent(tag -> call.requested.put("tag", tag));
         call.tag = request.tag();
         DevelopmentPolicy policy;
@@ -1847,6 +1860,10 @@ public final class ImportService {
     }
 
     private static ImportScope scope(Call call, ImportRequest request, NodeId node) {
+        if (!request.repositoryPaths().isEmpty()) {
+            return ImportScope.repositoryPaths(node.group(), call.owner,
+                request.repositoryPaths());
+        }
         return request.diagramGroup().map(group -> ImportScope.diagramGroup(node.group(),
             call.owner, group)).orElseGet(() -> ImportScope.modules(node.group(), call.owner,
             request.modules()));
@@ -1855,24 +1872,54 @@ public final class ImportService {
     private static void validate(ImportRequest request) {
         validate(request.reason(), request.confirmationCode());
         boolean group = request.diagramGroup().filter(g -> !g.isBlank()).isPresent();
-        if (group == !request.modules().isEmpty()) {
-            throw invalid("Give either diagramGroup or modules, not both and not neither",
-                "One import covers one diagram group or single modules",
+        int scopes = (group ? 1 : 0) + (request.modules().isEmpty() ? 0 : 1)
+            + (request.repositoryPaths().isEmpty() ? 0 : 1);
+        if (scopes != 1) {
+            throw invalid("Give exactly one of diagramGroup, modules or repositoryPaths",
+                "One import covers one diagram group, single modules or repository paths",
                 "Call import_artifacts once per scope");
         }
         if (request.modules().size() > MAX_MODULES) {
             throw invalid("At most " + MAX_MODULES + " modules per call",
                 "The module import is bounded", "Split the modules into several calls");
         }
+        validate(request.repositoryPaths());
         if (request.tag().isPresent() && !group) {
-            throw invalid("A tag is only possible for a diagram group import, not for modules",
+            throw invalid("A tag is only possible for a diagram group import, not for modules"
+                    + " or repository paths",
                 "INUBIT tags only whole diagram groups (research D-26); an import of single"
-                    + " modules is never tagged",
-                "Import the modules without tag, or tag their diagram group with tag_artifacts");
+                    + " modules or repository files is never tagged",
+                "Import without tag, or tag the diagram group with tag_artifacts");
         }
         if (request.tag().filter(tag -> !TAG.matcher(tag).matches()).isPresent()) {
             throw invalid("Invalid tag: it must match " + TAG.pattern(), "The tag is passed to"
                 + " StartCLI in single quotes", "Use letters, digits, _ . - and spaces");
+        }
+    }
+
+    /**
+     * FR-005: at most {@link ImportScope#MAX_REPOSITORY_PATHS} unique paths, each normalized
+     * and relative to the owner's repository root ({@link RepositoryPaths#relativeValid}: no
+     * leading {@code /}, no empty, {@code .} or {@code ..} segment, no {@code %}).
+     */
+    private static void validate(List<String> repositoryPaths) {
+        if (repositoryPaths.size() > ImportScope.MAX_REPOSITORY_PATHS) {
+            throw invalid("At most " + ImportScope.MAX_REPOSITORY_PATHS
+                    + " repository paths per call",
+                "The repository import is bounded", "Split the paths into several calls");
+        }
+        if (new HashSet<>(repositoryPaths).size() != repositoryPaths.size()) {
+            throw invalid("Every repository path may be given only once",
+                "The paths of one call must be unique", "Remove the duplicate paths");
+        }
+        for (String path : repositoryPaths) {
+            if (!RepositoryPaths.relativeValid(path)) {
+                throw invalid("Invalid repository path " + path + ": give it relative to the"
+                        + " owner's repository root, e.g. schemas/order.xsd",
+                    "A path must not start with /, be empty, contain empty, . or .. segments or"
+                        + " %, and its segments follow the StartCLI rule",
+                    "Give the path as below /Root/<owner>/, without /Root/<owner>/");
+            }
         }
     }
 

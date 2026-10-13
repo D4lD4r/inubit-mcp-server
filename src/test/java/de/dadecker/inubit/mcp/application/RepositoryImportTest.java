@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ImportPreview;
+import de.dadecker.inubit.mcp.domain.model.ImportScope;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
@@ -28,6 +29,7 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,6 +72,11 @@ import tools.jackson.databind.json.JsonMapper;
  * as {@code repository.<n>} with its operation, full path and the hash of its workspace content,
  * never the content. Until T031 the records of a call that sends repository files end at the
  * interim execute guard.
+ *
+ * <p>T028 (FR-005, contracts/mcp-tools-delta.md "import_artifacts"): a request with
+ * {@code repositoryPaths} covers the changed files at or below the paths; the paths are part of
+ * what the code confirms, a malformed path, a second scope or a tag is {@code INVALID_INPUT}
+ * before anything is sent.
  */
 @Timeout(60)
 class RepositoryImportTest {
@@ -811,5 +818,128 @@ class RepositoryImportTest {
                 .singleElement().satisfies(value -> assertThat(value).hasSize(500)
                     .endsWith("… " + hash(longPath)));
         });
+    }
+
+    // --- T028: the repositoryPaths scope (FR-005) ----------------------------------------------
+
+    @Test
+    void aRepositoryPathsImportPreviewsTheFilesBelowThePathsAndAuditsItsScope() {
+        // a.xsd and b.xsd are below xsd; the changed workflow and module are out of the scope,
+        // and Module-0003 uses both files from outside it
+        harness.exportRepository(node, "/Root/jdoe/xsd");
+
+        ImportService.Response response = service.importArtifacts(
+            harness.repositoryPaths("Schemas", "xsd"));
+
+        harness.cli.verifyComplete();
+        assertThat(harness.cli.launches()).as("only the node read of the folder").hasSize(1);
+        assertThat(response).isInstanceOf(ImportService.Response.Challenge.class);
+        ImportPreview preview = ((ImportService.Response.Challenge) response).preview();
+        assertThat(preview.scope()).isEqualTo("repository paths xsd");
+        assertThat(preview.create()).containsExactly(B);
+        assertThat(preview.modify()).containsExactly(A);
+        assertThat(preview.notImported()).contains(harness.workflow("Workflow-0001"),
+            harness.moduleDirectory("Module-0003") + "/module.xml");
+        String module = "Module-0003 (" + harness.moduleDirectory("Module-0003").split("/")[3]
+            + " module)";
+        assertThat(preview.repositoryReferences()).hasValueSatisfying(references -> {
+            assertThat(references).extracting(ImportPreview.RepositoryReferences::path)
+                .containsExactly(A, B);
+            assertThat(references).allSatisfy(reference ->
+                assertThat(reference.artifacts()).containsExactly(module));
+        });
+        assertThat(preview.warnings()).hasValueSatisfying(warnings -> assertThat(warnings)
+            .anySatisfy(warning -> assertThat(warning).contains(A + " (1)"))
+            .anySatisfy(warning -> assertThat(warning).contains(A, "cannot be listed")));
+        assertThat(harness.audit("import_artifacts")).singleElement().satisfies(record -> {
+            assertThat(record.outcome()).isEqualTo(AuditOutcome.CHALLENGE_ISSUED);
+            assertThat(record.inputs()).containsEntry("scope", "repository paths xsd");
+        });
+    }
+
+    @Test
+    void otherRepositoryPathsWithTheCodeOfThePreviewAreConfirmationInvalid() {
+        // the same files, named by other paths: the code confirms the paths, not just the files
+        harness.exportRepository(node, "/Root/jdoe/xsd");
+        String code = ((ImportService.Response.Challenge) service.importArtifacts(
+            harness.repositoryPaths("Schemas", "xsd"))).preview().confirmationCode();
+        harness.exportRepository(node, "/Root/jdoe/xsd");
+
+        ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
+            () -> service.importArtifacts(ImportHarness.confirmed(harness.repositoryPaths(
+                "Schemas", "xsd/a.xsd", "xsd/b.xsd"), code)));
+
+        assertThat(exception).as("expected a refusal").isNotNull();
+        harness.cli.verifyComplete();
+        assertThat(exception.error().code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
+        assertThat(exception.error().message()).contains("other inputs");
+        assertThat(node.repositoryImports).isEmpty();
+        assertThat(harness.audit("import_artifacts")).last().satisfies(record -> {
+            assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED);
+            assertThat(record.inputs()).containsEntry("scope",
+                "repository paths xsd/a.xsd, xsd/b.xsd");
+        });
+    }
+
+    @Test
+    void aTagWithRepositoryPathsIsInvalidInputBeforeAnythingIsSent() {
+        ImportService.ImportRequest paths = harness.repositoryPaths("Schemas", "xsd");
+
+        ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
+            () -> service.importArtifacts(new ImportService.ImportRequest(paths.node(),
+                paths.owner(), paths.diagramGroup(), paths.modules(), paths.repositoryPaths(),
+                paths.reason(), paths.confirmationCode(), paths.mcpClient(),
+                Optional.of("REL-1"))));
+
+        assertThat(exception).as("expected a refusal").isNotNull();
+        assertThat(exception.error().code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(exception.error().message()).contains("diagram group", "repository paths");
+        assertThat(harness.cli.launches()).isEmpty();
+        assertThat(harness.audit("import_artifacts")).singleElement().satisfies(record -> {
+            assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED);
+            assertThat(record.inputs()).containsEntry("scope", "repository paths xsd")
+                .containsEntry("tag", "REL-1");
+        });
+    }
+
+    @Test
+    void pathsTheServerRefusesAndASecondScopeAreInvalidInputBeforeAnythingIsSent() {
+        // FR-005: relative to the owner's root and normalized; the schema pattern lets some pass
+        List<List<String>> refused = new ArrayList<>();
+        for (String path : List.of("", ".", "..", "../jdoe/xsd", "xsd/../xsd", "xsd/./a.xsd",
+            "/xsd", "/Root/jdoe/xsd", "xsd//a.xsd", "xsd/", "xsd%2Fa.xsd", "xsd\\a.xsd")) {
+            refused.add(List.of(path));
+        }
+        refused.add(List.of("xsd", "xsd"));
+        List<String> many = new ArrayList<>();
+        for (int i = 0; i <= 50; i++) {
+            many.add("xsd/s" + i + ".xsd");
+        }
+        refused.add(many);
+        List<ImportService.ImportRequest> requests = new ArrayList<>();
+        refused.forEach(paths -> requests.add(new ImportService.ImportRequest(
+            ImportHarness.DEV.value(), Optional.empty(), Optional.empty(),
+            List.of(), paths, "Schemas", Optional.empty(), Optional.empty(),
+            Optional.empty())));
+        requests.add(new ImportService.ImportRequest(ImportHarness.DEV.value(),
+            Optional.empty(), Optional.of("GRP-01"), List.of(),
+            List.of("xsd"), "Schemas", Optional.empty(), Optional.empty(),
+            Optional.empty()));
+        requests.add(new ImportService.ImportRequest(ImportHarness.DEV.value(),
+            Optional.empty(), Optional.empty(), List.of(
+                new ImportScope.Module("Module-0003",
+                    Optional.empty())), List.of("xsd"), "Schemas",
+            Optional.empty(), Optional.empty(), Optional.empty()));
+
+        for (ImportService.ImportRequest request : requests) {
+            ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
+                () -> service.importArtifacts(request));
+            assertThat(exception).as(request.repositoryPaths().toString()).isNotNull();
+            assertThat(exception.error().code()).as(request.repositoryPaths().toString())
+                .isEqualTo(ErrorCode.INVALID_INPUT);
+        }
+        assertThat(harness.cli.launches()).isEmpty();
+        assertThat(harness.audit("import_artifacts")).hasSize(requests.size())
+            .allSatisfy(record -> assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED));
     }
 }

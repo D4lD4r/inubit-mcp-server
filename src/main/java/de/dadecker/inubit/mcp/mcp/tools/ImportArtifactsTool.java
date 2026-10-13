@@ -16,25 +16,28 @@ import java.util.Optional;
 
 /**
  * {@code import_artifacts} (feature 004, contracts/mcp-tools-delta.md, US1): imports the changed
- * workflows of one diagram group (with their changed or new modules), or changed single modules,
- * from the workspace into one development node through {@link ImportService}, which enforces the
- * whole sequence. The arguments are validated by the SDK against
- * {@code import_artifacts.input.json}; the output is {@code {"challenge": …}} (the preview under
- * server confirmation) or {@code {"result": …}}. Refusals before anything is sent are tool
- * errors.
+ * workflows of one diagram group (with their changed or new modules), changed single modules, or
+ * the changed repository files below repository paths (feature 008), from the workspace into one
+ * development node through {@link ImportService}, which enforces the whole sequence. The
+ * arguments are validated by the SDK against {@code import_artifacts.input.json}; the output is
+ * {@code {"challenge": …}} (the preview under server confirmation) or {@code {"result": …}}.
+ * Refusals before anything is sent are tool errors.
  *
  * <p>Registered only if at least one node is a development stage (FR-001).
  */
 public final class ImportArtifactsTool implements ToolHandler {
 
     static final String DESCRIPTION = "Import the changed workflows of ONE diagram group (with"
-        + " their changed or new modules), or changed single modules, from the workspace into ONE"
-        + " development {node}. The server checks the files, refuses on conflicts (changed on the"
-        + " server or open in the Workbench), backs up, imports only what changed, verifies by"
-        + " re-export and rolls back on failure. Secrets are taken from the {node}. The preview"
-        + " also lists what the {node} has already: `existing` (new in the workspace, updated as"
-        + " a new version) and `identical` (same content, not sent; the workflows are bound to"
-        + " it as it is).";
+        + " their changed or new modules), or changed single modules, or the new and changed"
+        + " repository files at or below paths relative to the owner's repository root, from the"
+        + " workspace into ONE development {node}. Repository files that the imported modules"
+        + " reference, also indirectly, go along; sending a repository file always needs a"
+        + " preview with a server code. The server checks the files, refuses on conflicts"
+        + " (changed on the server or open in the Workbench), backs up, imports only what"
+        + " changed, verifies by re-export and rolls back on failure. Secrets are taken from the"
+        + " {node}. The preview also lists what the {node} has already: `existing` (new in the"
+        + " workspace, updated as a new version) and `identical` (same content, not sent; the"
+        + " workflows are bound to it as it is).";
 
     private final ImportService service;
 
@@ -74,10 +77,15 @@ public final class ImportArtifactsTool implements ToolHandler {
                     Optional.ofNullable(fields.get("pluginType")).map(String::valueOf)));
             }
         }
+        List<String> repositoryPaths = new ArrayList<>();
+        if (arguments.get("repositoryPaths") instanceof Collection<?> list) {
+            list.forEach(path -> repositoryPaths.add(String.valueOf(path)));
+        }
         Response response = service.importArtifacts(new ImportRequest(args.string("node"),
             args.optionalString("owner"), args.optionalString("diagramGroup"), modules,
-            args.optionalString("reason").orElse(""), args.optionalString("confirmationCode"),
-            context.client(), args.optionalString("tag")));
+            repositoryPaths, args.optionalString("reason").orElse(""),
+            args.optionalString("confirmationCode"), context.client(),
+            args.optionalString("tag")));
         return switch (response) {
             case Response.Challenge challenge -> Map.of("challenge", challenge.preview());
             case Response.WriteChallenge challenge -> Map.of("challenge", challenge.preview());

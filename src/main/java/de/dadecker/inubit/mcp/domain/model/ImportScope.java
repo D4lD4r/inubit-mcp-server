@@ -21,7 +21,7 @@ public record ImportScope(GroupId group, String owner, Optional<String> diagramG
     List<Module> modules, List<String> repositoryPaths) {
 
     /** The most repository paths one scope holds (FR-005, contracts/mcp-tools-delta.md). */
-    static final int MAX_REPOSITORY_PATHS = 50;
+    public static final int MAX_REPOSITORY_PATHS = 50;
 
     /** A module of a module import; without plugin type it is looked up in the workspace. */
     public record Module(String name, Optional<String> pluginType) {

@@ -923,16 +923,19 @@ absent):
 ## `import_artifacts`
 
 > [acme] Import the changed workflows of ONE diagram group (with their changed or new modules),
-> or changed single modules, from the workspace into ONE development node. The server checks the
-> files, refuses on conflicts (changed on the server or open in the Workbench), backs up,
-> imports only what changed, verifies by re-export and rolls back on failure. Secrets are taken
-> from the node. The preview also lists what the node has already: `existing` (new in the
-> workspace, updated as a new version) and `identical` (same content, not sent; the workflows
-> are bound to it as it is).
+> or changed single modules, or the new and changed repository files at or below paths relative
+> to the owner's repository root, from the workspace into ONE development node. Repository files
+> that the imported modules reference, also indirectly, go along; sending a repository file
+> always needs a preview with a server code. The server checks the files, refuses on conflicts
+> (changed on the server or open in the Workbench), backs up, imports only what changed,
+> verifies by re-export and rolls back on failure. Secrets are taken from the node. The preview
+> also lists what the node has already: `existing` (new in the workspace, updated as a new
+> version) and `identical` (same content, not sent; the workflows are bound to it as it is).
 
 **Input**: `node` (one node id), `owner` (default `inventory.owner`), exactly one of
-`diagramGroup` or `modules` (1–50 `{name, pluginType?}`), `reason`, `confirmationCode`, and
-optionally `tag` (only with `diagramGroup`).
+`diagramGroup`, `modules` (1–50 `{name, pluginType?}`) or `repositoryPaths` (1–50 unique paths
+relative to the owner's repository root, e.g. `schemas/order.xsd`), `reason`, `confirmationCode`,
+and optionally `tag` (only with `diagramGroup`).
 
 - Changed workflows of the diagram group go with their **changed or new** modules; unchanged
   referenced modules are not sent (every import creates a new version). A module import sends

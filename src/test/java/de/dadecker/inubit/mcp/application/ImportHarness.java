@@ -479,8 +479,15 @@ public final class ImportHarness {
     public static ImportService.ImportRequest confirmed(ImportService.ImportRequest request,
         String code) {
         return new ImportService.ImportRequest(request.node(), request.owner(),
-            request.diagramGroup(), request.modules(), request.reason(), Optional.of(code),
-            request.mcpClient(), request.tag());
+            request.diagramGroup(), request.modules(), request.repositoryPaths(),
+            request.reason(), Optional.of(code), request.mcpClient(), request.tag());
+    }
+
+    /** A request for the repository paths {@code paths} of the owner (feature 008, T028). */
+    public ImportService.ImportRequest repositoryPaths(String reason, String... paths) {
+        return new ImportService.ImportRequest(DEV.value(), Optional.empty(), Optional.empty(),
+            List.of(), List.of(paths), reason, Optional.empty(), Optional.empty(),
+            Optional.empty());
     }
 
     /** The request for the diagram group with a tag (T030). */

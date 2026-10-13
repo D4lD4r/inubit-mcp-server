@@ -379,7 +379,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
 
   Implement in `ImportService.Call.inputs`. The test reads the JSONL in
   `test/application/RepositoryImportTest.java`.
-- [ ] T028 [US1] `main/mcp/tools/ImportArtifactsTool.java` and
+- [X] T028 [US1] `main/mcp/tools/ImportArtifactsTool.java` and
   `res/schemas/import_artifacts.input.json`:
   - `repositoryPaths` (array, 1–50, unique, pattern
     `^[A-Za-z0-9_.][A-Za-z0-9_.\- ]{0,199}(/[A-Za-z0-9_.][A-Za-z0-9_.\- ]{0,199})*$`);
