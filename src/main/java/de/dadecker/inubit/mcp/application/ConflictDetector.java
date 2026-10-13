@@ -441,6 +441,14 @@ public final class ConflictDetector {
     }
 
     private String report(UUID auditId, String diff) {
+        return report(root, auditId, diff);
+    }
+
+    /**
+     * Writes {@code diff} to {@code .reports/conflict-<auditId>.diff} below {@code root} and
+     * returns that path (also for the repository conflicts of {@link RepositoryStep}).
+     */
+    static String report(Path root, UUID auditId, String diff) {
         String name = "conflict-" + auditId + ".diff";
         Path file = root.resolve(REPORTS).resolve(name);
         try {

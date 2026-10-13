@@ -347,7 +347,8 @@ class RepositoryChangeSetTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"missing", "not json", "{}", "{\"metadata\": \"<Property\"}"})
+    @ValueSource(strings = {"missing", "not json", "null", "{}",
+        "{\"metadata\": \"<Property\"}"})
     void aModifiedFileWithoutReadableMetadataMustBeExportedFirst(String record)
         throws IOException {
         Path meta = harness.root.resolve(WorkspacePath.repository(GROUP, OWNER,

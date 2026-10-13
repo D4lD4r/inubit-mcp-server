@@ -190,6 +190,19 @@ public final class ImportHarness {
     }
 
     /**
+     * The 8.1 artifact port of {@link #DEV} on {@link #cli}, built like the one of
+     * {@link #service()} (feature 008: {@link RepositoryStep} tests).
+     */
+    public ArtifactPort artifacts() {
+        CredentialGuard guard = new CredentialGuard(new CredentialVariables("INUBIT", DEV),
+            clock);
+        CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
+            new CliResources("acme"));
+        return new V81ArtifactAdapter(new CliExportRunner(server, credentials, guard, runner,
+            new CliOutputClassifier(new SecretScrubber())), () -> { });
+    }
+
+    /**
      * Sets the effective {@code development.repository} of {@code node} (feature 008) for the
      * services created afterwards; every node starts read-only.
      */

@@ -136,6 +136,19 @@ class V81ReleaseArchivesTest {
     }
 
     @Test
+    void readsTheMetadataOfTheRepositoryFilesOfAnExport() {
+        // T022 (research D-7): an EXISTING file is sent with the node's metadata
+        Map<String, String> metadata = archives.repositoryMetadata(cliFixture(
+            "export_repository.zip"));
+
+        assertThat(metadata).containsOnlyKeys("/Root/jdoe/xsd/order.xsd",
+            "/Root/jdoe/xsd/release.xsl");
+        assertThat(metadata.get("/Root/jdoe/xsd/order.xsd")).contains("type=\"RepositoryFile\"")
+            .contains("path=\"/Root/jdoe/xsd/order.xsd\"").contains("contentType=\"");
+        assertThat(archives.repositoryMetadata(ArtifactFixtures.bytes("grp-a.zip"))).isEmpty();
+    }
+
+    @Test
     void buildsTheRepositoryImportOfChosenFilesRelativeToTheOwnersRoot() {
         // T021 (research D-1, D-7): entries relative to /Root/<owner>, never key material
         byte[] zip = archives.repositoryArchive(List.of(cliFixture("export_release.zip"),

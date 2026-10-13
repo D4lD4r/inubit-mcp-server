@@ -171,13 +171,24 @@ public final class V81ReleaseArchives implements ReleaseArchivePort {
 
     @Override
     public Map<String, byte[]> repositoryFiles(byte[] archive) {
-        Map<String, byte[]> entries = entries(archive);
-        byte[] repository = entries.containsKey("Repository.zip") ? entries.get("Repository.zip")
-            : archive;
         Map<String, byte[]> files = new java.util.TreeMap<>();
-        RepositoryArchive.read(repository).forEach(file -> files.put(file.path(),
-            file.content()));
+        repositoryEntries(archive).forEach(file -> files.put(file.path(), file.content()));
         return files;
+    }
+
+    @Override
+    public Map<String, String> repositoryMetadata(byte[] archive) {
+        Map<String, String> metadata = new java.util.TreeMap<>();
+        repositoryEntries(archive).forEach(file -> metadata.put(file.path(),
+            new String(file.metadata(), StandardCharsets.UTF_8)));
+        return metadata;
+    }
+
+    /** The repository files of a repository export or of an export's {@code Repository.zip}. */
+    private static List<RepositoryArchive.RepositoryFile> repositoryEntries(byte[] archive) {
+        Map<String, byte[]> entries = entries(archive);
+        return RepositoryArchive.read(entries.containsKey("Repository.zip")
+            ? entries.get("Repository.zip") : archive);
     }
 
     @Override

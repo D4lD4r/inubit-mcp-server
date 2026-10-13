@@ -125,6 +125,14 @@ public interface ReleaseArchivePort {
     Map<String, byte[]> repositoryFiles(byte[] archive);
 
     /**
+     * Repository path ({@code /Root/…}) → metadata XML (the {@code <Property
+     * type="RepositoryFile">} element as exported) of the repository files of an archive read
+     * like {@link #repositoryFiles} (feature 008, research D-7: an EXISTING file is sent with the
+     * node's metadata).
+     */
+    Map<String, String> repositoryMetadata(byte[] archive);
+
+    /**
      * True if {@code archive} is a repository export ({@code export --exportRepositoryPath}),
      * false for a diagram group, module or release export (they carry a
      * {@code Repository.zip}).

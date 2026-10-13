@@ -293,7 +293,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
 
 ### Node state, conflicts, switch and preview
 
-- [ ] T022 [US1] Write failing tests in `test/application/RepositoryStepTest.java`, then add the
+- [X] T022 [US1] Write failing tests in `test/application/RepositoryStepTest.java`, then add the
   node-state part of `main/application/RepositoryStep.java` (D-5).
   - Exports: one `exportRepository` per **distinct parent folder** (assert the CLI launch count). If
     a folder exceeds the `RepositoryArchive` read limits ("64 MiB per entry, 128 MiB in total"), fall
