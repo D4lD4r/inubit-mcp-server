@@ -146,7 +146,7 @@ task.
     ImportHarness, E2eTestServiceTest, TagServiceTest, RunE2eTestToolTest, TagArtifactsToolTest,
     adapter/TestNodeConfig), and add the per-node switch helper to `ImportHarness`.
   - An unknown value is a loader error that lists `READ_ONLY, WRITE`.
-- [ ] T010 [P] Test first in `test/domain/model/RepositoryPathsTest.java`, then
+- [X] T010 [P] Test first in `test/domain/model/RepositoryPathsTest.java`, then
   `main/domain/model/RepositoryPaths.java` (`passable(fullPath)`, `full(owner, relative)`,
   `relativeValid(relative)`). The StartCLI rule `^/Root(/[A-Za-z0-9_.][A-Za-z0-9_.\- ]{0,199})+$`
   without `.`/`..` segments moves here from `ReleasePlanner.repositoryPathPassable`, which then
