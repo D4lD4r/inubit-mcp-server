@@ -86,7 +86,7 @@ task.
   summary table (generic names only). Finalize the content-type table in `research.md` D-7 and in
   the `INVALID_INPUT` row of `contracts/mcp-tools-delta.md`, and decide the D-12 warning (keep it
   or drop it) from P-3.
-- [ ] T004 Extend `test/application/FakeServer.java`:
+- [X] T004 Extend `test/application/FakeServer.java`:
   - `importRepository` stores the imported `contentType` and `Description`;
   - `exportRepository(path)` also exports a folder recursively (empty result = not found);
   - its group export includes repository files referenced transitively (`inubitrepository:` and

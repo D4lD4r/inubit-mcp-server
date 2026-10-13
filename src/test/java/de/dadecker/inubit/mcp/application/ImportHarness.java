@@ -5,8 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
+import de.dadecker.inubit.mcp.adapter.archive.v81.MetaStore;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
+import de.dadecker.inubit.mcp.adapter.archive.v81.XmlNormalizer;
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliImportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
@@ -405,6 +407,30 @@ public final class ImportHarness {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    /**
+     * Writes repository file {@code /Root/<owner>/<path>} into the workspace as an export would
+     * (feature 008): {@code content} at {@code <group>/<owner>/repository/Root/<owner>/<path>}
+     * and its {@code .meta} record with metadata of type {@code contentType}, version
+     * {@code 1.0}. Nothing is committed.
+     *
+     * @return the workspace path of the file
+     */
+    public String repositoryFile(String path, String content, String contentType) {
+        String repositoryPath = "/Root/" + owner + "/" + path;
+        WorkspacePath file = WorkspacePath.repository(DEV.group(), owner, repositoryPath);
+        String metadata = "<Property name=\"" + path.substring(path.lastIndexOf('/') + 1)
+            + "\" type=\"RepositoryFile\" anonymousRead=\"true\" uuid=\"" + UUID.nameUUIDFromBytes(
+                repositoryPath.getBytes(StandardCharsets.UTF_8)) + "\" path=\"" + repositoryPath
+            + "\" contentType=\"" + contentType + "\" version=\"1.0\"><Description>Workspace"
+            + " file</Description></Property>";
+        String relative = file.toRelativePath().toString().replace('\\', '/');
+        write(relative, content);
+        write(root.resolve(file.metaPath()), MetaStore.serialize(Map.of("metadata", new String(
+            XmlNormalizer.normalize(metadata.getBytes(StandardCharsets.UTF_8)),
+            StandardCharsets.UTF_8))));
+        return relative;
     }
 
     /** A request for the diagram group. */
