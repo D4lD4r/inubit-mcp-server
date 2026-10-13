@@ -37,8 +37,9 @@ import javax.xml.XMLConstants;
  *       root is none.
  * </ul>
  *
- * <p>{@code %XX} escapes are decoded per path segment as UTF-8; a {@code +} stays a plus. Content
- * that is not well-formed XML has no references.
+ * <p>{@code %XX} escapes are decoded per path segment as UTF-8; a {@code +} stays a plus. A
+ * segment that decodes to a {@code /} is no reference: it would hide a path separator from the
+ * closure. Content that is not well-formed XML has no references.
  *
  * <p>{@link #uriPaths} is the second mode, for {@code check_artifacts}: every
  * {@code inubitrepository:} URI of a text, structural or not.
@@ -81,7 +82,9 @@ final class RepositoryReferences {
             for (String segment : matcher.group(1).split("/")) {
                 segments.add(unescape(segment));
             }
-            paths.add("/" + String.join("/", segments));
+            if (!segments.contains(null)) {
+                paths.add("/" + String.join("/", segments));
+            }
         }
         return List.copyOf(paths);
     }
@@ -138,7 +141,11 @@ final class RepositoryReferences {
                     }
                     path.remove(path.size() - 1);
                 } else if (!segment.isEmpty() && !segment.equals(".")) {
-                    path.add(unescape(segment));
+                    String name = unescape(segment);
+                    if (name == null) {
+                        return;
+                    }
+                    path.add(name);
                 }
             }
             if (!path.isEmpty()) {
@@ -169,15 +176,20 @@ final class RepositoryReferences {
         }
     }
 
-    /** {@code %XX} escapes decoded as UTF-8 (a {@code +} stays a plus); unchanged if invalid. */
+    /**
+     * {@code %XX} escapes decoded as UTF-8 (a {@code +} stays a plus); unchanged if invalid;
+     * {@code null} if the decoded segment holds a {@code /}.
+     */
     private static String unescape(String segment) {
         if (segment.indexOf('%') < 0) {
             return segment;
         }
+        String decoded;
         try {
-            return URLDecoder.decode(segment.replace("+", "%2B"), StandardCharsets.UTF_8);
+            decoded = URLDecoder.decode(segment.replace("+", "%2B"), StandardCharsets.UTF_8);
         } catch (IllegalArgumentException e) {
             return segment;
         }
+        return decoded.indexOf('/') < 0 ? decoded : null;
     }
 }

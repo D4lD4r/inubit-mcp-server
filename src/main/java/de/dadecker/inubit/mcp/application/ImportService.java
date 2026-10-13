@@ -30,6 +30,7 @@ import de.dadecker.inubit.mcp.domain.port.AuditPort;
 import de.dadecker.inubit.mcp.domain.port.ImportArchivePort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.domain.port.ReleaseArchivePort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
 import java.io.IOException;
@@ -141,11 +142,13 @@ public final class ImportService {
      * @param policies      the development settings of each node
      * @param defaultOwners {@code inventory.owner} of each node
      * @param accounts      the check-in comment identity of each node
+     * @param releases      recognises key material in repository files (feature 008)
      */
     public record Dependencies(Path root, String profile, DevelopmentGuard guard,
         Function<NodeId, DevelopmentPolicy> policies, VersionHistoryPort history,
         ArtifactInspectorPort inspector, ArtifactCheckService checks, ArchiveCodecPort codec,
-        ImportArchivePort archives, Function<NodeId, ArtifactPort> artifacts,
+        ImportArchivePort archives, ReleaseArchivePort releases,
+        Function<NodeId, ArtifactPort> artifacts,
         Function<NodeId, ImportPort> imports, Function<NodeId, TagPort> tags,
         Function<NodeId, InventoryPort> inventory,
         Function<NodeId, Optional<String>> defaultOwners,
@@ -157,15 +160,16 @@ public final class ImportService {
         public Dependencies(Path root, String profile, DevelopmentGuard guard,
             Function<NodeId, DevelopmentPolicy> policies, VersionHistoryPort history,
             ArtifactInspectorPort inspector, ArtifactCheckService checks, ArchiveCodecPort codec,
-            ImportArchivePort archives, Function<NodeId, ArtifactPort> artifacts,
+            ImportArchivePort archives, ReleaseArchivePort releases,
+            Function<NodeId, ArtifactPort> artifacts,
             Function<NodeId, ImportPort> imports, Function<NodeId, TagPort> tags,
             Function<NodeId, InventoryPort> inventory,
             Function<NodeId, Optional<String>> defaultOwners,
             Function<NodeId, Account> accounts, WriteChallengeRegistry challenges,
             BackupStore backups, AuditPort audit, Clock clock, Supplier<UUID> ids) {
             this(root, profile, guard, policies, history, inspector, checks, codec, archives,
-                artifacts, imports, tags, inventory, defaultOwners, accounts, challenges,
-                backups, audit, clock, ids, Optional.empty());
+                releases, artifacts, imports, tags, inventory, defaultOwners, accounts,
+                challenges, backups, audit, clock, ids, Optional.empty());
         }
 
         public Dependencies {
@@ -179,6 +183,7 @@ public final class ImportService {
             Objects.requireNonNull(checks, "checks");
             Objects.requireNonNull(codec, "codec");
             Objects.requireNonNull(archives, "archives");
+            Objects.requireNonNull(releases, "releases");
             Objects.requireNonNull(artifacts, "artifacts");
             Objects.requireNonNull(imports, "imports");
             Objects.requireNonNull(tags, "tags");
@@ -289,7 +294,7 @@ public final class ImportService {
 
     public ImportService(Dependencies dependencies) {
         this.d = Objects.requireNonNull(dependencies, "dependencies");
-        this.builder = new ChangeSetBuilder(d.root(), d.history(), d.inspector(),
+        this.builder = new ChangeSetBuilder(d.root(), d.history(), d.inspector(), d.releases(),
             d.archives()::equivalent);
         this.detector = new ConflictDetector(d.root(), d.history(), d.codec(), d.artifacts(),
             d.inventory(), d.archives()::equivalent, d.archives()::connectionOrdered);
@@ -351,6 +356,17 @@ public final class ImportService {
         ImportScope scope = scope(call, request, node);
         ChangeSet changes = builder.build(scope);
         call.changes = changes;
+        if (!changes.repository().isEmpty()) {
+            // feature 008 interim: refused until RepositoryStep sends repository files
+            // (T022-T025); workflows and modules never go without their repository files (FR-004)
+            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
+                "The change set holds repository files (" + String.join(", ",
+                    changes.repository().stream().map(ChangedArtifact::name).toList())
+                    + "), which this version does not import yet; nothing was sent",
+                "Repository files are not sent by import_artifacts in this version",
+                "Restore the repository files (git restore) or change them in the Workbench")
+                .withNode(node));
+        }
         if (changes.isEmpty()) {
             UUID auditId = d.ids().get();
             List<String> warnings = new ArrayList<>(List.of("Nothing changed in the workspace"

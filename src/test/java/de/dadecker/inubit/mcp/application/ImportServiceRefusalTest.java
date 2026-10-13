@@ -246,4 +246,26 @@ class ImportServiceRefusalTest {
 
         assertThat(neither.code()).isEqualTo(ErrorCode.INVALID_INPUT);
     }
+
+    @Test
+    void aReferencedRepositoryFileIsRefusedUntilRepositoryFilesCanBeSent() throws IOException {
+        // T021 interim (feature 008): ChangeSetBuilder includes referenced repository files; until
+        // RepositoryStep sends them (T022-T025), the import must not run without them (FR-004)
+        ImportHarness harness = ImportHarness.grpA(temp);
+        harness.edit(harness.moduleDirectory("Module-0001") + "/module.xml", "</Properties>",
+            "<Property name=\"x.repository\">inubitrepository:/Root/jdoe/xsd/a.xsd</Property>"
+                + "</Properties>");
+        harness.repositoryFile("xsd/a.xsd", "<xs:schema xmlns:xs="
+            + "\"http://www.w3.org/2001/XMLSchema\"/>\n", "application/x-xsd+xml");
+        harness.exports.history.commitAll("export dev/jdoe: repository", java.util.Map.of(
+            de.dadecker.inubit.mcp.domain.port.VersionHistoryPort.SERVER_STATE, "dev"));
+        harness.edit("dev/jdoe/repository/Root/jdoe/xsd/a.xsd", "/>", "><xs:element"
+            + " name=\"x\"/></xs:schema>");
+
+        ToolError error = refusal(harness, harness.group("Repository"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(error.message()).contains("/Root/jdoe/xsd/a.xsd");
+        assertThat(harness.cli.launches()).isEmpty();
+    }
 }

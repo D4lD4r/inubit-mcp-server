@@ -190,6 +190,20 @@ public final class WorkspaceInspector implements ArtifactInspectorPort {
         return mismatches;
     }
 
+    @Override
+    public Optional<String> repositoryMetadata(Path root, WorkspacePath file) {
+        try {
+            Optional<String> metadata = new MetaStore(root).read(file)
+                .map(values -> values.get("metadata"))
+                .filter(String.class::isInstance).map(String.class::cast);
+            metadata.ifPresent(xml -> XmlTree.parse(xml.getBytes(
+                java.nio.charset.StandardCharsets.UTF_8)));
+            return metadata;
+        } catch (IllegalArgumentException e) {
+            return Optional.empty(); // not readable JSON or not well-formed XML
+        }
+    }
+
     /** {@code <property>MD5} of each embedded document ({@code @file:} reference). */
     private static List<String> moduleMismatches(Path file) {
         Element properties = XmlTree.parse(read(file)).root();

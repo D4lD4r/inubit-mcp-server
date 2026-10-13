@@ -52,10 +52,16 @@ public final class RepositoryPaths {
         return true;
     }
 
-    /** The full path {@code /Root/<owner>/<relative>}; {@code relative} must be valid. */
+    /**
+     * The full path {@code /Root/<owner>/<relative>}; {@code relative} must be valid and
+     * {@code owner} one segment of the StartCLI rule.
+     */
     public static String full(String owner, String relative) {
         if (!relativeValid(relative)) {
             throw new IllegalArgumentException("Not a valid relative repository path: " + relative);
+        }
+        if (owner == null || owner.contains("/") || !passable("/Root/" + owner)) {
+            throw new IllegalArgumentException("Not a valid repository owner: " + owner);
         }
         return "/Root/" + owner + "/" + relative;
     }

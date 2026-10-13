@@ -180,6 +180,24 @@ class RepositoryReferencesTest {
     }
 
     @Test
+    void anEscapedSlashInsideASegmentIsNoReference() {
+        // T006/T008 reviews: a decoded %2F would hide a path separator from the closure
+        String stylesheet = """
+            <xsl:stylesheet %s version="2.0">
+              <xsl:import href="inubitrepository:/Root/jdoe/xsl/a%%2Fb.xsl"/>
+              <xsl:include href="sub%%2fx.xsl"/>
+              <xsl:include href="ok.xsl"/>
+            </xsl:stylesheet>
+            """.formatted(XSL);
+
+        assertThat(scan(STYLESHEET, stylesheet))
+            .containsExactly(relative(STYLESHEET, "/Root/jdoe/xsl/main/ok.xsl"));
+        assertThat(new WorkspaceInspector().repositoryUris(
+            "inubitrepository:/Root/jdoe/a%2Fb.xsd inubitrepository:/Root/jdoe/c.xsd"))
+            .containsExactly("/Root/jdoe/c.xsd");
+    }
+
+    @Test
     void unparsableXmlHasNoReferences() {
         assertThat(scan(STYLESHEET, "<xsl:stylesheet " + XSL + "><xsl:import href=\"b.xsl\"/>"))
             .isEmpty();

@@ -254,7 +254,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
 
 ### Change set
 
-- [ ] T020 [US1] Write failing tests in `test/application/RepositoryChangeSetTest.java` for
+- [X] T020 [US1] Write failing tests in `test/application/RepositoryChangeSetTest.java` for
   `ChangeSetBuilder` (D-4).
 
   Which files are included, by scope:
@@ -279,7 +279,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
   Must be refused with `PRECONDITION_FAILED` ("export the path first"): a repository file with a
   `Server-State` base whose `.meta` record is missing or unreadable. A file without any
   `Server-State` commit is NEW and must **not** be refused (research D-4, FR-017).
-- [ ] T021 [US1] Implement the classification in `main/application/ChangeSetBuilder.java`. It
+- [X] T021 [US1] Implement the classification in `main/application/ChangeSetBuilder.java`. It
   replaces the refusal at lines 134-139 and uses `RepositoryClosure`, the existing
   `LocalChange.serverState` base, `RepositoryPaths` and `ReleaseArchivePort.keyMaterial`.
   Carry-over from earlier reviews:
@@ -305,6 +305,15 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
     - MODIFIED with node == base → `modify`;
     - MODIFIED with node != base → `CONFLICT` with `.reports/conflict-<auditId>.diff`.
   - `fingerprint` is the sorted `repository:<path>=sha256` entries.
+  - Interim guard (T020+T021): `ImportService.locked` refuses every change set with repository
+    files right after `builder.build`, with the test
+    `ImportServiceRefusalTest.aReferencedRepositoryFileIsRefusedUntilRepositoryFilesCanBeSent`.
+    When the preview path works (T022–T026), narrow the guard so that only the **execute** step
+    refuses repository files. T031 removes it together with its test once repository files are
+    actually sent. Never let workflows or modules be sent without their repository files.
+  - `WorkspaceInspector.repositoryMetadata` (T021) returns the `.meta` metadata for the
+    `RepositoryUpload` of MODIFIED files; a `.meta` record holding JSON `null` must count as
+    unreadable, i.e. PRECONDITION_FAILED and not INTERNAL (T020+T021 review).
   - More than 50 files to send (`create` + `modify`; `identical` files do not count, FR-017) is
     `INVALID_INPUT` before anything is sent: 60 NEW files of which 15 are identical on the node pass.
   - A `create` file (absent on the node) with an unsupported extension is `INVALID_INPUT` before

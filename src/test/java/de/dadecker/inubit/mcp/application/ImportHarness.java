@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.MetaStore;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives;
+import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlNormalizer;
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
@@ -180,7 +181,8 @@ public final class ImportHarness {
             new ArtifactCheckService(root, inspector, new SaxonXsltRunner(root),
                 group -> Optional.of(DEV), node -> inventory(), node -> Optional.of(owner),
                 ResultLimiter.withDefaults(), clock),
-            new ArchiveCodec(), archives.apply(new V81ImportArchives()), node -> artifacts,
+            new ArchiveCodec(), archives.apply(new V81ImportArchives()),
+            new V81ReleaseArchives(), node -> artifacts,
             node -> imports, node -> tagPorts != null ? tagPorts.apply(node) : tags,
             node -> inventory(), node -> Optional.of(owner),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),

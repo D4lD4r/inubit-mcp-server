@@ -301,7 +301,7 @@ public final class ConflictDetector {
                 && path.kind() != WorkspacePath.Kind.REPOSITORY)
             .forEach(path -> targetModules.add(path.segments().get(1)));
         ChangeSet compared = new ChangeSet(scope, changes.baseCommit(), workflows, modules,
-            changes.notImported(), identical, changes.referenced());
+            changes.repository(), changes.notImported(), identical, changes.referenced());
         return new Result(compared, raw, fingerprint(server, fingerprinted), targetModules,
             rendered);
     }

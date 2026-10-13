@@ -68,4 +68,13 @@ class RepositoryPathsTest {
         assertThatThrownBy(() -> RepositoryPaths.full("jdoe", "/Root/other/order.xsd"))
             .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void refusesToBuildAFullPathForAnOwnerThatIsNoSingleSegment() {
+        // T010 review: the owner must not leave /Root/<owner> either
+        for (String owner : new String[] {"a/b", "..", ".", "", "j(doe)", "jdoe/../other"}) {
+            assertThatThrownBy(() -> RepositoryPaths.full(owner, "schemas/order.xsd"))
+                .as(owner).isInstanceOf(IllegalArgumentException.class);
+        }
+    }
 }
