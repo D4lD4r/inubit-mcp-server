@@ -214,7 +214,7 @@ visible in `--check-config` and `list_nodes`.
 - [X] T015 [US2] Implement `ConfigValidator.checkRepositorySwitch` on the raw
   `ProfileConfig.groups()` / `defaults()` with `Findings.termError`/`termWarning`, called from
   `validate` in `main/config/ConfigValidator.java`.
-- [ ] T016 [P] [US2] `main/config/ConfigSummary.java`: append `, repository: write` or
+- [X] T016 [P] [US2] `main/config/ConfigSummary.java`: append `, repository: write` or
   `, repository: read-only` after `development: on (confirmation …)` on development nodes only. The
   literal `development: on (confirmation SERVER)` stays. Test in `test/config/ConfigSummaryTest.java`.
 - [ ] T017 [P] [US2] `main/domain/model/NodeSummary.java`: add `repositoryWrite: boolean`, filled in
@@ -528,7 +528,10 @@ node's content equals the content before the import byte for byte.
 - [ ] T044 [P] `docs/setup.md`:
   - "Development settings": the `development.repository` row (levels, default `READ_ONLY`, effective
     only on development stages, the inheritance rules, errors and the warning), a YAML example and
-    the `--check-config` line with `repository: write`.
+    the `--check-config` line with `repository: write`. The example node line (today
+    `Node dev/node1: read-only, development: on (confirmation SERVER), e2e: …`) gains
+    `, repository: read-only|write` before `, e2e:`, and the prose before it mentions the new part
+    (T016 notes).
   - "Artifact workspace": the transitive repository closure of exports (a behaviour change) and the
     repository-path scope with its limits.
 - [ ] T045 [P] `docs/tools.md`:
