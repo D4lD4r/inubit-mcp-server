@@ -125,7 +125,7 @@ class E2eTestServiceTest {
     private E2eTestService service() {
         DevelopmentPolicy dev = new DevelopmentPolicy(DEV, false, !deploymentTarget,
             WritePolicy.Confirmation.SERVER, Duration.ofMinutes(5), policy,
-            Optional.of(URI.create("https://localhost:" + wireMock.httpsPort())));
+            Optional.of(URI.create("https://localhost:" + wireMock.httpsPort())), false);
         LogPort logs = new LogPort() {
             @Override
             public void validate(LogQuery query) {

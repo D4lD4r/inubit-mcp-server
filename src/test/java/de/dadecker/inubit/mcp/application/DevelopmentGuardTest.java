@@ -44,7 +44,7 @@ class DevelopmentGuardTest {
         E2ePolicy e2e) {
         return new DevelopmentPolicy(node, production, enabled, Confirmation.SERVER,
             Duration.ofMinutes(5), e2e, e2e == E2ePolicy.FORBIDDEN ? Optional.empty()
-                : Optional.of(URI.create("https://inubit-dev.example.test:8443")));
+                : Optional.of(URI.create("https://inubit-dev.example.test:8443")), false);
     }
 
     /** Feature 005: test receives deployments from dev, prod packages from test. */
@@ -207,7 +207,7 @@ class DevelopmentGuardTest {
     @Test
     void aDeploymentRestoreIsAlwaysConfirmedOnTheServer() {
         policies = Map.of(TEST, new DevelopmentPolicy(TEST, false, true, Confirmation.CLIENT,
-            Duration.ofMinutes(5), E2ePolicy.FORBIDDEN, Optional.empty()));
+            Duration.ofMinutes(5), E2ePolicy.FORBIDDEN, Optional.empty(), false));
 
         assertThat(guard().admitDeploymentRestore("test/node1").confirmation())
             .isEqualTo(Confirmation.SERVER);

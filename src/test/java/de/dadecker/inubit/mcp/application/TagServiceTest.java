@@ -63,10 +63,10 @@ class TagServiceTest {
 
     private TagService service() {
         DevelopmentPolicy dev = new DevelopmentPolicy(DEV, false, true, confirmation,
-            Duration.ofMinutes(5), E2ePolicy.FORBIDDEN, Optional.empty());
+            Duration.ofMinutes(5), E2ePolicy.FORBIDDEN, Optional.empty(), false);
         DevelopmentPolicy test = new DevelopmentPolicy(TEST, false, false,
             WritePolicy.Confirmation.SERVER, Duration.ofMinutes(5), E2ePolicy.FORBIDDEN,
-            Optional.empty());
+            Optional.empty(), false);
         Map<NodeId, DevelopmentPolicy> policies = Map.of(DEV, dev, TEST, test);
         return new TagService(new TagService.Dependencies(root, "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV, TEST)), policies::get,

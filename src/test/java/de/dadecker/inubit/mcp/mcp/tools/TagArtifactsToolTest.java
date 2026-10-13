@@ -80,7 +80,7 @@ class TagArtifactsToolTest {
     private McpTestClient client() {
         DevelopmentPolicy dev = new DevelopmentPolicy(DEV, false, true,
             WritePolicy.Confirmation.CLIENT, Duration.ofMinutes(5), E2ePolicy.FORBIDDEN,
-            Optional.empty());
+            Optional.empty(), false);
         MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
         TagService service = new TagService(new TagService.Dependencies(root, "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV)), Map.of(DEV, dev)::get,

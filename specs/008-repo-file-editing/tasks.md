@@ -132,7 +132,7 @@ task.
   - `outsideOwner` lists references into `/Root/<other>/…` without following them;
   - `referencedBy: Map<String, SortedSet<String>>`;
   - a reference to a file missing from the workspace is kept as a name and not followed.
-- [ ] T009 [P] Configuration core (D-1): test first in `test/config/ConfigLoaderTest.java` and
+- [X] T009 [P] Configuration core (D-1): test first in `test/config/ConfigLoaderTest.java` and
   `test/config/EffectiveNodeConfigTest.java`. This task also touches
   `main/application/DevelopmentGuard.java`, whose `admitDeploymentRestore`/`forDeploymentRestore`
   construct `DevelopmentPolicy`.

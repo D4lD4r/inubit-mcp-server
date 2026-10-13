@@ -35,6 +35,8 @@ public record Defaults(
     public static final VersionLine BUILTIN_VERSION_LINE = VersionLine.AUTO;
     public static final boolean BUILTIN_DEVELOPMENT_ENABLED = false;
     public static final ConfirmationMode BUILTIN_DEVELOPMENT_CONFIRMATION = ConfirmationMode.SERVER;
+    /** Feature 008 (research D-1): repository files are not written unless switched on. */
+    public static final RepositoryMode BUILTIN_DEVELOPMENT_REPOSITORY = RepositoryMode.READ_ONLY;
     public static final E2ePolicy BUILTIN_E2E_TESTS = E2ePolicy.FORBIDDEN;
     /** Feature 005 (research D-2): lifetime of a deployment's confirmation code. */
     public static final Duration BUILTIN_DEPLOY_CONFIRMATION_TTL = Duration.ofMinutes(30);

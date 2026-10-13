@@ -1025,6 +1025,60 @@ class ConfigLoaderTest {
                 .hasMessageContaining("FREE, CONFIRM, FORBIDDEN");
         }
 
+        /** Feature 008 (T009, research D-1, D-2). */
+        @Test
+        void theRepositorySwitchIsReadOnEveryLevelAndResolvedNodeFirst() {
+            LoadedConfig loaded = parse("""
+                profile:
+                  name: acme
+                defaults:
+                  development:
+                    repository: WRITE
+                groups:
+                  - name: dev
+                    development:
+                      enabled: true
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-dev.example.test:8443
+                      - name: node2
+                        baseUrl: https://inubit-dev-2.example.test:8443
+                        development:
+                          repository: READ_ONLY
+                  - name: test
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-test.example.test:8443
+                """);
+
+            assertThat(loaded.config().defaults().development().repository())
+                .contains(RepositoryMode.WRITE);
+            assertThat(loaded.config().groups().get(0).nodes().get(1).development().repository())
+                .contains(RepositoryMode.READ_ONLY);
+            assertThat(server(loaded, "dev/node1").development().repositoryWrite()).isTrue();
+            assertThat(server(loaded, "dev/node2").development().repositoryWrite()).isFalse();
+            assertThat(server(loaded, "test/node1").development().repositoryWrite()).isFalse();
+            assertThat(server(loaded, "dev/node1").developmentPolicy().repositoryWrite()).isTrue();
+        }
+
+        @Test
+        void withoutTheRepositorySwitchADevelopmentNodeIsReadOnly() {
+            EffectiveNodeConfig server = server(parse(LAYERED), "dev/node1");
+
+            assertThat(server.development().enabled()).isTrue();
+            assertThat(server.development().repositoryWrite()).isFalse();
+            assertThat(server.developmentPolicy().repositoryWrite()).isFalse();
+        }
+
+        @Test
+        void anUnknownRepositoryModeIsALoaderErrorListingTheValues() {
+            assertThatThrownBy(() -> parse(MINIMAL.replace("    nodes:",
+                "    development:\n      repository: read-write\n    nodes:")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("development.repository")
+                .hasMessageContaining("READ_ONLY, WRITE");
+        }
+
         @Test
         void userInfoInTheSoapBaseUrlIsDroppedAndReportedWithoutTheValue() {
             LoadedConfig loaded = parse(MINIMAL.replace("    nodes:",

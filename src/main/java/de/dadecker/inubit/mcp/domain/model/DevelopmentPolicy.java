@@ -17,10 +17,12 @@ import java.util.Optional;
  * @param confirmationTtl how long a confirmation code is valid
  * @param e2eTests        {@code e2eTests}
  * @param soapBaseUrl     {@code e2e.soap.baseUrl}, if set
+ * @param repositoryWrite the effective {@code development.repository} of feature 008
+ *                        (research D-2): repository files of the node may be written
  */
 public record DevelopmentPolicy(NodeId node, boolean production, boolean enabled,
     WritePolicy.Confirmation confirmation, Duration confirmationTtl, E2ePolicy e2eTests,
-    Optional<URI> soapBaseUrl) {
+    Optional<URI> soapBaseUrl, boolean repositoryWrite) {
 
     public DevelopmentPolicy {
         Objects.requireNonNull(node, "node");

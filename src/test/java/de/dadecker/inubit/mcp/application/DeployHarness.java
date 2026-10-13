@@ -378,7 +378,7 @@ public final class DeployHarness {
                     ? de.dadecker.inubit.mcp.domain.model.WritePolicy.Confirmation.CLIENT
                     : de.dadecker.inubit.mcp.domain.model.WritePolicy.Confirmation.SERVER,
                 Duration.ofMinutes(5), de.dadecker.inubit.mcp.domain.model.E2ePolicy.FORBIDDEN,
-                Optional.empty())));
+                Optional.empty(), false)));
         de.dadecker.inubit.mcp.domain.model.StageChain chain = chain(List.of());
         DevelopmentGuard guard = new DevelopmentGuard(new TargetResolver(
             new java.util.ArrayList<>(servers.keySet())), policies::get, node -> { },

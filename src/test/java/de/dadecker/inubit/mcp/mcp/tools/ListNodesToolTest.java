@@ -42,7 +42,7 @@ class ListNodesToolTest {
             TestNodeConfig.node().id("dev/inubit02")
                 .baseUrl("https://inubit02.dev.example.test:8443")
                 .development(new EffectiveNodeConfig.Development(true, ConfirmationMode.SERVER,
-                    E2ePolicy.FORBIDDEN, Optional.empty())).build(),
+                    E2ePolicy.FORBIDDEN, Optional.empty(), false)).build(),
             TestNodeConfig.node().id("prod/inubit01")
                 .baseUrl("https://inubit01.prod.example.test:8443").production(true)
                 .write(true, false, ConfirmationMode.SERVER).cliHome(Path.of("/missing"))

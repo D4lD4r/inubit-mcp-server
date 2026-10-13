@@ -128,7 +128,8 @@ public final class DevelopmentGuard {
         cli.check(id);
         DevelopmentPolicy policy = policies.apply(id);
         return new DevelopmentPolicy(id, policy != null && policy.production(), false,
-            WritePolicy.Confirmation.SERVER, deployTtl, E2ePolicy.FORBIDDEN, Optional.empty());
+            WritePolicy.Confirmation.SERVER, deployTtl, E2ePolicy.FORBIDDEN, Optional.empty(),
+            false);
     }
 
     /**
@@ -137,7 +138,8 @@ public final class DevelopmentGuard {
      */
     public DevelopmentPolicy forDeploymentRestore(DevelopmentPolicy policy) {
         return new DevelopmentPolicy(policy.node(), policy.production(), policy.enabled(),
-            WritePolicy.Confirmation.SERVER, deployTtl, policy.e2eTests(), policy.soapBaseUrl());
+            WritePolicy.Confirmation.SERVER, deployTtl, policy.e2eTests(), policy.soapBaseUrl(),
+            policy.repositoryWrite());
     }
 
     /**

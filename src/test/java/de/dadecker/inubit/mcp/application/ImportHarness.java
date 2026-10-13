@@ -43,9 +43,11 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
@@ -79,6 +81,8 @@ public final class ImportHarness {
     public final String owner;
     public final String diagramGroup;
     public WritePolicy.Confirmation confirmation = WritePolicy.Confirmation.CLIENT;
+    /** The nodes whose effective {@code development.repository} is {@code WRITE} (feature 008). */
+    private final Set<NodeId> repositoryWrite = new HashSet<>();
     /** Wraps the archive port (e.g. to inject an unexpected failure). */
     /** Replaces the scripted tag port when set (e.g. to make resolving it fail). */
     public java.util.function.Function<NodeId, de.dadecker.inubit.mcp.domain.port.TagPort>
@@ -160,10 +164,11 @@ public final class ImportHarness {
                 new de.dadecker.inubit.mcp.adapter.cli.CliTagRunner(server, credentials, guard,
                     runner, classifier), () -> { });
         DevelopmentPolicy policy = new DevelopmentPolicy(DEV, false, true, confirmation,
-            Duration.ofMinutes(5), E2ePolicy.FORBIDDEN, Optional.empty());
+            Duration.ofMinutes(5), E2ePolicy.FORBIDDEN, Optional.empty(),
+            repositoryWrite.contains(DEV));
         DevelopmentPolicy test = new DevelopmentPolicy(TEST, false, false,
             WritePolicy.Confirmation.SERVER, Duration.ofMinutes(5), E2ePolicy.FORBIDDEN,
-            Optional.empty());
+            Optional.empty(), repositoryWrite.contains(TEST));
         Map<NodeId, DevelopmentPolicy> policies = Map.of(DEV, policy, TEST, test);
         WorkspaceInspector inspector = new WorkspaceInspector();
         return new ImportService(new ImportService.Dependencies(root, "acme",
@@ -178,6 +183,19 @@ public final class ImportHarness {
             node -> inventory(), node -> Optional.of(owner),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),
             new WriteChallengeRegistry(clock), backups, audit::add, clock, this::nextId));
+    }
+
+    /**
+     * Sets the effective {@code development.repository} of {@code node} (feature 008) for the
+     * services created afterwards; every node starts read-only.
+     */
+    public ImportHarness repositoryWrite(NodeId node, boolean write) {
+        if (write) {
+            repositoryWrite.add(node);
+        } else {
+            repositoryWrite.remove(node);
+        }
+        return this;
     }
 
     private UUID nextId() {

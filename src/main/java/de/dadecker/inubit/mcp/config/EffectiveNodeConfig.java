@@ -111,9 +111,12 @@ public record EffectiveNodeConfig(
      * @param confirmation {@code development.confirmation} (built-in {@code SERVER})
      * @param e2eTests     {@code e2eTests} (built-in {@code FORBIDDEN})
      * @param soapBaseUrl  {@code e2e.soap.baseUrl}, if set
+     * @param repositoryWrite the effective {@code development.repository} of feature 008
+     *     (research D-2): {@code true} only if it resolves to {@code WRITE} and the node is a
+     *     development stage ({@code enabled} and not {@code production})
      */
     public record Development(boolean enabled, ConfirmationMode confirmation,
-        E2ePolicy e2eTests, Optional<URI> soapBaseUrl) {
+        E2ePolicy e2eTests, Optional<URI> soapBaseUrl, boolean repositoryWrite) {
         public Development {
             Objects.requireNonNull(confirmation, "confirmation");
             Objects.requireNonNull(e2eTests, "e2eTests");
@@ -124,13 +127,13 @@ public record EffectiveNodeConfig(
     /** No development settings: the built-in defaults. */
     public static final Development NO_DEVELOPMENT = new Development(
         Defaults.BUILTIN_DEVELOPMENT_ENABLED, Defaults.BUILTIN_DEVELOPMENT_CONFIRMATION,
-        Defaults.BUILTIN_E2E_TESTS, Optional.empty());
+        Defaults.BUILTIN_E2E_TESTS, Optional.empty(), false);
 
     /** The development settings as the guard and the writing services see them. */
     public DevelopmentPolicy developmentPolicy() {
         return new DevelopmentPolicy(id, production, development.enabled(),
             WritePolicy.Confirmation.valueOf(development.confirmation().name()), confirmationTtl,
-            development.e2eTests(), development.soapBaseUrl());
+            development.e2eTests(), development.soapBaseUrl(), development.repositoryWrite());
     }
 
     /** The same settings with another REST {@code timeout} (e.g. for short probes). */
@@ -207,6 +210,12 @@ public record EffectiveNodeConfig(
                 .or(defaults.inventory()::owner),
             node.inventory().cacheTtl().or(group.inventory()::cacheTtl)
                 .or(defaults.inventory()::cacheTtl).orElse(Defaults.BUILTIN_INVENTORY_CACHE_TTL));
+        boolean developmentEnabled = node.development().enabled()
+            .or(group.development()::enabled).or(defaults.development()::enabled)
+            .orElse(Defaults.BUILTIN_DEVELOPMENT_ENABLED);
+        RepositoryMode repository = node.development().repository()
+            .or(group.development()::repository).or(defaults.development()::repository)
+            .orElse(Defaults.BUILTIN_DEVELOPMENT_REPOSITORY);
         return new EffectiveNodeConfig(
             id,
             group.production(),
@@ -229,15 +238,15 @@ public record EffectiveNodeConfig(
                 .orElse(Defaults.BUILTIN_CONFIRMATION_TTL),
             credentialPrefix,
             new Development(
-                node.development().enabled().or(group.development()::enabled)
-                    .or(defaults.development()::enabled)
-                    .orElse(Defaults.BUILTIN_DEVELOPMENT_ENABLED),
+                developmentEnabled,
                 node.development().confirmation().or(group.development()::confirmation)
                     .or(defaults.development()::confirmation)
                     .orElse(Defaults.BUILTIN_DEVELOPMENT_CONFIRMATION),
                 node.e2eTests().or(group::e2eTests).or(defaults::e2eTests)
                     .orElse(Defaults.BUILTIN_E2E_TESTS),
                 node.e2e().soap().baseUrl().or(group.e2e().soap()::baseUrl)
-                    .map(Urls::withoutTrailingSlash)));
+                    .map(Urls::withoutTrailingSlash),
+                repository == RepositoryMode.WRITE && developmentEnabled
+                    && !group.production()));
     }
 }
