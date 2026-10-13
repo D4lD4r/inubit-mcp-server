@@ -27,7 +27,6 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -136,18 +135,7 @@ class RepositoryStepTest {
      * path the node does not have fails like the recorded {@code Path not found}.
      */
     private void exported(String path) {
-        harness.cli.expect("export --exportRepositoryPath '" + path + "'").answering(spec -> {
-            Optional<byte[]> zip = node.exportRepository(path);
-            if (zip.isEmpty()) {
-                return new ScriptedProcessLauncher.Reply(
-                    FakeProcessLauncher.fixtureText("export_repository_not_found.stdout"),
-                    FakeProcessLauncher.fixtureText("export_repository_not_found.stderr")
-                        .replace("//ibis:Root/jdoe/xsd/no-such-dir", "//ibis:"
-                            + path.substring(1)), 1);
-            }
-            ImportHarness.write(ScriptedProcessLauncher.exportFile(spec), zip.get());
-            return new ScriptedProcessLauncher.Reply(DeployHarness.REPOSITORY_OK, "", 0);
-        });
+        harness.exportRepository(node, path);
     }
 
     /** The next StartCLI call exports {@code path} into a file over the CLI's archive bound. */

@@ -321,9 +321,10 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
     that the node already holds is `modify` + `existing` and is not refused.
   - An EXISTING file carries the node's metadata from the node-state export (content type,
     description) into its `RepositoryUpload` (research D-7).
-- [ ] T023 [US1] Include the repository fingerprint in `main/application/ConflictDetector.java`
+- [X] T023 [US1] Include the repository fingerprint in `main/application/ConflictDetector.java`
   (the server fingerprint) and the repository contents in `ImportService.workspaceState`, so that a
-  change on the node or in the workspace between preview and execute gives `CONFLICT`. Test in
+  change on the node between preview and execute gives `CONFLICT` and a change in the workspace
+  gives `CONFIRMATION_INVALID` (feature-004 contract, docs/tools.md; T023 review). Test in
   `test/application/RepositoryImportTest.java`.
 - [ ] T024 [US1] Switch enforcement (FR-004, D-5). Write failing tests in
   `test/application/RepositoryImportTest.java`:
@@ -346,6 +347,8 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
   workspace-hash checks stay (research D-6). Add `repositoryPaths` to `inputFingerprint`. Repository
   files are left out of the artifact archive assembled for the preview, and the assembly is skipped
   for a repository-only change set (`ImportAssembler.guard`).
+  Since T023 a repository-only change set (FR-011a) reaches the preview's artifact-archive assembly;
+  add a test that it gets a preview, not INTERNAL (T023 review).
 
   Also assert the following:
   - On a CLIENT node, changed workflows plus repository files that are all `identical` keep

@@ -15,6 +15,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliImportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.ScriptedProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter;
@@ -356,6 +357,26 @@ public final class ImportHarness {
                     "versionHistory.xml", xml.getBytes(StandardCharsets.UTF_8)))))
             .replying("JAVA_HOME is set\nPassword: \n1-OK: Workflow group exported"
                 + " successfully.\n", "", 0);
+        return this;
+    }
+
+    /**
+     * The next StartCLI call is the repository export of {@code path} from {@code node} (feature
+     * 008); a path the node does not have fails like the recorded {@code Path not found}.
+     */
+    public ImportHarness exportRepository(FakeServer node, String path) {
+        cli.expect("export --exportRepositoryPath '" + path + "'").answering(spec -> {
+            Optional<byte[]> zip = node.exportRepository(path);
+            if (zip.isEmpty()) {
+                return new ScriptedProcessLauncher.Reply(
+                    FakeProcessLauncher.fixtureText("export_repository_not_found.stdout"),
+                    FakeProcessLauncher.fixtureText("export_repository_not_found.stderr")
+                        .replace("//ibis:Root/jdoe/xsd/no-such-dir", "//ibis:"
+                            + path.substring(1)), 1);
+            }
+            write(ScriptedProcessLauncher.exportFile(spec), zip.get());
+            return new ScriptedProcessLauncher.Reply(DeployHarness.REPOSITORY_OK, "", 0);
+        });
         return this;
     }
 

@@ -81,6 +81,8 @@ import org.slf4j.LoggerFactory;
  *       every import; every module a workflow references must be imported or exist on the
  *       target; with a code, a server state other than the previewed one is {@code CONFLICT};
  *       a new artifact the target has already is updated, or not sent if identical (0.4.2);
+ *       repository files are read and classified by {@link RepositoryStep}, and their node state
+ *       joins the server state (feature 008, research D-5);
  *   <li>the import archive with only the change set and the target's current secrets;
  *   <li>server confirmation without a code: the preview with a code, audited — nothing sent;
  *   <li>the backup (the raw export of the scope and a manifest), then the {@code PENDING}
@@ -291,6 +293,7 @@ public final class ImportService {
     private final Dependencies d;
     private final ChangeSetBuilder builder;
     private final ConflictDetector detector;
+    private final RepositoryStep repository;
 
     public ImportService(Dependencies dependencies) {
         this.d = Objects.requireNonNull(dependencies, "dependencies");
@@ -298,6 +301,8 @@ public final class ImportService {
             d.archives()::equivalent);
         this.detector = new ConflictDetector(d.root(), d.history(), d.codec(), d.artifacts(),
             d.inventory(), d.archives()::equivalent, d.archives()::connectionOrdered);
+        this.repository = new RepositoryStep(d.root(), d.history(), d.inspector(), d.releases(),
+            d.artifacts());
     }
 
     /**
@@ -356,17 +361,6 @@ public final class ImportService {
         ImportScope scope = scope(call, request, node);
         ChangeSet changes = builder.build(scope);
         call.changes = changes;
-        if (!changes.repository().isEmpty()) {
-            // feature 008 interim: refused until RepositoryStep sends repository files
-            // (T022-T025); workflows and modules never go without their repository files (FR-004)
-            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
-                "The change set holds repository files (" + String.join(", ",
-                    changes.repository().stream().map(ChangedArtifact::name).toList())
-                    + "), which this version does not import yet; nothing was sent",
-                "Repository files are not sent by import_artifacts in this version",
-                "Restore the repository files (git restore) or change them in the Workbench")
-                .withNode(node));
-        }
         if (changes.isEmpty()) {
             UUID auditId = d.ids().get();
             List<String> warnings = new ArrayList<>(List.of("Nothing changed in the workspace"
@@ -400,6 +394,9 @@ public final class ImportService {
             previewedServer = Optional.ofNullable(state.get("server"));
         }
         ConflictDetector.Result fresh = detector.detect(node, changes, auditId);
+        if (!changes.repository().isEmpty()) {
+            fresh = fresh.withRepository(repository.nodeState(node, fresh.changes(), auditId));
+        }
         requireReferencedModules(node, changes, fresh.targetModules());
         if (previewedServer.isPresent() && !previewedServer.get().equals(fresh.fingerprint())) {
             throw new ToolErrorException(ToolError.of(ErrorCode.CONFLICT,
@@ -430,6 +427,17 @@ public final class ImportService {
         if (server && call.confirmationCode.isEmpty()) {
             return challenge(call, node, policy, changes, warnings, inputs,
                 "workspace=" + workspace + ";server=" + fresh.fingerprint());
+        }
+        if (!changes.repository().isEmpty()) {
+            // feature 008 interim: refused until RepositoryStep sends repository files (T031);
+            // workflows and modules never go without their repository files (FR-004)
+            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
+                "The change set holds repository files (" + String.join(", ",
+                    changes.repository().stream().map(ChangedArtifact::name).toList())
+                    + "), which this version does not import yet; nothing was sent",
+                "Repository files are not sent by import_artifacts in this version",
+                "Restore the repository files (git restore) or change them in the Workbench")
+                .withNode(node));
         }
         ImportPort.Mode mode = scope.diagramGroup().isPresent() ? ImportPort.Mode.WORKFLOW
             : ImportPort.Mode.MODULE;
@@ -1829,6 +1837,11 @@ public final class ImportService {
             .getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * The hash of the change set in the workspace: the base commit, and every artifact with its
+     * kind, base, files and their content; repository files included ({@link
+     * ChangeSet#artifacts()}, feature 008, research D-5 step 3).
+     */
     private String workspaceState(ChangeSet changes) {
         StringBuilder text = new StringBuilder(changes.baseCommit()).append('\n');
         List<byte[]> contents = new ArrayList<>();
