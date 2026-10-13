@@ -1,6 +1,8 @@
 package de.dadecker.inubit.mcp.domain.port;
 
+import de.dadecker.inubit.mcp.domain.model.RepositoryReference;
 import de.dadecker.inubit.mcp.domain.model.WorkflowGraph;
+import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -25,4 +27,11 @@ public interface ArtifactInspectorPort {
      * Empty if all match or the file has none.
      */
     List<String> derivedValueMismatches(Path root, Path file);
+
+    /**
+     * The repository files that the workspace file {@code from} with content {@code content}
+     * references (research D-3), in document order and each once. Empty if the content is not
+     * well-formed XML.
+     */
+    List<RepositoryReference> repositoryReferences(WorkspacePath from, byte[] content);
 }

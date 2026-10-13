@@ -108,7 +108,7 @@ task.
   `READ_ONLY`; revert the files or ask for `WRITE`"). Update the exact order in
   `test/domain/model/ToolErrorTest.java`. Add the `REPOSITORY_WRITE_DENIED` row to the code table in
   `docs/tools.md` in the same task so that `DevelopmentToolsReferenceTest` stays green.
-- [ ] T006 [P] Test first in `test/adapter/archive/v81/RepositoryReferencesTest.java`, then
+- [X] T006 [P] Test first in `test/adapter/archive/v81/RepositoryReferencesTest.java`, then
   `main/domain/model/RepositoryReference.java` (`from: WorkspacePath`, `to: String` repository path,
   `kind: URI | RELATIVE`), `ArtifactInspectorPort.repositoryReferences(WorkspacePath, byte[])` and
   `main/adapter/archive/v81/RepositoryReferences.java`. Cases:

@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Attribute;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Node;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Text;
+import de.dadecker.inubit.mcp.domain.model.RepositoryReference;
 import de.dadecker.inubit.mcp.domain.model.WorkflowGraph;
 import de.dadecker.inubit.mcp.domain.model.WorkflowGraph.Edge;
 import de.dadecker.inubit.mcp.domain.model.WorkflowGraph.Reference;
@@ -150,6 +151,11 @@ public final class WorkspaceInspector implements ArtifactInspectorPort {
         for (Element child : element.elements()) {
             parentReferences(child, location, parents, false);
         }
+    }
+
+    @Override
+    public List<RepositoryReference> repositoryReferences(WorkspacePath from, byte[] content) {
+        return RepositoryReferences.scan(from, content);
     }
 
     @Override
