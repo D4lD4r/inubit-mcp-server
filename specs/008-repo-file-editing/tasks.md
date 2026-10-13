@@ -122,7 +122,7 @@ task.
 - [X] T007 Refactor `main/adapter/archive/v81/WorkspaceInspector.java` and
   `main/application/ArtifactCheckService.java` to use the T006 scanner, which removes the duplicate
   `inubitrepository:` regex. The existing tests must stay green without changes.
-- [ ] T008 Test first in `test/domain/model/RepositoryClosureTest.java`, then
+- [X] T008 Test first in `test/domain/model/RepositoryClosureTest.java`, then
   `main/domain/model/RepositoryClosure.java`, a pure-Java class in the domain so that both
   `application` and `adapter/archive/v81` may use it (`PackageBoundaryTest`, research D-3):
   - input: start references and a function `path → Optional<List<RepositoryReference>>`;
