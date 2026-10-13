@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Attribute;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Node;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.RepositoryUpload;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ReleaseArchivePort;
@@ -11,6 +12,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -45,6 +47,9 @@ import java.util.zip.ZipOutputStream;
  *       form with the flag, for fingerprints.
  *   <li>{@link #layoutOnly} is {@link LayoutDiff} on the reviewed forms.
  *   <li>{@link #keyMaterial} is {@link RepositoryArchive#isKeyMaterial}.
+ *   <li>{@link #repositoryArchiveFromFiles} builds the import archive of workspace files with
+ *       {@link RepositoryArchive#build}; an upload without metadata gets
+ *       {@link RepositoryMetadata#forNewFile} (feature 008, research D-7).
  * </ul>
  */
 public final class V81ReleaseArchives implements ReleaseArchivePort {
@@ -203,6 +208,18 @@ public final class V81ReleaseArchives implements ReleaseArchivePort {
             chosen.add(file);
         }
         return RepositoryArchive.build(owner, chosen);
+    }
+
+    @Override
+    public byte[] repositoryArchiveFromFiles(String owner, List<RepositoryUpload> uploads) {
+        List<RepositoryArchive.RepositoryFile> files = new ArrayList<>();
+        for (RepositoryUpload upload : uploads) {
+            String metadata = upload.metadata()
+                .orElseGet(() -> RepositoryMetadata.forNewFile(upload.path()));
+            files.add(new RepositoryArchive.RepositoryFile(upload.path(),
+                metadata.getBytes(StandardCharsets.UTF_8), upload.content()));
+        }
+        return RepositoryArchive.build(owner, files);
     }
 
     // --- helpers -------------------------------------------------------------------------------

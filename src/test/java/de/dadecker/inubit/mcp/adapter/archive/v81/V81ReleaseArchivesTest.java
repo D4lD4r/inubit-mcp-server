@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.RepositoryUpload;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ReleaseArchivePort.PropertyChange;
 import de.dadecker.inubit.mcp.domain.port.ReleaseArchivePort.ReleaseExport;
@@ -14,6 +15,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.SortedMap;
 import org.junit.jupiter.api.Test;
 
@@ -202,6 +204,113 @@ class V81ReleaseArchivesTest {
         assertThat(metadata.get(MAIN)).contains("version=\"1.0\"", "anonymousRead=\"false\"")
             .doesNotContain("<Description");
         assertThat(metadata.get("/Root/jdoe/xsd/probe.xsd")).contains("version=\"1.5\"");
+    }
+
+    // --- feature 008: the import archive from workspace files (T012, research D-7, D-8) ------
+
+    private static final String STYLESHEET = "/Root/jdoe/xsd/release.xsl";
+
+    private static byte[] bytes(String text) {
+        return text.getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** Repository path → metadata of the import archive {@code zip} for jdoe. */
+    private static Map<String, String> importedMetadata(byte[] zip) {
+        Map<String, String> metadata = new java.util.TreeMap<>();
+        RepositoryArchive.readRelative("jdoe", zip).forEach(file -> metadata.put(file.path(),
+            text(file.metadata())));
+        return metadata;
+    }
+
+    /** An exported file's metadata in the {@code .meta} form that {@code WorkspaceWriter} stores. */
+    private static String exportedMetadata(String path) {
+        return RepositoryArchive.read(cliFixture("export_repository.zip")).stream()
+            .filter(file -> file.path().equals(path))
+            .map(file -> text(XmlNormalizer.normalize(file.metadata())))
+            .findFirst().orElseThrow();
+    }
+
+    private static String withContentFigures(String metadata, byte[] content) throws Exception {
+        String md5 = String.format("%032x", new java.math.BigInteger(1,
+            java.security.MessageDigest.getInstance("MD5").digest(content)));
+        return metadata.replaceFirst("contentSize=\"\\d+\"", "contentSize=\"" + content.length
+            + "\"").replaceFirst("contentMD5=\"[0-9a-f]+\"", "contentMD5=\"" + md5 + "\"");
+    }
+
+    @Test
+    void anUploadWithMetadataKeepsItExceptTheContentFigures() throws Exception {
+        // a MODIFIED file with its .meta record, or an EXISTING file with the node's metadata
+        String metadata = exportedMetadata(STYLESHEET);
+        byte[] content = bytes("<xsl:stylesheet version=\"1.0\"/>\n");
+
+        byte[] zip = archives.repositoryArchiveFromFiles("jdoe", List.of(new RepositoryUpload(
+            STYLESHEET, content, Optional.of(metadata))));
+
+        assertThat(ArtifactFixtures.entries(zip).keySet()).containsExactly("xsd/",
+            "xsd/release.xsl.xml", "xsd/release.xsl.dat");
+        assertThat(RepositoryArchive.readRelative("jdoe", zip)).singleElement()
+            .satisfies(file -> assertThat(file.content()).isEqualTo(content));
+        String imported = importedMetadata(zip).get(STYLESHEET);
+        assertThat(imported).isNotEqualTo(metadata)
+            .isEqualTo(withContentFigures(metadata, content))
+            .contains("anonymousRead=\"true\"", "contentType=\"application/xslt+xml\"",
+                "<Description>Fixture stylesheet</Description>");
+    }
+
+    @Test
+    void aNewFileWithoutMetadataGetsTheSynthesizedOne() throws Exception {
+        String path = "/Root/jdoe/xsd/orders/sub/new.wsdl";
+        byte[] content = bytes("<definitions/>");
+
+        byte[] zip = archives.repositoryArchiveFromFiles("jdoe", List.of(
+            new RepositoryUpload(path, content, Optional.empty()),
+            new RepositoryUpload(STYLESHEET, bytes("<x/>"),
+                Optional.of(exportedMetadata(STYLESHEET)))));
+
+        assertThat(ArtifactFixtures.entries(zip).keySet()).containsExactly("xsd/",
+            "xsd/orders/", "xsd/orders/sub/", "xsd/orders/sub/new.wsdl.xml",
+            "xsd/orders/sub/new.wsdl.dat", "xsd/release.xsl.xml", "xsd/release.xsl.dat");
+        // the synthesized metadata plus the figures of the content written
+        String imported = importedMetadata(zip).get(path);
+        String synthesized = RepositoryMetadata.forNewFile(path);
+        assertThat(imported).startsWith(synthesized.substring(0, synthesized.indexOf('>')))
+            .contains("contentType=\"application/wsdl+xml\"", "contentSize=\"14\"")
+            .doesNotContain("anonymousRead");
+        assertThat(imported.replaceFirst(" contentSize=\"14\" contentMD5=\"[0-9a-f]{32}\"", ""))
+            .isEqualTo(synthesized);
+        assertThat(imported).isEqualTo(withContentFigures(imported, content));
+    }
+
+    @Test
+    void uploadsAreRefusedLikeEveryRepositoryImport() {
+        String certificate = "/Root/jdoe/keys/partner.pem";
+        String metadata = "<Property name=\"partner.pem\" type=\"RepositoryFile\" path=\""
+            + certificate + "\" contentType=\"application/octet-stream\"/>";
+
+        // key material never leaves the workspace (FR-015a)
+        assertThatThrownBy(() -> archives.repositoryArchiveFromFiles("jdoe", List.of(
+            new RepositoryUpload(certificate, bytes("plain"), Optional.of(metadata)))))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(e.error().code())
+                .isEqualTo(ErrorCode.PRECONDITION_FAILED));
+        // a new file of another extension has no content type
+        assertThatThrownBy(() -> archives.repositoryArchiveFromFiles("jdoe", List.of(
+            new RepositoryUpload("/Root/jdoe/data/a.json", bytes("{}"), Optional.empty()))))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(e.error().code())
+                .isEqualTo(ErrorCode.INVALID_INPUT));
+        // another owner's root
+        assertThatThrownBy(() -> archives.repositoryArchiveFromFiles("jdoe", List.of(
+            new RepositoryUpload("/Root/other/a.xsd", bytes("<x/>"), Optional.empty()))))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(e.error().code())
+                .isEqualTo(ErrorCode.INVALID_INPUT));
+    }
+
+    @Test
+    void certificateFilesCountAsKeyMaterialByTheirName() {
+        // research D-4: the port's detector includes the certificate names, not only KeyMaterial
+        byte[] harmless = bytes("not a certificate");
+        assertThat(archives.keyMaterial("/Root/jdoe/certs/partner.cer", harmless)).isTrue();
+        assertThat(archives.keyMaterial("/Root/jdoe/certs/partner.pem", harmless)).isTrue();
+        assertThat(archives.keyMaterial("/Root/jdoe/certs/partner.xml", harmless)).isFalse();
     }
 
     // --- feature 007: the order of a module's connections (contract P-3) -------------------

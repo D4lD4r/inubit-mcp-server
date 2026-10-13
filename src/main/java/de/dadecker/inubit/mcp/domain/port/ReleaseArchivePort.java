@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.domain.port;
 
+import de.dadecker.inubit.mcp.domain.model.RepositoryUpload;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -142,5 +143,19 @@ public interface ReleaseArchivePort {
      */
     byte[] repositoryArchive(List<byte[]> archives, String owner,
         java.util.Collection<String> paths);
+
+    /**
+     * The archive of a repository import into {@code /Root/<owner>} of workspace files (feature
+     * 008, research D-7, D-8), shaped like {@link #repositoryArchive}. An upload with metadata
+     * keeps it except {@code contentSize} and {@code contentMD5} (of the content written); one
+     * without gets the synthesized metadata of a new file, with the content type from the
+     * extension.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException {@code INVALID_INPUT} for no
+     *     upload, a path outside the owner's root, a duplicate, metadata of another path or a
+     *     new file whose extension has no known content type; {@code PRECONDITION_FAILED} for key
+     *     material ({@link #keyMaterial})
+     */
+    byte[] repositoryArchiveFromFiles(String owner, List<RepositoryUpload> uploads);
 }
 

@@ -167,7 +167,7 @@ task.
   compatibility constructor without `repository` (an empty list), so the call sites in
   `ImportService.java`, `ConflictDetector.java` and `ChangeSetBuilder.java` stay untouched until
   T021. Tests in `test/domain/model/ChangeSetTest.java`.
-- [ ] T012 [P] Archive side (D-4, D-7, D-8): test first in
+- [X] T012 [P] Archive side (D-4, D-7, D-8): test first in
   `test/adapter/archive/v81/RepositoryMetadataTest.java` and `V81ReleaseArchivesTest.java`.
   - `main/domain/model/RepositoryUpload.java`: `path`, `content`, and
     `metadata: Optional<String>`.
