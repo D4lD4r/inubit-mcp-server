@@ -103,7 +103,7 @@ task.
 
 ## Phase 2: Foundational (blocks all stories)
 
-- [ ] T005 [P] `main/domain/model/ErrorCode.java`: add `REPOSITORY_WRITE_DENIED` after
+- [X] T005 [P] `main/domain/model/ErrorCode.java`: add `REPOSITORY_WRITE_DENIED` after
   `DEPLOY_LOCKED` and before `INTERNAL`, with Javadoc ("the node's `development.repository` is
   `READ_ONLY`; revert the files or ask for `WRITE`"). Update the exact order in
   `test/domain/model/ToolErrorTest.java`. Add the `REPOSITORY_WRITE_DENIED` row to the code table in

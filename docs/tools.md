@@ -136,6 +136,7 @@ other nodes are still reported.
 | `CHAIN_VIOLATION` | a deployment into a group that does not receive deployments from the requested source (no `deploy` record, feature 005) |
 | `SOURCE_INCONSISTENT` | the nodes of a deployment's source group do not hold the same release (feature 005) |
 | `DEPLOY_LOCKED` | another deployment into the same target group is running (feature 005) |
+| `REPOSITORY_WRITE_DENIED` | the node's `development.repository` is `READ_ONLY`; revert the files or ask for `WRITE` (feature 008) |
 | `INTERNAL` | an unexpected error inside the MCP server, the server is shutting down, or an audit record could not be written |
 
 ## `list_nodes`
