@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
+import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ImportPreview;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -11,11 +12,16 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
+import de.dadecker.inubit.mcp.domain.port.ImportArchivePort;
 import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -37,6 +43,11 @@ import org.junit.jupiter.api.io.TempDir;
  * set with a repository file to send is refused as a whole with {@code REPOSITORY_WRITE_DENIED}:
  * at once if a file is MODIFIED in the workspace, after the node read if a NEW file is to be
  * created or modified; a change set whose repository files are all identical is not refused.
+ *
+ * <p>T025 (FR-012, research D-6): a repository file to send always needs a server code, also on
+ * a node with {@code development.confirmation: CLIENT}; the code is redeemed after the node read,
+ * and always if the change set holds repository files. Until T031 the confirmed call stops at the
+ * interim execute guard of T020+T021, so these tests see that guard instead of an import.
  */
 @Timeout(60)
 class RepositoryImportTest {
@@ -93,9 +104,22 @@ class RepositoryImportTest {
         harness.exportGroup().exportRepository(node, "/Root/jdoe/xsd");
     }
 
+    /**
+     * The service on {@code dev/node1} with {@code development.confirmation: CLIENT} and
+     * {@code development.repository: WRITE} (T025).
+     */
+    private ImportService client() {
+        harness.confirmation = WritePolicy.Confirmation.CLIENT;
+        return harness.service();
+    }
+
     private ImportPreview preview() {
+        return preview(service);
+    }
+
+    private ImportPreview preview(ImportService on) {
         nodeRead();
-        ImportService.Response response = service.importArtifacts(harness.group("Schemas"));
+        ImportService.Response response = on.importArtifacts(harness.group("Schemas"));
         harness.cli.verifyComplete();
         assertThat(response).isInstanceOf(ImportService.Response.Challenge.class);
         ImportPreview preview = ((ImportService.Response.Challenge) response).preview();
@@ -105,9 +129,12 @@ class RepositoryImportTest {
     }
 
     private ToolError confirmedRefusal(ImportPreview preview) {
+        return confirmedRefusal(service, preview.confirmationCode());
+    }
+
+    private ToolError confirmedRefusal(ImportService on, String code) {
         ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
-            () -> service.importArtifacts(ImportHarness.confirmed(harness.group("Schemas"),
-                preview.confirmationCode())));
+            () -> on.importArtifacts(ImportHarness.confirmed(harness.group("Schemas"), code)));
         assertThat(exception).as("expected a refusal").isNotNull();
         harness.cli.verifyComplete();
         assertThat(harness.inubit.imported).as("nothing was imported").isEmpty();
@@ -148,12 +175,15 @@ class RepositoryImportTest {
         // only the repository file changes: its content is part of the workspace hash
         ImportPreview preview = preview();
         harness.edit(file(B), "name=\"b\"", "name=\"b2\"");
+        nodeRead();
 
         ToolError error = confirmedRefusal(preview);
 
         assertThat(error.code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
         assertThat(error.message()).contains("workspace changed", "preview again");
-        assertThat(harness.cli.launches()).as("only the node read of the preview").hasSize(2);
+        assertThat(harness.cli.launches())
+            .as("the node read of both calls: T025 redeems after the node read (D-6)")
+            .hasSize(4);
     }
 
     // --- T024: the switch (FR-004) ---------------------------------------------------------
@@ -249,5 +279,201 @@ class RepositoryImportTest {
             .containsExactly(B));
         assertThat(outcome.notImported()).doesNotContain(B);
         assertThat(node.repositoryImports).as("b.xsd is not sent").isEmpty();
+    }
+
+    // --- T025: the server code is always required (FR-012, research D-6) --------------------
+
+    /** Records every build of an artifact archive (the archive port wrapped). */
+    private List<ImportArchivePort.Build> recordBuilds() {
+        List<ImportArchivePort.Build> builds = new CopyOnWriteArrayList<>();
+        harness.archives = port -> (ImportArchivePort) Proxy.newProxyInstance(
+            ImportArchivePort.class.getClassLoader(), new Class<?>[] {ImportArchivePort.class},
+            (proxy, method, args) -> {
+                if (method.getName().equals("assemble")) {
+                    builds.add((ImportArchivePort.Build) args[0]);
+                }
+                try {
+                    return method.invoke(port, args);
+                } catch (InvocationTargetException e) {
+                    throw e.getCause();
+                }
+            });
+        return builds;
+    }
+
+    @Test
+    void aClientNodeGetsAServerCodeForARepositoryFileToSendAndRunsOnlyWithIt() {
+        List<ImportArchivePort.Build> builds = recordBuilds();
+        ImportService client = client();
+
+        ImportPreview preview = preview(client);
+
+        assertThat(harness.inubit.imported).as("nothing was imported").isEmpty();
+        assertThat(node.repositoryImports).as("nothing was imported").isEmpty();
+        assertThat(harness.audit("import_artifacts")).last().satisfies(record ->
+            assertThat(record.outcome()).isEqualTo(AuditOutcome.CHALLENGE_ISSUED));
+        assertThat(builds).singleElement().satisfies(build -> assertThat(build.files().keySet())
+            .as("the preview's artifact archive holds no repository file")
+            .noneMatch(path -> path.contains(file(A)) || path.contains(file(B))));
+
+        // with the code: redeemed after the node read, bound to inputs, workspace and node; the
+        // call reaches the execute step, where the interim guard of T020+T021 still refuses
+        // repository files until T031 sends them
+        nodeRead();
+        ToolError error = confirmedRefusal(client, preview.confirmationCode());
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(error.message()).contains("does not import yet");
+        assertThat(harness.audit("import_artifacts")).last().satisfies(record ->
+            assertThat(record.step()).isEqualTo(AuditRecord.Step.EXECUTE));
+    }
+
+    @Test
+    void aCallWithoutRepositoryFilesKeepsClientConfirmation() {
+        // Module-0003 no longer references the schemas: they are changed outside the scope
+        harness.edit(harness.moduleDirectory("Module-0003") + "/module.xml",
+            "<Property name=\"x.a\">inubitrepository:" + A + "</Property>"
+                + "<Property name=\"x.b\">inubitrepository:" + B + "</Property></Properties>",
+            "</Properties>");
+        ImportService client = client();
+        harness.exportGroup().importApplied().exportGroup();
+
+        ImportService.Response response = client.importArtifacts(harness.group("Schemas"));
+
+        harness.cli.verifyComplete();
+        assertThat(response).isInstanceOf(ImportService.Response.Completed.class);
+        WriteOutcome outcome = ((ImportService.Response.Completed) response).outcome();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.modified()).containsExactly("Workflow-0001");
+        assertThat(outcome.notImported()).contains(file(A), file(B));
+        assertThat(node.repositoryImports).isEmpty();
+    }
+
+    @Test
+    void onAClientNodeAWorkspaceEditAfterThePreviewNeedsANewPreview() {
+        ImportService client = client();
+        ImportPreview preview = preview(client);
+        harness.edit(file(B), "name=\"b\"", "name=\"b2\"");
+        nodeRead();
+
+        ToolError error = confirmedRefusal(client, preview.confirmationCode());
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
+        assertThat(error.message()).contains("workspace changed", "preview again");
+    }
+
+    @Test
+    void onAClientNodeANodeChangeAfterThePreviewIsAConflict() {
+        ImportService client = client();
+        ImportPreview preview = preview(client);
+        node.putRepositoryFile(B, schema("someone else's b"));
+        nodeRead();
+
+        ToolError error = confirmedRefusal(client, preview.confirmationCode());
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CONFLICT);
+        assertThat(error.message()).contains("after the preview", "nothing was sent");
+    }
+
+    @Test
+    void aRepositoryOnlyChangeSetGetsAPreview() throws IOException {
+        // FR-011a: Module-0003 references the schemas in its server state, only they changed
+        harness.edit(harness.workflow("Workflow-0001"), "xPos=\"140\"", "xPos=\"120\"");
+        revertA();
+        Files.delete(harness.root.resolve(file(B)));
+        harness.exports.history.commitAll("export dev/jdoe: GRP-01",
+            Map.of(VersionHistoryPort.SERVER_STATE, ImportHarness.DEV.group().value()));
+        harness.inubit.changeModule("Module-0003", xml -> xml.replace("</Properties>",
+            "<Property name=\"x.a\">inubitrepository:" + A + "</Property>"
+                + "<Property name=\"x.b\">inubitrepository:" + B + "</Property></Properties>"));
+        harness.edit(file(A), "</xs:schema>", "  <xs:element name=\"added\"/>\n</xs:schema>");
+        harness.write(file(B), schema("b"));
+        List<ImportArchivePort.Build> builds = recordBuilds();
+        ImportService on = harness.service();
+        nodeRead();
+
+        ImportService.Response response = on.importArtifacts(harness.group("Schemas"));
+
+        harness.cli.verifyComplete();
+        assertThat(response).isInstanceOf(ImportService.Response.Challenge.class);
+        ImportPreview preview = ((ImportService.Response.Challenge) response).preview();
+        assertThat(preview.create()).containsExactly(B);
+        assertThat(preview.modify()).containsExactly(A);
+        assertThat(builds).as("no artifact archive for repository files alone").isEmpty();
+    }
+
+    @Test
+    void onAClientNodeChangedWorkflowsWithIdenticalRepositoryFilesRunAtOnce() {
+        revertA();
+        node.putRepositoryFile(B, schema("b"));
+        ImportService client = client();
+        nodeRead();
+        harness.importApplied().exportGroup();
+
+        ImportService.Response response = client.importArtifacts(harness.group("Schemas"));
+
+        harness.cli.verifyComplete();
+        assertThat(response).isInstanceOf(ImportService.Response.Completed.class);
+        WriteOutcome outcome = ((ImportService.Response.Completed) response).outcome();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.modified()).containsExactly("Workflow-0001", "Module-0003");
+        assertThat(node.repositoryImports).as("b.xsd is identical and not sent").isEmpty();
+        assertThat(harness.audit("import_artifacts")).noneMatch(record ->
+            record.outcome() == AuditOutcome.CHALLENGE_ISSUED);
+    }
+
+    @Test
+    void onAClientNodeAnUnknownCodeIsRefusedEvenIfNoRepositoryFileIsLeftToSend() {
+        // the change set holds b.xsd, identical on the node: the code is redeemed, not ignored
+        revertA();
+        node.putRepositoryFile(B, schema("b"));
+        ImportService client = client();
+        nodeRead();
+
+        ToolError error = confirmedRefusal(client, "AAAAAAAAAAAAAAAAAAAAAA");
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
+    }
+
+    @Test
+    void onAClientNodeARedeemedCodeStillBindsTheNodeStateIfNothingIsLeftToSend() {
+        // b.xsd is created by someone else, identical to the workspace, after the preview
+        revertA();
+        ImportService client = client();
+        nodeRead();
+        ImportService.Response response = client.importArtifacts(harness.group("Schemas"));
+        assertThat(response).isInstanceOf(ImportService.Response.Challenge.class);
+        String code = ((ImportService.Response.Challenge) response).preview().confirmationCode();
+        node.putRepositoryFile(B, schema("b"));
+        nodeRead();
+
+        ToolError error = confirmedRefusal(client, code);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CONFLICT);
+        assertThat(error.message()).contains("after the preview");
+    }
+
+    @Test
+    void aRedeemedCodeProceedsWithoutARepositoryImportIfNothingIsLeftToSend() {
+        // server confirmation: the preview of an all-identical change set, then the execution
+        revertA();
+        node.putRepositoryFile(B, schema("b"));
+        nodeRead();
+        ImportService.Response first = service.importArtifacts(harness.group("Schemas"));
+        assertThat(first).isInstanceOf(ImportService.Response.Challenge.class);
+        String code = ((ImportService.Response.Challenge) first).preview().confirmationCode();
+        nodeRead();
+        harness.importApplied().exportGroup();
+
+        ImportService.Response second = service.importArtifacts(ImportHarness.confirmed(
+            harness.group("Schemas"), code));
+
+        harness.cli.verifyComplete();
+        assertThat(second).isInstanceOf(ImportService.Response.Completed.class);
+        WriteOutcome outcome = ((ImportService.Response.Completed) second).outcome();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.identical()).hasValueSatisfying(names -> assertThat(names)
+            .containsExactly(B));
+        assertThat(node.repositoryImports).isEmpty();
     }
 }

@@ -60,6 +60,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,7 +80,8 @@ import org.slf4j.LoggerFactory;
  *       feature 008, FR-004);
  *   <li>the checks of feature 003 on the change set — an ERROR refuses with a findings report;
  *   <li>with a confirmation code: the code must match the inputs and the workspace of its
- *       preview ({@code CONFIRMATION_INVALID} otherwise, "preview again");
+ *       preview ({@code CONFIRMATION_INVALID} otherwise, "preview again"); if the change set
+ *       holds repository files, this follows their node read below (feature 008, research D-6);
  *   <li>the conflict check on a fresh export ({@link ConflictDetector}), repeated right before
  *       every import; every module a workflow references must be imported or exist on the
  *       target; with a code, a server state other than the previewed one is {@code CONFLICT};
@@ -87,7 +89,11 @@ import org.slf4j.LoggerFactory;
  *       repository files are read and classified by {@link RepositoryStep}, and their node state
  *       joins the server state (feature 008, research D-5); on a read-only node, any repository
  *       file to create or modify refuses the whole call ({@code REPOSITORY_WRITE_DENIED});
- *   <li>the import archive with only the change set and the target's current secrets;
+ *       a repository file to create or modify always needs a server code, also on a node with
+ *       client confirmation ({@link DevelopmentGuard#forRepositoryWrite}, FR-012), and a
+ *       presented code is then redeemed whether or not one is left to send;
+ *   <li>the import archive with only the workflows and modules of the change set and the
+ *       target's current secrets (none for repository files alone);
  *   <li>server confirmation without a code: the preview with a code, audited — nothing sent;
  *   <li>the backup (the raw export of the scope and a manifest), then the {@code PENDING}
  *       audit record (fail closed), then the StartCLI import — always with
@@ -380,28 +386,28 @@ public final class ImportService {
         }
         UUID auditId = d.ids().get();
         int warnings = check(node, changes, auditId);
-        String inputs = inputFingerprint(node, call, request);
+        String inputs = inputFingerprint(node, call, request, scope);
         String workspace = workspaceState(changes);
         Optional<String> previewedServer = Optional.empty();
+        boolean repositoryFiles = !changes.repository().isEmpty();
         boolean server = policy.confirmation() == WritePolicy.Confirmation.SERVER;
-        if (server && call.confirmationCode.isPresent()) {
-            String previewed = d.challenges().redeem(call.confirmationCode.get(),
-                Capability.IMPORT_ARTIFACTS, node, inputs);
-            Map<String, String> state = parseState(previewed);
-            if (!workspace.equals(state.get("workspace"))) {
-                throw new ToolErrorException(ToolError.of(ErrorCode.CONFIRMATION_INVALID,
-                    "The workspace changed between the preview and this call; nothing was"
-                        + " sent and the code is used up: preview again",
-                    "Files of the change set were edited after the preview",
-                    "Call import_artifacts again without confirmationCode to preview again")
-                    .withNode(node));
-            }
-            previewedServer = Optional.ofNullable(state.get("server"));
+        if (!repositoryFiles && server && call.confirmationCode.isPresent()) {
+            previewedServer = redeem(call, node, inputs, workspace);
         }
         ConflictDetector.Result fresh = detector.detect(node, changes, auditId);
-        if (!changes.repository().isEmpty()) {
+        if (repositoryFiles) {
+            // research D-6: only the node read tells whether a repository file is to be sent,
+            // so the mode decision and the redeem follow it; a presented code is always redeemed
             fresh = fresh.withRepository(repository.nodeState(node, fresh.changes(), auditId));
             RepositoryStep.requireWritable(policy, fresh.changes());
+            if (!fresh.changes().repository().isEmpty()) {
+                policy = d.guard().forRepositoryWrite(policy);
+                call.policy = policy;
+                server = policy.confirmation() == WritePolicy.Confirmation.SERVER;
+            }
+            if (call.confirmationCode.isPresent()) {
+                previewedServer = redeem(call, node, inputs, workspace);
+            }
         }
         requireReferencedModules(node, changes, fresh.targetModules());
         if (previewedServer.isPresent() && !previewedServer.get().equals(fresh.fingerprint())) {
@@ -427,9 +433,11 @@ public final class ImportService {
                 Optional.of(changes.identicalNames())));
         }
         Account account = d.accounts().apply(node);
-        ImportArchivePort.Archive archive = d.archives().assemble(build(changes, call,
-            files(changes), fresh.rawExports(), call.reason, account,
-            takenNames(node, changes, call.owner, fresh.targetModules())));
+        // a repository-only change set (FR-011a) has no artifact archive; T031 skips importArchive
+        ImportArchivePort.Archive archive = changes.workflows().isEmpty()
+            && changes.modules().isEmpty() ? null : d.archives().assemble(build(changes, call,
+                files(changes), fresh.rawExports(), call.reason, account,
+                takenNames(node, changes, call.owner, fresh.targetModules())));
         if (server && call.confirmationCode.isEmpty()) {
             return challenge(call, node, policy, changes, warnings, inputs,
                 "workspace=" + workspace + ";server=" + fresh.fingerprint());
@@ -450,6 +458,28 @@ public final class ImportService {
         return execute(call, node, new Plan(changes, archive, mode, mode, this::readOrNull,
             "import", scope.describe(), List.of(), serverNotes(node, changes)), auditId,
             fresh.rawExports(), account);
+    }
+
+    /**
+     * Redeems the presented code of an import: bound to {@code inputs} and the workspace hash of
+     * the preview, which must equal {@code workspace}.
+     *
+     * @return the server fingerprint of the preview
+     * @throws ToolErrorException {@code CONFIRMATION_INVALID}
+     */
+    private Optional<String> redeem(Call call, NodeId node, String inputs, String workspace) {
+        String previewed = d.challenges().redeem(call.confirmationCode.orElseThrow(),
+            Capability.IMPORT_ARTIFACTS, node, inputs);
+        Map<String, String> state = parseState(previewed);
+        if (!workspace.equals(state.get("workspace"))) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.CONFIRMATION_INVALID,
+                "The workspace changed between the preview and this call; nothing was"
+                    + " sent and the code is used up: preview again",
+                "Files of the change set were edited after the preview",
+                "Call import_artifacts again without confirmationCode to preview again")
+                .withNode(node));
+        }
+        return Optional.ofNullable(state.get("server"));
     }
 
     /** The notes on artifacts the node has already (0.4.2, 0.4.3). */
@@ -1652,10 +1682,15 @@ public final class ImportService {
             COMMENT_TIME.format(d.clock().instant()), takenNames);
     }
 
-    /** The workspace files of the change set and their .meta records. */
+    /**
+     * The workspace files of the workflows and modules of the change set and their .meta
+     * records; repository files never enter the artifact archive (research D-7).
+     */
     private SortedMap<String, byte[]> files(ChangeSet changes) {
         SortedMap<String, byte[]> files = new TreeMap<>();
-        for (String path : changes.paths()) {
+        List<String> paths = Stream.of(changes.workflows(), changes.modules())
+            .flatMap(List::stream).flatMap(artifact -> artifact.paths().stream()).toList();
+        for (String path : paths) {
             byte[] content = readOrNull(path);
             if (content != null) {
                 files.put(path, content);
@@ -1833,11 +1868,14 @@ public final class ImportService {
         }
     }
 
-    private String inputFingerprint(NodeId node, Call call, ImportRequest request) {
+    private String inputFingerprint(NodeId node, Call call, ImportRequest request,
+        ImportScope scope) {
         StringBuilder text = new StringBuilder(node.value()).append('\n').append(call.owner)
             .append('\n').append(request.diagramGroup().orElse("")).append('\n');
         request.modules().forEach(module -> text.append(module.name()).append('/')
             .append(module.pluginType().orElse("")).append('\n'));
+        scope.repositoryPaths().forEach(path -> text.append("repository=").append(path)
+            .append('\n'));
         text.append("tag=").append(request.tag().orElse("")).append('\n');
         return "sha256:" + sha256(text.append(request.reason()).toString()
             .getBytes(StandardCharsets.UTF_8));

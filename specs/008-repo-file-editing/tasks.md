@@ -337,7 +337,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
   - Every refusal is audited `REFUSED`, with the reason naming `development.repository`.
 
   Then implement the checks in `main/application/ImportService.java`, delegating to `RepositoryStep`.
-- [ ] T025 [US1] Server code always required (FR-012, D-6). Write a failing test: a node with
+- [X] T025 [US1] Server code always required (FR-012, D-6). Write a failing test: a node with
   `development.confirmation: CLIENT` and `WRITE` still gets a challenge for a change set with a
   repository file to send, and the import runs only with the code. A call without repository files
   keeps `CLIENT`. The second call on the CLIENT node is redeemed and bound: a changed workspace or
@@ -389,6 +389,8 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
   - request plumbing in `main/application/ImportService.java`: `ImportRequest.repositoryPaths`,
     `validate` (today `group == !modules.isEmpty()` at line 1761 becomes "exactly one of three"),
     `scope(...)`, and `call.requested.put("scope", …)` (line 307) with `repository paths …`.
+  - Test that a changed `repositoryPaths` between preview and confirmation gives
+    `CONFIRMATION_INVALID` (`inputFingerprint` already includes them since T025; T025 review).
 
   Tests in `test/mcp/tools/ImportArtifactsToolTest.java` and `test/application/RepositoryImportTest.java`.
 
@@ -431,6 +433,12 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
   - repository files never enter the artifact archive, and a repository-only call skips assembly
     and `importArchive`;
   - the tag step also runs for a repository-only diagram-group import.
+  - remove the interim execute guard and its test
+    (`ImportServiceRefusalTest.aReferencedRepositoryFileIsRefusedUntilRepositoryFilesCanBeSent`);
+    handle the `null` artifact archive of a repository-only change set (skip `importArchive`);
+    re-assert in `RepositoryImportTest.aClientNodeGetsAServerCodeForARepositoryFileToSendAndRunsOnlyWithIt`
+    that the import really runs with the code (`importRepository`, then `importArchive`) and nothing
+    without it, and cover the execute side of `aRepositoryOnlyChangeSetGetsAPreview` (T025 notes).
 - [ ] T032 [US1] Write failing tests in `test/application/RepositoryImportFailureTest.java`:
   - the repository import reports NOK;
   - a repository verify mismatch;
