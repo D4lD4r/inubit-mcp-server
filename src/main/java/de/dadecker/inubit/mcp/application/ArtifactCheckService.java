@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.NameCodec;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.RepositoryReference;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WorkflowGraph;
@@ -22,6 +23,8 @@ import de.dadecker.inubit.mcp.domain.port.XsltPort;
 import de.dadecker.inubit.mcp.domain.port.XsltPort.XsltRequest;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -65,8 +68,9 @@ import java.util.stream.Stream;
  *       INUBIT ignores it);
  *   <li>{@code PARENT_REF_MISSING} (ERROR): {@code ParentModule} or {@code EndLoopId} names a
  *       node that does not exist;
- *   <li>{@code REPOSITORY_REF_MISSING} (ERROR): an {@code inubitrepository:} path is neither a
- *       repository file of the group (any owner) nor withheld as key material ({@code .meta});
+ *   <li>{@code REPOSITORY_REF_MISSING} (ERROR): an {@code inubitrepository:} path, or in a
+ *       repository file a relative import or include, is neither a repository file of the group
+ *       (any owner) nor withheld as key material ({@code .meta});
  *       {@code REPOSITORY_REF_UNVERIFIED} (WARNING) if it lies in another owner's repository
  *       ({@code Root/<owner>/…}), which an export does not include;
  *   <li>{@code MODULE_MISSING} (ERROR) / {@code MODULE_UNVERIFIED} (WARNING): see
@@ -338,7 +342,10 @@ public final class ArtifactCheckService {
                     }
                     repositoryReferences(file, path, findings);
                 }
-                case REPOSITORY -> derived(file, findings);
+                case REPOSITORY -> {
+                    derived(file, findings);
+                    repositoryReferences(file, path, findings);
+                }
                 default -> {
                     // the index entry carries no references
                 }
@@ -410,7 +417,7 @@ public final class ArtifactCheckService {
             if (!repositoryFileExists(path, reference.value())
                 && missing.add(reference.value())) {
                 findings.add(missingRepositoryFile(file, path, Optional.of(reference.location()),
-                    reference.value()));
+                    reference.value(), "inubitrepository:" + reference.value()));
             }
         }
     }
@@ -584,39 +591,61 @@ public final class ArtifactCheckService {
         }
     }
 
+    /**
+     * Every {@code inubitrepository:} URI of a module, embedded document or repository file must
+     * name a repository file; in a repository file also every relative {@code href} /
+     * {@code schemaLocation} of an import or include, resolved against its own path (research
+     * D-3, FR-008).
+     */
     private void repositoryReferences(String file, WorkspacePath path,
         List<CheckFinding> findings) {
-        String text;
+        byte[] content;
         try {
-            text = Files.readString(root.resolve(file), StandardCharsets.UTF_8);
+            content = Files.readAllBytes(root.resolve(file));
         } catch (IOException e) {
-            return; // binary documents carry no references
+            return;
         }
-        for (String reference : inspector.repositoryUris(text)) {
-            if (!repositoryFileExists(path, reference)) {
-                findings.add(missingRepositoryFile(file, path, Optional.empty(), reference));
+        Map<String, String> references = new LinkedHashMap<>(); // path -> as the file names it
+        try {
+            String text = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(content))
+                .toString();
+            inspector.repositoryUris(text).forEach(uri -> references.put(uri,
+                "inubitrepository:" + uri));
+        } catch (CharacterCodingException e) {
+            // binary documents carry no references
+        }
+        if (path.kind() == WorkspacePath.Kind.REPOSITORY) {
+            for (RepositoryReference reference : inspector.repositoryReferences(path, content)) {
+                references.putIfAbsent(reference.to(), (reference.kind()
+                    == RepositoryReference.Kind.RELATIVE ? "the relative reference to "
+                    : "inubitrepository:") + reference.to());
             }
         }
+        references.forEach((reference, shown) -> {
+            if (!repositoryFileExists(path, reference)) {
+                findings.add(missingRepositoryFile(file, path, Optional.empty(), reference,
+                    shown));
+            }
+        });
     }
 
     /**
      * {@code REPOSITORY_REF_MISSING} (ERROR), or {@code REPOSITORY_REF_UNVERIFIED} (WARNING) for
      * a path in the repository of another owner ({@code Root/<owner>/…}): an export holds only
-     * its owner's repository files.
+     * its owner's repository files. {@code shown} is the reference as the message names it.
      */
     private static CheckFinding missingRepositoryFile(String file, WorkspacePath artifact,
-        Optional<String> location, String reference) {
+        Optional<String> location, String reference, String shown) {
         String[] segments = reference.split("/");
         if (segments.length > 3 && segments[1].equals("Root")
             && !segments[2].equals(artifact.owner())) {
             return new CheckFinding(Severity.WARNING, Check.STRUCTURE, file, location,
-                "REPOSITORY_REF_UNVERIFIED", "inubitrepository:" + reference + " belongs to"
+                "REPOSITORY_REF_UNVERIFIED", shown + " belongs to"
                     + " the repository of another owner, which is not part of this export;"
                     + " export that owner's artifacts to verify it");
         }
         return new CheckFinding(Severity.ERROR, Check.STRUCTURE, file, location,
-            "REPOSITORY_REF_MISSING", "inubitrepository:" + reference
-                + " is not in the repository of the workspace");
+            "REPOSITORY_REF_MISSING", shown + " is not in the repository of the workspace");
     }
 
     /**

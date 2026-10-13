@@ -351,6 +351,68 @@ class ArtifactCheckServiceTest {
             .filter(f -> f.code().startsWith("REPOSITORY_REF")).toList();
     }
 
+    // --- T019: check_artifacts scans repository files (FR-008, research D-3) -------------------
+
+    static final String XSD = "dev/OWNERS/repository/Root/OWNERS/xsd/";
+
+    /** Writes the new repository file {@code path} (workspace-relative), without a .meta record. */
+    private void create(String path, String content) throws IOException {
+        Path file = root.resolve(path);
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, content, StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void aNewSchemaThatIncludesAMissingSchemaIsAnError() throws IOException {
+        // spec US1 scenario 9: the relative include resolves against the schema's own path
+        export(ArtifactFixtures.bytes("grp-b.zip"), "OWNERS");
+        create(XSD + "order.xsd", "<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">"
+            + "<xs:include schemaLocation=\"msg.xsd\"/>"
+            + "<xs:include schemaLocation=\"common/types.xsd\"/></xs:schema>");
+
+        assertThat(repositoryFindings()).singleElement().satisfies(finding -> {
+            assertThat(finding.code()).isEqualTo("REPOSITORY_REF_MISSING");
+            assertThat(finding.severity()).isEqualTo(Severity.ERROR);
+            assertThat(finding.path()).isEqualTo(XSD + "order.xsd");
+            assertThat(finding.message()).contains("/Root/OWNERS/xsd/common/types.xsd");
+        });
+    }
+
+    @Test
+    void aNestedReferenceIntoAnotherOwnersRootIsUnverified() throws IOException {
+        export(ArtifactFixtures.bytes("grp-b.zip"), "OWNERS");
+        create(XSD + "order.xsd", "<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">"
+            + "<xs:import namespace=\"urn:shared\""
+            + " schemaLocation=\"../../OTHERS/xsd/shared.xsd\"/></xs:schema>");
+        create("dev/OWNERS/repository/Root/OWNERS/xsl/map.xsl", "<xsl:stylesheet version=\"2.0\""
+            + " xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\">"
+            + "<xsl:import href=\"inubitrepository:/Root/OTHERS/xsl/common.xsl\"/>"
+            + "</xsl:stylesheet>");
+
+        assertThat(repositoryFindings()).hasSize(2).allSatisfy(finding -> {
+            assertThat(finding.code()).isEqualTo("REPOSITORY_REF_UNVERIFIED");
+            assertThat(finding.severity()).isEqualTo(Severity.WARNING);
+        }).extracting(CheckFinding::message).anySatisfy(message -> assertThat(message)
+            .contains("/Root/OTHERS/xsd/shared.xsd", "another owner"))
+            .anySatisfy(message -> assertThat(message)
+                .contains("/Root/OTHERS/xsl/common.xsl", "another owner"));
+    }
+
+    @Test
+    void aUriInAStringLiteralOfARepositoryStylesheetIsChecked() throws IOException {
+        // research D-3: check_artifacts covers every inubitrepository: URI, not only imports
+        export(ArtifactFixtures.bytes("grp-b.zip"), "OWNERS");
+        create("dev/OWNERS/repository/Root/OWNERS/xsl/map.xsl", "<xsl:stylesheet version=\"2.0\""
+            + " xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\"><xsl:variable name=\"v\""
+            + " select=\"document('inubitrepository:/Root/OWNERS/xml/lookup.xml')\"/>"
+            + "</xsl:stylesheet>");
+
+        assertThat(repositoryFindings()).singleElement().satisfies(finding -> {
+            assertThat(finding.code()).isEqualTo("REPOSITORY_REF_MISSING");
+            assertThat(finding.message()).contains("/Root/OWNERS/xml/lookup.xml");
+        });
+    }
+
     @Test
     void aMissingParentIsAnError() throws IOException {
         export(ArtifactFixtures.bytes("grp-b.zip"), "OWNERS");

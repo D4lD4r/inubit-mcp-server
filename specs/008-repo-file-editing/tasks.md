@@ -247,7 +247,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
     `Repository.zip`, P-3);
   - a URI string literal no longer forces a file;
   - two repository paths that differ only in letter case give `INVALID_INPUT` naming both (D-10).
-- [ ] T019 [P] [US1] Write a failing test in `test/application/ArtifactCheckServiceTest.java`, then
+- [X] T019 [P] [US1] Write a failing test in `test/application/ArtifactCheckServiceTest.java`, then
   make `main/application/ArtifactCheckService.java` scan repository files with the T006 scanner. A
   missing nested reference gives `REPOSITORY_REF_MISSING`; a nested reference into another owner's
   root gives `REPOSITORY_REF_UNVERIFIED` (FR-008).
@@ -541,6 +541,8 @@ node's content equals the content before the import byte for byte.
     `repositoryReferences`, `repositoryDiff`, `tag.repositoryFiles`, execution order, rollback;
   - `restore_backup` with repository files;
   - the next step for `REPOSITORY_WRITE_DENIED` in the code table (the row exists since T005);
+  - the `REPOSITORY_REF_MISSING` row (today "an `inubitrepository:` reference") also covers relative
+    imports and includes in repository files (T019 notes);
   - the shared-use risk.
 
   `ArtifactToolsReferenceTest` and `DevelopmentToolsReferenceTest` must be green.
