@@ -316,13 +316,79 @@ class BackupStoreTest {
         Path file = root().resolve(id + ".json");
         String json = Files.readString(file);
         assertThat(json).contains("\"kind\": \"IMPORT\"");
-        Files.writeString(file, json.replaceAll("(?m)^  \"kind\": \"IMPORT\",\n", ""));
+        Files.writeString(file, json.replaceAll("(?m)^  \"kind\": \"IMPORT\",\n", "")
+            .replaceAll("(?m)^  \"repositoryPaths\": \\[],\n", ""));
+        assertThat(Files.readString(file)).doesNotContain("\"kind\"", "\"repositoryPaths\"");
 
         Manifest read = store().find(id).orElseThrow();
 
         assertThat(read.kind()).isEqualTo(Manifest.Kind.IMPORT);
         assertThat(read.groups()).isEmpty();
+        assertThat(read.repositoryPaths()).isEmpty();
         assertThat(read.tag()).isEmpty();
+    }
+
+    // --- feature 008 (T030, research D-8): repository files in import backups ----------------
+
+    private static Manifest importWithRepository(String id) {
+        return new Manifest(id, DEV, "jdoe", "repository paths xsd",
+            List.of("/Root/jdoe/xsd/a.xsd", "/Root/jdoe/xsd/new.xsd"),
+            List.of("/Root/jdoe/xsd/new.xsd"), Map.of(), "PENDING", NOW, List.of(),
+            Manifest.Kind.IMPORT, List.of(), List.of("/Root/jdoe/xsd/a.xsd"), Optional.empty(),
+            Optional.empty());
+    }
+
+    @Test
+    void anImportBackupKeepsItsRepositoryPaths() throws IOException {
+        String id = "00000000-0000-0000-0000-00000000e030";
+
+        store().write(importWithRepository(id), List.of(export("a")));
+
+        assertThat(Files.readString(root().resolve(id + ".json")))
+            .contains("\"repositoryPaths\": [\"/Root/jdoe/xsd/a.xsd\"]")
+            .doesNotContain("\"groups\"", "\"tag\"", "\"source\"");
+        Manifest read = store().find(id).orElseThrow();
+        assertThat(read.kind()).isEqualTo(Manifest.Kind.IMPORT);
+        assertThat(read.repositoryPaths()).containsExactly("/Root/jdoe/xsd/a.xsd");
+    }
+
+    @Test
+    void anUpdateWithANewOutcomeKeepsKindAndRepositoryPaths() {
+        // regression (research D-8): ImportService.updateManifest used the feature-004
+        // constructor, which drops kind and repositoryPaths
+        String id = "00000000-0000-0000-0000-00000000e031";
+        Manifest written = store().write(importWithRepository(id), List.of(export("a")));
+        Map<String, String> state = Map.of("repository:/Root/jdoe/xsd/a.xsd", "sha256:aa");
+
+        store().update(written.with("EXECUTED", state));
+
+        Manifest read = store().find(id).orElseThrow();
+        assertThat(read).isEqualTo(written.with("EXECUTED", state));
+        assertThat(read.kind()).isEqualTo(Manifest.Kind.IMPORT);
+        assertThat(read.repositoryPaths()).containsExactly("/Root/jdoe/xsd/a.xsd");
+        assertThat(read.intendedState()).containsExactlyEntriesOf(state);
+        assertThat(read.zips()).containsExactly(id + "-1.zip");
+    }
+
+    @Test
+    void theIntendedStateOfARepositoryFileIsKeyedByItsPathAndHashesItsBytes() {
+        byte[] content = "<xs:schema/>".getBytes(StandardCharsets.UTF_8);
+        byte[] withNewline = "<xs:schema/>\n".getBytes(StandardCharsets.UTF_8);
+
+        Map<String, String> state = BackupStore.repositoryState(Map.of(
+            "/Root/jdoe/xsd/a.xsd", content, "/Root/jdoe/b.xsl", withNewline));
+
+        assertThat(state).containsOnlyKeys("repository:/Root/jdoe/xsd/a.xsd",
+            "repository:/Root/jdoe/b.xsl");
+        assertThat(state.get("repository:/Root/jdoe/xsd/a.xsd")).matches("sha256:[0-9a-f]{64}")
+            .isEqualTo(BackupStore.repositoryState(Map.of("/Root/jdoe/xsd/a.xsd",
+                content.clone())).get("repository:/Root/jdoe/xsd/a.xsd"))
+            .as("byte identity: a trailing newline counts")
+            .isNotEqualTo(BackupStore.repositoryState(Map.of("/Root/jdoe/xsd/a.xsd",
+                withNewline)).get("repository:/Root/jdoe/xsd/a.xsd"))
+            .as("the path counts")
+            .isNotEqualTo(BackupStore.repositoryState(Map.of("/Root/jdoe/xsd/c.xsd",
+                content)).get("repository:/Root/jdoe/xsd/c.xsd"));
     }
 }
 

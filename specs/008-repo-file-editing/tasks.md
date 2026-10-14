@@ -428,13 +428,16 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
   - there is exactly one `import <node>: … [auditId]` commit with `Server-State: <group>`;
   - a new file has the T003 content type on the node, and an `existing` file keeps the node's
     content type and description;
+  - the manifest after the EXECUTED and after the FAILED update still has `kind: IMPORT` and a
+    non-empty `repositoryPaths`, and `intendedState` holds `repository:<path>` entries after an
+    executed repository import (the real regression guard for D-8 step 1; T030 review);
   - US1-AS4: a module-scope import of a changed module that references a changed stylesheet puts
     the stylesheet into the same preview and confirmation, and runs `importRepository` before
     `importArchive` in `MODULE` mode;
   - US1-AS5 / FR-011a: a diagram-group import with only a changed referenced schema and a `tag`
     imports just the schema (no `importArchive`), then runs `DiagramGroupTagger`, and the result
     has `tag.applied: true`.
-- [ ] T030 [US1] `main/application/BackupStore.java`:
+- [X] T030 [US1] `main/application/BackupStore.java`:
   - `ManifestJson` writes and reads `repositoryPaths` for `IMPORT` too;
   - `ImportService.updateManifest` uses `Manifest.with(…)` and keeps `kind`/`repositoryPaths`,
     which is a regression test for the field loss;

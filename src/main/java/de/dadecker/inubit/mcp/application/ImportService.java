@@ -1312,7 +1312,7 @@ public final class ImportService {
                 + auditId + "]",
             Map.of(VersionHistoryPort.SERVER_STATE, node.group().value()))
             .map(entry -> entry.commit());
-        updateManifest(call, node, changes, auditId, "EXECUTED", current.files());
+        updateManifest(call, node, changes, auditId, "EXECUTED", current.files(), Map.of());
         String message = "Sent " + changes.artifacts().size() + " artifact(s) of "
             + plan.subject() + " (" + plan.verb() + ") and verified them" + commit.map(c -> " ("
                 + c + ")").orElse("");
@@ -1418,7 +1418,7 @@ public final class ImportService {
         keep(createdNotRemoved, warnings);
         // research D-25 H7: the state the call left, as its last verification saw it
         updateManifest(call, node, changes, auditId, "FAILED", outcome.seen()
-            .orElse(current.files()));
+            .orElse(current.files()), Map.of());
         call.rollback = rollback.name();
         Optional<WriteOutcome.TagResult> tag = notTagged(call, warnings, "the import failed");
         appendFinal(call, node, auditId, AuditOutcome.FAILED, reported.code() + " at "
@@ -1794,20 +1794,32 @@ public final class ImportService {
         return taken;
     }
 
+    /**
+     * The outcome and the intended state: the fingerprint per changed workflow and module in
+     * {@code rendered}, and {@code repository:<path>} per changed repository file in
+     * {@code repository} (full path → the node's content). Every other field of the manifest
+     * stays (research D-8).
+     */
     private void updateManifest(Call call, NodeId node, ChangeSet changes, UUID auditId,
-        String outcome, SortedMap<String, byte[]> rendered) {
+        String outcome, SortedMap<String, byte[]> rendered, Map<String, byte[]> repository) {
         try {
             Map<String, String> intended = new TreeMap<>();
-            for (ChangedArtifact artifact : changes.artifacts()) {
+            for (ChangedArtifact artifact : Stream.concat(changes.workflows().stream(),
+                changes.modules().stream()).toList()) {
                 SortedMap<String, byte[]> files = artifactFiles(rendered, artifact);
                 if (!files.isEmpty()) {
                     intended.put(artifact.name(), fingerprint(files));
                 }
             }
+            Map<String, byte[]> files = new TreeMap<>();
+            for (ChangedArtifact file : changes.repository()) {
+                if (repository.containsKey(file.name())) {
+                    files.put(file.name(), repository.get(file.name()));
+                }
+            }
+            intended.putAll(BackupStore.repositoryState(files));
             BackupStore.Manifest manifest = d.backups().find(auditId.toString()).orElseThrow();
-            d.backups().update(new BackupStore.Manifest(manifest.auditId(), manifest.node(),
-                manifest.owner(), manifest.scope(), manifest.changeSet(), manifest.created(),
-                intended, outcome, manifest.takenAt(), manifest.zips()));
+            d.backups().update(manifest.with(outcome, intended));
         } catch (RuntimeException e) {
             LOG.error("The backup manifest {} of {} could not be updated ({})", auditId, node,
                 e.getClass().getSimpleName());
