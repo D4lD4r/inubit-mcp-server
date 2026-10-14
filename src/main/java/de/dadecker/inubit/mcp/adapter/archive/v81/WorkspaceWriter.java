@@ -51,7 +51,8 @@ import java.util.stream.Stream;
  *       {@code @file:} references, {@link EmbeddedDocuments}), {@code index.xml} (the index
  *       entry; a module listed twice is written once) and one file per embedded document.
  *   <li>The repository files of the export's {@code Repository.zip} that the exported artifacts
- *       reach by structural references ({@link RepositoryReferences#scan}), also through other
+ *       (workflows, module index entries, module files, embedded documents) reach by structural
+ *       references ({@link RepositoryReferences#scan}), also through other
  *       repository files ({@link RepositoryClosure}, research D-3), and only those; a URI in a
  *       string literal is no reference. Files below another owner's root are never written, a
  *       warning counts them. A file withheld as key material is not written, its {@code .meta/}
@@ -184,7 +185,9 @@ public final class WorkspaceWriter {
             subtrees.add(slash(indexPath.toRelativePath().getParent()));
             subtrees.add(slash(indexPath.metaPath().getParent()));
             Split split = MetaStore.split(entry.element());
-            files.put(slash(indexPath.toRelativePath()), XmlNormalizer.normalize(split.element()));
+            byte[] indexXml = XmlNormalizer.normalize(split.element());
+            files.put(slash(indexPath.toRelativePath()), indexXml);
+            references.addAll(RepositoryReferences.scan(indexPath, indexXml));
             Map<String, Object> meta = new LinkedHashMap<>(split.values());
             meta.put("context", Map.of("documentVersion", entry.documentVersion(),
                 "positions", entries.stream().map(e -> Map.of("groupPosition",

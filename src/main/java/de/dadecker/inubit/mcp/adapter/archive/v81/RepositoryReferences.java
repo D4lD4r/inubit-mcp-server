@@ -35,6 +35,11 @@ import javax.xml.XMLConstants;
  *       file a relative location (no scheme, no leading {@code /}) gives {@link Kind#RELATIVE},
  *       resolved against the file's own repository path; one that climbs above the repository
  *       root is none.
+ *   <li>In a module index entry or {@code module.xml} the value of an
+ *       {@code InputMessageTypeSchema} or {@code OutputMessageTypeSchema} element, a repository
+ *       path without a scheme ({@code /Root/<owner>/…}), gives {@link Kind#URI} too: INUBIT's
+ *       export carries such a schema like an import (research D-3, decided 2026-10-14). A value
+ *       without a leading {@code /} is none.
  * </ul>
  *
  * <p>{@code %XX} escapes are decoded per path segment as UTF-8; a {@code +} stays a plus. A
@@ -54,6 +59,8 @@ final class RepositoryReferences {
     private static final Set<String> SCHEMA_IMPORTS = Set.of("import", "include", "redefine");
     private static final String SCHEME = "inubitrepository:";
     private static final Pattern OTHER_SCHEME = Pattern.compile("^[A-Za-z][A-Za-z0-9+.-]*:");
+    private static final Set<String> MESSAGE_TYPE_SCHEMAS =
+        Set.of("InputMessageTypeSchema", "OutputMessageTypeSchema");
 
     private RepositoryReferences() {
     }
@@ -78,15 +85,21 @@ final class RepositoryReferences {
         Set<String> paths = new LinkedHashSet<>();
         Matcher matcher = REPOSITORY_URI.matcher(text);
         while (matcher.find()) {
-            List<String> segments = new ArrayList<>();
-            for (String segment : matcher.group(1).split("/")) {
-                segments.add(unescape(segment));
-            }
-            if (!segments.contains(null)) {
-                paths.add("/" + String.join("/", segments));
-            }
+            Optional.ofNullable(path(matcher.group(1))).ifPresent(paths::add);
         }
         return List.copyOf(paths);
+    }
+
+    /**
+     * {@code /} plus the segments of {@code path} (without leading {@code /}), each
+     * {@link #unescape unescaped}; {@code null} if a segment decodes to a {@code /}.
+     */
+    private static String path(String path) {
+        List<String> segments = new ArrayList<>();
+        for (String segment : path.split("/")) {
+            segments.add(unescape(segment));
+        }
+        return segments.contains(null) ? null : "/" + String.join("/", segments);
     }
 
     private static void document(WorkspacePath from, Element root,
@@ -99,6 +112,8 @@ final class RepositoryReferences {
     private static void walk(WorkspacePath from, Element element, boolean importsOnly,
         Set<RepositoryReference> references) {
         importLocation(element).ifPresent(location -> location(from, location, references));
+        messageTypeSchema(from, element).ifPresent(path ->
+            references.add(new RepositoryReference(from, path, Kind.URI)));
         if (!importsOnly) {
             for (Attribute attribute : element.attributes()) {
                 uris(from, attribute.value(), references);
@@ -124,6 +139,19 @@ final class RepositoryReferences {
             return element.attribute("schemaLocation").map(String::strip);
         }
         return Optional.empty();
+    }
+
+    /** The decoded path of a message-type schema element of a module file, if it is one. */
+    private static Optional<String> messageTypeSchema(WorkspacePath from, Element element) {
+        if ((from.kind() != WorkspacePath.Kind.MODULE_INDEX
+            && from.kind() != WorkspacePath.Kind.MODULE)
+            || !MESSAGE_TYPE_SCHEMAS.contains(element.localName())) {
+            return Optional.empty();
+        }
+        String value = element.text().strip();
+        String path = value.replaceFirst("^/+", "");
+        return value.startsWith("/") && !path.isEmpty()
+            ? Optional.ofNullable(path(path)) : Optional.empty();
     }
 
     private static void location(WorkspacePath from, String location,

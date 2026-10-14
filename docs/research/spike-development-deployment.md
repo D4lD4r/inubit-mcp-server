@@ -304,6 +304,11 @@ recordings: `src/test/resources/fixtures/v8_1/cli/README.md` (feature 008 sectio
   the group's `Repository.zip` held `A` only; afterwards it held all three files, both in the head
   export and in the export by `--exportTag <tag>`. INUBIT's diagram-group export follows references
   inside repository files, relative and `inubitrepository:` alike.
+- **Message-type schemas (2026-10-14, offline, research D-3)**: a group export carries a schema
+  referenced only as a message type. In one raw diagram-group export from a local backup (no new
+  INUBIT call), `Repository.zip` held a schema that the group's modules name only as
+  `InputMessageTypeSchema`/`OutputMessageTypeSchema` (`/Root/<owner>/…`, no scheme) in their module
+  index entries, and no file that the module references do not reach.
 - **Not probed**: chains deeper than one level of indirection, and `xs:include` / `xs:import` in
   schemas as the indirect reference (the indirect references above are `xsl:import`).
 - **Leftovers**: the tag `<tag>` stayed on `<test diagram group>` and on the three stylesheets in

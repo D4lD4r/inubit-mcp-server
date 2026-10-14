@@ -225,6 +225,25 @@ class FakeServerTest {
         assertThat(server.repositoryVersion(XSD + "/schemas/deep.xsd")).contains("1.1");
     }
 
+    @Test
+    void theGroupExportHoldsASchemaReferencedOnlyAsAMessageType() {
+        // T050 (research D-3): a module index entry names it, no module file does
+        FakeServer server = FakeServer.of(ExportHarness.rewrite("grp-a.zip", "module/module.xml",
+            xml -> xml.replace("<ModuleName>Module-0001</ModuleName>",
+                "<ModuleName>Module-0001</ModuleName>"
+                    + "<InputMessageTypeSchema>" + XSD + "/msg.xsd</InputMessageTypeSchema>")));
+        server.putRepositoryFile(XSD + "/msg.xsd",
+            "<xs:schema><xs:include schemaLocation=\"types.xsd\"/></xs:schema>");
+        server.putRepositoryFile(XSD + "/types.xsd", "<xs:schema/>");
+        server.putRepositoryFile(XSD + "/unused.xsd", "<xs:schema/>");
+
+        byte[] repository = ArtifactFixtures.entries(server.exportWorkflowGroup(
+            DeployHarness.GROUP).orElseThrow()).get("Repository.zip");
+
+        assertThat(paths(repository)).containsExactlyInAnyOrder(XSD + "/msg.xsd",
+            XSD + "/types.xsd");
+    }
+
     // --- ImportHarness: a repository file in the workspace -------------------------------------
 
     @Test

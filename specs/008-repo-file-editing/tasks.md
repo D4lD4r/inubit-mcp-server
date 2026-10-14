@@ -394,7 +394,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
 
   Tests in `test/mcp/tools/ImportArtifactsToolTest.java` and `test/application/RepositoryImportTest.java`.
 
-- [ ] T050 [US1] Message-type schemas as references (research D-3, decided 2026-10-14; the ID is
+- [X] T050 [US1] Message-type schemas as references (research D-3, decided 2026-10-14; the ID is
   appended so that T029–T049 keep their numbers; run it after T028 and before T029). Test first:
   - `test/adapter/archive/v81/RepositoryReferencesTest.java`: `InputMessageTypeSchema` and
     `OutputMessageTypeSchema` values (`/Root/<owner>/…`, no scheme) in a module index entry are
@@ -577,8 +577,9 @@ node's content equals the content before the import byte for byte.
     `Node dev/node1: read-only, development: on (confirmation SERVER), e2e: …`) gains
     `, repository: read-only|write` before `, e2e:`, and the prose before it mentions the new part
     (T016 notes).
-  - "Artifact workspace": the transitive repository closure of exports (a behaviour change) and the
-    repository-path scope with its limits.
+  - "Artifact workspace": the transitive repository closure of exports (a behaviour change, which
+    also follows `xs:include`/`xsl:import` chains and message-type schemas of the module index,
+    T050) and the repository-path scope with its limits.
 - [ ] T045 [P] `docs/tools.md`:
   - `list_nodes` field `repositoryWrite`;
   - `export_artifacts` `repositoryPaths` (input table, limits; the quoted description exists since T039);
@@ -587,7 +588,8 @@ node's content equals the content before the import byte for byte.
   - `restore_backup` with repository files;
   - the next step for `REPOSITORY_WRITE_DENIED` in the code table (the row exists since T005);
   - the `REPOSITORY_REF_MISSING` row (today "an `inubitrepository:` reference") also covers relative
-    imports and includes in repository files (T019 notes);
+    imports and includes in repository files (T019 notes) and message-type schemas named in the
+    module index (T050);
   - the shared-use risk.
 
   `ArtifactToolsReferenceTest` and `DevelopmentToolsReferenceTest` must be green.

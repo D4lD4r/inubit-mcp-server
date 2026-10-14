@@ -68,8 +68,9 @@ import java.util.stream.Stream;
  *       INUBIT ignores it);
  *   <li>{@code PARENT_REF_MISSING} (ERROR): {@code ParentModule} or {@code EndLoopId} names a
  *       node that does not exist;
- *   <li>{@code REPOSITORY_REF_MISSING} (ERROR): an {@code inubitrepository:} path, or in a
- *       repository file a relative import or include, is neither a repository file of the group
+ *   <li>{@code REPOSITORY_REF_MISSING} (ERROR): an {@code inubitrepository:} path, in a
+ *       repository file a relative import or include, or in a module index entry or module file
+ *       a message-type schema, is neither a repository file of the group
  *       (any owner) nor withheld as key material ({@code .meta});
  *       {@code REPOSITORY_REF_UNVERIFIED} (WARNING) if it lies in another owner's repository
  *       ({@code Root/<owner>/…}), which an export does not include;
@@ -346,9 +347,7 @@ public final class ArtifactCheckService {
                     derived(file, findings);
                     repositoryReferences(file, path, findings);
                 }
-                default -> {
-                    // the index entry carries no references
-                }
+                case MODULE_INDEX -> repositoryReferences(file, path, findings);
             }
         }
         return findings;
@@ -592,10 +591,11 @@ public final class ArtifactCheckService {
     }
 
     /**
-     * Every {@code inubitrepository:} URI of a module, embedded document or repository file must
-     * name a repository file; in a repository file also every relative {@code href} /
-     * {@code schemaLocation} of an import or include, resolved against its own path (research
-     * D-3, FR-008).
+     * Every {@code inubitrepository:} URI of a module, module index entry, embedded document or
+     * repository file must name a repository file; in a repository file also every relative
+     * {@code href} / {@code schemaLocation} of an import or include, resolved against its own
+     * path, and in a module index entry or module file every message-type schema (research D-3,
+     * FR-008).
      */
     private void repositoryReferences(String file, WorkspacePath path,
         List<CheckFinding> findings) {
@@ -614,11 +614,14 @@ public final class ArtifactCheckService {
         } catch (CharacterCodingException e) {
             // binary documents carry no references
         }
-        if (path.kind() == WorkspacePath.Kind.REPOSITORY) {
+        if (path.kind() != WorkspacePath.Kind.EMBEDDED) {
+            // repository file, module or index entry: the URIs above plus relative references
+            // or message-type schemas
             for (RepositoryReference reference : inspector.repositoryReferences(path, content)) {
                 references.putIfAbsent(reference.to(), (reference.kind()
                     == RepositoryReference.Kind.RELATIVE ? "the relative reference to "
-                    : "inubitrepository:") + reference.to());
+                    : path.kind() == WorkspacePath.Kind.REPOSITORY ? "inubitrepository:"
+                    : "the message-type schema ") + reference.to());
             }
         }
         references.forEach((reference, shown) -> {

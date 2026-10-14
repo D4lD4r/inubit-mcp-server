@@ -164,6 +164,28 @@ class WorkspaceWriterTest {
     }
 
     @Test
+    void aSchemaNamedOnlyAsAMessageTypeInTheModuleIndexIsWritten() {
+        // T050 (research D-3): INUBIT's group export carries such a schema in Repository.zip
+        Map<String, byte[]> entries = grpBWithoutRepositoryReferences();
+        replace(entries, "module/module.xml", "<ModuleName>Module-0024</ModuleName>",
+            "<ModuleName>Module-0024</ModuleName>"
+                + "<OutputMessageTypeSchema>/Root/OWNERS/xsd/msg.xsd</OutputMessageTypeSchema>");
+        putRepositoryFiles(entries, Map.of(
+            "Root/OWNERS/xsd/msg.xsd.dat", schema("<xs:include schemaLocation=\"core.xsd\"/>")));
+
+        Rendered rendered = WorkspaceWriter.render(redacted(ArtifactFixtures.zip(entries)), DEV,
+            "OWNERS");
+
+        assertThat(rendered.files().keySet()).anyMatch(p -> p.endsWith("/Module-0024/index.xml")
+            && text(rendered, p).contains("/Root/OWNERS/xsd/msg.xsd"));
+        assertThat(repositoryFiles(rendered)).containsExactlyInAnyOrder(
+            "dev/OWNERS/repository/Root/OWNERS/xsd/msg.xsd",
+            ".meta/dev/OWNERS/repository/Root/OWNERS/xsd/msg.xsd.json",
+            "dev/OWNERS/repository/Root/OWNERS/xsd/core.xsd",
+            ".meta/dev/OWNERS/repository/Root/OWNERS/xsd/core.xsd.json");
+    }
+
+    @Test
     void aRepositoryUriInAStringLiteralDoesNotForceAFile() {
         // spike section 10: only structural references count, no longer any substring
         Map<String, byte[]> entries = grpBWithoutRepositoryReferences();

@@ -198,6 +198,26 @@ class RepositoryChangeSetTest {
     }
 
     @Test
+    void aDiagramGroupOrModuleScopeTakesAChangedMessageTypeSchemaOfItsModules() {
+        // T050 (research D-3): the module index entry names other/d.xsd as a message type
+        harness.edit(harness.moduleDirectory("Module-0001") + "/index.xml", "</Module>",
+            "<InputMessageTypeSchema>/Root/jdoe/other/d.xsd</InputMessageTypeSchema></Module>");
+        serverState();
+        change("other/d.xsd");
+        commitLocalChanges();
+
+        for (ImportScope scope : List.of(group(), ImportScope.modules(GROUP, OWNER,
+            List.of(new ImportScope.Module("Module-0001", Optional.empty()))))) {
+            ChangeSet changes = builder().build(scope);
+
+            assertThat(names(changes.repository())).as(scope.toString())
+                .containsExactly("/Root/jdoe/other/d.xsd");
+            assertThat(changes.modules()).as(scope.toString()).isEmpty();
+            assertThat(changes.notImported()).as(scope.toString()).isEmpty();
+        }
+    }
+
+    @Test
     void aFileWithoutServerStateIsNewWhateverItsExtensionAndWithoutMetadata() throws IOException {
         // FR-017 amendment: the extension of a file to create is checked after the node read
         write(file("notes/readme.txt"), "plain text\n".getBytes(StandardCharsets.UTF_8));

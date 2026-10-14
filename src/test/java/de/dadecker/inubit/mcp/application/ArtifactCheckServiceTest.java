@@ -414,6 +414,35 @@ class ArtifactCheckServiceTest {
     }
 
     @Test
+    void messageTypeSchemasOfAModuleIndexEntryAreChecked() throws IOException {
+        // T050 (research D-3): a message-type schema is a reference like an import
+        export(ArtifactFixtures.bytes("grp-b.zip"), "OWNERS");
+        String as2 = "dev/OWNERS/modules/AS2 Connector/Module-0024/index.xml";
+        String assign = "dev/OWNERS/modules/Assign/Module-0015/index.xml";
+        rewrite(as2, xml -> xml.replace("</Module>",
+            "<InputMessageTypeSchema>/Root/OWNERS/xsd/msg.xsd</InputMessageTypeSchema>"
+                + "<OutputMessageTypeSchema>/Root/OWNERS/xsd/missing.xsd</OutputMessageTypeSchema>"
+                + "</Module>"));
+        rewrite(assign, xml -> xml.replace("</Module>",
+            "<InputMessageTypeSchema>/Root/OTHERS/xsd/shared.xsd</InputMessageTypeSchema>"
+                + "</Module>"));
+
+        assertThat(repositoryFindings()).hasSize(2).anySatisfy(finding -> {
+            assertThat(finding.code()).isEqualTo("REPOSITORY_REF_MISSING");
+            assertThat(finding.severity()).isEqualTo(Severity.ERROR);
+            assertThat(finding.path()).isEqualTo(as2);
+            assertThat(finding.message()).contains("message-type schema",
+                "/Root/OWNERS/xsd/missing.xsd");
+        }).anySatisfy(finding -> {
+            assertThat(finding.code()).isEqualTo("REPOSITORY_REF_UNVERIFIED");
+            assertThat(finding.severity()).isEqualTo(Severity.WARNING);
+            assertThat(finding.path()).isEqualTo(assign);
+            assertThat(finding.message()).contains("/Root/OTHERS/xsd/shared.xsd",
+                "another owner");
+        });
+    }
+
+    @Test
     void aMissingParentIsAnError() throws IOException {
         export(ArtifactFixtures.bytes("grp-b.zip"), "OWNERS");
         rewrite("dev/OWNERS/workflows/GRP-02/Workflow-0005.xml",

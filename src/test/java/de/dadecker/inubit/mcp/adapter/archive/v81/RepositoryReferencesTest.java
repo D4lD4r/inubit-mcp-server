@@ -197,6 +197,52 @@ class RepositoryReferencesTest {
             .containsExactly("/Root/jdoe/c.xsd");
     }
 
+    // --- T050: message-type schemas (research D-3, decided 2026-10-14) ------------------------
+
+    private static final WorkspacePath INDEX =
+        WorkspacePath.moduleIndex(DEV, "jdoe", "Mapping", "M");
+
+    @Test
+    void messageTypeSchemasOfAModuleIndexEntryAreUriReferences() {
+        String entry = """
+            <Module type="technical" version="head">
+              <ModuleName>M</ModuleName>
+              <InputMessageType>*</InputMessageType>
+              <InputMessageTypeSchemaCheck>true</InputMessageTypeSchemaCheck>
+              <InputMessageTypeSchema>/Root/jdoe/xsd/in%20put%C3%A4+1.xsd</InputMessageTypeSchema>
+              <OutputMessageTypeSchema>
+                /Root/jdoe/xsd/out.xsd
+              </OutputMessageTypeSchema>
+              <OutputMessageTypeSchema>/Root/OTHER/xsd/shared.xsd</OutputMessageTypeSchema>
+              <OutputMessageTypeSchema>/Root/jdoe/../x/y.xsd</OutputMessageTypeSchema>
+              <InputMessageTypeSchema>/Root/jdoe/xsd/a%2Fb.xsd</InputMessageTypeSchema>
+              <InputMessageTypeSchema>xsd/relative.xsd</InputMessageTypeSchema>
+              <InputMessageTypeSchema></InputMessageTypeSchema>
+              <UserComment>/Root/jdoe/xsd/comment.xsd</UserComment>
+            </Module>
+            """;
+
+        assertThat(scan(INDEX, entry))
+            .as("decoded as URIs; non-canonical paths are left to the closure; other elements,"
+                + " relative and empty values are none")
+            .containsExactly(
+                uri(INDEX, "/Root/jdoe/xsd/in putä+1.xsd"),
+                uri(INDEX, "/Root/jdoe/xsd/out.xsd"),
+                uri(INDEX, "/Root/OTHER/xsd/shared.xsd"),
+                uri(INDEX, "/Root/jdoe/../x/y.xsd"));
+    }
+
+    @Test
+    void messageTypeSchemasCountInModuleFilesButNotInWorkflowsOrRepositoryFiles() {
+        String element = "<InputMessageTypeSchema>/Root/jdoe/xsd/msg.xsd</InputMessageTypeSchema>";
+        WorkspacePath xml = WorkspacePath.repository(DEV, "jdoe", "/Root/jdoe/xml/data.xml");
+
+        assertThat(scan(MODULE, "<Properties>" + element + "</Properties>"))
+            .containsExactly(uri(MODULE, "/Root/jdoe/xsd/msg.xsd"));
+        assertThat(scan(WORKFLOW, "<Workflow>" + element + "</Workflow>")).isEmpty();
+        assertThat(scan(xml, "<data>" + element + "</data>")).isEmpty();
+    }
+
     @Test
     void unparsableXmlHasNoReferences() {
         assertThat(scan(STYLESHEET, "<xsl:stylesheet " + XSL + "><xsl:import href=\"b.xsl\"/>"))

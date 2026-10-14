@@ -45,6 +45,7 @@ import java.util.zip.ZipOutputStream;
  * option; repository imports relative to {@code /Root/<owner>}). Feature 008 (spike section 11):
  * repository imports keep the sent {@code contentType} and {@code Description}, folder exports
  * are recursive, and the group export and group tag follow references inside repository files.
+ * T050 (research D-3): the message-type schemas of a module index entry count as references.
  *
  * <p>The single-group {@link FakeInubit} stays the double of the feature-004 tests.
  */
@@ -216,8 +217,8 @@ public final class FakeServer {
 
     /**
      * The export of diagram group {@code group} (head versions): its workflows, the modules they
-     * use, and the repository files those reference, directly or through other repository files
-     * (P-3); empty if the group does not exist.
+     * use, and the repository files those reference (also as message-type schemas), directly or
+     * through other repository files (P-3); empty if the group does not exist.
      */
     public synchronized Optional<byte[]> exportWorkflowGroup(String group) {
         if (!hasDiagramGroup(group)) {
@@ -713,6 +714,10 @@ public final class FakeServer {
     private static Set<String> references(Iterable<Module> used) {
         Set<String> paths = new TreeSet<>();
         for (Module module : used) {
+            for (String schema : List.of("InputMessageTypeSchema", "OutputMessageTypeSchema")) {
+                module.entry().child(schema).map(Element::text).map(String::strip)
+                    .filter(path -> path.startsWith("/Root/")).ifPresent(paths::add);
+            }
             if (module.file() != null) {
                 Matcher matcher = REFERENCE.matcher(new String(module.file(),
                     StandardCharsets.UTF_8));
