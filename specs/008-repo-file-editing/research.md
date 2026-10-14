@@ -151,13 +151,22 @@ The check is a superset of the closure, so a missing structural reference is alw
 missing runtime lookup file still is too. The scanner offers both modes from one pattern and one
 decoding.
 
-**Open question (T018 review)**: module index entries name schemas without a scheme, e.g.
-`<InputMessageTypeSchema>/Root/<owner>/xsd/msg.xsd</InputMessageTypeSchema>` (fixture
-`export_modules_sample.zip`). Neither the old substring test nor the scanner treats these as
-references, so such a schema is not part of the closure for export, check or import. It can still
-be exported and imported through the repository-path scope. Whether INUBIT's group export carries
-message-type schemas in `Repository.zip`, and whether the closure should start from them, is
-undecided and needs the person's decision (and possibly a read-only probe).
+**Message-type schemas (T018 review, decided 2026-10-14)**: module index entries name schemas
+without a scheme, e.g. `<InputMessageTypeSchema>/Root/<owner>/xsd/msg.xsd</InputMessageTypeSchema>`
+(fixture `export_modules_sample.zip`). Neither the old substring test nor the scanner treated these
+as references.
+
+The person chose "probe first, then decide". The evidence came offline, without a new INUBIT call:
+the raw exports kept in the local development backups. One real diagram-group export (workflow plus
+modules) carried a schema in `Repository.zip` that its modules reference **only** through
+`InputMessageTypeSchema`/`OutputMessageTypeSchema`. Its `Repository.zip` held no file that is not
+reached from the module references, so INUBIT ships message-type schemas as references, like
+`xsl:import`/`xs:import`.
+
+**Decision**: the scanner treats `InputMessageTypeSchema` and `OutputMessageTypeSchema` values in
+module index entries (and in `module.xml`, if present there) as structural references. So the
+closure for export, check and import starts from them too (task T050). The evidence is a single
+archive; a contradicting observation would reopen this.
 
 **Effect on feature 003**: an export can now write more repository files than before, namely the
 indirectly referenced ones. This is a behaviour change. It is documented in `docs/setup.md` and

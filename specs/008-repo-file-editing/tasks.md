@@ -394,6 +394,25 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
 
   Tests in `test/mcp/tools/ImportArtifactsToolTest.java` and `test/application/RepositoryImportTest.java`.
 
+- [ ] T050 [US1] Message-type schemas as references (research D-3, decided 2026-10-14; the ID is
+  appended so that T029–T049 keep their numbers; run it after T028 and before T029). Test first:
+  - `test/adapter/archive/v81/RepositoryReferencesTest.java`: `InputMessageTypeSchema` and
+    `OutputMessageTypeSchema` values (`/Root/<owner>/…`, no scheme) in a module index entry are
+    structural references, kind `URI`; `%XX` decoding and the canonical-path rules as for URIs;
+  - `test/adapter/archive/v81/WorkspaceWriterTest.java`: a diagram-group export writes a schema that
+    only a module index names as a message type (and the files it includes);
+  - `test/application/ArtifactCheckServiceTest.java`: a missing message-type schema gives
+    `REPOSITORY_REF_MISSING`, one in another owner's root gives `REPOSITORY_REF_UNVERIFIED`;
+  - `test/application/RepositoryChangeSetTest.java`: a diagram-group or module import includes a
+    changed message-type schema of its modules.
+
+  Then extend `main/adapter/archive/v81/RepositoryReferences.java` and make sure the start sets of
+  `WorkspaceWriter` (export), `ArtifactCheckService` (check) and `ChangeSetBuilder` (import) include
+  the module index entries, where today only `module.xml`, embedded documents and workflows are
+  scanned. Extend `test/application/FakeServer.java` so its group export carries message-type
+  schemas, as INUBIT does. Add one fact line to spike section 11 (generic names: "a group export
+  carries a schema referenced only as a message type").
+
 ### Execute, verify, roll back, write back
 
 - [ ] T029 [US1] Write failing tests in `test/application/RepositoryImportTest.java` (D-8):
@@ -600,6 +619,7 @@ node's content equals the content before the import byte for byte.
   - T006 → T007 and T006 → T008;
   - T012 needs T003 (the content-type table).
 - Within US1:
+  - T050 (message-type schemas) after T028 and before T029;
   - T018 ‖ T019 after T008;
   - T020 → T021 → T022 → T023 → T024 → T025 → T026 → T027 → T028;
   - T029 → T030 → T031 → T032 → T033 → T034 → T035.
