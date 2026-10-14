@@ -7,7 +7,6 @@ import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
-import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -246,45 +245,5 @@ class ImportServiceRefusalTest {
             Optional.empty()));
 
         assertThat(neither.code()).isEqualTo(ErrorCode.INVALID_INPUT);
-    }
-
-    @Test
-    void aReferencedRepositoryFileIsRefusedUntilRepositoryFilesCanBeSent() throws IOException {
-        // feature 008 interim (T021, T023): a change set with repository files is previewed, but
-        // its execution is refused until RepositoryStep sends them (T031): workflows and modules
-        // never go without their repository files (FR-004); the node may write repository files
-        ImportHarness harness = ImportHarness.grpA(temp);
-        harness.confirmation = WritePolicy.Confirmation.SERVER;
-        harness.repositoryWrite(ImportHarness.DEV, true);
-        String schema = "<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"/>\n";
-        String file = harness.repositoryFile("xsd/a.xsd", schema, "application/x-xsd+xml");
-        harness.exports.history.commitAll("export dev/jdoe: repository", java.util.Map.of(
-            de.dadecker.inubit.mcp.domain.port.VersionHistoryPort.SERVER_STATE, "dev"));
-        FakeServer node = new FakeServer();
-        node.putRepositoryFile("/Root/jdoe/xsd/a.xsd", schema);
-        edited(harness);
-        harness.edit(harness.moduleDirectory("Module-0003") + "/module.xml", "</Properties>",
-            "<Property name=\"x.repository\">inubitrepository:/Root/jdoe/xsd/a.xsd</Property>"
-                + "</Properties>");
-        harness.edit(file, "/>", "><xs:element name=\"x\"/></xs:schema>");
-        ImportService service = harness.service();
-        harness.exportGroup().exportRepository(node, "/Root/jdoe/xsd");
-        ImportService.Response preview = service.importArtifacts(harness.group("Repository"));
-        assertThat(preview).isInstanceOf(ImportService.Response.Challenge.class);
-        harness.exportGroup().exportRepository(node, "/Root/jdoe/xsd");
-
-        ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
-            () -> service.importArtifacts(ImportHarness.confirmed(harness.group("Repository"),
-                ((ImportService.Response.Challenge) preview).preview().confirmationCode())));
-
-        assertThat(exception).as("expected a refusal").isNotNull();
-        assertThat(exception.error().code()).as("the node did not change: no CONFLICT")
-            .isEqualTo(ErrorCode.INVALID_INPUT);
-        assertThat(exception.error().message()).contains("/Root/jdoe/xsd/a.xsd");
-        harness.cli.verifyComplete();
-        assertThat(harness.inubit.imported).as("nothing was imported").isEmpty();
-        assertThat(node.repositoryImports).as("nothing was imported").isEmpty();
-        assertThat(harness.audit("import_artifacts")).last().satisfies(record ->
-            assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED));
     }
 }

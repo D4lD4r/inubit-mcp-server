@@ -50,6 +50,8 @@ import java.util.zip.ZipOutputStream;
  *   <li>{@link #repositoryArchiveFromFiles} builds the import archive of workspace files with
  *       {@link RepositoryArchive#build}; an upload without metadata gets
  *       {@link RepositoryMetadata#forNewFile} (feature 008, research D-7).
+ *   <li>{@link #repositoryMetaRecords} renders each file's metadata into the {@code .meta}
+ *       record an export writes ({@link MetaStore}, normalized XML; feature 008, research D-8).
  * </ul>
  */
 public final class V81ReleaseArchives implements ReleaseArchivePort {
@@ -182,6 +184,15 @@ public final class V81ReleaseArchives implements ReleaseArchivePort {
         repositoryEntries(archive).forEach(file -> metadata.put(file.path(),
             new String(file.metadata(), StandardCharsets.UTF_8)));
         return metadata;
+    }
+
+    @Override
+    public Map<String, byte[]> repositoryMetaRecords(byte[] archive) {
+        Map<String, byte[]> records = new java.util.TreeMap<>();
+        repositoryEntries(archive).forEach(file -> records.put(file.path(), MetaStore.serialize(
+            Map.of("metadata", new String(XmlNormalizer.normalize(XmlTree.parse(file.metadata())
+                .root()), StandardCharsets.UTF_8)))));
+        return records;
     }
 
     /** The repository files of a repository export or of an export's {@code Repository.zip}. */

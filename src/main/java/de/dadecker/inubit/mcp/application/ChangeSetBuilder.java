@@ -138,6 +138,7 @@ public final class ChangeSetBuilder {
         String base = history.serverStateOf(group, scopeDirectory);
 
         List<LocalChange> changes = history.localChanges(group, ownerDirectory).stream()
+            .map(change -> withRecordState(group, change))
             .filter(change -> differs(group, change)).toList();
         Map<String, LocalChange> repository = new TreeMap<>();
         List<String> foreign = new ArrayList<>();
@@ -612,6 +613,25 @@ public final class ChangeSetBuilder {
                     + " pluginType");
         }
         return found.get(0);
+    }
+
+    /**
+     * A repository file's base is the newest server state of its file or of its {@code .meta}
+     * record (feature 008, FR-016): the write-back of a verified import rewrites the record but
+     * leaves the content as it was, so that commit is no history entry of the file itself
+     * (research D-8 step 5). An export or import that changes the content always changes the
+     * record too ({@code contentMD5}), so the record's server state is never the older one.
+     */
+    private LocalChange withRecordState(GroupId group, LocalChange change) {
+        Optional<WorkspacePath> path = parse(change.path())
+            .filter(parsed -> parsed.kind() == WorkspacePath.Kind.REPOSITORY);
+        if (path.isEmpty() || change.kind() == PathChange.Kind.DELETED) {
+            return change;
+        }
+        return history.lastServerState(group, slash(path.get().metaPath()))
+            .map(state -> new LocalChange(change.path(), PathChange.Kind.MODIFIED,
+                Optional.of(state)))
+            .orElse(change);
     }
 
     /** True if the candidate's content differs from the newest server state of its artifact. */

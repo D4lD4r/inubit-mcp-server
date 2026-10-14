@@ -133,6 +133,13 @@ public interface ReleaseArchivePort {
     Map<String, String> repositoryMetadata(byte[] archive);
 
     /**
+     * Repository path ({@code /Root/…}) → the workspace {@code .meta} record of the repository
+     * files of an archive read like {@link #repositoryFiles}, as an export writes it (feature 008,
+     * research D-8 step 5: the write-back after a verified repository import).
+     */
+    Map<String, byte[]> repositoryMetaRecords(byte[] archive);
+
+    /**
      * True if {@code archive} is a repository export ({@code export --exportRepositoryPath}),
      * false for a diagram group, module or release export (they carry a
      * {@code Repository.zip}).

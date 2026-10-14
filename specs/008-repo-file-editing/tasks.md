@@ -415,7 +415,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
 
 ### Execute, verify, roll back, write back
 
-- [ ] T029 [US1] Write failing tests in `test/application/RepositoryImportTest.java` (D-8):
+- [X] T029 [US1] Write failing tests in `test/application/RepositoryImportTest.java` (D-8):
   - the backup ZIPs contain the node's repository folder exports, and the IMPORT manifest has
     `repositoryPaths`;
   - `PENDING` is written before the first send;
@@ -444,7 +444,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
   - `intendedState` gets `repository:<path>` keys.
 
   Tests in `test/application/BackupStoreTest.java`.
-- [ ] T031 [US1] Implement execute in `main/application/RepositoryStep.java` and
+- [X] T031 [US1] Implement execute in `main/application/RepositoryStep.java` and
   `main/application/ImportService.java`:
   - backup with the repository exports;
   - `importRepository` with `repositoryArchiveFromFiles` (workspace content plus `.meta` metadata, or
@@ -478,6 +478,14 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
   gets `FAILED`.
 - [ ] T033 [US1] Implement the repository rollback in `main/application/RepositoryStep.java`, called
   first from `ImportService.rollback`.
+  Carry-over from T029+T031 (implementer notes and review):
+  - before the artifact rollback, re-import the previous content of `repository.modifiedOnNode(state,
+    after)` from the backup's repository exports (e.g. `d.releases().repositoryArchive(<repository
+    exports of the backup>, owner, paths)`), verify with `repository.reread` (content only);
+  - remove the interim FAILED override and its "not rolled back by this version" warning in
+    `failed()`; use the post-rollback reread as the FAILED manifest's repository state;
+  - decide how a TIMEOUT of `importRepository` is handled (today a plain IMPORT_FAILED);
+  - the failure text must not point to `restore_backup` for repository files before US4.
 - [ ] T034 [US1] Tag information (D-12, from the P-3 result):
   - `WriteOutcome.tag.repositoryFiles` lists the imported paths in the closure of the group's
     modules, both those a module references directly and those only another repository file
@@ -614,6 +622,10 @@ node's content equals the content before the import byte for byte.
   - record the outcome in `quickstart.md`.
 
 ---
+
+- Open decision (T029+T031 review): FR-015a requires the reason "in the workspace history entry"; the
+  import commit only carries the audit id. Decide whether the audit id link suffices (adjust FR-015a
+  wording) or the reason goes into the commit body, before T045/T048.
 
 ## Dependencies & Execution Order
 

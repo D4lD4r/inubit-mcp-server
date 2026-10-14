@@ -149,6 +149,21 @@ class V81ReleaseArchivesTest {
     }
 
     @Test
+    void writesTheMetaRecordOfEachRepositoryFileAsAnExportWritesIt() {
+        // T031 (research D-8 step 5): the write-back takes the .meta record from the re-export
+        byte[] export = cliFixture("export_repository.zip");
+
+        Map<String, byte[]> records = archives.repositoryMetaRecords(export);
+
+        assertThat(records).containsOnlyKeys("/Root/jdoe/xsd/order.xsd",
+            "/Root/jdoe/xsd/release.xsl");
+        String metadata = archives.repositoryMetadata(export).get("/Root/jdoe/xsd/order.xsd");
+        assertThat(records.get("/Root/jdoe/xsd/order.xsd")).isEqualTo(MetaStore.serialize(
+            Map.of("metadata", text(XmlNormalizer.normalize(XmlTree.parse(metadata.getBytes(
+                StandardCharsets.UTF_8)).root())))));
+    }
+
+    @Test
     void buildsTheRepositoryImportOfChosenFilesRelativeToTheOwnersRoot() {
         // T021 (research D-1, D-7): entries relative to /Root/<owner>, never key material
         byte[] zip = archives.repositoryArchive(List.of(cliFixture("export_release.zip"),

@@ -3,6 +3,8 @@ package de.dadecker.inubit.mcp.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
+import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
+import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -58,8 +60,7 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>T025 (FR-012, research D-6): a repository file to send always needs a server code, also on
  * a node with {@code development.confirmation: CLIENT}; the code is redeemed after the node read,
- * and always if the change set holds repository files. Until T031 the confirmed call stops at the
- * interim execute guard of T020+T021, so these tests see that guard instead of an import.
+ * and always if the change set holds repository files.
  *
  * <p>T026 (FR-012, research D-5 step 4, edge cases "Shared use" and "Reference chains"): the
  * preview lists the repository files by their full path, names up to 20 workspace artifacts
@@ -70,13 +71,20 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>T027 (FR-019, research D-11): every audit record of such a call lists each repository file
  * as {@code repository.<n>} with its operation, full path and the hash of its workspace content,
- * never the content. Until T031 the records of a call that sends repository files end at the
- * interim execute guard.
+ * never the content.
  *
  * <p>T028 (FR-005, contracts/mcp-tools-delta.md "import_artifacts"): a request with
  * {@code repositoryPaths} covers the changed files at or below the paths; the paths are part of
  * what the code confirms, a malformed path, a second scope or a tag is {@code INVALID_INPUT}
  * before anything is sent.
+ *
+ * <p>T029/T031 (research D-8, FR-015, FR-015a, FR-016): the confirmed call backs up the node's
+ * repository folder exports with the artifact exports, writes {@code PENDING}, sends the
+ * repository files with one {@code importRepository} before the {@code importArchive} of the
+ * workflows and modules (none for repository files alone), verifies them byte for byte by a
+ * re-export, writes back only the sent files and their {@code .meta} records from that
+ * re-export and commits once with {@code Server-State}. Their rollback is T032/T033: until then a
+ * failure after sending reports the repository files it leaves changed on the node.
  */
 @Timeout(60)
 class RepositoryImportTest {
@@ -358,15 +366,21 @@ class RepositoryImportTest {
             .noneMatch(path -> path.contains(file(A)) || path.contains(file(B))));
 
         // with the code: redeemed after the node read, bound to inputs, workspace and node; the
-        // call reaches the execute step, where the interim guard of T020+T021 still refuses
-        // repository files until T031 sends them
+        // repository files are imported first, then the workflow and the module
         nodeRead();
-        ToolError error = confirmedRefusal(client, preview.confirmationCode());
+        harness.importRepositoryApplied(node).importApplied()
+            .exportRepository(node, "/Root/jdoe/xsd").exportGroup();
 
-        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
-        assertThat(error.message()).contains("does not import yet");
-        assertThat(harness.audit("import_artifacts")).last().satisfies(record ->
-            assertThat(record.step()).isEqualTo(AuditRecord.Step.EXECUTE));
+        WriteOutcome outcome = completed(client.importArtifacts(ImportHarness.confirmed(
+            harness.group("Schemas"), preview.confirmationCode())));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(imports()).containsExactly("--importRepositoryPath", "--importWorkflow");
+        assertThat(node.repositoryContent(A)).hasValue(harness.read(file(A)));
+        assertThat(harness.audit("import_artifacts")).extracting(AuditRecord::outcome)
+            .containsExactly(AuditOutcome.CHALLENGE_ISSUED, AuditOutcome.PENDING,
+                AuditOutcome.EXECUTED);
     }
 
     @Test
@@ -441,6 +455,22 @@ class RepositoryImportTest {
         assertThat(preview.create()).containsExactly(B);
         assertThat(preview.modify()).containsExactly(A);
         assertThat(builds).as("no artifact archive for repository files alone").isEmpty();
+
+        // the execution: only the repository import, no artifact archive and no importArchive
+        nodeRead();
+        harness.importRepositoryApplied(node).exportRepository(node, "/Root/jdoe/xsd");
+
+        WriteOutcome outcome = completed(on.importArtifacts(ImportHarness.confirmed(
+            harness.group("Schemas"), preview.confirmationCode())));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.created()).containsExactly(B);
+        assertThat(outcome.modified()).containsExactly(A);
+        assertThat(imports()).containsExactly("--importRepositoryPath");
+        assertThat(harness.inubit.imported).isEmpty();
+        assertThat(builds).isEmpty();
+        assertThat(node.repositoryContent(B)).hasValue(schema("b"));
     }
 
     @Test
@@ -741,15 +771,12 @@ class RepositoryImportTest {
     @Test
     void thePreviewAndTheConfirmedCallAuditEveryRepositoryFileWithOperationAndHash()
         throws IOException {
-        // until T031 the confirmed call stops at the interim execute guard (EXECUTE, REFUSED)
-        ImportPreview preview = preview();
-        nodeRead();
-        assertThat(confirmedRefusal(preview).message()).contains("does not import yet");
+        confirmedImport();
 
         List<JsonNode> records = auditLines();
 
         assertThat(records).extracting(record -> record.path("outcome").asString())
-            .containsExactly("CHALLENGE_ISSUED", "REFUSED");
+            .containsExactly("CHALLENGE_ISSUED", "PENDING", "EXECUTED");
         assertThat(records.get(1).path("step").asString()).isEqualTo("EXECUTE");
         assertThat(records).allSatisfy(record -> assertThat(repositoryInputs(record))
             .containsExactly("modify " + A + " " + hash(A), "create " + B + " " + hash(B)));
@@ -941,5 +968,333 @@ class RepositoryImportTest {
         assertThat(harness.cli.launches()).isEmpty();
         assertThat(harness.audit("import_artifacts")).hasSize(requests.size())
             .allSatisfy(record -> assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED));
+    }
+
+    // --- T029/T031: the execution (research D-8, FR-015, FR-015a, FR-016) -------------------
+
+    private static WriteOutcome completed(ImportService.Response response) {
+        assertThat(response).isInstanceOf(ImportService.Response.Completed.class);
+        return ((ImportService.Response.Completed) response).outcome();
+    }
+
+    /** The kind of every import StartCLI ran, in order. */
+    private List<String> imports() {
+        return harness.cli.execCommands().stream().filter(line -> line.startsWith("import "))
+            .map(line -> Stream.of("--importRepositoryPath", "--importWorkflow",
+                "--importModule").filter(line::contains).findFirst().orElse(line)).toList();
+    }
+
+    /** The metadata of repository file {@code path} on the node, as a folder export holds it. */
+    private String nodeMetadata(String path) {
+        return new V81ReleaseArchives().repositoryMetadata(node.exportRepository(path)
+            .orElseThrow()).get(path);
+    }
+
+    /** The metadata of the {@code .meta} record of repository file {@code path}. */
+    private String workspaceMetadata(String path) {
+        return new WorkspaceInspector().repositoryMetadata(harness.root, WorkspacePath.repository(
+            ImportHarness.DEV.group(), "jdoe", path)).orElseThrow();
+    }
+
+    /** The confirmed call of {@code preview}: both imports, their verification, the commit. */
+    private WriteOutcome confirm(ImportPreview preview) {
+        nodeRead();
+        harness.importRepositoryApplied(node).importApplied()
+            .exportRepository(node, "/Root/jdoe/xsd").exportGroup();
+        WriteOutcome outcome = completed(service.importArtifacts(ImportHarness.confirmed(
+            harness.group("Schemas"), preview.confirmationCode())));
+        harness.cli.verifyComplete();
+        return outcome;
+    }
+
+    private WriteOutcome confirmedImport() {
+        return confirm(preview());
+    }
+
+    @Test
+    void theBackupHoldsTheNodesRepositoryFolderExportAndTheManifestNamesTheFiles() {
+        WriteOutcome outcome = confirmedImport();
+
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        String ref = outcome.backupRef().orElseThrow();
+        V81ReleaseArchives releases = new V81ReleaseArchives();
+        List<byte[]> exports = harness.backups.exports(ref);
+        assertThat(exports).filteredOn(releases::repositoryExport).singleElement()
+            .satisfies(zip -> assertThat(releases.repositoryFiles(zip)).as("before the import")
+                .containsOnlyKeys(A).hasEntrySatisfying(A, content -> assertThat(new String(
+                    content, StandardCharsets.UTF_8)).isEqualTo(schema("a"))));
+        assertThat(exports).filteredOn(zip -> !releases.repositoryExport(zip))
+            .as("the diagram group's export").hasSize(1);
+        BackupStore.Manifest manifest = harness.backups.find(ref).orElseThrow();
+        assertThat(manifest.kind()).isEqualTo(BackupStore.Manifest.Kind.IMPORT);
+        assertThat(manifest.outcome()).isEqualTo("EXECUTED");
+        assertThat(manifest.repositoryPaths()).containsExactly(A, B);
+        assertThat(manifest.created()).containsExactly(B);
+        assertThat(manifest.intendedState()).containsKeys("Workflow-0001", "Module-0003")
+            .containsAllEntriesOf(BackupStore.repositoryState(Map.of(
+                A, harness.read(file(A)).getBytes(StandardCharsets.UTF_8),
+                B, schema("b").getBytes(StandardCharsets.UTF_8))));
+    }
+
+    @Test
+    void pendingIsWrittenBeforeTheFirstSendAndTheRepositoryFilesGoBeforeTheArtifacts() {
+        ImportPreview preview = preview();
+        nodeRead();
+        List<AuditOutcome> atFirstSend = new CopyOnWriteArrayList<>();
+        harness.importRepositoryApplied(node);
+        harness.cli.then(spec -> harness.audit("import_artifacts")
+            .forEach(record -> atFirstSend.add(record.outcome())));
+        harness.importApplied().exportRepository(node, "/Root/jdoe/xsd").exportGroup();
+
+        WriteOutcome outcome = completed(service.importArtifacts(ImportHarness.confirmed(
+            harness.group("Schemas"), preview.confirmationCode())));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(atFirstSend).containsExactly(AuditOutcome.CHALLENGE_ISSUED,
+            AuditOutcome.PENDING);
+        assertThat(imports()).containsExactly("--importRepositoryPath", "--importWorkflow");
+        assertThat(harness.inubit.imported).singleElement().satisfies(zip -> assertThat(
+            de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures.entries(zip).keySet())
+            .as("no repository file in the artifact archive")
+            .noneMatch(entry -> entry.contains("a.xsd") || entry.contains("b.xsd")));
+    }
+
+    @Test
+    void theRepositoryFilesAreVerifiedByteForByteWithoutTheReason() {
+        // FR-015a: INUBIT ignores the version comment of a repository file, so the reason is
+        // never on it and not checked
+        WriteOutcome outcome = confirmedImport();
+
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(node.repositoryContent(A)).hasValue(harness.read(file(A)));
+        assertThat(node.repositoryContent(B)).hasValue(schema("b"));
+        assertThat(nodeMetadata(A)).doesNotContain("Schemas");
+    }
+
+    @Test
+    void aReExportThatDiffersInItsBytesIsAVerifyMismatch() throws IOException {
+        // a repository-only call; the node returns a.xsd without its last line break, which is
+        // the same XML in other bytes
+        harness.exportRepository(node, "/Root/jdoe/xsd");
+        String code = ((ImportService.Response.Challenge) service.importArtifacts(
+            harness.repositoryPaths("Schemas", "xsd"))).preview().confirmationCode();
+        String sent = harness.read(file(A));
+        harness.exportRepository(node, "/Root/jdoe/xsd").importRepositoryApplied(node)
+            .exportRepository(node, "/Root/jdoe/xsd");
+        harness.cli.then(spec -> node.putRepositoryFile(A, sent.stripTrailing()));
+
+        WriteOutcome outcome = completed(service.importArtifacts(ImportHarness.confirmed(
+            harness.repositoryPaths("Schemas", "xsd"), code)));
+
+        harness.cli.verifyComplete();
+        assertThat(imports()).as("no importArchive for repository files alone")
+            .containsExactly("--importRepositoryPath");
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.FAILED);
+        String report = ".reports/verify-" + outcome.auditId() + ".diff";
+        assertThat(outcome.failure()).hasValueSatisfying(failure -> {
+            assertThat(failure.code()).isEqualTo(ErrorCode.VERIFY_MISMATCH);
+            assertThat(failure.step()).isEqualTo("verify");
+            assertThat(failure.message()).contains(report);
+        });
+        assertThat(outcome.reports()).contains(report);
+        assertThat(harness.read(report)).contains("=== " + A).doesNotContain(B);
+        assertThat(workspaceMetadata(A)).as("not written back").contains("version=\"1.0\"");
+        assertThat(harness.exports.log()).noneMatch(entry -> entry.startsWith("import "));
+    }
+
+    @Test
+    void theWriteBackRewritesOnlyTheSentFilesAndTheirMetaFromTheReExport() {
+        // c.xsd is another file of the exported folder, unknown to the workspace
+        node.putRepositoryFile(C, schema("c"));
+
+        WriteOutcome outcome = confirmedImport();
+
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(harness.root.resolve(file(C))).doesNotExist();
+        assertThat(harness.root.resolve(WorkspacePath.repository(ImportHarness.DEV.group(),
+            "jdoe", C).metaPath())).doesNotExist();
+        assertThat(workspaceMetadata(A)).contains("version=\"1.1\"",
+            "versionComment=\"DefaultCommitCommentImport@@@Fixture edit\"");
+        assertThat(workspaceMetadata(B)).contains("version=\"1.0\"",
+            "uuid=\"" + node.repositoryUuid(B).orElseThrow() + "\"");
+        assertThat(harness.read(file(A))).isEqualTo(node.repositoryContent(A).orElseThrow());
+        assertThat(harness.exports.history.status()).isEmpty();
+    }
+
+    @Test
+    void oneImportCommitWithServerStateCoversTheRepositoryFiles() {
+        WriteOutcome outcome = confirmedImport();
+
+        assertThat(harness.exports.log()).filteredOn(entry -> entry.startsWith("import "))
+            .containsExactly("import dev/node1: diagram group GRP-01 (4 artifacts) ["
+                + outcome.auditId() + "]");
+        String commit = outcome.commit().orElseThrow();
+        assertThat(harness.exports.git("log", "-1", "--format=%B", commit))
+            .contains("Server-State: dev");
+        assertThat(harness.exports.git("show", "--name-only", "--format=", commit))
+            .contains(WorkspacePath.repository(ImportHarness.DEV.group(), "jdoe", A).metaPath()
+                .toString(), file(B));
+
+        // FR-016: the commit is the new base, also of a.xsd, whose content it left unchanged
+        ImportService.Response again = service.importArtifacts(harness.repositoryPaths(
+            "Schemas", "xsd"));
+
+        assertThat(completed(again).warnings()).anySatisfy(warning -> assertThat(warning)
+            .startsWith("Nothing changed in the workspace"));
+        harness.cli.verifyComplete();
+    }
+
+    @Test
+    void aNewFileGetsTheContentTypeOfItsExtensionAndAModifiedOneItsMetaMetadata() {
+        confirmedImport();
+
+        assertThat(nodeMetadata(B)).contains("contentType=\"application/x-xsd+xml\"");
+        assertThat(nodeMetadata(A)).contains("contentType=\"application/x-xsd+xml\"",
+            "<Description>Workspace file</Description>");
+    }
+
+    @Test
+    void anExistingFileKeepsTheNodesContentTypeAndDescription() {
+        node.putRepositoryFile(B, schema("someone else's b"));
+        ImportPreview preview = challenge(service);
+        assertThat(preview.existing()).containsExactly(B);
+
+        WriteOutcome outcome = confirm(preview);
+
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(node.repositoryContent(B)).hasValue(schema("b"));
+        assertThat(nodeMetadata(B)).contains("contentType=\"application/octet-stream\"",
+            "<Description>Fixture file</Description>");
+    }
+
+    @Test
+    void aFailureAfterTheRepositoryImportKeepsTheManifestAndNamesTheChangedFiles() {
+        // the artifact import is refused after the repository import; the repository rollback
+        // is T032/T033, so the files stay changed on the node and the result says so
+        ImportPreview preview = preview();
+        nodeRead();
+        harness.importRepositoryApplied(node).importRefused()
+            .exportRepository(node, "/Root/jdoe/xsd").exportGroup();
+
+        WriteOutcome outcome = completed(service.importArtifacts(ImportHarness.confirmed(
+            harness.group("Schemas"), preview.confirmationCode())));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.FAILED);
+        assertThat(outcome.failure()).hasValueSatisfying(failure ->
+            assertThat(failure.code()).isEqualTo(ErrorCode.IMPORT_FAILED));
+        assertThat(outcome.backupRef()).hasValue(outcome.auditId().toString());
+        assertThat(outcome.rollback()).hasValue(WriteOutcome.Rollback.FAILED);
+        assertThat(outcome.createdNotRemoved()).containsExactly(B);
+        assertThat(outcome.warnings()).anySatisfy(warning -> assertThat(warning)
+            .contains(A, "not rolled back"));
+        BackupStore.Manifest manifest = harness.backups.find(outcome.auditId().toString())
+            .orElseThrow();
+        assertThat(manifest.kind()).isEqualTo(BackupStore.Manifest.Kind.IMPORT);
+        assertThat(manifest.outcome()).isEqualTo("FAILED");
+        assertThat(manifest.repositoryPaths()).containsExactly(A, B);
+        assertThat(manifest.intendedState()).containsKeys("repository:" + A, "repository:" + B);
+        assertThat(harness.audit("import_artifacts")).last().satisfies(record -> {
+            assertThat(record.outcome()).isEqualTo(AuditOutcome.FAILED);
+            assertThat(record.inputs()).containsKeys("repository.1", "repository.2");
+        });
+        assertThat(harness.exports.log()).noneMatch(entry -> entry.startsWith("import "));
+    }
+
+    @Test
+    void theResultOfARepositoryImportWarnsOfReferencesOutsideTheOwnersRootAndOnTheNode() {
+        reference("Module-0003", "x.other", "/Root/other/x.xsd");
+
+        WriteOutcome outcome = confirmedImport();
+
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.warnings())
+            .anySatisfy(warning -> assertThat(warning).contains("/Root/other/x.xsd",
+                "outside the owner's repository root /Root/jdoe/", "not followed"))
+            .anySatisfy(warning -> assertThat(warning)
+                .contains(A, "on dev/node1", "cannot be listed"));
+    }
+
+    @Test
+    void aModuleImportSendsAReferencedChangedStylesheetFirstInTheSameConfirmation() {
+        // US1-AS4: Module-0003 also references the exported stylesheet map.xsl, changed in the
+        // workspace
+        String xsl = "/Root/jdoe/xsl/map.xsl";
+        String stylesheet = "<xsl:stylesheet version=\"2.0\""
+            + " xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\"/>\n";
+        harness.repositoryFile("xsl/map.xsl", stylesheet, "application/xslt+xml");
+        // its export alone becomes a server state: the edits of setUp stay uncommitted
+        harness.exports.git("add", file(xsl), WorkspacePath.repository(ImportHarness.DEV.group(),
+            "jdoe", xsl).metaPath().toString());
+        harness.exports.git("-c", "user.name=test", "-c", "user.email=test@localhost", "commit",
+            "-q", "-m", "export dev/jdoe: repository xsl", "-m", "Server-State: dev");
+        node.putRepositoryFile(xsl, stylesheet);
+        harness.edit(file(xsl), "/>", "><xsl:template match=\"/\"/></xsl:stylesheet>");
+        reference("Module-0003", "x.xsl", xsl);
+        String pluginType = harness.moduleDirectory("Module-0003").split("/")[3];
+        ImportService.ImportRequest request = new ImportService.ImportRequest(
+            ImportHarness.DEV.value(), Optional.empty(), Optional.empty(), List.of(
+                new ImportScope.Module("Module-0003", Optional.of(pluginType))), "Schemas",
+            Optional.empty(), Optional.empty());
+        harness.exportModule(pluginType, "Module-0003")
+            .exportRepository(node, "/Root/jdoe/xsd").exportRepository(node, "/Root/jdoe/xsl");
+        ImportPreview preview = ((ImportService.Response.Challenge) service.importArtifacts(
+            request)).preview();
+        assertThat(preview.modify()).containsExactly("Module-0003", A, xsl);
+        assertThat(preview.create()).containsExactly(B);
+        harness.exportModule(pluginType, "Module-0003")
+            .exportRepository(node, "/Root/jdoe/xsd").exportRepository(node, "/Root/jdoe/xsl")
+            .importRepositoryApplied(node)
+            .importApplied("--importModule --importUser 'jdoe' --returnProtocol")
+            .exportRepository(node, "/Root/jdoe/xsd").exportRepository(node, "/Root/jdoe/xsl")
+            .exportModule(pluginType, "Module-0003");
+
+        WriteOutcome outcome = completed(service.importArtifacts(ImportHarness.confirmed(
+            request, preview.confirmationCode())));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(imports()).containsExactly("--importRepositoryPath", "--importModule");
+        assertThat(node.repositoryImports).hasSize(1);
+        assertThat(node.repositoryContent(xsl)).hasValue(harness.read(file(xsl)));
+        assertThat(outcome.modified()).containsExactly("Module-0003", A, xsl);
+    }
+
+    @Test
+    void aDiagramGroupImportOfOnlyAChangedSchemaImportsJustItAndThenTagsTheGroup()
+        throws IOException {
+        // US1-AS5, FR-011a: Module-0003 references a.xsd in its server state; only a.xsd changed
+        harness.edit(harness.workflow("Workflow-0001"), "xPos=\"140\"", "xPos=\"120\"");
+        harness.edit(harness.moduleDirectory("Module-0003") + "/module.xml",
+            "<Property name=\"x.b\">inubitrepository:" + B + "</Property>", "");
+        revertA();
+        Files.delete(harness.root.resolve(file(B)));
+        harness.exports.history.commitAll("export dev/jdoe: GRP-01",
+            Map.of(VersionHistoryPort.SERVER_STATE, ImportHarness.DEV.group().value()));
+        harness.inubit.changeModule("Module-0003", xml -> xml.replace("</Properties>",
+            "<Property name=\"x.a\">inubitrepository:" + A + "</Property></Properties>"));
+        harness.edit(file(A), "</xs:schema>", "  <xs:element name=\"added\"/>\n</xs:schema>");
+        ImportService.ImportRequest request = harness.tagged("Schemas", "REL-1");
+        nodeRead();
+        ImportPreview preview = ((ImportService.Response.Challenge) service.importArtifacts(
+            request)).preview();
+        assertThat(preview.modify()).containsExactly(A);
+        nodeRead();
+        harness.importRepositoryApplied(node).exportRepository(node, "/Root/jdoe/xsd")
+            .tagMoved("REL-1", false).historyExport("REL-1");
+
+        WriteOutcome outcome = completed(service.importArtifacts(ImportHarness.confirmed(
+            request, preview.confirmationCode())));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(imports()).containsExactly("--importRepositoryPath");
+        assertThat(harness.inubit.imported).isEmpty();
+        assertThat(outcome.tag()).hasValueSatisfying(tag -> {
+            assertThat(tag.name()).isEqualTo("REL-1");
+            assertThat(tag.applied()).isTrue();
+        });
+        assertThat(node.repositoryContent(A)).hasValue(harness.read(file(A)));
     }
 }

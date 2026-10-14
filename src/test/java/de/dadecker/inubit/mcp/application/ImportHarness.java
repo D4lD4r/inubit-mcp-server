@@ -380,6 +380,19 @@ public final class ImportHarness {
         return this;
     }
 
+    /**
+     * The next StartCLI call is a repository import into {@code /Root/<owner>} that {@code node}
+     * applies (feature 008).
+     */
+    public ImportHarness importRepositoryApplied(FakeServer node) {
+        cli.expect(java.util.regex.Pattern.compile("^import --importFile '[^']+'"
+                + " --importRepositoryPath '/Root/" + owner + "'$"))
+            .capturingImportFile()
+            .replyingWith(spec -> node.importRepository(read(
+                ScriptedProcessLauncher.importFile(spec)), owner));
+        return this;
+    }
+
     /** The next StartCLI call is an import that INUBIT refuses ({@code 1-NOK}). */
     public ImportHarness importRefused() {
         cli.expect("import ").replying("import_nok");

@@ -14,6 +14,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import de.dadecker.inubit.mcp.domain.port.ArtifactInspectorPort;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
+import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.ReleaseArchivePort;
 import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
 import java.io.IOException;
@@ -23,6 +24,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.IdentityHashMap;
@@ -75,6 +77,13 @@ import java.util.function.Supplier;
  *
  * <p>Preview of the files to send ({@link #preview}, FR-012, research D-5 step 4) and the
  * warnings of a change set with repository files ({@link #warnings}).
+ *
+ * <p>Execute (research D-8): {@link #send} imports the uploads with one
+ * {@link ImportPort#importRepository}; {@link #reread} exports their folders again like the node
+ * read; {@link #verify} compares every sent file byte for byte with its workspace content (never
+ * the metadata, which every import changes, and never the reason, which INUBIT does not keep on
+ * repository files, FR-015a); {@link #writeBack} rewrites only the sent files and their
+ * {@code .meta} records from the re-export, never the other files of the folders.
  */
 final class RepositoryStep {
 
@@ -132,6 +141,36 @@ final class RepositoryStep {
         }
     }
 
+    /**
+     * What a re-export after the import shows of the files sent ({@link #reread}).
+     *
+     * @param files   repository path → the node's content, for the sent files the node holds
+     * @param records repository path → the {@code .meta} record of the re-export, for the same
+     *                files
+     * @param failure why the re-export failed, if it did (then both maps are empty)
+     */
+    record Reread(SortedMap<String, byte[]> files, Map<String, byte[]> records,
+        Optional<String> failure) {
+
+        Reread {
+            files = new TreeMap<>(files);
+            records = Map.copyOf(records);
+            Objects.requireNonNull(failure, "failure");
+        }
+
+        /** Counts only; never the content. */
+        @Override
+        public String toString() {
+            return "Reread[" + files.size() + " files" + failure.map(f -> ", failed").orElse("")
+                + "]";
+        }
+    }
+
+    /** The folder exports of a set of paths: what they hold of the paths, and the raw exports. */
+    private record Read(SortedMap<String, byte[]> held, Map<String, byte[]> exportOf,
+        List<byte[]> raw) {
+    }
+
     private final Path root;
     private final VersionHistoryPort history;
     private final ArtifactInspectorPort inspector;
@@ -165,33 +204,10 @@ final class RepositoryStep {
      */
     NodeState nodeState(NodeId node, ChangeSet changes, UUID auditId) {
         String owner = changes.scope().owner();
-        ArtifactPort port = artifacts.apply(node);
-        SortedMap<String, List<String>> folders = new TreeMap<>();
-        for (ChangedArtifact file : changes.repository()) {
-            String path = file.name();
-            folders.computeIfAbsent(path.substring(0, path.lastIndexOf('/')),
-                folder -> new ArrayList<>()).add(path);
-        }
-        SortedMap<String, byte[]> held = new TreeMap<>();
-        Map<String, byte[]> exportOf = new HashMap<>();
-        List<byte[]> raw = new ArrayList<>();
-        for (Map.Entry<String, List<String>> folder : folders.entrySet()) {
-            List<String> paths = folder.getValue();
-            if (!folder.getKey().equals("/Root/" + owner)) {
-                try {
-                    read(node, port, folder.getKey(), paths, held, exportOf, raw);
-                    continue;
-                } catch (ToolErrorException e) {
-                    if (e.error().code() != ErrorCode.UNEXPECTED_RESPONSE) {
-                        throw e;
-                    }
-                    // over the read limits: one export per file below
-                }
-            }
-            for (String path : paths) {
-                read(node, port, path, List.of(path), held, exportOf, raw);
-            }
-        }
+        Read read = read(node, owner, changes.repository().stream().map(ChangedArtifact::name)
+            .toList());
+        SortedMap<String, byte[]> held = read.held();
+        Map<String, byte[]> exportOf = read.exportOf();
 
         List<ChangedArtifact> repository = new ArrayList<>();
         List<ChangedArtifact> identical = new ArrayList<>(changes.identical());
@@ -261,7 +277,107 @@ final class RepositoryStep {
         ChangeSet classified = new ChangeSet(changes.scope(), changes.baseCommit(),
             changes.workflows(), changes.modules(), repository, changes.notImported(), identical,
             changes.referenced());
-        return new NodeState(classified, held, raw, fingerprint(held), uploads);
+        return new NodeState(classified, held, read.raw(), fingerprint(held), uploads);
+    }
+
+    /**
+     * Sends the uploads of {@code state} to the node with one repository import into
+     * {@code /Root/<owner>} (research D-8 step 2).
+     *
+     * @throws ToolErrorException the errors of the import
+     */
+    void send(ImportPort port, String owner, NodeState state) {
+        port.importRepository(releases.repositoryArchiveFromFiles(owner, state.uploads()), owner);
+    }
+
+    /**
+     * Exports the folders of the sent files of {@code state} again, like {@link #nodeState}, and
+     * keeps the content and the {@code .meta} record of each sent file the node holds; a failing
+     * export is the {@link Reread#failure()}.
+     */
+    Reread reread(NodeId node, NodeState state) {
+        String owner = state.changes().scope().owner();
+        try {
+            Read read = read(node, owner, state.uploads().stream().map(RepositoryUpload::path)
+                .toList());
+            Map<byte[], Map<String, byte[]>> recordsOf = new IdentityHashMap<>();
+            Map<String, byte[]> records = new HashMap<>();
+            read.held().keySet().forEach(path -> records.put(path, recordsOf.computeIfAbsent(
+                read.exportOf().get(path), zip -> withNode(node,
+                    () -> releases.repositoryMetaRecords(zip))).get(path)));
+            return new Reread(read.held(), records, Optional.empty());
+        } catch (ToolErrorException e) {
+            return new Reread(new TreeMap<>(), Map.of(), Optional.of(e.error().code() + ": "
+                + e.error().message()));
+        }
+    }
+
+    /**
+     * The differences of the sent files between their workspace content and the re-export,
+     * byte for byte, as {@code === <path>} blocks with a line diff (empty if all are identical).
+     */
+    List<String> verify(NodeId node, NodeState state, Reread after) {
+        List<String> differences = new ArrayList<>();
+        for (RepositoryUpload upload : state.uploads()) {
+            byte[] sent = upload.content();
+            byte[] now = after.files().get(upload.path());
+            if (Arrays.equals(sent, now)) {
+                continue;
+            }
+            differences.add("=== " + upload.path());
+            differences.add("--- sent: " + sent.length + " bytes");
+            differences.add("+++ on " + node + ": " + (now == null ? "(missing)"
+                : now.length + " bytes"));
+            StringBuilder diff = new StringBuilder();
+            ConflictDetector.LineDiff.append(diff, upload.path(), "sent", "on " + node, sent,
+                now);
+            differences.addAll(diff.toString().lines().toList());
+        }
+        return differences;
+    }
+
+    /**
+     * Rewrites the workspace file and the {@code .meta} record of every sent file from the
+     * verified re-export (research D-8 step 5); other files of the exported folders are not
+     * written.
+     */
+    void writeBack(NodeState state, Reread after) {
+        try {
+            for (ChangedArtifact file : state.changes().repository()) {
+                Path content = root.resolve(file.paths().get(0));
+                Path meta = root.resolve(WorkspacePath.parse(Path.of(file.paths().get(0)))
+                    .metaPath());
+                Files.createDirectories(content.getParent());
+                Files.write(content, after.files().get(file.name()));
+                Files.createDirectories(meta.getParent());
+                Files.write(meta, after.records().get(file.name()));
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * The sent files the node held before the call whose content differs now, all of them if
+     * the re-export failed: what a failure after sending leaves changed on the node.
+     */
+    List<String> modifiedOnNode(NodeState state, Reread after) {
+        return state.uploads().stream().map(RepositoryUpload::path)
+            .filter(path -> state.files().containsKey(path))
+            .filter(path -> after.failure().isPresent()
+                || !Arrays.equals(state.files().get(path), after.files().get(path)))
+            .toList();
+    }
+
+    /**
+     * The sent files the node did not hold before the call and holds now, all of them if the
+     * re-export failed: created, and never removed (an import cannot delete).
+     */
+    List<String> createdOnNode(NodeState state, Reread after) {
+        return state.uploads().stream().map(RepositoryUpload::path)
+            .filter(path -> !state.files().containsKey(path))
+            .filter(path -> after.failure().isPresent() || after.files().containsKey(path))
+            .toList();
     }
 
     /**
@@ -391,6 +507,41 @@ final class RepositoryStep {
             "Revert the repository files in the workspace (git restore), or ask the"
                 + " administrator to set development.repository: WRITE on " + node
                 + "; then import again").withNode(node));
+    }
+
+    /**
+     * One export per distinct parent folder of {@code paths} (repository paths of
+     * {@code owner}), in path order; a file directly below the owner's root, or below a folder
+     * over the read limits ({@code UNEXPECTED_RESPONSE}), is exported on its own.
+     */
+    private Read read(NodeId node, String owner, List<String> paths) {
+        ArtifactPort port = artifacts.apply(node);
+        SortedMap<String, List<String>> folders = new TreeMap<>();
+        for (String path : paths) {
+            folders.computeIfAbsent(path.substring(0, path.lastIndexOf('/')),
+                folder -> new ArrayList<>()).add(path);
+        }
+        SortedMap<String, byte[]> held = new TreeMap<>();
+        Map<String, byte[]> exportOf = new HashMap<>();
+        List<byte[]> raw = new ArrayList<>();
+        for (Map.Entry<String, List<String>> folder : folders.entrySet()) {
+            List<String> below = folder.getValue();
+            if (!folder.getKey().equals("/Root/" + owner)) {
+                try {
+                    read(node, port, folder.getKey(), below, held, exportOf, raw);
+                    continue;
+                } catch (ToolErrorException e) {
+                    if (e.error().code() != ErrorCode.UNEXPECTED_RESPONSE) {
+                        throw e;
+                    }
+                    // over the read limits: one export per file below
+                }
+            }
+            for (String path : below) {
+                read(node, port, path, List.of(path), held, exportOf, raw);
+            }
+        }
+        return new Read(held, exportOf, raw);
     }
 
     /**
