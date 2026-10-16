@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.domain.model.RepositoryUpload;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
+import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
 import de.dadecker.inubit.mcp.domain.port.ArtifactInspectorPort;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
@@ -38,6 +39,8 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The repository part of a development import (feature 008, research D-5, D-7): all logic that
@@ -83,10 +86,13 @@ import java.util.function.Supplier;
  * read; {@link #verify} compares every sent file byte for byte with its workspace content (never
  * the metadata, which every import changes, and never the reason, which INUBIT does not keep on
  * repository files, FR-015a); {@link #writeBack} rewrites only the sent files and their
- * {@code .meta} records from the re-export, never the other files of the folders.
+ * {@code .meta} records from the re-export, never the other files of the folders. On a failure
+ * after sending, {@link #rollback} re-imports the previous content of the files that changed on
+ * the node from the backup's repository exports and verifies it the same way (D-8 step 4).
  */
 final class RepositoryStep {
 
+    private static final Logger LOG = LoggerFactory.getLogger(RepositoryStep.class);
     private static final int MAX_SENT_FILES = 50;
     private static final int MAX_NAMED = 20;
 
@@ -163,6 +169,25 @@ final class RepositoryStep {
         public String toString() {
             return "Reread[" + files.size() + " files" + failure.map(f -> ", failed").orElse("")
                 + "]";
+        }
+    }
+
+    /**
+     * The repository rollback of a failed call ({@link #rollback}).
+     *
+     * @param state       {@code NOT_NEEDED} if no sent file the node held had changed,
+     *                    {@code SUCCEEDED} if the re-export after the re-import shows every one of
+     *                    them with its content before the call, {@code FAILED} otherwise
+     * @param seen        the last re-export: after the re-import if it ran, else the one given
+     * @param notRestored the sent files the node held that {@code seen} does not show with their
+     *                    content before the call (all of them if {@code seen} failed)
+     */
+    record Rollback(WriteOutcome.Rollback state, Reread seen, List<String> notRestored) {
+
+        Rollback {
+            Objects.requireNonNull(state, "state");
+            Objects.requireNonNull(seen, "seen");
+            notRestored = List.copyOf(notRestored);
         }
     }
 
@@ -367,6 +392,31 @@ final class RepositoryStep {
             .filter(path -> after.failure().isPresent()
                 || !Arrays.equals(state.files().get(path), after.files().get(path)))
             .toList();
+    }
+
+    /**
+     * Research D-8 step 4: re-imports the content before the call of {@link #modifiedOnNode}
+     * from {@code backup} (the repository exports of the call's backup) with one repository
+     * import, then verifies it by re-export, content only (every import adds a version, P-2).
+     * A failing re-import is only logged: the re-export decides. Created files are not touched
+     * (an import cannot delete).
+     */
+    Rollback rollback(NodeId node, ImportPort port, NodeState state, Reread after,
+        List<byte[]> backup) {
+        List<String> changed = modifiedOnNode(state, after);
+        if (changed.isEmpty()) {
+            return new Rollback(WriteOutcome.Rollback.NOT_NEEDED, after, List.of());
+        }
+        String owner = state.changes().scope().owner();
+        try {
+            port.importRepository(releases.repositoryArchive(backup, owner, changed), owner);
+        } catch (ToolErrorException e) {
+            LOG.warn("The repository rollback import on {} failed: {}", node, e.error().code());
+        }
+        Reread restored = reread(node, state);
+        List<String> left = modifiedOnNode(state, restored);
+        return new Rollback(left.isEmpty() ? WriteOutcome.Rollback.SUCCEEDED
+            : WriteOutcome.Rollback.FAILED, restored, left);
     }
 
     /**

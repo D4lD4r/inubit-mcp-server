@@ -83,8 +83,8 @@ import tools.jackson.databind.json.JsonMapper;
  * repository files with one {@code importRepository} before the {@code importArchive} of the
  * workflows and modules (none for repository files alone), verifies them byte for byte by a
  * re-export, writes back only the sent files and their {@code .meta} records from that
- * re-export and commits once with {@code Server-State}. Their rollback is T032/T033: until then a
- * failure after sending reports the repository files it leaves changed on the node.
+ * re-export and commits once with {@code Server-State}. Their rollback on a failure is tested in
+ * {@link RepositoryImportFailureTest} (T032/T033).
  */
 @Timeout(60)
 class RepositoryImportTest {
@@ -1083,13 +1083,15 @@ class RepositoryImportTest {
         harness.exportRepository(node, "/Root/jdoe/xsd").importRepositoryApplied(node)
             .exportRepository(node, "/Root/jdoe/xsd");
         harness.cli.then(spec -> node.putRepositoryFile(A, sent.stripTrailing()));
+        // the rollback of a.xsd (T033)
+        harness.importRepositoryApplied(node).exportRepository(node, "/Root/jdoe/xsd");
 
         WriteOutcome outcome = completed(service.importArtifacts(ImportHarness.confirmed(
             harness.repositoryPaths("Schemas", "xsd"), code)));
 
         harness.cli.verifyComplete();
         assertThat(imports()).as("no importArchive for repository files alone")
-            .containsExactly("--importRepositoryPath");
+            .containsExactly("--importRepositoryPath", "--importRepositoryPath");
         assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.FAILED);
         String report = ".reports/verify-" + outcome.auditId() + ".diff";
         assertThat(outcome.failure()).hasValueSatisfying(failure -> {
@@ -1169,13 +1171,14 @@ class RepositoryImportTest {
     }
 
     @Test
-    void aFailureAfterTheRepositoryImportKeepsTheManifestAndNamesTheChangedFiles() {
-        // the artifact import is refused after the repository import; the repository rollback
-        // is T032/T033, so the files stay changed on the node and the result says so
+    void aFailureAfterTheRepositoryImportKeepsTheManifestAndItsRepositoryFiles() {
+        // the artifact import is refused after the repository import; a.xsd is rolled back
+        // (T033, RepositoryImportFailureTest)
         ImportPreview preview = preview();
         nodeRead();
         harness.importRepositoryApplied(node).importRefused()
-            .exportRepository(node, "/Root/jdoe/xsd").exportGroup();
+            .exportRepository(node, "/Root/jdoe/xsd").exportGroup()
+            .importRepositoryApplied(node).exportRepository(node, "/Root/jdoe/xsd");
 
         WriteOutcome outcome = completed(service.importArtifacts(ImportHarness.confirmed(
             harness.group("Schemas"), preview.confirmationCode())));
@@ -1185,10 +1188,8 @@ class RepositoryImportTest {
         assertThat(outcome.failure()).hasValueSatisfying(failure ->
             assertThat(failure.code()).isEqualTo(ErrorCode.IMPORT_FAILED));
         assertThat(outcome.backupRef()).hasValue(outcome.auditId().toString());
-        assertThat(outcome.rollback()).hasValue(WriteOutcome.Rollback.FAILED);
+        assertThat(outcome.rollback()).hasValue(WriteOutcome.Rollback.SUCCEEDED);
         assertThat(outcome.createdNotRemoved()).containsExactly(B);
-        assertThat(outcome.warnings()).anySatisfy(warning -> assertThat(warning)
-            .contains(A, "not rolled back"));
         BackupStore.Manifest manifest = harness.backups.find(outcome.auditId().toString())
             .orElseThrow();
         assertThat(manifest.kind()).isEqualTo(BackupStore.Manifest.Kind.IMPORT);

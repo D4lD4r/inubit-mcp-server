@@ -410,6 +410,13 @@ synthesized new file per extension and check, by re-export, that the content typ
    - Verify by re-export, by content only as in step 3. The rolled-back files get a new version on
      the node even though their content equals the backup (P-2).
    - Created files stay and are listed in `createdNotRemoved`, because an import cannot delete.
+   - A `TIMEOUT` of `importRepository` (T033) is a failure at step `import`: the import may or may
+     not have been applied, so the workflows and modules are not sent on top of an unknown
+     repository state. The re-export decides what is rolled back, as for every other failure;
+     unlike a timed-out artifact import, the call never ends as `EXECUTED`.
+   - A repository rollback that leaves a file changed is `rollback: FAILED`; the message names the
+     paths and points to the Workbench, not to `restore_backup`, until US4 restores repository
+     files.
 5. **Write back.**
    - Only the **sent** repository files and their `.meta` records are rewritten from the re-export.
      The folder export also returns unrelated files of the folder; those are ignored.

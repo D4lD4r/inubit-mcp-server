@@ -121,11 +121,12 @@ import org.slf4j.LoggerFactory;
  *       failing re-export, a timeout whose re-export does not show the intended state, or an
  *       unexpected failure of the server itself, reported at the step it reached): the
  *       state is re-exported; if anything changed, the backup is re-imported with the target's
- *       current secrets and verified. The result is {@code FAILED} with
- *       {@code failure{code, step, message}}, the rollback state and the created artifacts that
- *       cannot be removed. The repository files are not rolled back yet (T033): sent files
- *       that the node held and that changed are named, and the rollback is then
- *       {@code FAILED}.
+ *       current secrets and verified; before that, the sent repository files the node held and
+ *       whose content changed are re-imported from the backup's repository exports and
+ *       verified (feature 008, research D-8 step 4; a timed-out repository import sends nothing
+ *       more and counts as possibly applied). The result is {@code FAILED} with
+ *       {@code failure{code, step, message}}, the rollback state and the created artifacts and
+ *       repository files that cannot be removed.
  * </ol>
  *
  * <p>Every refusal before anything is sent is a tool error, audited {@code REFUSED}. Every audit
@@ -1175,12 +1176,29 @@ public final class ImportService {
         String subject, List<String> keep, List<String> notes) {
     }
 
-    /** The outcome of a rollback and the state its verification saw, if it ran. */
-    private record Rollback(WriteOutcome.Rollback state,
-        Optional<SortedMap<String, byte[]>> seen) {
+    /**
+     * The outcome of a rollback: the one of the workflows and modules ({@code artifacts}) and
+     * the state its verification saw, if it ran, and the one of the repository files, if the
+     * call sent any (feature 008, research D-8 step 4).
+     */
+    private record Rollback(WriteOutcome.Rollback artifacts,
+        Optional<SortedMap<String, byte[]>> seen, Optional<RepositoryStep.Rollback> repository) {
 
-        static Rollback of(WriteOutcome.Rollback state) {
-            return new Rollback(state, Optional.empty());
+        static Rollback of(WriteOutcome.Rollback artifacts) {
+            return new Rollback(artifacts, Optional.empty(), Optional.empty());
+        }
+
+        Rollback with(Optional<RepositoryStep.Rollback> repository) {
+            return new Rollback(artifacts, seen, repository);
+        }
+
+        /** {@code FAILED} if either failed, else {@code SUCCEEDED} if either ran. */
+        WriteOutcome.Rollback state() {
+            List<WriteOutcome.Rollback> states = new ArrayList<>(List.of(artifacts));
+            repository.ifPresent(files -> states.add(files.state()));
+            return states.contains(WriteOutcome.Rollback.FAILED) ? WriteOutcome.Rollback.FAILED
+                : states.contains(WriteOutcome.Rollback.SUCCEEDED)
+                    ? WriteOutcome.Rollback.SUCCEEDED : WriteOutcome.Rollback.NOT_NEEDED;
         }
     }
 
@@ -1231,8 +1249,12 @@ public final class ImportService {
             try {
                 repository.send(d.imports().apply(node), call.owner, plan.repository().get());
             } catch (ToolErrorException e) {
+                // research D-8 step 4: a timed-out repository import may or may not have been
+                // applied; nothing more is sent, and the rollback re-imports what changed
                 failure = new WriteOutcome.Failure(ErrorCode.IMPORT_FAILED, "import",
-                    "The repository import failed: " + e.error().code() + ": "
+                    (e.error().code() == ErrorCode.TIMEOUT ? "The repository import timed out"
+                        + " and may have been applied, so nothing more was sent: "
+                        : "The repository import failed: ") + e.error().code() + ": "
                         + e.error().message());
             }
         }
@@ -1295,7 +1317,7 @@ public final class ImportService {
         if (current.failure().isPresent()) {
             current = export(node, changes);
         }
-        Rollback rollback = rollback(call, node, plan, auditId, current, account);
+        Rollback rollback = rollback(call, node, plan, auditId, current, after, account);
         return failed(call, node, plan, auditId, failure, rollback, current, after, reports,
             warnings);
     }
@@ -1332,7 +1354,7 @@ public final class ImportService {
             after = Optional.of(new RepositoryStep.Reread(new TreeMap<>(), Map.of(),
                 Optional.of("INTERNAL: " + again.getClass().getSimpleName())));
         }
-        Rollback rollback = rollback(call, node, plan, auditId, current, account);
+        Rollback rollback = rollback(call, node, plan, auditId, current, after, account);
         return failed(call, node, plan, auditId, failure, rollback, current, after,
             new ArrayList<>(), new ArrayList<>());
     }
@@ -1436,28 +1458,35 @@ public final class ImportService {
     }
 
     /**
-     * The {@code FAILED} result. Until the repository rollback (T033), sent repository files
-     * that the node held and that changed stay changed: they are named, and the rollback is
-     * {@code FAILED}; created ones are listed like created artifacts.
+     * The {@code FAILED} result. A failed rollback keeps the backup; the workflows and modules
+     * can be restored with {@code restore_backup}, the repository files it names only in the
+     * Workbench until {@code restore_backup} restores them (US4). Created repository files are
+     * listed like created artifacts.
      */
     private Response failed(Call call, NodeId node, Plan plan, UUID auditId,
         WriteOutcome.Failure failure, Rollback outcome, Exported current,
         Optional<RepositoryStep.Reread> after, List<String> reports, List<String> warnings) {
         ChangeSet changes = plan.changes();
         WriteOutcome.Rollback rollback = outcome.state();
-        List<String> notRolledBack = plan.repository().map(state -> repository.modifiedOnNode(
-            state, after.orElseThrow())).orElse(List.of());
-        if (!notRolledBack.isEmpty()) {
-            rollback = WriteOutcome.Rollback.FAILED;
-            warnings.add("The repository files " + String.join(", ", notRolledBack)
-                + " were changed on " + node + " and are not rolled back by this version; the"
-                + " backup " + auditId + " holds their content before the call");
-        }
+        // the repository state the call left, as the last re-export saw it
+        Optional<RepositoryStep.Reread> seen = outcome.repository()
+            .map(RepositoryStep.Rollback::seen).or(() -> after);
         WriteOutcome.Failure reported = failure;
         if (rollback == WriteOutcome.Rollback.FAILED) {
-            reported = new WriteOutcome.Failure(failure.code(), failure.step(), failure.message()
-                + "; the rollback failed: the backup " + auditId + " is kept — restore it with"
-                + " restore_backup or in the Workbench");
+            String message = failure.message() + "; the rollback failed: the backup " + auditId
+                + " is kept";
+            if (outcome.artifacts() == WriteOutcome.Rollback.FAILED) {
+                message += " — restore the workflows and modules with restore_backup or in the"
+                    + " Workbench";
+            }
+            List<String> notRestored = outcome.repository()
+                .map(RepositoryStep.Rollback::notRestored).orElse(List.of());
+            if (!notRestored.isEmpty()) {
+                message += "; the repository files " + String.join(", ", notRestored) + " on "
+                    + node + " are not back to their content before the call — re-import it in"
+                    + " the Workbench from the repository exports of the backup";
+            }
+            reported = new WriteOutcome.Failure(failure.code(), failure.step(), message);
         }
         List<String> createdNotRemoved = new ArrayList<>(sentArtifacts(changes).stream()
             .filter(artifact -> artifact.kind() == ChangedArtifact.Kind.NEW)
@@ -1465,12 +1494,12 @@ public final class ImportService {
                 || !artifactFiles(current.files(), artifact).isEmpty())
             .map(ChangedArtifact::name).toList());
         plan.repository().ifPresent(state -> createdNotRemoved.addAll(repository.createdOnNode(
-            state, after.orElseThrow())));
+            state, seen.orElseThrow())));
         createdNotRemoved.addAll(plan.keep());
         keep(createdNotRemoved, warnings);
         // research D-25 H7: the state the call left, as its last verification saw it
         updateManifest(call, node, changes, auditId, "FAILED", outcome.seen()
-            .orElse(current.files()), after.map(RepositoryStep.Reread::files)
+            .orElse(current.files()), seen.map(RepositoryStep.Reread::files)
             .orElse(new TreeMap<>()));
         call.rollback = rollback.name();
         Optional<WriteOutcome.TagResult> tag = notTagged(call, warnings, "the import failed");
@@ -1486,10 +1515,32 @@ public final class ImportService {
     }
 
     /**
+     * Research D-8 step 4: first the repository files ({@link RepositoryStep#rollback}, from the
+     * backup's repository exports), so that the workflows and modules are restored against
+     * their previous content; then the workflows and modules ({@link #rollbackArtifacts}).
+     *
+     * @param after the repository re-export after the failure, if the call sent repository files
+     */
+    private Rollback rollback(Call call, NodeId node, Plan plan, UUID auditId,
+        Exported current, Optional<RepositoryStep.Reread> after, Account account) {
+        Optional<RepositoryStep.Rollback> files = plan.repository().map(state -> {
+            try {
+                return repository.rollback(node, d.imports().apply(node), state,
+                    after.orElseThrow(), repositoryExports(auditId.toString()));
+            } catch (RuntimeException e) {
+                LOG.error("The repository rollback on {} failed", node, e);
+                return new RepositoryStep.Rollback(WriteOutcome.Rollback.FAILED,
+                    after.orElseThrow(), repository.modifiedOnNode(state, after.orElseThrow()));
+            }
+        });
+        return rollbackArtifacts(call, node, plan, auditId, current, account).with(files);
+    }
+
+    /**
      * Research D-10, D-25: the modified artifacts go back to the backup's state with the
      * target's current secrets, if they changed; verified by another export.
      */
-    private Rollback rollback(Call call, NodeId node, Plan plan, UUID auditId,
+    private Rollback rollbackArtifacts(Call call, NodeId node, Plan plan, UUID auditId,
         Exported current, Account account) {
         ChangeSet changes = plan.changes();
         List<ChangedArtifact> existing = sentArtifacts(changes).stream()
@@ -1527,7 +1578,7 @@ public final class ImportService {
             }
             return new Rollback(sameState(existing, before, after.files())
                 ? WriteOutcome.Rollback.SUCCEEDED : WriteOutcome.Rollback.FAILED,
-                Optional.of(after.files()));
+                Optional.of(after.files()), Optional.empty());
         } catch (RuntimeException e) {
             LOG.error("The rollback on {} failed", node, e);
             return Rollback.of(WriteOutcome.Rollback.FAILED);
@@ -1771,6 +1822,11 @@ public final class ImportService {
     private List<byte[]> artifactExports(String ref) {
         return d.backups().exports(ref).stream()
             .filter(zip -> !d.releases().repositoryExport(zip)).toList();
+    }
+
+    /** The repository exports of backup {@code ref} (D-8). */
+    private List<byte[]> repositoryExports(String ref) {
+        return d.backups().exports(ref).stream().filter(d.releases()::repositoryExport).toList();
     }
 
     private Exported export(NodeId node, ChangeSet changes) {

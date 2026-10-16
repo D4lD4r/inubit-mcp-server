@@ -467,7 +467,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
     hash; update `thePreviewAndTheConfirmedCallAuditEveryRepositoryFileWithOperationAndHash`, which
     expects the interim guard's REFUSED today; compute the audit hashes once when `call.changes` is
     set, so an unreadable file cannot break the FAILED record (T027 notes and review).
-- [ ] T032 [US1] Write failing tests in `test/application/RepositoryImportFailureTest.java`:
+- [X] T032 [US1] Write failing tests in `test/application/RepositoryImportFailureTest.java`:
   - the repository import reports NOK;
   - a repository verify mismatch;
   - the artifact import fails after a successful repository import.
@@ -476,7 +476,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
   rollback and verified, created files are listed in `createdNotRemoved`, and `rollback` is
   `SUCCEEDED`. A failing repository rollback gives `rollback: FAILED` with the paths. The manifest
   gets `FAILED`.
-- [ ] T033 [US1] Implement the repository rollback in `main/application/RepositoryStep.java`, called
+- [X] T033 [US1] Implement the repository rollback in `main/application/RepositoryStep.java`, called
   first from `ImportService.rollback`.
   Carry-over from T029+T031 (implementer notes and review):
   - before the artifact rollback, re-import the previous content of `repository.modifiedOnNode(state,
