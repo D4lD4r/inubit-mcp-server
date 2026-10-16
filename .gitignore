@@ -5,6 +5,11 @@ target/
 *.iml
 .idea/
 .vscode/
+# Eclipse / Java language server (VS Code Java, Claude's LSP) project files
+.classpath
+.project
+.settings/
+.factorypath
 
 # Logs
 *.log
