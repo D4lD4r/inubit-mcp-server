@@ -1380,8 +1380,14 @@ public final class ImportService {
         if (call.tag.isPresent()) {
             call.step = "tag";
             DiagramGroupTagger.Result result = tag(call, node, changes, auditId);
+            // research D-12: every repository file of a diagram-group change set is in the
+            // closure of the group's modules, which INUBIT's group tag covers (probe P-3)
+            List<String> repositoryFiles = changes.repository().stream()
+                .map(ChangedArtifact::name).toList();
             tag = Optional.of(new WriteOutcome.TagResult(call.tag.get(), result.applied(),
-                result.workflows(), result.modules(), result.failure()));
+                result.workflows(), result.modules(), result.failure(),
+                result.applied() && !repositoryFiles.isEmpty() ? Optional.of(repositoryFiles)
+                    : Optional.empty()));
             reports.addAll(result.reports());
             call.tagApplied = String.valueOf(result.applied());
             message += result.applied() ? "; tagged the diagram group with " + call.tag.get()

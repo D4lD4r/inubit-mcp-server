@@ -486,7 +486,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
     `failed()`; use the post-rollback reread as the FAILED manifest's repository state;
   - decide how a TIMEOUT of `importRepository` is handled (today a plain IMPORT_FAILED);
   - the failure text must not point to `restore_backup` for repository files before US4.
-- [ ] T034 [US1] Tag information (D-12, from the P-3 result):
+- [X] T034 [US1] Tag information (D-12, from the P-3 result):
   - `WriteOutcome.tag.repositoryFiles` lists the imported paths in the closure of the group's
     modules, both those a module references directly and those only another repository file
     references (P-3: INUBIT's group tag covers both);

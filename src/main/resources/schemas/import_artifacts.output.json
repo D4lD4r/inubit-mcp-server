@@ -117,6 +117,7 @@
             "applied": { "type": "boolean" },
             "workflows": { "type": "integer", "minimum": 0, "description": "Technical workflows whose current version carries the tag" },
             "modules": { "type": "integer", "minimum": 0, "description": "Modules whose current version carries the tag" },
+            "repositoryFiles": { "type": "array", "items": { "type": "string" }, "description": "Only if the tag was applied and the import sent repository files: their full paths, all in the closure of the group's modules (referenced by a module directly or only by another repository file), which INUBIT's group tag covers; information, not verified" },
             "failure": {
               "type": "object",
               "required": ["code", "step", "message"],

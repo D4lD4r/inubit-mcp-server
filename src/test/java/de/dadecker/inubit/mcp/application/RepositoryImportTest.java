@@ -1298,4 +1298,71 @@ class RepositoryImportTest {
         });
         assertThat(node.repositoryContent(A)).hasValue(harness.read(file(A)));
     }
+
+    // --- T034: tag information (research D-12, probe P-3) -------------------------------------
+
+    @Test
+    void theTagListsTheImportedRepositoryFilesTheGroupReferencesDirectlyAndIndirectly()
+        throws IOException {
+        // Module-0003 references a.xsd in its server state; a.xsd now includes the new d.xsd,
+        // which no module references: INUBIT's group tag covers both (P-3)
+        String d = "/Root/jdoe/xsd/d.xsd";
+        harness.edit(harness.workflow("Workflow-0001"), "xPos=\"140\"", "xPos=\"120\"");
+        harness.edit(harness.moduleDirectory("Module-0003") + "/module.xml",
+            "<Property name=\"x.b\">inubitrepository:" + B + "</Property>", "");
+        revertA();
+        Files.delete(harness.root.resolve(file(B)));
+        harness.exports.history.commitAll("export dev/jdoe: GRP-01",
+            Map.of(VersionHistoryPort.SERVER_STATE, ImportHarness.DEV.group().value()));
+        harness.inubit.changeModule("Module-0003", xml -> xml.replace("</Properties>",
+            "<Property name=\"x.a\">inubitrepository:" + A + "</Property></Properties>"));
+        harness.edit(file(A), "</xs:schema>",
+            "  <xs:include schemaLocation=\"d.xsd\"/>\n</xs:schema>");
+        harness.write(file(d), schema("d"));
+        ImportService.ImportRequest request = harness.tagged("Schemas", "REL-1");
+        nodeRead();
+        ImportPreview preview = ((ImportService.Response.Challenge) service.importArtifacts(
+            request)).preview();
+        assertThat(preview.modify()).containsExactly(A);
+        assertThat(preview.create()).containsExactly(d);
+        nodeRead();
+        harness.importRepositoryApplied(node).exportRepository(node, "/Root/jdoe/xsd")
+            .tagMoved("REL-1", false).historyExport("REL-1");
+
+        WriteOutcome outcome = completed(service.importArtifacts(ImportHarness.confirmed(
+            request, preview.confirmationCode())));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.tag()).hasValueSatisfying(tag -> {
+            assertThat(tag.applied()).isTrue();
+            assertThat(tag.repositoryFiles()).hasValue(List.of(A, d));
+        });
+        assertThat(outcome.warnings()).noneMatch(warning -> warning.contains(d));
+    }
+
+    @Test
+    void aTagOfAnImportWithoutRepositoryFilesListsNone() {
+        // Workflow-0001 alone changed: no repository file is imported
+        harness.edit(harness.moduleDirectory("Module-0003") + "/module.xml",
+            "<Property name=\"x.a\">inubitrepository:" + A + "</Property>"
+                + "<Property name=\"x.b\">inubitrepository:" + B + "</Property>", "");
+        revertA();
+        harness.exportGroup();
+        ImportService.ImportRequest request = harness.tagged("Workflow", "REL-1");
+        ImportPreview preview = ((ImportService.Response.Challenge) service.importArtifacts(
+            request)).preview();
+        assertThat(preview.modify()).containsExactly("Workflow-0001");
+        harness.exportGroup().importApplied().exportGroup().tagMoved("REL-1", false)
+            .historyExport("REL-1");
+
+        WriteOutcome outcome = completed(service.importArtifacts(ImportHarness.confirmed(
+            request, preview.confirmationCode())));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.tag()).hasValueSatisfying(tag -> {
+            assertThat(tag.applied()).isTrue();
+            assertThat(tag.repositoryFiles()).isEmpty();
+        });
+    }
 }
