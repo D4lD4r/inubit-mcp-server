@@ -146,6 +146,8 @@ public final class ImportService {
     private static final Pattern AUDIT_ID = Pattern.compile(
         "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
     private static final String DIAGRAM_GROUP = "diagram group ";
+    /** The prefix of {@link ImportScope#describe()} for repository paths. */
+    private static final String REPOSITORY_PATHS = "repository paths ";
     private static final int MAX_MODULES = 50;
     private static final int MAX_AUDITED_NAMES = 20;
     private static final int MAX_AUDITED_INPUT = 500;
@@ -685,7 +687,9 @@ public final class ImportService {
      *   <li>reason, code and {@code backupRef} (an audit id) are checked, then the guard; the
      *       backup must exist for this node — unknown, removed (retention sweep at the start)
      *       or foreign references are {@code NOT_FOUND} before anything is read from INUBIT;
-     *   <li>the backup is rendered in memory (for the backup's owner);
+     *   <li>the backup is rendered in memory (for the backup's owner); the repository files
+     *       the call changed that existed before it are taken from its repository exports
+     *       (feature 008, research D-9);
      *   <li>the conflict check compares the scope's fresh export with the state the referenced
      *       call left — the intended-state hashes of its manifest, which a failed call records
      *       as its last verification saw them; an artifact without recorded state is
@@ -770,7 +774,8 @@ public final class ImportService {
         commitLocalChanges();
         SortedMap<String, byte[]> before = d.codec().prepare(node.group(), call.owner,
             artifactExports(ref)).files();
-        Optional<ChangeSet> restorable = restoreSet(node, manifest, before);
+        Optional<ChangeSet> restorable = restoreSet(node, manifest, before,
+            repositoryBefore(manifest));
         if (restorable.isEmpty()) {
             UUID auditId = d.ids().get();
             call.append(auditId, AuditRecord.Step.EXECUTE, AuditOutcome.EXECUTED,
@@ -800,8 +805,10 @@ public final class ImportService {
             throw changedSincePreview(node);
         }
         Account account = d.accounts().apply(node);
-        ImportArchivePort.Archive archive = d.archives().assemble(build(changes, call, before,
-            fresh.raw(), call.reason, account, Set.of()));
+        // repository files alone (FR-011a) have no artifact archive
+        ImportArchivePort.Archive archive = changes.workflows().isEmpty()
+            && changes.modules().isEmpty() ? null : d.archives().assemble(build(changes, call,
+                before, fresh.raw(), call.reason, account, Set.of()));
         if (server && call.confirmationCode.isEmpty()) {
             List<String> notes = new ArrayList<>(List.of("Re-imports the state before the call "
                 + ref + " (backup taken " + manifest.takenAt() + "); each artifact gets a new"
@@ -812,6 +819,17 @@ public final class ImportService {
             }
             return writeChallenge(call, node, policy, changes.scope().describe(),
                 changes.modified(), notes, inputs, fresh.fingerprint());
+        }
+        if (!changes.repository().isEmpty()) {
+            // interim until T043 sends, verifies and rolls back the repository files of a
+            // restore: refused before the backup, so nothing is sent
+            throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+                "Restoring the repository files " + String.join(", ", names(
+                    changes.repository())) + " is not available in this version; nothing was"
+                    + " sent",
+                "The restore of repository files is not complete yet",
+                "Re-import the content before the call in the Workbench from the repository"
+                    + " exports of the backup " + ref).withNode(node));
         }
         return execute(call, node, new Plan(changes, archive, Optional.empty(),
             restoreMode(changes, before), restoreMode(changes, fresh.rendered()), before::get,
@@ -931,11 +949,31 @@ public final class ImportService {
     }
 
     /**
-     * The artifacts of the referenced call that existed before it, as rendered from its backup;
-     * empty if there are none.
+     * Research D-9: full repository path → content before the call, of the manifest's
+     * {@code repositoryPaths} that the backup's repository exports hold, i.e. that existed
+     * before the call (the files it created are absent from them).
+     */
+    private SortedMap<String, byte[]> repositoryBefore(BackupStore.Manifest manifest) {
+        SortedMap<String, byte[]> files = new TreeMap<>();
+        for (byte[] zip : repositoryExports(manifest.auditId())) {
+            d.releases().repositoryFiles(zip).forEach((path, content) -> {
+                if (manifest.repositoryPaths().contains(path)) {
+                    files.putIfAbsent(path, content);
+                }
+            });
+        }
+        return files;
+    }
+
+    /**
+     * The artifacts of the referenced call that existed before it, as rendered from its backup,
+     * and its repository files that existed before it ({@code repository}, research D-9); empty
+     * if there are none. The scope is the call's: its diagram group, the restored modules, or
+     * its repository paths ({@code repository paths …}); if only repository files of a module
+     * call are restored, their own paths.
      */
     private static Optional<ChangeSet> restoreSet(NodeId node, BackupStore.Manifest manifest,
-        SortedMap<String, byte[]> before) {
+        SortedMap<String, byte[]> before, SortedMap<String, byte[]> repository) {
         String owner = manifest.owner();
         Optional<String> diagramGroup = manifest.scope().startsWith(DIAGRAM_GROUP)
             ? Optional.of(manifest.scope().substring(DIAGRAM_GROUP.length()))
@@ -966,21 +1004,40 @@ public final class ImportService {
                     Optional.of(base)));
             }
         }
-        if (workflows.isEmpty() && modules.isEmpty()) {
+        List<ChangedArtifact> files = repository.keySet().stream().map(path ->
+            new ChangedArtifact(ArtifactRef.repositoryFile(node.group(), owner, path),
+                ChangedArtifact.Kind.MODIFIED, List.of(WorkspacePath.repository(node.group(),
+                    owner, path).toRelativePath().toString().replace('\\', '/')),
+                Optional.of(base))).toList();
+        if (workflows.isEmpty() && modules.isEmpty() && files.isEmpty()) {
             return Optional.empty();
         }
-        ImportScope scope = diagramGroup.map(group -> ImportScope.diagramGroup(node.group(),
-            owner, group)).orElseGet(() -> ImportScope.modules(node.group(), owner,
-            modules.stream().map(module -> new ImportScope.Module(module.name(),
-                module.ref().pluginType())).toList()));
-        return Optional.of(new ChangeSet(scope, base, workflows, modules, List.of()));
+        ImportScope scope;
+        if (diagramGroup.isPresent()) {
+            scope = ImportScope.diagramGroup(node.group(), owner, diagramGroup.get());
+        } else if (!modules.isEmpty()) {
+            scope = ImportScope.modules(node.group(), owner, modules.stream().map(module ->
+                new ImportScope.Module(module.name(), module.ref().pluginType())).toList());
+        } else if (manifest.scope().startsWith(REPOSITORY_PATHS)) {
+            // relative paths hold no comma (RepositoryPaths)
+            scope = ImportScope.repositoryPaths(node.group(), owner, List.of(manifest.scope()
+                .substring(REPOSITORY_PATHS.length()).split(", ")));
+        } else {
+            scope = ImportScope.repositoryPaths(node.group(), owner, repository.keySet()
+                .stream().map(path -> path.substring(("/Root/" + owner + "/").length()))
+                .toList());
+        }
+        return Optional.of(new ChangeSet(scope, base, workflows, modules, files, List.of(),
+            List.of(), List.of()));
     }
 
     /**
      * Research D-25 H7: every artifact must show the state the referenced call left; a
      * workflow in Workbench edit mode is a conflict as well. A state recorded by 0.5.0 or
      * earlier (over the renderings, connections in file order) is recognised too (feature 007,
-     * contract P-5).
+     * contract P-5). A repository file (research D-9) must show its {@code repository:<path>}
+     * state ({@link BackupStore#repositoryState}) in the node's current content; one the node
+     * no longer holds is changed.
      */
     private void requireStateLeftBy(NodeId node, BackupStore.Manifest manifest,
         ChangeSet changes, Fresh fresh, UUID auditId) {
@@ -989,9 +1046,22 @@ public final class ImportService {
         List<String> editMode = new ArrayList<>();
         List<String> lines = new ArrayList<>();
         for (ChangedArtifact artifact : changes.artifacts()) {
-            String left = manifest.intendedState().get(artifact.name());
+            boolean repositoryFile = artifact.ref().kind() == ArtifactRef.Kind.REPOSITORY_FILE;
+            String key = repositoryFile ? "repository:" + artifact.name() : artifact.name();
+            String left = manifest.intendedState().get(key);
             if (left == null) {
                 unknown.add(artifact.name());
+                continue;
+            }
+            if (repositoryFile) {
+                byte[] content = fresh.repository().get(artifact.name());
+                String now = content == null ? "absent" : BackupStore.repositoryState(
+                    Map.of(artifact.name(), content)).get(key);
+                if (!left.equals(now)) {
+                    changed.add(artifact.name());
+                    lines.add("=== " + artifact.name() + ": differs from the state the call "
+                        + manifest.auditId() + " left (" + left + " then, " + now + " now)");
+                }
                 continue;
             }
             SortedMap<String, byte[]> files = artifactFiles(fresh.rendered(), artifact);
@@ -1041,13 +1111,19 @@ public final class ImportService {
         }
     }
 
-    /** The scope's current state on the node (research D-5), for restore and set_active. */
+    /**
+     * The scope's current state on the node (research D-5), for restore and set_active.
+     *
+     * @param repository repository path → the node's content, for the change set's repository
+     *                   files the node holds (research D-9)
+     */
     private record Fresh(List<byte[]> raw, SortedMap<String, byte[]> rendered,
-        Map<String, String> editMode, String fingerprint) {
+        Map<String, String> editMode, String fingerprint, SortedMap<String, byte[]> repository) {
 
         @Override
         public String toString() {
-            return "Fresh[" + raw.size() + " exports, " + fingerprint + "]";
+            return "Fresh[" + raw.size() + " exports, " + repository.size()
+                + " repository files, " + fingerprint + "]";
         }
     }
 
@@ -1058,9 +1134,11 @@ public final class ImportService {
         ArchiveCodecPort.PreparedExport prepared = exported.prepared();
         SortedMap<String, byte[]> rendered = prepared.files();
         SortedMap<String, byte[]> artifacts = new TreeMap<>();
-        changes.artifacts().forEach(artifact -> artifacts.putAll(artifactFiles(rendered,
+        sentArtifacts(changes).forEach(artifact -> artifacts.putAll(artifactFiles(rendered,
             artifact)));
-        return new Fresh(raw, rendered, prepared.inEditMode(), fingerprint(artifacts));
+        SortedMap<String, byte[]> files = changes.repository().isEmpty() ? new TreeMap<>()
+            : repository.current(node, changes.scope().owner(), names(changes.repository()));
+        return new Fresh(raw, rendered, prepared.inEditMode(), fingerprint(artifacts), files);
     }
 
     private static ToolErrorException changedSincePreview(NodeId node) {

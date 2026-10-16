@@ -560,7 +560,7 @@ node's content equals the content before the import byte for byte.
     `rollback`, and the restore preview's `modify` lists the repository paths;
   - a `DEPLOYMENT` backup on a node that is not a development stage restores as in feature 005
     regardless of the switch (a new case in `test/application/RestoreDeploymentTest.java`).
-- [ ] T041 [US4] Restore set, scope and conflict check in `main/application/ImportService.java`:
+- [X] T041 [US4] Restore set, scope and conflict check in `main/application/ImportService.java`:
   - `restoreSet` takes the manifest's `repositoryPaths` that existed before the call, with their
     content from the backup's repository exports (`ReleaseArchivePort.repositoryExport` /
     `repositoryFiles`), also when the backup holds repository files only;
@@ -574,6 +574,12 @@ node's content equals the content before the import byte for byte.
 - [ ] T043 [US4] Execute, verify and roll back restores through `main/application/RepositoryStep.java`
   (repository files first, then artifacts). `res/schemas/restore_backup.output.json` lets the
   `modify` list carry repository paths (a description change only).
+  Carry-over from T040+T041 (review r1): remove the interim `PRECONDITION_FAILED` block in
+  `restoreLocked` ("interim until T043") and replace the test
+  `untilT043AConfirmedRestoreOfRepositoryFilesIsRefusedBeforeAnythingIsSent` with one asserting the
+  previous content of a.xsd and c.xsd on the node after a confirmed restore; add tests for a module
+  or diagram-group call that also changed repository files and for the "absent" conflict (the node
+  no longer holds the file or folder).
 
 **Checkpoint**: all user stories complete.
 

@@ -306,6 +306,18 @@ final class RepositoryStep {
     }
 
     /**
+     * Research D-9: the node's current content of the repository files {@code paths} of
+     * {@code owner}, read like {@link #nodeState} (one export per parent folder), for the
+     * conflict check of a restore.
+     *
+     * @return repository path → content, for the files the node holds
+     * @throws ToolErrorException the errors of the exports (naming the node)
+     */
+    SortedMap<String, byte[]> current(NodeId node, String owner, List<String> paths) {
+        return read(node, owner, paths).held();
+    }
+
+    /**
      * Sends the uploads of {@code state} to the node with one repository import into
      * {@code /Root/<owner>} (research D-8 step 2).
      *
