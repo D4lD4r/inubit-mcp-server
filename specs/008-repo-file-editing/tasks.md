@@ -511,7 +511,7 @@ editing and creating.
 Confirm that its files appear below `repository/Root/<owner>/…`, key material is not written, and
 the export is one history entry with `Server-State`.
 
-- [ ] T036 [US3] Write failing tests in
+- [X] T036 [US3] Write failing tests in
   `test/application/WorkspaceServiceRepositoryExportTest.java` (D-10):
   - recursive folder export;
   - if one of several paths is missing, the whole call is `NOT_FOUND` naming every missing path,
@@ -528,7 +528,7 @@ the export is one history entry with `Server-State`.
   `main/adapter/archive/v81/ArchiveCodec.java` with the `WorkspaceWriter` repository branch. The
   scope is "the exported paths and their `.meta` mirrors only". Test in
   `test/adapter/archive/v81/ArchiveCodecTest.java`.
-- [ ] T038 [US3] `main/application/WorkspaceService.java`: the repository scope
+- [X] T038 [US3] `main/application/WorkspaceService.java`: the repository scope
   (`exportRepository("/Root/<owner>/<path>")` per path), the limits and the commit. `ExportRequest`
   requires "exactly one of diagramGroups, modules or repositoryPaths".
 - [ ] T039 [US3] `main/mcp/tools/ExportArtifactsTool.java` and

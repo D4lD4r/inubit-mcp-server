@@ -4,8 +4,10 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.HistoryEntry;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.PathChange;
+import de.dadecker.inubit.mcp.domain.model.RepositoryPaths;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import de.dadecker.inubit.mcp.domain.port.ArchiveCodecPort;
 import de.dadecker.inubit.mcp.domain.port.ArchiveCodecPort.PreparedExport;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
@@ -19,6 +21,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -34,9 +37,12 @@ import java.util.function.Supplier;
  *   <li>lock the workspace — a second export or check is refused at once (FR-020);
  *   <li>commit uncommitted changes as {@code local changes: <n> files} (clarification 1, FR-019);
  *   <li>run the StartCLI export(s) and read, redact and render them in memory — a failure leaves
- *       files and history untouched (FR-018);
+ *       files and history untouched (FR-018); a repository export (feature 008, research D-10)
+ *       runs one export per path, fails as a whole if any path is missing and is refused above
+ *       500 files or 100 MiB, all before anything is written;
  *   <li>replace the affected sub-trees (FR-017) — a failure while writing restores the owner's
- *       directories from the last history entry (safe because step 2 committed everything);
+ *       directories from the last history entry (safe because step 2 committed everything); a
+ *       repository export overwrites the files of its paths and deletes none;
  *   <li>commit {@code export <group>/<node>: <what> (<n> files)} if anything changed, with the
  *       trailer {@code Server-State: <group>}: the entry records a server state, the base of
  *       later imports (feature 004, research D-3, D-25);
@@ -49,6 +55,10 @@ public final class WorkspaceService {
     private static final String GITIGNORE = ".gitignore";
     /** The directory of full result lists (ignored by the history). */
     private static final String REPORTS = ".reports";
+    /** The most files one repository export writes (FR-009). */
+    private static final int MAX_REPOSITORY_FILES = 500;
+    /** The most bytes one repository export writes (FR-009): 100 MiB. */
+    private static final long MAX_REPOSITORY_BYTES = 100L << 20;
 
     /** A module to export; without a plugin type it is looked up in the module list. */
     public record ModuleRef(String name, Optional<String> pluginType) {
@@ -61,22 +71,68 @@ public final class WorkspaceService {
 
     /**
      * What to export from {@code node} for {@code owner}: exactly one of {@code diagramGroups}
-     * (technical workflows only) and {@code modules} is non-empty.
+     * (technical workflows only), {@code modules} and {@code repositoryPaths} is non-empty.
+     * Repository paths (feature 008, FR-009) are 1–{@value #MAX_REPOSITORY_PATHS} normalized
+     * paths relative to {@code /Root/<owner>} ({@link RepositoryPaths#relativeValid}) of which no
+     * two differ only in letter case.
      */
     public record ExportRequest(NodeId node, String owner, List<String> diagramGroups,
-        List<ModuleRef> modules) {
+        List<ModuleRef> modules, List<String> repositoryPaths) {
+
+        /** The most repository paths of one export (FR-009). */
+        public static final int MAX_REPOSITORY_PATHS = 20;
+
+        /** A diagram-group or module export. */
+        public ExportRequest(NodeId node, String owner, List<String> diagramGroups,
+            List<ModuleRef> modules) {
+            this(node, owner, diagramGroups, modules, List.of());
+        }
 
         public ExportRequest {
             Objects.requireNonNull(node, "node");
             Objects.requireNonNull(owner, "owner");
             diagramGroups = List.copyOf(diagramGroups);
             modules = List.copyOf(modules);
-            if (diagramGroups.isEmpty() == modules.isEmpty()) {
-                throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
-                    "Give either diagramGroups or modules, not both and not neither",
-                    "One export covers diagram groups or single modules",
-                    "Call export_artifacts once per kind"));
+            repositoryPaths = List.copyOf(repositoryPaths);
+            int scopes = (diagramGroups.isEmpty() ? 0 : 1) + (modules.isEmpty() ? 0 : 1)
+                + (repositoryPaths.isEmpty() ? 0 : 1);
+            if (scopes != 1) {
+                throw invalidInput("Give exactly one of diagramGroups, modules or repositoryPaths",
+                    "One export covers diagram groups, single modules or repository paths",
+                    "Call export_artifacts once per kind");
             }
+            checkRepositoryPaths(owner, repositoryPaths);
+        }
+
+        private static void checkRepositoryPaths(String owner, List<String> paths) {
+            if (paths.size() > MAX_REPOSITORY_PATHS) {
+                throw invalidInput("At most " + MAX_REPOSITORY_PATHS + " repositoryPaths per"
+                    + " export, not " + paths.size(), "The export covers too many paths",
+                    "Export a common parent folder or split the paths over several calls");
+            }
+            Map<String, String> byLowerCase = new HashMap<>();
+            for (String path : paths) {
+                if (!RepositoryPaths.relativeValid(path)) {
+                    throw invalidInput("The repository path '" + path + "' is not a path"
+                        + " relative to /Root/" + owner,
+                        "A repository path has no leading /, no empty, . or .. segment, no %"
+                            + " and is not the owner's root itself",
+                        "Give the path below /Root/" + owner + ", e.g. stylesheets/common");
+                }
+                String other = byLowerCase.putIfAbsent(path.toLowerCase(Locale.ROOT), path);
+                if (other != null) {
+                    throw invalidInput("The repository paths " + other + " and " + path
+                        + " differ only in letter case",
+                        "They would overwrite each other on a case-insensitive file system",
+                        "Export only one of them");
+                }
+            }
+        }
+
+        private static ToolErrorException invalidInput(String message, String likelyCause,
+            String nextStep) {
+            return new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT, message,
+                likelyCause, nextStep));
         }
     }
 
@@ -130,8 +186,10 @@ public final class WorkspaceService {
      *
      * @throws ToolErrorException {@code PRECONDITION_FAILED} (workspace busy or not usable, or a
      *     write failed and was undone), the errors of the artifact port, {@code NOT_FOUND} for a
-     *     module missing from the module list, {@code UNEXPECTED_RESPONSE} for an archive that
-     *     cannot be processed, {@code INVALID_INPUT} for a case-only path collision
+     *     module missing from the module list or for missing repository paths (all named),
+     *     {@code UNEXPECTED_RESPONSE} for an archive that cannot be processed,
+     *     {@code INVALID_INPUT} for a case-only path collision or a repository export over its
+     *     limits
      */
     public ExportResult export(ExportRequest request) {
         NodeId node = request.node();
@@ -140,8 +198,12 @@ public final class WorkspaceService {
             Optional<HistoryEntry> localChanges = commitLocalChanges();
             ArtifactPort port = artifacts.apply(node);
             List<byte[]> archives = new ArrayList<>();
+            boolean repository = !request.repositoryPaths().isEmpty();
             String what;
-            if (!request.diagramGroups().isEmpty()) {
+            if (repository) {
+                archives.addAll(exportRepository(port, request));
+                what = "repository " + String.join(", ", request.repositoryPaths());
+            } else if (!request.diagramGroups().isEmpty()) {
                 for (String diagramGroup : request.diagramGroups()) {
                     archives.add(port.exportWorkflowGroup(request.owner(), diagramGroup));
                 }
@@ -156,8 +218,12 @@ public final class WorkspaceService {
                 }
                 what = describe("module", names);
             }
-            PreparedExport prepared = withNode(node, () -> codec.prepare(node.group(),
-                request.owner(), archives));
+            PreparedExport prepared = withNode(node, () -> repository
+                ? codec.prepareRepository(node.group(), request.owner(), archives)
+                : codec.prepare(node.group(), request.owner(), archives));
+            if (repository) {
+                checkRepositoryLimits(node, prepared);
+            }
             Optional<HistoryEntry> export;
             try {
                 prepared.writeTo(root);
@@ -212,6 +278,61 @@ public final class WorkspaceService {
             return Optional.empty();
         }
         return history.commitAll("local changes: " + changes.size() + " files");
+    }
+
+    /**
+     * One repository export per requested path (research D-10). Every path is tried, so that a
+     * {@code NOT_FOUND} names all missing paths; nothing has been written at this point.
+     */
+    private static List<byte[]> exportRepository(ArtifactPort port, ExportRequest request) {
+        List<byte[]> archives = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+        for (String path : request.repositoryPaths()) {
+            String full = RepositoryPaths.full(request.owner(), path);
+            try {
+                archives.add(port.exportRepository(full));
+            } catch (ToolErrorException e) {
+                if (e.error().code() != ErrorCode.NOT_FOUND) {
+                    throw e;
+                }
+                missing.add(full);
+            }
+        }
+        if (!missing.isEmpty()) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.NOT_FOUND,
+                "The repository path(s) " + String.join(", ", missing) + " do not exist on "
+                    + request.node() + "; nothing was exported",
+                "The repository file or folder does not exist (paths are case-sensitive)",
+                "Check the paths below /Root/" + request.owner()
+                    + " in the Workbench repository, then retry")
+                .withNode(request.node()));
+        }
+        return archives;
+    }
+
+    /**
+     * The limits of one repository export (FR-009), checked before anything is written: the
+     * rendered files without their {@code .meta} records, by count and size.
+     */
+    private static void checkRepositoryLimits(NodeId node, PreparedExport prepared) {
+        int files = 0;
+        long bytes = 0;
+        for (Map.Entry<String, byte[]> file : prepared.files().entrySet()) {
+            if (!file.getKey().startsWith(WorkspacePath.META_DIRECTORY + "/")) {
+                files++;
+                bytes += file.getValue().length;
+            }
+        }
+        if (files > MAX_REPOSITORY_FILES || bytes > MAX_REPOSITORY_BYTES) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
+                "The repository export holds " + files + " files and "
+                    + String.format(Locale.ROOT, "%.1f", bytes / (double) (1 << 20))
+                    + " MiB; one export writes at most " + MAX_REPOSITORY_FILES + " files and "
+                    + (MAX_REPOSITORY_BYTES >> 20) + " MiB",
+                "The repository paths cover too many or too large files",
+                "Export narrower repository paths (sub-folders or single files)")
+                .withNode(node));
+        }
     }
 
     /** The plugin type of each requested module, looked up once if any is missing. */

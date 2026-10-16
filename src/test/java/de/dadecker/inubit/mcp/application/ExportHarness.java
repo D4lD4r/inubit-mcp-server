@@ -75,6 +75,11 @@ public final class ExportHarness {
         return new WorkspaceService.ExportRequest(DEV, owner, List.of(), List.of(modules));
     }
 
+    static WorkspaceService.ExportRequest repositoryPaths(String owner, String... paths) {
+        return new WorkspaceService.ExportRequest(DEV, owner, List.of(), List.of(),
+            List.of(paths));
+    }
+
     private InventoryPort inventory() {
         return new InventoryPort() {
             @Override
