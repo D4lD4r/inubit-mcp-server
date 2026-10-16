@@ -90,6 +90,10 @@ import org.slf4j.LoggerFactory;
  * {@code .meta} records from the re-export, never the other files of the folders. On a failure
  * after sending, {@link #rollback} re-imports the previous content of the files that changed on
  * the node from the backup's repository exports and verifies it the same way (D-8 step 4).
+ *
+ * <p>Restore (research D-9): {@link #restoreState} reads the node like {@link #nodeState} and
+ * takes the uploads from the referenced backup, so that the same send, verification (against
+ * the backup content), write-back and rollback (from the restore's own backup) apply.
  */
 final class RepositoryStep {
 
@@ -307,15 +311,31 @@ final class RepositoryStep {
     }
 
     /**
-     * Research D-9: the node's current content of the repository files {@code paths} of
-     * {@code owner}, read like {@link #nodeState} (one export per parent folder), for the
-     * conflict check of a restore.
+     * Research D-9: the node state of a restore of the repository files of {@code changes} (the
+     * restore set, every file MODIFIED). The node's current content is read like
+     * {@link #nodeState} (one export per parent folder) for the conflict check, the restore's own
+     * backup and its rollback; each upload holds the content and the metadata before the
+     * referenced call, from the first of {@code backup} (that call's repository exports) that
+     * has the file, as {@link ReleaseArchivePort#repositoryArchive} takes them for a rollback.
      *
-     * @return repository path → content, for the files the node holds
      * @throws ToolErrorException the errors of the exports (naming the node)
      */
-    SortedMap<String, byte[]> current(NodeId node, String owner, List<String> paths) {
-        return read(node, owner, paths).held();
+    NodeState restoreState(NodeId node, ChangeSet changes, List<byte[]> backup) {
+        List<String> paths = changes.repository().stream().map(ChangedArtifact::name).toList();
+        Read read = read(node, changes.scope().owner(), paths);
+        Map<String, RepositoryUpload> before = new HashMap<>();
+        for (byte[] zip : backup) {
+            Map<String, byte[]> files = releases.repositoryFiles(zip);
+            Map<String, String> metadata = releases.repositoryMetadata(zip);
+            for (String path : paths) {
+                if (!before.containsKey(path) && files.containsKey(path)) {
+                    before.put(path, new RepositoryUpload(path, files.get(path),
+                        Optional.of(metadata.get(path))));
+                }
+            }
+        }
+        return new NodeState(changes, read.held(), read.raw(), fingerprint(read.held()),
+            paths.stream().map(before::get).toList());
     }
 
     /**

@@ -548,7 +548,7 @@ files that call modified.
 **Independent Test**: import a changed repository file, restore its backup, and confirm that the
 node's content equals the content before the import byte for byte.
 
-- [ ] T040 [US4] Write failing tests in `test/application/RepositoryRestoreTest.java` (D-9):
+- [X] T040 [US4] Write failing tests in `test/application/RepositoryRestoreTest.java` (D-9):
   - (→ T041) two modified files get their previous content back; a backup of a repository-only call
     (scope `repository paths …`) is restorable; a created file stays and is listed in
     `createdNotRemoved`; a file changed again on the node gives `CONFLICT`, and nothing is sent;
@@ -571,7 +571,7 @@ node's content equals the content before the import byte for byte.
   `main/application/ImportService.java`: the `REPOSITORY_WRITE_DENIED` check (whole restore),
   `DevelopmentGuard.forRepositoryWrite`, and the `repository.<n>` audit inputs of T027 for the
   restore call.
-- [ ] T043 [US4] Execute, verify and roll back restores through `main/application/RepositoryStep.java`
+- [X] T043 [US4] Execute, verify and roll back restores through `main/application/RepositoryStep.java`
   (repository files first, then artifacts). `res/schemas/restore_backup.output.json` lets the
   `modify` list carry repository paths (a description change only).
   Carry-over from T040+T041 (review r1): remove the interim `PRECONDITION_FAILED` block in

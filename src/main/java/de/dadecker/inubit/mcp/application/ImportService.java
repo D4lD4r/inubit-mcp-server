@@ -702,7 +702,10 @@ public final class ImportService {
      *       imported with the backed-up active flag ({@code --importWorkflowActive|Inactive}
      *       when all its workflows share one); the rest is the import sequence with the
      *       restore's own backup, verification against the backed-up state, commit
-     *       {@code restore <node>: …} or rollback;
+     *       {@code restore <node>: …} or rollback; repository files are re-imported first with
+     *       their backed-up content and metadata, verified byte for byte, written back, and on a
+     *       failure rolled back from the restore's own backup ({@link RepositoryStep}, research
+     *       D-8, D-9);
      *   <li>artifacts the referenced call created stay and are reported (nothing is deleted).
      * </ol>
      *
@@ -811,7 +814,7 @@ public final class ImportService {
             previewed = Optional.of(d.challenges().redeem(call.confirmationCode.get(),
                 Capability.RESTORE_BACKUP, node, inputs));
         }
-        Fresh fresh = fresh(node, changes);
+        Fresh fresh = fresh(node, changes, ref);
         requireStateLeftBy(node, manifest, changes, fresh, auditId);
         if (previewed.isPresent() && !previewed.get().equals(fresh.fingerprint())) {
             throw changedSincePreview(node);
@@ -832,18 +835,8 @@ public final class ImportService {
             return writeChallenge(call, node, policy, changes.scope().describe(),
                 changes.modified(), notes, inputs, fresh.fingerprint());
         }
-        if (!changes.repository().isEmpty()) {
-            // interim until T043 sends, verifies and rolls back the repository files of a
-            // restore: refused before the backup, so nothing is sent
-            throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
-                "Restoring the repository files " + String.join(", ", names(
-                    changes.repository())) + " is not available in this version; nothing was"
-                    + " sent",
-                "The restore of repository files is not complete yet",
-                "Re-import the content before the call in the Workbench from the repository"
-                    + " exports of the backup " + ref).withNode(node));
-        }
-        return execute(call, node, new Plan(changes, archive, Optional.empty(),
+        // research D-9: the repository files first, then the artifacts, as an import does
+        return execute(call, node, new Plan(changes, archive, fresh.repository(),
             restoreMode(changes, before), restoreMode(changes, fresh.rendered()), before::get,
             "restore",
             changes.scope().describe(), manifest.created(), List.of()), auditId, fresh.raw(),
@@ -1066,7 +1059,8 @@ public final class ImportService {
                 continue;
             }
             if (repositoryFile) {
-                byte[] content = fresh.repository().get(artifact.name());
+                byte[] content = fresh.repository().map(state -> state.files()
+                    .get(artifact.name())).orElse(null);
                 String now = content == null ? "absent" : BackupStore.repositoryState(
                     Map.of(artifact.name(), content)).get(key);
                 if (!left.equals(now)) {
@@ -1124,22 +1118,24 @@ public final class ImportService {
     }
 
     /**
-     * The scope's current state on the node (research D-5), for restore and set_active.
+     * The scope's current state on the node (research D-5), for a restore.
      *
-     * @param repository repository path → the node's content, for the change set's repository
-     *                   files the node holds (research D-9)
+     * @param repository if the change set has repository files: their node state with the
+     *                   uploads of the backup content ({@link RepositoryStep#restoreState},
+     *                   research D-9)
      */
     private record Fresh(List<byte[]> raw, SortedMap<String, byte[]> rendered,
-        Map<String, String> editMode, String fingerprint, SortedMap<String, byte[]> repository) {
+        Map<String, String> editMode, String fingerprint,
+        Optional<RepositoryStep.NodeState> repository) {
 
         @Override
         public String toString() {
-            return "Fresh[" + raw.size() + " exports, " + repository.size()
-                + " repository files, " + fingerprint + "]";
+            return "Fresh[" + raw.size() + " exports, " + repository + ", " + fingerprint + "]";
         }
     }
 
-    private Fresh fresh(NodeId node, ChangeSet changes) {
+    /** {@code ref}: the referenced backup, whose repository exports the restore sends. */
+    private Fresh fresh(NodeId node, ChangeSet changes, String ref) {
         ScopeExports.Exported exported = ScopeExports.export(d.artifacts().apply(node),
             d.codec(), changes, module -> true);
         List<byte[]> raw = exported.raw();
@@ -1148,8 +1144,9 @@ public final class ImportService {
         SortedMap<String, byte[]> artifacts = new TreeMap<>();
         sentArtifacts(changes).forEach(artifact -> artifacts.putAll(artifactFiles(rendered,
             artifact)));
-        SortedMap<String, byte[]> files = changes.repository().isEmpty() ? new TreeMap<>()
-            : repository.current(node, changes.scope().owner(), names(changes.repository()));
+        Optional<RepositoryStep.NodeState> files = changes.repository().isEmpty()
+            ? Optional.empty()
+            : Optional.of(repository.restoreState(node, changes, repositoryExports(ref)));
         return new Fresh(raw, rendered, prepared.inEditMode(), fingerprint(artifacts), files);
     }
 
@@ -1559,9 +1556,8 @@ public final class ImportService {
 
     /**
      * The {@code FAILED} result. A failed rollback keeps the backup; the workflows and modules
-     * can be restored with {@code restore_backup}, the repository files it names only in the
-     * Workbench until {@code restore_backup} restores them (US4). Created repository files are
-     * listed like created artifacts.
+     * and the repository files it names can be restored with {@code restore_backup} (feature
+     * 008, US4) or in the Workbench. Created repository files are listed like created artifacts.
      */
     private Response failed(Call call, NodeId node, Plan plan, UUID auditId,
         WriteOutcome.Failure failure, Rollback outcome, Exported current,
@@ -1583,8 +1579,9 @@ public final class ImportService {
                 .map(RepositoryStep.Rollback::notRestored).orElse(List.of());
             if (!notRestored.isEmpty()) {
                 message += "; the repository files " + String.join(", ", notRestored) + " on "
-                    + node + " are not back to their content before the call — re-import it in"
-                    + " the Workbench from the repository exports of the backup";
+                    + node + " are not back to their content before the call — restore them with"
+                    + " restore_backup or re-import them in the Workbench from the repository"
+                    + " exports of the backup";
             }
             reported = new WriteOutcome.Failure(failure.code(), failure.step(), message);
         }

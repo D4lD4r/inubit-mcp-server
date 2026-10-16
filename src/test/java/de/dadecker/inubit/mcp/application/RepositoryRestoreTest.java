@@ -3,8 +3,11 @@ package de.dadecker.inubit.mcp.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
+import de.dadecker.inubit.mcp.adapter.archive.v81.RepositoryArchive;
+import de.dadecker.inubit.mcp.adapter.cli.ScriptedProcessLauncher;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.ImportScope;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
@@ -18,8 +21,10 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -42,6 +47,12 @@ import org.junit.jupiter.api.io.TempDir;
  * the restore lists each repository file as {@code repository.<n>} with its operation, full path
  * and the hash of the backup content the restore sends, never the content.
  *
+ * <p>T040/T043 (research D-8, D-9): a confirmed restore takes its own backup (the node's current
+ * repository exports), re-imports the backup content with one repository import before the
+ * workflows and modules, verifies it byte for byte by re-export, writes the verified files back
+ * and commits {@code restore <node>: …} with the reason; a failure rolls the files back from the
+ * restore's own backup and reports {@code rollback}.
+ *
  * <p>The referenced call is a repository-only import ({@code repositoryPaths: xsd}) of
  * {@code jdoe} that modified the exported {@code xsd/a.xsd} and {@code xsd/c.xsd} and created
  * {@code xsd/b.xsd}, unless a test names another; every StartCLI call is scripted.
@@ -53,6 +64,8 @@ class RepositoryRestoreTest {
     private static final String B = "/Root/jdoe/xsd/b.xsd";
     private static final String C = "/Root/jdoe/xsd/c.xsd";
     private static final String XSD = "/Root/jdoe/xsd";
+    private static final String MODULE_IMPORT = "--importModule --importUser 'jdoe'"
+        + " --returnProtocol";
 
     @TempDir
     Path temp;
@@ -186,26 +199,270 @@ class RepositoryRestoreTest {
             .hasValue(schema("b"));
     }
 
-    @Test
-    void untilT043AConfirmedRestoreOfRepositoryFilesIsRefusedBeforeAnythingIsSent() {
-        // T043 sends, verifies and rolls back the repository files of a restore; until then
-        // the confirmed call fails closed: no backup, no PENDING, nothing sent
-        String ref = importedTwoModifiedAndOneCreated();
+    /** The restore's preview code; the node read of the confirmed call is scripted. */
+    private String previewed(String ref) {
         harness.exportRepository(node, XSD);
         String code = preview(ref).confirmationCode();
         harness.exportRepository(node, XSD);
+        return code;
+    }
+
+    /** The confirmed restore; every scripted StartCLI call ran. */
+    private WriteOutcome confirmed(String ref, String code) {
+        ImportService.Response response = service.restore(new ImportService.RestoreRequest(
+            "dev/node1", ref, "Undo the schemas", Optional.of(code), Optional.empty()));
+        harness.cli.verifyComplete();
+        assertThat(response).isInstanceOf(ImportService.Response.Completed.class);
+        return ((ImportService.Response.Completed) response).outcome();
+    }
+
+    /** Repository path → content of the {@code n}-th repository import the node received. */
+    private Map<String, String> repositoryImport(int n) {
+        return RepositoryArchive.readRelative("jdoe", node.repositoryImports.get(n)).stream()
+            .collect(Collectors.toMap(RepositoryArchive.RepositoryFile::path,
+                f -> new String(f.content(), StandardCharsets.UTF_8)));
+    }
+
+    private static Map<String, String> repositoryState(String a, String c) {
+        return BackupStore.repositoryState(Map.of(A, a.getBytes(StandardCharsets.UTF_8), C,
+            c.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @Test
+    void aConfirmedRestoreReImportsThePreviousContentVerifiesAndCommitsIt() {
+        String ref = importedTwoModifiedAndOneCreated();
+        String code = previewed(ref);
+        harness.importRepositoryApplied(node).exportRepository(node, XSD);
+
+        WriteOutcome outcome = confirmed(ref, code);
+
+        assertThat(outcome.outcome()).as(outcome.toString())
+            .isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.modified()).containsExactly(A, C);
+        assertThat(outcome.createdNotRemoved()).containsExactly(B);
+        assertThat(node.repositoryImports).hasSize(2);
+        assertThat(repositoryImport(1)).as("the backup content of the files that existed before")
+            .containsOnly(Map.entry(A, schema("a")), Map.entry(C, schema("c")));
+        assertThat(node.repositoryContent(A)).hasValue(schema("a"));
+        assertThat(node.repositoryContent(C)).hasValue(schema("c"));
+        assertThat(node.repositoryContent(B)).as("an import cannot delete").hasValue(schema("b"));
+        assertThat(harness.inubit.imported).as("repository files alone: no importArchive")
+            .isEmpty();
+        // the workspace takes the verified state, in one history entry with the reason
+        assertThat(harness.read(file(A))).isEqualTo(schema("a"));
+        assertThat(harness.read(file(C))).isEqualTo(schema("c"));
+        assertThat(harness.exports.history.status()).isEmpty();
+        assertThat(harness.exports.git("log", "-1", "--format=%B", outcome.commit()
+            .orElseThrow()).strip()).isEqualTo("restore dev/node1: repository paths xsd"
+                + " (2 artifacts) [" + outcome.auditId() + "]\n\nServer-State: dev\nReason:"
+                + " Undo the schemas");
+        // the restore's own backup holds what it replaced and the state it left
+        BackupStore.Manifest own = harness.backups.find(outcome.backupRef().orElseThrow())
+            .orElseThrow();
+        assertThat(own.auditId()).isNotEqualTo(ref).isEqualTo(outcome.auditId().toString());
+        assertThat(own.outcome()).isEqualTo("EXECUTED");
+        assertThat(own.repositoryPaths()).containsExactly(A, C);
+        assertThat(own.intendedState()).containsAllEntriesOf(repositoryState(schema("a"),
+            schema("c")));
+    }
+
+    @Test
+    void aRestoreTheNodeDoesNotShowByteForByteIsRolledBackFromItsOwnBackup() {
+        // the node keeps a.xsd without its last line break
+        String ref = importedTwoModifiedAndOneCreated();
+        String code = previewed(ref);
+        harness.importRepositoryApplied(node).exportRepository(node, XSD);
+        harness.cli.then(spec -> node.putRepositoryFile(A, schema("a").stripTrailing()));
+        harness.importRepositoryApplied(node).exportRepository(node, XSD);
+
+        WriteOutcome outcome = confirmed(ref, code);
+
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.FAILED);
+        assertThat(outcome.failure()).hasValueSatisfying(failure -> {
+            assertThat(failure.code()).isEqualTo(ErrorCode.VERIFY_MISMATCH);
+            assertThat(failure.step()).isEqualTo("verify");
+        });
+        assertThat(outcome.reports()).singleElement().satisfies(report -> assertThat(report)
+            .startsWith(".reports/verify-"));
+        assertThat(harness.read(outcome.reports().get(0))).contains("=== " + A)
+            .doesNotContain("=== " + C);
+        assertThat(node.repositoryImports).hasSize(3);
+        assertThat(repositoryImport(2)).as("the rollback: the content the restore replaced")
+            .containsOnly(Map.entry(A, changed("a")), Map.entry(C, changed("c")));
+        assertThat(node.repositoryContent(A)).hasValue(changed("a"));
+        assertThat(node.repositoryContent(C)).hasValue(changed("c"));
+        assertThat(outcome.rollback()).hasValue(WriteOutcome.Rollback.SUCCEEDED);
+        assertThat(outcome.commit()).isEmpty();
+        assertThat(harness.read(file(A))).as("the workspace is not written").isEqualTo(
+            changed("a"));
+        BackupStore.Manifest own = harness.backups.find(outcome.backupRef().orElseThrow())
+            .orElseThrow();
+        assertThat(own.outcome()).isEqualTo("FAILED");
+        assertThat(own.intendedState()).containsAllEntriesOf(repositoryState(changed("a"),
+            changed("c")));
+        assertThat(harness.backups.find(ref).orElseThrow().outcome()).as("the referenced"
+            + " backup is unchanged").isEqualTo("EXECUTED");
+        assertThat(harness.audit("restore_backup")).last().satisfies(record -> {
+            assertThat(record.outcome()).isEqualTo(AuditOutcome.FAILED);
+            assertThat(record.inputs()).containsEntry("rollback", "SUCCEEDED");
+        });
+    }
+
+    @Test
+    void aRestoreWhoseRollbackFailsReportsItWithThePathsAndTheRestoresBackup() {
+        // INUBIT applies the files but reports 1-NOK; the re-import of the restore's backup is
+        // refused, so both files keep the restored content
+        String ref = importedTwoModifiedAndOneCreated();
+        String code = previewed(ref);
+        harness.cli.expect(java.util.regex.Pattern.compile("^import --importFile '[^']+'"
+                + " --importRepositoryPath '/Root/jdoe'$"))
+            .then(spec -> node.importRepository(ImportHarness.read(
+                ScriptedProcessLauncher.importFile(spec)), "jdoe"))
+            .replying("import_nok");
+        harness.exportRepository(node, XSD).importRefused().exportRepository(node, XSD);
+
+        WriteOutcome outcome = confirmed(ref, code);
+
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.FAILED);
+        assertThat(outcome.rollback()).hasValue(WriteOutcome.Rollback.FAILED);
+        String own = outcome.backupRef().orElseThrow();
+        assertThat(own).isNotEqualTo(ref);
+        assertThat(outcome.failure()).hasValueSatisfying(failure -> {
+            assertThat(failure.code()).isEqualTo(ErrorCode.IMPORT_FAILED);
+            assertThat(failure.step()).isEqualTo("import");
+            // US4: restore_backup restores repository files now
+            assertThat(failure.message()).contains(A, C, own, "restore_backup", "Workbench")
+                .doesNotContain(B);
+        });
+        assertThat(node.repositoryContent(A)).hasValue(schema("a"));
+        assertThat(outcome.createdNotRemoved()).containsExactly(B);
+        assertThat(harness.backups.find(own).orElseThrow().intendedState())
+            .containsAllEntriesOf(repositoryState(schema("a"), schema("c")));
+    }
+
+    /**
+     * {@code node} without a.xsd: the referenced call's {@code repository:<path>} state is
+     * {@code absent} now.
+     */
+    private void aWasRemovedOnTheNode(FakeServer now) {
+        String ref = importedTwoModifiedAndOneCreated();
+        harness.exportRepository(now, XSD);
 
         ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
-            () -> service.restore(new ImportService.RestoreRequest("dev/node1", ref,
-                "Undo the schemas", Optional.of(code), Optional.empty())));
+            () -> service.restore(restore(ref)));
 
         assertThat(exception).as("expected a refusal").isNotNull();
         harness.cli.verifyComplete();
-        assertThat(exception.error().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
-        assertThat(exception.error().message()).contains(A, C, "nothing was sent");
+        assertThat(exception.error().code()).isEqualTo(ErrorCode.CONFLICT);
+        assertThat(exception.error().message()).contains("Nothing was sent", A);
         assertThat(node.repositoryImports).as("only the referenced import").hasSize(1);
-        assertThat(harness.audit("restore_backup")).extracting(record -> record.outcome())
-            .containsExactly(AuditOutcome.CHALLENGE_ISSUED, AuditOutcome.REFUSED);
+        String report = exception.error().message().replaceAll("(?s).*Differences: ", "")
+            .strip();
+        assertThat(harness.read(report)).contains("=== " + A, "absent now");
+    }
+
+    @Test
+    void aFileTheNodeNoLongerHoldsIsAConflict() {
+        FakeServer now = new FakeServer();
+        now.putRepositoryFile(C, changed("c"));
+
+        aWasRemovedOnTheNode(now);
+    }
+
+    @Test
+    void aFolderTheNodeNoLongerHoldsIsAConflict() {
+        aWasRemovedOnTheNode(new FakeServer());
+    }
+
+    private String pluginType() {
+        return harness.moduleDirectory("Module-0003").split("/")[3];
+    }
+
+    /**
+     * The executed import of module {@code Module-0003}, which references {@code a.xsd} now,
+     * and of the changed {@code a.xsd}; its backup ref.
+     */
+    private String importedModuleAndSchema() {
+        harness.edit(harness.moduleDirectory("Module-0003") + "/module.xml", "</Properties>",
+            "<Property name=\"x.a\">inubitrepository:" + A + "</Property></Properties>");
+        harness.write(file(A), changed("a"));
+        ImportService.ImportRequest request = new ImportService.ImportRequest(
+            ImportHarness.DEV.value(), Optional.empty(), Optional.empty(), List.of(
+                new ImportScope.Module("Module-0003", Optional.of(pluginType()))), "Schemas",
+            Optional.empty(), Optional.empty());
+        harness.exportModule(pluginType(), "Module-0003").exportRepository(node, XSD);
+        String code = ((ImportService.Response.Challenge) service.importArtifacts(request))
+            .preview().confirmationCode();
+        harness.exportModule(pluginType(), "Module-0003").exportRepository(node, XSD)
+            .importRepositoryApplied(node).importApplied(MODULE_IMPORT)
+            .exportRepository(node, XSD).exportModule(pluginType(), "Module-0003");
+        ImportService.Response response = service.importArtifacts(ImportHarness.confirmed(
+            request, code));
+        harness.cli.verifyComplete();
+        WriteOutcome outcome = ((ImportService.Response.Completed) response).outcome();
+        assertThat(outcome.outcome()).as(outcome.toString())
+            .isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.modified()).containsExactly("Module-0003", A);
+        return outcome.backupRef().orElseThrow();
+    }
+
+    @Test
+    void aDiagramGroupCallThatAlsoChangedARepositoryFileIsRestoredFilesFirst() {
+        String ref = importedWorkflowModuleAndSchema();
+        harness.exportGroup().exportRepository(node, XSD);
+        WritePreview preview = preview(ref);
+        assertThat(preview.scope()).isEqualTo("diagram group GRP-01");
+        assertThat(preview.modify()).containsExactlyInAnyOrder("Workflow-0001", "Module-0003",
+            A);
+        harness.exportGroup().exportRepository(node, XSD).importRepositoryApplied(node)
+            .importRestored().exportRepository(node, XSD).exportGroup();
+
+        WriteOutcome outcome = confirmed(ref, preview.confirmationCode());
+
+        assertThat(outcome.outcome()).as(outcome.toString())
+            .isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.modified()).containsExactlyInAnyOrder("Workflow-0001",
+            "Module-0003", A);
+        assertThat(harness.cli.execCommands()).filteredOn(line -> line.startsWith("import "))
+            .as("the referenced import, then the restore: repository files first")
+            .hasSize(4).satisfies(imports -> {
+                assertThat(imports.get(2)).contains("--importRepositoryPath");
+                assertThat(imports.get(3)).contains("--importWorkflow");
+            });
+        assertThat(node.repositoryContent(A)).hasValue(schema("a"));
+        assertThat(harness.inubit.workflowXml()).contains("xPos=\"120\"")
+            .doesNotContain("xPos=\"140\"");
+        assertThat(harness.read(file(A))).isEqualTo(schema("a"));
+        assertThat(harness.exports.history.status()).isEmpty();
+    }
+
+    @Test
+    void aModuleCallThatAlsoChangedARepositoryFileIsRestoredFilesFirst() {
+        String ref = importedModuleAndSchema();
+        harness.exportModule(pluginType(), "Module-0003").exportRepository(node, XSD);
+        WritePreview preview = preview(ref);
+        assertThat(preview.scope()).isEqualTo("modules Module-0003");
+        assertThat(preview.modify()).containsExactly("Module-0003", A);
+        harness.exportModule(pluginType(), "Module-0003").exportRepository(node, XSD)
+            .importRepositoryApplied(node).importApplied(MODULE_IMPORT)
+            .exportRepository(node, XSD).exportModule(pluginType(), "Module-0003");
+
+        WriteOutcome outcome = confirmed(ref, preview.confirmationCode());
+
+        assertThat(outcome.outcome()).as(outcome.toString())
+            .isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.modified()).containsExactly("Module-0003", A);
+        assertThat(harness.cli.execCommands()).filteredOn(line -> line.startsWith("import "))
+            .as("the referenced import, then the restore: repository files first")
+            .hasSize(4).satisfies(imports -> {
+                assertThat(imports.get(2)).contains("--importRepositoryPath");
+                assertThat(imports.get(3)).contains("--importModule");
+            });
+        assertThat(node.repositoryContent(A)).hasValue(schema("a"));
+        assertThat(harness.read(harness.moduleDirectory("Module-0003") + "/module.xml"))
+            .doesNotContain("inubitrepository:" + A);
+        assertThat(harness.read(file(A))).isEqualTo(schema("a"));
+        assertThat(harness.exports.history.status()).isEmpty();
     }
 
     @Test
@@ -320,19 +577,16 @@ class RepositoryRestoreTest {
 
     @Test
     void everyRecordOfTheRestoreAuditsEachFileWithOperationAndTheHashOfTheBackupContent() {
-        // the executed record follows with T043, which sends the files; until then the
-        // confirmed call is refused (untilT043AConfirmedRestoreOfRepositoryFilesIsRefused…)
         String ref = importedTwoModifiedAndOneCreated();
-        harness.exportRepository(node, XSD);
-        String code = preview(ref).confirmationCode();
-        harness.exportRepository(node, XSD);
-        catchThrowableOfType(ToolErrorException.class, () -> service.restore(
-            new ImportService.RestoreRequest("dev/node1", ref, "Undo the schemas",
-                Optional.of(code), Optional.empty())));
-        harness.cli.verifyComplete();
+        String code = previewed(ref);
+        harness.importRepositoryApplied(node).exportRepository(node, XSD);
 
+        WriteOutcome outcome = confirmed(ref, code);
+
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
         assertThat(harness.audit("restore_backup")).extracting(record -> record.outcome())
-            .containsExactly(AuditOutcome.CHALLENGE_ISSUED, AuditOutcome.REFUSED);
+            .containsExactly(AuditOutcome.CHALLENGE_ISSUED, AuditOutcome.PENDING,
+                AuditOutcome.EXECUTED);
         assertThat(harness.audit("restore_backup")).allSatisfy(record -> {
             assertThat(record.inputs())
                 .as("the content before the call, which the restore sends, not the workspace's")

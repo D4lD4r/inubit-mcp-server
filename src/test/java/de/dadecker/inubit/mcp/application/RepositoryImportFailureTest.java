@@ -148,8 +148,7 @@ class RepositoryImportFailureTest {
         });
     }
 
-    private static void noRestoreBackupHintForRepositoryFiles(WriteOutcome outcome) {
-        // restore_backup does not restore repository files before US4
+    private static void noRestoreBackupHintAfterASuccessfulRollback(WriteOutcome outcome) {
         assertThat(outcome.failure().orElseThrow().message()).doesNotContain("restore_backup");
         assertThat(outcome.warnings()).noneMatch(warning -> warning.contains("restore_backup")
             || warning.contains("not rolled back"));
@@ -175,7 +174,7 @@ class RepositoryImportFailureTest {
         assertThat(outcome.rollback()).hasValue(WriteOutcome.Rollback.SUCCEEDED);
         assertThat(outcome.createdNotRemoved()).containsExactly(B);
         manifestFailed(outcome, schema("a"));
-        noRestoreBackupHintForRepositoryFiles(outcome);
+        noRestoreBackupHintAfterASuccessfulRollback(outcome);
     }
 
     @Test
@@ -220,7 +219,7 @@ class RepositoryImportFailureTest {
         assertThat(outcome.createdNotRemoved()).containsExactly(B);
         // the post-rollback re-export, not the mismatching one
         manifestFailed(outcome, schema("a"));
-        noRestoreBackupHintForRepositoryFiles(outcome);
+        noRestoreBackupHintAfterASuccessfulRollback(outcome);
     }
 
     @Test
@@ -242,7 +241,7 @@ class RepositoryImportFailureTest {
         assertThat(outcome.rollback()).hasValue(WriteOutcome.Rollback.SUCCEEDED);
         assertThat(outcome.createdNotRemoved()).containsExactly(B);
         manifestFailed(outcome, schema("a"));
-        noRestoreBackupHintForRepositoryFiles(outcome);
+        noRestoreBackupHintAfterASuccessfulRollback(outcome);
     }
 
     @Test
@@ -266,7 +265,9 @@ class RepositoryImportFailureTest {
         });
         assertThat(outcome.createdNotRemoved()).containsExactly(B);
         manifestFailed(outcome, sent);
-        noRestoreBackupHintForRepositoryFiles(outcome);
+        // US4 (T043): restore_backup restores the repository files of the backup
+        assertThat(outcome.failure().orElseThrow().message()).contains("restore_backup");
+        assertThat(outcome.warnings()).noneMatch(warning -> warning.contains("not rolled back"));
     }
 
     @Test

@@ -8,10 +8,11 @@ import java.util.Optional;
  * data-model.md).
  *
  * @param path     the full repository path, e.g. {@code /Root/jdoe/xsd/msg.xsd}
- * @param content  the file content as in the workspace
+ * @param content  the file content as in the workspace (a restore: as in the backup)
  * @param metadata the metadata to send: the normalized XML of the {@code .meta} record for a
- *                 MODIFIED file, or the node's metadata for an EXISTING file; empty for a file
- *                 the node does not hold, which gets synthesized metadata
+ *                 MODIFIED file, the node's metadata for an EXISTING file, or the backup's for
+ *                 a restore (research D-9); empty for a file the node does not hold, which gets
+ *                 synthesized metadata
  */
 public record RepositoryUpload(String path, byte[] content, Optional<String> metadata) {
 

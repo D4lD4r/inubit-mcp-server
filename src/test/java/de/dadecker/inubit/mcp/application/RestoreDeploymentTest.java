@@ -152,6 +152,39 @@ class RestoreDeploymentTest extends DeployExecution {
     }
 
     @Test
+    void aDeploymentBackupRestoresItsRepositoryFileWithoutTheDevelopmentRepositorySwitch() {
+        // feature 008 (FR-018, research D-9): int/node1 is no development stage and its
+        // development.repository is READ_ONLY (importService()); the switch and the
+        // repository.<n> audit inputs of a development restore do not apply
+        harness(false);
+        DeploymentResult deployed = deploy(true);
+        String backupRef = deployed.nodes().get(0).backupRef().orElseThrow();
+        nodeExports(DeployHarness.INT1);
+        WritePreview preview = ((ImportService.Response.WriteChallenge) harness.importService()
+            .restore(restore(backupRef, Optional.empty()))).preview();
+        assertThat(preview.modify()).contains(DeployHarness.RELEASE_XSL);
+        nodeExports(DeployHarness.INT1);
+        harness.importRepositoryApplied(DeployHarness.INT1)
+            .importApplied(DeployHarness.INT1, MODULE_IMPORT)
+            .importApplied(DeployHarness.INT1, WORKFLOW);
+        nodeExports(DeployHarness.INT1);
+
+        WriteOutcome outcome = ((ImportService.Response.Completed) harness.importService()
+            .restore(restore(backupRef, Optional.of(preview.confirmationCode())))).outcome();
+
+        assertThat(outcome.outcome()).as(outcome.toString())
+            .isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.modified()).contains(DeployHarness.RELEASE_XSL);
+        assertThat(harness.servers.get(DeployHarness.INT1).repositoryContent(
+            DeployHarness.RELEASE_XSL)).contains(OLD_XSL);
+        assertThat(restoreAudit()).extracting(AuditRecord::outcome).containsExactly(
+            AuditOutcome.CHALLENGE_ISSUED, AuditOutcome.PENDING, AuditOutcome.EXECUTED);
+        assertThat(restoreAudit()).allSatisfy(record -> assertThat(record.inputs().keySet())
+            .noneMatch(key -> key.startsWith("repository.")));
+        harness.verifyComplete();
+    }
+
+    @Test
     void whatTheDeploymentCreatedStaysAndIsListed() {
         harness(false);
         DeploymentResult deployed = deploy(false);
