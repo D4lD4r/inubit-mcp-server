@@ -531,7 +531,7 @@ the export is one history entry with `Server-State`.
 - [X] T038 [US3] `main/application/WorkspaceService.java`: the repository scope
   (`exportRepository("/Root/<owner>/<path>")` per path), the limits and the commit. `ExportRequest`
   requires "exactly one of diagramGroups, modules or repositoryPaths".
-- [ ] T039 [US3] `main/mcp/tools/ExportArtifactsTool.java` and
+- [X] T039 [US3] `main/mcp/tools/ExportArtifactsTool.java` and
   `res/schemas/export_artifacts.input.json`: `repositoryPaths` (array, 1–20, unique, the T028
   pattern) and the `DESCRIPTION` addition, with its quotation in `docs/tools.md` updated in the same
   task (`ArtifactToolsReferenceTest`). Test in `test/mcp/tools/ExportArtifactsToolTest.java`.

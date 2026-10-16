@@ -709,9 +709,10 @@ one profile. Paths in results are workspace-relative with `/`. Fields without a 
 
 ## `export_artifacts`
 
-> [acme] Export technical workflows (by diagram group) or single modules from one group or node
-> into the local workspace as readable files, record the export in the workspace history and list
-> what changed. Only technical workflows are exported (no system diagrams or other diagram types).
+> [acme] Export technical workflows (by diagram group), single modules, or repository files and
+> folders by their path relative to the owner's repository root, from one group or node into the
+> local workspace as readable files, record the export in the workspace history and list what
+> changed. Only technical workflows are exported (no system diagrams or other diagram types).
 > Secrets are replaced by placeholders. Read-only for INUBIT.
 
 Runs one StartCLI `export` per diagram group or module (`--exportWorkflowType 'technical'`
