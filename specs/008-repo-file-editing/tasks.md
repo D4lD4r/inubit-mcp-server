@@ -494,7 +494,7 @@ the test owner, import it with `repositoryPaths`, and confirm all of the followi
   - add `repositoryFiles` to `res/schemas/import_artifacts.output.json`.
 
   Test in `test/application/RepositoryImportTest.java`.
-- [ ] T035 [US1] `test/application/RepositoryImportTimingTest.java`: 20 files in 3 folders with
+- [X] T035 [US1] `test/application/RepositoryImportTimingTest.java`: 20 files in 3 folders with
   scripted StartCLI delays from P-2. Assert 3 exports for the preview, 1 repository import and
   3 exports for the verification, and print the times (SC-001).
 
