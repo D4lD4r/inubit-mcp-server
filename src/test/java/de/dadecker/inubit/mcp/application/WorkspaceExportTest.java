@@ -303,40 +303,50 @@ class WorkspaceExportTest {
         SortedMap<String, String> before = harness.snapshot();
         harness.artifacts.exports.put("GRP-01", ExportHarness.withoutModule0009());
         ArchiveCodec real = new ArchiveCodec();
-        ArchiveCodecPort failing = (group, owner, archives) -> {
-            PreparedExport prepared = real.prepare(group, owner, archives);
-            return new PreparedExport() {
-                @Override
-                public int secretsReplaced() {
-                    return prepared.secretsReplaced();
-                }
+        ArchiveCodecPort failing = new ArchiveCodecPort() {
+            @Override
+            public PreparedExport prepare(GroupId group, String owner,
+                List<byte[]> archives) {
+                PreparedExport prepared = real.prepare(group, owner, archives);
+                return new PreparedExport() {
+                    @Override
+                    public int secretsReplaced() {
+                        return prepared.secretsReplaced();
+                    }
 
-                @Override
-                public List<String> warnings() {
-                    return prepared.warnings();
-                }
+                    @Override
+                    public List<String> warnings() {
+                        return prepared.warnings();
+                    }
 
-                @Override
-                public List<String> scope() {
-                    return prepared.scope();
-                }
+                    @Override
+                    public List<String> scope() {
+                        return prepared.scope();
+                    }
 
-                @Override
-                public java.util.SortedMap<String, byte[]> files() {
-                    return prepared.files();
-                }
+                    @Override
+                    public java.util.SortedMap<String, byte[]> files() {
+                        return prepared.files();
+                    }
 
-                @Override
-                public java.util.Map<String, String> inEditMode() {
-                    return prepared.inEditMode();
-                }
+                    @Override
+                    public java.util.Map<String, String> inEditMode() {
+                        return prepared.inEditMode();
+                    }
 
-                @Override
-                public void writeTo(Path workspace) {
-                    prepared.writeTo(workspace);
-                    throw new UncheckedIOException(new IOException("No space left on device"));
-                }
-            };
+                    @Override
+                    public void writeTo(Path workspace) {
+                        prepared.writeTo(workspace);
+                        throw new UncheckedIOException(new IOException("No space left on device"));
+                    }
+                };
+            }
+
+            @Override
+            public PreparedExport prepareRepository(GroupId group, String owner,
+                List<byte[]> archives) {
+                return real.prepareRepository(group, owner, archives);
+            }
         };
 
         assertThatThrownBy(() -> harness.service(failing).export(diagramGroups("jdoe",

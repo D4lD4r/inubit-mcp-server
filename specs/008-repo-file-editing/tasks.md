@@ -524,7 +524,7 @@ the export is one history entry with `Server-State`.
   - uncommitted edits are first committed as `local changes: <n> files`;
   - the commit `export <node>: repository <paths> (<n> files)` has `Server-State: <group>`;
   - workspace files outside the exported paths are untouched.
-- [ ] T037 [US3] `ArchiveCodecPort.prepareRepository(group, owner, archives)` and
+- [X] T037 [US3] `ArchiveCodecPort.prepareRepository(group, owner, archives)` and
   `main/adapter/archive/v81/ArchiveCodec.java` with the `WorkspaceWriter` repository branch. The
   scope is "the exported paths and their `.meta` mirrors only". Test in
   `test/adapter/archive/v81/ArchiveCodecTest.java`.
