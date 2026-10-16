@@ -423,7 +423,9 @@ node's content equals the content before the import byte for byte.
 - **FR-015a**: The call's `reason` MUST be recorded for repository files in the audit and in the
   workspace history entry. INUBIT's repository import ignores the version comment of the archive
   (spike, section 10), so the reason is not written to, and not verified in, the version comment of
-  repository files.
+  repository files. The history entry carries it as a `Reason: <reason>` trailer next to
+  `Server-State` (decided 2026-10-16; for every history entry of a call that has a reason, not only
+  those with repository files, so the format stays uniform).
 - **FR-016**: After a verified import, the workspace MUST record the verified state as one history
   entry, as for workflows and modules.
 - **FR-017**: The server MUST refuse with `INVALID_INPUT`: a deleted repository file within the

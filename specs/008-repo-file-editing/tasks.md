@@ -623,9 +623,23 @@ node's content equals the content before the import byte for byte.
 
 ---
 
-- Open decision (T029+T031 review): FR-015a requires the reason "in the workspace history entry"; the
-  import commit only carries the audit id. Decide whether the audit id link suffices (adjust FR-015a
-  wording) or the reason goes into the commit body, before T045/T048.
+- Decided 2026-10-16 (open since the T029+T031 review): FR-015a's reason goes into the history entry
+  as a `Reason:` trailer, see T051.
+
+- [ ] T051 [US1] The reason in the workspace history (FR-015a, decided 2026-10-16; the ID is
+  appended so that the other tasks keep their numbers; run it before T045/T048). Test first:
+  - every history entry that `ImportService` writes for a call with a `reason` (`import_artifacts`,
+    `restore_backup`, `set_active`; with and without repository files) carries the trailer
+    `Reason: <reason>` next to `Server-State: <group>`, with the reason verbatim (the input schemas
+    already limit it to one line of at most 500 characters without control characters, `#` or `@`);
+  - the trailer never changes how the `Server-State` trailer is read (`VersionHistoryPort`,
+    `GitCli`), also for a reason that itself contains `Server-State:`;
+  - the subject line `… [<auditId>]` and the other trailers are unchanged; history entries without a
+    reason (exports, the `local changes` commit) get no `Reason` trailer;
+  - `deploy_release` (feature 005) is out of scope.
+
+  Tests in `test/application/` next to the existing commit-message tests; adjust
+  research.md (D-8 step 5 "Write back", D-11) to name the trailer.
 
 ## Dependencies & Execution Order
 
