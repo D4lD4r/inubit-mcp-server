@@ -689,7 +689,11 @@ public final class ImportService {
      *       or foreign references are {@code NOT_FOUND} before anything is read from INUBIT;
      *   <li>the backup is rendered in memory (for the backup's owner); the repository files
      *       the call changed that existed before it are taken from its repository exports
-     *       (feature 008, research D-9);
+     *       (feature 008, research D-9); if there are any, a node whose
+     *       {@code development.repository} is {@code READ_ONLY} refuses the whole restore
+     *       ({@code REPOSITORY_WRITE_DENIED}) before anything is read, and the restore needs a
+     *       server code also with client confirmation ({@link DevelopmentGuard#forRepositoryWrite},
+     *       FR-018); the audit records name each file with the hash of that content (FR-019);
      *   <li>the conflict check compares the scope's fresh export with the state the referenced
      *       call left — the intended-state hashes of its manifest, which a failed call records
      *       as its last verification saw them; an artifact without recorded state is
@@ -774,8 +778,8 @@ public final class ImportService {
         commitLocalChanges();
         SortedMap<String, byte[]> before = d.codec().prepare(node.group(), call.owner,
             artifactExports(ref)).files();
-        Optional<ChangeSet> restorable = restoreSet(node, manifest, before,
-            repositoryBefore(manifest));
+        SortedMap<String, byte[]> repositoryBefore = repositoryBefore(manifest);
+        Optional<ChangeSet> restorable = restoreSet(node, manifest, before, repositoryBefore);
         if (restorable.isEmpty()) {
             UUID auditId = d.ids().get();
             call.append(auditId, AuditRecord.Step.EXECUTE, AuditOutcome.EXECUTED,
@@ -789,7 +793,15 @@ public final class ImportService {
                 manifest.created(), List.of(), warnings));
         }
         ChangeSet changes = restorable.get();
-        call.changes(changes);
+        // the audit hashes describe what the restore sends: the content before the call
+        call.changes(changes, file -> repositoryBefore.get(file.name()));
+        if (!changes.repository().isEmpty()) {
+            // FR-018: the whole restore is refused on a read-only node, and repository files
+            // always need a server code (research D-9)
+            RepositoryStep.requireWritableToRestore(policy, changes);
+            policy = d.guard().forRepositoryWrite(policy);
+            call.policy = policy;
+        }
         UUID auditId = d.ids().get();
         String inputs = "sha256:" + sha256((node.value() + "\n" + ref + "\n" + call.reason)
             .getBytes(StandardCharsets.UTF_8));
@@ -2325,14 +2337,25 @@ public final class ImportService {
             this.mcpClient = mcpClient;
         }
 
-        /** The change set as far as known; the audit records name it from here on. */
+        /**
+         * The change set as far as known; the audit records name it from here on. The hashes of
+         * its repository files are those of their workspace content, which an import sends.
+         */
         void changes(ChangeSet known) {
+            changes(known, file -> readOrNull(file.paths().get(0)));
+        }
+
+        /**
+         * As {@link #changes(ChangeSet)}, with the hashes of {@code sent}, the content the call
+         * sends of each repository file (a restore: the content before the referenced call).
+         */
+        void changes(ChangeSet known, Function<ChangedArtifact, byte[]> sent) {
             changes = known;
             Stream.concat(known.repository().stream(), known.identical().stream())
                 .filter(file -> file.ref().kind() == ArtifactRef.Kind.REPOSITORY_FILE)
                 .forEach(file -> repositoryHashes.computeIfAbsent(file.name(), name -> "sha256:"
-                    + sha256(Optional.ofNullable(readOrNull(file.paths().get(0)))
-                        .orElse(new byte[0])).substring(0, 16)));
+                    + sha256(Optional.ofNullable(sent.apply(file)).orElse(new byte[0]))
+                        .substring(0, 16)));
         }
 
         /** The sanitized inputs, in a fixed order; never content or secrets. */
@@ -2381,9 +2404,10 @@ public final class ImportService {
         /**
          * The input of one repository file (FR-019, research D-11): {@code <operation> <full
          * path> sha256:<16 hex>}, the operation as far as known when the record is written (a
-         * NEW file is {@code create} until the node read classifies it), the hash of its
-         * workspace content, which is what the import sends (for an {@code identical} file
-         * also the node's), as computed by {@link #changes(ChangeSet)}. A path too long for
+         * NEW file is {@code create} until the node read classifies it), the hash of the
+         * content the call sends — the workspace content for an import (for an
+         * {@code identical} file also the node's), the content before the referenced call for
+         * a restore — as computed by {@link #changes(ChangeSet, Function)}. A path too long for
          * {@link #MAX_AUDITED_INPUT} is cut, the hash kept. Never the content.
          */
         private String repositoryInput(String operation, ChangedArtifact file) {

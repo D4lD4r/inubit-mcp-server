@@ -72,7 +72,8 @@ import org.slf4j.LoggerFactory;
  *   <li><b>Switch</b> (FR-004, D-5 step 5): on a node whose {@code development.repository} is
  *       {@code READ_ONLY}, a change set with a repository file to send is refused with
  *       {@code REPOSITORY_WRITE_DENIED} ({@link #requireWritable}); before the node read already
- *       if a file is MODIFIED in the workspace ({@link #requireWritableBeforeRead}).
+ *       if a file is MODIFIED in the workspace ({@link #requireWritableBeforeRead}), and for a
+ *       restore before anything is read ({@link #requireWritableToRestore}).
  *   <li><b>Uploads</b> ({@link RepositoryUpload}) of the files to send: MODIFIED with the
  *       {@code .meta} metadata, EXISTING with the node's metadata from the export (it keeps the
  *       node's content type and description), {@code create} without (synthesized on build).
@@ -555,6 +556,27 @@ final class RepositoryStep {
      *     send, if the node is read-only and there is one
      */
     static void requireWritable(DevelopmentPolicy policy, ChangeSet changes) {
+        requireWritable(policy, changes, "Revert the repository files in the workspace (git"
+            + " restore), or ask the administrator to set development.repository: WRITE on "
+            + policy.node() + "; then import again");
+    }
+
+    /**
+     * The switch check of {@code restore_backup} (FR-018, research D-9): the restore set's
+     * repository files are all to be sent, so on a read-only node the whole restore is refused
+     * before anything is read.
+     *
+     * @throws ToolErrorException {@code REPOSITORY_WRITE_DENIED} naming the repository files to
+     *     restore, if the node is read-only and there is one
+     */
+    static void requireWritableToRestore(DevelopmentPolicy policy, ChangeSet changes) {
+        requireWritable(policy, changes, "Ask the administrator to set"
+            + " development.repository: WRITE on " + policy.node() + " and restore again, or"
+            + " restore the state in the Workbench");
+    }
+
+    private static void requireWritable(DevelopmentPolicy policy, ChangeSet changes,
+        String nextStep) {
         if (policy.repositoryWrite() || changes.repository().isEmpty()) {
             return;
         }
@@ -566,9 +588,7 @@ final class RepositoryStep {
                 + " refused and nothing was sent",
             "Repository files may only be written on a development node whose"
                 + " development.repository is WRITE; reading them is always allowed",
-            "Revert the repository files in the workspace (git restore), or ask the"
-                + " administrator to set development.repository: WRITE on " + node
-                + "; then import again").withNode(node));
+            nextStep).withNode(node));
     }
 
     /**

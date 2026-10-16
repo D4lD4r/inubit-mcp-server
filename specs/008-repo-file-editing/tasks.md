@@ -567,7 +567,7 @@ node's content equals the content before the import byte for byte.
   - the scope is rebuilt from a `repository paths …` manifest scope;
   - `requireStateLeftBy` compares the `repository:<path>` fingerprints of `intendedState` with a
     per-folder export through `RepositoryStep`.
-- [ ] T042 [US4] Switch, forced server code and audit for restores in
+- [X] T042 [US4] Switch, forced server code and audit for restores in
   `main/application/ImportService.java`: the `REPOSITORY_WRITE_DENIED` check (whole restore),
   `DevelopmentGuard.forRepositoryWrite`, and the `repository.<n>` audit inputs of T027 for the
   restore call.
@@ -580,6 +580,10 @@ node's content equals the content before the import byte for byte.
   previous content of a.xsd and c.xsd on the node after a confirmed restore; add tests for a module
   or diagram-group call that also changed repository files and for the "absent" conflict (the node
   no longer holds the file or folder).
+  Carry-over from T040+T042 (review r1): extend
+  `everyRecordOfTheRestoreAuditsEachFileWithOperationAndTheHashOfTheBackupContent` to the PENDING
+  and EXECUTED records of a confirmed restore (`repository.<n>` with the backup-content hash, no
+  content).
 
 **Checkpoint**: all user stories complete.
 

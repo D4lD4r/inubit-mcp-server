@@ -13,7 +13,11 @@ import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.model.WritePreview;
 import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,9 +35,16 @@ import org.junit.jupiter.api.io.TempDir;
  * {@code repository:<path>} state the call left; a difference is {@code CONFLICT} and nothing is
  * sent.
  *
+ * <p>T040/T042 (FR-018, FR-019, research D-9, D-11): on a node switched to
+ * {@code development.repository: READ_ONLY} since the call, the whole restore is refused with
+ * {@code REPOSITORY_WRITE_DENIED} before anything is read or sent; restoring repository files
+ * always needs a server code, also on a node with client confirmation; every audit record of
+ * the restore lists each repository file as {@code repository.<n>} with its operation, full path
+ * and the hash of the backup content the restore sends, never the content.
+ *
  * <p>The referenced call is a repository-only import ({@code repositoryPaths: xsd}) of
  * {@code jdoe} that modified the exported {@code xsd/a.xsd} and {@code xsd/c.xsd} and created
- * {@code xsd/b.xsd}; every StartCLI call is scripted.
+ * {@code xsd/b.xsd}, unless a test names another; every StartCLI call is scripted.
  */
 @Timeout(60)
 class RepositoryRestoreTest {
@@ -217,5 +228,118 @@ class RepositoryRestoreTest {
             .replace("added", "changed-again"));
         assertThat(harness.audit("restore_backup")).last().satisfies(record ->
             assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED));
+    }
+
+    // --- T042: the switch, the server code and the audit (FR-018, FR-019) ---------------------
+
+    /** {@code sha256:} and the first 16 hex chars of {@code content}. */
+    private static String hash(String content) {
+        try {
+            return "sha256:" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(content.getBytes(StandardCharsets.UTF_8))).substring(0, 16);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /**
+     * The executed import of the diagram group that changed {@code Workflow-0001},
+     * {@code Module-0003} and {@code a.xsd}, which {@code Module-0003} references now; its
+     * backup ref.
+     */
+    private String importedWorkflowModuleAndSchema() {
+        harness.edit(harness.moduleDirectory("Module-0003") + "/module.xml", "</Properties>",
+            "<Property name=\"x.a\">inubitrepository:" + A + "</Property></Properties>");
+        harness.edit(harness.workflow("Workflow-0001"), "xPos=\"120\"", "xPos=\"140\"");
+        harness.write(file(A), changed("a"));
+        harness.exportGroup().exportRepository(node, XSD);
+        String code = ((ImportService.Response.Challenge) service.importArtifacts(
+            harness.group("Schemas"))).preview().confirmationCode();
+        harness.exportGroup().exportRepository(node, XSD).importRepositoryApplied(node)
+            .importApplied().exportRepository(node, XSD).exportGroup();
+        ImportService.Response response = service.importArtifacts(ImportHarness.confirmed(
+            harness.group("Schemas"), code));
+        harness.cli.verifyComplete();
+        WriteOutcome outcome = ((ImportService.Response.Completed) response).outcome();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.modified()).containsExactlyInAnyOrder("Workflow-0001",
+            "Module-0003", A);
+        return outcome.backupRef().orElseThrow();
+    }
+
+    @Test
+    void aNodeSwitchedToReadOnlySinceTheImportRefusesTheWholeRestoreBeforeAnythingIsRead() {
+        String ref = importedWorkflowModuleAndSchema();
+        service = harness.repositoryWrite(ImportHarness.DEV, false).service();
+
+        ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
+            () -> service.restore(restore(ref)));
+
+        assertThat(exception).as("expected a refusal").isNotNull();
+        harness.cli.verifyComplete();
+        ToolError error = exception.error();
+        assertThat(error.code()).isEqualTo(ErrorCode.REPOSITORY_WRITE_DENIED);
+        assertThat(error.message()).contains("READ_ONLY", A, "nothing was sent");
+        assertThat(error.nextStep()).contains("restore").doesNotContain("git restore");
+        assertThat(harness.inubit.imported).as("only the referenced import").hasSize(1);
+        assertThat(node.repositoryImports).as("only the referenced import").hasSize(1);
+        assertThat(node.repositoryContent(A)).hasValue(changed("a"));
+        assertThat(harness.audit("restore_backup")).singleElement().satisfies(record -> {
+            assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED);
+            assertThat(record.reason()).hasValueSatisfying(reason -> assertThat(reason)
+                .startsWith("REPOSITORY_WRITE_DENIED: development.repository is READ_ONLY on "
+                    + ImportHarness.DEV));
+            assertThat(record.inputs()).containsEntry("repository.1", "modify " + A + " "
+                + hash(schema("a"))).doesNotContainKey("repository.2");
+            assertThat(record.inputs().values()).noneMatch(value -> value.contains("xs:"));
+        });
+    }
+
+    @Test
+    void aClientNodeGetsAServerCodeForTheRestoreOfRepositoryFiles() {
+        String ref = importedTwoModifiedAndOneCreated();
+        harness.confirmation = WritePolicy.Confirmation.CLIENT;
+        service = harness.service();
+        harness.exportRepository(node, XSD);
+
+        WritePreview preview = preview(ref);
+
+        assertThat(preview.modify()).containsExactly(A, C);
+        assertThat(preview.confirmationCode()).isNotBlank();
+
+        // a presented code is checked, also with client confirmation, before anything is read
+        ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
+            () -> service.restore(new ImportService.RestoreRequest("dev/node1", ref,
+                "Undo the schemas", Optional.of("AAAAAAAAAAAAAAAAAAAAAA"), Optional.empty())));
+
+        assertThat(exception).as("expected a refusal").isNotNull();
+        harness.cli.verifyComplete();
+        assertThat(exception.error().code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
+        assertThat(node.repositoryImports).as("only the referenced import").hasSize(1);
+    }
+
+    @Test
+    void everyRecordOfTheRestoreAuditsEachFileWithOperationAndTheHashOfTheBackupContent() {
+        // the executed record follows with T043, which sends the files; until then the
+        // confirmed call is refused (untilT043AConfirmedRestoreOfRepositoryFilesIsRefused…)
+        String ref = importedTwoModifiedAndOneCreated();
+        harness.exportRepository(node, XSD);
+        String code = preview(ref).confirmationCode();
+        harness.exportRepository(node, XSD);
+        catchThrowableOfType(ToolErrorException.class, () -> service.restore(
+            new ImportService.RestoreRequest("dev/node1", ref, "Undo the schemas",
+                Optional.of(code), Optional.empty())));
+        harness.cli.verifyComplete();
+
+        assertThat(harness.audit("restore_backup")).extracting(record -> record.outcome())
+            .containsExactly(AuditOutcome.CHALLENGE_ISSUED, AuditOutcome.REFUSED);
+        assertThat(harness.audit("restore_backup")).allSatisfy(record -> {
+            assertThat(record.inputs())
+                .as("the content before the call, which the restore sends, not the workspace's")
+                .containsEntry("repository.1", "modify " + A + " " + hash(schema("a")))
+                .containsEntry("repository.2", "modify " + C + " " + hash(schema("c")))
+                .doesNotContainKey("repository.3");
+            assertThat(record.inputs().values()).noneMatch(value -> value.contains("xs:"));
+        });
     }
 }
