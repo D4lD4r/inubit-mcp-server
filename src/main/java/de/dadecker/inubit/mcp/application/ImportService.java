@@ -113,7 +113,8 @@ import org.slf4j.LoggerFactory;
  *       checked on them, FR-015a);
  *   <li>success: only the change-set files and their {@code .meta/} records are replaced by the
  *       verified state (the sent repository files from their re-export, {@link RepositoryStep})
- *       and committed with the {@code Server-State} trailer; then, if a
+ *       and committed with the {@code Server-State} and {@code Reason} trailers (FR-015a);
+ *       then, if a
  *       {@code tag} was requested (diagram-group imports only), the diagram group is tagged and
  *       verified like {@code tag_artifacts} ({@link DiagramGroupTagger}) within the same call
  *       and audit record — a tag failure never undoes the import (research D-26);
@@ -1365,10 +1366,13 @@ public final class ImportService {
         call.step = "commit";
         writeBack(changes, current.files());
         after.ifPresent(reread -> repository.writeBack(plan.repository().get(), reread));
+        // FR-015a: the reason, already one line without control characters (validate)
+        Map<String, String> trailers = new LinkedHashMap<>();
+        trailers.put(VersionHistoryPort.SERVER_STATE, node.group().value());
+        trailers.put(VersionHistoryPort.REASON, call.reason);
         Optional<String> commit = d.history().commitAll(plan.verb() + " " + node.value() + ": "
                 + plan.subject() + " (" + changes.artifacts().size() + " artifacts) ["
-                + auditId + "]",
-            Map.of(VersionHistoryPort.SERVER_STATE, node.group().value()))
+                + auditId + "]", trailers)
             .map(entry -> entry.commit());
         updateManifest(call, node, changes, auditId, "EXECUTED", current.files(),
             after.map(RepositoryStep.Reread::files).orElse(new TreeMap<>()));

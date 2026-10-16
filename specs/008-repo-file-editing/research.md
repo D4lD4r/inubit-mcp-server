@@ -422,6 +422,14 @@ synthesized new file per extension and check, by re-export, that the content typ
      The folder export also returns unrelated files of the folder; those are ignored.
    - The single `import <node>: … [auditId]` commit with `Server-State: <group>` also covers them,
      which makes the commit the new base (FR-016).
+   - The commit carries the call's reason as the trailer `Reason: <reason>` after
+     `Server-State: <group>` (FR-015a, T051), because INUBIT's repository import ignores the
+     version comment. Every `ImportService` history entry of a call with a reason gets it
+     (`import_artifacts`, `restore_backup`, `set_active`, with or without repository files); exports
+     and the `local changes` entry get none. The input schemas already keep the reason to one line
+     of at most 500 characters without control characters, `#` or `@`, so it is written verbatim.
+     The `Server-State` trailer is read by key, so a reason containing `Server-State:` never names a
+     server state.
    - The rewritten `.meta` differs from the previous record after every import (`version`,
      `versionComment`, `modified`), even for unchanged content. The same holds on the node after a
      rollback or a restore (D-9): the content is back, the metadata is not. No step compares
@@ -491,6 +499,8 @@ This answers the open minor finding of spec review round 2. The same check appli
 - The matching rule is gone, because there is only the switch. The refusal reason names the switch:
   `REPOSITORY_WRITE_DENIED: development.repository is READ_ONLY on <node>`.
 - No content is recorded.
+- The reason is audited as before (`reason`) and, for the history, written as the `Reason` trailer
+  of the commit (D-8 step 5, FR-015a), not into the version comment of repository files.
 
 **Alternatives considered**: one long value. Rejected: it would be cut at 500 characters and lose
 paths.

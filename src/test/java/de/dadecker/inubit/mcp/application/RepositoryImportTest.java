@@ -1132,8 +1132,10 @@ class RepositoryImportTest {
             .containsExactly("import dev/node1: diagram group GRP-01 (4 artifacts) ["
                 + outcome.auditId() + "]");
         String commit = outcome.commit().orElseThrow();
-        assertThat(harness.exports.git("log", "-1", "--format=%B", commit))
-            .contains("Server-State: dev");
+        // T051 (FR-015a): the reason is recorded here, not in the repository version comment
+        assertThat(harness.exports.git("log", "-1", "--format=%B", commit).strip())
+            .isEqualTo("import dev/node1: diagram group GRP-01 (4 artifacts) ["
+                + outcome.auditId() + "]\n\nServer-State: dev\nReason: Schemas");
         assertThat(harness.exports.git("show", "--name-only", "--format=", commit))
             .contains(WorkspacePath.repository(ImportHarness.DEV.group(), "jdoe", A).metaPath()
                 .toString(), file(B));

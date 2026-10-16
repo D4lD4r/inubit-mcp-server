@@ -94,6 +94,9 @@ class SetActiveTest {
             + " Workflow-0001 of diagram group GRP-01 (1 artifacts) [" + outcome.auditId() + "]");
         assertThat(harness.exports.git("log", "-1",
             "--format=%(trailers:key=Server-State,valueonly)").strip()).isEqualTo("dev");
+        // T051 (FR-015a)
+        assertThat(harness.exports.git("log", "-1", "--format=%B").strip()).endsWith(
+            "]\n\nServer-State: dev\nReason: Switch it");
         assertThat(harness.audit("set_active")).extracting(r -> r.outcome())
             .containsExactly(AuditOutcome.PENDING, AuditOutcome.EXECUTED);
         assertThat(harness.audit("set_active").get(1).inputs())

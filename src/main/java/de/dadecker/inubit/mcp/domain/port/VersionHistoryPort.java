@@ -23,6 +23,12 @@ public interface VersionHistoryPort {
     String SERVER_STATE = "Server-State";
 
     /**
+     * The git trailer of an entry written by a call with a reason (feature 008, FR-015a). It is
+     * never read as a server state.
+     */
+    String REASON = "Reason";
+
+    /**
      * Creates the history in the workspace root if it does not exist yet, with a
      * {@code .gitignore} for {@code .tests/}, {@code .reports/} and {@code .lock}; idempotent.
      */

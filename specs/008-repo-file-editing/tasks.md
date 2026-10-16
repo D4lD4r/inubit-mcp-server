@@ -626,7 +626,7 @@ node's content equals the content before the import byte for byte.
 - Decided 2026-10-16 (open since the T029+T031 review): FR-015a's reason goes into the history entry
   as a `Reason:` trailer, see T051.
 
-- [ ] T051 [US1] The reason in the workspace history (FR-015a, decided 2026-10-16; the ID is
+- [X] T051 [US1] The reason in the workspace history (FR-015a, decided 2026-10-16; the ID is
   appended so that the other tasks keep their numbers; run it before T045/T048). Test first:
   - every history entry that `ImportService` writes for a call with a `reason` (`import_artifacts`,
     `restore_backup`, `set_active`; with and without repository files) carries the trailer
