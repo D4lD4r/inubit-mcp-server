@@ -10,7 +10,9 @@ tools of feature 003
 [contracts/mcp-tools-delta.md](../specs/003-artifact-workspace/contracts/mcp-tools-delta.md),
 the five development tools of feature 004
 [their delta](../specs/004-development-stage/contracts/mcp-tools-delta.md), `deploy_release` of
-feature 005 [its delta](../specs/005-stage-chain-deployment/contracts/mcp-tools-delta.md).
+feature 005 [its delta](../specs/005-stage-chain-deployment/contracts/mcp-tools-delta.md), the
+repository files of feature 008
+[its delta](../specs/008-repo-file-editing/contracts/mcp-tools-delta.md).
 All sixteen tools are described here; each section quotes the description the server announces in
 `tools/list` for a profile `acme` without description and with the default terminology
 (Group/Node).
@@ -57,9 +59,9 @@ General rules:
 | [`get_inventory_item`](#get_inventory_item) | one diagram or module: versions, tags, active flag, modules used | read-only, idempotent, open world | yes (REST + StartCLI export with history) |
 | [`restart_process`](#restart_process--kill_process) | restart ONE process instance in ERROR on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `processErrorStart`) |
 | [`kill_process`](#restart_process--kill_process) | delete ONE process instance on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `kill`) |
-| [`export_artifacts`](#export_artifacts) | export technical workflows or modules into the local workspace and its history | read-only for INUBIT, non-idempotent (records a history entry), open world | yes (StartCLI `export`, read-only) |
+| [`export_artifacts`](#export_artifacts) | export technical workflows, modules or repository files into the local workspace and its history | read-only for INUBIT, non-idempotent (records a history entry), open world | yes (StartCLI `export`, read-only) |
 | [`check_artifacts`](#check_artifacts) | check workspace files offline: structure, a stylesheet run, XML/XSD | read-only, idempotent, open world | only to look up modules missing in the workspace (module list) |
-| [`import_artifacts`](#import_artifacts) | import the changed workflows of ONE diagram group (with their changed or new modules), or changed modules, into ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
+| [`import_artifacts`](#import_artifacts) | import the changed workflows of ONE diagram group (with their changed or new modules), changed modules, or new and changed repository files, into ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`restore_backup`](#restore_backup) | re-import the backup of an earlier development call or of a deployment on one node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`set_active`](#set_active) | activate or deactivate ONE workflow on ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`tag_artifacts`](#tag_artifacts) | tag the head versions of whole diagram groups (and their modules) | **destructive**, non-idempotent, open world | yes (StartCLI history `export` and `tag`) |
@@ -136,7 +138,7 @@ other nodes are still reported.
 | `CHAIN_VIOLATION` | a deployment into a group that does not receive deployments from the requested source (no `deploy` record, feature 005) |
 | `SOURCE_INCONSISTENT` | the nodes of a deployment's source group do not hold the same release (feature 005) |
 | `DEPLOY_LOCKED` | another deployment into the same target group is running (feature 005) |
-| `REPOSITORY_WRITE_DENIED` | the node's `development.repository` is `READ_ONLY`; revert the files or ask for `WRITE` (feature 008) |
+| `REPOSITORY_WRITE_DENIED` | `import_artifacts` or `restore_backup` would create or change a repository file on a node whose `development.repository` is `READ_ONLY` (feature 008); the whole call is refused, nothing was sent, the message names the paths. `nextStep`: revert the files in the workspace (`git restore`) or ask the administrator to set `WRITE` on that development node; for `restore_backup`: ask for `WRITE` and restore again, or restore in the Workbench |
 | `INTERNAL` | an unexpected error inside the MCP server, the server is shutting down, or an audit record could not be written |
 
 ## `list_nodes`
@@ -160,7 +162,7 @@ is never part of the result.
 ```json
 {"profile":{"name":"acme","description":"ACME test"},
  "terminology":{"group":{"singular":"Umgebung","plural":"Umgebungen"},"node":{"singular":"Knoten","plural":"Knoten"}},
- "groups":[{"name":"test","production":false,"nodes":[{"id":"test/node1","group":"test","node":"node1","production":false,"writeEnabled":false,"developmentEnabled":true,"confirmationMode":"SERVER","versionLine":"AUTO","cliAvailable":true}]}]}
+ "groups":[{"name":"test","production":false,"nodes":[{"id":"test/node1","group":"test","node":"node1","production":false,"writeEnabled":false,"developmentEnabled":true,"confirmationMode":"SERVER","repositoryWrite":false,"versionLine":"AUTO","cliAvailable":true}]}]}
 ```
 
 | `NodeSummary` field | Meaning |
@@ -171,6 +173,7 @@ is never part of the result.
 | `writeEnabled` | restart and kill allowed: `write.enabled && (!production \|\| write.productionOptIn)`; does **not** govern the development tools |
 | `developmentEnabled` | a development stage: `development.enabled && !production`; `import_artifacts`, `restore_backup`, `set_active` and `tag_artifacts` work on this node |
 | `confirmationMode` | `SERVER` (two-step confirmation by the MCP server) or `CLIENT` |
+| `repositoryWrite` | `import_artifacts` and `restore_backup` may create and change repository files on this node (feature 008): `development.repository` resolves to `WRITE` and the node is a development stage (`developmentEnabled`); `false` by default (see [setup.md](setup.md#development-settings)) |
 | `versionLine` | as configured: `AUTO`, `V8_1` or `V9_X` |
 | `cliAvailable` | a CLI home is configured and its `bin/startcli.sh` (`.bat` on Windows) exists |
 
@@ -716,8 +719,9 @@ one profile. Paths in results are workspace-relative with `/`. Fields without a 
 > Secrets are replaced by placeholders. Read-only for INUBIT.
 
 Runs one StartCLI `export` per diagram group or module (`--exportWorkflowType 'technical'`
-always), reads, redacts and splits the archive **in memory**, then writes the files of the
-exported diagram groups and modules and records one history entry. Before the export, uncommitted
+always) or per repository path, reads, redacts and splits the archive **in memory**, then writes
+the files of the exported diagram groups, modules or repository paths and records one history
+entry. Before the export, uncommitted
 changes in the workspace are recorded as their own entry `local changes: <n> files`, so nothing
 of yours is lost. Every secret (passwords, encrypted values, keystores, key material, saved test
 messages, `xslt.sourceVariables`) is replaced by `${secret:<property path>}`; key material in a
@@ -731,7 +735,8 @@ repository file is not written at all. The history is never pushed anywhere.
 | `owner` | INUBIT user or user group; default `inventory.owner` of the node |
 | `diagramGroups` | 1–20 diagram group names (letters, digits, `_ . -` and spaces) |
 | `modules` | 1–50 `{name, pluginType?}`; without `pluginType` it is looked up in the module list |
-| — | exactly one of `diagramGroups` / `modules` |
+| `repositoryPaths` | 1–20 unique repository files or folders, relative to the owner's repository root (e.g. `schemas/order.xsd` for `/Root/<owner>/schemas/order.xsd`, or `stylesheets/common`); segments of letters, digits, `_ . -` and spaces, no leading `/`, no empty, `.` or `..` segment, no `%`, not the root itself; folders are exported recursively (feature 008) |
+| — | exactly one of `diagramGroups` / `modules` / `repositoryPaths` |
 
 **Output** (`export_artifacts.output.json`):
 
@@ -752,15 +757,39 @@ Directory layout: `<group>/<owner>/workflows/<diagram group>/<workflow>.xml`,
 `<group>/<owner>/repository/<repository path>`, volatile values (UIDs, export suffix of check-in
 comments, archive context) under `.meta/`. Files of artifacts no longer exported are removed.
 
-**Errors**: `TARGET_UNKNOWN`; `INVALID_INPUT` (neither/both of `diagramGroups`/`modules`, a blank
-or unsupported name, two artifacts whose paths differ only in case); `NOT_CONFIGURED` (no owner);
-`CLI_UNAVAILABLE`, `AUTH_FAILED`, `TIMEOUT` (names `cliExportTimeout`); `NOT_FOUND` (diagram group
-or module does not exist for the owner); `UNEXPECTED_RESPONSE` (the archive cannot be processed —
-the workspace is unchanged); `PRECONDITION_FAILED` (workspace busy or not usable; a failed write
-is undone from the history); `INTERNAL`.
+**Repository files** (feature 008):
 
-**Example prompt**: "Export diagram group GRP-01 of dev" → `export_artifacts(target: "dev",
-diagramGroups: ["GRP-01"])`.
+- A diagram-group or module export writes the repository files of the export that the exported
+  workflows and modules reach, **transitively**: also files that only another repository file
+  includes or imports, and the message-type schemas of the module index (a behaviour change: an
+  export can write more files than before; the references followed are listed in
+  [setup.md](setup.md#artifact-workspace)).
+- A `repositoryPaths` export runs one StartCLI repository export per path. It writes at most
+  **500 files and 100 MiB**; a larger scope is refused with `INVALID_INPUT` before anything is
+  written, naming the count and the size. If any path does not exist on the node, the whole call
+  is `NOT_FOUND` naming every missing path, and nothing is written. Key material is withheld as
+  in every export (a certificate is written; `import_artifacts` refuses it). The export overwrites
+  the files of its paths and deletes none; other workspace files stay as they are. The history
+  entry `export <node>: repository <paths> (<n> files)` (trailer `Server-State: <group>`) is the
+  base of a later import of these files; `changes` lists the workspace paths below
+  `repository/`.
+- Repository paths that differ only in letter case would overwrite each other on a
+  case-insensitive file system: every export that writes them refuses them with `INVALID_INPUT`,
+  naming both.
+- Exporting never needs `development.repository`.
+
+**Errors**: `TARGET_UNKNOWN`; `INVALID_INPUT` ("Give exactly one of diagramGroups, modules or
+repositoryPaths", a blank or unsupported name or repository path, two artifacts or repository
+paths whose paths differ only in case, a repository export over 500 files or 100 MiB);
+`NOT_CONFIGURED` (no owner); `CLI_UNAVAILABLE`, `AUTH_FAILED`, `TIMEOUT` (names
+`cliExportTimeout`); `NOT_FOUND` (diagram group or module does not exist for the owner;
+repository paths missing on the node, all named); `UNEXPECTED_RESPONSE` (the archive cannot be
+processed — the workspace is unchanged); `PRECONDITION_FAILED` (workspace busy or not usable; a
+failed write is undone from the history); `INTERNAL`.
+
+**Example prompts**: "Export diagram group GRP-01 of dev" → `export_artifacts(target: "dev",
+diagramGroups: ["GRP-01"])`; "Export the schema folder of dev" → `export_artifacts(target: "dev",
+repositoryPaths: ["schemas"])`.
 
 ## `check_artifacts`
 
@@ -799,7 +828,7 @@ findings), `findings` (most severe first, at most `resultLimits.maxItems`, each
 | `PARENT_REF_MISSING` | ERROR | `ParentModule` or `EndLoopId` names a node that does not exist (`Connection@scopeChildId` names internal ids of a scope and is not checked) |
 | `MODULE_MISSING` | ERROR | a module is neither in the workspace (any owner of the group) nor in the module list of the artifact's owner or of `inventory.owner` |
 | `MODULE_UNVERIFIED` | WARNING | not in the workspace, and the module list could not be read or `verifyOnServer` is `false` |
-| `REPOSITORY_REF_MISSING` | ERROR | an `inubitrepository:` reference is not in the workspace repository |
+| `REPOSITORY_REF_MISSING` | ERROR | a referenced repository file is not in the workspace repository: an `inubitrepository:` reference; in a repository file, also a relative `xsl:import`/`xsl:include` or `xs:import`/`xs:include`/`xs:redefine`; a message-type schema named in a module index entry or module file (`InputMessageTypeSchema`, `OutputMessageTypeSchema`) |
 | `REPOSITORY_REF_UNVERIFIED` | WARNING | the reference lies in another owner's repository (`Root/<owner>/…`), which an export does not include |
 | `VARIABLE_UNRESOLVED` | WARNING | a variable reference names no declared variable (names starting with `IS` are taken as INUBIT system variables) |
 | `DERIVED_VALUE_MISMATCH` | WARNING | `<property>MD5` of an embedded document or `contentMD5`/`contentSize` of a repository file no longer matches the content (a rebuild recomputes them) |
@@ -870,23 +899,33 @@ every write; each step that refuses sends nothing to INUBIT:
    every sent artifact must equal the intended state, with exactly the reason in its check-in
    comment;
 10. success: only the changed files and their `.meta/` records are replaced by the verified
-    server state and committed with a `Server-State` trailer; failure: **rollback**.
+    server state and committed as one history entry
+    `<import|restore|activate|deactivate> <node>: … [<auditId>]` with the trailers
+    `Server-State: <group>` and `Reason: <reason>` (the call's reason verbatim; feature 008,
+    FR-015a — exports and `local changes` entries carry no `Reason`); failure: **rollback**.
 
 **Failure model.** Refusals before anything is sent are tool errors (`isError: true`):
 `NOT_DEVELOPMENT`, `INVALID_INPUT`, `PRECONDITION_FAILED`, `CONFLICT`, `SECRET_UNRESOLVED`,
-`CONFIRMATION_INVALID`, `CLI_UNAVAILABLE`, `AUTH_FAILED`, `NOT_FOUND`. Once anything may have been
-sent the call returns a **result** with `outcome: FAILED`, a `failure` `{code: IMPORT_FAILED |
-VERIFY_MISMATCH, step: import | protocol | verify | commit | tag, message}` and the `rollback`
-state. An unexpected internal error after sending is reported the same way (`IMPORT_FAILED` at
-the step reached).
+`CONFIRMATION_INVALID`, `CLI_UNAVAILABLE`, `AUTH_FAILED`, `NOT_FOUND`, `REPOSITORY_WRITE_DENIED`.
+Once anything may have been sent the call returns a **result** with `outcome: FAILED`, a
+`failure` `{code: IMPORT_FAILED | VERIFY_MISMATCH, step: import | protocol | verify | commit |
+tag, message}` and the `rollback` state. An unexpected internal error after sending is reported
+the same way (`IMPORT_FAILED` at the step reached).
 
 **Rollback semantics.** After any failure the scope is exported again; if a modified artifact
 changed, the backup is re-imported (with the target's current secrets) and verified:
 `rollback` is `NOT_NEEDED`, `SUCCEEDED` or `FAILED` (then the message names the kept backup —
-restore it with `restore_backup` or in the Workbench). Nothing in this feature deletes anything:
-**created artifacts are not removed**, so artifacts a failed call created are listed in
-`createdNotRemoved` — delete them in the Workbench if needed. A StartCLI timeout is decided by the
-re-export: if it shows the intended state, the call succeeded.
+restore it with `restore_backup` or in the Workbench). With repository files (feature 008) the
+**repository files are rolled back first**, then the artifacts: the sent files the node held
+before and whose content changed are re-imported from the call's backup and verified by
+re-export, content only (each gets a new version on the node). A repository rollback that leaves
+a file changed is `rollback: FAILED`; the message names the files and points to `restore_backup`
+or to a re-import in the Workbench from the repository exports of the backup. Nothing in this
+feature deletes anything: **created artifacts are not removed**, so artifacts and repository files
+a failed call created are listed in `createdNotRemoved` — delete them in the Workbench if needed.
+A StartCLI timeout of the artifact import is decided by the re-export: if it shows the intended
+state, the call succeeded. A timeout of the repository import is not: see
+[repository files](#repository-files-feature-008).
 
 **Order of connections (0.5.1).** INUBIT writes the outgoing connections of a workflow module in
 a non-deterministic order. Conflict checks, verification, rollback checks and every fingerprint
@@ -915,11 +954,12 @@ absent):
 | `failure` | `{code, step, message}` on failure |
 | `commit` | the history entry of the verified state |
 | `backupRef` | the backup of the state before the call (input of `restore_backup`) |
-| `created`, `modified`, `notImported` | artifact names; workspace files changed outside the scope |
+| `created`, `modified`, `notImported` | artifact names and full repository paths (`/Root/<owner>/…`); workspace files changed outside the scope |
 | `rollback` | `NOT_NEEDED`, `SUCCEEDED`, `FAILED` (failures only) |
-| `createdNotRemoved` | artifacts created (by this or the restored call) and not removed |
+| `createdNotRemoved` | artifacts and repository files created (by this or the restored call) and not removed |
+| `identical` | only `import_artifacts`: artifacts and repository files not sent because the node has them with the workspace's content |
 | `reports`, `warnings` | workspace-relative report files (`.reports/verify-<auditId>.diff`, …); notes |
-| `tag` | only for `import_artifacts` with a `tag`: `{name, applied, workflows, modules, failure}` |
+| `tag` | only for `import_artifacts` with a `tag`: `{name, applied, workflows, modules, failure}`, and `repositoryFiles` (see [repository files](#repository-files-feature-008)) |
 
 ## `import_artifacts`
 
@@ -942,7 +982,7 @@ and optionally `tag` (only with `diagramGroup`).
   referenced modules are not sent (every import creates a new version). A module import sends
   module-only archives. Changes outside the scope stay and are listed in `notImported`.
 - Refused with `INVALID_INPUT`: a deleted workflow or module file ("deleting artifacts is not
-  supported"), any change below `repository/`, a new workflow whose file does not say
+  supported"), a new workflow whose file does not say
   `IsActive` `false` (INUBIT creates it inactive; switch it on with `set_active`), a workflow file
   that names another owner in `UserOrUserGroupName`. `PRECONDITION_FAILED`: a referenced module
   that is neither sent nor on the node (INUBIT would break the diagram group), a new name the
@@ -971,7 +1011,8 @@ and optionally `tag` (only with `diagramGroup`).
   exactly as `tag_artifacts` does it (one `tag --tagMove` for the group, verified by the group's
   history export; an existing tag name is reused) — in the same call and under the same audit id
   (audit inputs `tag`, `tagApplied`). INUBIT tags only whole diagram groups, so a module import
-  with `tag` is refused (`INVALID_INPUT`) before anything is sent. The result carries `tag`
+  with `tag` is refused (`INVALID_INPUT`) before anything is sent, as is one with
+  `repositoryPaths`. The result carries `tag`
   `{name, applied, workflows, modules, failure}`. A tag failure after a successful import keeps
   `outcome: EXECUTED` — the import is not undone — with `applied: false`, the `failure`
   (`IMPORT_FAILED` at `tag` or `VERIFY_MISMATCH` at `verify`) and a warning to retry with
@@ -981,8 +1022,145 @@ and optionally `tag` (only with `diagramGroup`).
   workspace, on the node already: updated as a new version), `identical` (new in the workspace,
   identical on the node, or an unchanged referenced module outside the group's export: not
   sent, the workflows are bound to it), `notImported`, `checkWarnings`, `tag` (if requested),
-  `confirmationCode`, `expiresAt`, `message`. The result carries `identical` as well and notes
+  `confirmationCode`, `expiresAt`, `message`; with repository files also `repositoryReferences`,
+  `repositoryDiff` and `warnings` (see below). The result carries `identical` as well and notes
   `existing` and `identical` in `warnings`.
+
+### Repository files (feature 008)
+
+Repository files (schemas, stylesheets, WSDLs, … below `/Root/<owner>/`) are written only on a
+node whose `development.repository` is `WRITE` (`list_nodes` field `repositoryWrite`; default
+`READ_ONLY`, see [setup.md](setup.md#development-settings)); reading them is always allowed.
+`repositoryPaths` are relative to the owner's repository root (`schemas/order.xsd` stands for
+`/Root/<owner>/schemas/order.xsd`; a leading `/`, an empty, `.` or `..` segment, `%` or the root
+itself is `INVALID_INPUT`). Inputs, previews and results name repository files by their **full**
+path `/Root/<owner>/…`; an artifact name never starts with `/`.
+
+**Which repository files a call includes:**
+
+| Scope | Included repository files |
+|---|---|
+| `repositoryPaths` | the new and changed files at or below the given paths |
+| `diagramGroup` | the new and changed files in the transitive closure of every module that the group's workspace workflows use, changed or not |
+| `modules` | the new and changed files in the transitive closure of the given modules |
+
+The closure follows the structural references an export follows
+([setup.md](setup.md#artifact-workspace)): `inubitrepository:` URIs in workflows, `module.xml` and
+documents that are no stylesheet or schema, the message-type schemas of the module index, and in
+stylesheets and schemas `xsl:import`/`xsl:include`/`xs:import`/`xs:include`/`xs:redefine` (in
+repository files also relative ones), through whole chains, each file once. A reference into
+another owner's root (`/Root/<other>/…`) is not followed; a warning names it. Other changed
+repository files are listed in `notImported`. A diagram group whose only changes are repository
+files is a valid import (with a `tag`, the group is tagged as usual). Repository files and the
+workflows and modules of a call are one unit for the switch check, the confirmation, the backup,
+the verification and the rollback: a referenced repository file is never moved to `notImported`
+to import the rest without it.
+
+**On the node**, each call reads one repository export per distinct parent folder of the files
+and compares byte for byte (only content counts; version, version comment, date and description
+are never compared):
+
+- new in the workspace and absent on the node → `create`; the content type comes from the
+  extension: `.xsd` → `application/x-xsd+xml`, `.xsl` and `.xslt` → `application/xslt+xml`,
+  `.wsdl` → `application/wsdl+xml`, `.xml` → `application/xml`, the description stays empty;
+- new in the workspace and identical on the node → `identical`, not sent (every import creates a
+  new version);
+- new in the workspace with other content on the node → `modify` and `existing`; it keeps the
+  node's content type and description, whatever its extension;
+- changed since its base (the last export or development call on that node in the workspace
+  history) → `modify` if the node still holds the base content, otherwise `CONFLICT`. A changed
+  file keeps the metadata of its `.meta` record.
+
+**Refusals** (nothing is sent; every refusal is audited):
+
+| Code | When | Contacts the node? |
+|---|---|---|
+| `INVALID_INPUT` | a deleted repository file in scope ("deleting repository files is not supported"; a deletion out of scope is listed in `notImported`); a changed file below another owner's root in the owner's workspace repository (`repository/Root/<other>/…`), whatever the scope; key material (keystore, private key, certificate); `${secret:` in the content; a file over 10 MiB; more than 50 changed files with a base, or more than 200 new and changed files, in scope; a path StartCLI cannot take; `tag` with `repositoryPaths` | no |
+| `INVALID_INPUT` | more than 50 files to send (`create` + `modify`; `identical` files do not count); a file to be **created** whose extension is not one of `.xsd .xsl .xslt .wsdl .xml` (a file the node already holds is not refused for its extension) | only to read |
+| `PRECONDITION_FAILED` | a changed file with a base whose `.meta` record is missing or unreadable ("export the path first"); a file without any base counts as new | no |
+| `REPOSITORY_WRITE_DENIED` | the node's `development.repository` is `READ_ONLY` and a file would be created or modified; the whole call is refused (also its workflows and modules) and the paths are named | only to read; a file changed since its base is refused before any read. A call whose repository files are all `identical` is not refused |
+| `CONFLICT` | the node's content differs from the base of a changed file; differences in `.reports/conflict-<auditId>.diff` | only to read |
+
+**Server code, always.** Every call that would send a repository file (`create` or `modify`)
+first returns a preview with a server-issued `confirmationCode`, also on a node with
+`development.confirmation: CLIENT`; the whole call, workflows and modules included, then runs only
+with that code. The code is bound to the repository files and their content in the workspace and
+on the node. A call whose repository files are all `identical` sends none and keeps the node's
+`development.confirmation`.
+
+**Preview.** `create`, `modify`, `existing` and `identical` carry the repository paths
+(`notImported` the workspace files), and:
+
+- `repositoryReferences` `[{path, artifacts, truncated}]`: per file to send, up to 20 workspace
+  artifacts **outside the scope** (of every owner of the group in the workspace) that use it —
+  workflows as `<workflow> (<diagram group>)`, modules as `<module> (<plugin type> module)`,
+  repository files by their full path, another owner's with `, owner <name>`; `truncated` if
+  there are more. The full list is `.reports/repository-references-<auditId>.txt`, named in
+  `warnings`;
+- `repositoryDiff`: `.reports/repository-<auditId>.diff`, the line differences between the node
+  and the workspace of every file in `modify` (`existing` ones included, which have no base; key
+  material is only named);
+- `warnings`: the shared use (see below), every reference outside the owner's repository root that
+  was not followed (at most 20, then how many more), and, if a file the node holds is to be
+  changed, that artifacts on the node which the workspace does not hold cannot be listed. The
+  result repeats the last two.
+
+```json
+{"challenge": {"node": "dev/node1", "scope": "diagram group GRP-01", "baseCommit": "…",
+  "create": ["/Root/jdoe/schemas/invoice.xsd"],
+  "modify": ["Workflow-0001", "Mapping-0002", "/Root/jdoe/schemas/order.xsd"],
+  "existing": [], "identical": [], "notImported": ["dev/jdoe/repository/Root/jdoe/stylesheets/other.xsl"],
+  "checkWarnings": 0,
+  "repositoryReferences": [{"path": "/Root/jdoe/schemas/order.xsd", "artifacts": ["Mapping-0007 (GRP-02)"], "truncated": false}],
+  "repositoryDiff": ".reports/repository-<auditId>.diff",
+  "warnings": ["Workspace artifacts outside the scope … use repository files of this import, …", "…"],
+  "confirmationCode": "…", "expiresAt": "…", "message": "…"}}
+```
+
+**Execution** (the call with the code), in this order:
+
+1. the backup: the raw export of the scope plus the node's repository folder exports of the read,
+   with a manifest naming the repository files; then the `PENDING` audit record;
+2. **one** StartCLI repository import of all files to send into `/Root/<owner>` — before the
+   workflows and modules, so that they bind to the new content;
+3. the import of the workflows and modules, if there are any;
+4. verification: workflows and modules as before (with the reason); the repository folders are
+   exported again and every sent file must equal its workspace content byte for byte. Neither the
+   metadata (every import makes a new version) nor the reason (INUBIT ignores the version
+   comment of repository imports) is compared on repository files;
+5. write-back: only the sent files and their `.meta` records are rewritten from the re-export
+   (other files of the folders are not touched), in the one history entry of the call with its
+   `Server-State` and `Reason` trailers — the reason of a repository change lives in the workspace
+   history and the audit, not on the node; then the tag, if requested.
+
+A confirmed import of 20 files in 3 folders thus runs 3 repository exports to read the node again,
+1 repository import and 3 repository exports to verify (a diagram group adds its artifact exports,
+import and tag).
+
+**Failure.** After any failure from the repository import on, the repository files are rolled back
+first, then the artifacts ([rollback semantics](#development-on-a-development-stage-feature-004));
+files the call created stay and are listed in `createdNotRemoved`. A **timeout of the repository
+import** is `IMPORT_FAILED` at step `import` ("may have been applied"): nothing more is sent (no
+workflows or modules on top of an unknown repository state), the node is read again and every
+file whose content differs from before the call is rolled back. Unlike a timed-out artifact
+import, the call never ends `EXECUTED`.
+
+**Tag.** With a `tag`, the result's `tag` carries `repositoryFiles` if the tag was applied and the
+import sent repository files: their full paths, all in the closure of the group's modules
+(referenced by a module directly or only by another repository file), which INUBIT's group tag
+covers. This is information, not verified: the tag verification checks workflows and modules as
+before.
+
+**Audit.** Once the change set is built, every audit record of the call (refused, previewed,
+executed or failed) names each of its repository files as `repository.<n>` =
+`<create|modify|existing|identical> /Root/<owner>/<path> sha256:<16 hex>`; content is never
+recorded.
+
+**Shared-use risk.** Repository files are shared: a changed schema or stylesheet changes for every
+workflow and module on the node that uses it, in any diagram group and of any owner, not only for
+the scope of the import. The preview names the users the workspace holds (`repositoryReferences`
+and the report); users on the node that the workspace does not hold cannot be listed, and the
+warning says so. Export those users, or check them in the Workbench, before approving.
 
 **Example prompt**: "Import the layout change of GRP-01 to dev with reason 'layout'" →
 `import_artifacts(node: "dev/node1", diagramGroup: "GRP-01", reason: "layout")` returns the
@@ -1018,8 +1196,29 @@ REL-2026-10-07" adds `tag: "REL-2026-10-07"`.
   edit mode). What the deployment created stays (`createdNotRemoved`); the workspace is not
   changed (the next export records the state). The ledger records the restored state, so the
   next preview does not report this restore as `OUTSIDE_CHAIN`.
-- **Preview** (`challenge`): `scope`, `modify`, `notes`, `confirmationCode`, `expiresAt`,
-  `message`.
+- **Preview** (`challenge`): `scope`, `modify` (repository files by their full path
+  `/Root/<owner>/…`), `notes`, `confirmationCode`, `expiresAt`, `message`.
+- **Repository files** (feature 008) of a development call's backup: the restore also re-imports
+  the previous content (and metadata) of the repository files that call changed and that existed
+  before it, from the backup's repository exports — first, then the workflows and modules, as an
+  import does:
+  - the node's `development.repository` must be `WRITE`: on a node that is `READ_ONLY` now, the
+    **whole** restore is refused with `REPOSITORY_WRITE_DENIED` before anything is read, naming
+    the paths (next step: ask the administrator for `WRITE` and restore again, or restore the
+    state in the Workbench);
+  - it always needs a preview with a server code, also on a node with
+    `development.confirmation: CLIENT`;
+  - the conflict check reads the node per folder: a file changed again since the state the call
+    left, or no longer on the node, is `CONFLICT` and nothing is sent;
+  - every re-imported file is verified byte for byte by re-export (each gets a new version), the
+    files are written back to the workspace, and a failure rolls them back from the restore's own
+    backup;
+  - files the call created stay (an import cannot delete them) and are listed in
+    `createdNotRemoved`;
+  - the audit records name each file as `repository.<n>` with the hash of the content restored.
+
+  A deployment backup is not affected: it is restored as above whatever
+  `development.repository` says.
 
 **Example prompt**: "Undo that import" → `restore_backup(node: "dev/node1", backupRef: "…",
 reason: "undo layout")`.

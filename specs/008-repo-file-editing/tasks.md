@@ -601,7 +601,7 @@ node's content equals the content before the import byte for byte.
   - "Artifact workspace": the transitive repository closure of exports (a behaviour change, which
     also follows `xs:include`/`xsl:import` chains and message-type schemas of the module index,
     T050) and the repository-path scope with its limits.
-- [ ] T045 [P] `docs/tools.md`:
+- [X] T045 [P] `docs/tools.md`:
   - `list_nodes` field `repositoryWrite`;
   - `export_artifacts` `repositoryPaths` (input table, limits; the quoted description exists since T039);
   - `import_artifacts` (the quoted description exists since T028): the scopes table, refusals, the always-required server code,
