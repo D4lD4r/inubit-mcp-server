@@ -24,7 +24,8 @@ public interface VersionHistoryPort {
 
     /**
      * The git trailer of an entry written by a call with a reason (feature 008, FR-015a). It is
-     * never read as a server state.
+     * never read as a server state. Git drops the spaces at the start and end of a trailer
+     * value, so the reason is kept exactly only in the audit.
      */
     String REASON = "Reason";
 

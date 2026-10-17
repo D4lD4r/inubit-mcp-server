@@ -902,8 +902,9 @@ every write; each step that refuses sends nothing to INUBIT:
 10. success: only the changed files and their `.meta/` records are replaced by the verified
     server state and committed as one history entry
     `<import|restore|activate|deactivate> <node>: … [<auditId>]` with the trailers
-    `Server-State: <group>` and `Reason: <reason>` (the call's reason verbatim; feature 008,
-    FR-015a — exports and `local changes` entries carry no `Reason`); failure: **rollback**.
+    `Server-State: <group>` and `Reason: <reason>` (the call's reason; git drops spaces at its
+    start and end, the audit keeps the exact reason; feature 008, FR-015a — exports and
+    `local changes` entries carry no `Reason`); failure: **rollback**.
 
 **Failure model.** Refusals before anything is sent are tool errors (`isError: true`):
 `NOT_DEVELOPMENT`, `INVALID_INPUT`, `PRECONDITION_FAILED`, `CONFLICT`, `SECRET_UNRESOLVED`,
@@ -921,7 +922,10 @@ restore it with `restore_backup` or in the Workbench). With repository files (fe
 before and whose content changed are re-imported from the call's backup and verified by
 re-export, content only (each gets a new version on the node). A repository rollback that leaves
 a file changed is `rollback: FAILED`; the message names the files and points to `restore_backup`
-or to a re-import in the Workbench from the repository exports of the backup. Nothing in this
+or to a re-import in the Workbench from the repository exports of the backup. If the re-export
+after that rollback failed, the state the call left is not recorded for those files and
+`restore_backup` refuses the backup (`PRECONDITION_FAILED`), so the message then points only to the
+Workbench, also for the workflows and modules. Nothing in this
 feature deletes anything: **created artifacts are not removed**, so artifacts and repository files
 a failed call created are listed in `createdNotRemoved` — delete them in the Workbench if needed.
 A StartCLI timeout of the artifact import is decided by the re-export: if it shows the intended
@@ -1058,8 +1062,9 @@ the verification and the rollback: a referenced repository file is never moved t
 to import the rest without it.
 
 **On the node**, each call reads one repository export per distinct parent folder of the files
-and compares byte for byte (only content counts; version, version comment, date and description
-are never compared):
+(a file directly below `/Root/<owner>/` is exported on its own, and so is each file of a folder
+whose export exceeds the read limits) and compares byte for byte (only content counts; version,
+version comment, date and description are never compared):
 
 - new in the workspace and absent on the node → `create`; the content type comes from the
   extension: `.xsd` → `application/x-xsd+xml`, `.xsl` and `.xslt` → `application/xslt+xml`,
@@ -1092,8 +1097,9 @@ on the node. A call whose repository files are all `identical` sends none and ke
 **Preview.** `create`, `modify`, `existing` and `identical` carry the repository paths
 (`notImported` the workspace files), and:
 
-- `repositoryReferences` `[{path, artifacts, truncated}]`: per file to send, up to 20 workspace
-  artifacts **outside the scope** (of every owner of the group in the workspace) that use it —
+- `repositoryReferences` `[{path, artifacts, truncated}]`: per file to send that is used outside
+  the scope (a file without such a user is not listed), up to 20 workspace artifacts **outside
+  the scope** (of every owner of the group in the workspace) that use it —
   workflows as `<workflow> (<diagram group>)`, modules as `<module> (<plugin type> module)`,
   repository files by their full path, another owner's with `, owner <name>`; `truncated` if
   there are more. The full list is `.reports/repository-references-<auditId>.txt`, named in
@@ -1103,8 +1109,8 @@ on the node. A call whose repository files are all `identical` sends none and ke
   material is only named);
 - `warnings`: the shared use (see below), every reference outside the owner's repository root that
   was not followed (at most 20, then how many more), and, if a file the node holds is to be
-  changed, that artifacts on the node which the workspace does not hold cannot be listed. The
-  result repeats the last two.
+  changed, that artifacts on the node which the workspace does not hold cannot be listed. A
+  successful result repeats the last two.
 
 ```json
 {"challenge": {"node": "dev/node1", "scope": "diagram group GRP-01", "baseCommit": "…",

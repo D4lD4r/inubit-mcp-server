@@ -25,8 +25,9 @@ import org.junit.jupiter.api.io.TempDir;
  * simulated StartCLI time plus the measured time of this server's own work.
  *
  * <p>The calls follow D-5: one export per folder (not per file) for the preview's node read,
- * the same reads again in the confirmed call, one {@code importRepository} for all files and one
- * export per folder for the verification.
+ * one {@code importRepository} for all files and one export per folder for the verification.
+ * The confirmed call first repeats the node read, because the confirmation code is bound to the
+ * node state (D-6).
  */
 @Timeout(60)
 class RepositoryImportTimingTest {

@@ -107,8 +107,8 @@ public final class WorkspaceService {
                     + " take; nothing was exported",
                     "Repository paths are exported below /Root/<owner>; the owner comes from the"
                         + " call or from inventory.owner",
-                    "Give an owner of letters, digits, '_', '.', '-' and spaces that is not . or"
-                        + " ..");
+                    "Give an owner of at most 200 letters, digits, '_', '.', '-' and spaces that"
+                        + " does not start with '-' or a space and is not . or ..");
             }
             if (paths.size() > MAX_REPOSITORY_PATHS) {
                 throw invalidInput("At most " + MAX_REPOSITORY_PATHS + " repositoryPaths per"

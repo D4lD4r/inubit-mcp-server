@@ -278,10 +278,12 @@ and lets the repository logic be tested on its own with `FakeServer`.
 
 **Durations (P-2, spike section 11)**: one repository export took 2.4–2.7 s, one repository import
 2.3–2.8 s, a diagram-group export 2.9–4.1 s and a `tag` 3.8 s, all with small files. For SC-001
-(20 files in 3 folders) the repository part needs 3 exports for the preview, 1 import and 3 exports
-for the verification: 7 calls, about 17–19 s. A diagram-group import adds the feature-004 artifact
-exports, import and optional tag, a few calls of about 3–4 s each. This leaves a wide margin
-within the 2 minutes; files of up to 1 MiB were not timed.
+(20 files in 3 folders) the repository part of the preview needs 3 exports (about 7–8 s). The
+confirmed call reads the node again with the same 3 exports (the code is bound to the node state,
+D-6), then runs 1 import and 3 exports for the verification: 7 calls, about 17–19 s (10 calls
+with the preview; `RepositoryImportTimingTest` checks these counts). A diagram-group import adds
+the feature-004 artifact exports, import and optional tag, a few calls of about 3–4 s each. This
+leaves a wide margin within the 2 minutes; files of up to 1 MiB were not timed.
 
 **Alternatives considered**:
 - One export per file. Rejected: StartCLI starts a JVM per call. For 20 files that is 20 exports

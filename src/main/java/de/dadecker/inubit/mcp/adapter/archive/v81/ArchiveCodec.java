@@ -64,9 +64,9 @@ public final class ArchiveCodec implements ArchiveCodecPort {
      * Each archive is read ({@link ArchiveReader#readRepository}) and redacted, then all are
      * rendered together ({@link WorkspaceWriter#renderRepository}). A repository archive has no
      * secret but withheld key material, so the replaced secrets are the withheld files, each
-     * counted once even if exported paths overlap. The scope holds per archive
-     * the exported path, i.e. the longest common path of its written files (the exported folder,
-     * or the file itself), and its {@code .meta} mirror.
+     * counted once even if exported paths overlap. The scope holds per archive the longest
+     * common directory of its written files (or the file itself if it is the only one), which
+     * can be narrower than the exported path, and its {@code .meta} mirror.
      */
     @Override
     public PreparedExport prepareRepository(GroupId group, String owner, List<byte[]> archives) {

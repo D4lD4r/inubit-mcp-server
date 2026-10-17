@@ -686,7 +686,7 @@ against the current code before changing anything (some may already be resolved)
     feature-004 sections);
   - create the probe's parent directory before writing it (empty test folder);
   - no assertion message may print response content (paths, confirmation codes).
-- [ ] T055 Wording in docs, Javadoc and the contract:
+- [X] T055 Wording in docs, Javadoc and the contract:
   - `contracts/mcp-tools-delta.md`: `notImported` holds workspace paths; `checkWarnings` is an
     integer; the "more than 50 files to send" and new-file extension refusals contact the node
     (read only); add the pre-read limits (50 changed files with a base, 200 in total) (T045-r1);

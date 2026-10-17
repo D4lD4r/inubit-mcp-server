@@ -51,14 +51,16 @@ The repository files the server includes:
 | `diagramGroup` | new and changed files in the transitive closure of every module that the group's workspace workflows use, changed or not |
 | `modules` | new and changed files in the transitive closure of the given modules |
 
-Other changed repository files are listed in `notImported`. A diagram group whose only changes are
-repository files is valid (FR-011a).
+Other changed repository files are listed in `notImported`, by their workspace path (like the
+workflows and modules there). A diagram group whose only changes are repository files is valid
+(FR-011a).
 
 Refusals:
 
 | Code | When | Contacts the node? |
 |---|---|---|
-| `INVALID_INPUT` | a deleted repository file in scope; a file below another owner's root; key material (keystore, private key, certificate); `${secret:` in the content; a file over 10 MiB; more than 50 files to send; the extension of a file to be **created** (absent on the node, so known only after the node read) not in the content-type table of research D-7: `.xsd` → `application/x-xsd+xml`, `.xsl` and `.xslt` → `application/xslt+xml`, `.wsdl` → `application/wsdl+xml`, `.xml` → `application/xml` (the message lists `.xsd .xsl .xslt .wsdl .xml`); a file the node already holds keeps the node's content type; a path the CLI rules refuse; `tag` with `repositoryPaths` | no |
+| `INVALID_INPUT` | a deleted repository file in scope; a file below another owner's root; key material (keystore, private key, certificate); `${secret:` in the content; a file over 10 MiB; more than 50 changed files with a base (`Server-State`), or more than 200 new and changed files, in scope; a path the CLI rules refuse; `tag` with `repositoryPaths` | no |
+| `INVALID_INPUT` | more than 50 files to send (`create` + `modify`; `identical` files do not count); the extension of a file to be **created** (absent on the node, so known only after the node read) not in the content-type table of research D-7: `.xsd` → `application/x-xsd+xml`, `.xsl` and `.xslt` → `application/xslt+xml`, `.wsdl` → `application/wsdl+xml`, `.xml` → `application/xml` (the message lists `.xsd .xsl .xslt .wsdl .xml`); a file the node already holds keeps the node's content type | read only |
 | `PRECONDITION_FAILED` | a repository file with a `Server-State` base whose `.meta` record is missing or unreadable ("export the path first"); a file without any base is NEW and follows `create` / `modify`+`existing` (research D-4) | no |
 | `REPOSITORY_WRITE_DENIED` | the node is read-only and a file would be created or modified; the whole call is refused and the paths are named | only to read, nothing is sent (a call with a file changed in the workspace is refused before any read) |
 | `CONFLICT` | the node's content differs from the base of a changed file; written to `.reports/conflict-<auditId>.diff` | read only |
@@ -73,8 +75,8 @@ Challenge: the existing fields, plus:
   "node": "dev/node1", "scope": "diagram group GRP-01", "baseCommit": "…",
   "create": ["/Root/jdoe/schemas/invoice.xsd"],
   "modify": ["Workflow-0001", "Mapping-0002", "/Root/jdoe/schemas/order.xsd"],
-  "existing": [], "identical": [], "notImported": ["/Root/jdoe/stylesheets/other.xsl"],
-  "checkWarnings": [],
+  "existing": [], "identical": [], "notImported": ["dev/jdoe/repository/Root/jdoe/stylesheets/other.xsl"],
+  "checkWarnings": 0,
   "repositoryReferences": [
     {"path": "/Root/jdoe/schemas/order.xsd", "artifacts": ["Mapping-0007 (GRP-02)"], "truncated": false}
   ],

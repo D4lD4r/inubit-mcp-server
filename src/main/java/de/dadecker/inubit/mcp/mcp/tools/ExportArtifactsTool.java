@@ -25,11 +25,10 @@ import java.util.function.Function;
 /**
  * {@code export_artifacts} (contracts/mcp-tools-delta.md, US1): exports technical workflows by
  * diagram group, single modules, or repository paths (feature 008, US3) from one server into the
- * workspace and records the export
- * in the workspace history ({@link WorkspaceService#export}). A group target uses its first
- * server in config order, which the result names. Read-only for INUBIT, but not idempotent: each
- * call that changes files records a history entry. The change list is bounded by
- * {@code resultLimits.maxItems}; when longer, the full list goes to
+ * workspace and records the export in the workspace history ({@link WorkspaceService#export}). A
+ * group target uses its first server in config order, which the result names. Read-only for
+ * INUBIT, but not idempotent: each call that changes files records a history entry. The change
+ * list is bounded by {@code resultLimits.maxItems}; when longer, the full list goes to
  * {@code .reports/export-<commit>.txt} (research D-10).
  */
 public final class ExportArtifactsTool implements ToolHandler {

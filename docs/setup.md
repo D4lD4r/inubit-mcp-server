@@ -367,8 +367,8 @@ workspace: ~/work/acme-inubit   # default: ~/.inubit-mcp/<profile.name>/workspac
   diagram types are not.
 - **Repository files of a diagram-group or module export** are the files of the export that the
   exported workflows and modules reach by structural references, **transitively** (feature 008;
-  before, only files named in the artifacts themselves were written, so an export can now write
-  more files):
+  before, every file whose path appeared anywhere in the artifacts' texts was written, so an
+  export can now write more files, or fewer where a URI appeared only in a string literal):
   - every `inubitrepository:` URI in workflows, `module.xml` and other documents that are no
     stylesheet or schema (e.g. WSDL);
   - the message-type schemas of the module index (`InputMessageTypeSchema`,
@@ -382,8 +382,9 @@ workspace: ~/work/acme-inubit   # default: ~/.inubit-mcp/<profile.name>/workspac
   owner's root are never written, a warning counts them.
 - **Repository paths.** `export_artifacts` with `repositoryPaths` exports repository files and
   folders on their own: 1–20 paths relative to the owner's repository root (e.g.
-  `schemas/order.xsd`; no leading `/`, no empty, `.` or `..` segment, no `%`, not the root
-  itself), folders recursively. Limits and rules:
+  `schemas/order.xsd`; segments of at most 200 letters, digits, `_ . -` and spaces, not starting
+  with `-` or a space; no leading `/`, no empty, `.` or `..` segment, not the root itself),
+  folders recursively. Limits and rules:
   - at most **500 files and 100 MiB** per call; a larger scope is refused with `INVALID_INPUT`
     before anything is written, naming the count and the size;
   - if any path does not exist on the node, the whole call is `NOT_FOUND` naming every missing
@@ -472,7 +473,8 @@ groups:
   without both, no `Authorization` header is sent. Responses are stored below
   `<workspace>/.tests/e2e/` and removed after 30 days.
 - **Backups.** Every write first stores the raw export of its scope (with repository files, also
-  the node's repository folders they lie in) in
+  the node's exports of the folders they lie in, or of the file itself if it lies directly below
+  `/Root/<owner>/`) in
   `~/.inubit-mcp/<profile>/backups` (`<auditId>-<n>.zip` plus a manifest `<auditId>.json` with
   names and hashes only; directory `rwx------`, files `rw-------`). The ZIPs hold the server's
   secret values — keep the directory private. Backups are kept **30 days**; the newest backup of

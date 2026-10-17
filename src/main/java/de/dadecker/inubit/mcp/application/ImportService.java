@@ -1557,7 +1557,10 @@ public final class ImportService {
     /**
      * The {@code FAILED} result. A failed rollback keeps the backup; the workflows and modules
      * and the repository files it names can be restored with {@code restore_backup} (feature
-     * 008, US4) or in the Workbench. Created repository files are listed like created artifacts.
+     * 008, US4) or in the Workbench. If the last repository re-export failed, the message points
+     * only to the Workbench: the manifest then holds no state for the files left changed, so
+     * {@code restore_backup} would refuse the backup. Created repository files are listed like
+     * created artifacts.
      */
     private Response failed(Call call, NodeId node, Plan plan, UUID auditId,
         WriteOutcome.Failure failure, Rollback outcome, Exported current,
@@ -1571,17 +1574,21 @@ public final class ImportService {
         if (rollback == WriteOutcome.Rollback.FAILED) {
             String message = failure.message() + "; the rollback failed: the backup " + auditId
                 + " is kept";
-            if (outcome.artifacts() == WriteOutcome.Rollback.FAILED) {
-                message += " — restore the workflows and modules with restore_backup or in the"
-                    + " Workbench";
-            }
             List<String> notRestored = outcome.repository()
                 .map(RepositoryStep.Rollback::notRestored).orElse(List.of());
+            // restore_backup refuses files whose state the call left is not recorded
+            boolean restorable = notRestored.isEmpty()
+                || seen.flatMap(RepositoryStep.Reread::failure).isEmpty();
+            if (outcome.artifacts() == WriteOutcome.Rollback.FAILED) {
+                message += " — restore the workflows and modules "
+                    + (restorable ? "with restore_backup or " : "") + "in the Workbench";
+            }
             if (!notRestored.isEmpty()) {
                 message += "; the repository files " + String.join(", ", notRestored) + " on "
-                    + node + " are not back to their content before the call — restore them with"
-                    + " restore_backup or re-import them in the Workbench from the repository"
-                    + " exports of the backup";
+                    + node + " are not back to their content before the call — "
+                    + (restorable ? "restore them with restore_backup or " : "")
+                    + "re-import them in the Workbench from the repository exports of the"
+                    + " backup";
             }
             reported = new WriteOutcome.Failure(failure.code(), failure.step(), message);
         }

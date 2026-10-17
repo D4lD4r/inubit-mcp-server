@@ -368,6 +368,30 @@ class RepositoryImportFailureTest {
     }
 
     @Test
+    void bothRollbacksFailingWithoutAPostRollbackReExportPointOnlyToTheWorkbench() {
+        // as above, but the re-export after the repository rollback fails: restore_backup
+        // would refuse that backup (no recorded state for a.xsd), so no part names it
+        String sent = harness.read(file(A));
+        harness.importRepositoryApplied(node).importApplied().exportRepository(node, XSD);
+        harness.cli.then(spec -> node.putRepositoryFile(A, sent.stripTrailing()));
+        harness.exportGroup()
+            .importRefused();
+        repositoryExportFails();
+        harness.importRefused().exportGroup();
+
+        WriteOutcome outcome = confirmed();
+
+        assertThat(outcome.rollback()).hasValue(WriteOutcome.Rollback.FAILED);
+        assertThat(outcome.failure()).hasValueSatisfying(failure -> assertThat(failure.message())
+            .contains("the rollback failed: the backup " + outcome.auditId() + " is kept",
+                "restore the workflows and modules in the Workbench",
+                "the repository files " + A + " on " + ImportHarness.DEV + " are not back to"
+                    + " their content before the call — re-import them in the Workbench from"
+                    + " the repository exports of the backup")
+            .doesNotContain("restore_backup"));
+    }
+
+    @Test
     void aFailingReExportAfterTheFailureReImportsEveryFileTheNodeHeld() {
         // the repository import is refused and changes nothing, but the re-export cannot tell:
         // every sent file the node held before the call is re-imported from the backup
@@ -449,18 +473,19 @@ class RepositoryImportFailureTest {
 
     @Test
     void theBackupOfAFailedImportWhosePostRollbackReExportFailedIsRefusedBeforeAnythingIsSent() {
-        // Current behaviour, documented (T053): without a post-rollback re-export the manifest
-        // holds no repository:<path> state for a.xsd, so restore_backup stops with
-        // PRECONDITION_FAILED after the node read; nothing is sent and the next step points to
-        // the Workbench. The FAILED import still names restore_backup next to the Workbench.
+        // without a post-rollback re-export the manifest holds no repository:<path> state for
+        // a.xsd, so restore_backup stops with PRECONDITION_FAILED after the node read; nothing
+        // is sent and the next step points to the Workbench. The FAILED import therefore points
+        // only to the Workbench and the backup's repository exports, not to restore_backup.
         harness.importRepositoryApplied(node).importRefused().exportRepository(node, XSD)
             .exportGroup()
             .importRefused();
         repositoryExportFails();
         WriteOutcome failed = confirmed();
         assertThat(failed.rollback()).hasValue(WriteOutcome.Rollback.FAILED);
-        assertThat(failed.failure().orElseThrow().message()).contains(A, "restore_backup",
-            "Workbench");
+        assertThat(failed.failure().orElseThrow().message()).contains(A, "re-import them in the"
+                + " Workbench from the repository exports of the backup")
+            .doesNotContain("restore_backup");
         assertThat(failed.createdNotRemoved()).as("all of them: the re-export failed")
             .containsExactly(B);
         String ref = failed.backupRef().orElseThrow();
