@@ -107,9 +107,14 @@ class SystemProcessLauncherTest {
         // fake startcli.sh: the root exits on TERM, its child ignores TERM and keeps running
         Path script = Files.createDirectories(directory.resolve("bin")).resolve("startcli.sh");
         Files.writeString(script, "#!/bin/sh\n"
+            + "[ \"$1\" = warm-up ] && exit 0\n"
             + "sh -c 'trap \"\" TERM; echo $$ > grandchild.pid; while :; do sleep 1; done' &\n"
             + "wait\n");
         Files.setPosixFilePermissions(script, PosixFilePermissions.fromString("rwx------"));
+        // The first start of a freshly written script can take over a second on macOS (measured
+        // 0.13 s typically, up to 1.8 s), a later one a few milliseconds. Pay that cost before
+        // the timed call, so the grandchild is running when the timeout fires.
+        assertThat(new ProcessBuilder(script.toString(), "warm-up").start().waitFor()).isZero();
         CliRunner runner = new CliRunner(launcher, Map.of("PATH", "/bin:/usr/bin"), false,
             new CliResources("acme"));
         EffectiveNodeConfig server = TestNodeConfig.node().cliHome(directory)
@@ -118,11 +123,12 @@ class SystemProcessLauncherTest {
 
         try {
             assertThatThrownBy(() -> runner.run(server, "jdoe", Secret.of("pw"),
-                CliCommand.kill("1"), Duration.ofSeconds(1),
+                CliCommand.kill("1"), Duration.ofSeconds(2),
                 new CredentialGuard(server.credentialVariables(), Clock.systemUTC())))
                 .isInstanceOfSatisfying(ToolErrorException.class,
                     e -> assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT));
 
+            assertThat(pidFile).as("the grandchild started before the timeout fired").exists();
             long grandchild = Long.parseLong(Files.readString(pidFile).strip());
             long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
             while (ProcessHandle.of(grandchild).map(ProcessHandle::isAlive).orElse(false)
