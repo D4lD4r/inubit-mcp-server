@@ -71,12 +71,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- StartCLI output: an `n-OK` or `n-NOK` result printed on the same line as the import progress
-  text `Completed = … MB / … MB` is recognised. Before, `deploy_release` took a repository import
-  that had succeeded for a failure.
 - `check_artifacts` decodes percent-escaped repository paths before the existence check, so a
   reference to e.g. `a%20b.xsd` no longer gives a false `REPOSITORY_REF_MISSING`; its messages
   show the decoded path.
+
+## [0.5.3] - 2026-10-17
+
+### Fixed
+
+- A repository import that INUBIT carried out is no longer taken for a failure. StartCLI prints
+  the import's progress text `Completed = … MB / … MB` without a line break, so its `1-OK`
+  message follows on the same line; the output parser now reads it there. Before, every
+  repository import of `deploy_release` (the new and changed repository files a release brings
+  along) ended as a failure although the node had taken the files.
 
 ## [0.5.2] - 2026-10-09
 
@@ -342,7 +349,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.4.3...v0.5.0
