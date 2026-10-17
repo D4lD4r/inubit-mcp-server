@@ -347,7 +347,8 @@ workspace: ~/work/acme-inubit   # default: ~/.inubit-mcp/<profile.name>/workspac
     .gitignore                      ignores .tests/, .reports/, .lock
     <group>/<owner>/workflows/<diagram group>/<workflow>.xml
     <group>/<owner>/modules/<plugin type>/<module>/module.xml, index.xml, <property>.<ext>
-    <group>/<owner>/repository/<repository path>   only files the exported artifacts reference
+    <group>/<owner>/repository/<repository path>   files the exported artifacts reference (also
+                                    indirectly) or that were exported by path
     .meta/…                         volatile values (UIDs, export suffix of check-in comments, context)
     .tests/…                        outputs of local stylesheet runs (not versioned)
     .reports/…                      full change and finding lists (not versioned)
@@ -364,6 +365,35 @@ workspace: ~/work/acme-inubit   # default: ~/.inubit-mcp/<profile.name>/workspac
   lives only in a private temporary directory that is deleted after each export.
 - Only **technical workflows** are exported (with their modules); system diagrams and other
   diagram types are not.
+- **Repository files of a diagram-group or module export** are the files of the export that the
+  exported workflows and modules reach by structural references, **transitively** (feature 008;
+  before, only files named in the artifacts themselves were written, so an export can now write
+  more files):
+  - every `inubitrepository:` URI in workflows, `module.xml` and other documents that are no
+    stylesheet or schema (e.g. WSDL);
+  - the message-type schemas of the module index (`InputMessageTypeSchema`,
+    `OutputMessageTypeSchema`);
+  - in stylesheets and schemas only `xsl:import`/`xsl:include` and
+    `xs:import`/`xs:include`/`xs:redefine`, by `inubitrepository:` URI or (in repository files)
+    relative to the file, followed through whole chains.
+
+  A URI in a string literal (e.g. in an `xsl:variable`) is no reference. A referenced file the
+  export does not carry is not written (`check_artifacts` reports it); files below another
+  owner's root are never written, a warning counts them.
+- **Repository paths.** `export_artifacts` with `repositoryPaths` exports repository files and
+  folders on their own: 1–20 paths relative to the owner's repository root (e.g.
+  `schemas/order.xsd`; no leading `/`, no empty, `.` or `..` segment, no `%`, not the root
+  itself), folders recursively. Limits and rules:
+  - at most **500 files and 100 MiB** per call; a larger scope is refused with `INVALID_INPUT`
+    before anything is written, naming the count and the size;
+  - if any path does not exist on the node, the whole call is `NOT_FOUND` naming every missing
+    path, and nothing is written;
+  - two paths that differ only in letter case are refused (`INVALID_INPUT`);
+  - key material is withheld as in every export.
+
+  The export overwrites the files of its paths and deletes none; other workspace files stay as
+  they are. The history entry is `export <node>: repository <paths> (<n> files)`, the base of a
+  later import of these files.
 - One workspace operation at a time (export, check, import, restore, `set_active`,
   `deploy_release` preview and execution): a second call is refused at once with
   `PRECONDITION_FAILED` while another one runs.
@@ -395,6 +425,7 @@ non-production node of a deployment target. Tool reference:
 |---|---|---|---|
 | `development.enabled` | defaults, group, node | `false` | the node is a development stage; **not allowed on `production: true` groups** (startup error); at most one development-enabled node per group |
 | `development.confirmation` | defaults, group, node | `SERVER` | `SERVER`: every write first returns a preview and a one-time code (bound to the inputs and the server state, valid `confirmationTtl`); `CLIENT`: the write runs on the first call and the MCP client must ask the user |
+| `development.repository` | defaults, group, node | `READ_ONLY` | `WRITE`: `import_artifacts` and `restore_backup` may create and change repository files below `/Root/<owner>/`, always after a preview with a server code (also with `CLIENT` confirmation); `READ_ONLY`: a call that would send a new or changed repository file is refused (`REPOSITORY_WRITE_DENIED`). Takes effect only on a development stage (rules below) |
 | `e2eTests` | defaults, group, node | `FORBIDDEN` | `FREE`, `CONFIRM` (preview and code first) or `FORBIDDEN`; `FREE`/`CONFIRM` need `e2e.soap.baseUrl` and are not allowed on production |
 | `e2e.soap.baseUrl` | group, node | — | the base address of the node's SOAP endpoints; `https` (plain `http` gives a startup warning, and a startup error if the e2e basic-authentication variables are set for a node that allows tests), no query or fragment; the node's `tls` settings apply |
 
@@ -405,6 +436,7 @@ groups:
   - name: dev
     development:
       enabled: true          # confirmation defaults to SERVER
+      repository: WRITE      # repository files may be written (default READ_ONLY)
     e2eTests: CONFIRM
     e2e:
       soap:
@@ -419,6 +451,17 @@ groups:
   `--importUserGroup` with "Missing user or group!" and takes a user-group owner with
   `--importUser`). There is no owner setting; a profile with the former `owners:` section is a
   startup error (unknown key) — remove the section.
+- **Repository files.** `development.repository: WRITE` is effective only on a node with
+  `development.enabled: true` in a group without `production: true`; every other node resolves to
+  `READ_ONLY`. Set explicitly, the switch is checked at startup:
+  - `WRITE` on a node that is not a development stage is a startup error;
+  - `WRITE` on a `production: true` group, or on any of its nodes, is a startup error;
+  - `WRITE` on a non-production group without a development-enabled node is a warning ("has no
+    effect").
+
+  Inherited, it is never an error: `defaults.development.repository: WRITE` makes the development
+  nodes `WRITE` and leaves all other nodes read-only. A node with `READ_ONLY` wins over a group
+  with `WRITE`. Any other value (also lower-case `write`) is a startup error that lists both.
 - **Secrets.** Placeholders `${secret:…}` in the workspace are replaced by the values currently on
   the target node, in memory and in the private temporary import file only (deleted after the
   import). A placeholder without a value on the target is refused (`SECRET_UNRESOLVED`).
@@ -428,7 +471,8 @@ groups:
   `<PREFIX>_<GROUP>_<NODE>_E2E_USERNAME` / `_E2E_PASSWORD` win), like the node credentials;
   without both, no `Authorization` header is sent. Responses are stored below
   `<workspace>/.tests/e2e/` and removed after 30 days.
-- **Backups.** Every write first stores the raw export of its scope in
+- **Backups.** Every write first stores the raw export of its scope (with repository files, also
+  the node's repository folders they lie in) in
   `~/.inubit-mcp/<profile>/backups` (`<auditId>-<n>.zip` plus a manifest `<auditId>.json` with
   names and hashes only; directory `rwx------`, files `rw-------`). The ZIPs hold the server's
   secret values — keep the directory private. Backups are kept **30 days**; the newest backup of
@@ -446,12 +490,14 @@ groups:
   the backup on failure.
 
 `--check-config` shows, once a node is a development stage or allows end-to-end tests, per node
-`development: on (confirmation SERVER)` or `development: off` and `e2e: FREE (<url>)`,
-`e2e: CONFIRM (<url>)` or `e2e: FORBIDDEN`:
+`development: on (confirmation SERVER)` followed by the effective `repository: write` or
+`repository: read-only`, or `development: off`, and `e2e: FREE (<url>)`, `e2e: CONFIRM (<url>)`
+or `e2e: FORBIDDEN`. The first `read-only` of the line is the restart and kill write flag
+([Write settings](#write-settings-restart-and-kill)):
 
 ```text
 Group dev:
-  Node dev/node1: read-only, development: on (confirmation SERVER), e2e: CONFIRM (https://inubit-dev-1.example.test:8443), cli: available, username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD
+  Node dev/node1: read-only, development: on (confirmation SERVER), repository: write, e2e: CONFIRM (https://inubit-dev-1.example.test:8443), cli: available, username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD
 ```
 
 ### Stage chain and deployments

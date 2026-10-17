@@ -591,7 +591,7 @@ node's content equals the content before the import byte for byte.
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T044 [P] `docs/setup.md`:
+- [X] T044 [P] `docs/setup.md`:
   - "Development settings": the `development.repository` row (levels, default `READ_ONLY`, effective
     only on development stages, the inheritance rules, errors and the warning), a YAML example and
     the `--check-config` line with `repository: write`. The example node line (today
