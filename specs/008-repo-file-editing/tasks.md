@@ -657,7 +657,7 @@ The minor findings collected in `reviews/` during implementation, bundled so tha
 implementer → reviewer loop. Each task cites the review that raised the point; verify each point
 against the current code before changing anything (some may already be resolved).
 
-- [ ] T052 Robustness of the repository-path export (`WorkspaceService`, `ArchiveCodec`,
+- [X] T052 Robustness of the repository-path export (`WorkspaceService`, `ArchiveCodec`,
   `ArchiveReader`), test first:
   - an owner that is not a valid repository segment (`.`, `..`, a `/`, from tool input or
     `inventory.owner`) gives `INVALID_INPUT` instead of an `IllegalArgumentException` (T036-T038-r1);

@@ -42,7 +42,9 @@ import java.util.zip.ZipOutputStream;
  *       archive ({@code PRECONDITION_FAILED}, FR-015a): the target keeps its own.
  *   <li>The metadata keeps its exported form except {@code contentSize} and {@code contentMD5}
  *       (of the content written) and {@code tagName} (dropped).
- *   <li>Reading inflates at most {@link #MAX_ENTRY_BYTES} per entry and 128 MiB in all.
+ *   <li>Reading inflates at most {@link #MAX_ENTRY_BYTES} per entry and 128 MiB in all and
+ *       refuses an entry that occurs twice ({@code UNEXPECTED_RESPONSE}), so that no file is
+ *       replaced unnoticed.
  * </ul>
  *
  * <p>INUBIT ignores the archive's {@code uuid} on create and its {@code versionComment}; the
@@ -225,7 +227,8 @@ public final class RepositoryArchive {
      * path; directory entries are skipped.
      *
      * @throws ToolErrorException {@code UNEXPECTED_RESPONSE} for an entry outside {@code Root/},
-     *     a metadata entry without content or the other way round, or an unreadable archive
+     *     a duplicate entry, a metadata entry without content or the other way round, or an
+     *     unreadable archive
      */
     public static List<RepositoryFile> read(byte[] zip) {
         return read(zip, MAX_ENTRY_BYTES);
@@ -412,13 +415,16 @@ public final class RepositoryArchive {
                     throw unexpected("The repository archive is too large (more than "
                         + MAX_TOTAL_BYTES + " bytes inflated)");
                 }
-                if (name.endsWith(METADATA)) {
-                    metadata.put(pathOf.path(base(name, METADATA)), bytes);
-                } else if (name.endsWith(CONTENT)) {
-                    content.put(pathOf.path(base(name, CONTENT)), bytes);
-                } else {
+                String suffix = name.endsWith(METADATA) ? METADATA
+                    : name.endsWith(CONTENT) ? CONTENT : null;
+                if (suffix == null) {
                     throw unexpected("The repository archive has an entry that is neither"
                         + " metadata nor content");
+                }
+                String path = pathOf.path(base(name, suffix));
+                if ((suffix.equals(METADATA) ? metadata : content).put(path, bytes) != null) {
+                    throw unexpected("The repository archive holds an entry of the file "
+                        + path + " twice");
                 }
             }
         } catch (IOException e) {

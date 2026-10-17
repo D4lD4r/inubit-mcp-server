@@ -779,8 +779,9 @@ comments, archive context) under `.meta/`. Files of artifacts no longer exported
 - Exporting never needs `development.repository`.
 
 **Errors**: `TARGET_UNKNOWN`; `INVALID_INPUT` ("Give exactly one of diagramGroups, modules or
-repositoryPaths", a blank or unsupported name or repository path, two artifacts or repository
-paths whose paths differ only in case, a repository export over 500 files or 100 MiB);
+repositoryPaths", a blank or unsupported name or repository path, a repository path given twice,
+an owner that is no repository root (e.g. `.` or `..`) with `repositoryPaths`, two artifacts or
+repository paths whose paths differ only in case, a repository export over 500 files or 100 MiB);
 `NOT_CONFIGURED` (no owner); `CLI_UNAVAILABLE`, `AUTH_FAILED`, `TIMEOUT` (names
 `cliExportTimeout`); `NOT_FOUND` (diagram group or module does not exist for the owner;
 repository paths missing on the node, all named); `UNEXPECTED_RESPONSE` (the archive cannot be

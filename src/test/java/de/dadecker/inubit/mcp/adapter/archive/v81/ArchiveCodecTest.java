@@ -164,6 +164,24 @@ class ArchiveCodecTest {
     }
 
     @Test
+    void aKeystoreInOverlappingExportsIsCountedOnce() {
+        // T052: the folder keys and the file keys/client.p12 both hold the keystore
+        byte[] keystore = ArtifactFixtures.syntheticKeystores().stream()
+            .filter(k -> k.file().endsWith(".p12")).findFirst().orElseThrow().bytes();
+        Map<String, byte[]> folder = new LinkedHashMap<>();
+        folder.put("/Root/jdoe/keys/client.p12", keystore);
+        folder.put("/Root/jdoe/keys/readme.txt", utf8("keys"));
+        byte[] file = repositoryExport(Map.of("/Root/jdoe/keys/client.p12", keystore));
+
+        PreparedExport prepared = codec.prepareRepository(DEV, "jdoe",
+            List.of(repositoryExport(folder), file));
+
+        assertThat(prepared.warnings()).containsExactly("1 repository file(s) with key material"
+            + " were not written; .meta holds a placeholder");
+        assertThat(prepared.secretsReplaced()).isEqualTo(1);
+    }
+
+    @Test
     void pathsThatDifferOnlyInCaseAreRefusedWithinOneExport() {
         // US3-5
         Map<String, byte[]> files = new LinkedHashMap<>();

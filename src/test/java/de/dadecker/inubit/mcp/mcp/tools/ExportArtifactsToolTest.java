@@ -301,6 +301,20 @@ class ExportArtifactsToolTest {
     }
 
     @Test
+    void anOwnerThatIsNoRepositorySegmentIsInvalidInputForRepositoryPaths() {
+        // T052: the schema pattern lets "." and ".." pass as owner; the server refuses them
+        for (String owner : List.of(".", "..")) {
+            JsonNode error = toolError(call(Map.of("target", "dev", "owner", owner,
+                "repositoryPaths", List.of("xsd"))));
+
+            assertThat(error.path("code").asString()).as(owner).isEqualTo("INVALID_INPUT");
+            assertThat(error.path("message").asString()).as(owner).contains("owner " + owner);
+        }
+
+        assertThat(harness.artifacts.calls).isEmpty();
+    }
+
+    @Test
     void repositoryPathsWithASecondScopeOrOutsideTheOwnersRootAreInvalidInput() {
         for (Map<String, Object> arguments : List.<Map<String, Object>>of(
             Map.of("target", "dev", "diagramGroups", List.of("GRP-01"),

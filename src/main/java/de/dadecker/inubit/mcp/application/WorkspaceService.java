@@ -72,21 +72,16 @@ public final class WorkspaceService {
     /**
      * What to export from {@code node} for {@code owner}: exactly one of {@code diagramGroups}
      * (technical workflows only), {@code modules} and {@code repositoryPaths} is non-empty.
-     * Repository paths (feature 008, FR-009) are 1–{@value #MAX_REPOSITORY_PATHS} normalized
-     * paths relative to {@code /Root/<owner>} ({@link RepositoryPaths#relativeValid}) of which no
-     * two differ only in letter case.
+     * Repository paths (feature 008, FR-009) are 1–{@value #MAX_REPOSITORY_PATHS} distinct
+     * normalized paths relative to {@code /Root/<owner>} ({@link RepositoryPaths#relativeValid})
+     * of which no two differ only in letter case, for an owner that is a repository segment
+     * ({@link RepositoryPaths#ownerValid}).
      */
     public record ExportRequest(NodeId node, String owner, List<String> diagramGroups,
         List<ModuleRef> modules, List<String> repositoryPaths) {
 
         /** The most repository paths of one export (FR-009). */
         public static final int MAX_REPOSITORY_PATHS = 20;
-
-        /** A diagram-group or module export. */
-        public ExportRequest(NodeId node, String owner, List<String> diagramGroups,
-            List<ModuleRef> modules) {
-            this(node, owner, diagramGroups, modules, List.of());
-        }
 
         public ExportRequest {
             Objects.requireNonNull(node, "node");
@@ -101,10 +96,20 @@ public final class WorkspaceService {
                     "One export covers diagram groups, single modules or repository paths",
                     "Call export_artifacts once per kind");
             }
-            checkRepositoryPaths(owner, repositoryPaths);
+            if (!repositoryPaths.isEmpty()) {
+                checkRepositoryPaths(owner, repositoryPaths);
+            }
         }
 
         private static void checkRepositoryPaths(String owner, List<String> paths) {
+            if (!RepositoryPaths.ownerValid(owner)) {
+                throw invalidInput("The owner " + owner + " is no repository root StartCLI can"
+                    + " take; nothing was exported",
+                    "Repository paths are exported below /Root/<owner>; the owner comes from the"
+                        + " call or from inventory.owner",
+                    "Give an owner of letters, digits, '_', '.', '-' and spaces that is not . or"
+                        + " ..");
+            }
             if (paths.size() > MAX_REPOSITORY_PATHS) {
                 throw invalidInput("At most " + MAX_REPOSITORY_PATHS + " repositoryPaths per"
                     + " export, not " + paths.size(), "The export covers too many paths",
@@ -120,6 +125,10 @@ public final class WorkspaceService {
                         "Give the path below /Root/" + owner + ", e.g. stylesheets/common");
                 }
                 String other = byLowerCase.putIfAbsent(path.toLowerCase(Locale.ROOT), path);
+                if (path.equals(other)) {
+                    throw invalidInput("The repository path " + path + " is given twice",
+                        "A path is listed more than once", "Give each path once");
+                }
                 if (other != null) {
                     throw invalidInput("The repository paths " + other + " and " + path
                         + " differ only in letter case",
@@ -324,15 +333,25 @@ public final class WorkspaceService {
             }
         }
         if (files > MAX_REPOSITORY_FILES || bytes > MAX_REPOSITORY_BYTES) {
+            String mebibytes = mebibytes(bytes);
+            // in bytes where one decimal would hide the size (0.0) or the excess (100.0)
+            boolean inBytes = mebibytes.equals(mebibytes(0))
+                || mebibytes.equals(mebibytes(MAX_REPOSITORY_BYTES));
             throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
                 "The repository export holds " + files + " files and "
-                    + String.format(Locale.ROOT, "%.1f", bytes / (double) (1 << 20))
-                    + " MiB; one export writes at most " + MAX_REPOSITORY_FILES + " files and "
-                    + (MAX_REPOSITORY_BYTES >> 20) + " MiB",
+                    + (inBytes ? bytes + " bytes" : mebibytes + " MiB")
+                    + "; one export writes at most " + MAX_REPOSITORY_FILES + " files and "
+                    + (MAX_REPOSITORY_BYTES >> 20) + " MiB"
+                    + (inBytes ? " (" + MAX_REPOSITORY_BYTES + " bytes)" : ""),
                 "The repository paths cover too many or too large files",
                 "Export narrower repository paths (sub-folders or single files)")
                 .withNode(node));
         }
+    }
+
+    /** {@code bytes} in MiB with one decimal. */
+    private static String mebibytes(long bytes) {
+        return String.format(Locale.ROOT, "%.1f", bytes / (double) (1 << 20));
     }
 
     /** The plugin type of each requested module, looked up once if any is missing. */

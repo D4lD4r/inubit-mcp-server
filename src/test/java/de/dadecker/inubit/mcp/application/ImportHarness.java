@@ -124,11 +124,12 @@ public final class ImportHarness {
         if (module == null) {
             exports.artifacts.exports.put(diagramGroup, fixture);
             exports.service().export(new WorkspaceService.ExportRequest(DEV, owner,
-                List.of(diagramGroup), List.of()));
+                List.of(diagramGroup), List.of(), List.of()));
         } else {
             exports.artifacts.exports.put(module, fixture);
             exports.service().export(new WorkspaceService.ExportRequest(DEV, owner, List.of(),
-                List.of(new WorkspaceService.ModuleRef(module, Optional.of(pluginType)))));
+                List.of(new WorkspaceService.ModuleRef(module, Optional.of(pluginType))),
+                List.of()));
         }
         this.inubit = new FakeInubit(fixture);
         this.backups = new BackupStore(temp.resolve("backups"), clock);

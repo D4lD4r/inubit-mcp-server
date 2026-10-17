@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import de.dadecker.inubit.mcp.domain.port.ArchiveCodecPort;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -61,7 +62,9 @@ public final class ArchiveCodec implements ArchiveCodecPort {
 
     /**
      * Each archive is read ({@link ArchiveReader#readRepository}) and redacted, then all are
-     * rendered together ({@link WorkspaceWriter#renderRepository}). The scope holds per archive
+     * rendered together ({@link WorkspaceWriter#renderRepository}). A repository archive has no
+     * secret but withheld key material, so the replaced secrets are the withheld files, each
+     * counted once even if exported paths overlap. The scope holds per archive
      * the exported path, i.e. the longest common path of its written files (the exported folder,
      * or the file itself), and its {@code .meta} mirror.
      */
@@ -72,18 +75,18 @@ public final class ArchiveCodec implements ArchiveCodecPort {
         ArchiveReader reader = new ArchiveReader();
         SecretRedactor redactor = new SecretRedactor();
         List<RedactedArchive> exports = new ArrayList<>();
-        int secrets = 0;
+        Set<String> withheld = new HashSet<>();
         for (byte[] archive : archives) {
             RedactedArchive redacted = redactor.redact(reader.readRepository(archive));
             exports.add(redacted);
-            secrets += redacted.report().total();
+            withheld.addAll(redacted.withheldRepositoryFiles());
         }
         Rendered rendered = WorkspaceWriter.renderRepository(exports, group, owner);
         Set<String> scope = new LinkedHashSet<>();
         for (RedactedArchive export : exports) {
             scope.addAll(exportedPath(group, owner, export, rendered.files().keySet()));
         }
-        return new Prepared(rendered, secrets, rendered.warnings(), List.copyOf(scope),
+        return new Prepared(rendered, withheld.size(), rendered.warnings(), List.copyOf(scope),
             Map.of());
     }
 

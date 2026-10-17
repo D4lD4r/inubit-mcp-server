@@ -53,14 +53,22 @@ public final class RepositoryPaths {
     }
 
     /**
+     * True if {@code owner} is one segment of the StartCLI rule, not {@code .} or {@code ..}, so
+     * that {@code /Root/<owner>} is an owner's root.
+     */
+    public static boolean ownerValid(String owner) {
+        return owner != null && !owner.contains("/") && passable("/Root/" + owner);
+    }
+
+    /**
      * The full path {@code /Root/<owner>/<relative>}; {@code relative} must be valid and
-     * {@code owner} one segment of the StartCLI rule.
+     * {@code owner} too ({@link #ownerValid}).
      */
     public static String full(String owner, String relative) {
         if (!relativeValid(relative)) {
             throw new IllegalArgumentException("Not a valid relative repository path: " + relative);
         }
-        if (owner == null || owner.contains("/") || !passable("/Root/" + owner)) {
+        if (!ownerValid(owner)) {
             throw new IllegalArgumentException("Not a valid repository owner: " + owner);
         }
         return "/Root/" + owner + "/" + relative;

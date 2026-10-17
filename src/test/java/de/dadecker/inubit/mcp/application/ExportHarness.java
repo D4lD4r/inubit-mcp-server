@@ -67,12 +67,14 @@ public final class ExportHarness {
     }
 
     static WorkspaceService.ExportRequest diagramGroups(String owner, String... names) {
-        return new WorkspaceService.ExportRequest(DEV, owner, List.of(names), List.of());
+        return new WorkspaceService.ExportRequest(DEV, owner, List.of(names), List.of(),
+            List.of());
     }
 
     static WorkspaceService.ExportRequest modules(String owner,
         WorkspaceService.ModuleRef... modules) {
-        return new WorkspaceService.ExportRequest(DEV, owner, List.of(), List.of(modules));
+        return new WorkspaceService.ExportRequest(DEV, owner, List.of(), List.of(modules),
+            List.of());
     }
 
     static WorkspaceService.ExportRequest repositoryPaths(String owner, String... paths) {

@@ -69,6 +69,24 @@ class RepositoryPathsTest {
             .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"jdoe", "My Group", "a-b_c.d", "..x"})
+    void acceptsAnOwnerThatIsOneSegment(String owner) {
+        assertThat(RepositoryPaths.ownerValid(owner)).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"a/b", "..", ".", "", "j(doe)", "jdoe/../other", "/jdoe", " jdoe"})
+    void refusesAnOwnerThatIsNoSingleSegment(String owner) {
+        // T052: the export checks the owner before it builds a full path
+        assertThat(RepositoryPaths.ownerValid(owner)).isFalse();
+    }
+
+    @Test
+    void refusesANullOwner() {
+        assertThat(RepositoryPaths.ownerValid(null)).isFalse();
+    }
+
     @Test
     void refusesToBuildAFullPathForAnOwnerThatIsNoSingleSegment() {
         // T010 review: the owner must not leave /Root/<owner> either

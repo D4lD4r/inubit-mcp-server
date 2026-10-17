@@ -113,8 +113,8 @@ public final class ArchiveReader {
     /**
      * A repository export ({@code export --exportRepositoryPath}, feature 008 research D-10) as
      * an archive of repository files only, keyed like those of {@code Repository.zip}
-     * ({@code Root/<owner>/…}). The archive is read by {@link RepositoryArchive#read}; its names
-     * follow the rules above.
+     * ({@code Root/<owner>/…}). The archive is read by {@link RepositoryArchive#read}, which
+     * refuses a duplicate entry; its names follow the rules above.
      *
      * @throws ToolErrorException {@code UNEXPECTED_RESPONSE} if it is not a readable repository
      *     export

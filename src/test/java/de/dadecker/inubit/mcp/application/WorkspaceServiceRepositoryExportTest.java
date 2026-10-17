@@ -185,6 +185,27 @@ class WorkspaceServiceRepositoryExportTest {
         assertThat(root.resolve(".git")).doesNotExist();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {".", "..", "a/b", "jdoe/..", "/jdoe"})
+    void anOwnerThatIsNoRepositorySegmentIsInvalidInput(String owner) {
+        // T052: from the tool input or inventory.owner; never an IllegalArgumentException
+        ToolErrorException e = refusal(() -> harness.service().export(repositoryPaths(owner,
+            "xsd")), ErrorCode.INVALID_INPUT);
+
+        assertThat(e.error().message()).contains("owner " + owner);
+        assertThat(harness.artifacts.calls).isEmpty();
+        assertThat(root.resolve(".git")).doesNotExist();
+    }
+
+    @Test
+    void anExactDuplicatePathIsInvalidInputWithItsOwnMessage() {
+        ToolErrorException e = refusal(() -> repositoryPaths("jdoe", "xsd", "keys", "xsd"),
+            ErrorCode.INVALID_INPUT);
+
+        assertThat(e.error().message()).isEqualTo("The repository path xsd is given twice")
+            .doesNotContain("letter case");
+    }
+
     @Test
     void moreThanTwentyPathsAreInvalidInput() {
         String[] paths = IntStream.range(0, 21).mapToObj(i -> "p" + i).toArray(String[]::new);
@@ -221,8 +242,10 @@ class WorkspaceServiceRepositoryExportTest {
         ToolErrorException e = refusal(() -> service.export(repositoryPaths("jdoe", "a", "b")),
             ErrorCode.INVALID_INPUT);
 
-        assertThat(e.error().message()).contains("501 files", "0.0 MiB",
-            "at most 500 files and 100 MiB");
+        assertThat(e.error().message()).as("0.0 MiB would hide the size")
+            .contains("501 files and 2004 bytes",
+                "at most 500 files and 100 MiB (104857600 bytes)")
+            .doesNotContain("0.0 MiB");
         assertThat(e.error().nextStep()).contains("narrower");
         assertThat(e.error().node()).contains(DEV);
         assertThat(harness.snapshot()).isEqualTo(before);
@@ -256,6 +279,22 @@ class WorkspaceServiceRepositoryExportTest {
             "at most 500 files and 100 MiB");
         assertThat(harness.snapshot()).isEqualTo(before);
         assertThat(harness.log()).hasSize(1);
+    }
+
+    @Test
+    void aSizeJustOverTheLimitIsShownInBytes() {
+        // T052: "100.0 MiB; ... at most 100 MiB" would not show why the export is refused
+        Map<String, byte[]> files = new LinkedHashMap<>();
+        IntStream.range(0, 100).forEach(i -> files.put("/Root/jdoe/big/f" + i + ".bin",
+            new byte[1 << 20]));
+        files.put("/Root/jdoe/big/tail.bin", new byte[5]);
+        harness.artifacts.exports.put("/Root/jdoe/big", repositoryExport(files));
+
+        ToolErrorException e = refusal(() -> harness.service().export(repositoryPaths("jdoe",
+            "big")), ErrorCode.INVALID_INPUT);
+
+        assertThat(e.error().message()).contains("101 files and 104857605 bytes",
+            "at most 500 files and 100 MiB (104857600 bytes)").doesNotContain("100.0 MiB");
     }
 
     @Test
