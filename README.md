@@ -16,7 +16,7 @@ file); several profiles run side by side as separate registrations.
 
 | Tool | What it answers | INUBIT access |
 |---|---|---|
-| `list_nodes` | which profile this is and which groups and nodes are configured (production flag, write access, CLI) | none |
+| `list_nodes` | which profile this is and which groups and nodes are configured (production flag, write access, repository writes, CLI) | none |
 | `get_health` | is a node or a whole group reachable and ready; maintenance mode, version, memory, threads, queue | REST |
 | `find_processes` | failed (`ERROR`), waiting, queued or hanging process instances | REST |
 | `query_logs` | log entries (systemLog, queueLog, auditLog, …) by time, workflow, severity, process id, text | REST |
@@ -24,9 +24,9 @@ file); several profiles run side by side as separate registrations.
 | `get_inventory_item` | one diagram or module: versions, tags, active flag, modules used | REST + StartCLI |
 | `restart_process` | restart ONE process instance in `ERROR` on ONE node (two-step confirmation) | REST + StartCLI |
 | `kill_process` | kill ONE process instance on ONE node (two-step confirmation) | REST + StartCLI |
-| `export_artifacts` | export technical workflows (by diagram group) or modules into a local, git-versioned workspace as readable files, secrets replaced by placeholders | StartCLI `export` (read-only) |
+| `export_artifacts` | export technical workflows (by diagram group), modules, or repository files and folders (by path) into a local, git-versioned workspace as readable files, with the repository files the exported artifacts reference (also indirectly); secrets replaced by placeholders, key material withheld | StartCLI `export` (read-only) |
 | `check_artifacts` | check workspace files offline: workflow structure, referenced modules, a stylesheet run with deterministic stand-ins, XML/XSD validation | only the module list for modules missing locally |
-| `import_artifacts` | import the changed workflows of one diagram group (with changed or new modules), or changed modules, into one development node — checked, conflict-free, backed up, verified, rolled back on failure; the preview lists modules the node has already as `existing` (updated as a new version) or `identical` (not sent, the workflows are bound to them) | StartCLI `export` + `import` |
+| `import_artifacts` | import the changed workflows of one diagram group (with changed or new modules), changed modules, or repository files (by path), into one development node, together with the new and changed repository files they reference — checked, conflict-free, backed up, verified, rolled back on failure; the preview lists modules the node has already as `existing` (updated as a new version) or `identical` (not sent, the workflows are bound to them) | StartCLI `export` + `import` |
 | `restore_backup` | re-import the backup of an earlier development call, or of a deployment on one node of a target group | StartCLI `export` + `import` |
 | `set_active` | activate or deactivate one workflow on a development node | StartCLI `export` + `import` |
 | `tag_artifacts` | tag the head versions of whole named diagram groups (never owner-wide; an existing tag name is reused), verified | StartCLI history `export` + `tag` |
@@ -79,6 +79,14 @@ development stages and the stage chain: [docs/setup.md](docs/setup.md).
   the target's own secret values, is verified by a re-export and rolled back from the backup on
   failure; by default it needs a server-issued confirmation code. Nothing is ever deleted in
   INUBIT.
+- **Repository files only where allowed.** `import_artifacts` and `restore_backup` create or
+  change repository files (schemas, stylesheets, WSDLs, …) only on a development node with
+  `development.repository: WRITE` (default `READ_ONLY`; effective only on development nodes,
+  never on production). Such a write always needs a **server-issued confirmation code**, also
+  with `development.confirmation: CLIENT`, because a repository file is shared by every workflow
+  and module that uses it. Key material and `${secret:…}` placeholders are never written, and no
+  repository file is ever deleted. Deployments and their backups follow the stage chain rules
+  below instead.
 - **Stage chain, never skipping a stage.** `deploy_release` deploys only into a group with a
   `deploy` record, and only from its configured source (`deploy.from`); the record is the write
   enablement of deployments. Every deployment first returns a preview per node and a

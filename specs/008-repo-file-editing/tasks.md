@@ -614,7 +614,7 @@ node's content equals the content before the import byte for byte.
   - the shared-use risk.
 
   `ArtifactToolsReferenceTest` and `DevelopmentToolsReferenceTest` must be green.
-- [ ] T046 [P] `README.md`: "Safety model" (repository writes per development node, off by
+- [X] T046 [P] `README.md`: "Safety model" (repository writes per development node, off by
   default, server code always) and the tools table wording for `import_artifacts`/`export_artifacts`.
 - [ ] T047 [P] `docs/live-tests.md`: the repository section (prerequisites, the steps from
   quickstart.md "Live", personal test area only) and an opt-in repository case in
