@@ -651,6 +651,56 @@ node's content equals the content before the import byte for byte.
   Tests in `test/application/` next to the existing commit-message tests; adjust
   research.md (D-8 step 5 "Write back", D-11) to name the trailer.
 
+## Phase 8: Review follow-ups (added 2026-10-17)
+
+The minor findings collected in `reviews/` during implementation, bundled so that each passes the
+implementer → reviewer loop. Each task cites the review that raised the point; verify each point
+against the current code before changing anything (some may already be resolved).
+
+- [ ] T052 Robustness of the repository-path export (`WorkspaceService`, `ArchiveCodec`,
+  `ArchiveReader`), test first:
+  - an owner that is not a valid repository segment (`.`, `..`, a `/`, from tool input or
+    `inventory.owner`) gives `INVALID_INPUT` instead of an `IllegalArgumentException` (T036-T038-r1);
+  - an exact duplicate in `repositoryPaths` gets its own message instead of "differ only in letter
+    case" (T036-T038-r1);
+  - the limit message shows enough precision (or bytes) when the rounded MiB value equals the limit
+    or is `0.0` (T036-T038-r1);
+  - `secretsReplaced` counts a withheld file once when exported paths overlap (T037-r1);
+  - `RepositoryArchive.pairs` / `ArchiveReader.readRepository`: refuse duplicate entries, or qualify
+    the Javadoc that says nothing is dropped silently (T037-r1);
+  - remove the 4-argument `ExportRequest` convenience constructor and move the test harnesses to the
+    5-argument form (T039 implementer notes).
+- [ ] T053 Missing tests for new failure branches (no production change unless a test exposes a
+  defect):
+  - import: the artifact rollback fails while the repository rollback succeeds (and both fail),
+    covering `Rollback.state()` and the `restore_backup` message variant; the repository re-export
+    after the failure fails, so every held file is re-imported (T032-T033-r1);
+  - `import_artifacts` tool level: a result with `tag.repositoryFiles` validates against
+    `import_artifacts.output.json` (T034-r1);
+  - restore: the fallback scope when every module of a module call was created; `PRECONDITION_FAILED`
+    for a repository file without a recorded `repository:<path>` intended state (T040-T041-r1);
+  - restore of the backup of a FAILED import whose repository rollback failed, end to end, including
+    the case where the post-rollback re-export failed (T040-T043-r1).
+- [ ] T054 Opt-in live case (`test/live/DevelopmentLiveTest.java`, `docs/live-tests.md`), T047-r1:
+  - the run examples point to a temporary profile copy via `INUBIT_MCP_CONFIG` (repository and
+    feature-004 sections);
+  - create the probe's parent directory before writing it (empty test folder);
+  - no assertion message may print response content (paths, confirmation codes).
+- [ ] T055 Wording in docs, Javadoc and the contract:
+  - `contracts/mcp-tools-delta.md`: `notImported` holds workspace paths; `checkWarnings` is an
+    integer; the "more than 50 files to send" and new-file extension refusals contact the node
+    (read only); add the pre-read limits (50 changed files with a base, 200 in total) (T045-r1);
+  - `docs/setup.md`: path segment rule (letters, digits, `_ . -`, spaces), "more (or fewer) files",
+    backup wording for files directly below the owner root (T044-r1);
+  - `docs/tools.md`: only a successful result repeats the warnings; the per-folder read exceptions;
+    `repositoryReferences` lists only files used outside the scope (T045-r1);
+  - `README.md`: "new and changed repository files (by path)" (T046-r1);
+  - Javadoc: `RepositoryImportTimingTest` attributes the re-read to D-6 and research.md D-5 states
+    the call counts of a confirmed import (T035-r1); `ArchiveCodecPort.scope()` wording (T037-r1);
+    re-wrap `ExportArtifactsTool` class Javadoc (T039-r1);
+  - the `Reason` trailer drops surrounding whitespace: document it, or strip the reason before
+    writing (T051-r1).
+
 ## Dependencies & Execution Order
 
 - Phase 1 (T001 → T002 → T003; T004 can start in parallel with T001) → Phase 2 → US2 (T014–T017) →
