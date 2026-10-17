@@ -28,6 +28,20 @@ configuration in the profile."
   host, a container, the organization's MCP gateway) needs secrets fetched from that store, with
   its access control, rotation and audit, instead of variables set by hand.
 
+## Clarifications
+
+### Session 2026-10-17
+
+- Q: When are secrets from AWS loaded? → A: On first use per node. The server starts without AWS
+  access; a node's secrets are fetched the first time a tool needs that node, so secrets of nodes
+  that are never used (for example production) are never fetched.
+- Q: Is the source set per profile, or per group/node? → A: Per profile, with an override per
+  group or node (for example development credentials from environment variables, production from
+  Parameter Store).
+- Q: How are parameters named? → A: Explicitly per group or node in the profile (no derived
+  scheme for Parameter Store). A group-level name applies to every node of the group; a node-level
+  name wins.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Keep using environment variables, now as an explicit, configurable source (Priority: P1)
@@ -133,17 +147,17 @@ account lockout still holds.
 
 ### Edge Cases
 
-- AWS is unreachable at startup: [NEEDS CLARIFICATION: are secrets from AWS loaded at startup for
-  every node (the server refuses to start if any is missing, as today with environment variables),
-  or on first use per node (the server starts without AWS access, and only the nodes that are used
-  need their secrets, so production secrets are not fetched unless production is queried)?]
-- A group or node needs secrets from a different source than the rest of the profile (for example
-  development credentials from environment variables, production from Parameter Store):
-  [NEEDS CLARIFICATION: is the source set once per profile, or can groups and nodes override it?]
-- Parameter names: [NEEDS CLARIFICATION: are parameter names derived by a fixed scheme from a
-  configured path, group and node (like the environment-variable names today, e.g.
-  `/inubit-mcp/acme/dev/node1/password`, node-specific before group-wide), or named explicitly per
-  group/node in the profile, or both (derived by default, explicit override)?]
+- AWS is unreachable at startup: the server starts anyway (secrets are loaded on first use). A tool
+  on a node whose secrets cannot be fetched fails with an error naming the node, the parameter and
+  the reason; tools on other nodes keep working.
+- A node with the AWS source but no parameter name configured for one of the required kinds
+  (username, password): a configuration error at startup and in `--check-config`, naming the node
+  and the missing setting.
+- A group uses the AWS source and one of its nodes overrides it with environment variables (or the
+  reverse): each node uses its own effective source; `--check-config` shows it per node.
+- The secrets of a node fetched once are kept for the process lifetime (until re-read after a
+  rejected login, US4); a failed fetch is retried on the next call, but not more often than a
+  bounded back-off, so an unreachable store does not slow every call.
 - A parameter value contains characters that are not allowed in a username or password today (a
   `:` in a username, control characters, a leading `-`): refused as today, naming the parameter,
   never the value.
@@ -159,23 +173,30 @@ account lockout still holds.
 
 ### Functional Requirements
 
-- **FR-001**: The profile MUST be able to declare where secrets come from. Supported sources in
-  this feature: environment variables and AWS Systems Manager Parameter Store. The design MUST
-  allow further sources later (for example the macOS Keychain or another vault) without changing
-  how tools obtain secrets.
+- **FR-001**: The profile MUST be able to declare where secrets come from, once for the profile and
+  optionally overridden per group and per node (node before group before profile). Supported
+  sources in this feature: environment variables and AWS Systems Manager Parameter Store. The design
+  MUST allow further sources later (for example the macOS Keychain or another vault) without
+  changing how tools obtain secrets.
 - **FR-002**: Without a source setting, the server MUST behave exactly as today (environment
   variables, `credentials.envPrefix`, all existing naming, precedence and validation rules).
 - **FR-003**: The environment-variable source MUST support the existing prefix and naming scheme
   and MUST be selectable explicitly; existing profiles MUST NOT need any change.
-- **FR-004**: The AWS Parameter Store source MUST be configurable in the profile with at least the
-  region and where the parameters are found; it MAY name an AWS profile of the local AWS
-  configuration. The profile MUST NOT contain AWS access keys or any other secret.
+- **FR-004**: The AWS Parameter Store source MUST be configurable in the profile with the region
+  and, per group or node, the explicit parameter name of each secret kind it needs (a node-level
+  name wins over a group-level one); it MAY name an AWS profile of the local AWS configuration. The
+  profile MUST NOT contain AWS access keys or any other secret.
 - **FR-005**: The server MUST authenticate to AWS through the standard AWS credential chain
   (environment, shared configuration and profile, container or instance role), so that the same
   profile works on a workstation and in a hosted environment.
 - **FR-006**: For every node the server MUST resolve username, password and, where configured, the
-  trust store password and the end-to-end test credentials from the node's source, with
-  node-specific names taking precedence over group-wide ones (as today).
+  trust store password and the end-to-end test credentials from the node's effective source, with
+  node-specific names taking precedence over group-wide ones (as today for environment variables;
+  explicit parameter names for Parameter Store).
+- **FR-006a**: Secrets from AWS Parameter Store MUST be fetched on first use per node, not at
+  startup; the server MUST start without AWS access. A missing parameter-name setting is a startup
+  configuration error; a missing or unreadable parameter is an error of the call that needs it.
+  Environment variables keep today's behaviour (read and validated at startup).
 - **FR-007**: Secrets from any source MUST be handled exactly as today: never in tool parameters,
   results, logs, error messages or command lines; scrubbed from error output; the same validity
   checks on usernames and passwords; the same lockout protection (Constitution II).
@@ -206,7 +227,8 @@ account lockout still holds.
   (environment variables, AWS Parameter Store) and its settings (prefix; region, path, optional
   AWS profile).
 - **Secret reference**: the name under which one secret of one node is found in its source (a
-  variable name or a parameter name), with its precedence (node-specific before group-wide).
+  derived variable name, or the explicit parameter name configured for the group or node), with its
+  precedence (node-specific before group-wide).
 - **Secret kind**: username, password, trust store password, end-to-end test username and
   password.
 - **Resolved secret**: the value held in memory for one node and kind, never shown, with the time
@@ -225,8 +247,9 @@ account lockout still holds.
   `--check-config` output, verified by dedicated tests for both sources.
 - **SC-004**: Every misconfigured secret (missing, unreadable, invalid) is reported with node,
   source and name in one message that is enough to fix it without reading logs.
-- **SC-005**: Secret resolution for a profile of 10 nodes adds no more than a few seconds to
-  startup or to the first call on a node.
+- **SC-005**: Fetching a node's secrets from the store adds no more than a few seconds to the first
+  call on that node, and nothing to startup or to later calls.
+- **SC-006**: Secrets of a node that no tool call addresses are never fetched from the store.
 
 ## Assumptions
 

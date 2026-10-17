@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,8 +31,8 @@
 
 ## Notes
 
-- Three [NEEDS CLARIFICATION] markers remain (when AWS secrets are loaded; source per profile or
-  per group/node; parameter naming). They are put to the person before `/speckit-clarify`.
+- The three clarifications (loading time, source per profile with overrides, explicit parameter
+  names) were answered on 2026-10-17 and recorded in the spec (Clarifications).
 - AWS Parameter Store is named because the feature is about that store (user requirement), and
   `--check-config` / `credentials.envPrefix` are the product's user-facing vocabulary; neither is
   an implementation detail.
