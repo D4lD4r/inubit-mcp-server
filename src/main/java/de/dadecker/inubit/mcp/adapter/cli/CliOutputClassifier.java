@@ -28,7 +28,8 @@ import java.util.regex.Pattern;
  *       while an {@code @Start@} marker is still open), and its {@code \tat …},
  *       {@code Caused by: …} and {@code ... n more} lines.
  *   <li>INUBIT markers {@code @Start@<code>@@@<text>@End@} and {@code <n>-OK:} /
- *       {@code <n>-NOK:} messages are extracted.
+ *       {@code <n>-NOK:} messages are extracted (also after an import's progress text
+ *       {@code Completed = … MB / … MB} on the same line).
  *   <li>Classification: cut output ({@link CliResult#truncated()}) is never a success. Exit
  *       code 0 with an {@code n-OK} and without an {@code n-NOK} message
  *       is success. Otherwise the markers decide first, the English texts (guaranteed by the
@@ -50,7 +51,13 @@ public final class CliOutputClassifier {
     private static final Pattern MARKER = Pattern.compile(
         "@Start@((?:(?!@@@|@End@).)*)(?:@@@(.*?))?@End@", Pattern.DOTALL);
     private static final Pattern LOGIN_FAILURE = Pattern.compile("@Start@\\s*LoginFailure\\b");
-    private static final Pattern MESSAGE = Pattern.compile("^(\\d+)-(OK|NOK):\\s?(.*)$");
+    /**
+     * An {@code n-OK}/{@code n-NOK} line. StartCLI prints an import's last progress text
+     * {@code Completed = … MB / … MB } without a line break before it (recorded case
+     * {@code import_repository_new_files}).
+     */
+    private static final Pattern MESSAGE = Pattern.compile(
+        "^(?:Completed = \\S+ MB / \\S+ MB\\s*)*(\\d+)-(OK|NOK):\\s?(.*)$");
     private static final Pattern MISSING_MODULE = Pattern.compile("^The module .+ not found$");
 
     private static final String PASSWORD_PROMPT = "Password:";
