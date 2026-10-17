@@ -114,3 +114,9 @@ and its `versionComment`, and every import creates a new version; workflow and m
 ignore `Repository.zip`. An owner-wide tag export with no tagged diagram group was not probed;
 the client knows the message `2-NOK: No workflow group containing workflows for export found.`,
 and the server treats that message and an archive without workflows alike as `NOT_FOUND`.
+
+## Repository import progress text on the same line
+
+| Case | What it is |
+|---|---|
+| `import_repository_new_files.{stdout,stderr,exit}` | Recorded (neutralized owner `jdoe`): `import --importFile '<zip>' --importRepositoryPath '/Root/jdoe'` of a folder archive. No protocol; the progress text `Completed = 0 MB / 0 MB ` is printed twice, each time after a `\r` and without a line break, so `1-OK: Imported successfully` follows the second one **on the same line**, exit 0. The synthetic `import_repository_ok` puts them on lines of their own |
