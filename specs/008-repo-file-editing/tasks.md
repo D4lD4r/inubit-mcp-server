@@ -681,7 +681,7 @@ against the current code before changing anything (some may already be resolved)
     for a repository file without a recorded `repository:<path>` intended state (T040-T041-r1);
   - restore of the backup of a FAILED import whose repository rollback failed, end to end, including
     the case where the post-rollback re-export failed (T040-T043-r1).
-- [ ] T054 Opt-in live case (`test/live/DevelopmentLiveTest.java`, `docs/live-tests.md`), T047-r1:
+- [X] T054 Opt-in live case (`test/live/DevelopmentLiveTest.java`, `docs/live-tests.md`), T047-r1:
   - the run examples point to a temporary profile copy via `INUBIT_MCP_CONFIG` (repository and
     feature-004 sections);
   - create the probe's parent directory before writing it (empty test folder);

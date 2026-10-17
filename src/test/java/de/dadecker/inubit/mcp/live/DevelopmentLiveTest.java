@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,10 +33,10 @@ import tools.jackson.databind.json.JsonMapper;
  * T026, T031 (feature 004, research D-23, D-26, SC-006): the development tools against a real
  * <b>development</b> node, on a dedicated test diagram group with a dedicated test workflow only
  * — opt-in, never part of the default build, never on production. Run with
- * {@code INUBIT_MCP_PROFILE=<profile> INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=<owner>
- * INUBIT_LIVE_DEV_DIAGRAM_GROUP=<test group> INUBIT_LIVE_DEV_WORKFLOW=<test workflow>
- * mvn verify -Plive -Dtest=DevelopmentLiveTest}; starting it is the approval of exactly this
- * scenario.
+ * {@code INUBIT_MCP_CONFIG=<temporary copy of the profile> INUBIT_LIVE_DEV_NODE=dev/node1
+ * INUBIT_LIVE_DEV_OWNER=<owner> INUBIT_LIVE_DEV_DIAGRAM_GROUP=<test group>
+ * INUBIT_LIVE_DEV_WORKFLOW=<test workflow> mvn verify -Plive -Dtest=DevelopmentLiveTest};
+ * starting it is the approval of exactly this scenario.
  *
  * <p>The owner may be a user or a user group (research D-26: the server no longer tells them
  * apart, every import uses {@code --importUser}). Because a user group's diagram groups are
@@ -205,6 +206,7 @@ class DevelopmentLiveTest {
                 "owner", owner, "repositoryPaths", List.of(folder)), WAIT));
             before = files(probe.getParent());
             probeExisted = Files.isRegularFile(probe);
+            Files.createDirectories(probe.getParent());
             Files.write(probe, imported);
 
             Map<String, Object> arguments = Map.of("node", node.value(), "owner", owner,
@@ -213,18 +215,18 @@ class DevelopmentLiveTest {
                 .path("challenge");
             assertThat(challenge.path("confirmationCode").asString())
                 .as("a repository file always needs a server code").isNotEmpty();
-            assertThat(challenge.path(probeExisted ? "modify" : "create").toString())
-                .contains(fullPath);
+            assertThat(challenge.path(probeExisted ? "modify" : "create").toString()
+                .contains(fullPath)).as("the preview lists the probe").isTrue();
             assertThat(challenge.path("repositoryDiff").asString()).isNotEmpty();
             Map<String, Object> confirmed = new HashMap<>(arguments);
             confirmed.put("confirmationCode", challenge.path("confirmationCode").asString());
             JsonNode result = structured(client.callTool("import_artifacts", confirmed, WAIT))
                 .path("result");
             assertThat(result.path("outcome").asString()).isEqualTo("EXECUTED");
-            assertThat(result.path(probeExisted ? "modified" : "created").toString())
-                .contains(fullPath);
-            assertThat(Files.readAllBytes(probe)).as("the verified state is in the workspace")
-                .isEqualTo(imported);
+            assertThat(result.path(probeExisted ? "modified" : "created").toString()
+                .contains(fullPath)).as("the result lists the probe").isTrue();
+            assertThat(Arrays.equals(Files.readAllBytes(probe), imported))
+                .as("the verified state is in the workspace").isTrue();
             backupRef = result.path("backupRef").asString();
         }
 
@@ -236,7 +238,8 @@ class DevelopmentLiveTest {
             JsonNode denied = client.callTool("import_artifacts", Map.of("node", node.value(),
                 "owner", owner, "repositoryPaths", List.of(probePath), "reason",
                 "Live test read-only " + stamp), WAIT);
-            assertThat(denied.path("isError").asBoolean()).as(denied::toString).isTrue();
+            assertThat(denied.path("isError").asBoolean())
+                .as("the read-only node refuses the change").isTrue();
             assertThat(JSON.readTree(denied.path("content").get(0).path("text").asString())
                 .path("error").path("code").asString()).isEqualTo("REPOSITORY_WRITE_DENIED");
             Files.write(probe, imported);
@@ -250,19 +253,25 @@ class DevelopmentLiveTest {
                 "backupRef", backupRef, "reason", "Live test repository restore " + stamp));
             assertThat(restored.path("outcome").asString()).isEqualTo("EXECUTED");
             if (!probeExisted) {
-                assertThat(restored.path("createdNotRemoved").toString()).contains(fullPath);
+                assertThat(restored.path("createdNotRemoved").toString().contains(fullPath))
+                    .as("the created probe is listed in createdNotRemoved").isTrue();
             }
 
             structured(client.callTool("export_artifacts", Map.of("target", node.value(),
                 "owner", owner, "repositoryPaths", List.of(folder)), WAIT));
             Map<Path, byte[]> after = files(probe.getParent());
             if (!probeExisted) {
-                assertThat(after.remove(probe)).as("a created probe stays").isEqualTo(imported);
+                assertThat(Arrays.equals(after.remove(probe), imported))
+                    .as("a created probe stays").isTrue();
             }
-            assertThat(after.keySet()).as("the files of the test folder")
-                .isEqualTo(before.keySet());
-            before.forEach((file, content) -> assertThat(after.get(file))
-                .as("restored or unchanged: %s", workspace.relativize(file)).isEqualTo(content));
+            assertThat(after.keySet().equals(before.keySet()))
+                .as("the same files in the test folder (%d before, %d after)", before.size(),
+                    after.size()).isTrue();
+            long changed = before.entrySet().stream()
+                .filter(entry -> !Arrays.equals(after.get(entry.getKey()), entry.getValue()))
+                .count();
+            assertThat(changed).as("files of the test folder neither restored nor unchanged")
+                .isZero();
 
             System.err.println("[live] " + node + ": repository probe " + (probeExisted
                 ? "modified" : "created") + ", refused read-only, restored; " + before.size()

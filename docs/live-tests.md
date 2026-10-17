@@ -89,8 +89,9 @@ import uses `--importUser`); a user group's diagram groups are shared, so nothin
 default:
 
 ```bash
-INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=OWNERS \
-  INUBIT_LIVE_DEV_DIAGRAM_GROUP=GRP-01 INUBIT_LIVE_DEV_WORKFLOW=Workflow-0001 \
+INUBIT_MCP_CONFIG=/path/to/acme-live-copy.yaml INUBIT_LIVE_DEV_NODE=dev/node1 \
+  INUBIT_LIVE_DEV_OWNER=OWNERS INUBIT_LIVE_DEV_DIAGRAM_GROUP=GRP-01 \
+  INUBIT_LIVE_DEV_WORKFLOW=Workflow-0001 \
   mvn verify -Plive -Dtest=DevelopmentLiveTest
 ```
 
@@ -102,9 +103,11 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=OWN
   (`development.enabled: true`; the selection is covered offline by `LiveTargetTest`). A
   production group is refused as for every live test.
 - Use a temporary copy of the profile if it needs `development.enabled: true`; never edit the
-  real file under `~/.config/inubit-mcp/` for a test run. The test works in a **temporary
-  workspace**; the audit records go to the profile's audit directory and the backups to
-  `~/.inubit-mcp/<profile>/backups` as for every development call.
+  real file under `~/.config/inubit-mcp/` for a test run. Keep the copy outside that directory and
+  point the run at it with `INUBIT_MCP_CONFIG` as above (it comes before `INUBIT_MCP_PROFILE`); the
+  copy keeps the `profile.name`, so the validation only warns that it shares the name with the real
+  file. The test works in a **temporary workspace**; the audit records go to the profile's audit
+  directory and the backups to `~/.inubit-mcp/<profile>/backups` as for every development call.
 - Scenario (research D-23): `export_artifacts` of the group → one layout value (`xPos`) of the
   named workflow +10 → `import_artifacts` (preview confirmed with its code) → the workspace shows
   the verified change → `restore_backup` of that import → the original value is back →
@@ -125,8 +128,8 @@ started explicitly — starting it is the approval of exactly this scenario in e
 folder — and never on production:
 
 ```bash
-INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=jdoe \
-  INUBIT_LIVE_DEV_REPOSITORY_FOLDER=live-test \
+INUBIT_MCP_CONFIG=/path/to/acme-live-copy.yaml INUBIT_LIVE_DEV_NODE=dev/node1 \
+  INUBIT_LIVE_DEV_OWNER=jdoe INUBIT_LIVE_DEV_REPOSITORY_FOLDER=live-test \
   mvn verify -Plive -Dtest='DevelopmentLiveTest#importAndRestoreAProbeFileInThePersonalTestRepositoryFolder'
 ```
 
@@ -134,8 +137,9 @@ Prerequisites:
 
 - A **temporary copy** of the profile in which the development node has
   `development.repository: WRITE` (setup.md, `development.repository`); never edit the real file
-  under `~/.config/inubit-mcp/` for a test run. Without `WRITE` on the node the test **fails before
-  anything is written**.
+  under `~/.config/inubit-mcp/` for a test run. Point the run at the copy with `INUBIT_MCP_CONFIG`
+  as above (outside that directory; see the feature-004 section). Without `WRITE` on the node the
+  test **fails before anything is written**.
 - Your **personal test repository folder** on that node, below `/Root/<owner>/`, which already
   exists. `INUBIT_LIVE_DEV_REPOSITORY_FOLDER` names it relative to the owner's repository root
   (`live-test` stands for `/Root/jdoe/live-test`). Never name a shared folder or the owner's root.
