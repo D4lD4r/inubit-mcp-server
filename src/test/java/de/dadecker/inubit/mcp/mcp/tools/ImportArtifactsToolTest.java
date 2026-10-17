@@ -1,13 +1,17 @@
 package de.dadecker.inubit.mcp.mcp.tools;
 
+import static de.dadecker.inubit.mcp.mcp.tools.DiagnosisToolFixture.assertMatchesOutputSchema;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.application.FakeServer;
 import de.dadecker.inubit.mcp.application.ImportHarness;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
+import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -340,5 +344,46 @@ class ImportArtifactsToolTest {
         assertThat(harness.cli.launches()).isEmpty();
         assertThat(harness.audit("import_artifacts")).singleElement().satisfies(record ->
             assertThat(record.inputs()).containsEntry("scope", "repository paths xsd"));
+    }
+
+    @Test
+    void aTagListingTheImportedRepositoryFilesMatchesTheOutputSchema() throws IOException {
+        // T053 (T034-r1): tag.repositoryFiles as serialized over MCP
+        String a = "/Root/jdoe/xsd/a.xsd";
+        String xsd = "/Root/jdoe/xsd";
+        String schema = "<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">\n"
+            + "  <xs:element name=\"a\"/>\n</xs:schema>\n";
+        ImportHarness harness = ImportHarness.grpA(temp);
+        harness.confirmation = WritePolicy.Confirmation.SERVER;
+        String file = harness.repositoryFile("xsd/a.xsd", schema, "application/x-xsd+xml");
+        harness.exports.history.commitAll("export dev/jdoe: repository",
+            Map.of(VersionHistoryPort.SERVER_STATE, ImportHarness.DEV.group().value()));
+        harness.edit(harness.workflow("Workflow-0001"), "xPos=\"120\"", "xPos=\"140\"");
+        FakeServer node = new FakeServer();
+        node.putRepositoryFile(a, schema);
+        harness.edit(harness.moduleDirectory("Module-0003") + "/module.xml", "</Properties>",
+            "<Property name=\"x.a\">inubitrepository:" + a + "</Property></Properties>");
+        harness.edit(file, "</xs:schema>", "  <xs:element name=\"added\"/>\n</xs:schema>");
+        McpTestClient client = client(harness.repositoryWrite(ImportHarness.DEV, true));
+        Map<String, Object> arguments = Map.of("node", "dev/node1", "diagramGroup", "GRP-01",
+            "reason", "Release", "tag", "REL-1");
+        harness.exportGroup().exportRepository(node, xsd);
+        String code = structured(client.callTool("import_artifacts", arguments))
+            .path("challenge").path("confirmationCode").asString();
+        harness.exportGroup().exportRepository(node, xsd).importRepositoryApplied(node)
+            .importApplied().exportRepository(node, xsd).exportGroup().tagMoved("REL-1", false)
+            .historyExport("REL-1");
+        Map<String, Object> confirmed = new HashMap<>(arguments);
+        confirmed.put("confirmationCode", code);
+
+        JsonNode response = client.callTool("import_artifacts", confirmed);
+
+        harness.cli.verifyComplete();
+        assertMatchesOutputSchema("import_artifacts", response);
+        JsonNode result = structured(response).path("result");
+        assertThat(result.path("outcome").asString()).isEqualTo("EXECUTED");
+        assertThat(result.path("tag").path("applied").asBoolean()).isTrue();
+        assertThat(result.path("tag").path("repositoryFiles")).extracting(JsonNode::asString)
+            .containsExactly(a);
     }
 }

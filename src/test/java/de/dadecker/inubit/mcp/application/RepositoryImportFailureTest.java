@@ -1,20 +1,24 @@
 package de.dadecker.inubit.mcp.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.adapter.archive.v81.RepositoryArchive;
 import de.dadecker.inubit.mcp.adapter.cli.ScriptedProcessLauncher;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
+import de.dadecker.inubit.mcp.domain.model.WritePreview;
 import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,6 +33,10 @@ import org.junit.jupiter.api.io.TempDir;
  * {@code createdNotRemoved}. A repository rollback that leaves a file changed is
  * {@code rollback: FAILED} naming the paths. The manifest is {@code FAILED} with the state the
  * last verification saw.
+ *
+ * <p>T053: a failing artifact rollback (with or without a failing repository rollback), a
+ * failing re-export after the failure, and {@code restore_backup} of the backup of a FAILED
+ * import whose repository rollback failed.
  *
  * <p>The workspace is the one of {@link RepositoryImportTest}: {@code GRP-01} of {@code jdoe}
  * with {@code Workflow-0001} and {@code Module-0003} changed, the exported schema
@@ -293,5 +301,188 @@ class RepositoryImportFailureTest {
         assertThat(outcome.rollback()).hasValue(WriteOutcome.Rollback.SUCCEEDED);
         assertThat(outcome.createdNotRemoved()).containsExactly(B);
         manifestFailed(outcome, schema("a"));
+    }
+
+    // --- T053: the artifact rollback failing, a failing re-export (T032-T033-r1) -------------
+
+    /** The repository re-export of {@code xsd} fails: StartCLI cannot reach the node. */
+    private void repositoryExportFails() {
+        harness.cli.expect("export --exportRepositoryPath '" + XSD + "'").replying("unreachable");
+    }
+
+    @Test
+    void aFailingArtifactRollbackAfterASuccessfulRepositoryRollbackIsFailed() {
+        // the node keeps a.xsd without its last line break; the artifact rollback is refused
+        String sent = harness.read(file(A));
+        harness.importRepositoryApplied(node).importApplied().exportRepository(node, XSD);
+        harness.cli.then(spec -> node.putRepositoryFile(A, sent.stripTrailing()));
+        harness.exportGroup()
+            .importRepositoryApplied(node).exportRepository(node, XSD)
+            .importRefused().exportGroup();
+
+        WriteOutcome outcome = confirmed();
+
+        assertThat(imports()).containsExactly("--importRepositoryPath", "--importWorkflow",
+            "--importRepositoryPath", "--importWorkflow");
+        aWasRestoredFromTheBackup();
+        assertThat(harness.inubit.workflowXml()).as("the artifact rollback was refused")
+            .contains("xPos=\"140\"");
+        assertThat(outcome.rollback()).as("FAILED if either rollback failed")
+            .hasValue(WriteOutcome.Rollback.FAILED);
+        assertThat(outcome.failure()).hasValueSatisfying(failure -> {
+            assertThat(failure.code()).isEqualTo(ErrorCode.VERIFY_MISMATCH);
+            assertThat(failure.message()).contains("the rollback failed: the backup "
+                    + outcome.auditId() + " is kept", "restore the workflows and modules with"
+                    + " restore_backup or in the Workbench")
+                .doesNotContain("the repository files", A);
+        });
+        assertThat(outcome.createdNotRemoved()).containsExactly(B);
+        manifestFailed(outcome, schema("a"));
+    }
+
+    @Test
+    void bothRollbacksFailingAreFailedWithBothPointers() {
+        // the node keeps a.xsd without its last line break; both rollback imports are refused
+        String sent = harness.read(file(A));
+        harness.importRepositoryApplied(node).importApplied().exportRepository(node, XSD);
+        harness.cli.then(spec -> node.putRepositoryFile(A, sent.stripTrailing()));
+        harness.exportGroup()
+            .importRefused().exportRepository(node, XSD)
+            .importRefused().exportGroup();
+
+        WriteOutcome outcome = confirmed();
+
+        assertThat(imports()).containsExactly("--importRepositoryPath", "--importWorkflow",
+            "--importRepositoryPath", "--importWorkflow");
+        assertThat(node.repositoryContent(A)).hasValue(sent.stripTrailing());
+        assertThat(harness.inubit.workflowXml()).contains("xPos=\"140\"");
+        assertThat(outcome.rollback()).hasValue(WriteOutcome.Rollback.FAILED);
+        assertThat(outcome.failure()).hasValueSatisfying(failure -> assertThat(failure.message())
+            .contains("the rollback failed: the backup " + outcome.auditId() + " is kept",
+                "restore the workflows and modules with restore_backup or in the Workbench",
+                "the repository files " + A + " on " + ImportHarness.DEV + " are not back to"
+                    + " their content before the call — restore them with restore_backup")
+            .doesNotContain(B));
+        assertThat(outcome.createdNotRemoved()).containsExactly(B);
+        manifestFailed(outcome, sent.stripTrailing());
+    }
+
+    @Test
+    void aFailingReExportAfterTheFailureReImportsEveryFileTheNodeHeld() {
+        // the repository import is refused and changes nothing, but the re-export cannot tell:
+        // every sent file the node held before the call is re-imported from the backup
+        node.refuseNextRepositoryImport = true;
+        harness.importRepositoryApplied(node);
+        repositoryExportFails();
+        harness.exportGroup()
+            .importRepositoryApplied(node).exportRepository(node, XSD);
+
+        WriteOutcome outcome = confirmed();
+
+        assertThat(outcome.failure()).hasValueSatisfying(failure -> {
+            assertThat(failure.code()).isEqualTo(ErrorCode.IMPORT_FAILED);
+            assertThat(failure.step()).isEqualTo("import");
+        });
+        assertThat(imports()).containsExactly("--importRepositoryPath",
+            "--importRepositoryPath");
+        assertThat(harness.inubit.imported).isEmpty();
+        assertThat(node.repositoryImports).hasSize(2);
+        assertThat(repositoryImport(1)).as("a.xsd, the only file the node held; not b.xsd")
+            .containsExactly(Map.entry(A, schema("a")));
+        assertThat(node.repositoryContent(A)).hasValue(schema("a"));
+        assertThat(node.repositoryContent(B)).isEmpty();
+        assertThat(outcome.rollback()).hasValue(WriteOutcome.Rollback.SUCCEEDED);
+        assertThat(outcome.createdNotRemoved()).isEmpty();
+        manifestFailed(outcome, schema("a"));
+        noRestoreBackupHintAfterASuccessfulRollback(outcome);
+    }
+
+    // --- T053: restore_backup of the backup of such a FAILED import (T040-T043-r1) -----------
+
+    private static ImportService.RestoreRequest restore(String ref, Optional<String> code) {
+        return new ImportService.RestoreRequest(ImportHarness.DEV.value(), ref,
+            "Undo the schemas", code, Optional.empty());
+    }
+
+    @Test
+    void theBackupOfAFailedImportWhoseRepositoryRollbackFailedRestoresTheFile() {
+        // the import of the workflows is refused, the re-import of the backup as well, so
+        // a.xsd stays changed; the manifest records it as the post-rollback re-export saw it
+        harness.importRepositoryApplied(node).importRefused().exportRepository(node, XSD)
+            .exportGroup()
+            .importRefused().exportRepository(node, XSD);
+        WriteOutcome failed = confirmed();
+        assertThat(failed.rollback()).hasValue(WriteOutcome.Rollback.FAILED);
+        assertThat(failed.failure().orElseThrow().message()).contains("restore_backup");
+        String ref = failed.backupRef().orElseThrow();
+        // the restore's preview: the node read of the conflict check
+        harness.exportGroup().exportRepository(node, XSD);
+        ImportService.Response challenge = service.restore(restore(ref, Optional.empty()));
+        harness.cli.verifyComplete();
+        assertThat(challenge).isInstanceOf(ImportService.Response.WriteChallenge.class);
+        WritePreview preview = ((ImportService.Response.WriteChallenge) challenge).preview();
+        assertThat(preview.modify()).containsExactlyInAnyOrder("Workflow-0001", "Module-0003",
+            A);
+        harness.exportGroup().exportRepository(node, XSD).importRepositoryApplied(node)
+            .importRestored().exportRepository(node, XSD).exportGroup();
+
+        ImportService.Response response = service.restore(restore(ref,
+            Optional.of(preview.confirmationCode())));
+
+        harness.cli.verifyComplete();
+        assertThat(response).isInstanceOf(ImportService.Response.Completed.class);
+        WriteOutcome outcome = ((ImportService.Response.Completed) response).outcome();
+        assertThat(outcome.outcome()).as(outcome.toString())
+            .isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.modified()).containsExactlyInAnyOrder("Workflow-0001",
+            "Module-0003", A);
+        assertThat(outcome.createdNotRemoved()).containsExactly(B);
+        assertThat(node.repositoryImports).as("import, restore (the rollback was refused)")
+            .hasSize(2);
+        assertThat(repositoryImport(1)).containsExactly(Map.entry(A, schema("a")));
+        assertThat(node.repositoryContent(A)).hasValue(schema("a"));
+        assertThat(node.repositoryContent(B)).as("an import cannot delete").hasValue(
+            schema("b"));
+        assertThat(harness.read(file(A))).isEqualTo(schema("a"));
+        assertThat(harness.exports.history.status()).isEmpty();
+    }
+
+    @Test
+    void theBackupOfAFailedImportWhosePostRollbackReExportFailedIsRefusedBeforeAnythingIsSent() {
+        // Current behaviour, documented (T053): without a post-rollback re-export the manifest
+        // holds no repository:<path> state for a.xsd, so restore_backup stops with
+        // PRECONDITION_FAILED after the node read; nothing is sent and the next step points to
+        // the Workbench. The FAILED import still names restore_backup next to the Workbench.
+        harness.importRepositoryApplied(node).importRefused().exportRepository(node, XSD)
+            .exportGroup()
+            .importRefused();
+        repositoryExportFails();
+        WriteOutcome failed = confirmed();
+        assertThat(failed.rollback()).hasValue(WriteOutcome.Rollback.FAILED);
+        assertThat(failed.failure().orElseThrow().message()).contains(A, "restore_backup",
+            "Workbench");
+        assertThat(failed.createdNotRemoved()).as("all of them: the re-export failed")
+            .containsExactly(B);
+        String ref = failed.backupRef().orElseThrow();
+        BackupStore.Manifest manifest = harness.backups.find(ref).orElseThrow();
+        assertThat(manifest.outcome()).isEqualTo("FAILED");
+        assertThat(manifest.intendedState()).containsKeys("Workflow-0001", "Module-0003")
+            .doesNotContainKeys("repository:" + A, "repository:" + B);
+        harness.exportGroup().exportRepository(node, XSD);
+
+        ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
+            () -> service.restore(restore(ref, Optional.empty())));
+
+        assertThat(exception).as("expected a refusal").isNotNull();
+        harness.cli.verifyComplete();
+        assertThat(exception.error().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
+        assertThat(exception.error().message()).contains("The state the call " + ref
+                + " left is not recorded for " + A + " (outcome FAILED); nothing was sent")
+            .doesNotContain("Workflow-0001", "Module-0003");
+        assertThat(exception.error().nextStep()).contains("Workbench");
+        assertThat(node.repositoryImports).as("only the referenced import").hasSize(1);
+        assertThat(harness.inubit.imported).isEmpty();
+        assertThat(harness.audit("restore_backup")).last().satisfies(record ->
+            assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED));
     }
 }

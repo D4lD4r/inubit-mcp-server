@@ -670,7 +670,7 @@ against the current code before changing anything (some may already be resolved)
     the Javadoc that says nothing is dropped silently (T037-r1);
   - remove the 4-argument `ExportRequest` convenience constructor and move the test harnesses to the
     5-argument form (T039 implementer notes).
-- [ ] T053 Missing tests for new failure branches (no production change unless a test exposes a
+- [X] T053 Missing tests for new failure branches (no production change unless a test exposes a
   defect):
   - import: the artifact rollback fails while the repository rollback succeeds (and both fail),
     covering `Rollback.state()` and the `restore_backup` message variant; the repository re-export
@@ -700,6 +700,10 @@ against the current code before changing anything (some may already be resolved)
     re-wrap `ExportArtifactsTool` class Javadoc (T039-r1);
   - the `Reason` trailer drops surrounding whitespace: document it, or strip the reason before
     writing (T051-r1).
+  - the FAILED message of an import points to `restore_backup` for repository files although such a
+    restore is refused when the re-export after the rollback failed: drop that pointer when the last
+    re-export failed, and relax the assertion in
+    `theBackupOfAFailedImportWhosePostRollbackReExportFailedIsRefusedBeforeAnythingIsSent` (T053-r1).
 
 ## Dependencies & Execution Order
 

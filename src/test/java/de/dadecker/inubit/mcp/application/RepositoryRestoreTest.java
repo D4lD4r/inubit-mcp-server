@@ -24,6 +24,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -595,5 +596,95 @@ class RepositoryRestoreTest {
                 .doesNotContainKey("repository.3");
             assertThat(record.inputs().values()).noneMatch(value -> value.contains("xs:"));
         });
+    }
+
+    // --- T053: the fallback scope and a missing recorded state (T040-T041-r1) ----------------
+
+    /**
+     * The executed import of the new module {@code Module-0100} (a copy of {@code Module-0003}
+     * that references {@code a.xsd}) and of the changed {@code a.xsd}; its backup ref.
+     */
+    private String importedNewModuleAndSchema() {
+        String source = harness.moduleDirectory("Module-0003");
+        String target = source.replace("Module-0003", "Module-0100");
+        harness.write(target + "/module.xml", harness.read(source + "/module.xml").replace(
+            "</Properties>", "<Property name=\"x.a\">inubitrepository:" + A
+                + "</Property></Properties>"));
+        harness.write(target + "/index.xml", harness.read(source + "/index.xml")
+            .replace("Module-0003", "Module-0100"));
+        harness.write(file(A), changed("a"));
+        ImportService.ImportRequest request = new ImportService.ImportRequest(
+            ImportHarness.DEV.value(), Optional.empty(), Optional.empty(), List.of(
+                new ImportScope.Module("Module-0100", Optional.of(pluginType()))), "Schemas",
+            Optional.empty(), Optional.empty());
+        harness.exportRepository(node, XSD);
+        String code = ((ImportService.Response.Challenge) service.importArtifacts(request))
+            .preview().confirmationCode();
+        harness.exportRepository(node, XSD).importRepositoryApplied(node)
+            .importApplied(MODULE_IMPORT).exportRepository(node, XSD)
+            .exportModule(pluginType(), "Module-0100");
+        ImportService.Response response = service.importArtifacts(ImportHarness.confirmed(
+            request, code));
+        harness.cli.verifyComplete();
+        WriteOutcome outcome = ((ImportService.Response.Completed) response).outcome();
+        assertThat(outcome.outcome()).as(outcome.toString())
+            .isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.created()).containsExactly("Module-0100");
+        assertThat(outcome.modified()).containsExactly(A);
+        return outcome.backupRef().orElseThrow();
+    }
+
+    @Test
+    void aModuleCallWhoseModulesWereAllCreatedIsRestoredWithItsFilesOwnPathsAsScope() {
+        String ref = importedNewModuleAndSchema();
+        harness.exportRepository(node, XSD);
+        WritePreview preview = preview(ref);
+        assertThat(preview.scope()).as("no module existed before the call")
+            .isEqualTo("repository paths xsd/a.xsd");
+        assertThat(preview.modify()).containsExactly(A);
+        assertThat(preview.notes()).anySatisfy(note -> assertThat(note)
+            .contains("Created by that call and not removed", "Module-0100"));
+        harness.exportRepository(node, XSD).importRepositoryApplied(node)
+            .exportRepository(node, XSD);
+
+        WriteOutcome outcome = confirmed(ref, preview.confirmationCode());
+
+        assertThat(outcome.outcome()).as(outcome.toString())
+            .isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.modified()).containsExactly(A);
+        assertThat(outcome.createdNotRemoved()).containsExactly("Module-0100");
+        assertThat(node.repositoryContent(A)).hasValue(schema("a"));
+        assertThat(harness.inubit.imported).as("only the referenced import").hasSize(1);
+        assertThat(harness.inubit.hasModule("Module-0100")).as("nothing is deleted").isTrue();
+        assertThat(harness.read(file(A))).isEqualTo(schema("a"));
+    }
+
+    @Test
+    void aRepositoryFileWithoutARecordedStateIsAPreconditionFailureAndNothingIsSent() {
+        // a manifest without the repository:<path> state of a.xsd, as one whose last re-export
+        // failed (end to end: RepositoryImportFailureTest)
+        String ref = importedTwoModifiedAndOneCreated();
+        BackupStore.Manifest manifest = harness.backups.find(ref).orElseThrow();
+        Map<String, String> state = new TreeMap<>(manifest.intendedState());
+        assertThat(state.remove("repository:" + A)).isNotNull();
+        assertThat(state).containsKey("repository:" + C);
+        harness.backups.update(manifest.with(manifest.outcome(), state));
+        harness.exportRepository(node, XSD);
+
+        ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
+            () -> service.restore(restore(ref)));
+
+        assertThat(exception).as("expected a refusal").isNotNull();
+        harness.cli.verifyComplete();
+        ToolError error = exception.error();
+        assertThat(error.code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
+        assertThat(error.message()).contains("The state the call " + ref + " left is not"
+            + " recorded for " + A + " (outcome EXECUTED); nothing was sent")
+            .doesNotContain(C);
+        assertThat(error.nextStep()).contains("Workbench");
+        assertThat(node.repositoryImports).as("only the referenced import").hasSize(1);
+        assertThat(node.repositoryContent(A)).hasValue(changed("a"));
+        assertThat(harness.audit("restore_backup")).last().satisfies(record ->
+            assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED));
     }
 }
