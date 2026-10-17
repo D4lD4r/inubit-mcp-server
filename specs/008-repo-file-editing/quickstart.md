@@ -61,3 +61,24 @@ personal test diagram group and the personal test repository area.
 4. `restore_backup` with the `backupRef` from step 2 (switch back to `WRITE`) → the previous
    content, verified.
 5. Check that nothing outside the test folder changed (export of the test area before and after).
+
+## Validation record (T049)
+
+**2026-10-17, commit `e03d667`: offline validation done. Live steps 1–5 are pending the person's
+approval and were not run.**
+
+- `mvn -q clean verify`: green on the first run. 208 test classes, 2775 tests, 0 failures,
+  0 errors, 3 skipped. The 3 skipped tests are the opt-in corpus tests (`ArchiveCorpusTest`,
+  `StructureCorpusTest`, `XsltCorpusTest`; `INUBIT_MCP_ARCHIVE_CORPUS` / `INUBIT_MCP_XSLT_CORPUS`
+  not set). The known intermittent `SystemProcessLauncherTest` failure did not occur, so the build
+  was not rerun.
+- `NoCustomerIdentifiersTest` ran (not skipped) inside the build with the local identifier lists
+  (denylist, neutralize map, synthetic map and allowlist all present): 1107 files scanned, no
+  finding.
+- `mvn -q -Dtest=NoCustomerIdentifiersTest test` on its own: 20 tests, 0 failures, 0 skipped;
+  1109 files scanned (the 1107 git files plus the two jars the build had left in `target/`),
+  no finding.
+- SC-001 harness timing from `RepositoryImportTimingTest` (20 files in 3 folders, scripted StartCLI
+  delays): preview 8834 ms (own share 734 ms), confirmed import 19745 ms (own share 745 ms).
+- Live (opt-in) steps 1–5: not run, pending the person's approval. The task stays open until
+  they have been run and recorded here.
