@@ -473,8 +473,8 @@ groups:
   without both, no `Authorization` header is sent. Responses are stored below
   `<workspace>/.tests/e2e/` and removed after 30 days.
 - **Backups.** Every write first stores the raw export of its scope (with repository files, also
-  the node's exports of the folders they lie in, or of the file itself if it lies directly below
-  `/Root/<owner>/`) in
+  the node's exports of the folders they lie in, or of single files (directly below
+  `/Root/<owner>/` or in a folder over the read limits)) in
   `~/.inubit-mcp/<profile>/backups` (`<auditId>-<n>.zip` plus a manifest `<auditId>.json` with
   names and hashes only; directory `rwx------`, files `rw-------`). The ZIPs hold the server's
   secret values — keep the directory private. Backups are kept **30 days**; the newest backup of

@@ -922,8 +922,8 @@ restore it with `restore_backup` or in the Workbench). With repository files (fe
 before and whose content changed are re-imported from the call's backup and verified by
 re-export, content only (each gets a new version on the node). A repository rollback that leaves
 a file changed is `rollback: FAILED`; the message names the files and points to `restore_backup`
-or to a re-import in the Workbench from the repository exports of the backup. If the re-export
-after that rollback failed, the state the call left is not recorded for those files and
+or to a re-import in the Workbench from the repository exports of the backup. If the last re-export
+of the repository files failed, the state the call left is not recorded for those files and
 `restore_backup` refuses the backup (`PRECONDITION_FAILED`), so the message then points only to the
 Workbench, also for the workflows and modules. Nothing in this
 feature deletes anything: **created artifacts are not removed**, so artifacts and repository files

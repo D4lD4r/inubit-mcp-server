@@ -28,7 +28,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     (`repositoryReferences`), a diff (`repositoryDiff`) and the shared-use warnings. The
     repository files are imported before the workflows and modules, verified byte for byte and
     written back to the workspace; on a failure they are rolled back from the backup first, and a
-    failed repository rollback names the files and points to `restore_backup` or the Workbench.
+    failed repository rollback names the files and points to `restore_backup` or the Workbench
+    (only to the Workbench and the backup's repository exports if the last re-export of the
+    repository files failed).
     Created files are never removed (`createdNotRemoved`). The result's `tag` lists the imported
     repository files the group tag covers (`tag.repositoryFiles`); audit records name every file
     with its operation and hash, never its content.
