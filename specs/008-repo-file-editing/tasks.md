@@ -620,7 +620,7 @@ node's content equals the content before the import byte for byte.
   quickstart.md "Live", personal test area only) and an opt-in repository case in
   `test/live/DevelopmentLiveTest.java`, which is skipped without the live configuration and never
   targets production.
-- [ ] T048 [P] `CHANGELOG.md` `[Unreleased]`: feature 008, with the behaviour change of exports
+- [X] T048 [P] `CHANGELOG.md` `[Unreleased]`: feature 008, with the behaviour change of exports
   (transitive repository closure), the new key `development.repository`, the new scopes, the new code
   and the backup manifest fix. Under "Fixed": `check_artifacts` decodes percent-escaped repository
   paths before the existence check (no false `REPOSITORY_REF_MISSING` for e.g. `a%20b.xsd`), and its

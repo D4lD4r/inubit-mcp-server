@@ -7,6 +7,75 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Repository files on a development stage (feature 008): schemas, stylesheets, WSDLs and other XML
+  files below `/Root/<owner>/` can be brought from the workspace into a development node, not only
+  read:
+  - Setting `development.repository` (`READ_ONLY` by default, or `WRITE`; defaults, group, node),
+    effective only on a development stage. An explicit `WRITE` on a node that is not a development
+    stage, or on a production group or its nodes, is a startup error; on a non-production group
+    without a development node it is a warning. `--check-config` adds
+    `, repository: write | read-only` to the development part of a node's line, and `list_nodes`
+    reports `repositoryWrite`.
+  - `import_artifacts` takes the new scope `repositoryPaths` (1–50 paths relative to the owner's
+    repository root). A diagram-group or module import also carries the new and changed
+    repository files that the modules reach, also through other repository files; a diagram group
+    with only repository changes is a valid import. Every call that would send a repository file
+    returns a preview with a server code first, also on a node with
+    `development.confirmation: CLIENT`. The preview lists the files in `create`, `modify`,
+    `existing` and `identical`, the workspace artifacts outside the scope that use them
+    (`repositoryReferences`), a diff (`repositoryDiff`) and the shared-use warnings. The
+    repository files are imported before the workflows and modules, verified byte for byte and
+    written back to the workspace; on a failure they are rolled back from the backup first, and a
+    failed repository rollback names the files and points to `restore_backup` or the Workbench.
+    Created files are never removed (`createdNotRemoved`). The result's `tag` lists the imported
+    repository files the group tag covers (`tag.repositoryFiles`); audit records name every file
+    with its operation and hash, never its content.
+  - `export_artifacts` takes the new scope `repositoryPaths` (1–20 files or folders, folders
+    recursively, at most 500 files and 100 MiB); if any path is missing on the node, the whole
+    call is `NOT_FOUND` and nothing is written. Two paths that differ only in letter case are
+    refused with `INVALID_INPUT`.
+  - `restore_backup` also restores the previous content of the repository files the backed-up
+    development call changed, repository files first, with conflict check, verification and
+    rollback, and always with a server code. Files that call created stay
+    (`createdNotRemoved`); a file changed on the node since is a `CONFLICT`. Backups of
+    deployments are restored as before, whatever the switch says.
+  - Error code `REPOSITORY_WRITE_DENIED`: on a node whose `development.repository` is
+    `READ_ONLY`, an import or restore that would create or change a repository file is refused as
+    a whole, naming the paths, before anything is sent.
+
+  See `docs/setup.md` ("Development settings", "Artifact workspace") and `docs/tools.md`
+  ("Repository files (feature 008)", `restore_backup`).
+
+### Changed
+
+- Exports write the repository files the exported workflows and modules reach **transitively**:
+  also files that only another repository file includes or imports, and the message-type schemas
+  of the module index (`InputMessageTypeSchema`, `OutputMessageTypeSchema`). An export can
+  therefore write more files than before. A URI in a string literal (e.g. in an `xsl:variable`)
+  no longer counts as a reference. Repository files below another owner's root are no longer
+  written; a warning counts them.
+- `check_artifacts` also checks these references, including inside repository files (and still
+  reports every `inubitrepository:` URI): a missing included schema or stylesheet, or a missing
+  message-type schema, is `REPOSITORY_REF_MISSING`; one in another owner's root is
+  `REPOSITORY_REF_UNVERIFIED`.
+- The workspace history entry that records the verified state after `import_artifacts`,
+  `restore_backup` or `set_active` carries the call's reason as a `Reason: <reason>` trailer next
+  to `Server-State`.
+- Backup manifests of development calls name the repository files the backup holds
+  (`repositoryPaths`) and keep them, and their `kind`, when the call's outcome is recorded.
+  Manifests of earlier versions stay readable.
+
+### Fixed
+
+- StartCLI output: an `n-OK` or `n-NOK` result printed on the same line as the import progress
+  text `Completed = … MB / … MB` is recognised. Before, `deploy_release` took a repository import
+  that had succeeded for a failure.
+- `check_artifacts` decodes percent-escaped repository paths before the existence check, so a
+  reference to e.g. `a%20b.xsd` no longer gives a false `REPOSITORY_REF_MISSING`; its messages
+  show the decoded path.
+
 ## [0.5.2] - 2026-10-09
 
 ### Fixed
