@@ -29,6 +29,17 @@ server with different INUBIT versions."
 - **Constitution V** requires that 9.x differences live in version-specific adapter code selected
   by configuration or the detected version, never scattered through tool logic.
 
+## Clarifications
+
+### Session 2026-10-17
+
+- Q: Which tools must work on INUBIT 9.0 in this feature? → A: None yet. This feature delivers the
+  version detection, the capability matrix and the refusals; INUBIT 9.0 stays "unsupported" in the
+  matrix. Adapters for 9.0 follow in later features, which only add entries to the matrix.
+- Q: May `deploy_release` deploy between nodes of different INUBIT versions? → A: Only between
+  nodes of the same minor version (e.g. 8.1.x → 8.1.y); a different major or minor version is
+  refused.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - See which INUBIT version each node runs and what the server can do there (Priority: P1)
@@ -90,32 +101,32 @@ state-changing call is made, while tools that are supported on that version keep
 
 ---
 
-### User Story 3 - Use the server with INUBIT 9.0 nodes (Priority: P2)
+### User Story 3 - A new INUBIT version can be supported by adding to the capability matrix (Priority: P2)
 
-An operator's newer stages run INUBIT 9.0. They want to use the MCP server there too, at least for
-the tasks that are verified on 9.0, while the 8.1 stages keep working unchanged.
+A maintainer later adds support for INUBIT 9.0 (or a further 8.1 patch with a known difference).
+They add version-specific access for the affected tools and declare the new version range in the
+capability matrix; nothing else in the tools changes, and 8.1 nodes are unaffected. In this
+feature, 9.0 is present in the matrix as "unsupported", which proves the mechanism.
 
-**Why this priority**: This is the reason for the feature ("use the MCP server with different
-INUBIT versions"), but it depends on the version detection and the capability model (US1, US2)
-and on access to a 9.0 system for verification.
+**Why this priority**: This is what makes the server usable "with different INUBIT versions" over
+time; the actual 9.0 adapters are deliberately left to later features (clarification
+2026-10-17).
 
-**Independent Test**: With recorded 9.0 responses, run each tool that is declared as supported on
-9.0 and confirm it returns the same documented result shape as on 8.1; run an 8.1 node in the same
-profile and confirm its behaviour is unchanged.
+**Independent Test**: With a test-only matrix entry and a test-only adapter for a fictitious
+version, confirm that a node of that version gets exactly the declared tools through that adapter,
+that an 8.1 node is unchanged, and that a 9.0 node is refused as "unsupported".
 
 **Acceptance Scenarios**:
 
-1. **Given** a node detected as INUBIT 9.0.x, **When** a tool declared as supported on 9.0 is
-   called, **Then** it uses the 9.0-specific access and returns the same result shape as on 8.1.
-2. **Given** a profile with 8.1 and 9.0 nodes, **When** the same read tool is called on both,
-   **Then** both answer correctly, each through its own version's access.
-3. **Given** a 9.0 node and a tool that is not yet verified on 9.0, **When** it is called,
-   **Then** it is refused as in US2 instead of falling back to 8.1 behaviour.
-
-The set of tools in scope for 9.0 is [NEEDS CLARIFICATION: which tools must work on 9.0 in this
-feature — only the read tools (health, processes, logs, inventory, export), also the development
-tools (import, restore, activate, tag), or only the detection and capability model with 9.0
-support itself left to later features?].
+1. **Given** a node detected as INUBIT 9.0.x, **When** a write tool is called, **Then** it is
+   refused with `UNSUPPORTED_VERSION` naming 9.0 as not yet supported, instead of running the 8.1
+   behaviour; **When** a read tool is called, **Then** it runs as today with an explicit
+   "unverified version" warning (FR-009).
+2. **Given** a matrix entry that declares a version range with a subset of tool groups, **When** a
+   node of that range is listed, **Then** exactly those groups are shown as available, and only
+   those tools run on it.
+3. **Given** a profile with nodes of different versions, **When** the same tool is called on each,
+   **Then** each node is served by its own version's access or refused according to the matrix.
 
 ---
 
@@ -156,9 +167,9 @@ pinned capabilities.
   reads as decided in FR-009.
 - Mixed versions inside one group: each node is judged on its own (US2-2).
 - Mixed versions along the stage chain of `deploy_release` (source 8.1, target 9.0, or the
-  reverse): [NEEDS CLARIFICATION: is a deployment between nodes of different INUBIT versions
-  refused, allowed only between the same minor version (e.g. 9.0.x → 9.0.y), or allowed whenever
-  both nodes support deployments?].
+  reverse): refused unless source and target nodes run the same major and minor version
+  (8.1.x → 8.1.y is allowed); the refusal names both nodes and versions. A target node whose
+  version is unknown is refused (FR-008).
 - The StartCLI client supports a range of server versions that does not include the node's
   version: CLI-backed tools on that node are refused, REST tools keep working.
 - A node is reachable over REST but its StartCLI client is missing: version from REST, client
@@ -197,10 +208,10 @@ pinned capabilities.
 - **FR-008**: Write tools (anything that changes state on INUBIT) MUST only run on a node whose
   version is known and declared write-capable for that tool in the capability matrix; an unknown or
   undeclared version MUST refuse them (Constitution I).
-- **FR-009**: Read tools on a node whose version is unknown or newer than every declared range
-  MUST [default assumed: run with the closest known adapters and an explicit "unverified version"
-  warning in the result, as today for 9.x]; on a version that the matrix declares as not
-  supporting the tool they MUST be refused (FR-005).
+- **FR-009**: Read tools on a node whose version is unknown, declared "unverified" (INUBIT 9.0 in
+  this feature) or newer than every declared range MUST run with the closest known adapters and an
+  explicit "unverified version" warning in the result, as today for 9.x; on a version that the
+  matrix declares as not supporting the tool they MUST be refused (FR-005).
 - **FR-010**: A detected version MUST be cached per node and re-detected after a bounded time and
   after a failed call that indicates a version change (for example an unexpected response shape);
   a failed detection MUST NOT be retried more often than today's back-off (account lockout).
@@ -213,9 +224,14 @@ pinned capabilities.
 - **FR-013**: All version-specific behaviour MUST be selected through version-specific adapters
   chosen by the effective version; tool logic MUST NOT branch on version strings
   (Constitution V).
-- **FR-014**: In this feature, the server MUST support INUBIT 8.1.x fully as today. For INUBIT 9.0
-  the tools listed in US3 MUST work through 9.0-specific access and return the same documented
-  result shapes as on 8.1.
+- **FR-014**: In this feature, the server MUST support INUBIT 8.1.x fully as today and MUST declare
+  INUBIT 9.0 (and every version outside the declared ranges) as unsupported for writes and
+  unverified for reads: no 9.0-specific access is implemented, 9.0 nodes no longer run the 8.1
+  behaviour for write tools, and read tools keep today's behaviour with a warning (FR-009). Adding support
+  for a version later MUST only need version-specific access plus a matrix entry (US3).
+- **FR-014a**: `deploy_release` MUST refuse a deployment whose source and target nodes differ in
+  major or minor INUBIT version (same minor with different patch is allowed), naming both nodes
+  and versions, before anything is sent.
 - **FR-015**: Every refusal for version reasons MUST be logged (structured, stderr) and, for write
   tools, audited like any other refused write (Constitution VII).
 - **FR-016**: Detection results and capability decisions MUST never expose credentials, tokens or
@@ -247,8 +263,8 @@ pinned capabilities.
 - **SC-003**: Existing 8.1 profiles behave exactly as before: the full offline test suite of
   features 001–008 stays green without changes to their expectations, apart from new fields in
   `list_nodes`.
-- **SC-004**: Every tool declared as supported on 9.0 returns results with the same documented
-  shape on 9.0 as on 8.1, verified against recorded 9.0 responses.
+- **SC-004**: Adding a version range to the capability matrix (verified with a test-only entry)
+  needs no change in any tool's logic.
 - **SC-005**: A version refusal tells the person in one message which node, which version, which
   capability is missing and what to do; no refusal needs a log lookup to be understood.
 
@@ -256,12 +272,11 @@ pinned capabilities.
 
 - INUBIT 8.1.x remains the baseline; its behaviour does not change except for the additional
   version information and refusals on versions that are not 8.1.
-- The system information endpoint used today for detection exists on 9.0 as well (to be verified
-  against recorded 9.0 responses); where it does not, pinning (US4) is the fallback.
-- Recorded responses of a 9.0 system can be obtained for fixtures (from a test system, neutralized
-  as for 8.1). Without them, 9.0 support cannot be verified and stays "unsupported".
-- OAuth-only 9.0 installations are out of scope; this feature assumes 9.0 nodes still accept the
-  internal user/password login as documented. OAuth support would be a separate feature.
+- The system information endpoint used today for detection is assumed to exist on 9.0 as well, so
+  that a 9.0 node is recognized and refused correctly; where it does not, the node is "unknown"
+  (writes refused) and pinning (US4) is the fallback.
+- 9.0-specific access (REST differences, the changed StartCLI URL, OAuth) is out of scope and
+  follows in later features.
 - The re-detection bound (FR-010) defaults to the inventory cache time (`inventory.cacheTtl`,
   10 minutes) unless planning finds a better value.
 - The exact list of tool groups in the capability matrix is refined in planning; FR-003 names the

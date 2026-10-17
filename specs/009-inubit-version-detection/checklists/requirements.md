@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,7 +31,7 @@
 
 ## Notes
 
-- Two [NEEDS CLARIFICATION] markers remain (9.0 tool scope in US3/FR-014; deployments across
-  versions in Edge Cases). They are put to the person before `/speckit-clarify`.
+- The two clarifications (9.0 scope: detection and matrix only; deployments only within the
+  same minor version) were answered on 2026-10-17 and recorded in the spec (Clarifications).
 - Tool and setting names (`list_nodes`, `versionLine`, `UNSUPPORTED_VERSION`) are the product's
   user-facing vocabulary, as in specs 001–008, not implementation details.
