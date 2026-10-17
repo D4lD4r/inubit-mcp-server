@@ -9,9 +9,13 @@ import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.config.DevelopmentConfig;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.config.GroupConfig;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
+import de.dadecker.inubit.mcp.config.NodeConfig;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
+import de.dadecker.inubit.mcp.config.RepositoryMode;
 import de.dadecker.inubit.mcp.config.ValidationReport;
 import de.dadecker.inubit.mcp.config.WorkspaceDirectory;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -22,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Assumptions;
 
@@ -211,7 +216,55 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
      * a live test never writes into the person's real workspace.
      */
     TestWiring wiring(Path workspace) {
+        return wiring(loaded.config(), workspace);
+    }
+
+    /** Whether {@code development.repository} is effectively {@code WRITE} on {@link #node()}. */
+    boolean repositoryWrite() {
+        return loaded.config().effectiveNodes().stream()
+            .filter(candidate -> candidate.id().equals(node))
+            .anyMatch(candidate -> candidate.development().repositoryWrite());
+    }
+
+    /**
+     * As {@link #wiring(Path)}, with {@code development.repository: READ_ONLY} on {@link #node()}
+     * only (feature 008, quickstart "Live" step 3: the node set to read-only in a copy of the
+     * profile and the server restarted). The copy exists in memory only; the real configuration
+     * file is never changed.
+     */
+    TestWiring readOnlyRepositoryWiring(Path workspace) {
+        return wiring(readOnlyRepositoryConfig(), workspace);
+    }
+
+    /** The configuration with {@code development.repository: READ_ONLY} on {@link #node()}. */
+    ProfileConfig readOnlyRepositoryConfig() {
         ProfileConfig config = loaded.config();
+        List<GroupConfig> groups = config.groups().stream()
+            .map(group -> !group.name().equals(node.group().value()) ? group
+                : new GroupConfig(group.name(), group.production(), group.nodes().stream()
+                    .map(candidate -> candidate.name().equals(node.name())
+                        ? readOnlyRepository(candidate) : candidate)
+                    .toList(), group.write(), group.tls(), group.cli(), group.inventory(),
+                    group.versionLine(), group.timeout(), group.cliTimeout(),
+                    group.cliExportTimeout(), group.hangingThreshold(), group.confirmationTtl(),
+                    group.development(), group.e2eTests(), group.e2e(), group.deploy()))
+            .toList();
+        return new ProfileConfig(config.profile(), config.terminology(), config.credentials(),
+            groups, config.defaults(), config.auditDirectory(), config.logLevel(),
+            config.resultLimits(), config.workspace());
+    }
+
+    private static NodeConfig readOnlyRepository(NodeConfig node) {
+        DevelopmentConfig development = node.development();
+        return new NodeConfig(node.name(), node.baseUrl(), node.allowInsecureHttp(),
+            node.versionLine(), node.write(), node.tls(), node.cli(), node.inventory(),
+            node.timeout(), node.cliTimeout(), node.cliExportTimeout(), node.hangingThreshold(),
+            node.confirmationTtl(), new DevelopmentConfig(development.enabled(),
+                development.confirmation(), Optional.of(RepositoryMode.READ_ONLY)),
+            node.e2eTests(), node.e2e());
+    }
+
+    private TestWiring wiring(ProfileConfig config, Path workspace) {
         return TestWiring.of(new ProfileConfig(config.profile(), config.terminology(),
             config.credentials(), config.groups(), config.defaults(), config.auditDirectory(),
             config.logLevel(), config.resultLimits(), workspace), credentials, scrubber,

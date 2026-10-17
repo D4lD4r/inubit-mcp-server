@@ -7,7 +7,9 @@ are excluded from it (`surefire.excludedGroups=live`).
 Live tests are **opt-in** and **never run against production** (Constitution III). All of them are
 read-only except the development live test of feature 004 (see
 [Development live test](#development-live-test-feature-004)), which writes to dedicated test
-workflows of a personal diagram group on a development node only, and the deployment live test of
+workflows of a personal diagram group on a development node only, and with its repository case
+(see [Repository files](#repository-files-feature-008)) to one probe file in a personal test
+repository folder of that node, and the deployment live test of
 feature 005 (see [Deployment live test](#deployment-live-test-feature-005)), which deploys one
 test diagram group into an approved, non-production test target group.
 
@@ -113,6 +115,58 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=OWN
 - Each write creates new versions of the test workflow in INUBIT, and every export appends to
   its check-in comment (INUBIT behaviour). Only counts and timings are printed, e.g.
   `[live] dev/node1: import, restore, set_active x2 and tag of one test diagram group: 1 workflow(s), 4 module(s) carry LIVE-TEST, 212 s`.
+
+### Repository files (feature 008)
+
+The repository case of `live/DevelopmentLiveTest`
+(`importAndRestoreAProbeFileInThePersonalTestRepositoryFolder`) exercises repository files against
+the same development node. It **writes to INUBIT**, so the same rules apply: it runs only when
+started explicitly — starting it is the approval of exactly this scenario in exactly the named
+folder — and never on production:
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEV_NODE=dev/node1 INUBIT_LIVE_DEV_OWNER=jdoe \
+  INUBIT_LIVE_DEV_REPOSITORY_FOLDER=live-test \
+  mvn verify -Plive -Dtest='DevelopmentLiveTest#importAndRestoreAProbeFileInThePersonalTestRepositoryFolder'
+```
+
+Prerequisites:
+
+- A **temporary copy** of the profile in which the development node has
+  `development.repository: WRITE` (setup.md, `development.repository`); never edit the real file
+  under `~/.config/inubit-mcp/` for a test run. Without `WRITE` on the node the test **fails before
+  anything is written**.
+- Your **personal test repository folder** on that node, below `/Root/<owner>/`, which already
+  exists. `INUBIT_LIVE_DEV_REPOSITORY_FOLDER` names it relative to the owner's repository root
+  (`live-test` stands for `/Root/jdoe/live-test`). Never name a shared folder or the owner's root.
+- Without `INUBIT_LIVE_DEV_NODE`, `INUBIT_LIVE_DEV_OWNER` **and**
+  `INUBIT_LIVE_DEV_REPOSITORY_FOLDER` the case is skipped; no folder is chosen by default. The
+  diagram-group case of the same class needs its own variables, so either case runs alone.
+
+The test writes only one file, `inubit-mcp-live-probe.xsd` in that folder: a small synthetic
+schema with the run's time stamp. Scenario (quickstart.md of feature 008, "Live"), in a
+**temporary workspace**:
+
+1. `export_artifacts(repositoryPaths: [<folder>])`: the folder's files below
+   `repository/Root/<owner>/<folder>/` of the workspace.
+2. The probe is changed in the workspace (created on the first run) and imported alone with
+   `import_artifacts(repositoryPaths: [<folder>/inubit-mcp-live-probe.xsd])`: the preview lists it
+   under `modify` (`create` on the first run), names the `repositoryDiff` report and carries a
+   server code; the call with the code is `EXECUTED` with a `backupRef`.
+3. The same node with `development.repository: READ_ONLY` (an in-memory copy of the
+   configuration and a new server, as after editing the copy and restarting) refuses another
+   change of the probe with `REPOSITORY_WRITE_DENIED`; nothing is sent.
+4. Back on `WRITE`, `restore_backup` with the `backupRef` of step 2 re-imports the previous
+   content, confirmed with its server code and verified. On the first run the probe was created:
+   the restore cannot delete it and lists it in `createdNotRemoved`.
+5. A second export of the folder shows every other file of the folder byte for byte as in step 1
+   and the probe with its previous content (or, after the first run, with the content of step 2).
+
+What stays: the probe file in your test folder (never deleted; every run creates new versions of
+it in INUBIT), the backups of the import and the restore under `~/.inubit-mcp/<profile>/backups`
+and the audit records of `import_artifacts` and `restore_backup` (the refused call as `REFUSED`),
+as for every development call. Only counts and timings are printed, e.g.
+`[live] dev/node1: repository probe modified, refused read-only, restored; 3 file(s) in the test folder, 95 s`.
 
 ## Deployment live test (feature 005)
 

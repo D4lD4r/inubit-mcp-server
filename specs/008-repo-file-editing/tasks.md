@@ -616,7 +616,7 @@ node's content equals the content before the import byte for byte.
   `ArtifactToolsReferenceTest` and `DevelopmentToolsReferenceTest` must be green.
 - [X] T046 [P] `README.md`: "Safety model" (repository writes per development node, off by
   default, server code always) and the tools table wording for `import_artifacts`/`export_artifacts`.
-- [ ] T047 [P] `docs/live-tests.md`: the repository section (prerequisites, the steps from
+- [X] T047 [P] `docs/live-tests.md`: the repository section (prerequisites, the steps from
   quickstart.md "Live", personal test area only) and an opt-in repository case in
   `test/live/DevelopmentLiveTest.java`, which is skipped without the live configuration and never
   targets production.

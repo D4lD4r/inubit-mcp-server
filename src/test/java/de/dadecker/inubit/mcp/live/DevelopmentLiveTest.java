@@ -19,12 +19,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * T026, T031 (feature 004, research D-23, D-26, SC-006): the development tools against a real
@@ -49,6 +51,13 @@ import tools.jackson.databind.JsonNode;
  * versions. Every write needs a confirmation code under
  * {@code development.confirmation: SERVER}; the test confirms the preview it got. Only counts
  * and timings are printed, never names or content.
+ *
+ * <p>T047 (feature 008): the repository case
+ * {@link #importAndRestoreAProbeFileInThePersonalTestRepositoryFolder} needs
+ * {@code INUBIT_LIVE_DEV_NODE}, {@code INUBIT_LIVE_DEV_OWNER} and
+ * {@code INUBIT_LIVE_DEV_REPOSITORY_FOLDER} (the person's test folder below
+ * {@code /Root/<owner>/}) and is skipped without them; it writes only the probe file
+ * {@link #PROBE} in that folder.
  */
 @Tag("live")
 @Timeout(1800)
@@ -58,10 +67,21 @@ class DevelopmentLiveTest {
     static final String GROUP_VARIABLE = "INUBIT_LIVE_DEV_DIAGRAM_GROUP";
     /** The workflow to change; required, never a default (a group may be shared). */
     static final String WORKFLOW_VARIABLE = "INUBIT_LIVE_DEV_WORKFLOW";
+    /**
+     * The repository case (feature 008): the person's test folder, relative to the owner's
+     * repository root {@code /Root/<owner>/}; required, never a default (never a shared folder).
+     */
+    static final String REPOSITORY_FOLDER_VARIABLE = "INUBIT_LIVE_DEV_REPOSITORY_FOLDER";
+    /**
+     * The only file the repository case writes, in the test folder: created by the first run,
+     * changed by every later one, never deleted (an import cannot delete).
+     */
+    static final String PROBE = "inubit-mcp-live-probe.xsd";
     /** The tag of every run: reused, never removed, so runs do not pile up tag names. */
     static final String TAG = "LIVE-TEST";
     private static final Duration WAIT = Duration.ofSeconds(600);
     private static final Pattern X_POS = Pattern.compile("xPos=\"(\\d+)\"");
+    private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final Pattern ACTIVE = Pattern.compile("<IsActive>(true|false)</IsActive>");
 
     @TempDir
@@ -136,6 +156,142 @@ class DevelopmentLiveTest {
                 + " workflow(s), " + tagResult.path("modules").asInt() + " module(s) carry "
                 + TAG + ", " + Duration.ofNanos(System.nanoTime() - start).toSeconds() + " s");
         }
+    }
+
+    /**
+     * T047 (feature 008, quickstart "Live"): repository files on a development node whose
+     * {@code development.repository} is {@code WRITE}, only in the test folder named by
+     * {@link #REPOSITORY_FOLDER_VARIABLE} and only on the file {@link #PROBE}. Export of the
+     * folder → the probe changed (or, on the first run, created) → {@code import_artifacts} of
+     * the probe alone, preview confirmed with its server code → {@code EXECUTED} with a backup →
+     * the same node with {@code READ_ONLY} (an in-memory copy of the configuration, a new
+     * server) refuses another change with {@code REPOSITORY_WRITE_DENIED} → back on
+     * {@code WRITE}, {@code restore_backup} of the import brings the previous content back (a
+     * created probe stays and is listed in {@code createdNotRemoved}) → a new export of the
+     * folder shows every other file of it unchanged.
+     */
+    @Test
+    void importAndRestoreAProbeFileInThePersonalTestRepositoryFolder() throws IOException {
+        LiveTarget live = LiveTarget.resolveDevelopment();
+        String owner = System.getenv(OWNER_VARIABLE);
+        String folder = System.getenv(REPOSITORY_FOLDER_VARIABLE);
+        Assumptions.assumeTrue(given(owner) && given(folder), OWNER_VARIABLE + " and "
+            + REPOSITORY_FOLDER_VARIABLE + " are not both set; the repository case of the"
+            + " development live test is skipped (no folder is chosen by default)");
+        if (!live.repositoryWrite()) {
+            throw new AssertionError("Refusing to run the repository case: development.repository"
+                + " is not WRITE on " + live.node() + " (use a temporary copy of the profile)");
+        }
+        owner = owner.strip();
+        folder = folder.strip();
+        NodeId node = live.node();
+        String probePath = folder + "/" + PROBE;
+        String fullPath = "/Root/" + owner + "/" + probePath;
+        Path probe = workspace.resolve(WorkspacePath.repository(node.group(), owner,
+            fullPath).toRelativePath());
+        String stamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC)
+            .format(Instant.now());
+        long start = System.nanoTime();
+
+        Map<Path, byte[]> before;
+        boolean probeExisted;
+        byte[] imported = probe(stamp).getBytes(StandardCharsets.UTF_8);
+        String backupRef;
+        try (TestWiring wiring = live.wiring(workspace);
+            McpTestClient client = McpTestClient.start(wiring.toolHandlers(),
+                live.scrubber())) {
+            client.initialize();
+            structured(client.callTool("export_artifacts", Map.of("target", node.value(),
+                "owner", owner, "repositoryPaths", List.of(folder)), WAIT));
+            before = files(probe.getParent());
+            probeExisted = Files.isRegularFile(probe);
+            Files.write(probe, imported);
+
+            Map<String, Object> arguments = Map.of("node", node.value(), "owner", owner,
+                "repositoryPaths", List.of(probePath), "reason", "Live test repository " + stamp);
+            JsonNode challenge = structured(client.callTool("import_artifacts", arguments, WAIT))
+                .path("challenge");
+            assertThat(challenge.path("confirmationCode").asString())
+                .as("a repository file always needs a server code").isNotEmpty();
+            assertThat(challenge.path(probeExisted ? "modify" : "create").toString())
+                .contains(fullPath);
+            assertThat(challenge.path("repositoryDiff").asString()).isNotEmpty();
+            Map<String, Object> confirmed = new HashMap<>(arguments);
+            confirmed.put("confirmationCode", challenge.path("confirmationCode").asString());
+            JsonNode result = structured(client.callTool("import_artifacts", confirmed, WAIT))
+                .path("result");
+            assertThat(result.path("outcome").asString()).isEqualTo("EXECUTED");
+            assertThat(result.path(probeExisted ? "modified" : "created").toString())
+                .contains(fullPath);
+            assertThat(Files.readAllBytes(probe)).as("the verified state is in the workspace")
+                .isEqualTo(imported);
+            backupRef = result.path("backupRef").asString();
+        }
+
+        try (TestWiring wiring = live.readOnlyRepositoryWiring(workspace);
+            McpTestClient client = McpTestClient.start(wiring.toolHandlers(),
+                live.scrubber())) {
+            client.initialize();
+            Files.writeString(probe, probe(stamp + " read-only"), StandardCharsets.UTF_8);
+            JsonNode denied = client.callTool("import_artifacts", Map.of("node", node.value(),
+                "owner", owner, "repositoryPaths", List.of(probePath), "reason",
+                "Live test read-only " + stamp), WAIT);
+            assertThat(denied.path("isError").asBoolean()).as(denied::toString).isTrue();
+            assertThat(JSON.readTree(denied.path("content").get(0).path("text").asString())
+                .path("error").path("code").asString()).isEqualTo("REPOSITORY_WRITE_DENIED");
+            Files.write(probe, imported);
+        }
+
+        try (TestWiring wiring = live.wiring(workspace);
+            McpTestClient client = McpTestClient.start(wiring.toolHandlers(),
+                live.scrubber())) {
+            client.initialize();
+            JsonNode restored = write(client, "restore_backup", Map.of("node", node.value(),
+                "backupRef", backupRef, "reason", "Live test repository restore " + stamp));
+            assertThat(restored.path("outcome").asString()).isEqualTo("EXECUTED");
+            if (!probeExisted) {
+                assertThat(restored.path("createdNotRemoved").toString()).contains(fullPath);
+            }
+
+            structured(client.callTool("export_artifacts", Map.of("target", node.value(),
+                "owner", owner, "repositoryPaths", List.of(folder)), WAIT));
+            Map<Path, byte[]> after = files(probe.getParent());
+            if (!probeExisted) {
+                assertThat(after.remove(probe)).as("a created probe stays").isEqualTo(imported);
+            }
+            assertThat(after.keySet()).as("the files of the test folder")
+                .isEqualTo(before.keySet());
+            before.forEach((file, content) -> assertThat(after.get(file))
+                .as("restored or unchanged: %s", workspace.relativize(file)).isEqualTo(content));
+
+            System.err.println("[live] " + node + ": repository probe " + (probeExisted
+                ? "modified" : "created") + ", refused read-only, restored; " + before.size()
+                + " file(s) in the test folder, "
+                + Duration.ofNanos(System.nanoTime() - start).toSeconds() + " s");
+        }
+    }
+
+    /** A synthetic schema with the run's stamp, LF only and no trailing newline. */
+    private static String probe(String stamp) {
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">\n"
+            + "  <!-- inubit-mcp-server live test " + stamp + " -->\n"
+            + "  <xs:element name=\"LiveTestProbe\" type=\"xs:string\"/>\n"
+            + "</xs:schema>";
+    }
+
+    /** Every file below {@code folder} with its content. */
+    private static Map<Path, byte[]> files(Path folder) throws IOException {
+        Map<Path, byte[]> files = new HashMap<>();
+        if (!Files.isDirectory(folder)) {
+            return files;
+        }
+        try (Stream<Path> walk = Files.walk(folder)) {
+            for (Path file : walk.filter(Files::isRegularFile).toList()) {
+                files.put(file, Files.readAllBytes(file));
+            }
+        }
+        return files;
     }
 
     private static boolean given(String value) {
