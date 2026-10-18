@@ -99,7 +99,10 @@ from an enum to a string (the configured text). `notUsable` items: `{"capability
 
 In preview and again before execution: every source and target node is checked like a write
 (detection rule, matrix, pin contradiction and the StartCLI client check). The preview gains an
-optional top-level `warnings` (client mismatch, failed probe); the execute result has one already. Refused as a whole if any node is unknown, any target not `supported` for deployments,
+optional top-level `warnings` (strings: client mismatch, failed probe; unlike the per-plan
+`warnings`, which are objects with a kind); the execute result has one already. A refusal is one
+`UNSUPPORTED_VERSION` naming every source and target node with its version and, per refused node,
+its cause. Refused as a whole if any node is unknown, any target not `supported` for deployments,
 sources differ from each other or from any target in major.minor (`V9_X` counts as unknown).
 
 ## Tool announcement (changed behaviour)

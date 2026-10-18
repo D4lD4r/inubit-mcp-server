@@ -73,6 +73,10 @@ Derived:
   observation, the pin. On `Auto`, an observation replaces the detection (D-4).
 - `needsDetection(purpose, now, bound)`: `Auto` and (no version) or (purpose WRITE and (stale or
   older than bound)); never within 60 s after a failure.
+- `writableVersion(now, bound)`: the effective version for a WRITE. On `Auto`, a version that is
+  stale or older than the bound and whose re-detection failed (or is suppressed by the 60 s
+  back-off) counts as unknown: no writable version, so writes are refused with the
+  detection-failure text; reads keep using `effectiveVersion()`.
 - `supportStatus(matrix, config)`: `SUPPORTED` / `PARTIALLY_SUPPORTED` / `UNSUPPORTED` /
   `UNKNOWN` (FR-004; "usable" per D-9).
 

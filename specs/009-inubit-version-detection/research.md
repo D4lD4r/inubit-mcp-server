@@ -106,7 +106,8 @@ last `get_health` observation (version + time), a `stale` flag, and the client p
 - the client probe (D-7).
 
 Rules (spec N3): the effective server version of a node is the most recent of detection and
-observation; for a pinned node without an observation, the pin. On an `AUTO` node a `get_health`
+observation; for a write, a stale or over-bound `AUTO` version whose re-detection failed or is
+suppressed by the back-off counts as unknown (`writableVersion`, FR-008/FR-010); for a pinned node without an observation, the pin. On an `AUTO` node a `get_health`
 observation replaces the cached detection. A pin contradiction (observed major.minor ≠ pin) is set
 by a `get_health` observation and cleared by a later matching observation (FR-012).
 
@@ -244,11 +245,15 @@ Reads keep using the cached version; the next write re-detects (FR-010).
 `sourceNodes`, and whose `admit` audits refusals through the private `refuse`); `DeployService`
 calls the guard in preview and in execute, so both are covered. `DeployGuard` gets the gate as a
 constructor parameter (Wiring and the DeployGuard fixtures change) and `Admitted` gains the
-admission `warnings`. Steps: call `VersionGate.admit(node, DEPLOYMENT, WRITE, {CLI, REST})` for
+admission `warnings`. Steps: call `VersionGate.evaluate(node, DEPLOYMENT, WRITE, {CLI, REST})`
+(the non-throwing variant of `admit`, returning admitted-with-warnings or the refusal cause) for
 every source and target node (detection, matrix, pin contradiction and the client check incl. the
-probe; sources export and targets import and tag through StartCLI), then check: no node unknown, every target `SUPPORTED` for
+probe; sources export and targets import and tag through StartCLI), collect all results, then
+check: no node unknown, every target `SUPPORTED` for
 `DEPLOYMENT`, all sources and targets equal in major.minor (`V8_1` or a concrete pin gives
-major.minor; `V9_X` counts as unknown). A failure refuses the whole deployment (audited `REFUSED`), naming the nodes and versions.
+major.minor; `V9_X` counts as unknown). A failure refuses the whole deployment with one message (audited `REFUSED`) that names every
+source and target node with its version and, per refused node, its cause (client, contradiction,
+unknown).
 Admission warnings (client mismatch, failed probe) appear in a new optional top-level `warnings`
 of the deployment preview (`DeploymentPreview` and `deploy_release.output.json`) and in the
 execute result's existing `warnings`.

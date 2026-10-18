@@ -111,11 +111,14 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
   `effectiveVersion()` (most recent of detection/observation; pin without observation; on `Auto`
   an observation replaces the detection), `needsDetection(purpose, now, bound)` with the node's
   `inventory.cacheTtl` as bound (`Auto` and no version, or WRITE and stale/older than the bound;
-  never within 60 s after a failure — `NodeVersions` owns this back-off for the gate), contradiction
+  never within 60 s after a failure — `NodeVersions` owns this back-off for the gate),
+  `writableVersion(now, bound)` (on `Auto`, a stale or over-bound version whose re-detection failed
+  or is suppressed by the back-off counts as unknown for writes; reads keep `effectiveVersion()`), contradiction
   set/cleared by observations (FR-012; a patch-only difference is no contradiction), client result
   kept for the process lifetime (a version without a range is a success with an empty range),
   only a failed or timed-out probe retried after 60 s (FR-002). Thread-safe, injected
-  `Clock`. Test first: `test/application/NodeVersionsTest.java`.
+  `Clock`. Test first: `test/application/NodeVersionsTest.java` (incl. detected 8.1, stale,
+  re-detection fails → no writable version while a read still sees 8.1).
 - [ ] T007 Detection port, reporting and stale triggers (research D-4, D-5, D-10):
   - `GatewayFactory.detect(NodeId)` in `main/domain/port/GatewayFactory.java`, implemented in
     `main/adapter/AdapterGatewayFactory.java`: one `/system/info` request that bypasses the slot's
@@ -150,7 +153,9 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
   refusal (FR-015). Test first: `test/application/VersionGateTest.java` (8.1 → admit; 9.0 read →
   warning; 9.0 write → refused, only the detection request; unknown after failed detection → write
   refused, read warning; contradiction → write refused; stale or older than the node's
-  `inventory.cacheTtl` before a write → re-detect; read uses the cache; REST channel on 9.0 with an
+  `inventory.cacheTtl` before a write → re-detect; stale and the re-detection fails → write refused
+  with the detection-failure text, a second write within 60 s refused without a request, a read
+  still admitted on the cached version; read uses the cache; REST channel on 9.0 with an
   8.1 client → admitted with warning, CLI channel → refused; test-only matrix marking a read
   UNSUPPORTED → read refused; MONITORING never refused even when a test-only matrix declares it
   UNSUPPORTED; pinned `"8.1.17"`: zero detection requests; `V9_X`: write refused, read warning;
@@ -198,8 +203,11 @@ run one after the other (no [P]).
   US2-5 is tested in T019.
 - [ ] T011 [US2] Deployment-backup restores: `DevelopmentGuard.admitDeploymentRestore`
   (`main/application/DevelopmentGuard.java`:118, called from `ImportService.admitRestore`) calls the
-  gate with `DEPLOYMENT` (WRITE, channels `{CLI, REST}`) for the backup's node. Test first:
-  `test/application/RestoreDeploymentTest.java` (9.0 target node refused, audit `REFUSED`).
+  gate with `DEPLOYMENT` (WRITE, channels `{CLI, REST}`) for the backup's node; its admission
+  warnings go into the `DevelopmentPolicy.warnings` it builds (:130) and from there into the
+  restore result's `warnings`. Test first:
+  `test/application/RestoreDeploymentTest.java` (9.0 target node refused, audit `REFUSED`; a seeded
+  client mismatch → restore executed with the warning in `warnings`).
 - [ ] T012 [US2] Read warnings (research D-5, D-6): add optional `warnings` (string array, only
   when non-empty) to `res/schemas/find_processes.output.json`, `query_logs.output.json`,
   `list_inventory.output.json`, `get_inventory_item.output.json` and their result records; call the
@@ -220,11 +228,12 @@ run one after the other (no [P]).
   warning is derived from the version `get_health`'s own `/system/info` read returns (the same
   read T016 reports as the observation) and replaces today's "unsupported … the 8.1 adapters are
   used" text: the version warnings cached by `main/adapter/AdapterGatewayFactory.java` (:268-269,
-  `configured()`/`detected()`) are dropped, so `HealthService.gatewayWarnings` no longer carries a
-  version text. Wire both in `main/Wiring.java`. Test first:
+  `configured()`/`detected()`) and its `fallbackWarning` (:345-347, "… assuming 8.1") are dropped,
+  so `HealthService.gatewayWarnings` no longer carries a version text. Wire both in `main/Wiring.java`. Test first:
   `test/application/WorkspaceExportTest.java` (new case), `test/application/HealthServiceTest.java`
   (adjusted 9.0.2 expectations; exactly one `/system/info` request per `get_health` on an `AUTO`
-  node; no duplicate version warning).
+  node; no duplicate version warning; a failed `AUTO` detection → exactly one version warning and no
+  "assuming 8.1").
 - [ ] T014 [US2] `check_artifacts` module lookup (FR-001, FR-011): in
   `main/application/ArtifactCheckService.java` (:513) call the gate (INVENTORY, READ, `{CLI}`)
   before `listModules`; a refusal skips the lookup and is reported as the existing "module could not
@@ -343,21 +352,27 @@ shows the client against the pin, and a contradicting observation refuses writes
 
 - [ ] T023 [US2] Version check in `main/application/DeployGuard.java` (research D-11): in `check()`,
   where `Admitted` has `targetNodes` and `sourceNodes` and the audited `refuse` is available, call
-  `VersionGate.admit(node, DEPLOYMENT, WRITE, {CLI, REST})` for every source and target node
-  (detection, matrix, pin contradiction, client check incl. the probe), then refuse the whole
+  `VersionGate.evaluate(node, DEPLOYMENT, WRITE, {CLI, REST})` (non-throwing variant of `admit`,
+  added to `main/application/VersionGate.java`) for every source and target node (detection,
+  matrix, pin contradiction, client check incl. the probe), collect all results, then refuse the
+  whole
   deployment if any node is unknown, any target is not `SUPPORTED` for `DEPLOYMENT`, sources differ
   from each other or from any target in major.minor (`V8_1`/a concrete pin give major.minor;
-  `V9_X` counts as unknown), naming every node and version. `DeployGuard` gets the gate as a
+  `V9_X` counts as unknown) with one message naming every source and target node with its version
+  and, per refused node, its cause. `DeployGuard` gets the gate as a
   constructor parameter (`main/Wiring.java` and the DeployGuard fixtures change); `Admitted` gains
   the admission `warnings`, which `DeployService` puts into a new optional top-level `warnings` of
-  `DeploymentPreview` (and `res/schemas/deploy_release.output.json`) and into the execute result's
-  existing `warnings`.
+  `DeploymentPreview`, mapped by `main/mcp/tools/DeployReleaseTool.java` (which builds the preview
+  output by hand, :100) and declared in `res/schemas/deploy_release.output.json` as strings (unlike
+  the per-plan `warnings` objects), and into the execute result's existing `warnings`.
   `DeployService` already calls the guard in preview and in execute. Test first:
   `test/application/DeployServiceVersionTest.java` (8.1.17 → 8.1.18 allowed; 8.1 → 9.0 refused;
   unknown source refused; unknown target refused; differing sources refused; version changed
   between preview and execute → refused at execute; a client whose range excludes a node's
   major.minor → refused; an 8.1.17 client at an 8.1.18 server → warning in preview and result;
-  nothing sent on refusal; audit `REFUSED`).
+  8.1 → 9.0 refused with one message naming every node, version and cause; nothing sent on
+  refusal; audit `REFUSED`) and `test/mcp/tools/DeployReleaseToolTest.java` (the preview's
+  top-level `warnings` appears in the tool output).
 
 ---
 
@@ -411,7 +426,8 @@ shows the client against the pin, and a contradicting observation refuses writes
 - US2 (T009–T015) needs T008 and runs in order (shared constructors and `Wiring.java`).
 - US1 (T016–T020) needs T008; T017 before T018 and T019; T020 after T016, T018, T019.
 - US4 (T021–T022) needs T016 (contradiction) and T017 (probe for `--check-config`).
-- T023 needs T008 (and T021 for pins). T024 needs T006/T008; T025 needs T024.
+- T023 needs T008 and T019 (client check incl. the probe), and T021 for pins. T024 needs T006/T008;
+  T025 needs T024 and T020 (it asserts `list_nodes`).
 - Polish (T026–T029) last.
 
 ## Parallel Example
