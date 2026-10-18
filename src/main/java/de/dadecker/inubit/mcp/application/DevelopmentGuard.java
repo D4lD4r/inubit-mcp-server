@@ -127,10 +127,13 @@ public final class DevelopmentGuard {
      * group that receives deployments in mode {@code EXECUTE} — whether or not the node is a
      * development stage, always with a preview and a server code valid
      * {@code deployConfirmationTtl}. The caller has found a {@code DEPLOYMENT} backup of that
-     * node; a package-only group never has one and is refused.
+     * node; a package-only group never has one and is refused. Feature 009 (T011): the
+     * {@link VersionGate} admits {@code DEPLOYMENT} for writes on the node; its warnings travel in
+     * {@link DevelopmentPolicy#warnings()}.
      *
      * @throws ToolErrorException {@code INVALID_INPUT}, {@code TARGET_UNKNOWN},
-     *     {@code NOT_DEVELOPMENT}, {@code CLI_UNAVAILABLE} or {@code AUTH_FAILED}
+     *     {@code NOT_DEVELOPMENT}, {@code UNSUPPORTED_VERSION}, {@code CLI_UNAVAILABLE} or
+     *     {@code AUTH_FAILED}
      */
     public DevelopmentPolicy admitDeploymentRestore(String node) {
         NodeId id = targets.resolveSingleServer(node);
@@ -142,11 +145,13 @@ public final class DevelopmentGuard {
                 terms.render("Its {group} has no deploy setting with mode EXECUTE"),
                 terms.render("Restore deployment backups on the {node} they were taken on"));
         }
+        VersionGate.Admission admission = gate.admit(Operation.RESTORE_BACKUP.toolName(), id,
+            Capability.DEPLOYMENT, Capability.Kind.WRITE, Set.of(Channel.CLI, Channel.REST));
         cli.check(id);
         DevelopmentPolicy policy = policies.apply(id);
         return new DevelopmentPolicy(id, policy != null && policy.production(), false,
             WritePolicy.Confirmation.SERVER, deployTtl, E2ePolicy.FORBIDDEN, Optional.empty(),
-            false);
+            false, admission.warnings());
     }
 
     /**

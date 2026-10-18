@@ -213,13 +213,16 @@ run one after the other (no [P]).
   (both tools on 9.0: refused, audit `REFUSED`, no REST request other than the detection; with a
   seeded client mismatch → executed with the warning in `warnings`). The probe-timeout case of
   US2-5 is tested in T019.
-- [ ] T011 [US2] Deployment-backup restores: `DevelopmentGuard.admitDeploymentRestore`
+- [X] T011 [US2] Deployment-backup restores: `DevelopmentGuard.admitDeploymentRestore`
   (`main/application/DevelopmentGuard.java`:118, called from `ImportService.admitRestore`) calls the
   gate with `DEPLOYMENT` (WRITE, channels `{CLI, REST}`) for the backup's node; its admission
   warnings go into the `DevelopmentPolicy.warnings` it builds (:130) and from there into the
   restore result's `warnings`. Test first:
   `test/application/RestoreDeploymentTest.java` (9.0 target node refused, audit `REFUSED`; a seeded
   client mismatch → restore executed with the warning in `warnings`).
+  Open note (T011 review r1): on a node that is also a development stage, a deployment backup is
+  admitted through `DevelopmentGuard.admit` (DEVELOPMENT_WRITE), not DEPLOYMENT; no effect with the
+  production matrix (same states), revisit when a matrix distinguishes the two.
 - [ ] T012 [US2] Read warnings (research D-5, D-6): add optional `warnings` (string array, only
   when non-empty) to `res/schemas/find_processes.output.json`, `query_logs.output.json`,
   `list_inventory.output.json`, `get_inventory_item.output.json` and their result records; call the

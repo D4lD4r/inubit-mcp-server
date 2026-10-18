@@ -5,11 +5,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.DeploymentPreview;
 import de.dadecker.inubit.mcp.domain.model.DeploymentResult;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
 import de.dadecker.inubit.mcp.domain.model.WritePreview;
 import java.nio.charset.StandardCharsets;
@@ -26,7 +30,8 @@ import org.junit.jupiter.api.Test;
  * on a node of a target group — admitted although the node is no development stage, always with
  * a preview and a server code; it re-imports the workflows, modules and repository files the
  * deployment changed on that node (from the backup, with the node's current secrets), verifies
- * them, and lists what the deployment created (nothing is deleted).
+ * them, and lists what the deployment created (nothing is deleted). Feature 009 (T011): the
+ * version gate admits it as a {@code DEPLOYMENT} write on the node.
  */
 class RestoreDeploymentTest extends DeployExecution {
 
@@ -311,6 +316,66 @@ class RestoreDeploymentTest extends DeployExecution {
             "module:XSLT Converter/Module-0005").auditId())
             .isEqualTo(restored.auditId().toString());
         harness.verifyComplete();
+    }
+
+    // --- feature 009, T011: the version gate (DEPLOYMENT, WRITE, StartCLI and REST) ----------
+
+    @Test
+    void aTargetNodeOnInubit90IsRefusedAfterOnlyTheDetection() {
+        harness(false);
+        String backupRef = deploy(false).nodes().get(0).backupRef().orElseThrow();
+        harness.versionLines.put(DeployHarness.INT1, VersionSetting.AUTO);
+        harness.detection.answer(DeployHarness.INT1, "9.0.7");
+        int launches = harness.launches().size();
+        int restCalls = harness.restCalls.size();
+
+        ToolErrorException e = org.assertj.core.api.Assertions.catchThrowableOfType(
+            ToolErrorException.class, () -> harness.importService().restore(restore(backupRef,
+                Optional.empty())));
+
+        assertThat(e).isNotNull();
+        ToolError error = e.error();
+        assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(error.node()).contains(DeployHarness.INT1);
+        assertThat(error.message()).startsWith("restore_backup: ").contains("deployment")
+            .contains("INUBIT 9.0.7 on int/node1").contains("nothing was sent");
+        assertThat(restoreAudit()).singleElement().satisfies(record ->
+            assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED));
+        assertThat(harness.detection.requests()).containsExactly(DeployHarness.INT1);
+        assertThat(harness.launches()).hasSize(launches);
+        assertThat(harness.restCalls).hasSize(restCalls);
+        harness.verifyComplete();
+    }
+
+    @Test
+    void aDeploymentRestoreWithAClientPatchMismatchRunsWithTheWarning() {
+        harness(false);
+        String backupRef = deploy(false).nodes().get(0).backupRef().orElseThrow();
+        harness.versionLines.put(DeployHarness.INT1, VersionSetting.AUTO);
+        harness.detection.answer(DeployHarness.INT1, "8.1.18");
+        harness.versions.clientProbed(DeployHarness.INT1, new ClientVersion(version("8.1.17"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.1.17"))));
+        harness.exportGroup(DeployHarness.INT1);
+        WritePreview preview = ((ImportService.Response.WriteChallenge) harness.importService()
+            .restore(restore(backupRef, Optional.empty()))).preview();
+        harness.exportGroup(DeployHarness.INT1);
+        harness.importApplied(DeployHarness.INT1, MODULE_IMPORT)
+            .importApplied(DeployHarness.INT1, WORKFLOW);
+        harness.exportGroup(DeployHarness.INT1);
+
+        WriteOutcome outcome = ((ImportService.Response.Completed) harness.importService()
+            .restore(restore(backupRef, Optional.of(preview.confirmationCode())))).outcome();
+
+        assertThat(outcome.outcome()).as(outcome.toString())
+            .isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.warnings()).contains("StartCLI client 8.1.17 and INUBIT 8.1.18 on"
+            + " int/node1 differ; StartCLI results may be unreliable");
+        assertThat(harness.detection.requests()).containsOnly(DeployHarness.INT1);
+        harness.verifyComplete();
+    }
+
+    private static InubitVersion version(String raw) {
+        return InubitVersion.parse(raw).orElseThrow();
     }
 
     // --- feature 007: states recorded by 0.5.0 (FR-009, contract P-5) -----------------------
