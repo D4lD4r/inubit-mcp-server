@@ -65,9 +65,10 @@ adds one JVM start (about 2–3 s) once per node and process.
 - 0 new tools; widened: `list_nodes` (version block), `get_health` (part `client`, client
   fields), `find_processes`/`query_logs`/`list_inventory`/`get_inventory_item` (optional
   `warnings`), `deploy_release` (refusal), all write tools (refusal);
-- new production classes (about 9): `InubitVersion`, `VersionSetting`, `Capability`,
-  `SupportState`, `CapabilityMatrix`, `ClientVersion` (domain); `ClientVersionPort` (port);
-  `NodeVersions`, `VersionGate` (application);
+- new production classes (about 15): `InubitVersion`, `VersionSetting`, `Capability`, `Channel`,
+  `SupportState`, `VersionRange`, `CapabilityMatrix`, `ClientVersion`, `NodeVersionState` (domain);
+  `ClientVersionPort`, `VersionObserver` (ports); `NodeVersions`, `VersionGate` (application);
+  `StaleReportingPorts`, `PortSetRegistry` (adapter);
 - extensions: `VersionLine` → `VersionSetting` with deserializer, `EffectiveNodeConfig`,
   `ConfigValidator`, `ConfigSummary`, `Launcher`, `AdapterGatewayFactory` (detect + reporting),
   `CliVersionProbe`, `HealthService`, `UnavailablePart`, `NodeSummary`, `ListNodesTool`, the

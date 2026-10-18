@@ -134,6 +134,8 @@ client check (D-8) runs only when `CLI` is among them. `Purpose` is READ or WRIT
 3. `SUPPORTED` → admit; `UNVERIFIED` + read → admit with the warning
    "INUBIT <v> on <node> is not verified for <capability>; results may be incomplete";
    otherwise refuse (FR-005 text, incl. client version and range when the client is the cause).
+   The gate builds its own `nextStep` from the contract table and never forwards the detector's
+   (`V81VersionDetector` suggests `versionLine: V8_1` unconditionally).
    Exception: `MONITORING` is never refused, even if a (test-only) matrix declares it
    `UNSUPPORTED`; `get_health` then only carries a warning.
 
@@ -242,10 +244,14 @@ Reads keep using the cached version; the next write re-detects (FR-010).
 `sourceNodes`, and whose `admit` audits refusals through the private `refuse`); `DeployService`
 calls the guard in preview and in execute, so both are covered. `DeployGuard` gets the gate as a
 constructor parameter (Wiring and the DeployGuard fixtures change) and `Admitted` gains the
-admission `warnings`. Steps: run the gate's detection rule for every source and target node (write
-purpose), then check: no node unknown, every target `SUPPORTED` for
+admission `warnings`. Steps: call `VersionGate.admit(node, DEPLOYMENT, WRITE, {CLI, REST})` for
+every source and target node (detection, matrix, pin contradiction and the client check incl. the
+probe; sources export and targets import and tag through StartCLI), then check: no node unknown, every target `SUPPORTED` for
 `DEPLOYMENT`, all sources and targets equal in major.minor (`V8_1` or a concrete pin gives
 major.minor; `V9_X` counts as unknown). A failure refuses the whole deployment (audited `REFUSED`), naming the nodes and versions.
+Admission warnings (client mismatch, failed probe) appear in a new optional top-level `warnings`
+of the deployment preview (`DeploymentPreview` and `deploy_release.output.json`) and in the
+execute result's existing `warnings`.
 
 ## D-12 Tool announcement (FR-007)
 

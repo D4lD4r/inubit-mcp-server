@@ -97,8 +97,9 @@ from an enum to a string (the configured text). `notUsable` items: `{"capability
 
 ## `deploy_release` (changed behaviour)
 
-In preview and again before execution: every source and target node is checked (detection rule
-above). Refused as a whole if any node is unknown, any target not `supported` for deployments,
+In preview and again before execution: every source and target node is checked like a write
+(detection rule, matrix, pin contradiction and the StartCLI client check). The preview gains an
+optional top-level `warnings` (client mismatch, failed probe); the execute result has one already. Refused as a whole if any node is unknown, any target not `supported` for deployments,
 sources differ from each other or from any target in major.minor (`V9_X` counts as unknown).
 
 ## Tool announcement (changed behaviour)
