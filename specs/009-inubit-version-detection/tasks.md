@@ -66,7 +66,7 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
 
 ## Phase 2: Foundational (blocks all stories)
 
-- [ ] T002 `main/domain/model/InubitVersion.java` (data-model): record `(int major, int minor,
+- [X] T002 `main/domain/model/InubitVersion.java` (data-model): record `(int major, int minor,
   OptionalInt patch, String raw)`; `parse(String)` → `Optional`, leading `major.minor[.patch]`,
   suffix kept in `raw` and ignored for matching, no parsable major.minor → empty; ordering major,
   minor, patch (absent = 0); `sameMinor`. Test first: `test/domain/model/InubitVersionTest.java`
