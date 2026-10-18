@@ -6,8 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import java.io.IOException;
 import java.net.URI;
@@ -18,6 +20,7 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -377,7 +380,7 @@ class ConfigLoaderTest {
             assertThat(server.write().enabled()).isFalse();
             assertThat(server.write().productionOptIn()).isFalse();
             assertThat(server.write().confirmation()).isEqualTo(ConfirmationMode.SERVER);
-            assertThat(server.versionLine()).isEqualTo(VersionLine.AUTO);
+            assertThat(server.versionLine()).isEqualTo(VersionSetting.AUTO);
             assertThat(server.production()).isFalse();
             assertThat(server.allowInsecureHttp()).isFalse();
             assertThat(server.tls().trustStore()).isEmpty();
@@ -415,7 +418,7 @@ class ConfigLoaderTest {
             assertThat(server.confirmationTtl()).isEqualTo(Duration.parse("PT7M"));
             assertThat(server.inventory().owner()).contains("STAGEOWNER");
             assertThat(server.inventory().cacheTtl()).isEqualTo(Duration.parse("PT11M"));
-            assertThat(server.versionLine()).isEqualTo(VersionLine.V8_1);
+            assertThat(server.versionLine()).isEqualTo(VersionSetting.V8_1);
             assertThat(server.write().enabled()).isTrue();
             assertThat(server.write().confirmation()).isEqualTo(ConfirmationMode.SERVER);
             assertThat(server.tls().trustStore())
@@ -435,7 +438,7 @@ class ConfigLoaderTest {
             assertThat(server.confirmationTtl()).isEqualTo(Duration.parse("PT8M"));
             assertThat(server.inventory().owner()).contains("SRVOWNER");
             assertThat(server.inventory().cacheTtl()).isEqualTo(Duration.parse("PT13M"));
-            assertThat(server.versionLine()).isEqualTo(VersionLine.V9_X);
+            assertThat(server.versionLine()).isEqualTo(VersionSetting.V9_X);
             assertThat(server.write().enabled()).isFalse();
             assertThat(server.write().confirmation()).isEqualTo(ConfirmationMode.CLIENT);
             // trustStore comes from the stage, the other TLS fields from the server
@@ -851,6 +854,96 @@ class ConfigLoaderTest {
             assertThatThrownBy(() -> loader().loadFile(missing))
                 .isInstanceOf(ConfigException.class)
                 .hasMessageContaining(missing.toString());
+        }
+    }
+
+    /**
+     * Feature 009 (T005, research D-2, contracts/configuration-delta.md): {@code versionLine}
+     * accepts {@code AUTO}, {@code V8_1}, {@code V9_X} or a full version as a string.
+     */
+    @Nested
+    class VersionLineValues {
+
+        private static final String EXPECTED =
+            "expected AUTO, V8_1, V9_X or a full version such as \"8.1.17\"";
+
+        private VersionSetting nodeSetting(String value) {
+            String yaml = MINIMAL.replace("baseUrl:",
+                "versionLine: " + value + "\n        baseUrl:");
+            return server(loader().parse(yaml, home.resolve("v.yaml")), "dev/node1")
+                .versionLine();
+        }
+
+        @Test
+        void theThreeKeywordsKeepTheirSpelling() {
+            assertThat(nodeSetting("AUTO")).isEqualTo(VersionSetting.AUTO)
+                .isInstanceOf(VersionSetting.Auto.class);
+            assertThat(nodeSetting("V8_1")).isEqualTo(new VersionSetting.Line(8,
+                OptionalInt.of(1)));
+            assertThat(nodeSetting("V9_X")).isEqualTo(new VersionSetting.Line(9,
+                OptionalInt.empty()));
+            assertThat(List.of(nodeSetting("AUTO"), nodeSetting("V8_1"), nodeSetting("V9_X"))
+                .stream().map(VersionSetting::text)).containsExactly("AUTO", "V8_1", "V9_X");
+        }
+
+        @Test
+        void aFullVersionIsAPin() {
+            VersionSetting pinned = nodeSetting("\"8.1.17\"");
+
+            assertThat(pinned).isInstanceOf(VersionSetting.Pinned.class);
+            InubitVersion version = ((VersionSetting.Pinned) pinned).version();
+            assertThat(version.major()).isEqualTo(8);
+            assertThat(version.minor()).isEqualTo(1);
+            assertThat(version.patch()).hasValue(17);
+            assertThat(pinned.text()).isEqualTo("8.1.17");
+            assertThat(nodeSetting("8.1.17").text()).as("unquoted, YAML reads it as text")
+                .isEqualTo("8.1.17");
+        }
+
+        @Test
+        void aPinKeepsItsSuffix() {
+            VersionSetting pinned = nodeSetting("\"9.0.7-HF1\"");
+
+            assertThat(pinned).isInstanceOf(VersionSetting.Pinned.class);
+            assertThat(((VersionSetting.Pinned) pinned).version().patch()).hasValue(7);
+            assertThat(pinned.text()).isEqualTo("9.0.7-HF1");
+        }
+
+        @Test
+        void surroundingBlanksAreIgnored() {
+            assertThat(nodeSetting("\" V8_1 \"").text()).isEqualTo("V8_1");
+            assertThat(nodeSetting("\" 8.1.17 \"").text()).isEqualTo("8.1.17");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"8.1", "\"8.1\"", "\"V10\"", "auto", "\"\"", "17", "true",
+            "\"x8.1.17\""})
+        void anythingElseIsRefusedWithoutEcho(String value) {
+            String yaml = MINIMAL.replace("baseUrl:",
+                "versionLine: " + value + "\n        baseUrl:");
+
+            assertThatThrownBy(() -> loader().parse(yaml, home.resolve("v.yaml")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageStartingWith("Invalid versionLine at groups[0].nodes[0].versionLine")
+                .hasMessageEndingWith(EXPECTED)
+                .hasMessageNotContaining("V10");
+        }
+
+        @Test
+        void aGroupValueIsCheckedToo() {
+            String yaml = MINIMAL.replace("    nodes:", "    versionLine: 9.0\n    nodes:");
+
+            assertThatThrownBy(() -> loader().parse(yaml, home.resolve("v.yaml")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Invalid versionLine at groups[0].versionLine in ")
+                .hasMessageEndingWith(EXPECTED);
+        }
+
+        @Test
+        void otherInvalidValuesKeepTheGenericMessage() {
+            assertThatThrownBy(() -> loader().parse(MINIMAL + "logLevel: VERBOSE\n",
+                home.resolve("bad.yaml")))
+                .hasMessageStartingWith("Invalid value at logLevel");
         }
     }
 

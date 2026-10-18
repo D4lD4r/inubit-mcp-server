@@ -2,16 +2,22 @@ package de.dadecker.inubit.mcp.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
 
 /**
  * Feature 008 (T009, research D-1, D-2): the effective {@code development.repository}. It is
  * {@code WRITE} only if it resolves to {@code WRITE} (node, group, {@code defaults}, built-in)
  * and the node is a development stage ({@code enabled} and not {@code production}).
+ *
+ * <p>Feature 009 (T005, research D-2): the effective {@code versionLine}, node → group →
+ * {@code AUTO}, and its configured text in the {@code list_nodes} summary.
  */
 class EffectiveNodeConfigTest {
 
@@ -99,5 +105,51 @@ class EffectiveNodeConfigTest {
         assertThat(server.developmentPolicy().repositoryWrite()).isTrue();
         assertThat(server.withTimeout(Duration.ofSeconds(1)).development().repositoryWrite())
             .isTrue();
+    }
+
+    private static final VersionSetting PINNED = new VersionSetting.Pinned(
+        new InubitVersion(9, 0, OptionalInt.of(7), "9.0.7-HF1"));
+
+    private static VersionSetting versionLine(VersionSetting groupValue,
+        VersionSetting nodeValue) {
+        NodeConfig node = new NodeConfig("node1",
+            Optional.of(URI.create("https://inubit.example.test:8443")), false,
+            Optional.ofNullable(nodeValue), null, null, null, null, null, null, null, null, null,
+            null, null, null);
+        GroupConfig group = new GroupConfig("dev", false, List.of(node), null, null, null, null,
+            Optional.ofNullable(groupValue), null, null, null, null, null, null, null, null, null);
+        return EffectiveNodeConfig.resolve(Defaults.EMPTY, group, node, "INUBIT").versionLine();
+    }
+
+    @Test
+    void theVersionLineDefaultsToAuto() {
+        assertThat(versionLine(null, null)).isEqualTo(VersionSetting.AUTO);
+        assertThat(Defaults.BUILTIN_VERSION_LINE).isEqualTo(VersionSetting.AUTO);
+    }
+
+    @Test
+    void theNodeVersionLineWinsOverTheGroup() {
+        assertThat(versionLine(VersionSetting.V9_X, null)).isEqualTo(VersionSetting.V9_X);
+        assertThat(versionLine(VersionSetting.V9_X, PINNED)).isEqualTo(PINNED);
+        assertThat(versionLine(PINNED, VersionSetting.V8_1)).isEqualTo(VersionSetting.V8_1);
+        assertThat(versionLine(null, VersionSetting.AUTO)).isEqualTo(VersionSetting.AUTO);
+    }
+
+    @Test
+    void theSummaryShowsTheConfiguredText() {
+        for (VersionSetting setting : List.of(VersionSetting.AUTO, VersionSetting.V8_1,
+            VersionSetting.V9_X, PINNED)) {
+            NodeConfig node = new NodeConfig("node1",
+                Optional.of(URI.create("https://inubit.example.test:8443")), false,
+                Optional.of(setting), null, null, null, null, null, null, null, null, null, null,
+                null, null);
+            GroupConfig group = group(false, null, node);
+            EffectiveNodeConfig server =
+                EffectiveNodeConfig.resolve(Defaults.EMPTY, group, node, "INUBIT");
+
+            assertThat(server.summary(path -> false, false).versionLine())
+                .isEqualTo(setting.text());
+        }
+        assertThat(PINNED.text()).isEqualTo("9.0.7-HF1");
     }
 }

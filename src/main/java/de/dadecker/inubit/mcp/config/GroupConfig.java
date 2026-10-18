@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.config;
 
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -20,7 +21,7 @@ public record GroupConfig(
     TlsConfig tls,
     CliConfig cli,
     InventoryConfig inventory,
-    Optional<VersionLine> versionLine,
+    Optional<VersionSetting> versionLine,
     Optional<Duration> timeout,
     Optional<Duration> cliTimeout,
     Optional<Duration> cliExportTimeout,

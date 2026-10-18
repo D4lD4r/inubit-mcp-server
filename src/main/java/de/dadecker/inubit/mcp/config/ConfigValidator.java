@@ -5,6 +5,7 @@ import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.net.URI;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -500,7 +501,7 @@ public final class ConfigValidator {
         if (server.cliConfigured()) {
             checkCli(server, findings);
         }
-        if (server.versionLine() == VersionLine.V9_X) {
+        if (server.versionLine().equals(VersionSetting.V9_X)) {
             findings.warning(id + ": versionLine V9_X is unsupported in this version; the 8.1"
                 + " adapters are used");
         }

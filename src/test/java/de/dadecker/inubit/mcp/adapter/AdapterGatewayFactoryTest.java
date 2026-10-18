@@ -19,10 +19,10 @@ import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
-import de.dadecker.inubit.mcp.config.VersionLine;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
@@ -102,7 +102,7 @@ class AdapterGatewayFactoryTest {
             .withBody(body)));
     }
 
-    private static EffectiveNodeConfig server(NodeId id, VersionLine line) {
+    private static EffectiveNodeConfig server(NodeId id, VersionSetting line) {
         return TestNodeConfig.node().id(id.value())
             .baseUrl("https://localhost:" + wireMock.httpsPort())
             .trustStore(TestCertificates.get().trustStore()).versionLine(line).build();
@@ -128,7 +128,7 @@ class AdapterGatewayFactoryTest {
 
     @Test
     void configuredV81SelectsTheV81AdaptersWithoutCallingTheServer() {
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
             Gateway gateway = factory.forServer(DEV);
 
             assertThat(gateway.node()).isEqualTo(DEV);
@@ -142,8 +142,8 @@ class AdapterGatewayFactoryTest {
     @Test
     void autoIsDetectedLazilyOnceAndCachedPerServer() {
         systemInfo(200, fixture("system_info.xml"));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO),
-            server(ENT2, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO),
+            server(ENT2, VersionSetting.AUTO))) {
             assertThat(systemInfoCalls()).as("nothing is called at construction").isZero();
 
             Gateway first = factory.forServer(DEV);
@@ -166,7 +166,7 @@ class AdapterGatewayFactoryTest {
     @Test
     void concurrentCallsDetectOnlyOnce() throws Exception {
         systemInfo(200, fixture("system_info.xml"));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO));
             ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<Callable<Gateway>> calls = new ArrayList<>();
             for (int i = 0; i < 8; i++) {
@@ -184,7 +184,7 @@ class AdapterGatewayFactoryTest {
 
     @Test
     void configuredV9xFallsBackToV81WithUnsupportedWarning() {
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V9_X))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V9_X))) {
             Gateway gateway = factory.forServer(DEV);
 
             assertThat(gateway.adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
@@ -193,10 +193,30 @@ class AdapterGatewayFactoryTest {
         }
     }
 
+    /** Feature 009 T005: until the version gate exists, a pin behaves like its line. */
+    @Test
+    void aPinnedVersionBehavesLikeItsLineWithoutCallingTheServer() {
+        VersionSetting pinned81 = VersionSetting.parse("8.1.17").orElseThrow();
+        VersionSetting pinned90 = VersionSetting.parse("9.0.7-HF1").orElseThrow();
+        try (AdapterGatewayFactory factory = factory(server(DEV, pinned81),
+            server(ENT2, pinned90))) {
+            Gateway on81 = factory.forServer(DEV);
+            Gateway on90 = factory.forServer(ENT2);
+
+            assertThat(on81.adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
+            assertThat(on81.detectedVersion()).isEmpty();
+            assertThat(on81.warnings()).isEmpty();
+            assertThat(on90.adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
+            assertThat(on90.warnings()).containsExactly("versionLine 9.0.7-HF1 is unsupported in"
+                + " this version; the 8.1 adapters are used");
+            assertThat(systemInfoCalls()).isZero();
+        }
+    }
+
     @Test
     void detected9xFallsBackToV81WithUnsupportedWarning() {
         systemInfo(200, systemInfoWithVersion("9.0.2"));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             Gateway gateway = factory.forServer(DEV);
 
             assertThat(gateway.adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
@@ -209,7 +229,7 @@ class AdapterGatewayFactoryTest {
     @Test
     void detectionFailureFallsBackToV81WithWarningCachedForSixtySecondsThenRetried() {
         systemInfo(401, "<html><body>HTTP Status 401</body></html>");
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             Gateway fallback = factory.forServer(DEV);
 
             assertThat(fallback.adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
@@ -237,7 +257,7 @@ class AdapterGatewayFactoryTest {
     void rejectedCredentialsAreNotRetriedWithinTheWindow(int status) {
         // every retry would be another failed login and could lock the account (Phase 2c R1)
         systemInfo(status, "<html><body>HTTP Status " + status + "</body></html>");
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             Gateway fallback = factory.forServer(DEV);
             for (int i = 0; i < 5; i++) {
                 clock.advance(Duration.ofSeconds(10));
@@ -254,7 +274,7 @@ class AdapterGatewayFactoryTest {
     void anUnreachableServerIsAlsoNotProbedAgainWithinTheWindow() {
         wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO)).willReturn(aResponse()
             .withFault(Fault.CONNECTION_RESET_BY_PEER)));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             Gateway fallback = factory.forServer(DEV);
             int callsOfTheDetection = systemInfoCalls(); // the JDK client may retry a reset GET
             clock.advance(Duration.ofSeconds(30));
@@ -282,7 +302,7 @@ class AdapterGatewayFactoryTest {
         systemInfo(200, fixture("system_info.xml"));
         wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO)).willReturn(aResponse()
             .withFixedDelay(5000).withBody(fixture("system_info.xml"))));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             long start = System.nanoTime();
             assertThat(factory.monitoring(DEV).healthcheck().status().name()).isEqualTo("OK");
 
@@ -298,7 +318,7 @@ class AdapterGatewayFactoryTest {
         // US2 uses the same non-blocking rule as the monitoring (Phase 3 review H1)
         wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO)).willReturn(aResponse()
             .withFixedDelay(5000).withBody(fixture("system_info.xml"))));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             long start = System.nanoTime();
             ProcessQueryPort processes = factory.processes(DEV);
             LogPort logs = factory.logs(DEV);
@@ -314,7 +334,7 @@ class AdapterGatewayFactoryTest {
 
     @Test
     void theGatewayHandsOutTheSameUs2Ports() {
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
             Gateway gateway = factory.forServer(DEV);
 
             assertThat(gateway.processes()).isSameAs(factory.processes(DEV));
@@ -328,7 +348,7 @@ class AdapterGatewayFactoryTest {
         // US3 uses the same non-blocking rule (design note 2 of the US3 handoff)
         wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO)).willReturn(aResponse()
             .withFixedDelay(5000).withBody(fixture("system_info.xml"))));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             long start = System.nanoTime();
             InventoryPort inventory = factory.inventory(DEV);
 
@@ -345,7 +365,7 @@ class AdapterGatewayFactoryTest {
         // T020: the 8.1 gateway overrides the CLI_UNAVAILABLE default of Gateway.artifacts()
         assertThat(V81Gateway.class.getDeclaredMethod("artifacts").getDeclaringClass())
             .isEqualTo(V81Gateway.class);
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
             assertThat(factory.forServer(DEV).artifacts()).isNotNull()
                 .isSameAs(factory.artifacts(DEV));
             assertThat(wireMock.getAllServeEvents()).isEmpty();
@@ -357,7 +377,7 @@ class AdapterGatewayFactoryTest {
         // feature 004 (T014): the 8.1 gateway overrides the CLI_UNAVAILABLE defaults
         assertThat(V81Gateway.class.getDeclaredMethod("imports").getDeclaringClass())
             .isEqualTo(V81Gateway.class);
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
             assertThat(factory.forServer(DEV).imports()).isNotNull()
                 .isSameAs(factory.imports(DEV))
                 .isInstanceOf(de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter.class);
@@ -371,7 +391,7 @@ class AdapterGatewayFactoryTest {
 
     @Test
     void theGatewayHandsOutTheSameInventoryPort() {
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
             assertThat(factory.forServer(DEV).inventory()).isNotNull()
                 .isSameAs(factory.inventory(DEV));
             assertThat(wireMock.getAllServeEvents()).isEmpty();
@@ -412,7 +432,7 @@ class AdapterGatewayFactoryTest {
     @Test
     void theSystemInfoOfTheMonitoringCompletesTheDetection() {
         systemInfo(200, fixture("system_info.xml"));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             factory.monitoring(DEV).systemInfo();
 
             Gateway known = factory.knownGateway(DEV).orElseThrow();
@@ -426,7 +446,7 @@ class AdapterGatewayFactoryTest {
     @Test
     void anUnsupportedVersionFromTheMonitoringIsWarnedAbout() {
         systemInfo(200, systemInfoWithVersion("9.0.2"));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             factory.monitoring(DEV).systemInfo();
 
             assertThat(factory.knownGateway(DEV).orElseThrow().warnings()).singleElement()
@@ -439,7 +459,7 @@ class AdapterGatewayFactoryTest {
         systemInfo(401, "<html>HTTP Status 401</html>");
         wireMock.stubFor(get(urlPathEqualTo("/ibis/rest/metrics")).willReturn(aResponse()
             .withStatus(401)));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             MonitoringPort monitoring = factory.monitoring(DEV);
             assertThatThrownBy(monitoring::systemInfo).isInstanceOf(ToolErrorException.class);
             assertThatThrownBy(monitoring::metrics)
@@ -458,7 +478,7 @@ class AdapterGatewayFactoryTest {
     @Test
     void successfulAuthenticatedCallsConfirmTheCredentials() {
         systemInfo(200, fixture("system_info.xml"));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
             MonitoringPort monitoring = factory.monitoring(DEV);
             assertThat(monitoring.credentialsConfirmed()).isFalse();
 
@@ -471,8 +491,8 @@ class AdapterGatewayFactoryTest {
 
     @Test
     void configuredLinesAreKnownWithoutCallingTheServer() {
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1),
-            server(ENT2, VersionLine.V9_X))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1),
+            server(ENT2, VersionSetting.V9_X))) {
             assertThat(factory.knownGateway(DEV)).get()
                 .extracting(Gateway::warnings).asList().isEmpty();
             assertThat(factory.knownGateway(ENT2).orElseThrow().warnings()).singleElement()
@@ -485,7 +505,7 @@ class AdapterGatewayFactoryTest {
     void anInterruptedDetectionIsNotCached() throws Exception {
         wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO)).willReturn(aResponse()
             .withFixedDelay(3000).withBody(fixture("system_info.xml"))));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             Thread detection = Thread.ofVirtual().start(() -> factory.forServer(DEV));
             Thread.sleep(300);
             detection.interrupt();
@@ -515,7 +535,7 @@ class AdapterGatewayFactoryTest {
         wireMock.stubFor(get(urlEqualTo(HEALTHCHECK)).willReturn(aResponse().withStatus(503)
             .withHeader("Content-Type", "application/json")
             .withBody("{\"status\":\"OK\",\"maintenancemode\":1}")));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             assertThat(factory.forServer(DEV).warnings()).singleElement().asString()
                 .contains("(MAINTENANCE_MODE)");
         }
@@ -527,7 +547,7 @@ class AdapterGatewayFactoryTest {
         systemInfo(200,
             "<SystemInformationList xmlns=\"inubit.com/ibis/external/systeminformation\">"
             + "<SystemInformation name=\"FreeMemory\" value=\"1\"/></SystemInformationList>");
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             assertThat(factory.forServer(DEV).warnings()).singleElement().asString()
                 .contains("(UNEXPECTED_RESPONSE)");
         }
@@ -538,7 +558,7 @@ class AdapterGatewayFactoryTest {
         EffectiveNodeConfig broken = TestNodeConfig.node().id(DEV.value())
             .baseUrl("https://localhost:" + wireMock.httpsPort())
             .trustStore(java.nio.file.Path.of("does-not-exist.p12"))
-            .versionLine(VersionLine.AUTO).build();
+            .versionLine(VersionSetting.AUTO).build();
         try (AdapterGatewayFactory factory = factory(broken)) {
             assertThatThrownBy(() -> factory.forServer(DEV))
                 .isInstanceOfSatisfying(ToolErrorException.class, e -> {
@@ -550,7 +570,7 @@ class AdapterGatewayFactoryTest {
 
     @Test
     void anUnconfiguredServerIsUnknown() {
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
             assertThatThrownBy(() -> factory.forServer(ENT2))
                 .isInstanceOfSatisfying(ToolErrorException.class, e ->
                     assertThat(e.error().code()).isEqualTo(ErrorCode.TARGET_UNKNOWN));

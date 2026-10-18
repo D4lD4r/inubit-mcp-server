@@ -5,10 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
-import de.dadecker.inubit.mcp.config.VersionLine;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import java.nio.file.Path;
 import java.util.List;
@@ -38,18 +38,19 @@ class ListNodesToolTest {
             TestNodeConfig.node().id("dev/inubit01")
                 .baseUrl("https://inubit01.dev.example.test:8443")
                 .write(true, false, ConfirmationMode.CLIENT).cliHome(CLI_HOME)
-                .versionLine(VersionLine.AUTO).build(),
+                .versionLine(VersionSetting.AUTO).build(),
             TestNodeConfig.node().id("dev/inubit02")
                 .baseUrl("https://inubit02.dev.example.test:8443")
                 .development(new EffectiveNodeConfig.Development(true, ConfirmationMode.SERVER,
-                    E2ePolicy.FORBIDDEN, Optional.empty(), true)).build(),
+                    E2ePolicy.FORBIDDEN, Optional.empty(), true))
+                .versionLine(VersionSetting.parse("8.1.17").orElseThrow()).build(),
             TestNodeConfig.node().id("prod/inubit01")
                 .baseUrl("https://inubit01.prod.example.test:8443").production(true)
                 .write(true, false, ConfirmationMode.SERVER).cliHome(Path.of("/missing"))
                 .build(),
             TestNodeConfig.node().id("prod/inubit02")
                 .baseUrl("https://inubit02.prod.example.test:8443").production(true)
-                .write(true, true, ConfirmationMode.SERVER).versionLine(VersionLine.V9_X)
+                .write(true, true, ConfirmationMode.SERVER).versionLine(VersionSetting.V9_X)
                 .build());
     }
 
@@ -115,6 +116,8 @@ class ListNodesToolTest {
                 .isTrue();
             assertThat(dev1.path("repositoryWrite").asBoolean()).isFalse();
             assertThat(dev2.path("cliAvailable").asBoolean()).as("no CLI home").isFalse();
+            assertThat(dev2.path("versionLine").asString()).as("009: the configured pin")
+                .isEqualTo("8.1.17");
 
             JsonNode prod1 = groups.get(1).path("nodes").get(0);
             assertThat(prod1.path("writeEnabled").asBoolean())

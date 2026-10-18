@@ -25,8 +25,8 @@ import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
-import de.dadecker.inubit.mcp.config.VersionLine;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.infra.AuditLog;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -172,7 +172,7 @@ class ProcessControlToolsTest {
         Files.writeString(cliHome.resolve("bin/startcli.sh"), "#!/bin/sh\n");
         EffectiveNodeConfig server = TestNodeConfig.node().id("dev/node1")
             .baseUrl("https://localhost:" + dev.httpsPort())
-            .trustStore(TestCertificates.get().trustStore()).versionLine(VersionLine.V8_1)
+            .trustStore(TestCertificates.get().trustStore()).versionLine(VersionSetting.V8_1)
             .cliHome(cliHome).cliJavaHome(Path.of("/opt/jdk-17"))
             .write(true, false, confirmation).build();
         SecretScrubber scrubber = new SecretScrubber();

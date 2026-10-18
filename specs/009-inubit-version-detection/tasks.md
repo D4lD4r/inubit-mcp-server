@@ -88,7 +88,7 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
   `test/domain/model/ClientVersionTest.java` (8.1.17 client with 8.1.17, 8.1.18 → compatible +
   mismatch, 9.0.7 → incompatible, `V9_X` → incompatible, no range → not evaluable, unknown server
   → not evaluable).
-- [ ] T005 Configuration `versionLine` (research D-2, contracts/configuration-delta.md): replace
+- [X] T005 Configuration `versionLine` (research D-2, contracts/configuration-delta.md): replace
   `main/config/VersionLine.java` by the domain value `main/domain/model/VersionSetting.java`
   (sealed `Auto` | `Line(major, OptionalInt minor)` | `Pinned(InubitVersion)` with `text()`; it
   must live in `domain/model` because `NodeVersions` (application) holds it and

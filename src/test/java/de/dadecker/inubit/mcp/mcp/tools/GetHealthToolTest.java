@@ -17,8 +17,8 @@ import de.dadecker.inubit.mcp.application.HealthService;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
-import de.dadecker.inubit.mcp.config.VersionLine;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
@@ -91,12 +91,12 @@ class GetHealthToolTest {
         stub(integration, "/ibis/rest/metrics", "metrics_unlicensed", "json");
 
         start(List.of(
-            server("dev/node1", "https://localhost:" + dev.httpsPort(), VersionLine.AUTO),
+            server("dev/node1", "https://localhost:" + dev.httpsPort(), VersionSetting.AUTO),
             server("qa/node1", "https://localhost:" + integration.httpsPort(),
-                VersionLine.V8_1),
+                VersionSetting.V8_1),
             server("qa/node2", "https://localhost:" + integration.httpsPort(),
-                VersionLine.V8_1),
-            server("staging/bogus", "https://127.0.0.1:9", VersionLine.V8_1)));
+                VersionSetting.V8_1),
+            server("staging/bogus", "https://127.0.0.1:9", VersionSetting.V8_1)));
     }
 
     private void start(List<EffectiveNodeConfig> servers) {
@@ -129,7 +129,7 @@ class GetHealthToolTest {
         client = null;
     }
 
-    private static EffectiveNodeConfig server(String id, String baseUrl, VersionLine line) {
+    private static EffectiveNodeConfig server(String id, String baseUrl, VersionSetting line) {
         return TestNodeConfig.node().id(id).baseUrl(baseUrl)
             .trustStore(TestCertificates.get().trustStore()).timeout(TIMEOUT).versionLine(line)
             .build();
@@ -261,7 +261,7 @@ class GetHealthToolTest {
         stub(other, "/ibis/rest/system/info", "system_info", "xml", delay);
         stub(other, "/ibis/rest/metrics", "metrics", "json", 0);
         start(List.of(server("staging/slow", "https://localhost:" + other.httpsPort(),
-            VersionLine.AUTO)));
+            VersionSetting.AUTO)));
 
         long start = System.nanoTime();
         JsonNode result = call(Map.of());
@@ -289,8 +289,8 @@ class GetHealthToolTest {
                     .withFixedDelay(hang).withBody("{}")));
         }
         start(List.of(
-            server("dev/node1", "https://localhost:" + dev.httpsPort(), VersionLine.AUTO),
-            server("staging/hang", "https://localhost:" + other.httpsPort(), VersionLine.AUTO)));
+            server("dev/node1", "https://localhost:" + dev.httpsPort(), VersionSetting.AUTO),
+            server("staging/hang", "https://localhost:" + other.httpsPort(), VersionSetting.AUTO)));
 
         long start = System.nanoTime();
         JsonNode result = call(Map.of());
@@ -316,7 +316,7 @@ class GetHealthToolTest {
                     .withHeader("Content-Type", "text/html").withBody("<html>401</html>")));
         }
         start(List.of(server("staging/locked", "https://localhost:" + other.httpsPort(),
-            VersionLine.AUTO)));
+            VersionSetting.AUTO)));
 
         JsonNode first = call(Map.of()).path("structuredContent").path("reports").path(0);
         JsonNode second = call(Map.of()).path("structuredContent").path("reports").path(0);

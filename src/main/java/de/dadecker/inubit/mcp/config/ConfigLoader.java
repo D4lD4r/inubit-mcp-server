@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.config;
 
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.infra.AuditLog;
 import java.io.IOException;
 import java.net.URI;
@@ -88,7 +89,8 @@ public final class ConfigLoader {
             .disable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
             .addModule(new SimpleModule("inubit-mcp-config")
                 .addDeserializer(Path.class, new HomeExpandingPathDeserializer(userHome))
-                .addDeserializer(Duration.class, new IsoDurationDeserializer()))
+                .addDeserializer(Duration.class, new IsoDurationDeserializer())
+                .addDeserializer(VersionSetting.class, new VersionSettingDeserializer()))
             .build();
     }
 
@@ -324,8 +326,9 @@ public final class ConfigLoader {
                 + (at.isEmpty() ? " at the top level" : " at " + at) + " in " + source);
         } catch (DatabindException e) {
             // the offending value is never echoed: it could be a URL or text with secrets
-            throw new ConfigException("Invalid value at " + pathOf(e.getPath()) + " in " + source
-                + ": expected " + expected(e));
+            String what = targetType(e) == VersionSetting.class ? "versionLine" : "value";
+            throw new ConfigException("Invalid " + what + " at " + pathOf(e.getPath()) + " in "
+                + source + ": expected " + expected(e));
         } catch (JacksonException e) {
             throw new ConfigException("Invalid configuration in " + source + " ("
                 + e.getClass().getSimpleName() + ")");
@@ -518,15 +521,20 @@ public final class ConfigLoader {
         return name != null && name.isString() ? name.asString() : fallback;
     }
 
+    private static Class<?> targetType(DatabindException e) {
+        return e instanceof MismatchedInputException mismatch ? mismatch.getTargetType() : null;
+    }
+
     private static String expected(DatabindException e) {
-        Class<?> type = e instanceof MismatchedInputException mismatch
-            ? mismatch.getTargetType()
-            : null;
+        Class<?> type = targetType(e);
         if (type == null) {
             return "a different value";
         }
         if (type == Duration.class) {
             return "an ISO-8601 duration such as PT5S";
+        }
+        if (type == VersionSetting.class) {
+            return "AUTO, V8_1, V9_X or a full version such as \"8.1.17\"";
         }
         if (type.isEnum()) {
             return "one of " + String.join(", ", Arrays.stream(type.getEnumConstants())
@@ -590,6 +598,26 @@ public final class ConfigLoader {
             }
             throw MismatchedInputException.from(parser, Duration.class,
                 "expected an ISO-8601 duration");
+        }
+    }
+
+    /**
+     * {@code versionLine} (feature 009, research D-2): only strings, see
+     * {@link VersionSetting#parse}; a YAML number such as {@code 8.1} is refused.
+     */
+    private static final class VersionSettingDeserializer
+        extends ValueDeserializer<VersionSetting> {
+
+        @Override
+        public VersionSetting deserialize(JsonParser parser, DeserializationContext context) {
+            if (parser.currentToken() == JsonToken.VALUE_STRING) {
+                Optional<VersionSetting> setting = VersionSetting.parse(parser.getString().strip());
+                if (setting.isPresent()) {
+                    return setting.get();
+                }
+            }
+            throw MismatchedInputException.from(parser, VersionSetting.class,
+                "expected a versionLine");
         }
     }
 

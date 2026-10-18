@@ -58,7 +58,10 @@
                   "type": "boolean",
                   "description": "Repository file tools may write: `development.repository` resolves to WRITE on a development {node}"
                 },
-                "versionLine": { "enum": ["AUTO", "V8_1", "V9_X"] },
+                "versionLine": {
+                  "type": "string",
+                  "description": "As configured: AUTO, V8_1, V9_X or a full version such as 8.1.17"
+                },
                 "cliAvailable": {
                   "type": "boolean",
                   "description": "CLI home configured and startcli script found"

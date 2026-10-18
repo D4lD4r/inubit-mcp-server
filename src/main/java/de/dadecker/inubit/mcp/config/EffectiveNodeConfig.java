@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import java.net.URI;
 import java.nio.file.Path;
@@ -25,7 +26,7 @@ public record EffectiveNodeConfig(
     boolean production,
     URI baseUrl,
     boolean allowInsecureHttp,
-    VersionLine versionLine,
+    VersionSetting versionLine,
     Write write,
     Tls tls,
     Cli cli,
@@ -169,7 +170,7 @@ public record EffectiveNodeConfig(
     public NodeSummary summary(Predicate<Path> exists, boolean windows) {
         return new NodeSummary(id, id.group(), id.name(), production, effectiveWriteEnabled(),
             development.enabled() && !production, write.confirmation().name(),
-            development.repositoryWrite(), versionLine.name(), cliAvailable(exists, windows));
+            development.repositoryWrite(), versionLine.text(), cliAvailable(exists, windows));
     }
 
     /** StartCLI below the CLI home: {@code bin/startcli.sh}, {@code .bat} on Windows. */

@@ -15,8 +15,8 @@ import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
-import de.dadecker.inubit.mcp.config.VersionLine;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.infra.ResultJson;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
@@ -74,7 +74,7 @@ final class DiagnosisToolFixture implements AutoCloseable {
     private static EffectiveNodeConfig server(String id, String baseUrl) {
         return TestNodeConfig.node().id(id).baseUrl(baseUrl)
             .trustStore(TestCertificates.get().trustStore()).timeout(TIMEOUT)
-            .versionLine(VersionLine.AUTO).build();
+            .versionLine(VersionSetting.AUTO).build();
     }
 
     /** The parsed {@code {"error": …}} of a tool error result. */

@@ -2,8 +2,8 @@ package de.dadecker.inubit.mcp.adapter;
 
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
-import de.dadecker.inubit.mcp.config.VersionLine;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -24,7 +24,7 @@ public final class TestNodeConfig {
     private Duration cliTimeout = Duration.ofSeconds(30);
     private Duration cliExportTimeout = Duration.ofSeconds(120);
     private String inventoryOwner = "OWNERS";
-    private VersionLine versionLine = VersionLine.V8_1;
+    private VersionSetting versionLine = VersionSetting.V8_1;
     private boolean production;
     private EffectiveNodeConfig.Write write =
         new EffectiveNodeConfig.Write(false, false, ConfirmationMode.SERVER);
@@ -101,7 +101,7 @@ public final class TestNodeConfig {
         return this;
     }
 
-    public TestNodeConfig versionLine(VersionLine value) {
+    public TestNodeConfig versionLine(VersionSetting value) {
         this.versionLine = value;
         return this;
     }

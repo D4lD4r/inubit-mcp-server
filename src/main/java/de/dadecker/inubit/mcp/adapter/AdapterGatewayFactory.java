@@ -19,12 +19,12 @@ import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
-import de.dadecker.inubit.mcp.config.VersionLine;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
@@ -53,7 +53,7 @@ import org.slf4j.LoggerFactory;
  * Selects the adapter set of each server by its {@code versionLine} (Constitution V, FR-029).
  *
  * <ul>
- *   <li>{@code V8_1}: the 8.1 adapters.
+ *   <li>{@code V8_1} or a pinned version 8.1.x: the 8.1 adapters.
  *   <li>{@code AUTO}: resolved lazily on the first {@link #forServer} call via
  *       {@code /system/info} and cached per server. If the detection fails, the call still
  *       returns the 8.1 adapters with the warning "INUBIT version could not be detected
@@ -62,8 +62,9 @@ import org.slf4j.LoggerFactory;
  *       ({@code AUTH_FAILED}, {@code FORBIDDEN}) do not cause one extra failed login per call
  *       (account lockout). The first call after the window detects again; a successful
  *       detection replaces the fallback for good.
- *   <li>{@code V9_X}, or a detected version other than 8.1: the 8.1 adapters plus the warning
- *       "unsupported" (only the 8.1 adapters exist in this version).
+ *   <li>{@code V9_X}, a pinned version other than 8.1.x, or a detected version other than
+ *       8.1: the 8.1 adapters plus the warning "unsupported" (only the 8.1 adapters exist in
+ *       this version).
  * </ul>
  *
  * <p>Each server gets one {@link InubitHttpClient}, created lazily with the version line's
@@ -222,10 +223,8 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                     return gateway;
                 }
                 ensureClient();
-                return switch (server.versionLine()) {
-                    case V8_1, V9_X -> configured();
-                    case AUTO -> detect();
-                };
+                return server.versionLine() instanceof VersionSetting.Auto ? detect()
+                    : configured();
             } finally {
                 lock.unlock();
             }
@@ -249,7 +248,7 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                 if (valid()) {
                     return Optional.of(gateway);
                 }
-                if (server.versionLine() == VersionLine.AUTO) {
+                if (server.versionLine() instanceof VersionSetting.Auto) {
                     return Optional.empty();
                 }
                 ensureClient();
@@ -264,11 +263,14 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                 && (fallbackUntil == null || clock.instant().isBefore(fallbackUntil));
         }
 
+        /** {@code V8_1} and a pin of 8.1.x: no warning; {@code V9_X} and other pins: warning. */
         private Gateway configured() {
-            return server.versionLine() == VersionLine.V9_X
-                ? cache(Optional.empty(), List.of("versionLine V9_X is unsupported in this"
-                    + " version; the 8.1 adapters are used"))
-                : cache(Optional.empty(), List.of());
+            VersionSetting setting = server.versionLine();
+            boolean on81 = setting.equals(VersionSetting.V8_1)
+                || setting instanceof VersionSetting.Pinned pinned && isV81(pinned.text());
+            return on81 ? cache(Optional.empty(), List.of())
+                : cache(Optional.empty(), List.of("versionLine " + setting.text()
+                    + " is unsupported in this version; the 8.1 adapters are used"));
         }
 
         /**
@@ -293,7 +295,7 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
         /** The health call's {@code /system/info} completes an {@code AUTO} detection. */
         @Override
         public void succeeded(SystemInfo info) {
-            if (server.versionLine() != VersionLine.AUTO || !lock.tryLock()) {
+            if (!(server.versionLine() instanceof VersionSetting.Auto) || !lock.tryLock()) {
                 return;
             }
             try {
@@ -313,7 +315,7 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
         /** A real failure of the health call's {@code /system/info} is a failed detection. */
         @Override
         public void failed(ToolError error) {
-            if (server.versionLine() != VersionLine.AUTO
+            if (!(server.versionLine() instanceof VersionSetting.Auto)
                 || Thread.currentThread().isInterrupted() || !lock.tryLock()) {
                 return;
             }
