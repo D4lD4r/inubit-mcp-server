@@ -5,16 +5,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CheckFinding;
 import de.dadecker.inubit.mcp.domain.model.CheckFinding.Severity;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,13 +51,19 @@ class ArtifactCheckServiceTest {
 
     static final NodeId NODE = NodeId.parse("dev/node1");
     final FakeModuleLists server = new FakeModuleLists(NODE);
+    /** Feature 009: the {@code versionLine} of {@link #NODE}. */
+    VersionSetting versionLine = VersionSetting.V8_1;
+    final NodeVersions versions = new NodeVersions(java.time.Clock.systemUTC(),
+        node -> versionLine, node -> Duration.ofMinutes(10));
+    final FakeVersionDetection detection = new FakeVersionDetection(versions);
 
     ArtifactCheckService service() {
         return new ArtifactCheckService(root, new WorkspaceInspector(),
             new de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner(root),
             group -> group.equals(DEV) ? Optional.of(NODE) : Optional.empty(),
             node -> server, node -> Optional.of("OWNERS"), ResultLimiter.withDefaults(),
-            java.time.Clock.systemUTC());
+            java.time.Clock.systemUTC(),
+            new VersionGate(versions, detection, CapabilityMatrix.production()));
     }
 
     /** The defect fixture {@code defects/<name>/} as an export ZIP. */
@@ -201,6 +214,89 @@ class ArtifactCheckServiceTest {
         assertThat(server.calls).containsExactlyInAnyOrder("jdoe", "OWNERS");
     }
 
+    // --- T014 (feature 009, FR-001, FR-011): the version gate before the module lookup ---------
+
+    /** {@link #NODE} is {@code AUTO}, detects {@code server} and has a StartCLI client 8.1.17. */
+    private void nodeRuns(String server) {
+        versionLine = VersionSetting.AUTO;
+        detection.answer(NODE, server);
+        versions.clientProbed(NODE, new ClientVersion(InubitVersion.parse("8.1.17").orElseThrow(),
+            InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17")));
+    }
+
+    /** Two technical modules in neither the workspace nor a server list. */
+    private void twoMissingModules() throws IOException {
+        export(defect("missing-module"), "jdoe");
+        rewrite("dev/jdoe/workflows/GRP-01/Workflow-0002.xml",
+            xml -> xml.replace("<ModuleName>Module-0005</ModuleName>",
+                "<ModuleName>Module-0405</ModuleName>"));
+    }
+
+    @Test
+    void onInubit90WithAn81ClientTheLookupIsSkippedWithTheReason() throws IOException {
+        twoMissingModules();
+        nodeRuns("9.0.7");
+
+        List<CheckFinding> findings = service().checkPaths(List.of("dev"), true);
+
+        assertThat(findings).hasSize(2).allSatisfy(finding -> {
+            assertThat(finding.code()).isEqualTo("MODULE_UNVERIFIED");
+            assertThat(finding.severity()).isEqualTo(Severity.WARNING);
+            assertThat(finding.message()).contains("could not be verified: check_artifacts:"
+                + " StartCLI client 8.1.17 of dev/node1 supports INUBIT 4.0.1 to 8.1.17, which"
+                + " excludes INUBIT 9.0.7");
+        });
+        assertThat(server.calls).as("no StartCLI run").isEmpty();
+        assertThat(detection.requests()).as("detected once per check").containsExactly(NODE);
+    }
+
+    @Test
+    void onInubit81TheLookupIsUnchanged() throws IOException {
+        twoMissingModules();
+        nodeRuns("8.1.17");
+
+        assertThat(service().checkPaths(List.of("dev"), true))
+            .extracting(CheckFinding::code).containsExactly("MODULE_MISSING", "MODULE_MISSING");
+        assertThat(server.calls).containsExactlyInAnyOrder("jdoe", "OWNERS");
+        assertThat(detection.requests()).containsExactly(NODE);
+    }
+
+    @Test
+    void anAdmissionWarningBecomesOneWarningFinding() throws IOException {
+        twoMissingModules();
+        versionLine = VersionSetting.AUTO;
+        detection.answer(NODE, "9.0.7"); // no client result: unverified read, admitted
+
+        List<CheckFinding> findings = service().checkPaths(List.of("dev"), true);
+
+        assertThat(findings).extracting(CheckFinding::code).containsExactlyInAnyOrder(
+            "MODULE_LOOKUP_WARNING", "MODULE_MISSING", "MODULE_MISSING");
+        assertThat(findings).filteredOn(f -> f.code().equals("MODULE_LOOKUP_WARNING"))
+            .singleElement().satisfies(finding -> {
+                assertThat(finding.severity()).isEqualTo(Severity.WARNING);
+                assertThat(finding.path()).startsWith("dev/jdoe/workflows/GRP-01/");
+                assertThat(finding.location()).isPresent();
+                assertThat(finding.message()).contains("INUBIT 9.0.7 on dev/node1 is not"
+                    + " verified for inventory");
+            });
+        assertThat(server.calls).containsExactlyInAnyOrder("jdoe", "OWNERS");
+    }
+
+    @Test
+    void aTlsErrorOfTheDetectionLeavesTheModuleUnverified() {
+        export(defect("missing-module"), "jdoe");
+        versionLine = VersionSetting.AUTO;
+        detection.fail(NODE, ErrorCode.TLS_ERROR);
+
+        assertThat(service().checkPaths(List.of("dev"), true)).singleElement()
+            .satisfies(finding -> {
+                assertThat(finding.code()).isEqualTo("MODULE_UNVERIFIED");
+                assertThat(finding.message()).contains("the INUBIT version of dev/node1 could"
+                    + " not be checked (TLS_ERROR)");
+            });
+        assertThat(server.calls).isEmpty();
+    }
+
     @Test
     void anEndlessStylesheetReleasesTheWorkspaceLock() throws IOException {
         // review I1: a deadline ends the run, the lock is free again
@@ -213,7 +309,8 @@ class ArtifactCheckServiceTest {
         ArtifactCheckService service = new ArtifactCheckService(root, new WorkspaceInspector(),
             new de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner(root,
                 java.time.Duration.ofSeconds(1)), group -> Optional.empty(), node -> server,
-            node -> Optional.empty(), ResultLimiter.withDefaults(), java.time.Clock.systemUTC());
+            node -> Optional.empty(), ResultLimiter.withDefaults(), java.time.Clock.systemUTC(),
+            FakeVersionDetection.pinned81());
 
         ArtifactCheckService.CheckOutcome outcome = service.check(
             new ArtifactCheckService.CheckRequest(List.of(), Optional.of(

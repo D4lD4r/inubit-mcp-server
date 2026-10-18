@@ -251,7 +251,7 @@ run one after the other (no [P]).
   node; no duplicate version warning; a failed `AUTO` detection → exactly one version warning and no
   "assuming 8.1") and `test/adapter/AdapterGatewayFactoryTest.java` (the assertions on the old texts,
   around :218 and :451, adjusted).
-- [ ] T014 [US2] `check_artifacts` module lookup (FR-001, FR-011): in
+- [X] T014 [US2] `check_artifacts` module lookup (FR-001, FR-011): in
   `main/application/ArtifactCheckService.java` (:513) call the gate (INVENTORY, READ, `{CLI}`)
   before `listModules`; a refusal skips the lookup and is reported as the existing "module could not
   be looked up" finding with the reason; an admission warning (unverified version, client

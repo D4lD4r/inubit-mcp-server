@@ -828,7 +828,8 @@ findings), `findings` (most severe first, at most `resultLimits.maxItems`, each
 | `DEMUX_KEY_STALE` | WARNING | a Demultiplexer key or `DefaultOutput` names a node that no longer exists in the workflow, or an old name of a renamed node that also has a key under its current name (leftovers the Workbench keeps; INUBIT ignores them) |
 | `PARENT_REF_MISSING` | ERROR | `ParentModule` or `EndLoopId` names a node that does not exist (`Connection@scopeChildId` names internal ids of a scope and is not checked) |
 | `MODULE_MISSING` | ERROR | a module is neither in the workspace (any owner of the group) nor in the module list of the artifact's owner or of `inventory.owner` |
-| `MODULE_UNVERIFIED` | WARNING | not in the workspace, and the module list could not be read or `verifyOnServer` is `false` |
+| `MODULE_UNVERIFIED` | WARNING | not in the workspace, and the module list could not be read, the version check refused the lookup (e.g. a StartCLI client that does not support the node's INUBIT version; the reason is in the message) or `verifyOnServer` is `false` |
+| `MODULE_LOOKUP_WARNING` | WARNING | the module lookup on a node ran with a version warning (unverified INUBIT version, StartCLI client mismatch); once per node and check |
 | `REPOSITORY_REF_MISSING` | ERROR | a referenced repository file is not in the workspace repository: an `inubitrepository:` reference; in a repository file, also a relative `xsl:import`/`xsl:include` or `xs:import`/`xs:include`/`xs:redefine`; a message-type schema named in a module index entry or module file (`InputMessageTypeSchema`, `OutputMessageTypeSchema`) |
 | `REPOSITORY_REF_UNVERIFIED` | WARNING | the reference lies in another owner's repository (`Root/<owner>/…`), which an export does not include |
 | `VARIABLE_UNRESOLVED` | WARNING | a variable reference names no declared variable (names starting with `IS` are taken as INUBIT system variables) |

@@ -311,8 +311,8 @@ public final class DeployHarness {
             new de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner(releaseRoot),
             group -> Optional.empty(), node -> {
                 throw new AssertionError("no server lookups");
-            }, node -> Optional.empty(), ResultLimiter.withDefaults(), clock)
-            .checkPaths(paths, false);
+            }, node -> Optional.empty(), ResultLimiter.withDefaults(), clock,
+            FakeVersionDetection.pinned81()).checkPaths(paths, false);
     }
 
     /** The release planner on the real 8.1 archive adapters. */
@@ -404,7 +404,7 @@ public final class DeployHarness {
             policies::get, history, inspector, new ArtifactCheckService(root, inspector,
                 new de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner(root),
                 group -> Optional.empty(), this::inventory, node -> Optional.of(OWNER),
-                ResultLimiter.withDefaults(), clock),
+                ResultLimiter.withDefaults(), clock, FakeVersionDetection.pinned81()),
             new de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec(),
             new de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives(),
             new de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives(), this::artifacts,

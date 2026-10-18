@@ -1,5 +1,7 @@
 package de.dadecker.inubit.mcp.application;
 
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.CheckFinding;
 import de.dadecker.inubit.mcp.domain.model.CheckReport;
 import de.dadecker.inubit.mcp.domain.model.CheckFinding.Check;
@@ -75,7 +77,9 @@ import java.util.stream.Stream;
  *       {@code REPOSITORY_REF_UNVERIFIED} (WARNING) if it lies in another owner's repository
  *       ({@code Root/<owner>/…}), which an export does not include;
  *   <li>{@code MODULE_MISSING} (ERROR) / {@code MODULE_UNVERIFIED} (WARNING): see
- *       {@link #checkPaths};
+ *       {@link #checkPaths}; {@code MODULE_LOOKUP_WARNING} (WARNING): a warning of the version
+ *       gate for the server's module lookup (feature 009: unverified INUBIT version, StartCLI
+ *       client mismatch), once per node and check;
  *   <li>{@code VARIABLE_UNRESOLVED} (WARNING): a variable reference names no declared variable;
  *       names starting with {@code IS} are INUBIT's implicit system variables (assumption);
  *   <li>{@code DERIVED_VALUE_MISMATCH} (WARNING): {@code <property>MD5} of an embedded document
@@ -105,14 +109,18 @@ public final class ArtifactCheckService {
     private final Function<GroupId, Optional<NodeId>> firstNode;
     private final Function<NodeId, InventoryPort> inventory;
     private final Function<NodeId, Optional<String>> owners;
+    private final VersionGate gate;
 
     /**
      * @param root      the workspace root
      * @param inspector reads the workspace files
+     * @param gate      admits the server module lookup ({@code INVENTORY} over StartCLI,
+     *                  feature 009)
      */
     public ArtifactCheckService(Path root, ArtifactInspectorPort inspector, XsltPort xslt,
         Function<GroupId, Optional<NodeId>> firstNode, Function<NodeId, InventoryPort> inventory,
-        Function<NodeId, Optional<String>> owners, ResultLimiter limiter, Clock clock) {
+        Function<NodeId, Optional<String>> owners, ResultLimiter limiter, Clock clock,
+        VersionGate gate) {
         this.root = Objects.requireNonNull(root, "root");
         this.inspector = Objects.requireNonNull(inspector, "inspector");
         this.xslt = Objects.requireNonNull(xslt, "xslt");
@@ -121,6 +129,7 @@ public final class ArtifactCheckService {
         this.owners = Objects.requireNonNull(owners, "owners");
         this.limiter = Objects.requireNonNull(limiter, "limiter");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.gate = Objects.requireNonNull(gate, "gate");
     }
 
     /** What {@code check_artifacts} checks: structure below {@code paths}, a stylesheet run. */
@@ -425,7 +434,7 @@ public final class ArtifactCheckService {
      * FR-027/FR-028: each module of a technical node exists in the workspace (any owner of the
      * group) or in a server module list of the artifact's owner or of {@code inventory.owner};
      * otherwise {@code MODULE_MISSING}, or {@code MODULE_UNVERIFIED} if a list could not be
-     * read or server lookups are off.
+     * read, the version gate refused the lookup (feature 009) or server lookups are off.
      */
     private void modules(String file, WorkspacePath path, WorkflowGraph graph,
         ModuleLists lists, List<CheckFinding> findings) {
@@ -437,6 +446,9 @@ public final class ArtifactCheckService {
                 continue;
             }
             Lookup lookup = lists.find(path, name);
+            lookup.warnings().forEach(warning -> findings.add(new CheckFinding(Severity.WARNING,
+                Check.STRUCTURE, file, Optional.of(node.location()), "MODULE_LOOKUP_WARNING",
+                warning)));
             if (lookup.found()) {
                 continue;
             }
@@ -475,9 +487,13 @@ public final class ArtifactCheckService {
         return false;
     }
 
-    /** The outcome of a server lookup of one module. */
+    /**
+     * The outcome of a server lookup of one module.
+     *
+     * @param warnings the version gate's warnings, only for the first lookup on the node
+     */
     private record Lookup(boolean found, Optional<String> unverified, List<String> owners,
-        String node) {
+        String node, List<String> warnings) {
     }
 
     /** The server module lists read during one check, by node and owner. */
@@ -486,6 +502,8 @@ public final class ArtifactCheckService {
         private final boolean verifyOnServer;
         private final Map<List<String>, Set<String>> lists = new HashMap<>();
         private final Map<List<String>, String> failures = new HashMap<>();
+        /** The version gate's outcome per node: empty if admitted, else the refusal reason. */
+        private final Map<NodeId, Optional<String>> admissions = new HashMap<>();
 
         ModuleLists(boolean verifyOnServer) {
             this.verifyOnServer = verifyOnServer;
@@ -494,16 +512,33 @@ public final class ArtifactCheckService {
         Lookup find(WorkspacePath artifact, String module) {
             if (!verifyOnServer) {
                 return new Lookup(false, Optional.of("server lookups are off"
-                    + " (verifyOnServer: false)"), List.of(), "");
+                    + " (verifyOnServer: false)"), List.of(), "", List.of());
             }
             Optional<NodeId> node = firstNode.apply(artifact.group());
             if (node.isEmpty()) {
                 return new Lookup(false, Optional.of("no node is configured for "
-                    + artifact.group().value()), List.of(), "");
+                    + artifact.group().value()), List.of(), "", List.of());
             }
             List<String> candidates = new ArrayList<>(List.of(artifact.owner()));
             owners.apply(node.get()).filter(owner -> !candidates.contains(owner))
                 .ifPresent(candidates::add);
+            List<String> warnings = List.of();
+            if (!admissions.containsKey(node.get())) {
+                try {
+                    warnings = gate.admit("check_artifacts", node.get(), Capability.INVENTORY,
+                        Capability.Kind.READ, Set.of(Channel.CLI)).warnings();
+                    admissions.put(node.get(), Optional.empty());
+                } catch (ToolErrorException e) {
+                    admissions.put(node.get(), Optional.of(
+                        e.error().code() == ErrorCode.UNSUPPORTED_VERSION ? e.error().message()
+                            : "the INUBIT version of " + node.get() + " could not be checked ("
+                                + e.error().code() + ")"));
+                }
+            }
+            Optional<String> refusal = admissions.get(node.get());
+            if (refusal.isPresent()) {
+                return new Lookup(false, refusal, candidates, node.get().value(), List.of());
+            }
             String failure = null;
             for (String owner : candidates) {
                 List<String> key = List.of(node.get().value(), owner);
@@ -519,14 +554,15 @@ public final class ArtifactCheckService {
                     }
                 }
                 if (lists.getOrDefault(key, Set.of()).contains(module)) {
-                    return new Lookup(true, Optional.empty(), candidates, node.get().value());
+                    return new Lookup(true, Optional.empty(), candidates, node.get().value(),
+                        warnings);
                 }
                 if (failures.containsKey(key)) {
                     failure = failures.get(key);
                 }
             }
             return new Lookup(false, Optional.ofNullable(failure), candidates,
-                node.get().value());
+                node.get().value(), warnings);
         }
     }
 

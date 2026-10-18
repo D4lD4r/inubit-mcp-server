@@ -195,7 +195,7 @@ public final class ImportHarness {
             policies::get, exports.history, inspector,
             new ArtifactCheckService(root, inspector, new SaxonXsltRunner(root),
                 group -> Optional.of(DEV), node -> inventory(), node -> Optional.of(owner),
-                ResultLimiter.withDefaults(), clock),
+                ResultLimiter.withDefaults(), clock, FakeVersionDetection.pinned81()),
             new ArchiveCodec(), archives.apply(new V81ImportArchives()),
             new V81ReleaseArchives(), node -> artifacts,
             node -> imports, node -> tagPorts != null ? tagPorts.apply(node) : tags,

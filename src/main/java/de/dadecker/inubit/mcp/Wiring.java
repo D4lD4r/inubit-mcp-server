@@ -221,7 +221,7 @@ final class Wiring implements AutoCloseable {
             new WorkspaceInspector(), new SaxonXsltRunner(workspace), group -> servers.stream()
                 .map(EffectiveNodeConfig::id).filter(id -> id.group().equals(group)).findFirst(),
             gateways::inventory, id -> byId.get(id).inventory().owner(), limiter,
-            clock.clock());
+            clock.clock(), versionGate);
         this.checkArtifacts = new CheckArtifactsTool(checks);
         // feature 004: the development tools (offered only with a development node)
         Map<NodeId, DevelopmentPolicy> development = new HashMap<>();
@@ -268,7 +268,7 @@ final class Wiring implements AutoCloseable {
                 (releaseRoot, paths) -> new ArtifactCheckService(releaseRoot,
                     new WorkspaceInspector(), new SaxonXsltRunner(releaseRoot), group ->
                         Optional.empty(), gateways::inventory, id -> Optional.empty(), limiter,
-                    clock.clock()).checkPaths(paths, false), accounts, workspace,
+                    clock.clock(), versionGate).checkPaths(paths, false), accounts, workspace,
                 clock.clock()));
             NodeDeployer nodeDeployer = new NodeDeployer(new NodeDeployer.Dependencies(planner,
                 releases, importArchives, codec, gateways::imports, gateways::tags, accounts,
