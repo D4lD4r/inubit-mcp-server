@@ -71,7 +71,7 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
   suffix kept in `raw` and ignored for matching, no parsable major.minor → empty; ordering major,
   minor, patch (absent = 0); `sameMinor`. Test first: `test/domain/model/InubitVersionTest.java`
   (`8.1.17`, `8.1`, `8.1.17-HF3`, `9.0.7 build 42`, `x`, empty, ordering `8.1.9` < `8.1.17`).
-- [ ] T003 [P] (after T002) `main/domain/model/Capability.java` (enum with `kind` READ/WRITE and
+- [X] T003 [P] (after T002) `main/domain/model/Capability.java` (enum with `kind` READ/WRITE and
   channels per the spec's tool classification: MONITORING, DIAGNOSIS, INVENTORY (REST and CLI
   parts), WORKSPACE_EXPORT, DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL),
   `Channel.java` (REST, CLI, SOAP), `SupportState.java` (SUPPORTED/UNVERIFIED/UNSUPPORTED),
