@@ -105,7 +105,7 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
   text, so `res/schemas/list_nodes.output.json` changes `versionLine` from the enum to a string in
   this task. Behaviour stays as today otherwise. Test first: `test/config/ConfigLoaderTest.java` (all four kinds,
   `"9.0.7-HF1"`, `8.1` unquoted, `"8.1"`, `"V10"`), `test/config/EffectiveNodeConfigTest.java`.
-- [ ] T006 `main/application/NodeVersions.java` + `main/domain/model/NodeVersionState.java`
+- [X] T006 `main/application/NodeVersions.java` + `main/domain/model/NodeVersionState.java`
   (research D-4, data-model): per-node setting, detection (version+time) or failure (code+time),
   `get_health` observation, `stale`, `pinContradiction`, client result or failure; derived
   `effectiveVersion()` (most recent of detection/observation; pin without observation; on `Auto`
