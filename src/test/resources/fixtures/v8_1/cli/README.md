@@ -153,3 +153,14 @@ again.
 | `import_repository_new_files.{stdout,stderr,exit}` | W3, `import --importFile '<zip>' --importRepositoryPath '/Root/jdoe'` of the folder archive: no protocol; the progress text `Completed = 0 MB / 0 MB ` is printed twice, each time after a `\r` and without a line break, so `1-OK: Imported successfully` follows the second one **on the same line**, exit 0. The synthetic `import_repository_ok` puts them on lines of their own |
 | `export_repository_after_import.zip` | R5, the export of `/Root/jdoe/xsd` right after W3: `P8/folder/main.xsd` and `P8/folder/sub/included.xsd` byte-identical to what W3 sent, in `version="1.0"`; `probe.xsd` with W3's content in `1.5` (the archive's `version` was ignored); `probe.xsl`, untouched, still `1.1` with its entry timestamp of 2026-10-07; `P8/types` and `P8/untyped` from W1 and W2; no `P8/nested` yet |
 | `export_repository_types.zip` | R3, `export --exportRepositoryPath '/Root/jdoe/xsd/P8/types'`: one file per extension (`.wsdl`, `.xml`, `.xsd`, `.xsl`, `.xslt`) with the `contentType` the import sent, stored unchanged (`application/wsdl+xml`, `application/xml`, `application/x-xsd+xml`, `application/xslt+xml` for `.xsl` and `.xslt`). The `.xslt` and `.wsdl` values are the probe's choice; INUBIT's own default for them was not observed. Without a `contentType` (W2, `P8/untyped` in the other two archives) INUBIT stores `application/octet-stream` |
+
+## Client version (`startcli.sh -v`, feature 009)
+
+The variants of the recorded `version` case for feature 009 (research D-15; tasks T001). Both are
+**synthetic**, derived from `version.*` by a text change; no StartCLI was run for them.
+
+| Case | Kind | What it is |
+|---|---|---|
+| `version` | recorded | the 8.1.17 client: preamble, `CLI 8.1.17`, copyright and URL lines, `Supported inubit Process Engine versions from 4.0.1 to 8.1.17.`, exit 0 |
+| `version_no_range` | **synthetic** | `version` without the `Supported …` line: `CLI 8.1.17` is the only version line, so the client reports no supported range; stderr and exit 0 unchanged |
+| `../../v9_0/cli/version` | **synthetic** | a 9.0 client: `version` with `CLI 9.0.7` and `Supported inubit Process Engine versions from 9.0.0 to 9.0.7.`; stderr and exit 0 unchanged. Kept with the other 9.0 fixtures, see `../../v9_0/README.md` |

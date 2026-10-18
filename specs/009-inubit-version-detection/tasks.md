@@ -53,7 +53,7 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] Fixtures (research D-15): add `fixtures/v9_0/rest/system_info.xml` and
+- [X] T001 [P] Fixtures (research D-15): add `fixtures/v9_0/rest/system_info.xml` and
   `system_info.http` (same document shape as `fixtures/v8_1/rest/system_info.xml`, `Version` =
   `9.0.7`) with a `fixtures/v9_0/README.md` stating that the file is synthetic until a recorded 9.0
   response exists; add CLI variants `fixtures/v8_1/cli/version_no_range.{stdout,stderr,exit}` (only
