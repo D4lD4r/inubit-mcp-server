@@ -41,7 +41,8 @@ import org.slf4j.LoggerFactory;
  *       confirmation code ({@code ^[A-Za-z0-9_-]{22}$}) and the reason (≤ 500 chars) →
  *       {@code INVALID_INPUT}.
  *   <li>{@link WriteGuard}: single configured server, production lock, {@code write.enabled},
- *       CLI available.
+ *       the version gate (feature 009; its warnings go into the result's {@code warnings}), CLI
+ *       available.
  *   <li>One action per instance at a time: a second call for the same server and process id
  *       while one runs is {@code PRECONDITION_FAILED}.
  *   <li>The current state is read from the Queue Manager
@@ -159,7 +160,7 @@ public final class ProcessControlService {
         WritePolicy policy;
         try {
             validate(request);
-            policy = guard.admit(request.node());
+            policy = guard.admit(request.node(), request.action());
         } catch (ToolErrorException e) {
             throw call.refuse(e.error());
         } catch (RuntimeException e) {
@@ -307,7 +308,8 @@ public final class ProcessControlService {
                 request.processId(), node, auditId, message);
         }
         return new Response.Completed(new ProcessControlResult(node, request.action(),
-            request.processId(), outcome, before.state(), stateAfter, message, auditId));
+            request.processId(), outcome, before.state(), stateAfter, message, auditId,
+            Optional.of(call.policy.warnings())));
     }
 
     /**

@@ -1,13 +1,17 @@
 package de.dadecker.inubit.mcp.application;
 
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProcessAction;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -26,6 +30,9 @@ import java.util.function.Function;
  *       already rejects it at startup).
  *   <li>{@code write.enabled: false} (the default) is {@code WRITE_DISABLED} with a hint on how
  *       to enable it; a server without policy is treated the same (fail closed).
+ *   <li>Feature 009 (research D-5): the {@link VersionGate} admits process control for writes
+ *       on the server's INUBIT version and StartCLI client ({@code UNSUPPORTED_VERSION}), before
+ *       anything else is sent; its warnings travel in {@link WritePolicy#warnings()}.
  *   <li>The server's process control port must be usable without launching anything
  *       ({@code CLI_UNAVAILABLE}, or {@code AUTH_FAILED} without credentials).
  * </ol>
@@ -35,26 +42,30 @@ public final class WriteGuard {
     private final TargetResolver targets;
     private final Function<NodeId, WritePolicy> policies;
     private final GatewayFactory gateways;
+    private final VersionGate gate;
 
     /**
      * @param policies the write settings of each configured server ({@code null}: no write
      *                 access)
+     * @param gate     feature 009: the version gate
      */
     public WriteGuard(TargetResolver targets, Function<NodeId, WritePolicy> policies,
-        GatewayFactory gateways) {
+        GatewayFactory gateways, VersionGate gate) {
         this.targets = Objects.requireNonNull(targets, "targets");
         this.policies = Objects.requireNonNull(policies, "policies");
         this.gateways = Objects.requireNonNull(gateways, "gateways");
+        this.gate = Objects.requireNonNull(gate, "gate");
     }
 
     /**
-     * The policy of the server a write action may run on.
+     * The policy of the server {@code action} may run on, with the version gate's warnings.
      *
      * @throws ToolErrorException {@code INVALID_INPUT}, {@code TARGET_UNKNOWN},
-     *     {@code PRODUCTION_PROTECTED}, {@code WRITE_DISABLED}, {@code CLI_UNAVAILABLE} or
-     *     {@code AUTH_FAILED}
+     *     {@code PRODUCTION_PROTECTED}, {@code WRITE_DISABLED}, {@code UNSUPPORTED_VERSION},
+     *     {@code CLI_UNAVAILABLE} or {@code AUTH_FAILED}
      */
-    public WritePolicy admit(String node) {
+    public WritePolicy admit(String node, ProcessAction action) {
+        Objects.requireNonNull(action, "action");
         NodeId id = targets.resolveSingleServer(node);
         Terminology terms = targets.terms();
         WritePolicy policy = policies.apply(id);
@@ -89,8 +100,11 @@ public final class WriteGuard {
                     + " write.enabled: true for its {group} or {node} in the configuration file"
                     + " and restart the MCP client (see docs/setup.md, write settings)"));
         }
+        // the state read is REST, the action StartCLI
+        VersionGate.Admission admission = gate.admit(action.capability(), id,
+            Capability.PROCESS_CONTROL, Capability.Kind.WRITE, Set.of(Channel.CLI, Channel.REST));
         gateways.processControl(id).checkAvailable();
-        return policy;
+        return policy.withWarnings(admission.warnings());
     }
 
     private static ToolErrorException refused(ErrorCode code, NodeId server, String message,

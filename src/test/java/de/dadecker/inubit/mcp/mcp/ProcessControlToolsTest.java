@@ -32,6 +32,7 @@ import de.dadecker.inubit.mcp.infra.AuditLog;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -190,7 +191,8 @@ class ProcessControlToolsTest {
             Duration.ofMinutes(5), Optional.of("jdoe")));
         Function<NodeId, WritePolicy> policyOf = policies::get;
         ProcessControlService service = new ProcessControlService(
-            new WriteGuard(new TargetResolver(ids), policyOf, gateways), policyOf, gateways,
+            new WriteGuard(new TargetResolver(ids), policyOf, gateways,
+                FakeVersionDetection.pinned81()), policyOf, gateways,
             new ConfirmationRegistry(Clock.systemUTC()),
             new AuditLog(temp.resolve("audit"), scrubber), Clock.systemUTC(), UUID::randomUUID,
             "acme");

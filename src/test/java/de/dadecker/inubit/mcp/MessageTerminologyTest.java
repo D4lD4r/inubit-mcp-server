@@ -94,6 +94,8 @@ class MessageTerminologyTest {
                 nodes:
                   - name: node1
                     baseUrl: https://127.0.0.1:9
+                    # pinned: the missing credentials are the subject, not a failed detection
+                    versionLine: V8_1
                     cli:
                       home: %s
                       javaHome: /opt/jdk17

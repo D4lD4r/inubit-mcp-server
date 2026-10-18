@@ -207,9 +207,9 @@ final class Wiring implements AutoCloseable {
         servers.forEach(server -> policies.put(server.id(), policy(server, credentials)));
         AuditLog audit = new AuditLog(config.auditDirectory(), scrubber);
         this.processControl = new ProcessControlService(
-            new WriteGuard(targets, policies::get, gateways), policies::get, gateways,
-            new ConfirmationRegistry(clock.clock()), audit, clock.clock(), UUID::randomUUID,
-            profile.name());
+            new WriteGuard(targets, policies::get, gateways, versionGate), policies::get,
+            gateways, new ConfirmationRegistry(clock.clock()), audit, clock.clock(),
+            UUID::randomUUID, profile.name());
         // feature 003: the workspace history uses the system git (not the StartCLI launcher)
         Path workspace = config.workspace();
         this.exportArtifacts = new ExportArtifactsTool(new WorkspaceService(workspace,

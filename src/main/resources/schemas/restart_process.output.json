@@ -156,6 +156,13 @@
         "auditId": {
           "type": "string",
           "description": "Id of the execution's audit records"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Warnings about the INUBIT version or the StartCLI client of the {node}, e.g. a StartCLI client whose patch level differs from the INUBIT version"
         }
       },
       "additionalProperties": false

@@ -9,8 +9,11 @@ import de.dadecker.inubit.mcp.application.ProcessControlService.ControlRequest;
 import de.dadecker.inubit.mcp.application.ProcessControlService.Response;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ConfirmationChallenge;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProcessAction;
 import de.dadecker.inubit.mcp.domain.model.ProcessControlResult;
@@ -19,9 +22,11 @@ import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.ProcessState;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy.Confirmation;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.AuditPort;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.UncheckedIOException;
 import java.time.Duration;
@@ -36,11 +41,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * T104: the decision flow of {@code restart_process} / {@code kill_process}
  * (contracts/mcp-tools.md §7–8, FR-018 – FR-024, SC-005) with fakes for the ports, the audit log
- * and the clock.
+ * and the clock. Feature 009 (T010, FR-005, FR-011, FR-015): the version gate admits
+ * {@code PROCESS_CONTROL} for writes before the CLI check and the state read.
  */
 class ProcessControlServiceTest {
 
@@ -64,8 +72,17 @@ class ProcessControlServiceTest {
         STAGING, policy(STAGING, false, true, false, Confirmation.CLIENT),
         PROD, policy(PROD, true, true, false, Confirmation.SERVER)));
 
+    /** Feature 009: the {@code versionLine} of each server ({@code V8_1} if absent). */
+    private final Map<NodeId, VersionSetting> versionLines = new HashMap<>();
+    private final NodeVersions versions = new NodeVersions(clock,
+        node -> versionLines.getOrDefault(node, VersionSetting.V8_1),
+        node -> Duration.ofMinutes(10));
+    private final FakeVersionDetection detection = new FakeVersionDetection(versions);
+
     private final ProcessControlService service = new ProcessControlService(
-        new WriteGuard(new TargetResolver(SERVERS), policies::get, ports), policies::get, ports,
+        new WriteGuard(new TargetResolver(SERVERS), policies::get, ports,
+            new VersionGate(versions, detection, CapabilityMatrix.production())),
+        policies::get, ports,
         confirmations, audit, clock,
         () -> UUID.fromString(String.format("00000000-0000-0000-0000-%012d",
             ids.incrementAndGet())), "acme");
@@ -648,11 +665,61 @@ class ProcessControlServiceTest {
         ProcessControlResult result = result(kill("staging/inubit01", Optional.empty()));
 
         assertThat(result.outcome()).isEqualTo(ProcessControlResult.Outcome.EXECUTED);
+        assertThat(result.warnings()).isEmpty();
         assertThat(ports.actions()).containsExactly("kill staging/inubit01 " + PID);
         assertThat(audit.records).extracting(AuditRecord::step)
             .containsExactly(AuditRecord.Step.EXECUTE, AuditRecord.Step.EXECUTE);
         assertThat(audit.outcomes()).containsExactly(AuditOutcome.PENDING,
             AuditOutcome.EXECUTED);
+    }
+
+    // --- feature 009: version gate (T010) ----------------------------------------------------
+
+    @ParameterizedTest
+    @EnumSource(ProcessAction.class)
+    void onInubit90BothToolsAreRefusedAfterOnlyTheDetection(ProcessAction action) {
+        versionLines.put(DEV, VersionSetting.AUTO);
+        detection.answer(DEV, "9.0.7");
+
+        ToolError error = errorOf(() -> service.execute(request(action, "dev/node1", PID,
+            Optional.empty())));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(error.node()).contains(DEV);
+        assertThat(error.message()).startsWith(action.capability() + ": ")
+            .contains("INUBIT 9.0.7 on dev/node1").contains("process control")
+            .contains("nothing was sent");
+        assertThat(detection.requests()).containsExactly(DEV);
+        assertThat(ports.calls).as("no CLI check, no state read").isEmpty();
+        assertThat(audit.records).singleElement().satisfies(record -> {
+            assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED);
+            assertThat(record.capability()).isEqualTo(action.capability());
+            assertThat(record.reason()).hasValueSatisfying(reason -> assertThat(reason)
+                .startsWith("UNSUPPORTED_VERSION: " + action.capability() + ": "));
+        });
+    }
+
+    @ParameterizedTest
+    @EnumSource(ProcessAction.class)
+    void aClientPatchMismatchExecutesWithTheWarning(ProcessAction action) {
+        versionLines.put(STAGING, VersionSetting.AUTO);
+        detection.answer(STAGING, "8.1.18");
+        versions.clientProbed(STAGING, new ClientVersion(version("8.1.17"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.1.17"))));
+        ports.reading(rows(errorRow(STAGING)), rows());
+
+        ProcessControlResult result = result(request(action, "staging/inubit01", PID,
+            Optional.empty()));
+
+        assertThat(result.outcome()).isEqualTo(ProcessControlResult.Outcome.EXECUTED);
+        assertThat(result.warnings()).contains(List.of("StartCLI client 8.1.17 and INUBIT"
+            + " 8.1.18 on staging/inubit01 differ; StartCLI results may be unreliable"));
+        assertThat(ports.actions()).hasSize(1);
+        assertThat(detection.requests()).containsExactly(STAGING);
+    }
+
+    private static InubitVersion version(String raw) {
+        return InubitVersion.parse(raw).orElseThrow();
     }
 
     // --- execution failures ------------------------------------------------------------------

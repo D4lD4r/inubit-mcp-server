@@ -204,7 +204,7 @@ run one after the other (no [P]).
   ("import_artifacts needs development writes, which INUBIT 9.0.7 …"); the gate has no tool
   parameter, so the call sites of T009–T014 and T023 prefix the gate's message with the tool name
   (or pass it through a small overload added to `VersionGate`); assert it in the tests.
-- [ ] T010 [US2] Process control: call the gate (`PROCESS_CONTROL`, WRITE, CLI+REST) in
+- [X] T010 [US2] Process control: call the gate (`PROCESS_CONTROL`, WRITE, CLI+REST) in
   `main/application/WriteGuard.java` before `checkAvailable`, so `restart_process` and
   `kill_process` are refused before the REST state read; add an optional `warnings` field to
   `res/schemas/restart_process.output.json`, `kill_process.output.json` and their result records
@@ -428,6 +428,13 @@ shows the client against the pin, and a contradicting observation refuses writes
   `DeploymentReferenceTest` green.
 - [ ] T028 [P] `README.md` "Safety model": writes only on verified INUBIT versions; `CHANGELOG.md`
   `[Unreleased]`: feature 009 with the deliberate behaviour changes.
+- [ ] T030 Gate texts in the profile's terminology (found in the T010 review): the refusal and
+  warning texts built by `main/application/VersionGate.java` (and the `list_nodes` version reasons
+  of T020) use the profile's display names for the node and group levels like every other message
+  (feature 002), instead of the plain word "node". Test first:
+  `test/MessageTerminologyTest.java` (a version refusal on a profile with custom terminology uses
+  the custom names; remove the `versionLine: V8_1` workaround added in T010 where it only served to
+  avoid the gate's texts) and `test/TerminologyRenderingTest.java` if it covers messages.
 - [ ] T029 Validate per quickstart.md: `mvn -q clean verify`; `mvn -q -Dtest=NoCustomerIdentifiersTest
   test` with the local lists (it must run, not skip); record the outcome in `quickstart.md`. The
   optional live check (read-only `get_health`/`list_nodes`) only with the person's approval.
