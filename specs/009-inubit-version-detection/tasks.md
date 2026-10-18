@@ -144,7 +144,7 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
   cache, back-off, detection/failure observer calls, a parser `UNEXPECTED_RESPONSE` marks stale, a 406 marks stale),
   `test/adapter/rest/InubitHttpClientTest.java` (endpoint 404 → `UNEXPECTED_RESPONSE`, resource
   404 → `NOT_FOUND`).
-- [ ] T008 `main/application/VersionGate.java` (research D-5, data-model `Admission`):
+- [X] T008 `main/application/VersionGate.java` (research D-5, data-model `Admission`):
   `admit(NodeId, Capability, Purpose, Set<Channel>)`: detection when
   `NodeVersions.needsDetection` (via `GatewayFactory.detect`; never for `MONITORING`), matrix
   lookup, pin contradiction (writes refused), the client check only when `CLI` is among the
@@ -200,6 +200,10 @@ run one after the other (no [P]).
   failed detection: refused, audit `REFUSED`, only the detection request; with a seeded 8.1.17
   client at an 8.1.18 server → executed with the mismatch warning in `warnings`), `test/application/TagServiceTest.java`,
   `test/application/E2eTestServiceTest.java` (new cases).
+  Carry-over from T008 (review r1): the contract's refusal message names the tool
+  ("import_artifacts needs development writes, which INUBIT 9.0.7 …"); the gate has no tool
+  parameter, so the call sites of T009–T014 and T023 prefix the gate's message with the tool name
+  (or pass it through a small overload added to `VersionGate`); assert it in the tests.
 - [ ] T010 [US2] Process control: call the gate (`PROCESS_CONTROL`, WRITE, CLI+REST) in
   `main/application/WriteGuard.java` before `checkAvailable`, so `restart_process` and
   `kill_process` are refused before the REST state read; add an optional `warnings` field to
