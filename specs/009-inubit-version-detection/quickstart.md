@@ -1,0 +1,38 @@
+# Quickstart: INUBIT Version Detection (feature 009)
+
+Validation guide. Contracts: [configuration-delta.md](contracts/configuration-delta.md),
+[mcp-tools-delta.md](contracts/mcp-tools-delta.md). Decisions: [research.md](research.md).
+
+## Offline (always)
+
+```bash
+mvn -q clean verify
+mvn -q -Dtest=NoCustomerIdentifiersTest test     # with the local identifier lists; it must run, not skip
+```
+
+Expected: all green. In particular:
+
+| Scenario | Proof |
+|---|---|
+| Version parsing (suffix, missing patch, garbage → unknown), ranges, same-minor | `InubitVersionTest`, `CapabilityMatrixTest` (domain) |
+| `versionLine` accepts `AUTO`/`V8_1`/`V9_X`/`"8.1.17"`; `8.1` (a YAML number) and `"8.1"` (no patch) refused; `V9_X` warning text (US4) | `ConfigLoaderTest`, `ConfigValidatorTest`, `ConfigSummaryTest` |
+| `list_nodes` shows `not_yet_detected` without any request, then the detected version and client after `get_health` (US1-1, US1-2) | `ListNodesToolTest` with WireMock request count 0 before `get_health` |
+| Failed detection → `unknown` with reason; writes refused, reads unverified (US1-3, US2-3) | `VersionGateTest`, `AdapterGatewayFactoryTest` |
+| Client probe in `get_health` within the budget; timeout → part `client`, `not yet detected (timeout)`; failure not cached, retried after 60 s (FR-002) | `HealthServiceTest`, `GetHealthToolTest` timing, `HealthOverviewPerformanceTest` |
+| Client comparison `match`/`mismatch`/`not comparable`; range by major.minor (8.1.17 client + 8.1.18 server → warning; + 9.0 → refused; `V9_X` → refused); range missing → warning (FR-011) | `ClientVersionTest`, `VersionGateTest` |
+| Every write tool refused on 9.0 / `V9_X` / unknown with only the detection request sent (SC-002, US2-1) | one test per write tool (`ImportServiceVersionTest`, `TagServiceTest`, `E2eTestServiceTest`, `ProcessControlServiceTest`, `DeployServiceTest`), WireMock/`FakeProcessLauncher` show no other request |
+| Reads on 9.0 run with the `warnings` entry; test-only matrix marking a read `unsupported` refuses it (US2 test, FR-009) | `DiagnosisServiceTest`, `InventoryServiceTest`, `VersionGateTest` |
+| Pin contradicted by `get_health` → writes refused; later matching observation clears it (US2-4, FR-012) | `NodeVersionsTest`, `VersionGateTest` |
+| Re-detection before a write after 10 min or after `UNEXPECTED_RESPONSE`/406/unmapped 404; reads use the cache (FR-010) | `VersionGateTest`, `AdapterGatewayFactoryTest` |
+| `deploy_release`: 8.1.17 → 8.1.18 allowed; 8.1 → 9.0, unknown source/target, differing sources refused, in preview and execute (FR-014a) | `DeployServiceVersionTest` |
+| Tool announcement: profile whose only development nodes are `V9_X` announces no development tools (FR-007) | `DevelopmentWiringTest` |
+| A test-only matrix entry and adapter for a fictitious version give exactly the declared tools; 8.1 unchanged (US3, SC-004) | `CapabilityExtensionTest` |
+| Refusal text names node, version, capability, client (FR-005, SC-005); audit `REFUSED` (FR-015) | assertions in the tests above |
+| Existing 8.1 behaviour unchanged apart from the deliberate changes (SC-003) | the full suite |
+
+## Live (optional, only with the person's approval)
+
+Only read-only checks are useful here: run `get_health` and `list_nodes` against a development
+stage and compare the shown server and client versions with the Workbench "About" dialog and
+`startcli.sh -v`. No write is needed to validate this feature. Respect any organisational approval
+needed before connecting the server to real systems.

@@ -101,6 +101,11 @@ a support status and its available tool groups; before the health check the same
 4. **Given** a node whose client version differs from the server version, **When** `get_health`
    runs or the nodes are listed afterwards, **Then** both versions are shown, the comparison result
    (`match`, `mismatch`, `not comparable`) and what it means for the StartCLI-backed tools (FR-011).
+5. **Given** a node detected as 9.0.x with an 8.1 client, **When** the nodes are listed, **Then** it
+   shows status `partially supported`, the REST read capabilities as usable (unverified), and the
+   StartCLI-backed and write capabilities as not usable with the reason.
+6. **Given** a client probe slower than the health budget, **When** `get_health` runs, **Then** it
+   answers within the budget and the client version is `not yet detected (timeout)`.
 
 ---
 
@@ -135,7 +140,10 @@ refused too.
    the node runs); read tools run with the "unverified version" warning.
 4. **Given** a node pinned to 8.1 whose health check observed 9.0, **When** a write tool is called,
    **Then** it is refused until the pin is corrected, naming both versions.
-5. **Given** the tool list the server announces, **When** no configured node can run a tool by
+5. **Given** an 8.1 node whose client probe timed out, **When** a StartCLI-backed write is called,
+   **Then** it runs with a warning naming the failed probe, and the next StartCLI-backed call more
+   than 60 s later probes again.
+6. **Given** the tool list the server announces, **When** no configured node can run a tool by
    configuration or by pinned version, **Then** that tool is not offered (FR-007).
 
 ---
@@ -242,7 +250,7 @@ capability is `supported`, `unverified` or `unsupported`.
 | `find_processes`, `query_logs` | diagnosis | read | REST | supported | unverified (runs, warning) |
 | `list_inventory` (diagrams) | inventory | read | REST | supported | unverified (runs, warning) |
 | `list_inventory` (modules), `get_inventory_item` (diagrams and modules; the history always via StartCLI) | inventory | read | REST + StartCLI | supported | REST part unverified; StartCLI part per FR-011 |
-| `export_artifacts` | workspace export | read on INUBIT (writes only the local workspace) | StartCLI | supported | per FR-011 (8.1 client: refused) |
+| `export_artifacts` | workspace export | read on INUBIT (writes only the local workspace) | StartCLI | supported | per FR-011 (9.0 or newer with an 8.1 client: refused; unknown server version: runs with a warning) |
 | `check_artifacts` | – (offline check) | read | none, optional StartCLI module lookup | supported | runs; the module lookup per FR-011 |
 | `import_artifacts`, `restore_backup`, `set_active`, `tag_artifacts` | development writes | write | StartCLI (+ REST reads) | supported | unsupported (refused) |
 | `deploy_release` | deployment | write | StartCLI + REST | supported | unsupported (refused); same-minor rule FR-014a |
@@ -261,7 +269,9 @@ capability is `supported`, `unverified` or `unsupported`.
   the INUBIT server, on the first StartCLI-backed tool call on that node and in `get_health`, and
   keep it for the lifetime of the process. In `get_health` the client probe MUST run in parallel
   with the REST checks and within the health time budget of feature 001 (SC-002 there); if it does
-  not finish in time, the client version is reported as `not yet detected (timeout)`. A failed or
+  not finish in time, the client version is reported as `not yet detected (timeout)`. Outside
+  `get_health` the probe is bounded by the node's `cliTimeout` and not counted against the tool's
+  own StartCLI timeout; a timed-out probe counts as "range cannot be evaluated" (FR-011). A failed or
   timed-out probe is not cached; it is retried on the next StartCLI-backed call or health check,
   at most once per 60 s.
 - **FR-003**: The server MUST keep a declared capability matrix: for each version range and each
@@ -274,7 +284,9 @@ capability is `supported`, `unverified` or `unsupported`.
   version setting; the last known server version with its source (detected or pinned) and time,
   or `not yet detected` (next step `get_health`), or `unknown` with the reason and time of the last
   failed attempt; the client version or `not yet detected` / `not available`; the support status;
-  and the usable capabilities. The support status is `supported` if every capability the
+  and the usable capabilities. A capability is usable if its tools run on the node (`supported`,
+  or `unverified` for reads, and not refused by the client check, FR-011). The support status is
+  `supported` if every capability the
   configuration allows is `supported`; `partially supported` if at least one is usable and at
   least one is `unverified` or `unsupported`; `unsupported` if none is usable; `unknown` if the
   version is unknown or not yet detected.
@@ -309,11 +321,13 @@ capability is `supported`, `unverified` or `unsupported`.
   setting is decided in planning.
 - **FR-011**: The client and server versions are compared as major.minor.patch: `match`,
   `mismatch` (any part differs) or `not comparable` (one is unknown or has no patch). The server
-  version used is the one `get_health` last observed if present, otherwise the pin or the detected
-  version. A mismatch is reported in `list_nodes` and `get_health`, and StartCLI-backed tools still
+  version used is the most recent observed version of the node (by `get_health` or a detection);
+  for a pinned node without an observation, the pin. On an `AUTO` node a `get_health` observation
+  replaces the cached version. A mismatch is reported in `list_nodes` and `get_health`, and StartCLI-backed tools still
   run with a warning that results may be unreliable. The client's declared range is checked by
   major.minor only (bounds inclusive, suffixes ignored): only a server major.minor outside it MUST
-  refuse StartCLI-backed tools on that node with `UNSUPPORTED_VERSION`. If the range cannot be
+  refuse StartCLI-backed tools on that node with `UNSUPPORTED_VERSION`. A `V9_X` pin (major only)
+  is inside the range only if some 9.x minor lies in it; the 8.1 client refuses it. If the range cannot be
   evaluated (server version unknown, probe failed or timed out, no range printed),
   StartCLI-backed tools run with a warning naming the cause; FR-008 and FR-009 still apply to the
   server version. This is no change for today's 8.1 setups, where no probe runs.
