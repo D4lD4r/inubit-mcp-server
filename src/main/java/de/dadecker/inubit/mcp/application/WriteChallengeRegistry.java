@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
-import de.dadecker.inubit.mcp.application.DevelopmentGuard.Capability;
+import de.dadecker.inubit.mcp.application.DevelopmentGuard.Operation;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -87,16 +87,16 @@ public final class WriteChallengeRegistry {
     }
 
     /**
-     * Issues a code for {@code capability} on {@code node} with these inputs, as previewed.
+     * Issues a code for {@code operation} on {@code node} with these inputs, as previewed.
      *
      * @throws ToolErrorException {@code PRECONDITION_FAILED} if {@link #MAX_PENDING} unexpired
      *     codes are pending
      */
-    public synchronized Issued issue(Capability capability, NodeId node,
+    public synchronized Issued issue(Operation operation, NodeId node,
         String inputFingerprint, String previewState, Duration ttl) {
-        Objects.requireNonNull(capability, "capability");
+        Objects.requireNonNull(operation, "operation");
         Objects.requireNonNull(node, "node");
-        return issue(capability.toolName(), "node:" + node.value(), Optional.of(node),
+        return issue(operation.toolName(), "node:" + node.value(), Optional.of(node),
             inputFingerprint, previewState, ttl);
     }
 
@@ -154,9 +154,9 @@ public final class WriteChallengeRegistry {
      * @throws ToolErrorException {@code CONFIRMATION_INVALID} if the code is unknown, used,
      *     expired or bound to another capability, node or other inputs
      */
-    public String redeem(String code, Capability capability, NodeId node,
+    public String redeem(String code, Operation operation, NodeId node,
         String inputFingerprint) {
-        return redeem(code, capability.toolName(), "node:" + node.value(), Optional.of(node),
+        return redeem(code, operation.toolName(), "node:" + node.value(), Optional.of(node),
             inputFingerprint);
     }
 
@@ -165,7 +165,7 @@ public final class WriteChallengeRegistry {
      * removed in any case.
      *
      * @throws ToolErrorException {@code CONFIRMATION_INVALID} as {@link #redeem(String,
-     *     Capability, NodeId, String)}
+     *     Operation, NodeId, String)}
      */
     public String redeem(String code, String tool, GroupId group, String inputFingerprint) {
         return redeem(code, tool, "group:" + group.value(), Optional.empty(), inputFingerprint);

@@ -25,12 +25,14 @@ import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ConnectorFlags;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
 import de.dadecker.inubit.mcp.domain.model.InventoryKind;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
@@ -38,6 +40,7 @@ import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -53,6 +56,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 
@@ -85,6 +89,14 @@ public final class ImportHarness {
     public final String owner;
     public final String diagramGroup;
     public WritePolicy.Confirmation confirmation = WritePolicy.Confirmation.CLIENT;
+    /** Feature 009: the {@code versionLine} of each node ({@code V8_1} if absent). */
+    public final Map<NodeId, VersionSetting> versionLines = new ConcurrentHashMap<>();
+    /** Feature 009: the version state of the nodes, e.g. to seed a client probe. */
+    public final NodeVersions versions = new NodeVersions(clock,
+        node -> versionLines.getOrDefault(node, VersionSetting.V8_1),
+        node -> Duration.ofMinutes(10));
+    /** Feature 009: the detections of the gate (none for pinned nodes). */
+    public final FakeVersionDetection detection = new FakeVersionDetection(versions);
     /** The nodes whose effective {@code development.repository} is {@code WRITE} (feature 008). */
     private final Set<NodeId> repositoryWrite = new HashSet<>();
     /** Wraps the archive port (e.g. to inject an unexpected failure). */
@@ -178,7 +190,8 @@ public final class ImportHarness {
         WorkspaceInspector inspector = new WorkspaceInspector();
         return new ImportService(new ImportService.Dependencies(root, "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV, TEST)), policies::get,
-                node -> imports.checkAvailable()),
+                node -> imports.checkAvailable(), new VersionGate(versions, detection,
+                    CapabilityMatrix.production())),
             policies::get, exports.history, inspector,
             new ArtifactCheckService(root, inspector, new SaxonXsltRunner(root),
                 group -> Optional.of(DEV), node -> inventory(), node -> Optional.of(owner),

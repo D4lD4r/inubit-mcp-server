@@ -186,7 +186,7 @@ and only the detection request reaches WireMock; each read tool runs with `warni
 The tasks of this phase change constructors that `main/Wiring.java` and test fixtures build; they
 run one after the other (no [P]).
 
-- [ ] T009 [US2] Development writes: rename `DevelopmentGuard.Capability` to
+- [X] T009 [US2] Development writes: rename `DevelopmentGuard.Capability` to
   `DevelopmentGuard.Operation` (all users of `DevelopmentGuard.Capability`, among them
   `ImportService`, `TagService`, `E2eTestService`, `WriteChallengeRegistry` and their tests) and map `RUN_E2E_TEST` → `E2E_TEST` (channels SOAP+REST), every
   other operation → `DEVELOPMENT_WRITE` (CLI+REST); call `VersionGate.admit(…, WRITE, channels)` in

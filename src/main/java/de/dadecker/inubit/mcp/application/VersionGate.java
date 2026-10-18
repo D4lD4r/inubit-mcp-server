@@ -112,6 +112,27 @@ public final class VersionGate {
     }
 
     /**
+     * {@link #admit(NodeId, Capability, Capability.Kind, Set)} for one tool: the message of a
+     * refusal starts with the tool name, e.g. {@code "import_artifacts: INUBIT 9.0.7 on …"}
+     * (contracts/mcp-tools-delta.md).
+     */
+    public Admission admit(String tool, NodeId node, Capability capability,
+        Capability.Kind purpose, Set<Channel> channels) {
+        Objects.requireNonNull(tool, "tool");
+        try {
+            return admit(node, capability, purpose, channels);
+        } catch (ToolErrorException e) {
+            ToolError error = e.error();
+            if (error.code() != ErrorCode.UNSUPPORTED_VERSION) {
+                throw e;
+            }
+            throw new ToolErrorException(new ToolError(error.code(), tool + ": "
+                + error.message(), error.likelyCause(), error.nextStep(), error.node(),
+                error.excerpt()));
+        }
+    }
+
+    /**
      * Detects now. A failure other than {@code TLS_ERROR} has been reported to
      * {@link NodeVersions} (which starts the back-off) and is judged as an unknown version; a
      * cancelled call is passed through, as it was not reported.

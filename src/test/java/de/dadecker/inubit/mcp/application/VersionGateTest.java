@@ -174,6 +174,24 @@ class VersionGateTest {
     }
 
     @Test
+    void withTheToolNameTheRefusalNamesTheToolAndAnAdmissionIsUnchanged() {
+        // T009 (contracts/mcp-tools-delta.md): the message of a refusal names the tool
+        detection.answer("9.0.7");
+
+        ToolError error = refusal(() -> gate().admit("import_artifacts", AUTO,
+            Capability.DEVELOPMENT_WRITE, Kind.WRITE, CLI_REST));
+        Admission read = gate().admit("find_processes", AUTO, Capability.DIAGNOSIS, Kind.READ,
+            REST);
+
+        assertThat(error.message()).isEqualTo("import_artifacts: INUBIT 9.0.7 on dev/node1 does"
+            + " not support development writes yet; nothing was sent");
+        assertThat(error.node()).contains(AUTO);
+        assertThat(error.nextStep()).startsWith("Use a node");
+        assertThat(read.warnings()).containsExactly(
+            "INUBIT 9.0.7 on dev/node1 is not verified for diagnosis; results may be incomplete");
+    }
+
+    @Test
     void anUnknownVersionAfterAFailedDetectionRefusesWritesAndWarnsReads() {
         detection.fail(detectionError(ErrorCode.AUTH_FAILED));
 

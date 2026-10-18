@@ -29,6 +29,7 @@ import de.dadecker.inubit.mcp.application.InventoryCache;
 import de.dadecker.inubit.mcp.application.InventoryService;
 import de.dadecker.inubit.mcp.application.NodeDeployer;
 import de.dadecker.inubit.mcp.application.NodeVersions;
+import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.application.PackageWriter;
 import de.dadecker.inubit.mcp.application.ProcessControlService;
 import de.dadecker.inubit.mcp.application.ReleaseDiscovery;
@@ -45,6 +46,7 @@ import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.SourcedValue;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -183,6 +185,8 @@ final class Wiring implements AutoCloseable {
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
         this.gateways = new AdapterGatewayFactory(servers, credentials, scrubber, clock.clock(),
             new CliRunner(launcher, environment, windows, cliResources), versions);
+        VersionGate versionGate = new VersionGate(versions, gateways,
+            CapabilityMatrix.production());
         this.summaries = servers.stream().map(server -> server.summary(exists, windows)).toList();
         Map<NodeId, Duration> timeouts = new HashMap<>();
         servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
@@ -224,7 +228,8 @@ final class Wiring implements AutoCloseable {
         StageChain chain = config.stageChain();
         this.chain = chain;
         DevelopmentGuard developmentGuard = new DevelopmentGuard(targets, development::get,
-            node -> gateways.imports(node).checkAvailable(), group -> Optional.ofNullable(
+            node -> gateways.imports(node).checkAvailable(), versionGate,
+            group -> Optional.ofNullable(
                 chain.targets().get(group)).map(StageChain.ChainLink::mode),
             config.defaults().effectiveDeployConfirmationTtl());
         Function<NodeId, ImportService.Account> accounts = id -> new ImportService.Account(

@@ -382,6 +382,7 @@ public final class DeployHarness {
         de.dadecker.inubit.mcp.domain.model.StageChain chain = chain(List.of());
         DevelopmentGuard guard = new DevelopmentGuard(new TargetResolver(
             new java.util.ArrayList<>(servers.keySet())), policies::get, node -> { },
+            de.dadecker.inubit.mcp.testing.FakeVersionDetection.pinned81(),
             group -> chain.link(group).map(
                 de.dadecker.inubit.mcp.domain.model.StageChain.ChainLink::mode),
             Duration.ofMinutes(30));

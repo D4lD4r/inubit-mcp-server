@@ -3,7 +3,7 @@ package de.dadecker.inubit.mcp.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
-import de.dadecker.inubit.mcp.application.DevelopmentGuard.Capability;
+import de.dadecker.inubit.mcp.application.DevelopmentGuard.Operation;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -37,7 +37,7 @@ class WriteChallengeRegistryTest {
     private final WriteChallengeRegistry registry = new WriteChallengeRegistry(clock);
 
     private String issue() {
-        return registry.issue(Capability.IMPORT_ARTIFACTS, DEV, INPUTS, STATE, TTL).code();
+        return registry.issue(Operation.IMPORT_ARTIFACTS, DEV, INPUTS, STATE, TTL).code();
     }
 
     private static ToolError errorOf(Runnable call) {
@@ -65,7 +65,7 @@ class WriteChallengeRegistryTest {
         };
 
         String code = new WriteChallengeRegistry(clock, fixed)
-            .issue(Capability.TAG_ARTIFACTS, DEV, INPUTS, STATE, TTL).code();
+            .issue(Operation.TAG_ARTIFACTS, DEV, INPUTS, STATE, TTL).code();
 
         assertThat(requested).containsExactly(16);
         assertThat(code).hasSize(22).matches("^[A-Za-z0-9_-]{22}$")
@@ -77,7 +77,7 @@ class WriteChallengeRegistryTest {
         // review M6
         for (Duration ttl : List.of(Duration.ZERO, Duration.ofSeconds(-1))) {
             org.assertj.core.api.Assertions.assertThatIllegalArgumentException().as(ttl.toString())
-                .isThrownBy(() -> registry.issue(Capability.IMPORT_ARTIFACTS, DEV, INPUTS, STATE,
+                .isThrownBy(() -> registry.issue(Operation.IMPORT_ARTIFACTS, DEV, INPUTS, STATE,
                     ttl));
         }
         assertThat(registry.pending()).isZero();
@@ -95,7 +95,7 @@ class WriteChallengeRegistryTest {
 
     @Test
     void theExpiryIsIssuedAtPlusTtl() {
-        assertThat(registry.issue(Capability.SET_ACTIVE, DEV, INPUTS, STATE,
+        assertThat(registry.issue(Operation.SET_ACTIVE, DEV, INPUTS, STATE,
             Duration.ofMinutes(2)).expiresAt()).isEqualTo(NOW.plus(Duration.ofMinutes(2)));
     }
 
@@ -103,9 +103,9 @@ class WriteChallengeRegistryTest {
     void redemptionReturnsThePreviewedStateOnce() {
         String code = issue();
 
-        assertThat(registry.redeem(code, Capability.IMPORT_ARTIFACTS, DEV, INPUTS))
+        assertThat(registry.redeem(code, Operation.IMPORT_ARTIFACTS, DEV, INPUTS))
             .isEqualTo(STATE);
-        ToolError second = errorOf(() -> registry.redeem(code, Capability.IMPORT_ARTIFACTS,
+        ToolError second = errorOf(() -> registry.redeem(code, Operation.IMPORT_ARTIFACTS,
             DEV, INPUTS));
 
         assertThat(second.code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
@@ -116,7 +116,7 @@ class WriteChallengeRegistryTest {
     void theCallerDecidesOnAChangedPreviewState() {
         String code = issue();
 
-        String previewed = registry.redeem(code, Capability.IMPORT_ARTIFACTS, DEV, INPUTS);
+        String previewed = registry.redeem(code, Operation.IMPORT_ARTIFACTS, DEV, INPUTS);
 
         // the registry hands the previewed state back; the service compares it with a fresh
         // conflict check and refuses with CONFLICT if the server changed (research D-2)
@@ -127,7 +127,7 @@ class WriteChallengeRegistryTest {
     void otherInputsAreInvalid() {
         String code = issue();
 
-        ToolError error = errorOf(() -> registry.redeem(code, Capability.IMPORT_ARTIFACTS, DEV,
+        ToolError error = errorOf(() -> registry.redeem(code, Operation.IMPORT_ARTIFACTS, DEV,
             "sha256:inputs-2"));
 
         assertThat(error.code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
@@ -139,7 +139,7 @@ class WriteChallengeRegistryTest {
     void anotherCapabilityIsInvalid() {
         String code = issue();
 
-        assertThat(errorOf(() -> registry.redeem(code, Capability.RESTORE_BACKUP, DEV, INPUTS))
+        assertThat(errorOf(() -> registry.redeem(code, Operation.RESTORE_BACKUP, DEV, INPUTS))
             .code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
     }
 
@@ -147,7 +147,7 @@ class WriteChallengeRegistryTest {
     void anotherNodeIsInvalid() {
         String code = issue();
 
-        assertThat(errorOf(() -> registry.redeem(code, Capability.IMPORT_ARTIFACTS, QA, INPUTS))
+        assertThat(errorOf(() -> registry.redeem(code, Operation.IMPORT_ARTIFACTS, QA, INPUTS))
             .code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
     }
 
@@ -155,18 +155,18 @@ class WriteChallengeRegistryTest {
     void aMismatchConsumesTheCode() {
         String code = issue();
 
-        errorOf(() -> registry.redeem(code, Capability.IMPORT_ARTIFACTS, DEV, "other"));
+        errorOf(() -> registry.redeem(code, Operation.IMPORT_ARTIFACTS, DEV, "other"));
 
-        assertThat(errorOf(() -> registry.redeem(code, Capability.IMPORT_ARTIFACTS, DEV,
+        assertThat(errorOf(() -> registry.redeem(code, Operation.IMPORT_ARTIFACTS, DEV,
             INPUTS)).code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
     }
 
     @Test
     void anUnknownOrMissingCodeIsInvalid() {
         assertThat(errorOf(() -> registry.redeem("AAAAAAAAAAAAAAAAAAAAAA",
-            Capability.IMPORT_ARTIFACTS, DEV, INPUTS)).code())
+            Operation.IMPORT_ARTIFACTS, DEV, INPUTS)).code())
             .isEqualTo(ErrorCode.CONFIRMATION_INVALID);
-        assertThat(errorOf(() -> registry.redeem(null, Capability.IMPORT_ARTIFACTS, DEV,
+        assertThat(errorOf(() -> registry.redeem(null, Operation.IMPORT_ARTIFACTS, DEV,
             INPUTS)).code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
     }
 
@@ -176,9 +176,9 @@ class WriteChallengeRegistryTest {
         String late = issue();
 
         clock.advance(TTL);
-        registry.redeem(justInTime, Capability.IMPORT_ARTIFACTS, DEV, INPUTS);
+        registry.redeem(justInTime, Operation.IMPORT_ARTIFACTS, DEV, INPUTS);
         clock.advance(Duration.ofMillis(1));
-        ToolError expired = errorOf(() -> registry.redeem(late, Capability.IMPORT_ARTIFACTS,
+        ToolError expired = errorOf(() -> registry.redeem(late, Operation.IMPORT_ARTIFACTS,
             DEV, INPUTS));
 
         assertThat(expired.code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
@@ -201,7 +201,7 @@ class WriteChallengeRegistryTest {
 
         registry.discard(code);
 
-        assertThat(errorOf(() -> registry.redeem(code, Capability.IMPORT_ARTIFACTS, DEV,
+        assertThat(errorOf(() -> registry.redeem(code, Operation.IMPORT_ARTIFACTS, DEV,
             INPUTS)).code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
     }
 
@@ -213,7 +213,7 @@ class WriteChallengeRegistryTest {
         for (int i = 0; i < 16; i++) {
             threads.add(Thread.ofVirtual().start(() -> {
                 try {
-                    registry.redeem(code, Capability.IMPORT_ARTIFACTS, DEV, INPUTS);
+                    registry.redeem(code, Operation.IMPORT_ARTIFACTS, DEV, INPUTS);
                     redeemed.incrementAndGet();
                 } catch (ToolErrorException e) {
                     // the others are refused
@@ -247,7 +247,7 @@ class WriteChallengeRegistryTest {
     @Test
     void theRefusalSaysHowToGetANewCode() {
         ToolError error = errorOf(() -> registry.redeem("AAAAAAAAAAAAAAAAAAAAAA",
-            Capability.TAG_ARTIFACTS, DEV, INPUTS));
+            Operation.TAG_ARTIFACTS, DEV, INPUTS));
 
         assertThat(error.nextStep()).contains("tag_artifacts", "without confirmationCode");
         assertThat(error.message()).contains("nothing was sent");
@@ -258,7 +258,7 @@ class WriteChallengeRegistryTest {
         String code = issue();
         clock.advance(TTL.plusSeconds(1));
 
-        ToolError error = errorOf(() -> registry.redeem(code, Capability.IMPORT_ARTIFACTS, DEV,
+        ToolError error = errorOf(() -> registry.redeem(code, Operation.IMPORT_ARTIFACTS, DEV,
             INPUTS));
 
         assertThat(error.toString()).doesNotContain(STATE).doesNotContain(INPUTS)
@@ -291,7 +291,7 @@ class WriteChallengeRegistryTest {
     @Test
     void aNodeCodeNeverConfirmsADeploymentAndTheOtherWayRound() {
         NodeId node = NodeId.parse("int/node1");
-        WriteChallengeRegistry.Issued nodeCode = registry.issue(Capability.IMPORT_ARTIFACTS,
+        WriteChallengeRegistry.Issued nodeCode = registry.issue(Operation.IMPORT_ARTIFACTS,
             node, "inputs", "state", Duration.ofMinutes(5));
         WriteChallengeRegistry.Issued groupCode = registry.issue(
             WriteChallengeRegistry.DEPLOY_RELEASE, node.group(), "inputs", "state",
@@ -301,7 +301,7 @@ class WriteChallengeRegistryTest {
             nodeCode.code(), WriteChallengeRegistry.DEPLOY_RELEASE, node.group(), "inputs"))
             .error().code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
         assertThat(catchThrowableOfType(ToolErrorException.class, () -> registry.redeem(
-            groupCode.code(), Capability.IMPORT_ARTIFACTS, node, "inputs")).error().code())
+            groupCode.code(), Operation.IMPORT_ARTIFACTS, node, "inputs")).error().code())
             .isEqualTo(ErrorCode.CONFIRMATION_INVALID);
     }
 }

@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
-import de.dadecker.inubit.mcp.application.DevelopmentGuard.Capability;
+import de.dadecker.inubit.mcp.application.DevelopmentGuard.Operation;
 import de.dadecker.inubit.mcp.domain.model.ArtifactRef;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
@@ -351,7 +351,7 @@ public final class ImportService {
      *     record), or {@code INTERNAL} if an audit record cannot be written
      */
     public Response importArtifacts(ImportRequest request) {
-        Call call = new Call(Capability.IMPORT_ARTIFACTS, request.node(), request.reason(),
+        Call call = new Call(Operation.IMPORT_ARTIFACTS, request.node(), request.reason(),
             request.confirmationCode(), request.mcpClient());
         call.requested.put("scope", request.diagramGroup().map(g -> "diagram group " + g)
             .orElseGet(() -> request.repositoryPaths().isEmpty() ? "modules " + String.join(
@@ -362,15 +362,32 @@ public final class ImportService {
         DevelopmentPolicy policy;
         try {
             validate(request);
-            policy = d.guard().admit(request.node(), Capability.IMPORT_ARTIFACTS);
+            policy = d.guard().admit(request.node(), Operation.IMPORT_ARTIFACTS);
             call.policy = policy;
-            call.owner = owner(request.owner(), policy.node(), Capability.IMPORT_ARTIFACTS);
+            call.owner = owner(request.owner(), policy.node(), Operation.IMPORT_ARTIFACTS);
         } catch (ToolErrorException e) {
             throw call.refuse(e.error());
         } catch (RuntimeException e) {
             throw call.refuse(unexpected("checking the request", e));
         }
-        return underLock(call, () -> locked(call, policy, request));
+        return withAdmissionWarnings(policy, underLock(call, () -> locked(call, policy,
+            request)));
+    }
+
+    /**
+     * Feature 009 (research D-5): the warnings of the version gate's admission
+     * ({@link DevelopmentPolicy#warnings()}) come first in the warnings of the outcome.
+     */
+    private static Response withAdmissionWarnings(DevelopmentPolicy policy, Response response) {
+        if (policy.warnings().isEmpty() || !(response instanceof Response.Completed completed)) {
+            return response;
+        }
+        WriteOutcome o = completed.outcome();
+        List<String> warnings = new ArrayList<>(policy.warnings());
+        warnings.addAll(o.warnings());
+        return new Response.Completed(new WriteOutcome(o.auditId(), o.outcome(), o.failure(),
+            o.commit(), o.backupRef(), o.created(), o.modified(), o.notImported(), o.rollback(),
+            o.createdNotRemoved(), o.reports(), warnings, o.tag(), o.identical()));
     }
 
     /**
@@ -389,7 +406,7 @@ public final class ImportService {
                 throw e;
             }
             throw e instanceof ToolErrorException tool ? call.refuse(tool.error())
-                : call.refuse(unexpected("preparing the " + call.capability.toolName(), e));
+                : call.refuse(unexpected("preparing the " + call.operation.toolName(), e));
         }
     }
 
@@ -504,7 +521,7 @@ public final class ImportService {
      */
     private Optional<String> redeem(Call call, NodeId node, String inputs, String workspace) {
         String previewed = d.challenges().redeem(call.confirmationCode.orElseThrow(),
-            Capability.IMPORT_ARTIFACTS, node, inputs);
+            Operation.IMPORT_ARTIFACTS, node, inputs);
         Map<String, String> state = parseState(previewed);
         if (!workspace.equals(state.get("workspace"))) {
             throw new ToolErrorException(ToolError.of(ErrorCode.CONFIRMATION_INVALID,
@@ -563,7 +580,7 @@ public final class ImportService {
      * @throws ToolErrorException every refusal before anything is sent (after its audit record)
      */
     public Response setActive(ActivationRequest request) {
-        Call call = new Call(Capability.SET_ACTIVE, request.node(), request.reason(),
+        Call call = new Call(Operation.SET_ACTIVE, request.node(), request.reason(),
             request.confirmationCode(), request.mcpClient());
         call.requested.put("scope", DIAGRAM_GROUP + request.diagramGroup());
         call.requested.put("workflow", request.workflow());
@@ -575,15 +592,16 @@ public final class ImportService {
                 throw invalid("Give diagramGroup and workflow", "set_active switches exactly"
                     + " one workflow", "Name the workflow and its diagram group");
             }
-            policy = d.guard().admit(request.node(), Capability.SET_ACTIVE);
+            policy = d.guard().admit(request.node(), Operation.SET_ACTIVE);
             call.policy = policy;
-            call.owner = owner(request.owner(), policy.node(), Capability.SET_ACTIVE);
+            call.owner = owner(request.owner(), policy.node(), Operation.SET_ACTIVE);
         } catch (ToolErrorException e) {
             throw call.refuse(e.error());
         } catch (RuntimeException e) {
             throw call.refuse(unexpected("checking the request", e));
         }
-        return underLock(call, () -> activateLocked(call, policy, request));
+        return withAdmissionWarnings(policy, underLock(call, () -> activateLocked(call, policy,
+            request)));
     }
 
     private Response activateLocked(Call call, DevelopmentPolicy policy,
@@ -629,7 +647,7 @@ public final class ImportService {
         Optional<String> previewed = Optional.empty();
         if (server && call.confirmationCode.isPresent()) {
             previewed = Optional.of(d.challenges().redeem(call.confirmationCode.get(),
-                Capability.SET_ACTIVE, node, inputs));
+                Operation.SET_ACTIVE, node, inputs));
         }
         ConflictDetector.Result fresh = detector.detect(node, changes, auditId, false);
         String state = fingerprint(artifactFiles(fresh.rendered(), workflow));
@@ -712,7 +730,7 @@ public final class ImportService {
      * @throws ToolErrorException every refusal before anything is sent (after its audit record)
      */
     public Response restore(RestoreRequest request) {
-        Call call = new Call(Capability.RESTORE_BACKUP, request.node(), request.reason(),
+        Call call = new Call(Operation.RESTORE_BACKUP, request.node(), request.reason(),
             request.confirmationCode(), request.mcpClient());
         call.requested.put("backupRef", request.backupRef());
         DevelopmentPolicy policy;
@@ -732,7 +750,8 @@ public final class ImportService {
         } catch (RuntimeException e) {
             throw call.refuse(unexpected("checking the request", e));
         }
-        return underLock(call, () -> restoreLocked(call, policy, request.backupRef()));
+        return withAdmissionWarnings(policy, underLock(call, () -> restoreLocked(call, policy,
+            request.backupRef())));
     }
 
     /**
@@ -743,7 +762,7 @@ public final class ImportService {
      */
     private DevelopmentPolicy admitRestore(RestoreRequest request) {
         try {
-            return d.guard().admit(request.node(), Capability.RESTORE_BACKUP);
+            return d.guard().admit(request.node(), Operation.RESTORE_BACKUP);
         } catch (ToolErrorException e) {
             if (e.error().code() != ErrorCode.NOT_DEVELOPMENT || d.deployments().isEmpty()
                 || e.error().node().isEmpty()) {
@@ -812,7 +831,7 @@ public final class ImportService {
         Optional<String> previewed = Optional.empty();
         if (server && call.confirmationCode.isPresent()) {
             previewed = Optional.of(d.challenges().redeem(call.confirmationCode.get(),
-                Capability.RESTORE_BACKUP, node, inputs));
+                Operation.RESTORE_BACKUP, node, inputs));
         }
         Fresh fresh = fresh(node, changes, ref);
         requireStateLeftBy(node, manifest, changes, fresh, auditId);
@@ -884,7 +903,7 @@ public final class ImportService {
                 plan.restored(), notes, inputs, plan.fingerprint());
         }
         String previewed = d.challenges().redeem(call.confirmationCode.get(),
-            Capability.RESTORE_BACKUP, node, inputs);
+            Operation.RESTORE_BACKUP, node, inputs);
         if (!previewed.equals(plan.fingerprint())) {
             throw changedSincePreview(node);
         }
@@ -1208,7 +1227,7 @@ public final class ImportService {
     /** Issues a code for the preview of {@code what}, audited {@code CHALLENGE_ISSUED}. */
     private WriteChallengeRegistry.Issued issue(Call call, NodeId node,
         DevelopmentPolicy policy, String inputs, String previewState, String what) {
-        WriteChallengeRegistry.Issued issued = d.challenges().issue(call.capability, node,
+        WriteChallengeRegistry.Issued issued = d.challenges().issue(call.operation, node,
             inputs, previewState, policy.confirmationTtl());
         Map<String, String> audited = call.inputs();
         audited.put(AuditRecord.ISSUED_CONFIRMATION_CODE, issued.code());
@@ -1221,7 +1240,7 @@ public final class ImportService {
             call.refused = true;
             throw auditFailure(node, e, "the preview was not issued");
         }
-        LOG.info("{} on {}: CHALLENGE_ISSUED", call.capability.toolName(), node);
+        LOG.info("{} on {}: CHALLENGE_ISSUED", call.operation.toolName(), node);
         return issued;
     }
 
@@ -1230,12 +1249,12 @@ public final class ImportService {
         String scope, List<String> modify, List<String> notes, String inputs,
         String previewState) {
         WriteChallengeRegistry.Issued issued = issue(call, node, policy, inputs, previewState,
-            call.capability.toolName() + " of " + scope);
+            call.operation.toolName() + " of " + scope);
         return new Response.WriteChallenge(new WritePreview(node, scope, modify, notes,
             issued.code(), issued.expiresAt(), "Nothing was sent. To run "
-                + call.capability.toolName() + " for " + scope + " on " + node + ", show this"
+                + call.operation.toolName() + " for " + scope + " on " + node + ", show this"
                 + " preview to the user and, after their explicit approval, call "
-                + call.capability.toolName() + " again with the same inputs and"
+                + call.operation.toolName() + " again with the same inputs and"
                 + " confirmationCode before " + issued.expiresAt() + "."));
     }
 
@@ -1420,7 +1439,7 @@ public final class ImportService {
     private Response unexpectedAfterSending(Call call, NodeId node, Plan plan, UUID auditId,
         Account account, RuntimeException e) {
         LOG.error("{} on {} failed unexpectedly at {} after sending (audit id {})",
-            call.capability.toolName(), node, call.step, auditId, e);
+            call.operation.toolName(), node, call.step, auditId, e);
         ChangeSet changes = plan.changes();
         WriteOutcome.Failure failure = new WriteOutcome.Failure(ErrorCode.IMPORT_FAILED,
             call.step, "INTERNAL: an unexpected failure (" + e.getClass().getSimpleName()
@@ -1494,7 +1513,7 @@ public final class ImportService {
             }
         }
         appendFinal(call, node, auditId, AuditOutcome.EXECUTED, message);
-        LOG.info("{} on {}: EXECUTED (audit id {})", call.capability.toolName(), node, auditId);
+        LOG.info("{} on {}: EXECUTED (audit id {})", call.operation.toolName(), node, auditId);
         warnings.addAll(plan.notes());
         keep(plan.keep(), warnings);
         return new Response.Completed(new WriteOutcome(auditId, WriteOutcome.Outcome.EXECUTED,
@@ -1542,7 +1561,7 @@ public final class ImportService {
 
     /** {@code import_artifacts} only (0.4.3): the artifacts that were identical on the node. */
     private static Optional<List<String>> identical(Call call, ChangeSet changes) {
-        return call.capability == Capability.IMPORT_ARTIFACTS
+        return call.operation == Operation.IMPORT_ARTIFACTS
             ? Optional.of(changes.identicalNames()) : Optional.empty();
     }
 
@@ -1610,7 +1629,7 @@ public final class ImportService {
         appendFinal(call, node, auditId, AuditOutcome.FAILED, reported.code() + " at "
             + reported.step() + ": " + reported.message() + " (rollback " + rollback + ")");
         LOG.warn("{} on {}: FAILED at {} (audit id {}, rollback {})",
-            call.capability.toolName(), node, reported.step(), auditId, rollback);
+            call.operation.toolName(), node, reported.step(), auditId, rollback);
         return new Response.Completed(new WriteOutcome(auditId, WriteOutcome.Outcome.FAILED,
             Optional.of(reported), Optional.empty(), Optional.of(auditId.toString()),
             changes.created(), changes.modified(), changes.notImported(),
@@ -2169,12 +2188,12 @@ public final class ImportService {
     }
 
     /** The given owner, else {@code inventory.owner} of the node (research D-25 L2). */
-    private String owner(Optional<String> owner, NodeId node, Capability capability) {
+    private String owner(Optional<String> owner, NodeId node, Operation operation) {
         return owner.or(() -> d.defaultOwners().apply(node)).orElseThrow(() ->
             new ToolErrorException(ToolError.of(ErrorCode.NOT_CONFIGURED,
                 "No owner is given and inventory.owner is not set for " + node
                     + "; nothing was sent",
-                capability.toolName() + " needs the owner of the artifacts",
+                operation.toolName() + " needs the owner of the artifacts",
                 "Give owner, or set inventory.owner for the node").withNode(node)));
     }
 
@@ -2305,7 +2324,7 @@ public final class ImportService {
     /** One call: its request, what is known so far and the refusal path. */
     private final class Call {
 
-        final Capability capability;
+        final Operation operation;
         final String node;
         final String reason;
         final Optional<String> confirmationCode;
@@ -2332,9 +2351,9 @@ public final class ImportService {
         /** The step reached after sending: import, protocol, verify, commit, tag. */
         String step = "import";
 
-        Call(Capability capability, String node, String reason,
+        Call(Operation operation, String node, String reason,
             Optional<String> confirmationCode, Optional<String> mcpClient) {
-            this.capability = capability;
+            this.operation = operation;
             this.node = node;
             this.reason = reason;
             this.confirmationCode = confirmationCode;
@@ -2426,7 +2445,7 @@ public final class ImportService {
             Optional<NodeId> node = node();
             return new AuditRecord(auditId, d.clock().instant(), d.profile(),
                 node.map(NodeId::value).orElse(bounded(this.node)), group(),
-                capability.toolName(), step, inputs, node.map(id -> d.accounts().apply(id)
+                operation.toolName(), step, inputs, node.map(id -> d.accounts().apply(id)
                     .user()), outcome, reason.map(Call::bounded), mcpClient);
         }
 
@@ -2442,7 +2461,7 @@ public final class ImportService {
          */
         ToolErrorException failedAfterSending(RuntimeException e) {
             LOG.error("{} failed unexpectedly after sending (audit id {})",
-                capability.toolName(), sent, e);
+                operation.toolName(), sent, e);
             String message = "Unexpected failure after the import was sent ("
                 + e.getClass().getSimpleName() + "): the change set may have been imported"
                 + " without verification; the backup " + sent + " holds the state before";
@@ -2480,7 +2499,7 @@ public final class ImportService {
                     "Fix the audit directory (auditDirectory in the configuration), then"
                         + " retry"));
             }
-            LOG.info("{} on {}: REFUSED ({})", capability.toolName(), bounded(node),
+            LOG.info("{} on {}: REFUSED ({})", operation.toolName(), bounded(node),
                 error.code());
             return new ToolErrorException(error);
         }

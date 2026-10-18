@@ -21,6 +21,7 @@ import de.dadecker.inubit.mcp.domain.port.E2ePort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.IOException;
 import java.net.URI;
@@ -117,7 +118,7 @@ class RunE2eTestToolTest {
         MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
         E2eTestService service = new E2eTestService(new E2eTestService.Dependencies(root,
             root.resolve("backups"), "acme", new DevelopmentGuard(new TargetResolver(List.of(DEV)), Map.of(DEV, dev)::get,
-                node -> { }), node -> port, node -> logs, node -> processes,
+                node -> { }, FakeVersionDetection.pinned81()), node -> port, node -> logs, node -> processes,
             node -> Duration.ofMinutes(15),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),
             new WriteChallengeRegistry(clock), record -> { }, clock, UUID::randomUUID));

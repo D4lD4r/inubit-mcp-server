@@ -6,21 +6,27 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.TagOutcome;
 import de.dadecker.inubit.mcp.domain.model.TagPreview;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -51,6 +57,12 @@ class TagServiceTest {
     private final List<AuditRecord> audit = new CopyOnWriteArrayList<>();
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
     private WritePolicy.Confirmation confirmation = WritePolicy.Confirmation.CLIENT;
+    /** Feature 009: the {@code versionLine} of each node ({@code V8_1} if absent). */
+    private final Map<NodeId, VersionSetting> versionLines = new HashMap<>();
+    private final NodeVersions versions = new NodeVersions(clock,
+        node -> versionLines.getOrDefault(node, VersionSetting.V8_1),
+        node -> Duration.ofMinutes(10));
+    private final FakeVersionDetection detection = new FakeVersionDetection(versions);
 
     @BeforeEach
     void setUp() {
@@ -70,7 +82,8 @@ class TagServiceTest {
         Map<NodeId, DevelopmentPolicy> policies = Map.of(DEV, dev, TEST, test);
         return new TagService(new TagService.Dependencies(root, "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV, TEST)), policies::get,
-                node -> port.checkAvailable()),
+                node -> port.checkAvailable(), new VersionGate(versions, detection,
+                    CapabilityMatrix.production())),
             node -> port, node -> Optional.of("jdoe"),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),
             new WriteChallengeRegistry(clock), audit::add, clock, UUID::randomUUID));
@@ -266,5 +279,54 @@ class TagServiceTest {
             Optional.empty(), List.of("GRP-02"), "REL-2", "Again",
             Optional.of(second.confirmationCode()), Optional.empty()));
         assertThat(error.code()).isEqualTo(ErrorCode.CONFLICT);
+    }
+
+    // --- feature 009 (T009): the version gate --------------------------------------------------
+
+    @Test
+    void aNodeOnInubit90IsRefusedAfterOnlyTheDetection() {
+        versionLines.put(DEV, VersionSetting.AUTO);
+        detection.answer(DEV, "9.0.7");
+
+        ToolError error = refusal(service(), request(List.of("GRP-01")));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(error.message()).isEqualTo("tag_artifacts: INUBIT 9.0.7 on dev/node1 does not"
+            + " support development writes yet; nothing was sent");
+        assertThat(error.node()).contains(DEV);
+        assertThat(port.calls).as("nothing read through StartCLI").isEmpty();
+        assertThat(detection.requests()).containsExactly(DEV);
+        assertThat(audit).singleElement().satisfies(record ->
+            assertThat(record.capability()).isEqualTo("tag_artifacts"));
+    }
+
+    @Test
+    void aNodePinnedToV9xIsRefusedWithoutAnyRequest() {
+        versionLines.put(DEV, VersionSetting.V9_X);
+
+        ToolError error = refusal(service(), request(List.of("GRP-01")));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(error.message()).startsWith("tag_artifacts: ");
+        assertThat(port.calls).isEmpty();
+        assertThat(detection.requests()).isEmpty();
+    }
+
+    @Test
+    void aClientPatchMismatchTagsWithTheWarning() {
+        versionLines.put(DEV, VersionSetting.AUTO);
+        detection.answer(DEV, "8.1.18");
+        versions.clientProbed(DEV, new ClientVersion(version("8.1.17"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.1.17"))));
+
+        TagOutcome outcome = run(service(), request(List.of("GRP-01")));
+
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(outcome.warnings()).containsExactly("StartCLI client 8.1.17 and INUBIT 8.1.18"
+            + " on dev/node1 differ; StartCLI results may be unreliable");
+    }
+
+    private static InubitVersion version(String raw) {
+        return InubitVersion.parse(raw).orElseThrow();
     }
 }
