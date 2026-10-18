@@ -53,7 +53,8 @@ import javax.net.ssl.SSLException;
  *       request.
  *   <li>The request timeout is the server's {@code timeout}.
  *   <li>Failures become {@link ToolErrorException}s with the server id: 401 → {@code AUTH_FAILED}
- *       (the body is not read), 403 → {@code FORBIDDEN}, 404 → {@code NOT_FOUND}, 503 →
+ *       (the body is not read), 403 → {@code FORBIDDEN}, 404 → {@code NOT_FOUND} (on an
+ *       {@link ResourceKind#ENDPOINT} request {@code UNEXPECTED_RESPONSE}), 503 →
  *       {@code MAINTENANCE_MODE} if the {@link MaintenanceProbe} reports maintenance, otherwise
  *       {@code UNREACHABLE} (the server answered but is not serving), a body above
  *       {@link #MAX_BODY_BYTES} → {@code UNEXPECTED_RESPONSE}, any other
@@ -80,6 +81,17 @@ public final class InubitHttpClient implements AutoCloseable {
         "INUBIT answered 503: starting up, overloaded, or behind a proxy that is not serving";
     private static final Pattern HTML_TAG = Pattern.compile("<[^>]*>");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
+
+    /** What an HTTP 404 of a request means (feature 009 research D-10). */
+    public enum ResourceKind {
+        /** A requested name or id (a process, a diagram): 404 → {@code NOT_FOUND}. */
+        RESOURCE,
+        /**
+         * A fixed endpoint that exists on every working server of the adapter's version: 404 →
+         * {@code UNEXPECTED_RESPONSE}, the node may run another INUBIT version.
+         */
+        ENDPOINT
+    }
 
     /** Username (not secret, FR-025) and password of the INUBIT account. */
     public record Credentials(String username, Secret password) {
@@ -209,7 +221,13 @@ public final class InubitHttpClient implements AutoCloseable {
      * @param acceptedStatuses non-2xx statuses that are returned instead of mapped to an error
      */
     public RestResponse get(String path, Map<String, String> query, int... acceptedStatuses) {
-        return send("GET", path, HttpRequest.newBuilder(uri(path, query)).GET(), true,
+        return get(path, query, ResourceKind.RESOURCE, acceptedStatuses);
+    }
+
+    /** As {@link #get(String, Map, int...)}, with the meaning of a 404 for this request. */
+    public RestResponse get(String path, Map<String, String> query, ResourceKind kind,
+        int... acceptedStatuses) {
+        return send("GET", path, HttpRequest.newBuilder(uri(path, query)).GET(), true, kind,
             acceptedStatuses);
     }
 
@@ -217,16 +235,22 @@ public final class InubitHttpClient implements AutoCloseable {
     public RestResponse getWithoutCredentials(String path, Map<String, String> query,
         int... acceptedStatuses) {
         return send("GET", path, HttpRequest.newBuilder(uri(path, query)).GET(), false,
-            acceptedStatuses);
+            ResourceKind.RESOURCE, acceptedStatuses);
     }
 
     /** {@code POST} with a text body of the given content type; see {@link #get}. */
     public RestResponse post(String path, Map<String, String> query, String body,
         String contentType, int... acceptedStatuses) {
+        return post(path, query, body, contentType, ResourceKind.RESOURCE, acceptedStatuses);
+    }
+
+    /** As {@link #post(String, Map, String, String, int...)}, with the meaning of a 404. */
+    public RestResponse post(String path, Map<String, String> query, String body,
+        String contentType, ResourceKind kind, int... acceptedStatuses) {
         return send("POST", path, HttpRequest.newBuilder(uri(path, query))
             .header("Content-Type", contentType)
             .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)), true,
-            acceptedStatuses);
+            kind, acceptedStatuses);
     }
 
     @Override
@@ -240,10 +264,12 @@ public final class InubitHttpClient implements AutoCloseable {
     }
 
     private RestResponse send(String method, String path, HttpRequest.Builder builder,
-        boolean authenticate, int[] acceptedStatuses) {
+        boolean authenticate, ResourceKind kind, int[] acceptedStatuses) {
+        Objects.requireNonNull(kind, "kind");
         builder.timeout(timeout).header("Accept", ACCEPT);
         if (!authenticate || credentials.isEmpty()) {
-            return evaluate(method, path, exchange(method, path, builder), acceptedStatuses);
+            return evaluate(method, path, exchange(method, path, builder), kind,
+                acceptedStatuses);
         }
         // at most one failed login per server and pause (Phase 3 review M2)
         try (CredentialGuard.Permit permit = guard.acquire()) {
@@ -255,7 +281,7 @@ public final class InubitHttpClient implements AutoCloseable {
             } else if ((status >= 200 && status < 300) || status == 403) {
                 permit.accepted();
             }
-            return evaluate(method, path, response, acceptedStatuses);
+            return evaluate(method, path, response, kind, acceptedStatuses);
         }
     }
 
@@ -287,7 +313,7 @@ public final class InubitHttpClient implements AutoCloseable {
     }
 
     private RestResponse evaluate(String method, String path, HttpResponse<byte[]> response,
-        int[] acceptedStatuses) {
+        ResourceKind kind, int[] acceptedStatuses) {
         int status = response.statusCode();
         RestResponse result = new RestResponse(status,
             response.headers().firstValue("Content-Type"), response.body());
@@ -295,7 +321,7 @@ public final class InubitHttpClient implements AutoCloseable {
             || Arrays.stream(acceptedStatuses).anyMatch(accepted -> accepted == status)) {
             return result;
         }
-        throw new ToolErrorException(statusError(method, path, result));
+        throw new ToolErrorException(statusError(method, path, kind, result));
     }
 
     private static String basicAuth(Credentials credentials) {
@@ -321,7 +347,8 @@ public final class InubitHttpClient implements AutoCloseable {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
-    private ToolError statusError(String method, String path, RestResponse response) {
+    private ToolError statusError(String method, String path, ResourceKind kind,
+        RestResponse response) {
         String request = method + " " + path;
         int status = response.status();
         return switch (status) {
@@ -333,11 +360,17 @@ public final class InubitHttpClient implements AutoCloseable {
                 "The INUBIT account is not allowed to call " + request + " (HTTP 403)",
                 "The account lacks the INUBIT permission (or license) for this function",
                 "Ask the INUBIT administrators for the permission, or use another account");
-            case 404 -> error(ErrorCode.NOT_FOUND,
-                "INUBIT has no resource for " + request + " (HTTP 404)",
-                "The name or id does not exist on this INUBIT server, or the endpoint is missing in"
-                    + " this INUBIT version",
-                "Check the name or id, e.g. with the list tools");
+            case 404 -> kind == ResourceKind.ENDPOINT
+                ? error(ErrorCode.UNEXPECTED_RESPONSE,
+                    "INUBIT endpoint not found for " + request + " (HTTP 404); the node may run"
+                        + " another INUBIT version",
+                    "The endpoint is missing in the INUBIT version of this node",
+                    "Run get_health to read the INUBIT version of the node")
+                : error(ErrorCode.NOT_FOUND,
+                    "INUBIT has no resource for " + request + " (HTTP 404)",
+                    "The name or id does not exist on this INUBIT server, or the endpoint is"
+                        + " missing in this INUBIT version",
+                    "Check the name or id, e.g. with the list tools");
             case 503 -> inMaintenance()
                 ? error(ErrorCode.MAINTENANCE_MODE,
                     "INUBIT is in maintenance mode (HTTP 503 for " + request + ")",

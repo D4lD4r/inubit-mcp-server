@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.adapter.rest.v81;
 
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
+import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.ResourceKind;
 import de.dadecker.inubit.mcp.adapter.rest.RestResponse;
 import de.dadecker.inubit.mcp.adapter.rest.v81.LogRequestPlan.LogRequest;
 import de.dadecker.inubit.mcp.adapter.rest.v81.LogRequestPlan.Window;
@@ -95,7 +96,7 @@ final class LogEndpoint {
         RestResponse response;
         try {
             response = client.post(PATH_PREFIX + logName, Map.of("format", "json"),
-                request.body(), CONTENT_TYPE);
+                request.body(), CONTENT_TYPE, ResourceKind.ENDPOINT);
         } catch (ToolErrorException e) {
             throw e.error().node().isPresent() ? e
                 : new ToolErrorException(e.error().withNode(server));

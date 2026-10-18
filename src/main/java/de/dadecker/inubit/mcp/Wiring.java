@@ -28,6 +28,7 @@ import de.dadecker.inubit.mcp.application.ImportService;
 import de.dadecker.inubit.mcp.application.InventoryCache;
 import de.dadecker.inubit.mcp.application.InventoryService;
 import de.dadecker.inubit.mcp.application.NodeDeployer;
+import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.PackageWriter;
 import de.dadecker.inubit.mcp.application.ProcessControlService;
 import de.dadecker.inubit.mcp.application.ReleaseDiscovery;
@@ -175,8 +176,13 @@ final class Wiring implements AutoCloseable {
         this.limiter = new ResultLimiter(config.resultLimits().maxItems(),
             config.resultLimits().maxChars());
         this.clock = clock;
+        Map<NodeId, EffectiveNodeConfig> byId = new HashMap<>();
+        servers.forEach(server -> byId.put(server.id(), server));
+        // feature 009 (research D-4): the per-node version state, fed by the adapters
+        NodeVersions versions = new NodeVersions(clock.clock(),
+            id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
         this.gateways = new AdapterGatewayFactory(servers, credentials, scrubber, clock.clock(),
-            new CliRunner(launcher, environment, windows, cliResources));
+            new CliRunner(launcher, environment, windows, cliResources), versions);
         this.summaries = servers.stream().map(server -> server.summary(exists, windows)).toList();
         Map<NodeId, Duration> timeouts = new HashMap<>();
         servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
@@ -185,8 +191,6 @@ final class Wiring implements AutoCloseable {
         servers.forEach(server -> hangingThresholds.put(server.id(), server.hangingThreshold()));
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
             hangingThresholds::get, clock.clock(), ResultJson::size);
-        Map<NodeId, EffectiveNodeConfig> byId = new HashMap<>();
-        servers.forEach(server -> byId.put(server.id(), server));
         this.inventory = new InventoryService(gateways, targets, fanOut, limiter,
             new InventoryCache(clock.clock(), id -> byId.get(id).inventory().cacheTtl()),
             id -> byId.get(id).inventory().owner(), timeouts::get,

@@ -22,6 +22,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import java.time.Clock;
@@ -59,7 +60,7 @@ final class DiagnosisToolFixture implements AutoCloseable {
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber, "INUBIT")
             .resolve(ids), scrubber, Clock.systemUTC(),
             new CliRunner(new SystemProcessLauncher(), Map.of(), false,
-                new CliResources("acme")));
+                new CliResources("acme")), new RecordingVersionObserver());
         Map<NodeId, Duration> timeouts = servers.stream().collect(Collectors.toMap(
             EffectiveNodeConfig::id, EffectiveNodeConfig::timeout));
         Map<NodeId, Duration> thresholds = servers.stream().collect(Collectors.toMap(

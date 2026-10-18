@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.application.DiagnosisService.LogRequest;
 import de.dadecker.inubit.mcp.application.DiagnosisService.ProcessRequest;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
 import de.dadecker.inubit.mcp.domain.model.LogQuery;
 import de.dadecker.inubit.mcp.domain.model.LogType;
@@ -78,6 +79,11 @@ class DiagnosisServiceTest {
             @Override
             public Gateway forServer(NodeId server) {
                 throw new AssertionError("US2 must not wait for a version detection");
+            }
+
+            @Override
+            public InubitVersion detect(NodeId server) {
+                throw new AssertionError("not used before the version gate (T008)");
             }
 
             @Override

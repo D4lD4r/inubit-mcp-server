@@ -4,6 +4,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
+import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -20,6 +21,7 @@ import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
@@ -30,6 +32,7 @@ import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -109,6 +112,7 @@ class AdapterGatewayFactoryTest {
     }
 
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-01T08:00:00Z"));
+    private final RecordingVersionObserver versions = new RecordingVersionObserver();
 
     private AdapterGatewayFactory factory(EffectiveNodeConfig... servers) {
         List<NodeId> ids = new ArrayList<>();
@@ -119,7 +123,8 @@ class AdapterGatewayFactoryTest {
             Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", "gateway-test-pw"),
             scrubber, "INUBIT").resolve(ids);
         return new AdapterGatewayFactory(List.of(servers), credentials, scrubber, clock,
-            new CliRunner(new SystemProcessLauncher(), Map.of(), false, new CliResources("acme")));
+            new CliRunner(new SystemProcessLauncher(), Map.of(), false, new CliResources("acme")),
+            versions);
     }
 
     private static int systemInfoCalls() {
@@ -378,13 +383,14 @@ class AdapterGatewayFactoryTest {
         assertThat(V81Gateway.class.getDeclaredMethod("imports").getDeclaringClass())
             .isEqualTo(V81Gateway.class);
         try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
+            // feature 009 T007: the 8.1 adapters behind the stale-reporting decorators
             assertThat(factory.forServer(DEV).imports()).isNotNull()
                 .isSameAs(factory.imports(DEV))
-                .isInstanceOf(de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter.class);
+                .isInstanceOf(StaleReportingPorts.Imports.class);
             // T021
             assertThat(factory.forServer(DEV).tags()).isNotNull()
                 .isSameAs(factory.tags(DEV))
-                .isInstanceOf(de.dadecker.inubit.mcp.adapter.cli.v81.V81TagAdapter.class);
+                .isInstanceOf(StaleReportingPorts.Tags.class);
             assertThat(wireMock.getAllServeEvents()).isEmpty();
         }
     }
@@ -414,7 +420,8 @@ class AdapterGatewayFactoryTest {
             scrubber, "INUBIT").resolve(List.of(DEV));
         try (AdapterGatewayFactory factory = new AdapterGatewayFactory(List.of(config),
             credentials, scrubber, clock,
-            new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")))) {
+            new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
+            versions)) {
 
             assertThatThrownBy(() -> factory.inventory(DEV).listModules("OWNERS"))
                 .isInstanceOfSatisfying(ToolErrorException.class, e ->
@@ -523,6 +530,7 @@ class AdapterGatewayFactoryTest {
 
             assertThat(factory.knownGateway(DEV)).as("a cancelled call is no failed detection")
                 .isEmpty();
+            assertThat(versions.events()).as("nor is it reported").isEmpty();
             systemInfo(200, fixture("system_info.xml"));
             assertThat(factory.forServer(DEV).detectedVersion()).contains("8.1.17");
         }
@@ -574,6 +582,195 @@ class AdapterGatewayFactoryTest {
             assertThatThrownBy(() -> factory.forServer(ENT2))
                 .isInstanceOfSatisfying(ToolErrorException.class, e ->
                     assertThat(e.error().code()).isEqualTo(ErrorCode.TARGET_UNKNOWN));
+        }
+    }
+
+    // --- feature 009 T007: detection port, reporting and stale triggers ----------------------
+
+    private static void queueLog(int status, String body) {
+        wireMock.stubFor(post(urlPathEqualTo("/ibis/rest/log/queueLog")).willReturn(aResponse()
+            .withStatus(status).withHeader("Content-Type", "application/json").withBody(body)));
+    }
+
+    private static void modelList(int status, String body) {
+        wireMock.stubFor(get(urlPathEqualTo("/ibis/rest/model/models")).willReturn(aResponse()
+            .withStatus(status).withHeader("Content-Type", "application/xml").withBody(body)));
+    }
+
+    private static ErrorCode codeOf(Runnable call) {
+        try {
+            call.run();
+        } catch (ToolErrorException e) {
+            return e.error().code();
+        }
+        throw new AssertionError("expected a ToolErrorException");
+    }
+
+    @Test
+    void detectOnAnUndetectedNodeSendsOneRequestAndCompletesTheSlotsDetection() {
+        systemInfo(200, fixture("system_info.xml"));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            InubitVersion version = factory.detect(DEV);
+
+            assertThat(version.raw()).isEqualTo("8.1.17");
+            assertThat(factory.forServer(DEV).detectedVersion()).contains("8.1.17");
+            assertThat(systemInfoCalls()).as("forServer uses the detection").isEqualTo(1);
+            assertThat(versions.events()).containsExactly("detected dev/node1 8.1.17");
+        }
+    }
+
+    @Test
+    void detectBypassesTheDetectedGatewayAndDetectsAgain() {
+        systemInfo(200, fixture("system_info.xml"));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            factory.forServer(DEV);
+            assertThat(factory.detect(DEV).raw()).isEqualTo("8.1.17");
+            assertThat(systemInfoCalls()).as("not answered from the slot's cache").isEqualTo(2);
+
+            systemInfo(200, systemInfoWithVersion("9.0.2"));
+            InubitVersion upgraded = factory.detect(DEV);
+
+            assertThat(upgraded.major()).isEqualTo(9);
+            assertThat(systemInfoCalls()).isEqualTo(3);
+            assertThat(factory.knownGateway(DEV).orElseThrow().detectedVersion())
+                .as("the adapter selection follows the re-detection").contains("9.0.2");
+            assertThat(versions.events()).containsExactly("detected dev/node1 8.1.17",
+                "detected dev/node1 8.1.17", "detected dev/node1 9.0.2");
+        }
+    }
+
+    @Test
+    void aFailedDetectIsThrownAndReportedAndTheSlotsBackOffOnlyHoldsTheAdapterSelection() {
+        systemInfo(500, "<html>internal error</html>");
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            assertThat(codeOf(() -> factory.detect(DEV)))
+                .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            Gateway fallback = factory.forServer(DEV);
+            assertThat(fallback.warnings()).containsExactly(
+                "INUBIT version could not be detected (UNEXPECTED_RESPONSE); assuming 8.1");
+            assertThat(systemInfoCalls()).as("forServer keeps the slot's 60 s fallback")
+                .isEqualTo(1);
+
+            clock.advance(Duration.ofSeconds(10));
+            systemInfo(200, fixture("system_info.xml"));
+            assertThat(factory.detect(DEV).raw())
+                .as("detect is not held back by the slot's fallback").isEqualTo("8.1.17");
+
+            assertThat(systemInfoCalls()).isEqualTo(2);
+            assertThat(factory.forServer(DEV).warnings()).isEmpty();
+            assertThat(versions.events()).containsExactly(
+                "detectionFailed dev/node1 UNEXPECTED_RESPONSE", "detected dev/node1 8.1.17");
+        }
+    }
+
+    @Test
+    void aFailedReDetectionKeepsTheDetectedGateway() {
+        systemInfo(200, fixture("system_info.xml"));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            Gateway detected = factory.forServer(DEV);
+            systemInfo(401, "<html>HTTP Status 401</html>");
+
+            assertThat(codeOf(() -> factory.detect(DEV))).isEqualTo(ErrorCode.AUTH_FAILED);
+
+            assertThat(factory.forServer(DEV)).isSameAs(detected);
+            assertThat(versions.events()).containsExactly("detected dev/node1 8.1.17",
+                "detectionFailed dev/node1 AUTH_FAILED");
+        }
+    }
+
+    @Test
+    void aVersionWithoutMajorMinorIsAFailedDetection() {
+        systemInfo(200, systemInfoWithVersion("unknown"));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            assertThatThrownBy(() -> factory.detect(DEV))
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+                    assertThat(e.error().node()).contains(DEV);
+                    assertThat(e.error().message()).contains("'unknown'");
+                });
+            assertThat(versions.events())
+                .containsExactly("detectionFailed dev/node1 UNEXPECTED_RESPONSE");
+        }
+    }
+
+    @Test
+    void theSlotReportsOnlyItsAutoDetections() {
+        systemInfo(200, fixture("system_info.xml"));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO),
+            server(ENT2, VersionSetting.V8_1))) {
+            factory.forServer(DEV);
+            factory.forServer(DEV);
+            factory.forServer(ENT2);
+            factory.monitoring(ENT2).systemInfo(); // observations are HealthService's (T016)
+
+            assertThat(versions.events()).containsExactly("detected dev/node1 8.1.17");
+        }
+    }
+
+    @Test
+    void theMonitoringsSystemInfoReportsTheSlotsFirstDetectionOnly() {
+        systemInfo(200, fixture("system_info.xml"));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            MonitoringPort monitoring = factory.monitoring(DEV);
+            monitoring.systemInfo();
+            monitoring.systemInfo();
+
+            assertThat(versions.events()).containsExactly("detected dev/node1 8.1.17");
+        }
+    }
+
+    @Test
+    void theMonitoringsFailedSystemInfoReportsTheSlotsFailedDetection() {
+        systemInfo(401, "<html>HTTP Status 401</html>");
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            assertThat(codeOf(factory.monitoring(DEV)::systemInfo))
+                .isEqualTo(ErrorCode.AUTH_FAILED);
+
+            assertThat(versions.events()).containsExactly("detectionFailed dev/node1 AUTH_FAILED");
+        }
+    }
+
+    @Test
+    void aParserUnexpectedResponseMarksTheNodeStaleAndIsRethrown() {
+        queueLog(200, "{\"somethingElse\":{}}");
+        modelList(200, "<unexpected/>");
+        systemInfo(200, "not xml");
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
+            assertThat(codeOf(() -> factory.processes(DEV).findByProcessId("1",
+                clock.instant(), Duration.ofMinutes(60)))).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            assertThat(codeOf(() -> factory.forServer(DEV).inventory().listDiagrams("OWNERS")))
+                .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            assertThat(codeOf(factory.monitoring(DEV)::systemInfo))
+                .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+
+            assertThat(versions.events()).containsExactly("stale dev/node1", "stale dev/node1",
+                "stale dev/node1");
+        }
+    }
+
+    @Test
+    void a406MarksTheNodeStale() {
+        queueLog(406, "Not Acceptable");
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
+            assertThat(codeOf(() -> factory.processes(DEV).findByProcessId("1",
+                clock.instant(), Duration.ofMinutes(60)))).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+
+            assertThat(versions.events()).containsExactly("stale dev/node1");
+        }
+    }
+
+    @Test
+    void aMissingEndpointMarksTheNodeStaleButAMissingResourceDoesNot() {
+        modelList(404, "<html>not found</html>");
+        wireMock.stubFor(get(urlPathEqualTo("/ibis/rest/model/modelByName/Missing"))
+            .willReturn(aResponse().withStatus(404)));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
+            assertThat(codeOf(() -> factory.inventory(DEV).listDiagrams("OWNERS")))
+                .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            assertThat(codeOf(() -> factory.inventory(DEV).diagramDetail("OWNERS", "Missing")))
+                .isEqualTo(ErrorCode.NOT_FOUND);
+
+            assertThat(versions.events()).containsExactly("stale dev/node1");
         }
     }
 }

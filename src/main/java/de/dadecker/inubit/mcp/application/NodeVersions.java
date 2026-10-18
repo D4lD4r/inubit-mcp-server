@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Objects;
@@ -24,9 +25,10 @@ import java.util.function.UnaryOperator;
  * detection or client probe ({@link NodeVersionState#RETRY_AFTER}).
  *
  * <p>Thread-safe: each report replaces the node's immutable {@link NodeVersionState} atomically.
- * A purpose is a {@link Capability.Kind} ({@code READ} or {@code WRITE}).
+ * A purpose is a {@link Capability.Kind} ({@code READ} or {@code WRITE}). The adapter layer reports
+ * and reads through the {@link VersionObserver} port.
  */
-public final class NodeVersions {
+public final class NodeVersions implements VersionObserver {
 
     private final Clock clock;
     private final Function<NodeId, VersionSetting> settings;
@@ -50,6 +52,12 @@ public final class NodeVersions {
         return state != null ? state : initial(node);
     }
 
+    /** {@link NodeVersionState#effectiveVersion()} of {@code node}. */
+    @Override
+    public Optional<InubitVersion> effectiveVersion(NodeId node) {
+        return state(node).effectiveVersion();
+    }
+
     /** Whether the gate has to detect before a call with {@code purpose} on {@code node}. */
     public boolean needsDetection(NodeId node, Capability.Kind purpose) {
         return state(node).needsDetection(purpose, clock.instant(), bound(node));
@@ -66,24 +74,28 @@ public final class NodeVersions {
     }
 
     /** A successful detection of {@code version}. */
+    @Override
     public void detected(NodeId node, InubitVersion version) {
         Objects.requireNonNull(version, "version");
         update(node, state -> state.withDetected(version, clock.instant()));
     }
 
     /** A failed detection. */
+    @Override
     public void detectionFailed(NodeId node, ErrorCode code) {
         Objects.requireNonNull(code, "code");
         update(node, state -> state.withDetectionFailure(code, clock.instant()));
     }
 
     /** The version {@code get_health} read from the node. */
+    @Override
     public void observed(NodeId node, InubitVersion version) {
         Objects.requireNonNull(version, "version");
         update(node, state -> state.withObserved(version, clock.instant()));
     }
 
     /** A response indicated that the node may run another version (D-10). */
+    @Override
     public void stale(NodeId node) {
         update(node, NodeVersionState::withStale);
     }

@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
 import de.dadecker.inubit.mcp.domain.model.InventoryKind;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -63,6 +64,11 @@ class InventoryOwnerTest {
             @Override
             public Gateway forServer(NodeId node) {
                 throw new AssertionError("not used");
+            }
+
+            @Override
+            public InubitVersion detect(NodeId server) {
+                throw new AssertionError("not used before the version gate (T008)");
             }
 
             @Override

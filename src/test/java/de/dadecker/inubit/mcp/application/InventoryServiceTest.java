@@ -9,6 +9,7 @@ import de.dadecker.inubit.mcp.application.InventoryService.Listing;
 import de.dadecker.inubit.mcp.application.InventoryService.Lookup;
 import de.dadecker.inubit.mcp.domain.model.ConnectorFlags;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.InventoryDetail;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
 import de.dadecker.inubit.mcp.domain.model.InventoryKind;
@@ -75,6 +76,11 @@ class InventoryServiceTest {
             @Override
             public Gateway forServer(NodeId server) {
                 throw new AssertionError("US3 must not wait for a version detection");
+            }
+
+            @Override
+            public InubitVersion detect(NodeId server) {
+                throw new AssertionError("not used before the version gate (T008)");
             }
 
             @Override

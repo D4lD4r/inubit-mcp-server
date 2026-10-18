@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Page;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
@@ -143,6 +144,11 @@ final class FakeProcessControl implements GatewayFactory {
     @Override
     public Gateway forServer(NodeId server) {
         throw new AssertionError("US4 takes the ports without version detection");
+    }
+
+    @Override
+    public InubitVersion detect(NodeId server) {
+        throw new AssertionError("not used before the version gate (T008)");
     }
 
     @Override

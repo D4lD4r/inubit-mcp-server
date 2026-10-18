@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.HealthReport;
 import de.dadecker.inubit.mcp.domain.model.HealthStatus;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LoadFigures;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
@@ -78,6 +79,11 @@ class HealthServiceTest {
                 detections.incrementAndGet(); // a blocking detection: health must not wait for it
                 awaitQuietly(new CountDownLatch(1));
                 throw new AssertionError("unreachable");
+            }
+
+            @Override
+            public InubitVersion detect(NodeId server) {
+                throw new AssertionError("not used before the version gate (T008)");
             }
 
             @Override

@@ -32,6 +32,7 @@ import de.dadecker.inubit.mcp.infra.AuditLog;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
+import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -180,7 +181,8 @@ class ProcessControlToolsTest {
         AdapterGatewayFactory gateways = new AdapterGatewayFactory(List.of(server),
             new CredentialResolver(Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD",
                 PASSWORD), scrubber, "INUBIT").resolve(ids), scrubber, Clock.systemUTC(),
-            new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")));
+            new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
+            new RecordingVersionObserver());
         closeables.add(gateways);
         Map<NodeId, WritePolicy> policies = Map.of(server.id(), new WritePolicy(server.id(),
             false, true, false, confirmation == ConfirmationMode.SERVER

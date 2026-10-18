@@ -20,6 +20,8 @@ import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.Names;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -35,6 +37,7 @@ import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.time.Clock;
 import java.time.Duration;
@@ -79,6 +82,12 @@ import org.slf4j.LoggerFactory;
  * {@link #processControl}), because only the 8.1 adapters exist. The inventory's StartCLI exports
  * and the restart/kill calls run with the factory's {@link CliRunner} and the server's
  * {@link CredentialGuard}, shared with its REST client.
+ *
+ * <p>Version reporting (feature 009 research D-4, D-10): every {@code AUTO} detection of a slot
+ * (through {@link #forServer} or the monitoring's {@code /system/info}) and every
+ * {@link #detect} report their outcome to the {@link VersionObserver}; a cancelled call is not
+ * reported. Every port handed out is wrapped by {@link StaleReportingPorts}, which reports
+ * {@code UNEXPECTED_RESPONSE} failures as stale.
  */
 public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseable {
 
@@ -89,6 +98,7 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
     private final SecretScrubber scrubber;
     private final Clock clock;
     private final CliRunner cliRunner;
+    private final VersionObserver versions;
 
     /** How long the 8.1 fallback of a failed {@code AUTO} detection is used before a retry. */
     public static final Duration FAILED_DETECTION_TTL = Duration.ofSeconds(60);
@@ -98,11 +108,13 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
      * @param credentials their resolved credentials
      * @param clock       decides when a failed detection is retried
      * @param cliRunner   the StartCLI runner of the CLI-backed ports (US3 exports)
+     * @param versions    receives the detections, failed detections and stale triggers
      */
     public AdapterGatewayFactory(List<EffectiveNodeConfig> servers,
         CredentialResolution credentials, SecretScrubber scrubber, Clock clock,
-        CliRunner cliRunner) {
+        CliRunner cliRunner, VersionObserver versions) {
         this.cliRunner = Objects.requireNonNull(cliRunner, "cliRunner");
+        this.versions = Objects.requireNonNull(versions, "versions");
         this.scrubber = Objects.requireNonNull(scrubber, "scrubber");
         this.clock = Objects.requireNonNull(clock, "clock");
         for (EffectiveNodeConfig server : servers) {
@@ -118,6 +130,11 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
     @Override
     public Gateway forServer(NodeId server) {
         return slot(server).gateway();
+    }
+
+    @Override
+    public InubitVersion detect(NodeId server) {
+        return slot(server).detectNow();
     }
 
     private Slot slot(NodeId server) {
@@ -200,11 +217,12 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
         private final EffectiveNodeConfig server;
         private final NodeCredentials credentials;
         private final CredentialGuard guard;
+        private final StaleReportingPorts stale;
         private final ReentrantLock clientLock = new ReentrantLock();
         private final ReentrantLock lock = new ReentrantLock();
         private V81MaintenanceProbe probe;
         private InubitHttpClient client;
-        private V81MonitoringAdapter monitoring;
+        private MonitoringPort monitoring;
         private V81Gateway.Ports ports;
         private V81Gateway gateway;
         /** Set while {@link #gateway} is the fallback of a failed detection. */
@@ -214,6 +232,7 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
             this.server = server;
             this.credentials = credentials;
             this.guard = new CredentialGuard(server.credentialVariables(), clock);
+            this.stale = new StaleReportingPorts(server.id(), versions);
         }
 
         Gateway gateway() {
@@ -223,8 +242,7 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                     return gateway;
                 }
                 ensureClient();
-                return server.versionLine() instanceof VersionSetting.Auto ? detect()
-                    : configured();
+                return auto() ? detect() : configured();
             } finally {
                 lock.unlock();
             }
@@ -248,7 +266,7 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                 if (valid()) {
                     return Optional.of(gateway);
                 }
-                if (server.versionLine() instanceof VersionSetting.Auto) {
+                if (auto()) {
                     return Optional.empty();
                 }
                 ensureClient();
@@ -256,6 +274,10 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
             } finally {
                 lock.unlock();
             }
+        }
+
+        private boolean auto() {
+            return server.versionLine() instanceof VersionSetting.Auto;
         }
 
         private boolean valid() {
@@ -275,7 +297,8 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
 
         /**
          * Detects the version; a real failure gives an 8.1 gateway with a warning, cached for
-         * {@link #FAILED_DETECTION_TTL}. A cancelled (interrupted) detection is not cached.
+         * {@link #FAILED_DETECTION_TTL}. A cancelled (interrupted) detection is neither cached
+         * nor reported.
          */
         private Gateway detect() {
             String version;
@@ -287,15 +310,70 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                         List.of(fallbackWarning(e.error().code())), client, monitoring, ports,
                         guard);
                 }
+                report(e.error().code());
                 return fallback(e.error().code());
             }
+            report(version);
             return detected(version);
         }
 
-        /** The health call's {@code /system/info} completes an {@code AUTO} detection. */
+        /**
+         * {@link GatewayFactory#detect}: one detection regardless of the cached gateway or the
+         * fallback window. For {@code AUTO} the result also updates the adapter selection: a
+         * success replaces the gateway, a failure installs the fallback only if no valid gateway
+         * is cached (a known version is kept).
+         */
+        InubitVersion detectNow() {
+            lock.lock();
+            try {
+                ensureClient();
+                String version;
+                try {
+                    version = V81VersionDetector.detect(server.id(), client);
+                } catch (ToolErrorException e) {
+                    if (!Thread.currentThread().isInterrupted()) {
+                        report(e.error().code());
+                        if (auto() && !valid()) {
+                            fallback(e.error().code());
+                        }
+                    }
+                    throw e;
+                }
+                Optional<InubitVersion> parsed = report(version);
+                if (auto()) {
+                    detected(version);
+                }
+                return parsed.orElseThrow(() -> new ToolErrorException(ToolError.of(
+                    ErrorCode.UNEXPECTED_RESPONSE,
+                    "The INUBIT version " + Names.quote(version) + " of " + server.id()
+                        + " has no major.minor",
+                    "The system information has an unexpected format",
+                    "Check the INUBIT server, or run get_health").withNode(server.id())));
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        /** Reports a detected version; one without major.minor is a failed detection. */
+        private Optional<InubitVersion> report(String version) {
+            Optional<InubitVersion> parsed = InubitVersion.parse(version);
+            parsed.ifPresentOrElse(v -> versions.detected(server.id(), v),
+                () -> report(ErrorCode.UNEXPECTED_RESPONSE));
+            return parsed;
+        }
+
+        private void report(ErrorCode failure) {
+            versions.detectionFailed(server.id(), failure);
+        }
+
+        /**
+         * The health call's {@code /system/info} completes an {@code AUTO} detection (and reports
+         * it); once detected, later health calls are observations, reported by the health
+         * service, not here.
+         */
         @Override
         public void succeeded(SystemInfo info) {
-            if (!(server.versionLine() instanceof VersionSetting.Auto) || !lock.tryLock()) {
+            if (!auto() || !lock.tryLock()) {
                 return;
             }
             try {
@@ -303,8 +381,10 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                     return; // already detected
                 }
                 if (info.version().isPresent()) {
+                    report(info.version().get());
                     detected(info.version().get());
                 } else if (!valid()) {
+                    report(ErrorCode.UNEXPECTED_RESPONSE);
                     fallback(ErrorCode.UNEXPECTED_RESPONSE);
                 }
             } finally {
@@ -315,12 +395,12 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
         /** A real failure of the health call's {@code /system/info} is a failed detection. */
         @Override
         public void failed(ToolError error) {
-            if (!(server.versionLine() instanceof VersionSetting.Auto)
-                || Thread.currentThread().isInterrupted() || !lock.tryLock()) {
+            if (!auto() || Thread.currentThread().isInterrupted() || !lock.tryLock()) {
                 return;
             }
             try {
                 if (!valid()) {
+                    report(error.code());
                     fallback(error.code());
                 }
             } finally {
@@ -358,7 +438,8 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
 
         /**
          * Creates the client (with the 8.1 maintenance probe and the server's credential guard)
-         * the monitoring adapter and the ports once; no network access.
+         * the monitoring adapter and the ports once, both wrapped by {@link StaleReportingPorts};
+         * no network access.
          *
          * @throws ToolErrorException {@code TLS_ERROR} if the trust store or pin is unusable;
          *     not cached, so a fixed trust store is picked up on the next call
@@ -375,11 +456,12 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                     client = InubitHttpClient.create(server, credentials, newProbe, scrubber,
                         guard);
                     probe = newProbe;
-                    monitoring = new V81MonitoringAdapter(server.id(), client, this);
+                    monitoring = stale.monitoring(
+                        new V81MonitoringAdapter(server.id(), client, this));
                     V81InventoryAdapter inventory = new V81InventoryAdapter(server.id(), client,
                         new CliExportRunner(server, credentials, guard, cliRunner,
                             new CliOutputClassifier(scrubber, server.credentialVariables())));
-                    ports = new V81Gateway.Ports(
+                    ports = stale.ports(new V81Gateway.Ports(
                         new V81ProcessQueryAdapter(server.id(), client),
                         new V81LogAdapter(server.id(), client),
                         inventory,
@@ -395,7 +477,7 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                             guard, cliRunner, new CliOutputClassifier(scrubber,
                                 server.credentialVariables())), new CliTagRunner(server,
                             credentials, guard, cliRunner, new CliOutputClassifier(scrubber,
-                                server.credentialVariables())), inventory::confirmCredentials));
+                                server.credentialVariables())), inventory::confirmCredentials)));
                 } catch (RuntimeException e) {
                     newProbe.close();
                     throw e;

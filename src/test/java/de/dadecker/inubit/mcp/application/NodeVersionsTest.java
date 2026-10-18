@@ -10,6 +10,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState.Timed;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.time.Duration;
 import java.time.Instant;
@@ -62,6 +63,21 @@ class NodeVersionsTest {
     private static ClientVersion client(String version, String from, String to) {
         return new ClientVersion(version(version), Optional.of(version(from)),
             Optional.of(version(to)));
+    }
+
+    /** T007: the port read used by the adapter layer (D-16) is the state's effective version. */
+    @Test
+    void theObserverPortAnswersTheEffectiveVersion() {
+        VersionObserver observer = versions;
+        assertThat(observer.effectiveVersion(AUTO)).isEmpty();
+        assertThat(observer.effectiveVersion(PINNED)).contains(V_8_1_17);
+
+        observer.detected(AUTO, V_8_1_17);
+        clock.advance(Duration.ofMinutes(1));
+        observer.observed(AUTO, V_9_0_7);
+
+        assertThat(observer.effectiveVersion(AUTO)).contains(V_9_0_7)
+            .isEqualTo(versions.state(AUTO).effectiveVersion());
     }
 
     // --- AUTO: detection on first use, re-detection before writes ---------------------------

@@ -122,7 +122,7 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
   `Clock`. Test first: `test/application/NodeVersionsTest.java` (incl. detected 8.1, stale,
   re-detection fails → no writable version while a read still sees 8.1; then a successful
   observation within 60 s → writable again).
-- [ ] T007 Detection port, reporting and stale triggers (research D-4, D-5, D-10):
+- [X] T007 Detection port, reporting and stale triggers (research D-4, D-5, D-10):
   - `GatewayFactory.detect(NodeId)` in `main/domain/port/GatewayFactory.java`, implemented in
     `main/adapter/AdapterGatewayFactory.java`: one `/system/info` request that bypasses the slot's
     success cache (re-detection), result reported to the observer; the slot's `fallbackUntil`
@@ -165,6 +165,11 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
   FR-016: no refusal or warning text contains the node's baseUrl, the username or the password).
   Client results in this and the following tests are seeded through the `NodeVersions` API (T006);
   the probe itself is wired in T019.
+  Carry-over from T007 (review r1): the gate calls `GatewayFactory.detect` only for `AUTO` nodes
+  (never for pinned ones, FR-001); a `TLS_ERROR` from `detect` is not a detection attempt (no
+  back-off) and is passed through as the call's error. Note for the docs (T027): the healthcheck
+  (`/ibis/rest/healthcheck`) stays a `RESOURCE` request — any answer means reachable (feature 001),
+  so a 404 there is no stale trigger.
 
 **Checkpoint**: foundation ready; no tool behaviour has changed yet.
 

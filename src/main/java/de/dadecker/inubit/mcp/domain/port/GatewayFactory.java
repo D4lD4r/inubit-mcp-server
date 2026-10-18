@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.domain.port;
 
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import java.util.Optional;
 
@@ -21,6 +22,19 @@ public interface GatewayFactory {
      *     the server's trust store or certificate pin cannot be used
      */
     Gateway forServer(NodeId server);
+
+    /**
+     * Detects the INUBIT version of {@code server} now (feature 009 research D-5): one
+     * {@code /system/info} request, also when a version is already cached and also within the
+     * 60 s fallback window of {@link #forServer} (that window only holds the adapter selection;
+     * the caller owns the back-off of detections). The outcome is reported to the
+     * {@link VersionObserver}, except for a cancelled (interrupted) call.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException the detection's error (with
+     *     the server id), {@code UNEXPECTED_RESPONSE} for a version without a parsable
+     *     major.minor, or as {@link #forServer}
+     */
+    InubitVersion detect(NodeId server);
 
     /**
      * The monitoring port of {@code server} at once, without waiting for a version detection
