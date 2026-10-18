@@ -28,6 +28,11 @@ Expected: all green. In particular:
 | Tool announcement: profile whose only development nodes are `V9_X` announces no development tools (FR-007) | `DevelopmentWiringTest` |
 | A test-only matrix entry and adapter for a fictitious version give exactly the declared tools; 8.1 unchanged (US3, SC-004) | `CapabilityExtensionTest` |
 | Refusal text names node, version, capability, client (FR-005, SC-005); audit `REFUSED` (FR-015) | assertions in the tests above |
+| No baseUrl, username, password or unscrubbed StartCLI output in refusals, warnings, `list_nodes` `version`, `get_health` `client`/`unavailable` (FR-016) | `VersionGateTest`, `CliVersionProbeTest`, `HealthServiceTest`, `ListNodesToolTest` |
+| Mixed-channel reads on 9.0 with an 8.1 client: diagrams listed with a warning, modules refused, item history `unavailable` with `UNSUPPORTED_VERSION`; `check_artifacts` skips the module lookup with the reason (FR-009, FR-011) | `InventoryServiceTest`, `ArtifactCheckServiceTest` |
+| Write tools carry admission warnings (client mismatch, failed probe) in `warnings`, incl. restart/kill (US2-5) | `ImportServiceVersionTest`, `ProcessControlServiceTest` |
+| Stale triggers: parser `UNEXPECTED_RESPONSE`, 406, endpoint 404 (not a resource 404) (FR-010) | `AdapterGatewayFactoryTest`, `InubitHttpClientTest` |
+| Port set chosen by effective version; registry default for every version in production (D-16) | `AdapterGatewayFactoryTest`, `CapabilityExtensionTest` |
 | Existing 8.1 behaviour unchanged apart from the deliberate changes (SC-003) | the full suite |
 
 ## Live (optional, only with the person's approval)

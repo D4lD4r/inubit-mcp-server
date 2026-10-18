@@ -14,7 +14,7 @@ supports it. No new tool is added. Instead:
   other or unknown version unverified for reads and unsupported for writes;
 - a **version gate** in the application layer is called by every tool's guard before anything is
   sent; it detects the version on first use (and again before writes when it is missing, stale or
-  older than 10 minutes), applies the matrix, the pin contradiction and the client check, and
+  older than the node's `inventory.cacheTtl`, default 10 minutes), applies the matrix, the pin contradiction and the client check, and
   either admits (with a warning for unverified reads) or refuses with `UNSUPPORTED_VERSION` (D-5);
 - a per-node **version state** (`NodeVersions`) records detections, `get_health` observations,
   failures and the StartCLI client probe; `list_nodes` reports it without contacting nodes (D-4,
@@ -97,7 +97,7 @@ adds one JVM start (about 2–3 s) once per node and process.
 ```text
 specs/009-inubit-version-detection/
 ├── plan.md
-├── research.md                 # D-1…D-15
+├── research.md                 # D-1…D-16
 ├── data-model.md
 ├── quickstart.md
 ├── contracts/
@@ -112,19 +112,21 @@ specs/009-inubit-version-detection/
 
 ```text
 src/main/java/de/dadecker/inubit/mcp/
-├── config/                 # VersionSetting (+deserializer, replaces VersionLine), EffectiveNodeConfig,
+├── config/                 # VersionSetting deserializer (VersionLine removed), EffectiveNodeConfig, Defaults,
 │                           # ConfigValidator (concrete pin, V9_X text), ConfigSummary (client/version part)
 ├── domain/model/           # InubitVersion, VersionSetting value, Capability, SupportState, CapabilityMatrix,
-│                           # ClientVersion, NodeVersionState, NodeSummary (+version block)
+│                           # ClientVersion, NodeVersionState, NodeSummary (+version block), VersionRange
 ├── domain/port/            # ClientVersionPort (new); GatewayFactory.detect (new); version-state callback
-├── adapter/                # AdapterGatewayFactory: detect(node), report detections/failures/stale to NodeVersions
+├── adapter/                # AdapterGatewayFactory: detect(node), PortSetRegistry (D-16), StaleReportingPorts (D-10)
+├── adapter/rest/           # InubitHttpClient ResourceKind (endpoint 404 → UNEXPECTED_RESPONSE); v81 adapters mark endpoints
 ├── adapter/cli/            # CliVersionProbe implements ClientVersionPort; FR-011 comparison
-├── application/            # NodeVersions, VersionGate (new); DevelopmentGuard, WriteGuard, DeployService/DeployGuard,
-│                           # DiagnosisService, InventoryService, WorkspaceService, HealthService (client part) call the gate
-├── mcp/tools/              # ListNodesTool (supplier), read tools (warnings)
+├── application/            # NodeVersions, VersionGate (new); DevelopmentGuard (Operation enum), WriteGuard, DeployGuard,
+│                           # DiagnosisService, InventoryService, ArtifactCheckService, WorkspaceService, HealthService call the gate
+├── mcp/tools/              # ListNodesTool (supplier), read tools and restart/kill (warnings)
 ├── Launcher.java           # CliRunner for --check-config
 └── Wiring.java             # NodeVersions/VersionGate wiring; announcement conditions (D-12)
-src/main/resources/schemas/ # list_nodes, get_health, find_processes, query_logs, list_inventory, get_inventory_item outputs
+src/main/resources/schemas/ # list_nodes, get_health, find_processes, query_logs, list_inventory, get_inventory_item,
+                            # restart_process, kill_process outputs
 src/test/…                  # tests per quickstart table; test-only matrix/adapter (US3)
 src/test/resources/fixtures/v9_0/rest/  # synthetic system_info (D-15); fixtures/v8_1/cli/version variants
 docs/                       # setup.md (versionLine values, behaviour), tools.md (list_nodes, get_health, warnings,
@@ -146,7 +148,8 @@ ending with a green `mvn verify`:
 5. **Client probe (US1, FR-011)**: `ClientVersionPort`, `get_health` part `client`, gate client
    check, `--check-config`.
 6. **`list_nodes` (US1)** and **`deploy_release` (FR-014a)**.
-7. **Extensibility test (US3)**, docs, CHANGELOG, quickstart validation.
+7. **Port-set selection (D-16) and the extensibility proof (US3)**, docs, CHANGELOG, quickstart
+   validation.
 
 ## Complexity Tracking
 

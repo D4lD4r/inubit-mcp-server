@@ -16,7 +16,7 @@ texts). Domain types live in `domain/model` (pure Java, PackageBoundaryTest).
   empty (= unknown). Suffixes are ignored for matching (D-1).
 - `sameMinor(other)`: equal major and minor. Ordering: major, minor, patch (absent = 0).
 
-## VersionSetting (config → domain value, replaces `VersionLine`)
+## VersionSetting (domain value in `domain/model`, replaces `config/VersionLine`; only the Jackson deserializer lives in `config`)
 
 Sealed: `Auto` | `Line(int major, OptionalInt minor)` (`V8_1` = 8.1, `V9_X` = 9) |
 `Pinned(InubitVersion)` (needs a patch). `text()` returns the configured spelling. Resolution node →
@@ -36,7 +36,8 @@ channels (REST, CLI, SOAP) per the spec's tool classification.
 ## CapabilityMatrix (domain, new)
 
 Ordered list of `(VersionRange, Map<Capability, SupportState>)` plus the state for unknown
-versions. `state(Optional<InubitVersion>, Capability)`. The production declaration is the table in
+versions. `state(Optional<InubitVersion>, Capability)`; a major-only line (`V9_X`) is looked up as
+unknown (consistent with FR-014a), which gives the same states as 9.0 in production. The production declaration is the table in
 research D-3; tests may construct others (US3).
 
 `VersionRange`: inclusive `from`/`to` on major.minor (patch ignored), e.g. 8.1–8.1.
@@ -86,11 +87,11 @@ block (filled at call time by `ListNodesTool`'s supplier):
 | `server` | `{version, source: detected|observed|pinned, at}` or `{state: not_yet_detected}` or `{state: unknown, reason, at}` |
 | `client` | `{version, supportedFrom?, supportedTo?, comparison}` or `{state: not_yet_detected|not_available|unknown, reason?, at?}` |
 | `status` | `supported` / `partially_supported` / `unsupported` / `unknown` |
-| `capabilities` | `{usable: [...], notUsable: [{capability, reason}]}` |
+| `capabilities` | `{usable: [...], notUsable: [{capability, reason}]}`; a mixed-channel capability whose StartCLI part is refused by the client check is listed as usable and additionally as `{capability: "inventory (StartCLI parts)", reason}` in `notUsable` |
 | `warnings` | e.g. the pin contradiction |
 
 ## Admission (application value, new)
 
-Result of `VersionGate.admit(node, capability, purpose)`: `warnings: List<String>`; a refusal is a
+Result of `VersionGate.admit(node, capability, purpose, channels)`: `warnings: List<String>`; a refusal is a
 `ToolErrorException` with `UNSUPPORTED_VERSION`, `message` naming node, version, capability (and
 client version/range when the client is the cause), `nextStep` per FR-005.

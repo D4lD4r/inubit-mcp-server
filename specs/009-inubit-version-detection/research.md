@@ -113,14 +113,20 @@ by a `get_health` observation and cleared by a later matching observation (FR-01
 
 ## D-5 The version gate (refusals and detection on first use)
 
-**Decision**: an application-layer `VersionGate.admit(NodeId, Capability, Purpose)` returning
-`Admission(warnings)` or throwing `ToolErrorException(UNSUPPORTED_VERSION)`. Steps:
+**Decision**: an application-layer `VersionGate.admit(NodeId, Capability, Purpose, Set<Channel>
+channels)` returning `Admission(warnings)` or throwing `ToolErrorException(UNSUPPORTED_VERSION)`.
+`channels` names the channels the call is about to use (REST, CLI, SOAP), so that a mixed-channel
+tool asks twice: before its REST part with `{REST}` and before its StartCLI part with `{CLI}`; the
+client check (D-8) runs only when `CLI` is among them. `Purpose` is READ or WRITE. Steps:
 
 1. Resolve the effective version (D-4). If the setting is `AUTO` and there is no version yet
-   (first use), or the capability is a write and the version is stale or older than the bound
-   (D-10), detect now: one `/system/info` request through the gateway factory
-   (`GatewayFactory.detect(node)`, a new method that runs the existing `Slot.detect()`), within
-   the 60 s failure back-off.
+   (first use), or the purpose is WRITE and the version is stale or older than the node's
+   `inventory.cacheTtl` (D-10), detect now: one `/system/info` request through
+   `GatewayFactory.detect(node)`. `detect` bypasses the slot's success cache (so re-detection works)
+   and reports to `NodeVersions`, which owns the 60 s failure back-off for the gate; the slot keeps
+   its own `fallbackUntil` only for adapter selection (D-16). `MONITORING` never detects: in
+   `get_health` the health check's own `/system/info` read is the detection and observation, and
+   the gate only derives the warning after it (no duplicate request, feature 001 budget).
 2. Look up the matrix state for the capability; apply the pin contradiction (writes refused) and
    the client check for CLI channels (D-8).
 3. `SUPPORTED` → admit; `UNVERIFIED` + read → admit with the warning
@@ -129,14 +135,28 @@ by a `get_health` observation and cleared by a later matching observation (FR-01
 
 Call sites (one line each, before any state-changing call):
 - `DevelopmentGuard.admit` (import, restore of development backups, set_active, tag,
-  run_e2e_test) — after the configuration checks, before `cli.check`;
-- `WriteGuard.admit` (restart, kill);
-- `DeployGuard` / `DeployService` for FR-014a (D-11);
-- reads: `DiagnosisService` (find_processes, query_logs), `InventoryService` (list_inventory,
-  get_inventory_item), `WorkspaceService` export, `HealthService` (monitoring; the gate never
-  refuses health, it only contributes the warning).
+  run_e2e_test) — after the configuration checks, before `cli.check`. Its nested
+  `DevelopmentGuard.Capability` enum is renamed `DevelopmentGuard.Operation` (avoids the clash with
+  the domain `Capability`) and maps `RUN_E2E_TEST` → `E2E_TEST` (channels SOAP+REST), every other
+  operation → `DEVELOPMENT_WRITE` (channels CLI+REST);
+- `DevelopmentGuard.admitDeploymentRestore` (restore of deployment backups) → `DEPLOYMENT`;
+- `WriteGuard.admit` (restart, kill) → `PROCESS_CONTROL`, before the REST state read;
+- `DeployGuard.check` for FR-014a (D-11), where `Admitted` has both node lists and the audited
+  `refuse` is available;
+- reads: `DiagnosisService` (find_processes, query_logs: `{REST}`), `InventoryService`
+  (`list_inventory` diagrams `{REST}`; `list_inventory` modules `{CLI}` — the module list is a
+  StartCLI export, so the whole call is refused when the client is incompatible;
+  `get_inventory_item`: `{REST}` first, then `{CLI}` before the history, whose refusal becomes the
+  existing `unavailable` history part with code `UNSUPPORTED_VERSION`, as the spec's edge case
+  "behaves as today when its StartCLI part is unavailable" requires), `ArtifactCheckService`
+  module lookup (`INVENTORY`, `{CLI}`; a refusal skips the lookup and reports it as the existing
+  "module could not be looked up" finding with the reason), `WorkspaceService` export
+  (`WORKSPACE_EXPORT`, `{CLI}`), `HealthService` (`MONITORING`, never refuses, never detects).
 
-Refusals of write tools go through the existing `Call.refuse` (audited `REFUSED`, FR-015).
+Refusals of write tools go through the existing `Call.refuse` / `DeployGuard.refuse` (audited
+`REFUSED`, FR-015). Admission warnings of write tools are added to the result's `warnings`
+(`restart_process`/`kill_process` gain an optional `warnings` field; the other write tools have
+one already).
 
 **Rationale**: FR-005, FR-008, FR-009, FR-010; the first tool call of any kind detects
 (clarification 2026-10-18), which today does not exist (finding above).
@@ -194,11 +214,21 @@ never contacts a node (FR-004).
 
 ## D-10 Re-detection bound and stale triggers
 
-**Decision**: the bound is `inventory.cacheTtl` (default 10 min); no new setting in this feature
-(an own setting can follow if needed). The version is marked stale by `InubitHttpClient` results
-the gateway factory already sees: `UNEXPECTED_RESPONSE`, HTTP 406, and HTTP 404 that the adapter
-does not map to `NOT_FOUND` for a requested resource. The `Slot` reports these to `NodeVersions`
-(D-4). Reads keep using the cached version; the next write re-detects (FR-010).
+**Decision**: the bound is the node's `inventory.cacheTtl` (default 10 min); no new setting in this
+feature. Stale triggers and their hook:
+- `AdapterGatewayFactory` wraps every port it hands out in a small decorator per port interface
+  (`StaleReportingPorts`) that catches `ToolErrorException` with code `UNEXPECTED_RESPONSE`
+  (whether raised by `InubitHttpClient` or by a v81 parser after the client returned) and reports
+  `stale(node)` to the `VersionObserver` before rethrowing. HTTP 406 already arrives as
+  `UNEXPECTED_RESPONSE` (`InubitHttpClient` default branch).
+- HTTP 404: `InubitHttpClient` maps every 404 to `NOT_FOUND` today, so the request has to say what
+  a 404 means. Requests get a flag `ResourceKind.ENDPOINT | RESOURCE` (default `RESOURCE`, today's
+  behaviour); the v81 adapters pass `ENDPOINT` for fixed endpoints that must exist on a working
+  8.1 server (`/system/info`, `/system/healthcheck`, `/log/...`, `/queueLog`, `/model/...` lists);
+  a 404 there becomes `UNEXPECTED_RESPONSE` ("endpoint not found; the node may run another INUBIT
+  version"), which the decorator reports. A 404 for a requested id (a process, a diagram) stays
+  `NOT_FOUND` and is no trigger.
+Reads keep using the cached version; the next write re-detects (FR-010).
 
 ## D-11 `deploy_release` (FR-014a)
 
@@ -225,6 +255,21 @@ warning text becomes "versionLine V9_X: write tools are refused on this node (IN
 supported for writes yet); read tools run unverified". An invalid concrete version is a
 configuration error (D-2).
 
+## D-16 Port-set selection by effective version (extension point for US3)
+
+**Decision**: `AdapterGatewayFactory` gets a `PortSetRegistry` (constructor parameter) mapping
+`VersionRange`s to port-set factories, plus a default factory. `Slot.ensureClient()` keeps building
+the HTTP client lazily, but the port set (`V81Gateway.Ports`) is chosen from the registry by the
+node's effective version at the time ports are first requested **after** the gate has admitted the
+call (the gate's detection happens first). Production registers only the 8.1 port set, as default
+for every version (unverified reads run on the 8.1 adapters), so production behaviour is unchanged.
+A later feature adds a 9.0 range with its own factory; US3's test registers a fictitious range and
+a test-only port set. A change of the effective version range (after re-detection) rebuilds the
+port set.
+
+**Rationale**: FR-013/FR-014, US3-3: adding a version must not need tool changes; today
+`ensureClient()` hard-wires the V81 port set before any detection.
+
 ## D-14 Behaviour changes for existing tests
 
 Deliberate (spec SC-003): writes refused after a failed `AUTO` detection; writes refused on
@@ -232,7 +277,12 @@ Deliberate (spec SC-003): writes refused after a failed `AUTO` detection; writes
 defaults to `V8_1`, so most tests are unaffected. Tests expected to change: AdapterGatewayFactory
 (V9_X/9.0.2 warnings now refusals for writes), ConfigSummary/ConfigValidator/MainTest (V9_X text),
 HealthService (new `client` part), ListNodesTool (new `version` block), DevelopmentWiringTest and
-ProcessControlToolsTest (announcement with `V9_X`-only profiles).
+ProcessControlToolsTest (announcement with `V9_X`-only profiles). `DiagnosisToolFixture` and
+`InventoryToolFixture` use `AUTO`: the first read now sends `/system/info`, so their stubs and
+request counts change (add the system_info stub, or pin `V8_1` where the test is not about
+detection). Constructor changes for the gate touch `Wiring` and the fixtures building
+`DevelopmentGuard`, `WriteGuard`, `DiagnosisService`, `InventoryService`, `WorkspaceService`,
+`ArtifactCheckService` and `HealthService`.
 
 ## D-15 Fixtures
 

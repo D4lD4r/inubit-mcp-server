@@ -69,9 +69,13 @@ from an enum to a string (the configured text). `notUsable` items: `{"capability
 
 - Optional `warnings: string[]` in the result (only when non-empty), e.g. the "unverified version"
   warning on a 9.0, newer or unknown node, or a client mismatch.
-- **Changed behaviour**: a StartCLI-backed part (`list_inventory` modules, `get_inventory_item`
-  history) on a node whose client range excludes the server's major.minor fails with
-  `UNSUPPORTED_VERSION` instead of running.
+- **Changed behaviour**: on a node whose client range excludes the server's major.minor,
+  `list_inventory` for modules (a StartCLI export) fails with `UNSUPPORTED_VERSION`;
+  `get_inventory_item` returns its REST data with the history as an `unavailable` part (code
+  `UNSUPPORTED_VERSION`), as today when the history fails; `list_inventory` for diagrams is
+  REST-only and unaffected.
+- `check_artifacts`: the optional module lookup is skipped on such a node and reported as a finding
+  with the reason.
 - The first call on an `AUTO` node detects its version (one extra request).
 
 ## Write tools (changed behaviour)
@@ -85,7 +89,8 @@ from an enum to a string (the configured text). `notUsable` items: `{"capability
 - before running, an `AUTO` node's version is detected if missing, stale or older than
   `inventory.cacheTtl` (one request); nothing else is sent before the check passes;
 - StartCLI-backed write tools refused when the client range excludes the server's major.minor;
-  a newer server patch, a failed probe or a missing range give a warning only.
+  a newer server patch, a failed probe or a missing range give a warning only, shown in the
+  result's `warnings` (`restart_process` and `kill_process` gain an optional `warnings` field).
 
 `restore_backup` of a **deployment** backup follows the deployment rules (target node must be
 `supported`).
