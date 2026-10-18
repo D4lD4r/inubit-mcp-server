@@ -98,9 +98,11 @@ the setting, the last detection (`InubitVersion` + time) or the last failure (co
 last `get_health` observation (version + time), a `stale` flag, and the client probe result
 (`ClientVersion` or failure + time). It is fed by:
 
-- the detection path (D-5) and `HealthService` (observation, FR-001/FR-012);
-- `AdapterGatewayFactory` (the existing `Slot` keeps its 60 s fallback for the adapters but reports
-  every detection result to `NodeVersions` through a new domain port callback);
+- the detection path (D-5): `GatewayFactory.detect` and the `Slot`'s AUTO detection report
+  detections and failures through a domain port (`VersionObserver`);
+- `HealthService` is the single owner of observations (FR-001/FR-012): it reports the version of
+  every `get_health` (pinned nodes too) through the same port; the `SystemInfoListener` keeps
+  feeding only the slot's AUTO detection (it returns early for non-AUTO nodes);
 - the client probe (D-7).
 
 Rules (spec N3): the effective server version of a node is the most recent of detection and
@@ -132,6 +134,8 @@ client check (D-8) runs only when `CLI` is among them. `Purpose` is READ or WRIT
 3. `SUPPORTED` → admit; `UNVERIFIED` + read → admit with the warning
    "INUBIT <v> on <node> is not verified for <capability>; results may be incomplete";
    otherwise refuse (FR-005 text, incl. client version and range when the client is the cause).
+   Exception: `MONITORING` is never refused, even if a (test-only) matrix declares it
+   `UNSUPPORTED`; `get_health` then only carries a warning.
 
 Call sites (one line each, before any state-changing call):
 - `DevelopmentGuard.admit` (import, restore of development backups, set_active, tag,
@@ -196,7 +200,9 @@ change (`additionalProperties: false` needs the new field declared).
 - Range check: the client's declared range is reduced to major.minor bounds, inclusive; a server
   major.minor inside → compatible (a newer patch only warns). A line pin `V9_X` (major only) is
   compatible only if some 9.x lies inside the range; the 8.1.17 client ("4.0.1 to 8.1.17") is
-  therefore incompatible with `V9_X` (spec N4, reviewer proposal adopted).
+  therefore incompatible with `V9_X` (spec N4, reviewer proposal adopted). A probe that prints a version but no range is a successful
+`ClientVersion` with an empty range (kept for the process lifetime) whose range check is
+`NOT_EVALUABLE`; only failed or timed-out probes are not cached.
 - Range not evaluable (server unknown, probe failed or timed out, no range printed) → CLI tools
   run with a warning naming the cause (clarification round 3).
 
@@ -232,12 +238,14 @@ Reads keep using the cached version; the next write re-detects (FR-010).
 
 ## D-11 `deploy_release` (FR-014a)
 
-**Decision**: in `DeployService`, after `guard.admit` (which has `targetNodes` and `sourceNodes`)
-and before discovery, both in preview and in execute: run the gate's detection rule for every
-source and target node (write purpose), then check: no node unknown, every target `SUPPORTED` for
+**Decision**: in `DeployGuard.check()` (which builds `Admitted` with `targetNodes` and
+`sourceNodes`, and whose `admit` audits refusals through the private `refuse`); `DeployService`
+calls the guard in preview and in execute, so both are covered. `DeployGuard` gets the gate as a
+constructor parameter (Wiring and the DeployGuard fixtures change) and `Admitted` gains the
+admission `warnings`. Steps: run the gate's detection rule for every source and target node (write
+purpose), then check: no node unknown, every target `SUPPORTED` for
 `DEPLOYMENT`, all sources and targets equal in major.minor (`V8_1` or a concrete pin gives
-major.minor; `V9_X` counts as unknown). A failure refuses the whole deployment through
-`DeployGuard.refuse` (audited), naming the nodes and versions.
+major.minor; `V9_X` counts as unknown). A failure refuses the whole deployment (audited `REFUSED`), naming the nodes and versions.
 
 ## D-12 Tool announcement (FR-007)
 
@@ -255,21 +263,6 @@ warning text becomes "versionLine V9_X: write tools are refused on this node (IN
 supported for writes yet); read tools run unverified". An invalid concrete version is a
 configuration error (D-2).
 
-## D-16 Port-set selection by effective version (extension point for US3)
-
-**Decision**: `AdapterGatewayFactory` gets a `PortSetRegistry` (constructor parameter) mapping
-`VersionRange`s to port-set factories, plus a default factory. `Slot.ensureClient()` keeps building
-the HTTP client lazily, but the port set (`V81Gateway.Ports`) is chosen from the registry by the
-node's effective version at the time ports are first requested **after** the gate has admitted the
-call (the gate's detection happens first). Production registers only the 8.1 port set, as default
-for every version (unverified reads run on the 8.1 adapters), so production behaviour is unchanged.
-A later feature adds a 9.0 range with its own factory; US3's test registers a fictitious range and
-a test-only port set. A change of the effective version range (after re-detection) rebuilds the
-port set.
-
-**Rationale**: FR-013/FR-014, US3-3: adding a version must not need tool changes; today
-`ensureClient()` hard-wires the V81 port set before any detection.
-
 ## D-14 Behaviour changes for existing tests
 
 Deliberate (spec SC-003): writes refused after a failed `AUTO` detection; writes refused on
@@ -281,8 +274,10 @@ ProcessControlToolsTest (announcement with `V9_X`-only profiles). `DiagnosisTool
 `InventoryToolFixture` use `AUTO`: the first read now sends `/system/info`, so their stubs and
 request counts change (add the system_info stub, or pin `V8_1` where the test is not about
 detection). Constructor changes for the gate touch `Wiring` and the fixtures building
-`DevelopmentGuard`, `WriteGuard`, `DiagnosisService`, `InventoryService`, `WorkspaceService`,
-`ArtifactCheckService` and `HealthService`.
+`DevelopmentGuard`, `WriteGuard`, `DeployGuard`, `DiagnosisService`, `InventoryService`,
+`WorkspaceService`, `ArtifactCheckService` and `HealthService`. Warnings travel from the guards to
+the results in `DevelopmentPolicy.warnings`, `WritePolicy.warnings` and `DeployGuard.Admitted.warnings`
+(new list fields).
 
 ## D-15 Fixtures
 
@@ -290,3 +285,20 @@ detection). Constructor changes for the gate touch `Wiring` and the fixtures bui
 `9.0.7`) marked synthetic in its README, used until a recorded 9.0 response exists; the 8.1
 `version.*` CLI fixture plus a synthetic variant without the "Supported" line and one with a
 9.0 range. No live probe is needed for this feature.
+
+## D-16 Port-set selection by effective version (extension point for US3)
+
+**Decision**: `AdapterGatewayFactory` gets a `PortSetRegistry` (constructor parameter) mapping
+`VersionRange`s to port-set factories, plus a default factory. `Slot.ensureClient()` keeps building
+the HTTP client lazily, but the port set (`V81Gateway.Ports`) is chosen from the registry by the
+node's effective version, read through the domain port `VersionObserver` (extended with
+`effectiveVersion(NodeId)`, implemented by `NodeVersions`) so that the adapter never depends on the
+application layer, at the time ports are first requested **after** the gate has admitted the
+call (the gate's detection happens first). Production registers only the 8.1 port set, as default
+for every version (unverified reads run on the 8.1 adapters), so production behaviour is unchanged.
+A later feature adds a 9.0 range with its own factory; US3's test registers a fictitious range and
+a test-only port set. A change of the effective version range (after re-detection) rebuilds the
+port set.
+
+**Rationale**: FR-013/FR-014, US3-3: adding a version must not need tool changes; today
+`ensureClient()` hard-wires the V81 port set before any detection.

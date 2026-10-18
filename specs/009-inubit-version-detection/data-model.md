@@ -66,7 +66,7 @@ Per node, held by `NodeVersions`:
 | `stale` | boolean | stale triggers (D-10); cleared by a detection |
 | `pinContradiction` | boolean | `get_health` observation vs pin (FR-012) |
 | `client` | Optional<(ClientVersion, Instant)> | client probe (kept for the process lifetime) |
-| `clientFailure` | Optional<(ErrorCode or "no range", Instant)> | client probe (retried ≥ 60 s later) |
+| `clientFailure` | Optional<(ErrorCode, Instant)> | failed or timed-out client probe (retried ≥ 60 s later); a version without a range is a success with an empty range |
 
 Derived:
 - `effectiveVersion()`: the most recent of `detected`/`observed`; for `Pinned`/`Line` without an
