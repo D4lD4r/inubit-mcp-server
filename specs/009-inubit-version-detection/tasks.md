@@ -145,7 +145,8 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
   channels (uses the client result if present; the probe itself comes in T019), then admit / admit
   with the "unverified version" warning / refuse with `UNSUPPORTED_VERSION` and the FR-005 texts of
   contracts/mcp-tools-delta.md (node, version, capability; client version and range when the
-  client is the cause; next step never suggests a pin the node is not known to run). Logs every
+  client is the cause; next step never suggests a pin the node is not known to run; the gate builds
+  its own `nextStep` and never forwards `V81VersionDetector`'s). Logs every
   refusal (FR-015). Test first: `test/application/VersionGateTest.java` (8.1 → admit; 9.0 read →
   warning; 9.0 write → refused, only the detection request; unknown after failed detection → write
   refused, read warning; contradiction → write refused; stale or older than the node's
@@ -173,8 +174,8 @@ The tasks of this phase change constructors that `main/Wiring.java` and test fix
 run one after the other (no [P]).
 
 - [ ] T009 [US2] Development writes: rename `DevelopmentGuard.Capability` to
-  `DevelopmentGuard.Operation` (call sites `ImportService` :365, :578, :746, `TagService` :160,
-  `E2eTestService` :203 and their tests) and map `RUN_E2E_TEST` → `E2E_TEST` (channels SOAP+REST), every
+  `DevelopmentGuard.Operation` (all users of `DevelopmentGuard.Capability`, among them
+  `ImportService`, `TagService`, `E2eTestService`, `WriteChallengeRegistry` and their tests) and map `RUN_E2E_TEST` → `E2E_TEST` (channels SOAP+REST), every
   other operation → `DEVELOPMENT_WRITE` (CLI+REST); call `VersionGate.admit(…, WRITE, channels)` in
   `main/application/DevelopmentGuard.java` after the configuration checks and before `cli.check`,
   for import, restore of development backups, set_active, tag and run_e2e_test; refusals are
@@ -197,7 +198,7 @@ run one after the other (no [P]).
   US2-5 is tested in T019.
 - [ ] T011 [US2] Deployment-backup restores: `DevelopmentGuard.admitDeploymentRestore`
   (`main/application/DevelopmentGuard.java`:118, called from `ImportService.admitRestore`) calls the
-  gate with `DEPLOYMENT` (WRITE) for the backup's node. Test first:
+  gate with `DEPLOYMENT` (WRITE, channels `{CLI, REST}`) for the backup's node. Test first:
   `test/application/RestoreDeploymentTest.java` (9.0 target node refused, audit `REFUSED`).
 - [ ] T012 [US2] Read warnings (research D-5, D-6): add optional `warnings` (string array, only
   when non-empty) to `res/schemas/find_processes.output.json`, `query_logs.output.json`,
@@ -218,10 +219,12 @@ run one after the other (no [P]).
   `main/application/HealthService.java` the gate (MONITORING) never detects and never refuses — its
   warning is derived from the version `get_health`'s own `/system/info` read returns (the same
   read T016 reports as the observation) and replaces today's "unsupported … the 8.1 adapters are
-  used" text. Wire both in `main/Wiring.java`. Test first:
+  used" text: the version warnings cached by `main/adapter/AdapterGatewayFactory.java` (:268-269,
+  `configured()`/`detected()`) are dropped, so `HealthService.gatewayWarnings` no longer carries a
+  version text. Wire both in `main/Wiring.java`. Test first:
   `test/application/WorkspaceExportTest.java` (new case), `test/application/HealthServiceTest.java`
   (adjusted 9.0.2 expectations; exactly one `/system/info` request per `get_health` on an `AUTO`
-  node).
+  node; no duplicate version warning).
 - [ ] T014 [US2] `check_artifacts` module lookup (FR-001, FR-011): in
   `main/application/ArtifactCheckService.java` (:513) call the gate (INVENTORY, READ, `{CLI}`)
   before `listModules`; a refusal skips the lookup and is reported as the existing "module could not
@@ -297,7 +300,7 @@ after `get_health` it shows the detected version, the client version and `suppor
   description (next step `get_health` for `not_yet_detected`) and `main/Wiring.java`. Test first:
   `test/mcp/tools/ListNodesToolTest.java` (zero WireMock requests; `not_yet_detected`; after a
   detection `supported`; 9.0 node with an 8.1 client `partially_supported` with REST reads usable,
-  `inventory (StartCLI parts)` and write capabilities not usable; failed detection `unknown` with
+  `inventory (StartCLI parts)`, `workspace_export` and write capabilities not usable; failed detection `unknown` with
   reason and time; a pin contradicted by `get_health` shown in `version.warnings` and the write
   capabilities not usable; a node without a StartCLI installation shows the client as
   `not_available`; FR-016: no baseUrl, username or password in any `version` field). The
@@ -339,17 +342,22 @@ shows the client against the pin, and a contradicting observation refuses writes
 ## Phase 6: `deploy_release` across versions (FR-014a; part of US2's safety property)
 
 - [ ] T023 [US2] Version check in `main/application/DeployGuard.java` (research D-11): in `check()`,
-  where `Admitted` has `targetNodes` and `sourceNodes` and the audited `refuse` is available, apply
-  the gate's detection rule (WRITE) to every source and target node, then refuse the whole
+  where `Admitted` has `targetNodes` and `sourceNodes` and the audited `refuse` is available, call
+  `VersionGate.admit(node, DEPLOYMENT, WRITE, {CLI, REST})` for every source and target node
+  (detection, matrix, pin contradiction, client check incl. the probe), then refuse the whole
   deployment if any node is unknown, any target is not `SUPPORTED` for `DEPLOYMENT`, sources differ
   from each other or from any target in major.minor (`V8_1`/a concrete pin give major.minor;
   `V9_X` counts as unknown), naming every node and version. `DeployGuard` gets the gate as a
   constructor parameter (`main/Wiring.java` and the DeployGuard fixtures change); `Admitted` gains
-  the admission `warnings`, which `DeployService` puts into the result's `warnings`.
+  the admission `warnings`, which `DeployService` puts into a new optional top-level `warnings` of
+  `DeploymentPreview` (and `res/schemas/deploy_release.output.json`) and into the execute result's
+  existing `warnings`.
   `DeployService` already calls the guard in preview and in execute. Test first:
   `test/application/DeployServiceVersionTest.java` (8.1.17 → 8.1.18 allowed; 8.1 → 9.0 refused;
   unknown source refused; unknown target refused; differing sources refused; version changed
-  between preview and execute → refused at execute; nothing sent on refusal; audit `REFUSED`).
+  between preview and execute → refused at execute; a client whose range excludes a node's
+  major.minor → refused; an 8.1.17 client at an 8.1.18 server → warning in preview and result;
+  nothing sent on refusal; audit `REFUSED`).
 
 ---
 
