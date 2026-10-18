@@ -259,7 +259,7 @@ run one after the other (no [P]).
   the first call on an `AUTO` node detects. Wire it in `main/Wiring.java`. Test first:
   `test/application/ArtifactCheckServiceTest.java` (9.0 node with an 8.1 client: lookup skipped with
   the reason, no StartCLI run; 8.1: unchanged).
-- [ ] T015 [US2] Tool announcement (research D-12, FR-007): the conditions in `main/Wiring.java`
+- [X] T015 [US2] Tool announcement (research D-12, FR-007): the conditions in `main/Wiring.java`
   (`anyDevelopmentNode`, `anyWriteEnabled`, `anyE2eNode`, deployment targets) ignore nodes pinned to
   a version whose matrix state for the capability is `UNSUPPORTED`; `AUTO` nodes count as capable.
   Test first: `test/DevelopmentWiringTest.java`, `test/mcp/ProcessControlToolsTest.java` (a profile

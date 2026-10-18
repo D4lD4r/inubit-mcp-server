@@ -46,14 +46,18 @@ import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.SourcedValue;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
+import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.infra.AuditLog;
@@ -110,12 +114,16 @@ import java.util.function.Predicate;
  * share one
  * challenge registry and the audit log; the import service uses the check service and keeps
  * its backups in
- * {@code ~/.inubit-mcp/<profile>/backups} (created on the first import).
+ * {@code ~/.inubit-mcp/<profile>/backups} (created on the first import). Feature 009 (research
+ * D-12): these conditions ignore nodes pinned to a version on which the tool's capability is
+ * unsupported ({@link #possiblyCapable}); {@code deploy_release} needs such a target node.
  *
  * <p>The JVM shutdown hook that stops StartCLI work is registered as the last step of the
  * constructor, so that a failing constructor leaves no hook behind (US3 re-review N2).
  */
 final class Wiring implements AutoCloseable {
+
+    private static final CapabilityMatrix MATRIX = CapabilityMatrix.production();
 
     private final ProfileInfo profile;
     private final SecretScrubber scrubber;
@@ -185,8 +193,7 @@ final class Wiring implements AutoCloseable {
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
         this.gateways = new AdapterGatewayFactory(servers, credentials, scrubber, clock.clock(),
             new CliRunner(launcher, environment, windows, cliResources), versions);
-        VersionGate versionGate = new VersionGate(versions, gateways,
-            CapabilityMatrix.production());
+        VersionGate versionGate = new VersionGate(versions, gateways, MATRIX);
         this.summaries = servers.stream().map(server -> server.summary(exists, windows)).toList();
         Map<NodeId, Duration> timeouts = new HashMap<>();
         servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
@@ -357,7 +364,9 @@ final class Wiring implements AutoCloseable {
         if (anyE2eNode()) {
             handlers.add(runE2eTest);
         }
-        deployRelease.ifPresent(handlers::add);
+        if (anyDeploymentTargetNode()) {
+            deployRelease.ifPresent(handlers::add);
+        }
         return List.copyOf(handlers);
     }
 
@@ -398,7 +407,8 @@ final class Wiring implements AutoCloseable {
 
     /** True if at least one node is a development stage (feature 004, FR-001). */
     boolean anyDevelopmentNode() {
-        return servers.stream().anyMatch(server -> server.development().enabled());
+        return servers.stream().anyMatch(server -> server.development().enabled()
+            && possiblyCapable(server, Capability.DEVELOPMENT_WRITE));
     }
 
     /**
@@ -406,8 +416,15 @@ final class Wiring implements AutoCloseable {
      * nodes get deployment backups that {@code restore_backup} restores.
      */
     boolean anyDeploymentTarget() {
-        return chain.targets().values().stream().anyMatch(link -> link.mode()
-            == de.dadecker.inubit.mcp.domain.model.DeployMode.EXECUTE);
+        return servers.stream().anyMatch(server -> chain.link(server.id().group())
+            .filter(link -> link.mode() == DeployMode.EXECUTE).isPresent()
+            && possiblyCapable(server, Capability.DEPLOYMENT));
+    }
+
+    /** True if a node of a group that receives deployments (in either mode) may deploy. */
+    private boolean anyDeploymentTargetNode() {
+        return servers.stream().anyMatch(server -> chain.link(server.id().group()).isPresent()
+            && possiblyCapable(server, Capability.DEPLOYMENT));
     }
 
     /**
@@ -416,14 +433,31 @@ final class Wiring implements AutoCloseable {
      * node of a group that receives deployments (feature 005, T027).
      */
     boolean anyE2eNode() {
-        return servers.stream().map(EffectiveNodeConfig::developmentPolicy)
+        return servers.stream().filter(server -> possiblyCapable(server, Capability.E2E_TEST))
+            .map(EffectiveNodeConfig::developmentPolicy)
             .anyMatch(policy -> policy.e2eTests() != E2ePolicy.FORBIDDEN && (policy.enabled()
                 || (!policy.production() && chain.link(policy.node().group()).isPresent())));
     }
 
     /** True if at least one server has effective write access (Story 4 / AS 6). */
     boolean anyWriteEnabled() {
-        return servers.stream().anyMatch(EffectiveNodeConfig::effectiveWriteEnabled);
+        return servers.stream().anyMatch(server -> server.effectiveWriteEnabled()
+            && possiblyCapable(server, Capability.PROCESS_CONTROL));
+    }
+
+    /**
+     * Feature 009 (research D-12, FR-007): false only if {@code server} is pinned to a line or
+     * version on which the matrix declares {@code capability} unsupported; an {@code AUTO} node
+     * may turn out to run a capable version.
+     */
+    private static boolean possiblyCapable(EffectiveNodeConfig server, Capability capability) {
+        return switch (server.versionLine()) {
+            case VersionSetting.Auto auto -> true;
+            case VersionSetting.Line line -> MATRIX.stateOfLine(line.major(), line.minor(),
+                capability) != SupportState.UNSUPPORTED;
+            case VersionSetting.Pinned pinned -> MATRIX.state(Optional.of(pinned.version()),
+                capability) != SupportState.UNSUPPORTED;
+        };
     }
 
     /**

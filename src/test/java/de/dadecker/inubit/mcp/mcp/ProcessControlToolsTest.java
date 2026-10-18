@@ -109,6 +109,11 @@ class ProcessControlToolsTest {
     // --- registration (Story 4 / AS 6) ---------------------------------------------------------
 
     private List<String> toolNames(boolean devWriteEnabled) {
+        return toolNames(devWriteEnabled, "- name: node1\n  baseUrl: https://localhost:1");
+    }
+
+    /** {@code devNodes}: the entries of the dev group's {@code nodes} list. */
+    private List<String> toolNames(boolean devWriteEnabled, String devNodes) {
         String yaml = """
             profile:
               name: acme
@@ -118,8 +123,7 @@ class ProcessControlToolsTest {
                 write:
                   enabled: %s
                 nodes:
-                  - name: node1
-                    baseUrl: https://localhost:1
+            %s
               - name: prod
                 production: true
                 write:
@@ -127,7 +131,8 @@ class ProcessControlToolsTest {
                 nodes:
                   - name: inubit01
                     baseUrl: https://localhost:2
-            """.formatted(temp.resolve("audit"), devWriteEnabled);
+            """.formatted(temp.resolve("audit"), devWriteEnabled,
+            devNodes.indent(6).stripTrailing());
         ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml")).config();
         SecretScrubber scrubber = new SecretScrubber();
@@ -156,6 +161,15 @@ class ProcessControlToolsTest {
     @Test
     void withWriteAccessOnEntBothWriteToolsAreOffered() {
         assertThat(toolNames(true)).contains("restart_process", "kill_process").hasSize(9);
+    }
+
+    @Test
+    void writeToolsAreNotOfferedIfEveryWriteNodeIsPinnedToAVersionWithoutProcessControl() {
+        // feature 009 (T015, FR-007, research D-12): V9_X is unsupported for PROCESS_CONTROL
+        String v9 = "- name: node1\n  versionLine: V9_X\n  baseUrl: https://localhost:1";
+        assertThat(toolNames(true, v9)).doesNotContain("restart_process", "kill_process");
+        assertThat(toolNames(true, v9 + "\n- name: node2\n  versionLine: V8_1\n"
+            + "  baseUrl: https://localhost:3")).contains("restart_process", "kill_process");
     }
 
     @Test
