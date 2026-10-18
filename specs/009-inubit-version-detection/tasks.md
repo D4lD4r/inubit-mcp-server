@@ -80,7 +80,7 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
   versions: READ → UNVERIFIED, WRITE → UNSUPPORTED; a major-only line is looked up as unknown) and a
   constructor for other declarations. Test first: `test/domain/model/CapabilityMatrixTest.java`
   (every capability × 8.1.17, 8.1, 9.0.7, 10.0, unknown, line 9).
-- [ ] T004 [P] (after T002) `main/domain/model/ClientVersion.java` (data-model): `version`,
+- [X] T004 [P] (after T002) `main/domain/model/ClientVersion.java` (data-model): `version`,
   optional `supportedFrom`/`supportedTo`; `compare(server)` → MATCH/MISMATCH/NOT_COMPARABLE on
   major.minor.patch; `compatibleWith(serverVersion | line)` → COMPATIBLE / INCOMPATIBLE /
   NOT_EVALUABLE with the range reduced to inclusive major.minor bounds, a major-only line
