@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.HealthReport;
 import de.dadecker.inubit.mcp.domain.model.HealthStatus;
@@ -13,6 +14,7 @@ import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
@@ -67,6 +69,13 @@ class HealthServiceTest {
     private final Map<NodeId, RuntimeException> gatewayFailures = new HashMap<>();
     private final Map<NodeId, CountDownLatch> gatewayBlocks = new HashMap<>();
     private final AtomicInteger detections = new AtomicInteger();
+    /** Feature 009: the {@code versionLine} of each server ({@code V8_1} if absent). */
+    private final Map<NodeId, VersionSetting> versionLines = new ConcurrentHashMap<>();
+    private final NodeVersions versions = new NodeVersions(Clock.fixed(NOW, ZoneOffset.UTC),
+        node -> versionLines.getOrDefault(node, VersionSetting.V8_1),
+        node -> Duration.ofMinutes(10));
+    /** Feature 009: detections requested by the version gate (never for get_health). */
+    private final AtomicInteger gateDetections = new AtomicInteger();
 
     private FakeMonitoring monitoring(NodeId server) {
         return monitorings.computeIfAbsent(server, s -> new FakeMonitoring());
@@ -83,7 +92,8 @@ class HealthServiceTest {
 
             @Override
             public InubitVersion detect(NodeId server) {
-                throw new AssertionError("not used before the version gate (T008)");
+                gateDetections.incrementAndGet();
+                throw new AssertionError("get_health's version gate never detects");
             }
 
             @Override
@@ -126,7 +136,8 @@ class HealthServiceTest {
             }
         };
         return new HealthService(gateways, new TargetResolver(SERVERS), new FanOut(),
-            server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC));
+            server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC),
+            new VersionGate(versions, gateways, CapabilityMatrix.production()));
     }
 
     private HealthReport checkOne(NodeId server, boolean includeSystemInfo) {
@@ -399,9 +410,8 @@ class HealthServiceTest {
 
     @Test
     void healthIsReportedWithoutSystemInfoAndTheGatewayWarningsAreCopied() {
-        String detectionWarning = "INUBIT version could not be detected (AUTH_FAILED);"
-            + " assuming 8.1";
-        warnings.put(DEV, List.of(detectionWarning));
+        String gatewayWarning = "a warning of the gateway";
+        warnings.put(DEV, List.of(gatewayWarning));
         monitoring(DEV).systemInfo = () -> {
             throw error(ErrorCode.AUTH_FAILED, DEV, "INUBIT rejected the credentials (HTTP 401)");
         };
@@ -418,7 +428,8 @@ class HealthServiceTest {
             .containsExactly(UnavailablePart.VERSION, UnavailablePart.SYSTEM_INFO);
         assertThat(report.unavailable()).allSatisfy(part ->
             assertThat(part.reason()).startsWith("AUTH_FAILED: "));
-        assertThat(report.warnings()).containsExactly(detectionWarning);
+        assertThat(report.warnings()).as("pinned V8_1: no version warning")
+            .containsExactly(gatewayWarning);
     }
 
     @Test
@@ -437,29 +448,82 @@ class HealthServiceTest {
         });
     }
 
+    // --- feature 009: the version warning comes from the version gate (T013) ----------------
+
+    private static final String UNVERIFIED_902 = "INUBIT 9.0.2 on dev/node1 is not verified for"
+        + " monitoring; results may be incomplete";
+
+    private static SystemInfo systemInfoOf(String version) {
+        return new SystemInfo(Optional.of(version), Optional.empty(), Optional.empty(),
+            Optional.empty(), Optional.empty(), Optional.empty(), Map.of());
+    }
+
+    private long systemInfoCalls(NodeId server) {
+        return monitoring(server).calls().stream().filter("systemInfo"::equals).count();
+    }
+
     @Test
-    void aVersionOtherThan81AddsAWarning() {
-        monitoring(DEV).systemInfo = () -> new SystemInfo(Optional.of("9.0.2"),
-            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-            Optional.empty(), Map.of());
+    void aVersionOtherThan81AddsTheUnverifiedWarningDerivedFromThisRead() {
+        // dev/node1 is pinned to V8_1: the warning follows what get_health read, not the pin
+        monitoring(DEV).systemInfo = () -> systemInfoOf("9.0.2");
 
         HealthReport report = checkOne(DEV, false);
 
         assertThat(report.version()).contains("9.0.2");
-        assertThat(report.warnings()).singleElement().asString()
-            .contains("9.0.2", "8.1");
+        assertThat(report.warnings()).containsExactly(UNVERIFIED_902);
+        assertThat(gateDetections).hasValue(0);
     }
 
     @Test
-    void theVersionWarningIsNotRepeatedWhenTheGatewayAlreadyWarns() {
-        String unsupported = "INUBIT 9.0.2 is unsupported in this version; the 8.1 adapters are"
-            + " used";
-        warnings.put(DEV, List.of(unsupported));
-        monitoring(DEV).systemInfo = () -> new SystemInfo(Optional.of("9.0.2"),
-            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-            Optional.empty(), Map.of());
+    void anAutoNodeIsReadOncePerCallAndWarnedAboutOnce() {
+        versionLines.put(DEV, VersionSetting.AUTO);
+        monitoring(DEV).systemInfo = () -> {
+            // as the gateway factory's slot does for the first read of an AUTO node
+            versions.detected(DEV, InubitVersion.parse("9.0.2").orElseThrow());
+            return systemInfoOf("9.0.2");
+        };
 
-        assertThat(checkOne(DEV, false).warnings()).containsExactly(unsupported);
+        HealthReport first = checkOne(DEV, false);
+        assertThat(systemInfoCalls(DEV)).as("one /system/info per get_health").isEqualTo(1);
+        HealthReport second = checkOne(DEV, false);
+
+        assertThat(systemInfoCalls(DEV)).isEqualTo(2);
+        assertThat(gateDetections).as("the gate never detects for get_health").hasValue(0);
+        assertThat(detections).hasValue(0);
+        assertThat(first.warnings()).as("no duplicate version warning")
+            .containsExactly(UNVERIFIED_902);
+        assertThat(second.warnings()).containsExactly(UNVERIFIED_902);
+    }
+
+    @Test
+    void aFailedAutoDetectionGivesExactlyOneVersionWarning() {
+        versionLines.put(DEV, VersionSetting.AUTO);
+        monitoring(DEV).systemInfo = () -> {
+            // as the gateway factory's slot reports a failed read of an AUTO node
+            versions.detectionFailed(DEV, ErrorCode.AUTH_FAILED);
+            throw error(ErrorCode.AUTH_FAILED, DEV, "INUBIT rejected the credentials (HTTP 401)");
+        };
+
+        HealthReport report = checkOne(DEV, false);
+
+        assertThat(report.reachable()).isTrue();
+        assertThat(report.version()).isEmpty();
+        assertThat(report.warnings()).containsExactly("the INUBIT version of dev/node1 is"
+            + " unknown (AUTH_FAILED at 2026-10-01T08:00:00Z); results are unverified");
+        assertThat(report.warnings()).noneMatch(warning -> warning.contains("assuming 8.1"));
+        assertThat(systemInfoCalls(DEV)).isEqualTo(1);
+        assertThat(gateDetections).hasValue(0);
+    }
+
+    @Test
+    void anAutoNodeOn81HasNoVersionWarning() {
+        versionLines.put(DEV, VersionSetting.AUTO);
+        monitoring(DEV).systemInfo = () -> {
+            versions.detected(DEV, InubitVersion.parse("8.1.17").orElseThrow());
+            return SYSTEM_INFO;
+        };
+
+        assertThat(checkOne(DEV, false).warnings()).isEmpty();
     }
 
     // --- targets ---------------------------------------------------------------------------

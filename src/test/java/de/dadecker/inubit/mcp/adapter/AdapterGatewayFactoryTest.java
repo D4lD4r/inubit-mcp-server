@@ -188,12 +188,13 @@ class AdapterGatewayFactoryTest {
     }
 
     @Test
-    void configuredV9xFallsBackToV81WithUnsupportedWarning() {
+    void configuredV9xUsesTheV81AdaptersWithoutAVersionWarning() {
+        // feature 009 (T013): version warnings come from the version gate, not the gateway
         try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V9_X))) {
             Gateway gateway = factory.forServer(DEV);
 
             assertThat(gateway.adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
-            assertThat(gateway.warnings()).singleElement().asString().contains("unsupported");
+            assertThat(gateway.warnings()).isEmpty();
             assertThat(systemInfoCalls()).isZero();
         }
     }
@@ -212,35 +213,34 @@ class AdapterGatewayFactoryTest {
             assertThat(on81.detectedVersion()).isEmpty();
             assertThat(on81.warnings()).isEmpty();
             assertThat(on90.adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
-            assertThat(on90.warnings()).containsExactly("versionLine 9.0.7-HF1 is unsupported in"
-                + " this version; the 8.1 adapters are used");
+            assertThat(on90.warnings()).as("no version warning (T013)").isEmpty();
             assertThat(systemInfoCalls()).isZero();
         }
     }
 
     @Test
-    void detected9xFallsBackToV81WithUnsupportedWarning() {
+    void detected9xUsesTheV81AdaptersAndReportsTheVersionWithoutAWarning() {
         systemInfo(200, systemInfoWithVersion("9.0.2"));
         try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             Gateway gateway = factory.forServer(DEV);
 
             assertThat(gateway.adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
             assertThat(gateway.detectedVersion()).contains("9.0.2");
-            assertThat(gateway.warnings()).singleElement().asString()
-                .contains("9.0.2", "unsupported");
+            assertThat(gateway.warnings()).as("no version warning (T013)").isEmpty();
+            assertThat(versions.events()).containsExactly("detected dev/node1 9.0.2");
         }
     }
 
     @Test
-    void detectionFailureFallsBackToV81WithWarningCachedForSixtySecondsThenRetried() {
+    void detectionFailureFallsBackToV81CachedForSixtySecondsThenRetried() {
         systemInfo(401, "<html><body>HTTP Status 401</body></html>");
         try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             Gateway fallback = factory.forServer(DEV);
 
             assertThat(fallback.adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
             assertThat(fallback.detectedVersion()).isEmpty();
-            assertThat(fallback.warnings()).containsExactly(
-                "INUBIT version could not be detected (AUTH_FAILED); assuming 8.1");
+            assertThat(fallback.warnings()).as("no \"assuming 8.1\" warning (T013)").isEmpty();
+            assertThat(versions.events()).containsExactly("detectionFailed dev/node1 AUTH_FAILED");
 
             systemInfo(200, fixture("system_info.xml"));
             clock.advance(AdapterGatewayFactory.FAILED_DETECTION_TTL.minusSeconds(1));
@@ -270,8 +270,8 @@ class AdapterGatewayFactoryTest {
             }
 
             assertThat(systemInfoCalls()).isEqualTo(1);
-            assertThat(fallback.warnings()).singleElement().asString()
-                .contains(status == 401 ? "(AUTH_FAILED)" : "(FORBIDDEN)");
+            assertThat(versions.events()).containsExactly("detectionFailed dev/node1 "
+                + (status == 401 ? "AUTH_FAILED" : "FORBIDDEN"));
         }
     }
 
@@ -285,8 +285,7 @@ class AdapterGatewayFactoryTest {
             clock.advance(Duration.ofSeconds(30));
 
             assertThat(factory.forServer(DEV)).isSameAs(fallback);
-            assertThat(fallback.warnings()).singleElement().asString()
-                .contains("(UNREACHABLE)");
+            assertThat(versions.events()).containsExactly("detectionFailed dev/node1 UNREACHABLE");
             assertThat(systemInfoCalls()).isEqualTo(callsOfTheDetection);
         }
     }
@@ -451,13 +450,15 @@ class AdapterGatewayFactoryTest {
     }
 
     @Test
-    void anUnsupportedVersionFromTheMonitoringIsWarnedAbout() {
+    void anUnsupportedVersionFromTheMonitoringIsReportedWithoutAWarning() {
         systemInfo(200, systemInfoWithVersion("9.0.2"));
         try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             factory.monitoring(DEV).systemInfo();
 
-            assertThat(factory.knownGateway(DEV).orElseThrow().warnings()).singleElement()
-                .asString().contains("9.0.2", "unsupported");
+            Gateway known = factory.knownGateway(DEV).orElseThrow();
+            assertThat(known.detectedVersion()).contains("9.0.2");
+            assertThat(known.warnings()).as("no version warning (T013)").isEmpty();
+            assertThat(versions.events()).containsExactly("detected dev/node1 9.0.2");
         }
     }
 
@@ -474,8 +475,9 @@ class AdapterGatewayFactoryTest {
                     e.error().message()).contains("avoid account lockout"));
 
             Gateway known = factory.knownGateway(DEV).orElseThrow();
-            assertThat(known.warnings()).containsExactly(
-                "INUBIT version could not be detected (AUTH_FAILED); assuming 8.1");
+            assertThat(known.detectedVersion()).isEmpty();
+            assertThat(known.warnings()).as("no \"assuming 8.1\" warning (T013)").isEmpty();
+            assertThat(versions.events()).containsExactly("detectionFailed dev/node1 AUTH_FAILED");
             assertThat(factory.forServer(DEV)).isSameAs(known);
             assertThat(monitoring.credentialsConfirmed()).isFalse();
             assertThat(authenticatedCalls()).as("one failed login only").isEqualTo(1);
@@ -502,8 +504,8 @@ class AdapterGatewayFactoryTest {
             server(ENT2, VersionSetting.V9_X))) {
             assertThat(factory.knownGateway(DEV)).get()
                 .extracting(Gateway::warnings).asList().isEmpty();
-            assertThat(factory.knownGateway(ENT2).orElseThrow().warnings()).singleElement()
-                .asString().contains("unsupported");
+            assertThat(factory.knownGateway(ENT2).orElseThrow().warnings())
+                .as("no version warning (T013)").isEmpty();
             assertThat(wireMock.getAllServeEvents()).isEmpty();
         }
     }
@@ -544,20 +546,22 @@ class AdapterGatewayFactoryTest {
             .withHeader("Content-Type", "application/json")
             .withBody("{\"status\":\"OK\",\"maintenancemode\":1}")));
         try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
-            assertThat(factory.forServer(DEV).warnings()).singleElement().asString()
-                .contains("(MAINTENANCE_MODE)");
+            factory.forServer(DEV);
+            assertThat(versions.events())
+                .containsExactly("detectionFailed dev/node1 MAINTENANCE_MODE");
         }
         wireMock.verify(1, getRequestedFor(urlEqualTo(HEALTHCHECK)));
     }
 
     @Test
-    void systemInfoWithoutVersionFallsBackWithWarning() {
+    void systemInfoWithoutVersionFallsBackAndIsAFailedDetection() {
         systemInfo(200,
             "<SystemInformationList xmlns=\"inubit.com/ibis/external/systeminformation\">"
             + "<SystemInformation name=\"FreeMemory\" value=\"1\"/></SystemInformationList>");
         try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
-            assertThat(factory.forServer(DEV).warnings()).singleElement().asString()
-                .contains("(UNEXPECTED_RESPONSE)");
+            assertThat(factory.forServer(DEV).detectedVersion()).isEmpty();
+            assertThat(versions.events())
+                .containsExactly("detectionFailed dev/node1 UNEXPECTED_RESPONSE");
         }
     }
 
@@ -646,8 +650,7 @@ class AdapterGatewayFactoryTest {
             assertThat(codeOf(() -> factory.detect(DEV)))
                 .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
             Gateway fallback = factory.forServer(DEV);
-            assertThat(fallback.warnings()).containsExactly(
-                "INUBIT version could not be detected (UNEXPECTED_RESPONSE); assuming 8.1");
+            assertThat(fallback.detectedVersion()).isEmpty();
             assertThat(systemInfoCalls()).as("forServer keeps the slot's 60 s fallback")
                 .isEqualTo(1);
 
@@ -657,7 +660,7 @@ class AdapterGatewayFactoryTest {
                 .as("detect is not held back by the slot's fallback").isEqualTo("8.1.17");
 
             assertThat(systemInfoCalls()).isEqualTo(2);
-            assertThat(factory.forServer(DEV).warnings()).isEmpty();
+            assertThat(factory.forServer(DEV).detectedVersion()).contains("8.1.17");
             assertThat(versions.events()).containsExactly(
                 "detectionFailed dev/node1 UNEXPECTED_RESPONSE", "detected dev/node1 8.1.17");
         }

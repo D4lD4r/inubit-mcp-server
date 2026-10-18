@@ -56,19 +56,19 @@ import org.slf4j.LoggerFactory;
  * Selects the adapter set of each server by its {@code versionLine} (Constitution V, FR-029).
  *
  * <ul>
- *   <li>{@code V8_1} or a pinned version 8.1.x: the 8.1 adapters.
+ *   <li>A configured {@code versionLine} ({@code V8_1}, {@code V9_X} or a pinned version): the
+ *       8.1 adapters, the only ones that exist in this version.
  *   <li>{@code AUTO}: resolved lazily on the first {@link #forServer} call via
  *       {@code /system/info} and cached per server. If the detection fails, the call still
- *       returns the 8.1 adapters with the warning "INUBIT version could not be detected
- *       (&lt;code&gt;); assuming 8.1". That fallback is cached for {@link #FAILED_DETECTION_TTL}
+ *       returns the 8.1 adapters. That fallback is cached for {@link #FAILED_DETECTION_TTL}
  *       (60 s): within the window the detection is not retried, so that rejected credentials
  *       ({@code AUTH_FAILED}, {@code FORBIDDEN}) do not cause one extra failed login per call
  *       (account lockout). The first call after the window detects again; a successful
  *       detection replaces the fallback for good.
- *   <li>{@code V9_X}, a pinned version other than 8.1.x, or a detected version other than
- *       8.1: the 8.1 adapters plus the warning "unsupported" (only the 8.1 adapters exist in
- *       this version).
  * </ul>
+ *
+ * <p>The gateways carry no version warnings (feature 009): what a version means for a tool call
+ * is decided by the version gate from the outcomes reported to the {@link VersionObserver}.
  *
  * <p>Each server gets one {@link InubitHttpClient}, created lazily with the version line's
  * maintenance probe (8.1: {@link V81MaintenanceProbe}; never {@code MaintenanceProbe.NONE}), so
@@ -92,7 +92,6 @@ import org.slf4j.LoggerFactory;
 public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(AdapterGatewayFactory.class);
-    private static final String V81_PREFIX = "8.1";
 
     private final Map<NodeId, Slot> slots = new LinkedHashMap<>();
     private final SecretScrubber scrubber;
@@ -242,7 +241,7 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                     return gateway;
                 }
                 ensureClient();
-                return auto() ? detect() : configured();
+                return auto() ? detect() : cache(Optional.empty());
             } finally {
                 lock.unlock();
             }
@@ -270,7 +269,7 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                     return Optional.empty();
                 }
                 ensureClient();
-                return Optional.of(configured());
+                return Optional.of(cache(Optional.empty()));
             } finally {
                 lock.unlock();
             }
@@ -285,18 +284,8 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                 && (fallbackUntil == null || clock.instant().isBefore(fallbackUntil));
         }
 
-        /** {@code V8_1} and a pin of 8.1.x: no warning; {@code V9_X} and other pins: warning. */
-        private Gateway configured() {
-            VersionSetting setting = server.versionLine();
-            boolean on81 = setting.equals(VersionSetting.V8_1)
-                || setting instanceof VersionSetting.Pinned pinned && isV81(pinned.text());
-            return on81 ? cache(Optional.empty(), List.of())
-                : cache(Optional.empty(), List.of("versionLine " + setting.text()
-                    + " is unsupported in this version; the 8.1 adapters are used"));
-        }
-
         /**
-         * Detects the version; a real failure gives an 8.1 gateway with a warning, cached for
+         * Detects the version; a real failure gives the 8.1 gateway, cached for
          * {@link #FAILED_DETECTION_TTL}. A cancelled (interrupted) detection is neither cached
          * nor reported.
          */
@@ -306,9 +295,8 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                 version = V81VersionDetector.detect(server.id(), client);
             } catch (ToolErrorException e) {
                 if (Thread.currentThread().isInterrupted()) {
-                    return new V81Gateway(server.id(), Optional.empty(),
-                        List.of(fallbackWarning(e.error().code())), client, monitoring, ports,
-                        guard);
+                    return new V81Gateway(server.id(), Optional.empty(), List.of(), client,
+                        monitoring, ports, guard);
                 }
                 report(e.error().code());
                 return fallback(e.error().code());
@@ -409,28 +397,19 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
         }
 
         private Gateway detected(String version) {
-            List<String> warnings = isV81(version) ? List.of()
-                : List.of("INUBIT " + version + " is unsupported in this version; the 8.1"
-                    + " adapters are used");
-            return cache(Optional.of(version), warnings);
+            return cache(Optional.of(version));
         }
 
         private Gateway fallback(ErrorCode code) {
-            String warning = fallbackWarning(code);
-            LOG.warn("{}: {}", server.id(), warning);
-            gateway = new V81Gateway(server.id(), Optional.empty(), List.of(warning), client,
+            LOG.warn("{}: INUBIT version could not be detected ({})", server.id(), code);
+            gateway = new V81Gateway(server.id(), Optional.empty(), List.of(), client,
                 monitoring, ports, guard);
             fallbackUntil = clock.instant().plus(FAILED_DETECTION_TTL);
             return gateway;
         }
 
-        private static String fallbackWarning(ErrorCode code) {
-            return "INUBIT version could not be detected (" + code + "); assuming 8.1";
-        }
-
-        private Gateway cache(Optional<String> detected, List<String> warnings) {
-            warnings.forEach(warning -> LOG.warn("{}: {}", server.id(), warning));
-            gateway = new V81Gateway(server.id(), detected, warnings, client, monitoring, ports,
+        private Gateway cache(Optional<String> detected) {
+            gateway = new V81Gateway(server.id(), detected, List.of(), client, monitoring, ports,
                 guard);
             fallbackUntil = null;
             return gateway;
@@ -508,9 +487,5 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                 lock.unlock();
             }
         }
-    }
-
-    private static boolean isV81(String version) {
-        return version.equals(V81_PREFIX) || version.startsWith(V81_PREFIX + ".");
     }
 }

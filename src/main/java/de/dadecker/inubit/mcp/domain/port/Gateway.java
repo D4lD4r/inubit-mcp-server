@@ -32,7 +32,7 @@ public interface Gateway {
     /** The INUBIT version read from the server when {@code versionLine} is {@code AUTO}. */
     Optional<String> detectedVersion();
 
-    /** Warnings to show with results of this server, e.g. an unsupported version line. */
+    /** Warnings to show with results of this server; version warnings come from the gate. */
     List<String> warnings();
 
     /** Health and monitoring of this server (US1). */

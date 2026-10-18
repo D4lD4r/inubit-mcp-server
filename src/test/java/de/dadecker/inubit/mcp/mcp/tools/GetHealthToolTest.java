@@ -14,15 +14,17 @@ import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.application.FanOut;
 import de.dadecker.inubit.mcp.application.HealthService;
+import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.TargetResolver;
+import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
-import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import java.time.Clock;
@@ -107,6 +109,10 @@ class GetHealthToolTest {
         }
         List<NodeId> ids = servers.stream().map(EffectiveNodeConfig::id).toList();
         scrubber = new SecretScrubber();
+        Map<NodeId, EffectiveNodeConfig> byId = servers.stream().collect(Collectors.toMap(
+            EffectiveNodeConfig::id, Function.identity()));
+        NodeVersions versions = new NodeVersions(Clock.systemUTC(),
+            id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
         gateways = new AdapterGatewayFactory(servers, new CredentialResolver(Map.of(
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD,
@@ -114,11 +120,12 @@ class GetHealthToolTest {
             "INUBIT")
             .resolve(ids), scrubber, Clock.systemUTC(),
             new CliRunner(new SystemProcessLauncher(), Map.of(), false,
-                new CliResources("acme")), new RecordingVersionObserver());
+                new CliResources("acme")), versions);
         Map<NodeId, Duration> timeouts = servers.stream().collect(Collectors.toMap(
             EffectiveNodeConfig::id, EffectiveNodeConfig::timeout));
         HealthService health = new HealthService(gateways, new TargetResolver(ids),
-            new FanOut(), timeouts::get, Clock.systemUTC());
+            new FanOut(), timeouts::get, Clock.systemUTC(),
+            new VersionGate(versions, gateways, CapabilityMatrix.production()));
         client = McpTestClient.start(List.of(new GetHealthTool(health)), scrubber);
         client.initialize();
     }
@@ -274,7 +281,7 @@ class GetHealthToolTest {
         assertThat(report.path("ready").asBoolean()).isTrue();
         assertThat(report.path("version").asString()).isEqualTo("8.1.17");
         assertThat(report.has("load")).as(report.toString()).isTrue();
-        assertThat(report.path("warnings").toString()).doesNotContain("could not be detected");
+        assertThat(report.path("warnings")).as("no version warning on 8.1.17").isEmpty();
         assertThat(other.findAll(com.github.tomakehurst.wiremock.client.WireMock
             .getRequestedFor(urlPathEqualTo("/ibis/rest/system/info"))))
             .as("the health call's /system/info is the detection").hasSize(1);
@@ -328,8 +335,10 @@ class GetHealthToolTest {
             assertThat(report.path("ready").asBoolean()).isTrue();
             assertThat(report.path("unavailable")).extracting(part -> part.path("reason")
                 .asString().substring(0, 12)).containsOnly("AUTH_FAILED:");
-            assertThat(report.path("warnings").toString())
-                .contains("could not be detected (AUTH_FAILED)");
+            assertThat(report.path("warnings")).hasSize(1);
+            assertThat(report.path("warnings").path(0).asString())
+                .matches("the INUBIT version of staging/locked is unknown \\(AUTH_FAILED at"
+                    + " \\S+\\); results are unverified");
         }
         assertThat(second.path("unavailable").path(0).path("reason").asString())
             .contains("avoid account lockout");

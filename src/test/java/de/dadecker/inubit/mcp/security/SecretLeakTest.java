@@ -34,6 +34,7 @@ import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.tools.ExportArtifactsTool;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -123,7 +124,7 @@ class SecretLeakTest {
                 System.getenv().getOrDefault("PATH", "/usr/bin"))),
             new ArchiveCodec(), node -> artifacts, node -> {
                 throw new AssertionError("every module names its plugin type");
-            });
+            }, FakeVersionDetection.pinned81());
         client = McpTestClient.start(List.of(new ExportArtifactsTool(service,
             new TargetResolver(List.of(DEV)), node -> Optional.of("OWNERS"),
             new ResultLimiter(3, ResultLimiter.DEFAULT_MAX_CHARS))));

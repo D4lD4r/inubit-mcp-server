@@ -190,7 +190,8 @@ final class Wiring implements AutoCloseable {
         this.summaries = servers.stream().map(server -> server.summary(exists, windows)).toList();
         Map<NodeId, Duration> timeouts = new HashMap<>();
         servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
-        this.health = new HealthService(gateways, targets, fanOut, timeouts::get, clock.clock());
+        this.health = new HealthService(gateways, targets, fanOut, timeouts::get, clock.clock(),
+            versionGate);
         Map<NodeId, Duration> hangingThresholds = new HashMap<>();
         servers.forEach(server -> hangingThresholds.put(server.id(), server.hangingThreshold()));
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
@@ -214,7 +215,7 @@ final class Wiring implements AutoCloseable {
         Path workspace = config.workspace();
         this.exportArtifacts = new ExportArtifactsTool(new WorkspaceService(workspace,
             new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
-            new ArchiveCodec(), gateways::artifacts, gateways::inventory), targets,
+            new ArchiveCodec(), gateways::artifacts, gateways::inventory, versionGate), targets,
             id -> byId.get(id).inventory().owner(), limiter);
         ArtifactCheckService checks = new ArtifactCheckService(workspace,
             new WorkspaceInspector(), new SaxonXsltRunner(workspace), group -> servers.stream()

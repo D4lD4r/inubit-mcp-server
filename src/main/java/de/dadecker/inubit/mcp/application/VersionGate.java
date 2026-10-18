@@ -89,6 +89,27 @@ public final class VersionGate {
         NodeVersionState state = versions.state(node);
         Optional<InubitVersion> version = purpose == Capability.Kind.WRITE
             ? versions.writableVersion(node) : state.effectiveVersion();
+        return judge(node, capability, purpose, channels, state, version);
+    }
+
+    /**
+     * The {@code MONITORING} admission of one {@code get_health} call: never detects and never
+     * refuses. It is judged on the version this call's own {@code /system/info} read returned;
+     * without one (the read failed or gave no parsable version) on the node's known state, so a
+     * failed {@code AUTO} detection gives the "unknown (&lt;code&gt; at &lt;time&gt;)" warning.
+     *
+     * @param read the version the call read, if any
+     */
+    public Admission admitMonitoring(NodeId node, Optional<InubitVersion> read) {
+        Objects.requireNonNull(node, "node");
+        Objects.requireNonNull(read, "read");
+        NodeVersionState state = versions.state(node);
+        return judge(node, Capability.MONITORING, Capability.Kind.READ, Set.of(Channel.REST),
+            state, read.or(state::effectiveVersion));
+    }
+
+    private Admission judge(NodeId node, Capability capability, Capability.Kind purpose,
+        Set<Channel> channels, NodeVersionState state, Optional<InubitVersion> version) {
         Optional<String> name = name(state, version);
         List<String> warnings = new ArrayList<>();
 

@@ -10,16 +10,20 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
 import de.dadecker.inubit.mcp.application.WorkspaceService.ExportResult;
 import de.dadecker.inubit.mcp.application.WorkspaceService.ModuleRef;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.HistoryEntry;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.PathChange;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import de.dadecker.inubit.mcp.domain.port.ArchiveCodecPort;
 import de.dadecker.inubit.mcp.domain.port.ArchiveCodecPort.PreparedExport;
 import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -416,7 +420,7 @@ class WorkspaceExportTest {
         WorkspaceService service = new WorkspaceService(root, failingCommit, new ArchiveCodec(),
             node -> harness.artifacts, node -> {
                 throw new AssertionError("not used");
-            });
+            }, FakeVersionDetection.pinned81());
 
         assertThatThrownBy(() -> service.export(diagramGroups("jdoe", "GRP-01")))
             .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(e.error().code())
@@ -425,6 +429,71 @@ class WorkspaceExportTest {
         assertThat(harness.snapshot()).isEqualTo(before);
         assertThat(harness.history.status()).isEmpty();
         assertThat(harness.log()).hasSize(1);
+    }
+
+    // --- feature 009: version gate (T013) ----------------------------------------------------
+
+    /** {@code dev/node1} is {@code AUTO} and detects INUBIT {@code raw}. */
+    private void devRuns(String raw) {
+        harness.versionLines.put(DEV, VersionSetting.AUTO);
+        harness.detection.answer(DEV, raw);
+    }
+
+    @Test
+    void onInubit90TheExportRunsWithTheUnverifiedWarningFirst() {
+        devRuns("9.0.7");
+
+        ExportResult result = harness.service().export(diagramGroups("jdoe", "GRP-01"));
+
+        assertThat(result.export()).isPresent();
+        assertThat(result.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not verified"
+            + " for workspace export; results may be incomplete",
+            "Workflow Workflow-0002 is in edit mode by jdoe (CheckoutUser)");
+        assertThat(harness.detection.requests()).containsExactly(DEV);
+    }
+
+    @Test
+    void onInubit81TheExportCarriesNoVersionWarning() {
+        devRuns("8.1.17");
+
+        ExportResult result = harness.service().export(diagramGroups("jdoe", "GRP-01"));
+
+        assertThat(result.warnings())
+            .containsExactly("Workflow Workflow-0002 is in edit mode by jdoe (CheckoutUser)");
+        assertThat(harness.detection.requests()).containsExactly(DEV);
+    }
+
+    @Test
+    void anUnknownVersionRunsTheExportWithAWarning() {
+        harness.versionLines.put(DEV, VersionSetting.AUTO);
+        harness.detection.fail(DEV, ErrorCode.AUTH_FAILED);
+
+        ExportResult result = harness.service().export(diagramGroups("OWNERS", "GRP-02"));
+
+        assertThat(result.export()).isPresent();
+        assertThat(result.warnings()).first().isEqualTo("the INUBIT version of dev/node1 is"
+            + " unknown (AUTH_FAILED at 2026-10-18T08:00:00Z); results are unverified");
+    }
+
+    @Test
+    void aClientThatExcludesTheServerVersionRefusesTheExportBeforeAnythingHappens() {
+        devRuns("9.0.7");
+        harness.versions.clientProbed(DEV, new ClientVersion(
+            InubitVersion.parse("8.1.17").orElseThrow(), InubitVersion.parse("4.0.1"),
+            InubitVersion.parse("8.1.17")));
+
+        assertThatThrownBy(() -> harness.service().export(diagramGroups("jdoe", "GRP-01")))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                assertThat(e.error().node()).contains(DEV);
+                assertThat(e.error().message()).startsWith("export_artifacts: StartCLI client"
+                    + " 8.1.17 of dev/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes"
+                    + " INUBIT 9.0.7");
+            });
+
+        assertThat(harness.artifacts.calls).as("no StartCLI export").isEmpty();
+        assertThat(harness.log()).isEmpty();
+        assertThat(harness.snapshot()).isEmpty();
     }
 
     @Test

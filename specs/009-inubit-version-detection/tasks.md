@@ -237,7 +237,7 @@ run one after the other (no [P]).
   node → warning; 8.1 → no field; 9.0 with an 8.1 client: diagrams listed with warning, modules
   refused, item history `unavailable` with `UNSUPPORTED_VERSION`; FR-006: a group call where one
   node is refused by a test-only matrix returns that node's error and the others' results).
-- [ ] T013 [US2] Workspace export and monitoring: the gate (WORKSPACE_EXPORT, READ, `{CLI}`) in
+- [X] T013 [US2] Workspace export and monitoring: the gate (WORKSPACE_EXPORT, READ, `{CLI}`) in
   `main/application/WorkspaceService.java` export (warnings into the existing `warnings`); in
   `main/application/HealthService.java` the gate (MONITORING) never detects and never refuses — its
   warning is derived from the version `get_health`'s own `/system/info` read returns (the same

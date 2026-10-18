@@ -13,7 +13,7 @@ public interface GatewayFactory {
 
     /**
      * The gateway of {@code server}. A failed version detection does not fail this call: the 8.1
-     * adapters are returned with a warning; that fallback is kept for a short time (60 s in
+     * adapters are returned; that fallback is kept for a short time (60 s in
      * {@code AdapterGatewayFactory}) before the detection is retried, so that rejected
      * credentials are not tried again on every call.
      *

@@ -1,5 +1,7 @@
 package de.dadecker.inubit.mcp.application;
 
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.HistoryEntry;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -25,13 +27,17 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
  * The workspace of one profile: exports into readable files with a local history (feature 003).
  *
- * <p>{@link #export} is one transaction (research D-9):
+ * <p>{@link #export} first asks the version gate whether the node's version and StartCLI client
+ * allow a workspace export (feature 009): a refusal ({@code UNSUPPORTED_VERSION}) comes before
+ * anything else, the admission's warnings go into the result. Then it is one transaction
+ * (research D-9):
  *
  * <ol>
  *   <li>lock the workspace — a second export or check is refused at once (FR-020);
@@ -168,6 +174,7 @@ public final class WorkspaceService {
     private final ArchiveCodecPort codec;
     private final Function<NodeId, ArtifactPort> artifacts;
     private final Function<NodeId, InventoryPort> inventory;
+    private final VersionGate gate;
 
     /**
      * @param root the workspace root
@@ -175,14 +182,17 @@ public final class WorkspaceService {
      * @param codec turns export archives into files
      * @param artifacts the artifact port of a server
      * @param inventory the inventory port of a server (module list for plugin types)
+     * @param gate admits the export ({@code WORKSPACE_EXPORT} over StartCLI)
      */
     public WorkspaceService(Path root, VersionHistoryPort history, ArchiveCodecPort codec,
-        Function<NodeId, ArtifactPort> artifacts, Function<NodeId, InventoryPort> inventory) {
+        Function<NodeId, ArtifactPort> artifacts, Function<NodeId, InventoryPort> inventory,
+        VersionGate gate) {
         this.root = Objects.requireNonNull(root, "root");
         this.history = Objects.requireNonNull(history, "history");
         this.codec = Objects.requireNonNull(codec, "codec");
         this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
         this.inventory = Objects.requireNonNull(inventory, "inventory");
+        this.gate = Objects.requireNonNull(gate, "gate");
     }
 
     /** The workspace root. */
@@ -193,7 +203,8 @@ public final class WorkspaceService {
     /**
      * Exports {@code request} into the workspace (see the class description).
      *
-     * @throws ToolErrorException {@code PRECONDITION_FAILED} (workspace busy or not usable, or a
+     * @throws ToolErrorException {@code UNSUPPORTED_VERSION} if the version gate refuses the
+     *     export, {@code PRECONDITION_FAILED} (workspace busy or not usable, or a
      *     write failed and was undone), the errors of the artifact port, {@code NOT_FOUND} for a
      *     module missing from the module list or for missing repository paths (all named),
      *     {@code UNEXPECTED_RESPONSE} for an archive that cannot be processed,
@@ -202,6 +213,8 @@ public final class WorkspaceService {
      */
     public ExportResult export(ExportRequest request) {
         NodeId node = request.node();
+        List<String> admission = gate.admit("export_artifacts", node,
+            Capability.WORKSPACE_EXPORT, Capability.Kind.READ, Set.of(Channel.CLI)).warnings();
         try (WorkspaceLock lock = WorkspaceLock.acquire(root)) {
             history.init();
             Optional<HistoryEntry> localChanges = commitLocalChanges();
@@ -244,8 +257,10 @@ public final class WorkspaceService {
             } catch (RuntimeException e) {
                 throw undo(prepared, e);
             }
+            List<String> warnings = new ArrayList<>(admission);
+            warnings.addAll(prepared.warnings());
             return new ExportResult(node, request.owner(), root, localChanges, export,
-                prepared.secretsReplaced(), prepared.warnings());
+                prepared.secretsReplaced(), warnings);
         }
     }
 

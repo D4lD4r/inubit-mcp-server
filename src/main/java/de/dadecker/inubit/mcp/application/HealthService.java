@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.HealthReport;
 import de.dadecker.inubit.mcp.domain.model.HealthStatus;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LoadFigures;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeResult;
@@ -56,9 +57,12 @@ import org.slf4j.LoggerFactory;
  *   <li>Deadlines (SC-002): parts that have not answered {@link #PART_GRACE} after the server's
  *       timeout are reported as {@code TIMEOUT}; the fan-out itself gives up at timeout +
  *       {@link #FAN_OUT_GRACE}, so the whole call returns within the largest timeout + 1 s.
- *   <li>Warnings: the gateway's, if its version line is known by now (e.g. a failed version
- *       detection or an unsupported version line), maintenance mode, and a reported version
- *       other than 8.1.
+ *   <li>Warnings: the gateway's, if its version line is known by now, maintenance mode, and
+ *       the version gate's {@code MONITORING} warning (feature 009): derived from the version
+ *       this call's {@code /system/info} read returned, or for a failed read from the node's
+ *       known version state (e.g. "the INUBIT version of &lt;node&gt; is unknown (&lt;code&gt; at
+ *       &lt;time&gt;); results are unverified"). The gate never detects and never refuses here,
+ *       so the call sends no extra request and keeps its time budget.
  * </ul>
  */
 public final class HealthService {
@@ -69,25 +73,27 @@ public final class HealthService {
     static final Duration FAN_OUT_GRACE = Duration.ofMillis(900);
 
     private static final Logger LOG = LoggerFactory.getLogger(HealthService.class);
-    private static final String SUPPORTED_LINE = "8.1";
 
     private final GatewayFactory gateways;
     private final TargetResolver targets;
     private final FanOut fanOut;
     private final Function<NodeId, Duration> timeouts;
     private final Clock clock;
+    private final VersionGate gate;
 
     /**
      * @param timeouts the REST timeout of each server
      * @param clock    for {@code checkedAt} when INUBIT gives no timestamp
+     * @param gate     gives the version warning of each report ({@code MONITORING})
      */
     public HealthService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
-        Function<NodeId, Duration> timeouts, Clock clock) {
+        Function<NodeId, Duration> timeouts, Clock clock, VersionGate gate) {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.fanOut = Objects.requireNonNull(fanOut, "fanOut");
         this.timeouts = Objects.requireNonNull(timeouts, "timeouts");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.gate = Objects.requireNonNull(gate, "gate");
     }
 
     /**
@@ -156,7 +162,10 @@ public final class HealthService {
                 load = Outcome.failure(serializedMetricsTimeout(server, timeout, budgetEnd,
                     metricsStart.get()));
             }
-            return assemble(server, gatewayWarnings(server), health, readiness, info, load,
+            Optional<InubitVersion> read = info.failed() ? Optional.empty()
+                : info.value().version().flatMap(InubitVersion::parse);
+            return assemble(server, gatewayWarnings(server),
+                gate.admitMonitoring(server, read).warnings(), health, readiness, info, load,
                 includeSystemInfo);
         } finally {
             // never close(): it would wait for calls that ignore interrupts
@@ -210,8 +219,9 @@ public final class HealthService {
     }
 
     private HealthReport assemble(NodeId server, List<String> gatewayWarnings,
-        Outcome<Healthcheck> healthcheck, Outcome<Readiness> ready,
-        Outcome<SystemInfo> systemInfo, Outcome<Metrics> metrics, boolean includeSystemInfo) {
+        List<String> versionWarnings, Outcome<Healthcheck> healthcheck,
+        Outcome<Readiness> ready, Outcome<SystemInfo> systemInfo, Outcome<Metrics> metrics,
+        boolean includeSystemInfo) {
         List<UnavailablePart> unavailable = new ArrayList<>();
         Set<String> warnings = new LinkedHashSet<>(gatewayWarnings);
 
@@ -281,10 +291,7 @@ public final class HealthService {
             warnings.add(server + " is in maintenance mode and therefore not processing"
                 + " normally");
         }
-        version.filter(v -> !isSupportedLine(v))
-            .filter(v -> warnings.stream().noneMatch(warning -> warning.contains(v)))
-            .ifPresent(v -> warnings.add("INUBIT " + v + " is not the supported version line "
-                + SUPPORTED_LINE + "; the " + SUPPORTED_LINE + " adapters are used"));
+        warnings.addAll(versionWarnings);
 
         return new HealthReport(server, server.group(), checkedAt, reachable, status, isReady,
             readyMessage, maintenanceMode, version, info, load, unavailable,
@@ -298,10 +305,6 @@ public final class HealthService {
             Optional.empty(), Optional.empty(), Optional.empty(), List.of(),
             Optional.of(error.node().isPresent() ? error : error.withNode(server)),
             List.of());
-    }
-
-    private static boolean isSupportedLine(String version) {
-        return version.equals(SUPPORTED_LINE) || version.startsWith(SUPPORTED_LINE + ".");
     }
 
     /** Waits for {@code future} until {@code deadline} (nano time); interrupts are passed on. */
