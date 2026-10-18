@@ -9,7 +9,7 @@ description: "Task list for INUBIT version detection and version-dependent capab
 
 **Prerequisites**:
 - [plan.md](plan.md) and [spec.md](spec.md) (clarifications 2026-10-17/18, reviews r1–r4)
-- [research.md](research.md) (D-1…D-15) and [data-model.md](data-model.md)
+- [research.md](research.md) (D-1…D-16) and [data-model.md](data-model.md)
 - [contracts/configuration-delta.md](contracts/configuration-delta.md) and
   [contracts/mcp-tools-delta.md](contracts/mcp-tools-delta.md)
 - [quickstart.md](quickstart.md)
@@ -17,7 +17,9 @@ description: "Task list for INUBIT version detection and version-dependent capab
 
 **Tests**: REQUIRED (Constitution III, TDD). Every task starts with the test(s) it names, observed
 failing on an assertion before the production code exists, and ends with `mvn -q verify` green.
-Each task therefore contains its own tests; there are no separate "write failing tests" tasks.
+Each task therefore contains its own tests; there are no separate "write failing tests" tasks. The
+one exception is marked "verification task": its tests cover behaviour that earlier tasks already
+built, so they may pass at once.
 
 **Organization**: by user story. Both P1 stories need the foundation (domain types, version state,
 gate). US2 (refusals, the safety property) comes before US1 (visibility) because US1's
@@ -98,8 +100,10 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
   `EffectiveNodeConfig` (resolution node → group → `Auto` unchanged), `Defaults.java`
   (`BUILTIN_VERSION_LINE`), `ConfigValidator`, `AdapterGatewayFactory` and the test users
   (`TestNodeConfig`, `GetHealthToolTest`, `ListNodesToolTest`, `ProcessControlToolsTest`,
-  `DiagnosisToolFixture`, `InventoryToolFixture`, `AdapterGatewayFactoryTest`). Behaviour stays as
-  today in this task. Test first: `test/config/ConfigLoaderTest.java` (all four kinds,
+  `DiagnosisToolFixture`, `InventoryToolFixture`, `AdapterGatewayFactoryTest`,
+  `CliVersionProbeTest`, `HealthServiceTest`). `NodeSummary.versionLine` becomes the configured
+  text, so `res/schemas/list_nodes.output.json` changes `versionLine` from the enum to a string in
+  this task. Behaviour stays as today otherwise. Test first: `test/config/ConfigLoaderTest.java` (all four kinds,
   `"9.0.7-HF1"`, `8.1` unquoted, `"8.1"`, `"V10"`), `test/config/EffectiveNodeConfigTest.java`.
 - [ ] T006 `main/application/NodeVersions.java` + `main/domain/model/NodeVersionState.java`
   (research D-4, data-model): per-node setting, detection (version+time) or failure (code+time),
@@ -109,7 +113,8 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
   `inventory.cacheTtl` as bound (`Auto` and no version, or WRITE and stale/older than the bound;
   never within 60 s after a failure — `NodeVersions` owns this back-off for the gate), contradiction
   set/cleared by observations (FR-012; a patch-only difference is no contradiction), client result
-  kept for the process lifetime, client failure retried after 60 s (FR-002). Thread-safe, injected
+  kept for the process lifetime (a version without a range is a success with an empty range),
+  only a failed or timed-out probe retried after 60 s (FR-002). Thread-safe, injected
   `Clock`. Test first: `test/application/NodeVersionsTest.java`.
 - [ ] T007 Detection port, reporting and stale triggers (research D-4, D-5, D-10):
   - `GatewayFactory.detect(NodeId)` in `main/domain/port/GatewayFactory.java`, implemented in
@@ -117,8 +122,10 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
     success cache (re-detection), result reported to the observer; the slot's `fallbackUntil`
     stays only for adapter selection;
   - a domain port `main/domain/port/VersionObserver.java` (`detected`, `detectionFailed`,
-    `observed`, `stale`), implemented by `NodeVersions`, called by the `Slot` and the
-    `SystemInfoListener`;
+    `observed`, `stale`, and the read `effectiveVersion(NodeId)` used by T024), implemented by
+    `NodeVersions`; the `Slot` reports its AUTO detections and failures (the `SystemInfoListener`
+    keeps feeding only the slot's AUTO detection); observations are reported by `HealthService`
+    alone (T016);
   - `StaleReportingPorts` in `main/adapter/` wrapping every port the factory hands out: a
     `ToolErrorException` with `UNEXPECTED_RESPONSE` (from the client or a v81 parser) reports
     `stale(node)` and is rethrown;
@@ -128,7 +135,7 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
     for `/system/info`, `/system/healthcheck`, the log, queue-log and model list endpoints;
   - wire it in `main/Wiring.java`.
   Test first: `test/adapter/AdapterGatewayFactoryTest.java` (detect once and again after the
-  cache, back-off, observer calls, a parser `UNEXPECTED_RESPONSE` marks stale, a 406 marks stale),
+  cache, back-off, detection/failure observer calls, a parser `UNEXPECTED_RESPONSE` marks stale, a 406 marks stale),
   `test/adapter/rest/InubitHttpClientTest.java` (endpoint 404 → `UNEXPECTED_RESPONSE`, resource
   404 → `NOT_FOUND`).
 - [ ] T008 `main/application/VersionGate.java` (research D-5, data-model `Admission`):
@@ -144,8 +151,11 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
   refused, read warning; contradiction → write refused; stale or older than the node's
   `inventory.cacheTtl` before a write → re-detect; read uses the cache; REST channel on 9.0 with an
   8.1 client → admitted with warning, CLI channel → refused; test-only matrix marking a read
-  UNSUPPORTED → read refused; FR-016: no refusal or warning text contains the node's baseUrl, the
-  username or the password).
+  UNSUPPORTED → read refused; MONITORING never refused even when a test-only matrix declares it
+  UNSUPPORTED; pinned `"8.1.17"`: zero detection requests; `V9_X`: write refused, read warning;
+  FR-016: no refusal or warning text contains the node's baseUrl, the username or the password).
+  Client results in this and the following tests are seeded through the `NodeVersions` API (T006);
+  the probe itself is wired in T019.
 
 **Checkpoint**: foundation ready; no tool behaviour has changed yet.
 
@@ -163,25 +173,28 @@ The tasks of this phase change constructors that `main/Wiring.java` and test fix
 run one after the other (no [P]).
 
 - [ ] T009 [US2] Development writes: rename `DevelopmentGuard.Capability` to
-  `DevelopmentGuard.Operation` and map `RUN_E2E_TEST` → `E2E_TEST` (channels SOAP+REST), every
+  `DevelopmentGuard.Operation` (call sites `ImportService` :365, :578, :746, `TagService` :160,
+  `E2eTestService` :203 and their tests) and map `RUN_E2E_TEST` → `E2E_TEST` (channels SOAP+REST), every
   other operation → `DEVELOPMENT_WRITE` (CLI+REST); call `VersionGate.admit(…, WRITE, channels)` in
   `main/application/DevelopmentGuard.java` after the configuration checks and before `cli.check`,
   for import, restore of development backups, set_active, tag and run_e2e_test; refusals are
   audited through each service's existing `Call.refuse` (`ImportService`, `TagService`,
-  `E2eTestService`); admission warnings go into each result's `warnings`. Wire the gate in
+  `E2eTestService`); admission warnings travel in a new `warnings` list on
+  `main/domain/model/DevelopmentPolicy.java` and go into each result's `warnings`. Wire the gate in
   `main/Wiring.java` and the fixtures building `DevelopmentGuard`. Test first:
   `test/application/ImportServiceVersionTest.java` (import, restore, set_active on 9.0 / `V9_X` /
-  failed detection: refused, audit `REFUSED`, only the detection request; 8.1.17 client at 8.1.18
-  → executed with the mismatch warning in `warnings`), `test/application/TagServiceTest.java`,
+  failed detection: refused, audit `REFUSED`, only the detection request; with a seeded 8.1.17
+  client at an 8.1.18 server → executed with the mismatch warning in `warnings`), `test/application/TagServiceTest.java`,
   `test/application/E2eTestServiceTest.java` (new cases).
 - [ ] T010 [US2] Process control: call the gate (`PROCESS_CONTROL`, WRITE, CLI+REST) in
   `main/application/WriteGuard.java` before `checkAvailable`, so `restart_process` and
   `kill_process` are refused before the REST state read; add an optional `warnings` field to
   `res/schemas/restart_process.output.json`, `kill_process.output.json` and their result records
-  for admission warnings. Wire it in `main/Wiring.java`. Test first:
-  `test/application/ProcessControlServiceTest.java` (both tools on 9.0: refused, audit `REFUSED`,
-  no REST request other than the detection; a client probe timeout → executed with the warning in
-  `warnings`, the next call more than 60 s later probes again — US2-5).
+  for admission warnings, carried by a new `warnings` list on `main/domain/model/WritePolicy.java`.
+  Wire it in `main/Wiring.java`. Test first: `test/application/ProcessControlServiceTest.java`
+  (both tools on 9.0: refused, audit `REFUSED`, no REST request other than the detection; with a
+  seeded client mismatch → executed with the warning in `warnings`). The probe-timeout case of
+  US2-5 is tested in T019.
 - [ ] T011 [US2] Deployment-backup restores: `DevelopmentGuard.admitDeploymentRestore`
   (`main/application/DevelopmentGuard.java`:118, called from `ImportService.admitRestore`) calls the
   gate with `DEPLOYMENT` (WRITE) for the backup's node. Test first:
@@ -203,17 +216,18 @@ run one after the other (no [P]).
 - [ ] T013 [US2] Workspace export and monitoring: the gate (WORKSPACE_EXPORT, READ, `{CLI}`) in
   `main/application/WorkspaceService.java` export (warnings into the existing `warnings`); in
   `main/application/HealthService.java` the gate (MONITORING) never detects and never refuses — its
-  warning is derived from the observation that `get_health`'s own `/system/info` read records
-  through the `SystemInfoListener` → `VersionObserver.observed` (T007) and replaces today's
-  "unsupported … the 8.1 adapters are used" text. Wire both in `main/Wiring.java`. Test first:
+  warning is derived from the version `get_health`'s own `/system/info` read returns (the same
+  read T016 reports as the observation) and replaces today's "unsupported … the 8.1 adapters are
+  used" text. Wire both in `main/Wiring.java`. Test first:
   `test/application/WorkspaceExportTest.java` (new case), `test/application/HealthServiceTest.java`
   (adjusted 9.0.2 expectations; exactly one `/system/info` request per `get_health` on an `AUTO`
   node).
 - [ ] T014 [US2] `check_artifacts` module lookup (FR-001, FR-011): in
   `main/application/ArtifactCheckService.java` (:513) call the gate (INVENTORY, READ, `{CLI}`)
   before `listModules`; a refusal skips the lookup and is reported as the existing "module could not
-  be looked up" finding with the reason; a warning is added to the result's warnings; the first call
-  on an `AUTO` node detects. Wire it in `main/Wiring.java`. Test first:
+  be looked up" finding with the reason; an admission warning (unverified version, client
+  mismatch) becomes a finding with severity `WARNING` (`check_artifacts` has no `warnings` field);
+  the first call on an `AUTO` node detects. Wire it in `main/Wiring.java`. Test first:
   `test/application/ArtifactCheckServiceTest.java` (9.0 node with an 8.1 client: lookup skipped with
   the reason, no StartCLI run; 8.1: unchanged).
 - [ ] T015 [US2] Tool announcement (research D-12, FR-007): the conditions in `main/Wiring.java`
@@ -236,8 +250,9 @@ capabilities (FR-001, FR-002, FR-004, FR-011).
 **Independent Test**: `list_nodes` before `get_health` shows `not_yet_detected` with zero requests;
 after `get_health` it shows the detected version, the client version and `supported`.
 
-- [ ] T016 [US1] `get_health` observation (FR-001, FR-012): `HealthService` reports the version it
-  reads for every node (pinned too) to `NodeVersions` as an observation; an observed major.minor
+- [ ] T016 [US1] `get_health` observation (FR-001, FR-012): `HealthService` is the single owner of
+  observations and reports the version it reads for every node (pinned too) through
+  `VersionObserver.observed`; an observed major.minor
   different from a pin sets the contradiction and adds a warning; a patch-only difference only
   warns. Test first: `test/application/HealthServiceTest.java` (pinned `V8_1` node observing 9.0.7 →
   warning + contradiction; later 8.1.17 → cleared; pinned `"8.1.17"` observing 8.1.18 → warning, no
@@ -257,6 +272,7 @@ after `get_health` it shows the detected version, the client version and `suppor
   new part `client` in `unavailable` (`not yet detected (timeout)` or the cause). Add `client` to
   `main/domain/model/UnavailablePart.java` and `res/schemas/get_health.output.json` (part enum,
   report `client`). Test first: `test/application/HealthServiceTest.java` (second `get_health` runs
+  no probe; a node without a StartCLI installation reports the client as `not_available` and runs
   no probe; FR-016: report and `unavailable` texts contain no baseUrl, username or password),
   `test/mcp/tools/GetHealthToolTest.java` (timing within `timeout` + 1 s with a probe that hangs),
   `test/performance/HealthOverviewPerformanceTest.java` stays within 10 s.
@@ -266,7 +282,9 @@ after `get_health` it shows the detected version, the client version and `suppor
   version and range; `NOT_EVALUABLE` (probe failed/timed out, no range, server unknown) and
   `MISMATCH` admit with a warning; a failed probe is retried at most once per 60 s. Test first:
   `test/application/VersionGateTest.java` (8.1.17 client + 8.1.18 server → warning; + 9.0.7 →
-  refused; `V9_X` → refused; timeout → warning, retried after 60 s with a fake clock).
+  refused; `V9_X` → refused; timeout → warning, retried after 60 s with a fake clock) and
+  `test/application/ProcessControlServiceTest.java` (US2-5 end to end: a probe timeout → restart
+  executed with the warning in `warnings`; the next call more than 60 s later probes again).
 - [ ] T020 [US1] `list_nodes` (research D-9, contracts/mcp-tools-delta.md): `NodeSummary` gains the
   `version` block (data-model: `setting`, `server`, `client`, `status`, `capabilities`
   `usable`/`notUsable` with reasons, `warnings`; "usable" = `SUPPORTED`, or `UNVERIFIED` for reads
@@ -275,12 +293,15 @@ after `get_health` it shows the detected version, the client version and `suppor
   becomes the configured text (string). `main/mcp/tools/ListNodesTool.java` takes a
   `Supplier<List<NodeSummary>>` combining the startup configuration summaries with `NodeVersions`
   at call time; it never contacts a node. Update `res/schemas/list_nodes.output.json`
-  (`versionLine` string, `version` object, `additionalProperties: false` kept), the tool
+  (`version` object, `additionalProperties: false` kept), the tool
   description (next step `get_health` for `not_yet_detected`) and `main/Wiring.java`. Test first:
   `test/mcp/tools/ListNodesToolTest.java` (zero WireMock requests; `not_yet_detected`; after a
   detection `supported`; 9.0 node with an 8.1 client `partially_supported` with REST reads usable,
   `inventory (StartCLI parts)` and write capabilities not usable; failed detection `unknown` with
-  reason and time; FR-016: no baseUrl, username or password in any `version` field).
+  reason and time; a pin contradicted by `get_health` shown in `version.warnings` and the write
+  capabilities not usable; a node without a StartCLI installation shows the client as
+  `not_available`; FR-016: no baseUrl, username or password in any `version` field). The
+  `versionLine` schema change was done in T005.
 
 **Checkpoint**: US1 complete — the MVP (US2 + US1) is usable.
 
@@ -294,11 +315,14 @@ after `get_health` it shows the detected version, the client version and `suppor
 **Independent Test**: a node pinned to `"8.1.17"` triggers no detection request, `--check-config`
 shows the client against the pin, and a contradicting observation refuses writes.
 
-- [ ] T021 [US4] Pinned nodes in the gate: no detection request for `Line`/`Pinned` (FR-001);
-  `V8_1`/a concrete pin give the matrix entry of their major.minor; `V9_X` is looked up as unknown
-  (writes refused, reads unverified); the contradiction from T016 refuses writes. Test first:
-  `test/application/VersionGateTest.java` (pinned `"8.1.17"`: zero detection requests; `V9_X` write
-  refused; contradiction refused and cleared).
+- [ ] T021 [US4] Verification task (no production change expected; the behaviour comes from T003,
+  T006 and T008): pinned nodes end to end through a tool — no detection request for
+  `Line`/`Pinned` (FR-001); `V8_1`/a concrete pin give the matrix entry of their major.minor;
+  `V9_X` is looked up as unknown (writes refused, reads unverified); the contradiction from T016
+  refuses writes. Tests: `test/application/ImportServiceVersionTest.java` (pinned `"8.1.17"`: import
+  executed with zero detection requests; `V9_X`: refused; a pin contradicted by `get_health` →
+  refused, a later matching `get_health` → executed). If a case fails, fix it in the class
+  responsible and name the fix in the commit.
 - [ ] T022 [US4] `--check-config` (research D-13, contracts/configuration-delta.md):
   `main/Launcher.java` creates a `CliRunner` for the check (no credentials, no server URL) and passes
   per-node client results to `main/config/ConfigSummary.java`; the node line gains
@@ -319,8 +343,10 @@ shows the client against the pin, and a contradicting observation refuses writes
   the gate's detection rule (WRITE) to every source and target node, then refuse the whole
   deployment if any node is unknown, any target is not `SUPPORTED` for `DEPLOYMENT`, sources differ
   from each other or from any target in major.minor (`V8_1`/a concrete pin give major.minor;
-  `V9_X` counts as unknown), naming every node and version. `DeployService` already calls the guard
-  in preview and in execute; admission warnings go into the result's `warnings`. Test first:
+  `V9_X` counts as unknown), naming every node and version. `DeployGuard` gets the gate as a
+  constructor parameter (`main/Wiring.java` and the DeployGuard fixtures change); `Admitted` gains
+  the admission `warnings`, which `DeployService` puts into the result's `warnings`.
+  `DeployService` already calls the guard in preview and in execute. Test first:
   `test/application/DeployServiceVersionTest.java` (8.1.17 → 8.1.18 allowed; 8.1 → 9.0 refused;
   unknown source refused; unknown target refused; differing sources refused; version changed
   between preview and execute → refused at execute; nothing sent on refusal; audit `REFUSED`).
@@ -334,7 +360,8 @@ shows the client against the pin, and a contradicting observation refuses writes
 - [ ] T024 [US3] Port-set selection by effective version (research D-16):
   `main/adapter/AdapterGatewayFactory.java` gets a `PortSetRegistry` constructor parameter (version
   ranges → port-set factories, plus a default); `Slot.ensureClient()` keeps the lazy client, but
-  the port set is chosen from the registry by the node's effective version (from `NodeVersions`)
+  the port set is chosen from the registry by the node's effective version (read through the
+  domain port `VersionObserver.effectiveVersion`, T007)
   when ports are first requested after the gate's admission, and rebuilt when a re-detection moves
   the node to another range. Production registers only the 8.1 port set as the default for every
   version (no behaviour change). Wire it in `main/Wiring.java`. Test first:
@@ -343,8 +370,9 @@ shows the client against the pin, and a contradicting observation refuses writes
 - [ ] T025 [US3] `test/application/CapabilityExtensionTest.java`: with a test-only
   `CapabilityMatrix` declaring a fictitious range (e.g. 7.9) with a subset of capabilities and a
   test-only port set registered for it (T024), a node of that version gets exactly the declared
-  tools through that port set (others refused), an 8.1 node is unchanged, a 9.0 node behaves as in
-  US2 — without touching any tool or service class.
+  tools through that port set (others refused, except `get_health`, which is never refused and only
+  warns), `list_nodes` shows exactly the declared capabilities as usable (US3-2), an 8.1 node is
+  unchanged, a 9.0 node behaves as in US2 — without touching any tool or service class.
 
 ---
 
