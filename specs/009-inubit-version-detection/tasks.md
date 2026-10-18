@@ -113,12 +113,15 @@ gate). US2 (refusals, the safety property) comes before US1 (visibility) because
   `inventory.cacheTtl` as bound (`Auto` and no version, or WRITE and stale/older than the bound;
   never within 60 s after a failure — `NodeVersions` owns this back-off for the gate),
   `writableVersion(now, bound)` (on `Auto`, a stale or over-bound version whose re-detection failed
-  or is suppressed by the back-off counts as unknown for writes; reads keep `effectiveVersion()`), contradiction
+  or is suppressed by the back-off counts as unknown for writes; reads keep `effectiveVersion()`; on
+  `Auto` a later observation clears `stale`, restarts the bound and supersedes a failed
+  re-detection), contradiction
   set/cleared by observations (FR-012; a patch-only difference is no contradiction), client result
   kept for the process lifetime (a version without a range is a success with an empty range),
   only a failed or timed-out probe retried after 60 s (FR-002). Thread-safe, injected
   `Clock`. Test first: `test/application/NodeVersionsTest.java` (incl. detected 8.1, stale,
-  re-detection fails → no writable version while a read still sees 8.1).
+  re-detection fails → no writable version while a read still sees 8.1; then a successful
+  observation within 60 s → writable again).
 - [ ] T007 Detection port, reporting and stale triggers (research D-4, D-5, D-10):
   - `GatewayFactory.detect(NodeId)` in `main/domain/port/GatewayFactory.java`, implemented in
     `main/adapter/AdapterGatewayFactory.java`: one `/system/info` request that bypasses the slot's
@@ -229,11 +232,13 @@ run one after the other (no [P]).
   read T016 reports as the observation) and replaces today's "unsupported … the 8.1 adapters are
   used" text: the version warnings cached by `main/adapter/AdapterGatewayFactory.java` (:268-269,
   `configured()`/`detected()`) and its `fallbackWarning` (:345-347, "… assuming 8.1") are dropped,
-  so `HealthService.gatewayWarnings` no longer carries a version text. Wire both in `main/Wiring.java`. Test first:
+  so `HealthService.gatewayWarnings` no longer carries a version text; the unknown-version warning
+  reads "the INUBIT version of <node> is unknown (<code> at <time>); results are unverified". Wire both in `main/Wiring.java`. Test first:
   `test/application/WorkspaceExportTest.java` (new case), `test/application/HealthServiceTest.java`
   (adjusted 9.0.2 expectations; exactly one `/system/info` request per `get_health` on an `AUTO`
   node; no duplicate version warning; a failed `AUTO` detection → exactly one version warning and no
-  "assuming 8.1").
+  "assuming 8.1") and `test/adapter/AdapterGatewayFactoryTest.java` (the assertions on the old texts,
+  around :218 and :451, adjusted).
 - [ ] T014 [US2] `check_artifacts` module lookup (FR-001, FR-011): in
   `main/application/ArtifactCheckService.java` (:513) call the gate (INVENTORY, READ, `{CLI}`)
   before `listModules`; a refusal skips the lookup and is reported as the existing "module could not
@@ -284,7 +289,7 @@ after `get_health` it shows the detected version, the client version and `suppor
   new part `client` in `unavailable` (`not yet detected (timeout)` or the cause). Add `client` to
   `main/domain/model/UnavailablePart.java` and `res/schemas/get_health.output.json` (part enum,
   report `client`). Test first: `test/application/HealthServiceTest.java` (second `get_health` runs
-  no probe; a node without a StartCLI installation reports the client as `not_available` and runs
+  no probe; an 8.1.17 client at an 8.1.18 server → `comparison: mismatch` plus the warning; a node without a StartCLI installation reports the client as `not_available` and runs
   no probe; FR-016: report and `unavailable` texts contain no baseUrl, username or password),
   `test/mcp/tools/GetHealthToolTest.java` (timing within `timeout` + 1 s with a probe that hangs),
   `test/performance/HealthOverviewPerformanceTest.java` stays within 10 s.
@@ -312,7 +317,9 @@ after `get_health` it shows the detected version, the client version and `suppor
   `inventory (StartCLI parts)`, `workspace_export` and write capabilities not usable; failed detection `unknown` with
   reason and time; a pin contradicted by `get_health` shown in `version.warnings` and the write
   capabilities not usable; a node without a StartCLI installation shows the client as
-  `not_available`; FR-016: no baseUrl, username or password in any `version` field). The
+  `not_available`; an 8.1.17 client at an 8.1.18 server shows `mismatch` with the StartCLI-backed
+  capabilities still usable (US1-4); FR-016: no baseUrl, username or password in any `version`
+  field). The
   `versionLine` schema change was done in T005.
 
 **Checkpoint**: US1 complete — the MVP (US2 + US1) is usable.

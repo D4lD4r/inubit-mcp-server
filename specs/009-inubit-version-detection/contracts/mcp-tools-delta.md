@@ -62,7 +62,9 @@ from an enum to a string (the configured text). `notUsable` items: `{"capability
   (`not yet detected (timeout)`).
 - Each report gains `client` (`version`, `supportedFrom`, `supportedTo`, `comparison`) when known.
 - Warnings: "INUBIT <v> on <node> is not verified …" replaces "unsupported … the 8.1 adapters are
-  used"; a pin contradiction and a client mismatch are warnings too.
+  used"; for an unknown version: "the INUBIT version of <node> is unknown (<code> at <time>);
+  results are unverified" replaces "INUBIT version could not be detected (<code>); assuming 8.1";
+  a pin contradiction and a client mismatch are warnings too.
 - Time budget unchanged (feature 001 SC-002).
 
 ## Read tools: `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item` (widened)

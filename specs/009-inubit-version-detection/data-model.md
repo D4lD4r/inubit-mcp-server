@@ -76,7 +76,8 @@ Derived:
 - `writableVersion(now, bound)`: the effective version for a WRITE. On `Auto`, a version that is
   stale or older than the bound and whose re-detection failed (or is suppressed by the 60 s
   back-off) counts as unknown: no writable version, so writes are refused with the
-  detection-failure text; reads keep using `effectiveVersion()`.
+  detection-failure text; reads keep using `effectiveVersion()`. On `Auto` a later `get_health`
+  observation clears `stale`, restarts the bound and supersedes a failed re-detection.
 - `supportStatus(matrix, config)`: `SUPPORTED` / `PARTIALLY_SUPPORTED` / `UNSUPPORTED` /
   `UNKNOWN` (FR-004; "usable" per D-9).
 
