@@ -7,6 +7,9 @@ import de.dadecker.inubit.mcp.application.InventoryService.ItemRequest;
 import de.dadecker.inubit.mcp.application.InventoryService.ListRequest;
 import de.dadecker.inubit.mcp.application.InventoryService.Listing;
 import de.dadecker.inubit.mcp.application.InventoryService.Lookup;
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ConnectorFlags;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
@@ -17,11 +20,14 @@ import de.dadecker.inubit.mcp.domain.model.ItemBounds;
 import de.dadecker.inubit.mcp.domain.model.ModuleRef;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeResult;
+import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.UnavailableInventoryPart;
 import de.dadecker.inubit.mcp.domain.model.VersionEntry;
+import de.dadecker.inubit.mcp.domain.model.VersionRange;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
@@ -30,10 +36,12 @@ import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.infra.ResultJson;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,7 +56,9 @@ import tools.jackson.databind.JsonNode;
 /**
  * T087: {@code list_inventory} and {@code get_inventory_item} logic with fake ports (FR-014 –
  * FR-017, research R-11): filters, sorting, paging, caching, detail assembly, NOT_FOUND with
- * similar names, partial results and bounds.
+ * similar names, partial results and bounds. Feature 009 (T012, FR-006, FR-009, FR-011): the
+ * version gate admits {@code INVENTORY} per node — diagram lists over REST, module lists over
+ * StartCLI, item details over REST and then StartCLI before the history.
  */
 @Timeout(30)
 class InventoryServiceTest {
@@ -66,6 +76,13 @@ class InventoryServiceTest {
     private final MutableClock clock = new MutableClock(T0);
     private final Map<NodeId, FakeInventory> ports = new ConcurrentHashMap<>();
     private ResultLimiter limiter = ResultLimiter.withDefaults();
+    /** Feature 009: the {@code versionLine} of each server ({@code V8_1} if absent). */
+    private final Map<NodeId, VersionSetting> versionLines = new ConcurrentHashMap<>();
+    private final NodeVersions versions = new NodeVersions(clock,
+        node -> versionLines.getOrDefault(node, VersionSetting.V8_1),
+        node -> Duration.ofMinutes(10));
+    private final FakeVersionDetection detection = new FakeVersionDetection(versions);
+    private CapabilityMatrix matrix = CapabilityMatrix.production();
 
     private FakeInventory port(NodeId server) {
         return ports.computeIfAbsent(server, FakeInventory::new);
@@ -80,7 +97,7 @@ class InventoryServiceTest {
 
             @Override
             public InubitVersion detect(NodeId server) {
-                throw new AssertionError("not used before the version gate (T008)");
+                throw new AssertionError("the version gate detects through its own factory");
             }
 
             @Override
@@ -116,7 +133,8 @@ class InventoryServiceTest {
         InventoryCache cache = new InventoryCache(clock, server -> Duration.ofMinutes(10));
         return new InventoryService(gateways, new TargetResolver(SERVERS), new FanOut(), limiter,
             cache, server -> Optional.of("OWNERS"), server -> TIMEOUT, server -> EXPORT_TIMEOUT,
-            KILL_GRACES, ResultJson::size, Terminology.DEFAULT);
+            KILL_GRACES, ResultJson::size, Terminology.DEFAULT,
+            new VersionGate(versions, detection, matrix));
     }
 
     private static ListRequest list(String target, InventoryKind kind) {
@@ -751,27 +769,174 @@ class InventoryServiceTest {
         assertThat(listing.payload()).isEmpty();
     }
 
+    // --- feature 009: version gate (T012) ----------------------------------------------------
+
+    private static final String UNVERIFIED = "INUBIT 9.0.7 on dev/node1 is not verified for"
+        + " inventory; results may be incomplete";
+
+    /** {@code dev/node1} detects INUBIT {@code raw}. */
+    private void devRuns(String raw) {
+        versionLines.put(DEV, VersionSetting.AUTO);
+        detection.answer(DEV, raw);
+    }
+
+    /** A StartCLI client 8.1.17 (INUBIT 4.0.1 to 8.1.17) on {@code dev/node1}. */
+    private void devHasClient81() {
+        versions.clientProbed(DEV, new ClientVersion(InubitVersion.parse("8.1.17").orElseThrow(),
+            InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17")));
+    }
+
+    @Test
+    void onInubit90ListsAndDetailsCarryTheUnverifiedWarning() {
+        standardData(DEV);
+        devRuns("9.0.7");
+
+        Listing diagrams = payload(service().list(list("dev/node1", InventoryKind.DIAGRAM))
+            .get(0));
+        Listing modules = payload(service().list(list("dev/node1", InventoryKind.MODULE))
+            .get(0));
+        Lookup diagram = payload(service().item(item("dev/node1", InventoryKind.DIAGRAM,
+            "Workflow-0101")).get(0));
+        Lookup module = payload(service().item(item("dev/node1", InventoryKind.MODULE,
+            "Module-0030")).get(0));
+
+        assertThat(diagrams.warnings()).containsExactly(UNVERIFIED);
+        assertThat(modules.warnings()).containsExactly(UNVERIFIED);
+        assertThat(diagram.warnings()).as("REST and StartCLI admissions, merged")
+            .containsExactly(UNVERIFIED);
+        assertThat(diagram.item().versions()).isPresent();
+        assertThat(module.warnings()).containsExactly(UNVERIFIED);
+        assertThat(detection.requests()).as("detected once, then cached").containsExactly(DEV);
+    }
+
+    @Test
+    void onInubit81ThereAreNoWarnings() {
+        standardData(DEV);
+        devRuns("8.1.17");
+
+        Listing diagrams = payload(service().list(list("dev/node1", InventoryKind.DIAGRAM))
+            .get(0));
+        Lookup diagram = payload(service().item(item("dev/node1", InventoryKind.DIAGRAM,
+            "Workflow-0101")).get(0));
+
+        assertThat(diagrams.warnings()).isEmpty();
+        assertThat(diagram.warnings()).isEmpty();
+    }
+
+    @Test
+    void anUnknownNameOnInubit90IsNotFoundWithTheWarning() {
+        standardData(DEV);
+        devRuns("9.0.7");
+
+        NodeResult<Lookup> result = service().item(item("dev/node1", InventoryKind.DIAGRAM,
+            "Workflow-9999")).get(0);
+
+        assertThat(result.error().orElseThrow().code()).isEqualTo(ErrorCode.NOT_FOUND);
+        assertThat(result.payload().orElseThrow().warnings()).containsExactly(UNVERIFIED);
+    }
+
+    @Test
+    void withAClientThatExcludesInubit90DiagramsAreListedButModulesAreRefused() {
+        standardData(DEV);
+        devRuns("9.0.7");
+        devHasClient81();
+
+        Listing diagrams = payload(service().list(list("dev/node1", InventoryKind.DIAGRAM))
+            .get(0));
+        NodeResult<Listing> modules = service().list(list("dev/node1", InventoryKind.MODULE))
+            .get(0);
+
+        assertThat(diagrams.page().items()).hasSize(6);
+        assertThat(diagrams.warnings()).containsExactly(UNVERIFIED);
+        assertThat(modules.payload()).isEmpty();
+        assertThat(modules.error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+            assertThat(error.node()).contains(DEV);
+            assertThat(error.message()).startsWith("list_inventory: StartCLI client 8.1.17 of"
+                + " dev/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7");
+        });
+        assertThat(port(DEV).moduleLoads).as("no module export").hasValue(0);
+    }
+
+    @Test
+    void withAClientThatExcludesInubit90TheItemHistoryIsUnavailable() {
+        standardData(DEV);
+        devRuns("9.0.7");
+        devHasClient81();
+
+        Lookup diagram = payload(service().item(item("dev/node1", InventoryKind.DIAGRAM,
+            "Workflow-0101")).get(0));
+        NodeResult<Lookup> module = service().item(item("dev/node1", InventoryKind.MODULE,
+            "Module-0030")).get(0);
+
+        InventoryDetail detail = diagram.item();
+        assertThat(detail.modules()).isPresent();
+        assertThat(detail.active()).contains(true);
+        assertThat(detail.versions()).isEmpty();
+        assertThat(detail.unavailable()).singleElement().satisfies(part -> {
+            assertThat(part.part()).isEqualTo(UnavailableInventoryPart.VERSIONS);
+            assertThat(part.reason()).startsWith("UNSUPPORTED_VERSION: get_inventory_item:"
+                + " StartCLI client 8.1.17 of dev/node1");
+        });
+        assertThat(diagram.warnings()).containsExactly(UNVERIFIED);
+        assertThat(port(DEV).historyCalls).as("no history export").isEmpty();
+        assertThat(module.error()).as("the module index itself is a StartCLI export")
+            .hasValueSatisfying(error ->
+                assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION));
+        assertThat(port(DEV).moduleLoads).hasValue(0);
+    }
+
+    @Test
+    void aNodeRefusedByATestMatrixGetsItsErrorAndTheOtherNodesTheirResults() {
+        // FR-006: each node of a group is judged by its own version
+        Map<Capability, SupportState> supported = new EnumMap<>(Capability.class);
+        supported.put(Capability.INVENTORY, SupportState.SUPPORTED);
+        matrix = new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+            new VersionRange(8, 1, 8, 1), supported)), Map.of());
+        standardData(QA1);
+        standardData(QA2);
+        versionLines.put(QA1, VersionSetting.AUTO);
+        versionLines.put(QA2, VersionSetting.AUTO);
+        detection.answer(QA1, "8.1.17").answer(QA2, "9.0.7");
+
+        List<NodeResult<Listing>> lists = service().list(list("qa", InventoryKind.DIAGRAM));
+        List<NodeResult<Lookup>> items = service().item(item("qa", InventoryKind.DIAGRAM,
+            "Workflow-0101"));
+
+        assertThat(payload(lists.get(0)).page().items()).hasSize(6);
+        assertThat(payload(items.get(0)).item().versions()).isPresent();
+        assertThat(lists.get(1).error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+            assertThat(error.message()).isEqualTo("list_inventory: INUBIT 9.0.7 on qa/node2"
+                + " does not support inventory yet; nothing was sent");
+        });
+        assertThat(items.get(1).error()).hasValueSatisfying(error -> assertThat(
+            error.message()).startsWith("get_inventory_item: INUBIT 9.0.7 on qa/node2"));
+        assertThat(port(QA2).diagramLoads).hasValue(0);
+    }
+
     // --- deadlines (design note 10) ---------------------------------------------------------
 
     @Test
-    void theFanOutDeadlinesIncludeExportTimeoutKillGraceLoginAndGuardWait() {
+    void theFanOutDeadlinesIncludeExportTimeoutKillGraceLoginGuardWaitAndDetection() {
         // review I4: an export that is stopped (cliExportTimeout + 2 x kill grace) must end
-        // before the fan-out deadline, so that it becomes a partial result, not a TIMEOUT
+        // before the fan-out deadline, so that it becomes a partial result, not a TIMEOUT;
+        // feature 009 (T012 review r1): the version gate's detection adds one timeout
         InventoryService service = service();
         Duration grace = InventoryService.FAN_OUT_GRACE;
         Duration export = EXPORT_TIMEOUT.plus(KILL_GRACES);
 
         assertThat(service.listDeadline(InventoryKind.DIAGRAM, DEV))
-            .isEqualTo(TIMEOUT.multipliedBy(2).plus(grace));
+            .isEqualTo(TIMEOUT.multipliedBy(3).plus(grace));
         // T126: the usage index adds the diagram list (timeout) and its own budget
         // (cliExportTimeout)
         assertThat(service.listDeadline(InventoryKind.MODULE, DEV))
-            .isEqualTo(export.plus(EXPORT_TIMEOUT).plus(TIMEOUT.multipliedBy(3)).plus(grace));
+            .isEqualTo(export.plus(EXPORT_TIMEOUT).plus(TIMEOUT.multipliedBy(4)).plus(grace));
         assertThat(service.itemDeadline(InventoryKind.DIAGRAM, DEV))
-            .isEqualTo(export.plus(TIMEOUT.multipliedBy(5)).plus(grace));
+            .isEqualTo(export.plus(TIMEOUT.multipliedBy(6)).plus(grace));
         assertThat(service.itemDeadline(InventoryKind.MODULE, DEV))
             .isEqualTo(export.multipliedBy(2).plus(EXPORT_TIMEOUT)
-                .plus(TIMEOUT.multipliedBy(4)).plus(grace));
+                .plus(TIMEOUT.multipliedBy(5)).plus(grace));
     }
 
     /** A configurable inventory of one server that counts its calls. */

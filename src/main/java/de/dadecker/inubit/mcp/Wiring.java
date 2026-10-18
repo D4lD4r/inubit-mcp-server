@@ -194,12 +194,12 @@ final class Wiring implements AutoCloseable {
         Map<NodeId, Duration> hangingThresholds = new HashMap<>();
         servers.forEach(server -> hangingThresholds.put(server.id(), server.hangingThreshold()));
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
-            hangingThresholds::get, clock.clock(), ResultJson::size);
+            hangingThresholds::get, clock.clock(), ResultJson::size, versionGate);
         this.inventory = new InventoryService(gateways, targets, fanOut, limiter,
             new InventoryCache(clock.clock(), id -> byId.get(id).inventory().cacheTtl()),
             id -> byId.get(id).inventory().owner(), timeouts::get,
             id -> byId.get(id).cliExportTimeout(),
-            CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, terms);
+            CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, terms, versionGate);
         // a plain HashMap is fine: it is filled here once, never modified afterwards, and safely
         // published to the request threads through the final fields of this object and the
         // services; lookups of unknown ids return null, which the guard treats as no write access

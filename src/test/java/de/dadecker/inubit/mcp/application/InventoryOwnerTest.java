@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
@@ -19,6 +20,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeResult;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
@@ -29,6 +31,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.infra.ResultJson;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -46,7 +49,8 @@ import tools.jackson.databind.JsonNode;
  * 002-T014: the inventory owner is configuration-only (FR-014, research D-10). A node without an
  * effective {@code inventory.owner} gets a per-node {@code NOT_CONFIGURED} error from the
  * inventory capabilities and is never contacted for them; other nodes and {@code get_health} are
- * unaffected.
+ * unaffected. Feature 009 (T012): the nodes are {@code AUTO}, and the owner-less node is not even
+ * contacted for the version detection.
  */
 @Timeout(30)
 class InventoryOwnerTest {
@@ -58,6 +62,12 @@ class InventoryOwnerTest {
     private static final String NEXT_STEP = "set inventory.owner for test/node1 or in defaults";
 
     private final Map<NodeId, AtomicInteger> portCalls = new ConcurrentHashMap<>();
+    private final NodeVersions versions = new NodeVersions(
+        new MutableClock(Instant.parse("2026-10-01T08:00:00Z")), node -> VersionSetting.AUTO,
+        node -> Duration.ofMinutes(10));
+    /** Only {@code test/node2} has a detection: one for test/node1 is an assertion error. */
+    private final FakeVersionDetection detection = new FakeVersionDetection(versions)
+        .answer(NODE2, "8.1.17");
 
     private InventoryService service() {
         GatewayFactory gateways = new GatewayFactory() {
@@ -68,7 +78,7 @@ class InventoryOwnerTest {
 
             @Override
             public InubitVersion detect(NodeId server) {
-                throw new AssertionError("not used before the version gate (T008)");
+                throw new AssertionError("the version gate detects through its own factory");
             }
 
             @Override
@@ -109,7 +119,8 @@ class InventoryOwnerTest {
             new InventoryCache(new MutableClock(Instant.parse("2026-10-01T08:00:00Z")),
                 node -> Duration.ofMinutes(10)),
             owners::get, node -> Duration.ofSeconds(5), node -> Duration.ofSeconds(120),
-            Duration.ofSeconds(4), ResultJson::size, CUSTOM);
+            Duration.ofSeconds(4), ResultJson::size, CUSTOM,
+            new VersionGate(versions, detection, CapabilityMatrix.production()));
     }
 
     private static void assertNotConfigured(NodeResult<?> result) {
@@ -139,6 +150,7 @@ class InventoryOwnerTest {
             .extracting(InventoryItem::name).containsExactly("diagram-a");
         assertThat(portCalls).as("the owner-less node is never contacted")
             .doesNotContainKey(NODE1);
+        assertThat(detection.requests()).containsExactly(NODE2);
     }
 
     @Test
@@ -148,6 +160,7 @@ class InventoryOwnerTest {
 
         assertThat(results).singleElement().satisfies(InventoryOwnerTest::assertNotConfigured);
         assertThat(portCalls).doesNotContainKey(NODE1);
+        assertThat(detection.requests()).isEmpty();
     }
 
     @Test

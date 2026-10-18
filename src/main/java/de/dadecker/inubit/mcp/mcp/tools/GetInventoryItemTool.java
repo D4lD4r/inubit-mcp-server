@@ -61,18 +61,28 @@ public final class GetInventoryItemTool implements ToolHandler {
         return Result.of(inventory.item(request));
     }
 
-    /** {@code {results: [{node, collectedAt?, item?, error?}]}}. */
+    /** {@code {results: [{node, collectedAt?, item?, warnings?, error?}]}}. */
     record Result(List<Entry> results) {
 
+        /**
+         * @param warnings feature 009: the version warnings of the node; omitted if there are
+         *                 none
+         */
         record Entry(NodeId node, Optional<Instant> collectedAt,
-            Optional<InventoryDetail> item, Optional<ToolError> error) {
+            Optional<InventoryDetail> item, Optional<List<String>> warnings,
+            Optional<ToolError> error) {
+
+            Entry {
+                warnings = warnings.filter(list -> !list.isEmpty()).map(List::copyOf);
+            }
         }
 
         static Result of(List<NodeResult<Lookup>> results) {
             return new Result(results.stream()
                 .map(result -> new Entry(result.node(),
                     result.payload().map(Lookup::collectedAt),
-                    result.payload().map(Lookup::item), result.error()))
+                    result.payload().map(Lookup::item),
+                    result.payload().map(Lookup::warnings), result.error()))
                 .toList());
         }
     }

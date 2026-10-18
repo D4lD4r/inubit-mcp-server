@@ -11,10 +11,13 @@ import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.application.DiagnosisService;
 import de.dadecker.inubit.mcp.application.FanOut;
+import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.TargetResolver;
+import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.infra.ResultJson;
@@ -22,7 +25,6 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
-import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import java.time.Clock;
@@ -36,7 +38,9 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The US2 tools with the production adapters: {@code dev/node1} and {@code qa/node1} on
- * HTTPS WireMock servers, {@code qa/node2} unreachable ({@code 127.0.0.1:9}).
+ * HTTPS WireMock servers, {@code qa/node2} unreachable ({@code 127.0.0.1:9}). The nodes are
+ * pinned to {@code V8_1} (the version gate of feature 009 admits without a detection request)
+ * unless a test gives {@code dev/node1} another {@code versionLine}.
  */
 final class DiagnosisToolFixture implements AutoCloseable {
 
@@ -50,32 +54,45 @@ final class DiagnosisToolFixture implements AutoCloseable {
 
     DiagnosisToolFixture(WireMockServer dev, WireMockServer integration,
         Function<DiagnosisService, ToolHandler> tool) {
+        this(dev, integration, tool, VersionSetting.V8_1);
+    }
+
+    /** @param devVersionLine the {@code versionLine} of {@code dev/node1} */
+    DiagnosisToolFixture(WireMockServer dev, WireMockServer integration,
+        Function<DiagnosisService, ToolHandler> tool, VersionSetting devVersionLine) {
         List<EffectiveNodeConfig> servers = List.of(
-            server("dev/node1", "https://localhost:" + dev.httpsPort()),
-            server("qa/node1", "https://localhost:" + integration.httpsPort()),
-            server("qa/node2", "https://127.0.0.1:9"));
+            server("dev/node1", "https://localhost:" + dev.httpsPort(), devVersionLine),
+            server("qa/node1", "https://localhost:" + integration.httpsPort(),
+                VersionSetting.V8_1),
+            server("qa/node2", "https://127.0.0.1:9", VersionSetting.V8_1));
         List<NodeId> ids = servers.stream().map(EffectiveNodeConfig::id).toList();
+        Map<NodeId, VersionSetting> versionLines = servers.stream().collect(Collectors.toMap(
+            EffectiveNodeConfig::id, EffectiveNodeConfig::versionLine));
+        NodeVersions versions = new NodeVersions(Clock.systemUTC(), versionLines::get,
+            id -> Duration.ofMinutes(10));
         gateways = new AdapterGatewayFactory(servers, new CredentialResolver(Map.of(
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber, "INUBIT")
             .resolve(ids), scrubber, Clock.systemUTC(),
             new CliRunner(new SystemProcessLauncher(), Map.of(), false,
-                new CliResources("acme")), new RecordingVersionObserver());
+                new CliResources("acme")), versions);
         Map<NodeId, Duration> timeouts = servers.stream().collect(Collectors.toMap(
             EffectiveNodeConfig::id, EffectiveNodeConfig::timeout));
         Map<NodeId, Duration> thresholds = servers.stream().collect(Collectors.toMap(
             EffectiveNodeConfig::id, EffectiveNodeConfig::hangingThreshold));
         DiagnosisService diagnosis = new DiagnosisService(gateways, new TargetResolver(ids),
             new FanOut(), ResultLimiter.withDefaults(), timeouts::get, thresholds::get,
-            Clock.systemUTC(), ResultJson::size);
+            Clock.systemUTC(), ResultJson::size,
+            new VersionGate(versions, gateways, CapabilityMatrix.production()));
         client = McpTestClient.start(List.of(tool.apply(diagnosis)), scrubber);
         client.initialize();
     }
 
-    private static EffectiveNodeConfig server(String id, String baseUrl) {
+    private static EffectiveNodeConfig server(String id, String baseUrl,
+        VersionSetting versionLine) {
         return TestNodeConfig.node().id(id).baseUrl(baseUrl)
             .trustStore(TestCertificates.get().trustStore()).timeout(TIMEOUT)
-            .versionLine(VersionSetting.AUTO).build();
+            .versionLine(versionLine).build();
     }
 
     /** The parsed {@code {"error": …}} of a tool error result. */

@@ -19,6 +19,13 @@
           "page": {
             "$ref": "#/$defs/Page"
           },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Warnings about the INUBIT version of the {node}, e.g. a version that is not verified for this tool; absent if there are none"
+          },
           "error": {
             "$ref": "#/$defs/ToolError"
           }

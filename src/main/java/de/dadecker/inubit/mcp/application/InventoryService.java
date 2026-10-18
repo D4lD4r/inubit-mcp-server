@@ -3,6 +3,8 @@ package de.dadecker.inubit.mcp.application;
 import de.dadecker.inubit.mcp.application.InventoryBounds.Bounded;
 import de.dadecker.inubit.mcp.application.InventoryCache.Key;
 import de.dadecker.inubit.mcp.application.InventoryCache.Snapshot;
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InventoryDetail;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
@@ -36,6 +38,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.ToIntFunction;
+import java.util.stream.Stream;
 
 /**
  * The use cases behind {@code list_inventory} and {@code get_inventory_item} (US3, FR-014 –
@@ -45,7 +48,16 @@ import java.util.function.ToIntFunction;
  *   <li>The target ({@code TARGET_UNKNOWN}) and the paging ({@code INVALID_INPUT}) are
  *       checked before any server is contacted. Servers are queried in parallel
  *       ({@link FanOut}); results come in config order, a failed server only gets its
- *       {@code error}. Ports are taken without waiting for a version detection.
+ *       {@code error}. Ports are taken without waiting for the adapter selection's version
+ *       detection.
+ *   <li>Feature 009 (research D-5, D-6, FR-006, FR-009, FR-011): after the owner check, each
+ *       server's call asks the {@link VersionGate} for {@code INVENTORY} ({@code READ}), which
+ *       detects the version of an {@code AUTO} node on first use: diagram lists with
+ *       {@code {REST}}; module lists and module details with {@code {CLI}} (the module index is a
+ *       StartCLI export, so an incompatible client refuses the server's call); diagram details
+ *       with {@code {REST}} first and {@code {CLI}} before the history, whose refusal becomes the
+ *       {@code unavailable} history part. The warnings go into the server's result; a refusal
+ *       ({@code UNSUPPORTED_VERSION}) becomes that server's {@code error} only.
  *   <li>Every lookup uses the server's owner ({@code inventory.owner}, FR-016a). Diagram lists,
  *       module indexes and the version history per diagram group and type come from the
  *       {@link InventoryCache}; {@code refresh} reloads them. Each result states
@@ -76,8 +88,10 @@ import java.util.function.ToIntFunction;
  *   <li>Deadlines per server (design note 10, review I4, T126): REST-only calls
  *       {@code 2 × timeout}; each CLI export adds {@code cliExportTimeout} plus the time to stop
  *       StartCLI and the login before it; the usage index of a module call adds the diagram
- *       list ({@code timeout}) and its budget ({@code cliExportTimeout}); plus
- *       {@link #FAN_OUT_GRACE}.
+ *       list ({@code timeout}) and its budget ({@code cliExportTimeout}); the version gate's
+ *       detection (feature 009) adds one {@code timeout}, always, because whether the gate
+ *       detects is only known inside the call (first use, a stale version, the end of the
+ *       back-off); plus {@link #FAN_OUT_GRACE}.
  * </ul>
  */
 public final class InventoryService {
@@ -90,6 +104,7 @@ public final class InventoryService {
     private static final String VERSIONS_SCOPE = "versions:";
     private static final String USAGE_SCOPE = "usage";
     private static final String TECHNICAL = "technical";
+    private static final String GET_ITEM = "get_inventory_item";
     private static final Comparator<InventoryItem> ORDER = Comparator
         .comparing(InventoryItem::name, String.CASE_INSENSITIVE_ORDER)
         .thenComparing(InventoryItem::name)
@@ -123,23 +138,30 @@ public final class InventoryService {
      * One server's page of a list, with the time its data was collected.
      *
      * @param usageComplete modules only: whether the usage index could be built completely
+     * @param warnings      feature 009: the version gate's warnings for the server
      */
     public record Listing(Instant collectedAt, Page<InventoryItem> page,
-        Optional<Boolean> usageComplete) {
+        Optional<Boolean> usageComplete, List<String> warnings) {
 
         public Listing {
             Objects.requireNonNull(collectedAt, "collectedAt");
             Objects.requireNonNull(page, "page");
             usageComplete = usageComplete == null ? Optional.empty() : usageComplete;
+            warnings = List.copyOf(warnings);
         }
     }
 
-    /** One server's detail (or not-found item), with the oldest collection time of its parts. */
-    public record Lookup(Instant collectedAt, InventoryDetail item) {
+    /**
+     * One server's detail (or not-found item), with the oldest collection time of its parts.
+     *
+     * @param warnings feature 009: the version gate's warnings for the server
+     */
+    public record Lookup(Instant collectedAt, InventoryDetail item, List<String> warnings) {
 
         public Lookup {
             Objects.requireNonNull(collectedAt, "collectedAt");
             Objects.requireNonNull(item, "item");
+            warnings = List.copyOf(warnings);
         }
     }
 
@@ -154,6 +176,7 @@ public final class InventoryService {
     private final Duration exportStopGrace;
     private final ToIntFunction<Object> sizeOf;
     private final Terminology terms;
+    private final VersionGate gate;
 
     /**
      * @param owners         the effective {@code inventory.owner} of each node; empty if none is
@@ -163,11 +186,13 @@ public final class InventoryService {
      * @param exportStopGrace how long a stopped export may take to end (2 × the CLI kill grace)
      * @param sizeOf         a value's serialized size in chars (the tool result's JSON)
      * @param terms          the display names of the levels in messages
+     * @param gate           feature 009: the version gate
      */
     public InventoryService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
         ResultLimiter limiter, InventoryCache cache, Function<NodeId, Optional<String>> owners,
         Function<NodeId, Duration> timeouts, Function<NodeId, Duration> exportTimeouts,
-        Duration exportStopGrace, ToIntFunction<Object> sizeOf, Terminology terms) {
+        Duration exportStopGrace, ToIntFunction<Object> sizeOf, Terminology terms,
+        VersionGate gate) {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.fanOut = Objects.requireNonNull(fanOut, "fanOut");
@@ -179,6 +204,7 @@ public final class InventoryService {
         this.exportStopGrace = Objects.requireNonNull(exportStopGrace, "exportStopGrace");
         this.sizeOf = Objects.requireNonNull(sizeOf, "sizeOf");
         this.terms = Objects.requireNonNull(terms, "terms");
+        this.gate = Objects.requireNonNull(gate, "gate");
     }
 
     /**
@@ -225,32 +251,32 @@ public final class InventoryService {
     }
 
     /**
-     * Diagrams: {@code 2 × timeout} (guard wait + list); modules: one export
+     * Diagrams: {@code 3 × timeout} (guard wait, detection, list); modules: one export
      * ({@code cliExportTimeout + exportStopGrace}), the usage index ({@code cliExportTimeout})
-     * and {@code 3 × timeout} (guard wait, the login before the export, the diagram list); plus
-     * {@link #FAN_OUT_GRACE} (review I4, T126).
+     * and {@code 4 × timeout} (guard wait, detection, the login before the export, the diagram
+     * list); plus {@link #FAN_OUT_GRACE} (review I4, T126; the detection: feature 009).
      */
     Duration listDeadline(InventoryKind kind, NodeId server) {
         Duration timeout = timeouts.apply(server);
         Duration deadline = kind == InventoryKind.MODULE
-            ? export(server).plus(usageBudget(server)).plus(timeout.multipliedBy(3))
-            : timeout.multipliedBy(2);
+            ? export(server).plus(usageBudget(server)).plus(timeout.multipliedBy(4))
+            : timeout.multipliedBy(3);
         return deadline.plus(FAN_OUT_GRACE);
     }
 
     /**
-     * Diagram: one history export plus {@code 5 × timeout} (guard wait, list, nodes, export,
-     * login before the export); module: two exports (module index, history), the usage index
-     * ({@code cliExportTimeout}) and {@code 4 × timeout} (guard wait, login, diagram list,
-     * login); plus grace. A stopped export thus ends before the deadline and becomes a partial
-     * result, not a {@code TIMEOUT}.
+     * Diagram: one history export plus {@code 6 × timeout} (guard wait, detection, list, nodes,
+     * export, login before the export); module: two exports (module index, history), the usage
+     * index ({@code cliExportTimeout}) and {@code 5 × timeout} (guard wait, detection, login,
+     * diagram list, login); plus grace. A stopped export thus ends before the deadline and
+     * becomes a partial result, not a {@code TIMEOUT}. The detection: feature 009.
      */
     Duration itemDeadline(InventoryKind kind, NodeId server) {
         Duration timeout = timeouts.apply(server);
         Duration deadline = kind == InventoryKind.DIAGRAM
-            ? export(server).plus(timeout.multipliedBy(5))
+            ? export(server).plus(timeout.multipliedBy(6))
             : export(server).multipliedBy(2).plus(usageBudget(server))
-                .plus(timeout.multipliedBy(4));
+                .plus(timeout.multipliedBy(5));
         return deadline.plus(FAN_OUT_GRACE);
     }
 
@@ -267,6 +293,9 @@ public final class InventoryService {
     // --- lists --------------------------------------------------------------------------------
 
     private Listing listing(NodeId server, ListRequest request, ResultLimiter shared) {
+        owner(server); // a node without owner is never contacted, not even for the detection
+        List<String> warnings = admit("list_inventory", server,
+            request.kind() == InventoryKind.DIAGRAM ? Channel.REST : Channel.CLI);
         Snapshot<List<InventoryItem>> snapshot;
         Optional<Boolean> usageComplete = Optional.empty();
         if (request.kind() == InventoryKind.DIAGRAM) {
@@ -299,7 +328,7 @@ public final class InventoryService {
         Page<InventoryItem> page = shared.page(prepared, request.offset(), request.limit(),
             sizeOf::applyAsInt);
         return new Listing(snapshot.collectedAt(), cut ? page.asTruncated() : page,
-            usageComplete);
+            usageComplete, warnings);
     }
 
     private static Predicate<InventoryItem> matches(ListRequest request) {
@@ -327,11 +356,12 @@ public final class InventoryService {
     private NodeResult<Lookup> diagramLookup(NodeId server, ItemRequest request,
         int budget) {
         String owner = owner(server);
+        List<String> warnings = admit(GET_ITEM, server, Channel.REST);
         Snapshot<List<InventoryItem>> list = diagrams(server, request.refresh());
         Optional<InventoryItem> entry = find(list.value(), request.name());
         if (entry.isEmpty()) {
             return notFound(server, request, owner, list.collectedAt(),
-                list.value().stream().map(InventoryItem::name).toList(), "diagram");
+                list.value().stream().map(InventoryItem::name).toList(), "diagram", warnings);
         }
         InventoryItem diagram = entry.get();
         InventoryPort port = gateways.inventory(server);
@@ -341,6 +371,10 @@ public final class InventoryService {
         List<UnavailableInventoryPart> unavailable = new ArrayList<>();
         Optional<List<VersionEntry>> versions = Optional.empty();
         try {
+            // the history is a StartCLI export: a refusal becomes its unavailable part
+            List<String> cliWarnings = admit(GET_ITEM, server, Channel.CLI);
+            warnings = Stream.concat(warnings.stream(), cliWarnings.stream()).distinct()
+                .toList();
             Snapshot<VersionHistory> history = history(server, owner, diagram.type(),
                 diagram.group(), request.refresh());
             collectedAt = oldest(collectedAt, history.collectedAt());
@@ -361,19 +395,22 @@ public final class InventoryService {
             Optional.of(nodes.modules()), Optional.empty(), Optional.empty(), unavailable,
             false);
         return NodeResult.success(server,
-            new Lookup(collectedAt, InventoryBounds.detail(detail, budget, sizeOf)));
+            new Lookup(collectedAt, InventoryBounds.detail(detail, budget, sizeOf), warnings));
     }
 
     private NodeResult<Lookup> moduleLookup(NodeId server, ItemRequest request,
         int budget) {
         String owner = owner(server);
+        // the module index is a StartCLI export: an incompatible client refuses the whole call
+        List<String> warnings = admit(GET_ITEM, server, Channel.CLI);
         Snapshot<List<ModuleEntry>> index = modules(server, request.refresh());
         Optional<ModuleEntry> entry = index.value().stream()
             .filter(module -> module.item().name().equals(request.name()))
             .findFirst();
         if (entry.isEmpty()) {
             return notFound(server, request, owner, index.collectedAt(),
-                index.value().stream().map(module -> module.item().name()).toList(), "module");
+                index.value().stream().map(module -> module.item().name()).toList(), "module",
+                warnings);
         }
         ModuleEntry found = entry.get();
         InventoryItem module = found.item();
@@ -432,7 +469,7 @@ public final class InventoryService {
             found.checkinComment(), found.userComment(), versions, Optional.empty(),
             Optional.of(found.connector()), Optional.empty(), unavailable, false);
         return NodeResult.success(server,
-            new Lookup(collectedAt, InventoryBounds.detail(detail, budget, sizeOf)));
+            new Lookup(collectedAt, InventoryBounds.detail(detail, budget, sizeOf), warnings));
     }
 
     /** Module names that more than one module of the index has. */
@@ -448,7 +485,7 @@ public final class InventoryService {
     }
 
     private NodeResult<Lookup> notFound(NodeId server, ItemRequest request, String owner,
-        Instant collectedAt, List<String> names, String what) {
+        Instant collectedAt, List<String> names, String what, List<String> warnings) {
         List<String> similar = SimilarNames.of(request.name(), names,
             InventoryDetail.MAX_SIMILAR_NAMES);
         InventoryDetail item = InventoryBounds.detail(InventoryDetail.notFound(server,
@@ -463,8 +500,14 @@ public final class InventoryService {
                 : "Use one of item.similarNames, or search with list_inventory and"
                     + " nameContains")
             .withNode(server);
-        return new NodeResult<>(server, Optional.of(new Lookup(collectedAt, item)),
+        return new NodeResult<>(server, Optional.of(new Lookup(collectedAt, item, warnings)),
             Optional.of(error));
+    }
+
+    /** The version gate's warnings for an inventory read on {@code server} over {@code channel}. */
+    private List<String> admit(String tool, NodeId server, Channel channel) {
+        return gate.admit(tool, server, Capability.INVENTORY, Capability.Kind.READ,
+            Set.of(channel)).warnings();
     }
 
     private static ToolError missingInExport(NodeId server, String what, String name,

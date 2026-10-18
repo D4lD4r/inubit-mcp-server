@@ -223,7 +223,7 @@ run one after the other (no [P]).
   Open note (T011 review r1): on a node that is also a development stage, a deployment backup is
   admitted through `DevelopmentGuard.admit` (DEVELOPMENT_WRITE), not DEPLOYMENT; no effect with the
   production matrix (same states), revisit when a matrix distinguishes the two.
-- [ ] T012 [US2] Read warnings (research D-5, D-6): add optional `warnings` (string array, only
+- [X] T012 [US2] Read warnings (research D-5, D-6): add optional `warnings` (string array, only
   when non-empty) to `res/schemas/find_processes.output.json`, `query_logs.output.json`,
   `list_inventory.output.json`, `get_inventory_item.output.json` and their result records; call the
   gate in `main/application/DiagnosisService.java` (DIAGNOSIS, `{REST}`) and

@@ -3,7 +3,10 @@ package de.dadecker.inubit.mcp.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.application.DiagnosisService.LogRequest;
+import de.dadecker.inubit.mcp.application.DiagnosisService.NodePage;
 import de.dadecker.inubit.mcp.application.DiagnosisService.ProcessRequest;
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
@@ -17,8 +20,11 @@ import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.ProcessState;
 import de.dadecker.inubit.mcp.domain.model.Severity;
+import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionRange;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
@@ -26,10 +32,12 @@ import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +54,9 @@ import org.junit.jupiter.api.Timeout;
 
 /**
  * T069: the use cases behind {@code find_processes} and {@code query_logs} with fake ports and a
- * fixed clock (FR-009 – FR-013, research R-8, R-9).
+ * fixed clock (FR-009 – FR-013, research R-8, R-9). Feature 009 (T012, FR-006, FR-009): the
+ * version gate admits {@code DIAGNOSIS} per node before its REST query; its warnings go into that
+ * node's result, a refusal becomes that node's error.
  */
 @Timeout(30)
 class DiagnosisServiceTest {
@@ -65,6 +75,13 @@ class DiagnosisServiceTest {
         DEV, Duration.ofMinutes(90), QA1, Duration.ofMinutes(60), QA2, Duration.ofMinutes(60)));
     private ResultLimiter limiter = ResultLimiter.withDefaults();
     private Function<Object, Integer> sizes = item -> 100;
+    /** Feature 009: the {@code versionLine} of each server ({@code V8_1} if absent). */
+    private final Map<NodeId, VersionSetting> versionLines = new ConcurrentHashMap<>();
+    private final NodeVersions versions = new NodeVersions(clock,
+        node -> versionLines.getOrDefault(node, VersionSetting.V8_1),
+        node -> Duration.ofMinutes(10));
+    private final FakeVersionDetection detection = new FakeVersionDetection(versions);
+    private CapabilityMatrix matrix = CapabilityMatrix.production();
 
     private FakeProcesses processes(NodeId server) {
         return processes.computeIfAbsent(server, s -> new FakeProcesses());
@@ -83,7 +100,7 @@ class DiagnosisServiceTest {
 
             @Override
             public InubitVersion detect(NodeId server) {
-                throw new AssertionError("not used before the version gate (T008)");
+                throw new AssertionError("the version gate detects through its own factory");
             }
 
             @Override
@@ -117,7 +134,8 @@ class DiagnosisServiceTest {
             }
         };
         return new DiagnosisService(gateways, new TargetResolver(SERVERS), new FanOut(),
-            limiter, server -> TIMEOUT, thresholds::get, clock, item -> sizes.apply(item));
+            limiter, server -> TIMEOUT, thresholds::get, clock, item -> sizes.apply(item),
+            new VersionGate(versions, detection, matrix));
     }
 
     private static ProcessRequest processRequest(String target) {
@@ -180,10 +198,10 @@ class DiagnosisServiceTest {
         throw new AssertionError("expected a ToolErrorException");
     }
 
-    private static <T> T single(List<NodeResult<T>> results) {
+    private static <T> Page<T> single(List<NodeResult<NodePage<T>>> results) {
         assertThat(results).hasSize(1);
         assertThat(results.get(0).error()).isEmpty();
-        return results.get(0).payload().orElseThrow();
+        return results.get(0).payload().orElseThrow().page();
     }
 
     // --- time range --------------------------------------------------------------------------
@@ -335,7 +353,7 @@ class DiagnosisServiceTest {
 
         service.findProcesses(withStates(processRequest("dev/node1"),
             Set.of(ProcessState.WAITING), true, Optional.empty()));
-        List<NodeResult<Page<ProcessInstance>>> none = service.findProcesses(withStates(
+        List<NodeResult<NodePage<ProcessInstance>>> none = service.findProcesses(withStates(
             processRequest("qa"), Set.of(ProcessState.ERROR), true, Optional.empty()));
 
         ProcessQuery query = processes(DEV).queries().get(0);
@@ -343,7 +361,7 @@ class DiagnosisServiceTest {
         assertThat(query.states()).containsExactly(ProcessState.WAITING);
         assertThat(none).extracting(NodeResult::node).containsExactly(QA1, QA2);
         assertThat(none).allSatisfy(result -> {
-            Page<ProcessInstance> page = result.payload().orElseThrow();
+            Page<ProcessInstance> page = result.payload().orElseThrow().page();
             assertThat(page.items()).isEmpty();
             assertThat(page.total()).hasValue(0);
             assertThat(page.nextOffset()).isEmpty();
@@ -383,13 +401,13 @@ class DiagnosisServiceTest {
                 query.offset(), query.limit(), 900, false);
         }
 
-        List<NodeResult<Page<ProcessInstance>>> stage = service().findProcesses(
+        List<NodeResult<NodePage<ProcessInstance>>> stage = service().findProcesses(
             withPaging(processRequest("qa"), 10, 4));
         Page<ProcessInstance> single = single(service().findProcesses(
             withPaging(processRequest("qa/node1"), 10, 4)));
 
         assertThat(stage).allSatisfy(result -> {
-            Page<ProcessInstance> page = result.payload().orElseThrow();
+            Page<ProcessInstance> page = result.payload().orElseThrow().page();
             assertThat(page.items()).as("5,000 chars per server").hasSize(1);
             assertThat(page.truncated()).isTrue();
             assertThat(page.nextOffset()).hasValue(11);
@@ -436,13 +454,13 @@ class DiagnosisServiceTest {
         processes(QA2).answer = query -> page(List.of(
             instance(QA2, "9", ProcessState.ERROR, NOW)), 0, 50, 1, false);
 
-        List<NodeResult<Page<ProcessInstance>>> results = service().findProcesses(
+        List<NodeResult<NodePage<ProcessInstance>>> results = service().findProcesses(
             processRequest("qa"));
 
         assertThat(results).extracting(NodeResult::node).containsExactly(QA1, QA2);
         assertThat(results.get(0).error()).hasValueSatisfying(error ->
             assertThat(error.code()).isEqualTo(ErrorCode.UNREACHABLE));
-        assertThat(results.get(1).payload().orElseThrow().items())
+        assertThat(results.get(1).payload().orElseThrow().page().items())
             .extracting(ProcessInstance::node).containsOnly(QA2);
     }
 
@@ -459,14 +477,21 @@ class DiagnosisServiceTest {
         };
 
         long start = System.nanoTime();
-        List<NodeResult<Page<ProcessInstance>>> results = service().findProcesses(
+        List<NodeResult<NodePage<ProcessInstance>>> results = service().findProcesses(
             processRequest("qa"));
         Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
 
-        assertThat(elapsed).isLessThan(TIMEOUT.multipliedBy(2).plusSeconds(2));
+        assertThat(elapsed).isLessThan(TIMEOUT.multipliedBy(3).plusSeconds(2));
         assertThat(results.get(0).error()).hasValueSatisfying(error ->
             assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT));
         assertThat(results.get(1).isSuccess()).isTrue();
+    }
+
+    @Test
+    void theFanOutDeadlineIncludesTheGuardWaitTheDetectionAndTheQuery() {
+        // feature 009 (T012 review r1): the version gate's detection adds one timeout
+        assertThat(service().deadline(DEV))
+            .isEqualTo(TIMEOUT.multipliedBy(3).plus(DiagnosisService.FAN_OUT_GRACE));
     }
 
     @Test
@@ -487,6 +512,91 @@ class DiagnosisServiceTest {
 
         assertThat(page.items()).isEmpty();
         assertThat(page.total()).hasValue(0);
+        assertThat(detection.requests()).as("pinned V8_1: no detection").isEmpty();
+    }
+
+    // --- feature 009: version gate (T012) ------------------------------------------------------
+
+    @Test
+    void onInubit90BothToolsRunWithTheUnverifiedWarningAfterOneDetection() {
+        versionLines.put(DEV, VersionSetting.AUTO);
+        detection.answer(DEV, "9.0.7");
+        processes(DEV).answer = query -> page(List.of(
+            instance(DEV, "1", ProcessState.ERROR, NOW)), 0, 50, 1, false);
+        logs(DEV).answer = query -> page(List.of(entry(DEV, 5)), 0, 50, 1, false);
+        DiagnosisService service = service();
+
+        NodePage<ProcessInstance> processPage = service.findProcesses(
+            processRequest("dev/node1")).get(0).payload().orElseThrow();
+        NodePage<LogEntry> logPage = service.queryLogs(logRequest("dev/node1",
+            LogType.SYSTEM_LOG)).get(0).payload().orElseThrow();
+
+        String warning = "INUBIT 9.0.7 on dev/node1 is not verified for diagnosis; results may"
+            + " be incomplete";
+        assertThat(processPage.warnings()).containsExactly(warning);
+        assertThat(processPage.page().items()).hasSize(1);
+        assertThat(logPage.warnings()).containsExactly(warning);
+        assertThat(logPage.page().items()).hasSize(1);
+        assertThat(detection.requests()).as("the second call uses the cached version")
+            .containsExactly(DEV);
+    }
+
+    @Test
+    void onInubit81ThereAreNoWarnings() {
+        versionLines.put(DEV, VersionSetting.AUTO);
+        detection.answer(DEV, "8.1.17");
+        processes(DEV).answer = query -> page(List.of(), 0, 50, 0, false);
+        logs(DEV).answer = query -> page(List.of(), 0, 50, 0, false);
+        DiagnosisService service = service();
+
+        NodePage<ProcessInstance> processPage = service.findProcesses(
+            processRequest("dev/node1")).get(0).payload().orElseThrow();
+        NodePage<LogEntry> logPage = service.queryLogs(logRequest("dev/node1",
+            LogType.SYSTEM_LOG)).get(0).payload().orElseThrow();
+
+        assertThat(processPage.warnings()).isEmpty();
+        assertThat(logPage.warnings()).isEmpty();
+        assertThat(detection.requests()).containsExactly(DEV);
+    }
+
+    @Test
+    void aNodeRefusedByATestMatrixGetsItsErrorAndTheOtherNodesTheirResults() {
+        // FR-006: each node of a group is judged by its own version
+        matrix = diagnosisOnlyOn81();
+        versionLines.put(QA1, VersionSetting.AUTO);
+        versionLines.put(QA2, VersionSetting.AUTO);
+        detection.answer(QA1, "8.1.17").answer(QA2, "9.0.7");
+        processes(QA1).answer = query -> page(List.of(
+            instance(QA1, "1", ProcessState.ERROR, NOW)), 0, 50, 1, false);
+        logs(QA1).answer = query -> page(List.of(entry(QA1, 5)), 0, 50, 1, false);
+        DiagnosisService service = service();
+
+        List<NodeResult<NodePage<ProcessInstance>>> processResults = service.findProcesses(
+            processRequest("qa"));
+        List<NodeResult<NodePage<LogEntry>>> logResults = service.queryLogs(logRequest("qa",
+            LogType.SYSTEM_LOG));
+
+        assertThat(processResults.get(0).payload().orElseThrow().page().items()).hasSize(1);
+        assertThat(logResults.get(0).payload().orElseThrow().page().items()).hasSize(1);
+        assertThat(processResults.get(1).payload()).isEmpty();
+        assertThat(processResults.get(1).error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+            assertThat(error.node()).contains(QA2);
+            assertThat(error.message()).isEqualTo("find_processes: INUBIT 9.0.7 on qa/node2"
+                + " does not support diagnosis yet; nothing was sent");
+        });
+        assertThat(logResults.get(1).error()).hasValueSatisfying(error -> assertThat(
+            error.message()).startsWith("query_logs: INUBIT 9.0.7 on qa/node2"));
+        assertThat(processes(QA2).queries()).isEmpty();
+        assertThat(logs(QA2).queries()).isEmpty();
+    }
+
+    /** A test-only matrix: diagnosis on 8.1 only, unsupported everywhere else. */
+    private static CapabilityMatrix diagnosisOnlyOn81() {
+        Map<Capability, SupportState> supported = new EnumMap<>(Capability.class);
+        supported.put(Capability.DIAGNOSIS, SupportState.SUPPORTED);
+        return new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+            new VersionRange(8, 1, 8, 1), supported)), Map.of());
     }
 
     // --- query_logs ----------------------------------------------------------------------------
@@ -499,7 +609,7 @@ class DiagnosisServiceTest {
                 false);
         }
 
-        List<NodeResult<Page<LogEntry>>> results = service().queryLogs(new LogRequest("qa",
+        List<NodeResult<NodePage<LogEntry>>> results = service().queryLogs(new LogRequest("qa",
             LogType.SYSTEM_LOG, Optional.of("PT1H"), Optional.empty(), Optional.of("W"),
             Optional.of("110219899"), Set.of(Severity.ERROR), Optional.of("SAX%"), 0, 5));
 
@@ -515,7 +625,7 @@ class DiagnosisServiceTest {
             assertThat(query.text()).contains("SAX%");
             assertThat(query.limit()).isEqualTo(5);
         }
-        assertThat(results.get(0).payload().orElseThrow().items())
+        assertThat(results.get(0).payload().orElseThrow().page().items())
             .extracting(entry -> entry.timestamp().orElseThrow().toEpochMilli())
             .as("newest first").containsExactly(3_000L, 2_000L, 1_000L);
     }
@@ -556,12 +666,12 @@ class DiagnosisServiceTest {
         };
         logs(QA2).answer = query -> page(List.of(entry(QA2, 5)), 0, 5, 1, false);
 
-        List<NodeResult<Page<LogEntry>>> results = service().queryLogs(logRequest("qa",
+        List<NodeResult<NodePage<LogEntry>>> results = service().queryLogs(logRequest("qa",
             LogType.SYSTEM_LOG));
 
         assertThat(results.get(0).error()).hasValueSatisfying(error ->
             assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED));
-        assertThat(results.get(1).payload().orElseThrow().items()).hasSize(1);
+        assertThat(results.get(1).payload().orElseThrow().page().items()).hasSize(1);
     }
 
     // --- fakes -----------------------------------------------------------------------------

@@ -1,5 +1,7 @@
 package de.dadecker.inubit.mcp.application;
 
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
 import de.dadecker.inubit.mcp.domain.model.LogQuery;
@@ -44,9 +46,16 @@ import java.util.regex.Pattern;
  *       ({@code LogPort.validate}); a failure fails the whole call.
  *   <li>Servers are queried in parallel ({@link FanOut}); results come in config order, one per
  *       server, a failed server only gets its {@code error}. The ports are taken without waiting
- *       for a version detection, and only REST is used (no CLI home needed). The per-server
- *       deadline is twice the server timeout plus {@link #FAN_OUT_GRACE}: while the credentials
- *       are unconfirmed the first request runs alone (credential guard), the others after it.
+ *       for the adapter selection's version detection, and only REST is used (no CLI home
+ *       needed). The per-server deadline is three times the server timeout plus
+ *       {@link #FAN_OUT_GRACE}: while the credentials are unconfirmed the first request runs
+ *       alone (credential guard), the others after it; then the version gate's detection
+ *       (feature 009) and the query.
+ *   <li>Feature 009 (research D-5, D-6, FR-006, FR-009): before its query, each server's call
+ *       asks the {@link VersionGate} for {@code DIAGNOSIS} ({@code READ}, {@code {REST}}), which
+ *       detects the version of an {@code AUTO} node on first use; its warnings go into that
+ *       server's {@link NodePage}, a refusal ({@code UNSUPPORTED_VERSION}) becomes that server's
+ *       {@code error} and leaves the other servers' results untouched.
  *   <li>{@code timeInState} and {@code hanging} are computed here for every instance with the
  *       MCP server's clock: hanging = a {@link ProcessState#NON_FINAL} state longer than the
  *       threshold (request, else the server's {@code hangingThreshold}, else
@@ -70,6 +79,18 @@ public final class DiagnosisService {
     private static final String TIME_FORMATS = "an ISO-8601 timestamp with offset, e.g."
         + " 2026-10-01T08:00:00Z or 2026-10-01T10:00:00+02:00, or a duration back from now,"
         + " e.g. PT24H or P7D";
+
+    /**
+     * One server's page with the version gate's warnings for it (feature 009); empty warnings
+     * are omitted from the tool result.
+     */
+    public record NodePage<T>(Page<T> page, List<String> warnings) {
+
+        public NodePage {
+            Objects.requireNonNull(page, "page");
+            warnings = List.copyOf(warnings);
+        }
+    }
 
     /** The arguments of {@code find_processes} (contracts/mcp-tools.md §3). */
     public record ProcessRequest(String target, Set<ProcessState> states, boolean hangingOnly,
@@ -114,6 +135,7 @@ public final class DiagnosisService {
     private final Function<NodeId, Duration> hangingThresholds;
     private final Clock clock;
     private final ToIntFunction<Object> sizeOf;
+    private final VersionGate gate;
 
     /**
      * @param timeouts          the REST timeout of each server
@@ -121,11 +143,12 @@ public final class DiagnosisService {
      *                          {@link #DEFAULT_HANGING_THRESHOLD})
      * @param clock             "now" for durations, {@code timeInState} and {@code hanging}
      * @param sizeOf            an item's serialized size in chars (the tool result's JSON)
+     * @param gate              feature 009: the version gate
      */
     public DiagnosisService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
         ResultLimiter limiter, Function<NodeId, Duration> timeouts,
         Function<NodeId, Duration> hangingThresholds, Clock clock,
-        ToIntFunction<Object> sizeOf) {
+        ToIntFunction<Object> sizeOf, VersionGate gate) {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.fanOut = Objects.requireNonNull(fanOut, "fanOut");
@@ -134,6 +157,7 @@ public final class DiagnosisService {
         this.hangingThresholds = Objects.requireNonNull(hangingThresholds, "hangingThresholds");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.sizeOf = Objects.requireNonNull(sizeOf, "sizeOf");
+        this.gate = Objects.requireNonNull(gate, "gate");
     }
 
     /**
@@ -142,7 +166,7 @@ public final class DiagnosisService {
      * @throws ToolErrorException {@code TARGET_UNKNOWN} or {@code INVALID_INPUT} before any
      *     server is contacted
      */
-    public List<NodeResult<Page<ProcessInstance>>> findProcesses(ProcessRequest request) {
+    public List<NodeResult<NodePage<ProcessInstance>>> findProcesses(ProcessRequest request) {
         List<NodeId> servers = targets.resolve(request.target());
         Instant now = clock.instant();
         Optional<Instant> since = time("since", request.since(), now);
@@ -157,16 +181,18 @@ public final class DiagnosisService {
         }
         ResultLimiter shared = limiter.share(servers.size());
         return fanOut.run(servers, this::deadline, server -> {
+            List<String> warnings = admit("find_processes", server);
             ProcessQuery query = queryOf.apply(server);
             Duration threshold = query.hangingThreshold();
             if (query.matchesNothing()) {
-                return empty(request.offset(), request.limit());
+                return new NodePage<>(empty(request.offset(), request.limit()), warnings);
             }
             Page<ProcessInstance> page = gateways.processes(server).find(query);
             List<ProcessInstance> items = new ArrayList<>();
             page.items().forEach(item -> items.add(item.assessedAt(now, threshold)));
             items.sort(Comparator.comparing(ProcessInstance::since).reversed());
-            return bound(shared, page, items, request.offset(), request.limit());
+            return new NodePage<>(bound(shared, page, items, request.offset(), request.limit()),
+                warnings);
         });
     }
 
@@ -176,7 +202,7 @@ public final class DiagnosisService {
      * @throws ToolErrorException {@code TARGET_UNKNOWN} or {@code INVALID_INPUT} (also for
      *     a filter the log type does not support) before any server is contacted
      */
-    public List<NodeResult<Page<LogEntry>>> queryLogs(LogRequest request) {
+    public List<NodeResult<NodePage<LogEntry>>> queryLogs(LogRequest request) {
         List<NodeId> servers = targets.resolve(request.target());
         Instant now = clock.instant();
         Optional<Instant> since = time("since", request.since(), now);
@@ -196,6 +222,7 @@ public final class DiagnosisService {
         }
         ResultLimiter shared = limiter.share(servers.size());
         return fanOut.run(servers, this::deadline, server -> {
+            List<String> warnings = admit("query_logs", server);
             Page<LogEntry> page = gateways.logs(server).query(query);
             List<LogEntry> items = new ArrayList<>(page.items());
             items.sort(Comparator.comparing(
@@ -203,8 +230,15 @@ public final class DiagnosisService {
             if (items.stream().anyMatch(entry -> entry.timestamp().isEmpty())) {
                 items = new ArrayList<>(page.items()); // no time field: INUBIT's order
             }
-            return bound(shared, page, items, request.offset(), request.limit());
+            return new NodePage<>(bound(shared, page, items, request.offset(), request.limit()),
+                warnings);
         });
+    }
+
+    /** The version gate's warnings for a diagnosis read on {@code server} (REST only). */
+    private List<String> admit(String tool, NodeId server) {
+        return gate.admit(tool, server, Capability.DIAGNOSIS, Capability.Kind.READ,
+            Set.of(Channel.REST)).warnings();
     }
 
     /**
@@ -221,8 +255,13 @@ public final class DiagnosisService {
         }
     }
 
-    private Duration deadline(NodeId server) {
-        return timeouts.apply(server).multipliedBy(2).plus(FAN_OUT_GRACE);
+    /**
+     * {@code 3 × timeout} (guard wait, the version gate's detection, the query) plus
+     * {@link #FAN_OUT_GRACE}. The detection is always counted: whether the gate detects is only
+     * known inside the call (first use, a stale version, the end of the back-off).
+     */
+    Duration deadline(NodeId server) {
+        return timeouts.apply(server).multipliedBy(3).plus(FAN_OUT_GRACE);
     }
 
     private Duration threshold(ProcessRequest request, NodeId server) {
