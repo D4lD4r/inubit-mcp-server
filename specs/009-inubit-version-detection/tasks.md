@@ -424,6 +424,40 @@ shows the client against the pin, and a contradicting observation refuses writes
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
+- [ ] T031 Review follow-ups (minor findings of the T015–T025 reviews, collected in
+  `reviews/T0xx-r*.md`; runs before the docs so they describe the final behaviour):
+  (a) `main/application/NodeOverview.java`: `server.at` and `client.at` in `list_nodes` truncated
+  to seconds like the gate texts (`VersionGate.time()`); test with a sub-second clock in
+  `test/mcp/tools/ListNodesToolTest.java`;
+  (b) `test/mcp/tools/ListNodesToolTest.java`: a `V9_X` node (status, `server` block, client refusal
+  by the line check with an 8.1 client) pinned down by a test;
+  (c) `main/config/ConfigSummary.java`: a concrete pin outside the client's declared range adds
+  `, pin outside client range` after `client vs pin: …` (FR-011a); update
+  `contracts/configuration-delta.md`; test in `test/config/ConfigSummaryTest.java`;
+  (d) `main/application/DeployGuard.java`: the audited reason is cut at 200 characters, so the
+  combined version refusal names the refused node ids first (e.g. "refused nodes: int/node1, …");
+  test in `test/application/DeployServiceVersionTest.java`;
+  (e) `main/application/VersionGate.java`: `Evaluation` carries the refusal cause itself instead of
+  `cause()` stripping "; nothing was sent" from the message text;
+  (f) `main/application/HealthService.java` `pinWarning`: derive the contradiction for this report
+  from the setting and this call's read (same major.minor rule as `NodeVersionState.contradicts`),
+  not from shared state read back after `observed` (race between concurrent `get_health` calls);
+  (g) `main/adapter/cli/CliVersionProbe.java`: the range sanity check compares major.minor only
+  (D-8), so "from 8.1.17 to 8.1.5" stays evaluable; test in `test/adapter/cli/CliVersionProbeTest.java`;
+  (h) client-refusal wording aligned between `VersionGate` ("of <node>") and
+  `HealthService.clientWarning` ("on <node>");
+  (i) `main/Wiring.java`: the Javadoc of `anyDevelopmentNode`, `anyDeploymentTarget`, `anyE2eNode`
+  and `anyWriteEnabled` mentions the pinned-version condition; lines over 100 characters in
+  `main/application/InventoryService.java` (constructor) and `main/adapter/StaleReportingPorts.java`
+  re-wrapped;
+  (j) tests: in `test/application/ImportServiceVersionTest.java` the contradicting observation is
+  an otherwise supported version (e.g. 8.2.0 with a test matrix, or another 8.x minor) so the
+  refusal can only come from the contradiction; a `contradiction(String raw)` helper in
+  `test/application/HealthServiceTest.java`.
+  Optional, only if small: one `CapabilityMatrix.stateOfSetting(VersionSetting, Capability)` used by
+  `VersionGate`, `Wiring` and `NodeOverview`. Out of scope (kept as notes): sequential
+  `--check-config` probes, renaming `V81Gateway`, the back-off cause message, the open notes under
+  T011 and T025. Test first for (a)–(g).
 - [ ] T026 [P] `docs/setup.md`: `versionLine` values incl. concrete pins and quoting, when the
   version is detected, the deliberate behaviour changes (writes refused after a failed detection
   and on `V9_X`), the client probe and `--check-config` line.
@@ -458,7 +492,7 @@ shows the client against the pin, and a contradicting observation refuses writes
 - US4 (T021–T022) needs T016 (contradiction) and T017 (probe for `--check-config`).
 - T023 needs T008 and T019 (client check incl. the probe), and T021 for pins. T024 needs T006/T008;
   T025 needs T024 and T020 (it asserts `list_nodes`).
-- Polish (T026–T029) last.
+- Polish last: T031 first (code follow-ups the docs describe), then T026–T028, T030, T029.
 
 ## Parallel Example
 
