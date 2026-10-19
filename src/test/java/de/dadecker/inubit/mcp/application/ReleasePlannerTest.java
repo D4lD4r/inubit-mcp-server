@@ -71,7 +71,7 @@ class ReleasePlannerTest {
     private static DeployGuard.Admitted admitted(List<StageChain.Exclusion> exclude) {
         return new DeployGuard.Admitted(new GroupId("int"), new GroupId("dev"),
             DeployMode.EXECUTE, exclude, DeployHarness.TARGETS, DeployHarness.SOURCES, "jdoe",
-            TAG);
+            TAG, List.of());
     }
 
     /** Changes the source nodes, tags GRP-01 there and discovers the release. */

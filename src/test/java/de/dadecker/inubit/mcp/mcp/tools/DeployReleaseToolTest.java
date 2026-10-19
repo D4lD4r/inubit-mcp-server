@@ -3,7 +3,10 @@ package de.dadecker.inubit.mcp.mcp.tools;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.application.DeployHarness;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -109,6 +112,7 @@ class DeployReleaseToolTest {
         assertThat(challenge.path("mode").asString()).isEqualTo("EXECUTE");
         assertThat(challenge.path("diagramGroups").get(0).asString()).isEqualTo("GRP-01");
         assertThat(challenge.path("executable").asBoolean()).isTrue();
+        assertThat(challenge.has("warnings")).as("only with version warnings").isFalse();
         JsonNode node = challenge.path("nodes").get(0);
         assertThat(node.path("node").asString()).isEqualTo("int/node1");
         assertThat(node.path("counts").path("changed").asInt()).isEqualTo(1);
@@ -141,6 +145,25 @@ class DeployReleaseToolTest {
         assertThat(deployed.path("tag").path("applied").asBoolean()).isTrue();
         assertThat(deployed.path("backupRef").asString()).isNotBlank();
         harness.verifyComplete();
+    }
+
+    @Test
+    void theVersionWarningsOfThePreviewAreATopLevelListOfStrings() throws IOException {
+        // feature 009, T023 (research D-11): an 8.1.17 client at an 8.1.18 target node
+        McpTestClient client = client(100);
+        DeployHarness.TARGETS.forEach(node -> harness.versionLines.put(node,
+            VersionSetting.parse("8.1.18").orElseThrow()));
+        harness.versions.clientProbed(DeployHarness.INT1, new ClientVersion(
+            InubitVersion.parse("8.1.17").orElseThrow(), InubitVersion.parse("4.0.1"),
+            InubitVersion.parse("8.1.17")));
+
+        JsonNode first = preview(client);
+
+        assertThat(first.path("isError").asBoolean()).as(first.toString()).isFalse();
+        JsonNode warnings = first.path("structuredContent").path("challenge").path("warnings");
+        assertThat(warnings).extracting(JsonNode::asString).containsExactly("StartCLI client"
+            + " 8.1.17 and INUBIT 8.1.18 on int/node1 differ; StartCLI results may be"
+            + " unreliable");
     }
 
     @Test

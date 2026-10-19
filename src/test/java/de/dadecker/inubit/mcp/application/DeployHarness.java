@@ -109,8 +109,13 @@ public final class DeployHarness {
     public final NodeVersions versions = new NodeVersions(clock,
         node -> versionLines.getOrDefault(node, VersionSetting.V8_1),
         node -> Duration.ofMinutes(10));
-    /** Feature 009: the detections of the gate of {@link #importService()} (none if pinned). */
+    /**
+     * Feature 009: the detections of the gates of {@link #importService()} and
+     * {@link #deployService} (none if pinned).
+     */
     public final FakeVersionDetection detection = new FakeVersionDetection(versions);
+    /** Feature 009: the capability matrix of the gate of {@link #deployService}. */
+    public CapabilityMatrix matrix = CapabilityMatrix.production();
     public final BackupStore backups;
     public final GitCli history;
     /** Plain git helpers ({@code log}, {@code snapshot}, {@code git}) on {@link #root}. */
@@ -349,7 +354,9 @@ public final class DeployHarness {
         de.dadecker.inubit.mcp.domain.port.AuditPort serviceAudit) {
         List<NodeId> nodes = new java.util.ArrayList<>(servers.keySet());
         DeployGuard guard = new DeployGuard(chain, new TargetResolver(nodes),
-            group -> Optional.of(OWNER), audit::add, "acme", clock, java.util.UUID::randomUUID);
+            group -> Optional.of(OWNER), audit::add,
+            gateWithoutClients(versions, detection, matrix), "acme", clock,
+            java.util.UUID::randomUUID);
         return new DeployService(new DeployService.Dependencies(root, deployments(), "acme",
             guard, new ReleaseDiscovery(this::artifacts,
                 new de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec(),

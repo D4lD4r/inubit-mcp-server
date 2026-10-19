@@ -131,7 +131,7 @@ class PackageOnlyTest {
         harness();
         DeployGuard.Admitted admitted = new DeployGuard.Admitted(new GroupId("prod"),
             new GroupId("int"), DeployMode.PACKAGE_ONLY, List.of(),
-            List.of(DeployHarness.PROD), DeployHarness.TARGETS, "jdoe", TAG);
+            List.of(DeployHarness.PROD), DeployHarness.TARGETS, "jdoe", TAG, List.of());
 
         ToolErrorException e;
         try {

@@ -17,11 +17,14 @@ import java.util.UUID;
  * @param notes         facts for the reader (e.g. that system diagrams are never read)
  * @param previewState  {@code release=<fingerprint>;groups=<list>;<node>=<fingerprint>…}
  * @param instruction   what the assistant has to do next
+ * @param warnings      the version warnings of the source and target nodes (feature 009, e.g. a
+ *                      StartCLI client whose patch level differs from the INUBIT version)
  */
 public record DeploymentPreview(UUID auditId, GroupId target, GroupId source, String tag,
     String owner, DeployMode mode, List<String> diagramGroups, List<String> olderThanHead,
     List<NodePlan> plans, List<String> notes, String previewState,
-    Optional<String> confirmationCode, Optional<Instant> expiresAt, String instruction) {
+    Optional<String> confirmationCode, Optional<Instant> expiresAt, String instruction,
+    List<String> warnings) {
 
     public DeploymentPreview {
         Objects.requireNonNull(auditId, "auditId");
@@ -38,6 +41,7 @@ public record DeploymentPreview(UUID auditId, GroupId target, GroupId source, St
         confirmationCode = confirmationCode == null ? Optional.empty() : confirmationCode;
         expiresAt = expiresAt == null ? Optional.empty() : expiresAt;
         Objects.requireNonNull(instruction, "instruction");
+        warnings = List.copyOf(warnings);
     }
 
     /** True if every node plan is executable (only then there is a code). */

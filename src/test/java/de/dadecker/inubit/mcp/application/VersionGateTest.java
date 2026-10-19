@@ -8,6 +8,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import de.dadecker.inubit.mcp.application.VersionGate.Admission;
+import de.dadecker.inubit.mcp.application.VersionGate.Evaluation;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.Capability.Kind;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
@@ -519,6 +520,60 @@ class VersionGateTest {
 
         assertThat(thrown).isSameAs(cancelled);
         assertThat(versions.state(PINNED).clientFailure()).as("no back-off").isEmpty();
+    }
+
+    // --- T023: evaluate, the non-throwing admission of deploy_release (research D-11) ---------
+
+    @Test
+    void evaluateReturnsTheRefusalAdmitWouldThrowWithTheVersionAndTheCause() {
+        detection.answer("9.0.7");
+
+        Evaluation evaluation = gate().evaluate(AUTO, Capability.DEPLOYMENT, Kind.WRITE,
+            CLI_REST);
+
+        assertThat(evaluation.version()).contains(version("9.0.7"));
+        assertThat(evaluation.versionName()).isEqualTo("INUBIT 9.0.7");
+        assertThat(evaluation.warnings()).isEmpty();
+        assertThat(evaluation.refusal()).get().satisfies(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+            assertThat(error.message()).isEqualTo(refusal(() -> gate().admit(AUTO,
+                Capability.DEPLOYMENT, Kind.WRITE, CLI_REST)).message());
+        });
+        assertThat(evaluation.cause()).contains(
+            "INUBIT 9.0.7 on dev/node1 does not support deployment yet");
+        assertThat(detection.calls).isEqualTo(1);
+        assertThat(appender.list).hasSize(2).allSatisfy(event -> assertThat(
+            event.getFormattedMessage()).contains("REFUSED", "UNSUPPORTED_VERSION"));
+    }
+
+    @Test
+    void evaluateAdmitsWithTheWarningsOfTheClientCheck() {
+        versions.clientProbed(PINNED, client("8.1.16", "4.0.1", "8.1.16"));
+
+        Evaluation evaluation = gate().evaluate(PINNED, Capability.DEPLOYMENT, Kind.WRITE,
+            CLI_REST);
+
+        assertThat(evaluation.refusal()).isEmpty();
+        assertThat(evaluation.cause()).isEmpty();
+        assertThat(evaluation.version()).contains(version("8.1.17"));
+        assertThat(evaluation.warnings()).containsExactly("StartCLI client 8.1.16 and INUBIT"
+            + " 8.1.17 on prod/node1 differ; StartCLI results may be unreliable");
+    }
+
+    @Test
+    void evaluateGivesNoVersionForAV9xLineOrAFailedDetection() {
+        detection.fail(detectionError(ErrorCode.AUTH_FAILED));
+
+        Evaluation line = gate().evaluate(V9_X, Capability.DEPLOYMENT, Kind.WRITE, CLI_REST);
+        Evaluation unknown = gate().evaluate(AUTO, Capability.DEPLOYMENT, Kind.WRITE, CLI_REST);
+
+        assertThat(line.version()).isEmpty();
+        assertThat(line.versionName()).isEqualTo("INUBIT 9.x (versionLine V9_X)");
+        assertThat(line.refusal()).isPresent();
+        assertThat(unknown.version()).isEmpty();
+        assertThat(unknown.versionName()).isEqualTo("INUBIT version unknown");
+        assertThat(unknown.cause()).contains("Deployment refused: the INUBIT version of"
+            + " dev/node1 is unknown (AUTH_FAILED at 2026-10-18T08:00:00Z)");
     }
 
     /** FR-016: refusals and warnings never carry the URL or credentials of a detection error. */

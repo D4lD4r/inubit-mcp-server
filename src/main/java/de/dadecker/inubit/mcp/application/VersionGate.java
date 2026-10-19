@@ -60,11 +60,38 @@ import org.slf4j.LoggerFactory;
 public final class VersionGate {
 
     private static final Logger LOG = LoggerFactory.getLogger(VersionGate.class);
+    /** The end of every refusal message. */
+    private static final String NOTHING_SENT = "; nothing was sent";
 
     /** An admitted call (data-model.md → Admission): the warnings for the call's result. */
     public record Admission(List<String> warnings) {
         public Admission {
             warnings = List.copyOf(warnings);
+        }
+    }
+
+    /**
+     * The outcome of {@link #evaluate} for one node: the version the call was judged on (empty if
+     * unknown, also for a major-only line such as {@code V9_X}), that version as text, and either
+     * the admission's warnings or the refusal {@code admit} would throw.
+     *
+     * @param versionName e.g. "INUBIT 8.1.17", "INUBIT 9.x (versionLine V9_X)" or "INUBIT version
+     *                    unknown"
+     */
+    public record Evaluation(Optional<InubitVersion> version, String versionName,
+        List<String> warnings, Optional<ToolError> refusal) {
+        public Evaluation {
+            Objects.requireNonNull(version, "version");
+            Objects.requireNonNull(versionName, "versionName");
+            warnings = List.copyOf(warnings);
+            Objects.requireNonNull(refusal, "refusal");
+        }
+
+        /** The refusal's message without its closing "; nothing was sent". */
+        public Optional<String> cause() {
+            return refusal.map(error -> error.message().endsWith(NOTHING_SENT)
+                ? error.message().substring(0, error.message().length() - NOTHING_SENT.length())
+                : error.message());
         }
     }
 
@@ -100,6 +127,22 @@ public final class VersionGate {
      */
     public Admission admit(NodeId node, Capability capability, Capability.Kind purpose,
         Set<Channel> channels) {
+        Evaluation evaluation = evaluate(node, capability, purpose, channels);
+        if (evaluation.refusal().isPresent()) {
+            throw new ToolErrorException(evaluation.refusal().get());
+        }
+        return new Admission(evaluation.warnings());
+    }
+
+    /**
+     * {@link #admit(NodeId, Capability, Capability.Kind, Set)} that returns a refusal instead of
+     * throwing it (research D-11: {@code deploy_release} judges every node before it refuses);
+     * the steps, texts and logging are the same.
+     *
+     * @throws ToolErrorException as {@code admit}, except {@code UNSUPPORTED_VERSION}
+     */
+    public Evaluation evaluate(NodeId node, Capability capability, Capability.Kind purpose,
+        Set<Channel> channels) {
         Objects.requireNonNull(node, "node");
         Objects.requireNonNull(capability, "capability");
         Objects.requireNonNull(purpose, "purpose");
@@ -110,7 +153,17 @@ public final class VersionGate {
         NodeVersionState state = versions.state(node);
         Optional<InubitVersion> version = purpose == Capability.Kind.WRITE
             ? versions.writableVersion(node) : state.effectiveVersion();
-        return judge(node, capability, purpose, channels, state, version);
+        String versionName = name(state, version).orElse("INUBIT version unknown");
+        try {
+            return new Evaluation(version, versionName,
+                judge(node, capability, purpose, channels, state, version).warnings(),
+                Optional.empty());
+        } catch (ToolErrorException e) {
+            if (e.error().code() != ErrorCode.UNSUPPORTED_VERSION) {
+                throw e;
+            }
+            return new Evaluation(version, versionName, List.of(), Optional.of(e.error()));
+        }
     }
 
     /**
@@ -238,7 +291,7 @@ public final class VersionGate {
                     + client.supportedFrom().orElseThrow().raw() + " to "
                     + client.supportedTo().orElseThrow().raw() + ", which excludes "
                     + name.orElseThrow() + "; " + label(capability)
-                    + " via StartCLI refused; nothing was sent",
+                    + " via StartCLI refused",
                 "The local StartCLI client does not support the INUBIT version of the node",
                 "Install a StartCLI client on the host of this server that supports INUBIT "
                     + majorMinor(state, version));
@@ -263,7 +316,7 @@ public final class VersionGate {
         return refuse(node, capability,
             "versionLine " + state.setting().text() + " of " + node + " contradicts INUBIT "
                 + observed.value().raw() + " observed by get_health at " + time(observed) + "; "
-                + label(capability) + " refused; nothing was sent",
+                + label(capability) + " refused",
             "The configured version does not match the version the node runs (for example"
                 + " after an upgrade)",
             "Correct versionLine of " + node + " (get_health observed INUBIT "
@@ -274,8 +327,7 @@ public final class VersionGate {
         Capability.Kind purpose, NodeVersionState state, Optional<String> name) {
         if (name.isEmpty()) {
             return refuse(node, capability,
-                capitalized(label(capability)) + " refused: " + unknown(node, state)
-                    + "; nothing was sent",
+                capitalized(label(capability)) + " refused: " + unknown(node, state),
                 capitalized(label(capability)) + " needs a known INUBIT version that supports"
                     + " it, and the version could not be detected",
                 "Fix the cause of the failed version detection and retry in a minute, or set"
@@ -283,8 +335,7 @@ public final class VersionGate {
                     + " restart the server");
         }
         return refuse(node, capability,
-            name.get() + " on " + node + " does not support " + label(capability)
-                + " yet; nothing was sent",
+            name.get() + " on " + node + " does not support " + label(capability) + " yet",
             purpose == Capability.Kind.WRITE
                 ? "The node runs a version for which no verified write access exists"
                 : "This server declares " + label(capability) + " unsupported for that version",
@@ -293,8 +344,10 @@ public final class VersionGate {
                 + " server that supports that INUBIT version");
     }
 
-    private static ToolErrorException refuse(NodeId node, Capability capability, String message,
+    /** @param cause the message without its closing "; nothing was sent" */
+    private static ToolErrorException refuse(NodeId node, Capability capability, String cause,
         String likelyCause, String nextStep) {
+        String message = cause + NOTHING_SENT;
         LOG.info("{} on {}: REFUSED ({}): {}", capability, node, ErrorCode.UNSUPPORTED_VERSION,
             message);
         return new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION, message,

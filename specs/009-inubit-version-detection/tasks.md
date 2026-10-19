@@ -369,7 +369,7 @@ shows the client against the pin, and a contradicting observation refuses writes
 
 ## Phase 6: `deploy_release` across versions (FR-014a; part of US2's safety property)
 
-- [ ] T023 [US2] Version check in `main/application/DeployGuard.java` (research D-11): in `check()`,
+- [X] T023 [US2] Version check in `main/application/DeployGuard.java` (research D-11): in `check()`,
   where `Admitted` has `targetNodes` and `sourceNodes` and the audited `refuse` is available, call
   `VersionGate.evaluate(node, DEPLOYMENT, WRITE, {CLI, REST})` (non-throwing variant of `admit`,
   added to `main/application/VersionGate.java`) for every source and target node (detection,

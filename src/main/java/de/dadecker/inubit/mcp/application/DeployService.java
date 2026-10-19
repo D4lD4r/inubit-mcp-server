@@ -214,7 +214,7 @@ public final class DeployService {
         Map<String, String> inputs, Optional<String> mcpClient) {
         List<DeploymentResult.NodeOutcome> outcomes = new ArrayList<>();
         List<String> reports = new ArrayList<>();
-        List<String> warnings = new ArrayList<>();
+        List<String> warnings = new ArrayList<>(admitted.warnings());
         Optional<ReleasePlanner.NodeState> verified = Optional.empty();
         boolean packageOnly = admitted.mode() == DeployMode.PACKAGE_ONLY;
         boolean stopped = false;
@@ -440,7 +440,8 @@ public final class DeployService {
         return new DeploymentPreview(auditId, admitted.target(), admitted.source(),
             admitted.tag(), admitted.owner(), admitted.mode(),
             List.copyOf(release.diagramGroups()), release.olderThanHead(), plans,
-            List.of(NOTE_SYSTEM_DIAGRAMS), state, code, expiresAt, instruction);
+            List.of(NOTE_SYSTEM_DIAGRAMS), state, code, expiresAt, instruction,
+            admitted.warnings());
     }
 
     /**

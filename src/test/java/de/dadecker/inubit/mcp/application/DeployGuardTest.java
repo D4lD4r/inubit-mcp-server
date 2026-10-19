@@ -10,6 +10,7 @@ import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -50,7 +51,8 @@ class DeployGuardTest {
         List<NodeId> nodes = List.of(NodeId.parse("dev/node1"), NodeId.parse("dev/node2"),
             NodeId.parse("int/node1"), NodeId.parse("int/node2"), NodeId.parse("prod/node1"));
         return new DeployGuard(chain(), new TargetResolver(nodes),
-            group -> Optional.ofNullable(owners.get(group)), audit::add, "acme",
+            group -> Optional.ofNullable(owners.get(group)), audit::add,
+            FakeVersionDetection.pinned81(), "acme",
             new MutableClock(Instant.parse("2026-10-07T10:00:00Z")), UUID::randomUUID);
     }
 

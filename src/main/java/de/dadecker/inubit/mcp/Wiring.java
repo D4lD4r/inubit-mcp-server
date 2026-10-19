@@ -311,7 +311,7 @@ final class Wiring implements AutoCloseable {
                 deployments, profile.name(), new DeployGuard(chain, targets, group ->
                     servers.stream().filter(server -> server.id().group().equals(group))
                         .findFirst().flatMap(server -> server.inventory().owner()), audit,
-                    profile.name(), clock.clock(), UUID::randomUUID),
+                    versionGate, profile.name(), clock.clock(), UUID::randomUUID),
                 new ReleaseDiscovery(gateways::artifacts, codec, releases, workspace), planner,
                 ledger, challenges, config.defaults().effectiveDeployConfirmationTtl(), audit,
                 clock.clock(), UUID::randomUUID, nodeDeployer, new GitCli(workspace, profile.name(),
