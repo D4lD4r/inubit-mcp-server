@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.soap.SoapE2eClient;
@@ -59,6 +60,7 @@ import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
+import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.infra.AuditLog;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
@@ -133,6 +135,8 @@ final class Wiring implements AutoCloseable {
     private final ResultLimiter limiter;
     private final ClockProvider clock;
     private final AdapterGatewayFactory gateways;
+    /** Feature 009: the StartCLI client probe for {@code get_health} and the version gate. */
+    private final ClientVersionPort clientVersions;
     private final List<NodeSummary> summaries;
     private final HealthService health;
     private final DiagnosisService diagnosis;
@@ -191,8 +195,12 @@ final class Wiring implements AutoCloseable {
         // feature 009 (research D-4): the per-node version state, fed by the adapters
         NodeVersions versions = new NodeVersions(clock.clock(),
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
+        CliRunner cliRunner = new CliRunner(launcher, environment, windows, cliResources);
         this.gateways = new AdapterGatewayFactory(servers, credentials, scrubber, clock.clock(),
-            new CliRunner(launcher, environment, windows, cliResources), versions);
+            cliRunner, versions);
+        // feature 009 (research D-7): the StartCLI client probe, on the same runner so that a
+        // shutdown also stops a running probe
+        this.clientVersions = new CliVersionProbe(cliRunner, byId::get);
         VersionGate versionGate = new VersionGate(versions, gateways, MATRIX);
         this.summaries = servers.stream().map(server -> server.summary(exists, windows)).toList();
         Map<NodeId, Duration> timeouts = new HashMap<>();

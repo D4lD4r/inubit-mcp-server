@@ -286,7 +286,7 @@ after `get_health` it shows the detected version, the client version and `suppor
   warns. Test first: `test/application/HealthServiceTest.java` (pinned `V8_1` node observing 9.0.7 →
   warning + contradiction; later 8.1.17 → cleared; pinned `"8.1.17"` observing 8.1.18 → warning, no
   contradiction).
-- [ ] T017 [US1] Client probe port (research D-7): `main/domain/port/ClientVersionPort.java`
+- [X] T017 [US1] Client probe port (research D-7): `main/domain/port/ClientVersionPort.java`
   (`probe(NodeId, Duration)` → `ClientVersion`), implemented by
   `main/adapter/cli/CliVersionProbe.java` (returns the domain `ClientVersion`; replaces
   `mismatchWarning` by `ClientVersion.compare`); wired in `main/Wiring.java`. Test first:
