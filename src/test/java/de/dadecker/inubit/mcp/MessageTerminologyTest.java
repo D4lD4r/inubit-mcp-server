@@ -88,6 +88,10 @@ class MessageTerminologyTest {
                     baseUrl: https://127.0.0.1:9
                     write:
                       enabled: false
+                  - name: node3
+                    baseUrl: https://127.0.0.1:9
+                    # pinned: the version check refuses writes without a detection request
+                    versionLine: V9_X
               - name: dev
                 write:
                   enabled: true
@@ -203,6 +207,30 @@ class MessageTerminologyTest {
         assertThat(error.nextStep()).contains("its Umgebung or Knoten",
             "restart the MCP client");
         assertOnlyCustomTerms(error);
+    }
+
+    /**
+     * T030 (feature 009): the refusal of the version check names the configured levels. Its
+     * texts mention this MCP server as "this server" (wording of feature 009, quoted in
+     * docs/tools.md), so only the default level words are checked here.
+     */
+    @Test
+    void aVersionRefusalNamesTheConfiguredLevels() {
+        ToolError error = error("restart_process", Map.of("node", "test/node3",
+            "processId", "1"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(error.message()).isEqualTo("restart_process: INUBIT 9.x (versionLine V9_X)"
+            + " on test/node3 does not support process control yet; nothing was sent");
+        assertThat(error.likelyCause())
+            .isEqualTo("The Knoten runs a version for which no verified write access exists");
+        assertThat(error.nextStep()).startsWith("Use another Knoten whose INUBIT version")
+            .contains("capabilities per Knoten)");
+        for (String text : new String[] {error.message(), error.likelyCause(),
+            error.nextStep()}) {
+            assertThat(text).as("default level words in %s", text)
+                .doesNotContainPattern("(?i)\\b(groups?|nodes?)\\b");
+        }
     }
 
     @Test

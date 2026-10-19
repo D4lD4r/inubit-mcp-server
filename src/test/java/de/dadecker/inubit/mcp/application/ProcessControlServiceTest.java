@@ -20,6 +20,7 @@ import de.dadecker.inubit.mcp.domain.model.ProcessControlResult;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.ProcessState;
+import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
@@ -96,7 +97,7 @@ class ProcessControlServiceTest {
     private final ProcessControlService service = new ProcessControlService(
         new WriteGuard(new TargetResolver(SERVERS), policies::get, ports,
             new VersionGate(versions, detection, CapabilityMatrix.production(), clientProbe,
-                withClient::contains, node -> Duration.ofSeconds(30))),
+                withClient::contains, node -> Duration.ofSeconds(30), Terminology.DEFAULT)),
         policies::get, ports,
         confirmations, audit, clock,
         () -> UUID.fromString(String.format("00000000-0000-0000-0000-%012d",

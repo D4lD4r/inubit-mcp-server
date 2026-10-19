@@ -177,7 +177,7 @@ in the message):
 {"code": "UNSUPPORTED_VERSION",
  "message": "import_artifacts: INUBIT 9.0.7 on next/node1 does not support development writes yet; nothing was sent",
  "likelyCause": "The node runs a version for which no verified write access exists",
- "nextStep": "Use a node whose INUBIT version supports development writes (list_nodes shows the usable capabilities per node), or wait for a version of this server that supports that INUBIT version",
+ "nextStep": "Use another node whose INUBIT version supports development writes (list_nodes shows the usable capabilities per node), or wait for a version of this server that supports that INUBIT version",
  "node": "next/node1"}
 ```
 

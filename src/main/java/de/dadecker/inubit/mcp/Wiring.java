@@ -213,7 +213,7 @@ final class Wiring implements AutoCloseable {
             .filter(server -> server.cliAvailable(exists, windows))
             .map(EffectiveNodeConfig::id).collect(Collectors.toUnmodifiableSet());
         VersionGate versionGate = new VersionGate(versions, gateways, MATRIX, clientVersions,
-            withClient::contains, id -> byId.get(id).cliTimeout());
+            withClient::contains, id -> byId.get(id).cliTimeout(), terms);
         Map<NodeId, Duration> timeouts = new HashMap<>();
         servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
         this.health = new HealthService(gateways, targets, fanOut, timeouts::get, clock.clock(),

@@ -10,6 +10,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState.Timed;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
+import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
@@ -49,7 +50,8 @@ import org.slf4j.LoggerFactory;
  * A refusal is a {@link ToolErrorException} with {@link ErrorCode#UNSUPPORTED_VERSION}, logged
  * (FR-015). Its texts are built here from the node id, versions and error codes only, never from
  * the detection's error (FR-016; {@code V81VersionDetector} suggests {@code versionLine: V8_1}
- * unconditionally, which FR-005 forbids).
+ * unconditionally, which FR-005 forbids); they name the node level with the profile's
+ * terminology (feature 002, FR-007).
  *
  * <p>The purpose of a call is a {@link Capability.Kind} ({@code READ} or {@code WRITE}).
  *
@@ -113,20 +115,23 @@ public final class VersionGate {
     private final ClientVersionPort clients;
     private final Predicate<NodeId> withClient;
     private final Function<NodeId, Duration> cliTimeouts;
+    private final Terminology terms;
 
     /**
      * @param withClient  whether a node has a StartCLI installation (only those are probed)
      * @param cliTimeouts the {@code cliTimeout} of each node, the bound of its client probe
+     * @param terms       the profile's terminology of the messages
      */
     public VersionGate(NodeVersions versions, GatewayFactory gateways, CapabilityMatrix matrix,
         ClientVersionPort clients, Predicate<NodeId> withClient,
-        Function<NodeId, Duration> cliTimeouts) {
+        Function<NodeId, Duration> cliTimeouts, Terminology terms) {
         this.versions = Objects.requireNonNull(versions, "versions");
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.matrix = Objects.requireNonNull(matrix, "matrix");
         this.clients = Objects.requireNonNull(clients, "clients");
         this.withClient = Objects.requireNonNull(withClient, "withClient");
         this.cliTimeouts = Objects.requireNonNull(cliTimeouts, "cliTimeouts");
+        this.terms = Objects.requireNonNull(terms, "terms");
     }
 
     /**
@@ -303,7 +308,8 @@ public final class VersionGate {
                     + client.supportedTo().orElseThrow().raw() + ", which excludes "
                     + name.orElseThrow() + "; " + label(capability)
                     + " via StartCLI refused",
-                "The local StartCLI client does not support the INUBIT version of the node",
+                terms.render("The local StartCLI client does not support the INUBIT version of"
+                    + " the {node}"),
                 "Install a StartCLI client on the host of this server that supports INUBIT "
                     + majorMinor(state, version));
             case NOT_EVALUABLE -> warnings.add(client.supportedFrom().isEmpty()
@@ -329,20 +335,20 @@ public final class VersionGate {
             + " run, but their results may be unreliable";
     }
 
-    private static Refusal refuseContradiction(NodeId node, Capability capability,
+    private Refusal refuseContradiction(NodeId node, Capability capability,
         NodeVersionState state) {
         Timed<InubitVersion> observed = state.observed().orElseThrow();
         return refuse(node, capability,
             "versionLine " + state.setting().text() + " of " + node + " contradicts INUBIT "
                 + observed.value().raw() + " observed by get_health at " + time(observed) + "; "
                 + label(capability) + " refused",
-            "The configured version does not match the version the node runs (for example"
-                + " after an upgrade)",
+            terms.render("The configured version does not match the version the {node} runs"
+                + " (for example after an upgrade)"),
             "Correct versionLine of " + node + " (get_health observed INUBIT "
                 + observed.value().raw() + ") and restart the server");
     }
 
-    private static Refusal refuseUnsupported(NodeId node, Capability capability,
+    private Refusal refuseUnsupported(NodeId node, Capability capability,
         Capability.Kind purpose, NodeVersionState state, Optional<String> name) {
         if (name.isEmpty()) {
             return refuse(node, capability,
@@ -350,17 +356,18 @@ public final class VersionGate {
                 capitalized(label(capability)) + " needs a known INUBIT version that supports"
                     + " it, and the version could not be detected",
                 "Fix the cause of the failed version detection and retry in a minute, or set"
-                    + " versionLine of " + node + " to the version the node actually runs and"
-                    + " restart the server");
+                    + " versionLine of " + node + terms.render(" to the version the {node}"
+                    + " actually runs and restart the server"));
         }
         return refuse(node, capability,
             name.get() + " on " + node + " does not support " + label(capability) + " yet",
             purpose == Capability.Kind.WRITE
-                ? "The node runs a version for which no verified write access exists"
+                ? terms.render("The {node} runs a version for which no verified write access"
+                    + " exists")
                 : "This server declares " + label(capability) + " unsupported for that version",
-            "Use a node whose INUBIT version supports " + label(capability) + " (list_nodes"
-                + " shows the usable capabilities per node), or wait for a version of this"
-                + " server that supports that INUBIT version");
+            terms.render("Use another {node} whose INUBIT version supports ") + label(capability)
+                + terms.render(" (list_nodes shows the usable capabilities per {node}), or wait"
+                + " for a version of this server that supports that INUBIT version"));
     }
 
     /** @param cause the message without its closing "; nothing was sent" */

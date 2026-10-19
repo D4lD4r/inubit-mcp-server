@@ -299,7 +299,8 @@ adapters and a warning in these cases:
   pinned to a version that does not support it (e.g. only `V9_X` nodes have `write.enabled`);
   `AUTO` nodes count as capable.
 - `deploy_release` is refused unless every source and target node runs a known, supported
-  version with the same major.minor (8.1.17 → 8.1.18 is allowed; `V9_X` counts as unknown).
+  version with the same major.minor (8.1.17 → 8.1.18 is allowed); a `V9_X` node is refused by
+  the version check like 9.0.
 
 Refusals name the node, its version and the missing capability, and are returned before anything
 but the version detection is sent; see `UNSUPPORTED_VERSION` in [tools.md](tools.md).

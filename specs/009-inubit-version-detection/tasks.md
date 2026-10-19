@@ -469,13 +469,16 @@ shows the client against the pin, and a contradicting observation refuses writes
   `DeploymentReferenceTest` green.
 - [X] T028 [P] `README.md` "Safety model": writes only on verified INUBIT versions; `CHANGELOG.md`
   `[Unreleased]`: feature 009 with the deliberate behaviour changes.
-- [ ] T030 Gate texts in the profile's terminology (found in the T010 review): the refusal and
+- [X] T030 Gate texts in the profile's terminology (found in the T010 review): the refusal and
   warning texts built by `main/application/VersionGate.java` (and the `list_nodes` version reasons
   of T020) use the profile's display names for the node and group levels like every other message
   (feature 002), instead of the plain word "node". Test first:
   `test/MessageTerminologyTest.java` (a version refusal on a profile with custom terminology uses
   the custom names; remove the `versionLine: V8_1` workaround added in T010 where it only served to
   avoid the gate's texts) and `test/TerminologyRenderingTest.java` if it covers messages.
+  Open note (T030 review r1): the endpoint-404 message of `adapter/rest/InubitHttpClient` (T007,
+  "the node may run another INUBIT version") still uses the plain word "node"; the adapter has no
+  `Terminology`. Render it where the error leaves the application layer in a later change.
 - [ ] T029 Validate per quickstart.md: `mvn -q clean verify`; `mvn -q -Dtest=NoCustomerIdentifiersTest
   test` with the local lists (it must run, not skip); record the outcome in `quickstart.md`. The
   optional live check (read-only `get_health`/`list_nodes`) only with the person's approval.

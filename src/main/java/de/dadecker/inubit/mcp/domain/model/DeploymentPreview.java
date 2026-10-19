@@ -18,7 +18,7 @@ import java.util.UUID;
  * @param previewState  {@code release=<fingerprint>;groups=<list>;<node>=<fingerprint>…}
  * @param instruction   what the assistant has to do next
  * @param warnings      the version warnings of the source and target nodes (feature 009, e.g. a
- *                      StartCLI client whose patch level differs from the INUBIT version)
+ *                      StartCLI client whose version differs from the INUBIT version)
  */
 public record DeploymentPreview(UUID auditId, GroupId target, GroupId source, String tag,
     String owner, DeployMode mode, List<String> diagramGroups, List<String> olderThanHead,

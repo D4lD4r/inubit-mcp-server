@@ -4,16 +4,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
+import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -153,6 +157,49 @@ class DeployGuardTest {
         assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT);
         assertThat(audit).singleElement().satisfies(record ->
             assertThat(record.step()).isEqualTo(AuditRecord.Step.EXECUTE));
+    }
+
+    /**
+     * T030 (feature 009, FR-014a): the combined version refusal names the node level with the
+     * profile's terminology, also in the causes and next steps it takes from the version gate.
+     */
+    @Test
+    void theVersionRefusalUsesTheProfilesTerminology() {
+        Terminology terms = new Terminology("Umgebung", "Umgebungen", "Knoten", "Knoten");
+        Map<NodeId, VersionSetting> settings = Map.of(
+            NodeId.parse("dev/node1"), VersionSetting.parse("8.1.17").orElseThrow(),
+            NodeId.parse("dev/node2"), VersionSetting.parse("8.1.17").orElseThrow(),
+            NodeId.parse("int/node1"), VersionSetting.parse("9.0.7").orElseThrow(),
+            NodeId.parse("int/node2"), VersionSetting.V9_X);
+        MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
+        NodeVersions versions = new NodeVersions(clock, settings::get,
+            node -> Duration.ofMinutes(10));
+        VersionGate gate = new VersionGate(versions, new FakeVersionDetection(versions),
+            CapabilityMatrix.production(), (node, timeout) -> {
+                throw new AssertionError("no client probe expected for " + node);
+            }, node -> false, node -> Duration.ZERO, terms);
+        List<NodeId> nodes = List.of(NodeId.parse("dev/node1"), NodeId.parse("dev/node2"),
+            NodeId.parse("int/node1"), NodeId.parse("int/node2"));
+        DeployGuard guard = new DeployGuard(chain(), new TargetResolver(nodes, terms),
+            group -> Optional.of("jdoe"), audit::add, gate, "acme", clock, UUID::randomUUID);
+
+        ToolErrorException e = refused(guard, "int", "REL-1", Optional.empty());
+
+        assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(e.error().message()).startsWith("deploy_release: refused Knoten: int/node1,"
+            + " int/node2; deployment from dev into int refused (the version check refused"
+            + " int/node1, int/node2; the Knoten run different INUBIT minor versions (8.1,"
+            + " 9.0)). Sources: ");
+        assertThat(e.error().likelyCause()).isEqualTo("deploy_release deploys only between"
+            + " Knoten whose INUBIT versions are known, supported for deployments and of the"
+            + " same minor version");
+        assertThat(e.error().nextStep()).contains("Use another Knoten whose INUBIT version",
+            "Deploy only between Knoten of the same INUBIT minor version");
+        for (String text : new String[] {e.error().message(), e.error().likelyCause(),
+            e.error().nextStep()}) {
+            assertThat(text).as("default level words in %s", text)
+                .doesNotContainPattern("(?i)\\b(groups?|nodes?)\\b");
+        }
     }
 
     @Test

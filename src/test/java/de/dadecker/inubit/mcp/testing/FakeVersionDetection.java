@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
@@ -59,7 +60,7 @@ public final class FakeVersionDetection implements GatewayFactory {
         CapabilityMatrix matrix) {
         return new VersionGate(versions, gateways, matrix, (node, timeout) -> {
             throw new AssertionError("no client probe expected for " + node);
-        }, node -> false, node -> Duration.ZERO);
+        }, node -> false, node -> Duration.ZERO, Terminology.DEFAULT);
     }
 
     /** The detection of {@code node} finds {@code raw}, e.g. {@code 9.0.7}. */

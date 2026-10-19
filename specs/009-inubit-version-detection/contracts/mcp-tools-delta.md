@@ -105,7 +105,8 @@ optional top-level `warnings` (strings: client mismatch, failed probe; unlike th
 `warnings`, which are objects with a kind); the execute result has one already. A refusal is one
 `UNSUPPORTED_VERSION` naming every source and target node with its version and, per refused node,
 its cause. Refused as a whole if any node is unknown, any target not `supported` for deployments,
-sources differ from each other or from any target in major.minor (`V9_X` counts as unknown).
+sources differ from each other or from any target in major.minor (a `V9_X` node, source or
+target, is refused by the version check like 9.0).
 
 ## Tool announcement (changed behaviour)
 

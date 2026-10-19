@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.domain.model.Names;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
 import de.dadecker.inubit.mcp.domain.model.Target;
+import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.AuditPort;
@@ -222,6 +223,7 @@ public final class DeployGuard {
         if (refused.isEmpty() && unknown.isEmpty() && minors.size() <= 1) {
             return warnings;
         }
+        Terminology terms = nodes.terms();
         List<String> problems = new ArrayList<>();
         if (!refused.isEmpty()) {
             problems.add("the version check refused " + String.join(", ", refused));
@@ -230,25 +232,25 @@ public final class DeployGuard {
             problems.add("the INUBIT version of " + String.join(", ", unknown) + " is unknown");
         }
         if (minors.size() > 1) {
-            problems.add("the nodes run different INUBIT minor versions ("
+            problems.add(terms.render("the {nodes} run different INUBIT minor versions (")
                 + String.join(", ", minors) + ")");
         }
         if (!unknown.isEmpty() || minors.size() > 1) {
-            nextSteps.add("Deploy only between nodes of the same INUBIT minor version (e.g."
-                + " 8.1.x to 8.1.y) whose versions are known");
+            nextSteps.add(terms.render("Deploy only between {nodes} of the same INUBIT minor"
+                + " version (e.g. 8.1.x to 8.1.y) whose versions are known"));
         }
         // first, as the audit keeps only the start of the reason (MAX_AUDITED_INPUT)
         List<String> refusedNodes = new ArrayList<>(refused);
         refusedNodes.addAll(unknown);
         String summary = refusedNodes.isEmpty() ? ""
-            : "refused nodes: " + String.join(", ", refusedNodes) + "; ";
+            : terms.render("refused {nodes}: ") + String.join(", ", refusedNodes) + "; ";
         throw new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION, CAPABILITY
                 + ": " + summary + "deployment from " + source + " into " + target + " refused ("
                 + String.join("; ", problems) + "). Sources: " + described(sourceNodes,
                     evaluations) + ". Targets: " + described(targetNodes, evaluations)
                 + "; nothing was sent",
-            "deploy_release deploys only between nodes whose INUBIT versions are known,"
-                + " supported for deployments and of the same minor version",
+            terms.render("deploy_release deploys only between {nodes} whose INUBIT versions are"
+                + " known, supported for deployments and of the same minor version"),
             String.join("; ", nextSteps)));
     }
 

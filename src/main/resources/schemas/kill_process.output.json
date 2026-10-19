@@ -162,7 +162,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Warnings about the INUBIT version or the StartCLI client of the {node}, e.g. a StartCLI client whose patch level differs from the INUBIT version"
+          "description": "Warnings about the INUBIT version or the StartCLI client of the {node}, e.g. a StartCLI client whose version differs from the INUBIT version"
         }
       },
       "additionalProperties": false

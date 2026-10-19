@@ -19,6 +19,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
+import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
@@ -109,8 +110,12 @@ class VersionGateTest {
     }
 
     private VersionGate gate(CapabilityMatrix matrix) {
+        return gate(matrix, Terminology.DEFAULT);
+    }
+
+    private VersionGate gate(CapabilityMatrix matrix, Terminology terms) {
         return new VersionGate(versions, detection, matrix, probe, withClient::contains,
-            node -> CLI_TIMEOUT);
+            node -> CLI_TIMEOUT, terms);
     }
 
     private static InubitVersion version(String raw) {
@@ -177,7 +182,7 @@ class VersionGateTest {
         assertThat(error.message()).isEqualTo("INUBIT 9.0.7 on dev/node1 does not support"
             + " development writes yet; nothing was sent");
         assertThat(error.node()).contains(AUTO);
-        assertThat(error.nextStep()).startsWith("Use a node").doesNotContain("versionLine");
+        assertThat(error.nextStep()).startsWith("Use another node").doesNotContain("versionLine");
         assertThat(detection.calls).isEqualTo(1);
         assertThat(appender.list).singleElement().satisfies(event -> assertThat(
             event.getFormattedMessage()).contains("dev/node1", "DEVELOPMENT_WRITE", "REFUSED",
@@ -197,7 +202,7 @@ class VersionGateTest {
         assertThat(error.message()).isEqualTo("import_artifacts: INUBIT 9.0.7 on dev/node1 does"
             + " not support development writes yet; nothing was sent");
         assertThat(error.node()).contains(AUTO);
-        assertThat(error.nextStep()).startsWith("Use a node");
+        assertThat(error.nextStep()).startsWith("Use another node");
         assertThat(read.warnings()).containsExactly(
             "INUBIT 9.0.7 on dev/node1 is not verified for diagnosis; results may be incomplete");
     }
@@ -626,6 +631,52 @@ class VersionGateTest {
         assertThat(texts).hasSizeGreaterThan(10).allSatisfy(text -> assertThat(text)
             .doesNotContain(BASE_URL, "inubit-dev.example.com", USERNAME, PASSWORD,
                 "Set versionLine: V8_1"));
+    }
+
+    /**
+     * T030 (feature 002, FR-007): the refusals and warnings name the node level with the
+     * profile's terminology, never with the default word "node".
+     */
+    @Test
+    void refusalsAndWarningsUseTheProfilesTerminology() {
+        Terminology terms = new Terminology("Umgebung", "Umgebungen", "Knoten", "Knoten");
+        VersionGate gate = gate(CapabilityMatrix.production(), terms);
+        detection.fail(detectionError(ErrorCode.AUTH_FAILED));
+        ToolError unknown = refusal(() -> gate.admit(AUTO, Capability.PROCESS_CONTROL,
+            Kind.WRITE, CLI_REST));
+        Admission unknownRead = gate.admit(AUTO, Capability.DIAGNOSIS, Kind.READ, REST);
+        versions.clientProbeFailed(AUTO, ErrorCode.CLI_UNAVAILABLE);
+        Admission unknownCli = gate.admit(AUTO, Capability.INVENTORY, Kind.READ, CLI);
+        clock.advance(Duration.ofMinutes(2));
+        detection.answer("9.0.7");
+        versions.clientProbed(AUTO, client("8.1.17", "4.0.1", "8.1.17"));
+        ToolError unsupported = refusal(() -> gate.admit(AUTO, Capability.DEVELOPMENT_WRITE,
+            Kind.WRITE, CLI_REST));
+        ToolError incompatible = refusal(() -> gate.admit(AUTO, Capability.INVENTORY,
+            Kind.READ, CLI));
+        Admission unverified = gate.admit(AUTO, Capability.INVENTORY, Kind.READ, REST);
+        versions.observed(PINNED, version("8.2.0"));
+        ToolError contradiction = refusal(() -> gate(new CapabilityMatrix(List.of(),
+            all(SupportState.SUPPORTED)), terms).admit(PINNED, Capability.DEVELOPMENT_WRITE,
+            Kind.WRITE, CLI_REST));
+
+        assertThat(unsupported.likelyCause())
+            .isEqualTo("The Knoten runs a version for which no verified write access exists");
+        assertThat(unsupported.nextStep()).isEqualTo("Use another Knoten whose INUBIT version"
+            + " supports development writes (list_nodes shows the usable capabilities per"
+            + " Knoten), or wait for a version of this server that supports that INUBIT version");
+        assertThat(unknown.nextStep()).contains("the version the Knoten actually runs");
+        assertThat(incompatible.likelyCause()).isEqualTo(
+            "The local StartCLI client does not support the INUBIT version of the Knoten");
+        assertThat(contradiction.likelyCause()).contains("the version the Knoten runs");
+        List<String> texts = Stream.concat(
+                Stream.of(unknown, unsupported, incompatible, contradiction).flatMap(error ->
+                    Stream.of(error.message(), error.likelyCause(), error.nextStep())),
+                Stream.of(unknownRead, unknownCli, unverified)
+                    .flatMap(admission -> admission.warnings().stream()))
+            .toList();
+        assertThat(texts).hasSize(16).allSatisfy(text -> assertThat(text)
+            .doesNotContainPattern("(?i)\\b(groups?|nodes?)\\b"));
     }
 
     /**

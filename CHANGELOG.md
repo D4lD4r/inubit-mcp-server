@@ -52,9 +52,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - INUBIT version detection and version-dependent capabilities (feature 009): every tool needs a
   capability (`monitoring`, `diagnosis`, `inventory`, `workspace_export`, `development_writes`,
   `deployment`, `e2e_test`, `process_control`), and the server declares per INUBIT version which
-  of them are supported. INUBIT 8.1.x supports all of them; INUBIT 9.0, any later version, `V9_X`
-  and an unknown version run reads unverified (with a warning) and refuse writes. No 9.0-specific
-  access is part of this version. What changes for existing profiles is listed under "Changed".
+  of them are supported. INUBIT 8.1.x supports all of them; any version other than 8.1.x (9.0,
+  later or earlier versions), `V9_X` and an unknown version run reads unverified (with a warning)
+  and refuse writes. No 9.0-specific access is part of this version. What changes for existing
+  profiles is listed under "Changed".
   - `versionLine` also accepts a concrete version such as `"8.1.17"` or `"9.0.7-HF1"` (major,
     minor and patch; a suffix is kept and ignored for matching; quote it). Any other value is a
     configuration error that names the key.
@@ -72,13 +73,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     finish within the health time budget is the new part `client` in `unavailable`.
   - Optional `warnings` in the results of `find_processes`, `query_logs`, `list_inventory`,
     `get_inventory_item`, `restart_process` and `kill_process`, and at the top level of the
-    `deploy_release` preview: version and client warnings of the node. A version warning of the
-    `check_artifacts` module lookup becomes the new finding `MODULE_LOOKUP_WARNING`; a refused
-    lookup turns the modules into `MODULE_UNVERIFIED` with the reason.
+    `deploy_release` preview: version and client warnings of the node. They also go into the
+    existing `warnings` of `export_artifacts` and of the `deploy_release` result. A version
+    warning of the `check_artifacts` module lookup becomes the new finding
+    `MODULE_LOOKUP_WARNING`; a refused lookup turns the modules into `MODULE_UNVERIFIED` with the
+    reason.
   - `--check-config` adds `inubit: <versionLine>` to each node's line and, after a successful
     client check, `client: <version> (<from>–<to>)` with `client vs pin: …` for a concrete pin or
-    `server version: determined at runtime` otherwise. New warnings: one per `V9_X` node (writes
-    refused, reads unverified) and one per failed client check (not an error).
+    `server version: determined at runtime` otherwise. The existing warning per `V9_X` node now
+    reads "versionLine V9_X: write tools are refused on this node (…); read tools run unverified"
+    (before: "… the 8.1 adapters are used"); new is one warning per failed client check (not an
+    error).
 
   See `docs/setup.md` ("INUBIT version (`versionLine`)", "StartCLI client check") and
   `docs/tools.md` ("INUBIT versions and capabilities (feature 009)", `UNSUPPORTED_VERSION`).
