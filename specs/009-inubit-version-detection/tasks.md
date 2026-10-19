@@ -346,7 +346,7 @@ after `get_health` it shows the detected version, the client version and `suppor
 **Independent Test**: a node pinned to `"8.1.17"` triggers no detection request, `--check-config`
 shows the client against the pin, and a contradicting observation refuses writes.
 
-- [ ] T021 [US4] Verification task (no production change expected; the behaviour comes from T003,
+- [X] T021 [US4] Verification task (no production change expected; the behaviour comes from T003,
   T006 and T008): pinned nodes end to end through a tool — no detection request for
   `Line`/`Pinned` (FR-001); `V8_1`/a concrete pin give the matrix entry of their major.minor;
   `V9_X` is looked up as unknown (writes refused, reads unverified); the contradiction from T016

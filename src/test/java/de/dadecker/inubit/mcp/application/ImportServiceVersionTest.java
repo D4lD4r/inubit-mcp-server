@@ -30,6 +30,10 @@ import org.junit.jupiter.params.provider.EnumSource;
  * {@code V9_X} or with a failed detection is refused with {@code UNSUPPORTED_VERSION} naming the
  * tool, audited {@code REFUSED}, and nothing but the detection is requested. A StartCLI client
  * whose patch differs from the server's admits the call with the mismatch in {@code warnings}.
+ *
+ * <p>T021 (US4, FR-001, FR-012): a node pinned to {@code 8.1.17} imports without any detection
+ * request; a pin contradicted by {@code get_health} refuses the import until a matching
+ * observation.
  */
 @Timeout(120)
 class ImportServiceVersionTest {
@@ -171,6 +175,50 @@ class ImportServiceVersionTest {
         assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
         assertThat(outcome.warnings()).noneMatch(warning -> warning.contains("StartCLI client"));
         assertThat(harness.detection.requests()).isEmpty();
+    }
+
+    @Test
+    void aNodePinnedTo8117ImportsWithoutAnyDetectionRequest() throws IOException {
+        ImportHarness harness = ImportHarness.grpA(temp);
+        harness.versionLines.put(DEV, pin("8.1.17"));
+        harness.edit(harness.workflow("Workflow-0001"), "xPos=\"120\"", "xPos=\"140\"");
+        harness.exportGroup().importApplied().exportGroup();
+
+        WriteOutcome outcome = completed(harness.service().importArtifacts(
+            harness.group("Move it")));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(harness.detection.requests()).isEmpty();
+    }
+
+    @Test
+    void aPinContradictedByGetHealthRefusesTheImportUntilAMatchingObservation()
+        throws IOException {
+        ImportHarness harness = ImportHarness.grpA(temp);
+        harness.versionLines.put(DEV, pin("8.1.17"));
+        // what get_health records for the version it read (HealthService, T016)
+        harness.versions.observed(DEV, version("9.0.7"));
+
+        ToolError error = refusal(harness, Call.IMPORT);
+
+        assertThat(error.message()).contains("versionLine 8.1.17 of dev/node1 contradicts"
+            + " INUBIT 9.0.7 observed by get_health at 2026-10-07T10:00:00Z");
+
+        harness.versions.observed(DEV, version("8.1.17"));
+        harness.edit(harness.workflow("Workflow-0001"), "xPos=\"120\"", "xPos=\"140\"");
+        harness.exportGroup().importApplied().exportGroup();
+
+        WriteOutcome outcome = completed(harness.service().importArtifacts(
+            harness.group("Move it")));
+
+        harness.cli.verifyComplete();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(harness.detection.requests()).isEmpty();
+    }
+
+    private static VersionSetting pin(String text) {
+        return VersionSetting.parse(text).orElseThrow();
     }
 
     private static final String MISMATCH = "StartCLI client 8.1.17 and INUBIT 8.1.18 on"
