@@ -170,7 +170,8 @@ public record EffectiveNodeConfig(
     public NodeSummary summary(Predicate<Path> exists, boolean windows) {
         return new NodeSummary(id, id.group(), id.name(), production, effectiveWriteEnabled(),
             development.enabled() && !production, write.confirmation().name(),
-            development.repositoryWrite(), versionLine.text(), cliAvailable(exists, windows));
+            development.repositoryWrite(), versionLine.text(), cliAvailable(exists, windows),
+            Optional.empty());
     }
 
     /** StartCLI below the CLI home: {@code bin/startcli.sh}, {@code .bat} on Windows. */

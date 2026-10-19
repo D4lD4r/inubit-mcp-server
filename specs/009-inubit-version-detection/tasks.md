@@ -314,7 +314,7 @@ after `get_health` it shows the detected version, the client version and `suppor
   refused; `V9_X` → refused; timeout → warning, retried after 60 s with a fake clock) and
   `test/application/ProcessControlServiceTest.java` (US2-5 end to end: a probe timeout → restart
   executed with the warning in `warnings`; the next call more than 60 s later probes again).
-- [ ] T020 [US1] `list_nodes` (research D-9, contracts/mcp-tools-delta.md): `NodeSummary` gains the
+- [X] T020 [US1] `list_nodes` (research D-9, contracts/mcp-tools-delta.md): `NodeSummary` gains the
   `version` block (data-model: `setting`, `server`, `client`, `status`, `capabilities`
   `usable`/`notUsable` with reasons, `warnings`; "usable" = `SUPPORTED`, or `UNVERIFIED` for reads
   and not refused by the client check; a mixed-channel capability whose StartCLI part is refused is

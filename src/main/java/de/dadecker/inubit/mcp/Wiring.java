@@ -29,6 +29,7 @@ import de.dadecker.inubit.mcp.application.ImportService;
 import de.dadecker.inubit.mcp.application.InventoryCache;
 import de.dadecker.inubit.mcp.application.InventoryService;
 import de.dadecker.inubit.mcp.application.NodeDeployer;
+import de.dadecker.inubit.mcp.application.NodeOverview;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.application.PackageWriter;
@@ -53,7 +54,6 @@ import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
-import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
@@ -89,6 +89,7 @@ import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -139,7 +140,8 @@ final class Wiring implements AutoCloseable {
     private final AdapterGatewayFactory gateways;
     /** Feature 009: the StartCLI client probe for {@code get_health} and the version gate. */
     private final ClientVersionPort clientVersions;
-    private final List<NodeSummary> summaries;
+    /** Feature 009 (research D-9): the {@code list_nodes} view with the version state. */
+    private final NodeOverview overview;
     private final HealthService health;
     private final DiagnosisService diagnosis;
     private final InventoryService inventory;
@@ -210,7 +212,6 @@ final class Wiring implements AutoCloseable {
             .map(EffectiveNodeConfig::id).collect(Collectors.toUnmodifiableSet());
         VersionGate versionGate = new VersionGate(versions, gateways, MATRIX, clientVersions,
             withClient::contains, id -> byId.get(id).cliTimeout());
-        this.summaries = servers.stream().map(server -> server.summary(exists, windows)).toList();
         Map<NodeId, Duration> timeouts = new HashMap<>();
         servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
         this.health = new HealthService(gateways, targets, fanOut, timeouts::get, clock.clock(),
@@ -251,6 +252,13 @@ final class Wiring implements AutoCloseable {
         servers.forEach(server -> development.put(server.id(), server.developmentPolicy()));
         StageChain chain = config.stageChain();
         this.chain = chain;
+        // feature 009 (FR-004): list_nodes reads the version state, it never contacts a node
+        Map<NodeId, Set<Capability>> allowed = new HashMap<>();
+        servers.forEach(server -> allowed.put(server.id(), allowed(server,
+            withClient.contains(server.id()))));
+        this.overview = new NodeOverview(servers.stream()
+            .map(server -> server.summary(exists, windows)).toList(), versions, MATRIX,
+            allowed::get);
         DevelopmentGuard developmentGuard = new DevelopmentGuard(targets, development::get,
             node -> gateways.imports(node).checkAvailable(), versionGate,
             group -> Optional.ofNullable(
@@ -355,7 +363,7 @@ final class Wiring implements AutoCloseable {
     /** The tools to register. */
     List<ToolHandler> toolHandlers() {
         List<ToolHandler> handlers = new ArrayList<>();
-        handlers.add(new ListNodesTool(profile, summaries));
+        handlers.add(new ListNodesTool(profile, overview::nodes));
         handlers.add(new GetHealthTool(health));
         handlers.add(new FindProcessesTool(diagnosis));
         handlers.add(new QueryLogsTool(diagnosis));
@@ -449,10 +457,42 @@ final class Wiring implements AutoCloseable {
      * node of a group that receives deployments (feature 005, T027).
      */
     boolean anyE2eNode() {
-        return servers.stream().filter(server -> possiblyCapable(server, Capability.E2E_TEST))
-            .map(EffectiveNodeConfig::developmentPolicy)
-            .anyMatch(policy -> policy.e2eTests() != E2ePolicy.FORBIDDEN && (policy.enabled()
-                || (!policy.production() && chain.link(policy.node().group()).isPresent())));
+        return servers.stream().anyMatch(server -> possiblyCapable(server, Capability.E2E_TEST)
+            && e2eNode(server));
+    }
+
+    /** True if {@code server} allows end-to-end tests (see {@link #anyE2eNode()}). */
+    private boolean e2eNode(EffectiveNodeConfig server) {
+        DevelopmentPolicy policy = server.developmentPolicy();
+        return policy.e2eTests() != E2ePolicy.FORBIDDEN && (policy.enabled()
+            || (!policy.production() && chain.link(policy.node().group()).isPresent()));
+    }
+
+    /**
+     * Feature 009 (FR-003, FR-004): the capabilities the configuration of {@code server} allows,
+     * before its version is considered: the reads always, the workspace export with a StartCLI
+     * installation, development writes on a development stage, deployments in a group that
+     * receives them, end-to-end tests where allowed, process control with write access.
+     */
+    private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
+        Set<Capability> allowed = EnumSet.of(Capability.MONITORING, Capability.DIAGNOSIS,
+            Capability.INVENTORY);
+        if (withClient) {
+            allowed.add(Capability.WORKSPACE_EXPORT);
+        }
+        if (server.development().enabled() && !server.production()) {
+            allowed.add(Capability.DEVELOPMENT_WRITE);
+        }
+        if (chain.link(server.id().group()).isPresent()) {
+            allowed.add(Capability.DEPLOYMENT);
+        }
+        if (e2eNode(server)) {
+            allowed.add(Capability.E2E_TEST);
+        }
+        if (server.effectiveWriteEnabled()) {
+            allowed.add(Capability.PROCESS_CONTROL);
+        }
+        return allowed;
     }
 
     /** True if at least one server has effective write access (Story 4 / AS 6). */

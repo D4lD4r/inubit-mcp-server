@@ -159,7 +159,11 @@ public record NodeVersionState(
         return client.isEmpty() && !inBackOff(clientFailure, now);
     }
 
-    private Optional<Timed<InubitVersion>> latest() {
+    /**
+     * The more recent of {@code detected} and {@code observed} (an observation wins a tie),
+     * whatever the setting.
+     */
+    public Optional<Timed<InubitVersion>> latest() {
         if (detected.isEmpty()) {
             return observed;
         }

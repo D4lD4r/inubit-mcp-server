@@ -318,7 +318,7 @@ public final class HealthService {
      * What the client means for StartCLI-backed tools (FR-011): refused if the server lies
      * outside the client's declared range, otherwise a mismatch still runs with a warning.
      */
-    private static Optional<String> clientWarning(NodeId server, ClientVersion client,
+    static Optional<String> clientWarning(NodeId server, ClientVersion client,
         Optional<InubitVersion> serverVersion, ClientVersion.Comparison comparison) {
         if (client.compatibleWith(serverVersion) == ClientVersion.Compatibility.INCOMPATIBLE) {
             InubitVersion version = serverVersion.orElseThrow();

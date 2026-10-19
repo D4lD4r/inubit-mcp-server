@@ -302,7 +302,7 @@ public final class VersionGate {
     }
 
     /** "INUBIT 9.0.7", "INUBIT 9.x (versionLine V9_X)", or empty for an unknown version. */
-    private static Optional<String> name(NodeVersionState state,
+    static Optional<String> name(NodeVersionState state,
         Optional<InubitVersion> version) {
         if (version.isPresent()) {
             return Optional.of("INUBIT " + version.get().raw());
@@ -323,7 +323,7 @@ public final class VersionGate {
     }
 
     /** "the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T08:00:00Z)". */
-    private static String unknown(NodeId node, NodeVersionState state) {
+    static String unknown(NodeId node, NodeVersionState state) {
         return "the INUBIT version of " + node + " is unknown ("
             + state.detectionFailure().map(VersionGate::timed).orElse("not yet detected") + ")";
     }
@@ -332,7 +332,7 @@ public final class VersionGate {
         return failure.value() + " at " + time(failure);
     }
 
-    private static String time(Timed<?> value) {
+    static String time(Timed<?> value) {
         return value.at().truncatedTo(ChronoUnit.SECONDS).toString();
     }
 
@@ -341,7 +341,7 @@ public final class VersionGate {
     }
 
     /** The capability as named in the spec's tool classification. */
-    private static String label(Capability capability) {
+    static String label(Capability capability) {
         return switch (capability) {
             case MONITORING -> "monitoring";
             case DIAGNOSIS -> "diagnosis";
