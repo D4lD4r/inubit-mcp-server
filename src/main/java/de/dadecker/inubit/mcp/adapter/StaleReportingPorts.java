@@ -30,8 +30,9 @@ import java.util.function.Supplier;
 /**
  * Stale trigger of research D-10: wraps the ports of one node so that a
  * {@link ToolErrorException} with {@code UNEXPECTED_RESPONSE} (from the REST client, e.g. HTTP 406
- * or a missing endpoint, or from a parser of the port set) reports {@link VersionObserver#stale} for the node
- * before it is rethrown unchanged. Every other outcome passes through.
+ * or a missing endpoint, or from a parser of the port set) reports
+ * {@link VersionObserver#stale} for the node before it is rethrown unchanged. Every other outcome
+ * passes through.
  */
 final class StaleReportingPorts {
 

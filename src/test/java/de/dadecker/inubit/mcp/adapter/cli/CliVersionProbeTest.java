@@ -116,6 +116,18 @@ class CliVersionProbeTest {
     }
 
     @Test
+    void aRangeIsCheckedOnMajorMinorOnlySoAnInvertedPatchStaysEvaluable() {
+        // research D-8: the range is reduced to major.minor, as ClientVersion does
+        ClientVersion client = probe(FakeProcessLauncher.of("CLI 8.1.17\nSupported inubit"
+            + " Process Engine versions from 8.1.17 to 8.1.5.\n", "", 0)).probe(ID, TIMEOUT);
+
+        assertThat(client.supportedFrom()).contains(version("8.1.17"));
+        assertThat(client.supportedTo()).contains(version("8.1.5"));
+        assertThat(client.compatibleWith(Optional.of(version("8.1.18"))))
+            .isEqualTo(Compatibility.COMPATIBLE);
+    }
+
+    @Test
     void parsesA90Client() throws IOException {
         ClientVersion client = probe(replayingV90("version")).probe(ID, TIMEOUT);
 

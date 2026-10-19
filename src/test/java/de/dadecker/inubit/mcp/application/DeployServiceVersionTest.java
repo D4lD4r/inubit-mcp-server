@@ -143,7 +143,8 @@ class DeployServiceVersionTest extends DeployExecution {
 
         ToolError error = refusedPreview();
 
-        assertThat(error.message()).isEqualTo("deploy_release: deployment from dev into int"
+        assertThat(error.message()).isEqualTo("deploy_release: refused nodes: int/node1,"
+            + " int/node2, int/node3; deployment from dev into int"
             + " refused (the version check refused int/node1, int/node2, int/node3; the nodes"
             + " run different INUBIT minor versions (8.1, 9.0)). Sources: dev/node1 INUBIT"
             + " 8.1.17, dev/node2 INUBIT 8.1.17. Targets: int/node1 INUBIT 9.0.7 (refused:"
@@ -157,6 +158,21 @@ class DeployServiceVersionTest extends DeployExecution {
             "versionLine of int/node2");
         assertThat(harness.detection.requests()).containsExactly(DeployHarness.INT1,
             DeployHarness.INT2);
+    }
+
+    @Test
+    void theAuditedReasonNamesTheRefusedNodesFirst() {
+        // the audit keeps only the first 200 characters of the reason (Constitution VII)
+        harness(false);
+        sources(pin("8.1.17"));
+        harness.versionLines.put(DeployHarness.INT1, pin("9.0.7"));
+        harness.versionLines.put(DeployHarness.INT3, VersionSetting.V9_X);
+
+        refusedPreview();
+
+        assertThat(audit()).singleElement().satisfies(record -> assertThat(record.reason())
+            .get().asString().startsWith("UNSUPPORTED_VERSION: deploy_release: refused nodes:"
+                + " int/node1, int/node3; deployment from dev into int refused").hasSize(200));
     }
 
     @Test

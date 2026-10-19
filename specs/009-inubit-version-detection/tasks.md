@@ -424,7 +424,7 @@ shows the client against the pin, and a contradicting observation refuses writes
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T031 Review follow-ups (minor findings of the T015–T025 reviews, collected in
+- [X] T031 Review follow-ups (minor findings of the T015–T025 reviews, collected in
   `reviews/T0xx-r*.md`; runs before the docs so they describe the final behaviour):
   (a) `main/application/NodeOverview.java`: `server.at` and `client.at` in `list_nodes` truncated
   to seconds like the gate texts (`VersionGate.time()`); test with a sub-second clock in

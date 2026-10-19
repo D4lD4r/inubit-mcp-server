@@ -42,8 +42,10 @@ a later observation matches or the process restarts with a corrected pin (FR-012
 - Never contacts an INUBIT server (unchanged). For each node with a StartCLI installation it runs
   `startcli.sh -v` locally (no credentials, no server URL).
 - Node line gains `, inubit: <setting>` and, with a StartCLI installation,
-  `, client: <version> (<from>–<to>)`; with a concrete pin also `, client vs pin: match|mismatch`.
-  Example:
+  `, client: <version> (<from>–<to>)`; with a concrete pin also
+  `, client vs pin: match|mismatch|not comparable`, followed by `, pin outside client range` when
+  the client's declared range excludes the pin (FR-011a; StartCLI-backed tools are refused on that
+  node at runtime, FR-011). Example:
 
   ```text
   Node dev/node2: read-only, development: on (confirmation SERVER), repository: read-only, e2e: FORBIDDEN, cli: available, inubit: 8.1.17, client: 8.1.17 (4.0.1–8.1.17), client vs pin: match, username ← …

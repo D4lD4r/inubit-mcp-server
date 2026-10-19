@@ -48,9 +48,10 @@ import org.slf4j.LoggerFactory;
  *   <li>Feature 009 (FR-014a, research D-11): every source and target node is judged by the
  *       {@link VersionGate} as a deployment write over StartCLI and REST (detection, matrix,
  *       pin contradiction, client check); the deployment is refused as a whole
- *       ({@code UNSUPPORTED_VERSION}, one message naming every node with its version and the
- *       cause of each refused node) if the gate refuses a node, a node's version is unknown, or
- *       the nodes differ in major.minor. The admission warnings travel in {@link Admitted}.
+ *       ({@code UNSUPPORTED_VERSION}, one message naming the refused nodes first, then every
+ *       node with its version and the cause of each refused node) if the gate refuses a node, a
+ *       node's version is unknown, or the nodes differ in major.minor. The admission warnings
+ *       travel in {@link Admitted}.
  *   <li>Every refusal is audited ({@code REFUSED}, capability {@code deploy_release}, step
  *       {@code PREVIEW} or, with a code, {@code EXECUTE}) before it is thrown; nothing is
  *       launched.
@@ -236,8 +237,13 @@ public final class DeployGuard {
             nextSteps.add("Deploy only between nodes of the same INUBIT minor version (e.g."
                 + " 8.1.x to 8.1.y) whose versions are known");
         }
+        // first, as the audit keeps only the start of the reason (MAX_AUDITED_INPUT)
+        List<String> refusedNodes = new ArrayList<>(refused);
+        refusedNodes.addAll(unknown);
+        String summary = refusedNodes.isEmpty() ? ""
+            : "refused nodes: " + String.join(", ", refusedNodes) + "; ";
         throw new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION, CAPABILITY
-                + ": deployment from " + source + " into " + target + " refused ("
+                + ": " + summary + "deployment from " + source + " into " + target + " refused ("
                 + String.join("; ", problems) + "). Sources: " + described(sourceNodes,
                     evaluations) + ". Targets: " + described(targetNodes, evaluations)
                 + "; nothing was sent",

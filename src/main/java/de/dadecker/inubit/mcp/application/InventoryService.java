@@ -197,8 +197,8 @@ public final class InventoryService {
     public InventoryService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
         ResultLimiter limiter, InventoryCache cache, Function<NodeId, Optional<String>> owners,
         Function<NodeId, Duration> timeouts, Function<NodeId, Duration> exportTimeouts,
-        Function<NodeId, Duration> cliTimeouts, Duration exportStopGrace, ToIntFunction<Object> sizeOf, Terminology terms,
-        VersionGate gate) {
+        Function<NodeId, Duration> cliTimeouts, Duration exportStopGrace,
+        ToIntFunction<Object> sizeOf, Terminology terms, VersionGate gate) {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.fanOut = Objects.requireNonNull(fanOut, "fanOut");

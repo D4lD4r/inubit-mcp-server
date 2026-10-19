@@ -36,12 +36,13 @@ import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
+import de.dadecker.inubit.mcp.testing.MutableClock;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -294,10 +295,13 @@ class ListNodesToolTest {
     private static final NodeId DEV1 = NodeId.parse("dev/node1");
     private static final NodeId DEV2 = NodeId.parse("dev/node2");
     private static final NodeId QA1 = NodeId.parse("qa/node1");
+    private static final NodeId QA3 = NodeId.parse("qa/node3");
     private static final String PASSWORD = "list-nodes-test-pw";
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private static WireMockServer wireMock;
+    /** The clock of {@link #versions}; at {@link #NOW} unless a test advances it. */
+    private MutableClock clock;
     private NodeVersions versions;
     private AdapterGatewayFactory gateways;
     private McpTestClient versionClient;
@@ -317,8 +321,9 @@ class ListNodesToolTest {
 
     /**
      * dev/node1 ({@code AUTO}, StartCLI, {@link #DEVELOPMENT}), dev/node2 ({@code AUTO}, no
-     * StartCLI, reads), qa/node1 ({@code V8_1}, StartCLI, {@link #DEVELOPMENT}) and qa/node2
-     * (pinned {@code 8.1.17}, no StartCLI, reads), all at the WireMock server.
+     * StartCLI, reads), qa/node1 ({@code V8_1}, StartCLI, {@link #DEVELOPMENT}), qa/node2
+     * (pinned {@code 8.1.17}, no StartCLI, reads) and qa/node3 ({@code V9_X}, StartCLI,
+     * {@link #DEVELOPMENT}), all at the WireMock server.
      */
     @BeforeEach
     void startVersionClient() {
@@ -331,10 +336,12 @@ class ListNodesToolTest {
             versionNode("dev/node2", baseUrl, VersionSetting.AUTO).build(),
             versionNode("qa/node1", baseUrl, VersionSetting.V8_1).cliHome(CLI_HOME).build(),
             versionNode("qa/node2", baseUrl, VersionSetting.parse("8.1.17").orElseThrow())
-                .build());
+                .build(),
+            versionNode("qa/node3", baseUrl, VersionSetting.V9_X).cliHome(CLI_HOME).build());
         Map<NodeId, EffectiveNodeConfig> byId = new HashMap<>();
         nodes.forEach(node -> byId.put(node.id(), node));
-        versions = new NodeVersions(Clock.fixed(NOW, ZoneOffset.UTC),
+        clock = new MutableClock(NOW);
+        versions = new NodeVersions(clock,
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
         SecretScrubber scrubber = new SecretScrubber();
         gateways = new AdapterGatewayFactory(nodes, new CredentialResolver(Map.of(
@@ -344,7 +351,7 @@ class ListNodesToolTest {
             new CliRunner(noStartCli(new AtomicInteger()), Map.of(), false,
                 new CliResources("acme")), versions, PortSetRegistry.v81Default());
         Map<NodeId, Set<Capability>> allowed = Map.of(DEV1, DEVELOPMENT, DEV2, READS,
-            QA1, DEVELOPMENT, NodeId.parse("qa/node2"), READS);
+            QA1, DEVELOPMENT, NodeId.parse("qa/node2"), READS, QA3, DEVELOPMENT);
         NodeOverview overview = new NodeOverview(nodes.stream()
             .map(node -> node.summary(EXISTS, false)).toList(), versions,
             CapabilityMatrix.production(), allowed::get);
@@ -593,6 +600,59 @@ class ListNodesToolTest {
         JsonNode failed = byNode.get("qa/node1").path("client");
         assertThat(failed.path("state").asString()).isEqualTo("unknown");
         assertThat(failed.path("reason").asString()).isEqualTo("CLI_UNAVAILABLE");
+    }
+
+    @Test
+    void timesAreShownToTheSecondLikeTheGateTexts() {
+        // production NodeVersions read Clock.systemUTC(), which has sub-second precision
+        clock.advance(Duration.ofNanos(123_456_789));
+        versions.detected(DEV1, InubitVersion.parse("8.1.17").orElseThrow());
+        versions.clientProbeFailed(DEV1, ErrorCode.TIMEOUT);
+        versions.detectionFailed(DEV2, ErrorCode.FORBIDDEN);
+        versions.observed(QA1, InubitVersion.parse("8.1.17").orElseThrow());
+        versions.clientProbeFailed(QA1, ErrorCode.CLI_UNAVAILABLE);
+
+        Map<String, JsonNode> byNode = listVersions();
+
+        assertThat(byNode.get("dev/node1").path("server").path("at").asString())
+            .as("detected").isEqualTo(NOW.toString());
+        assertThat(byNode.get("dev/node1").path("client").path("at").asString())
+            .as("client probe timed out").isEqualTo(NOW.toString());
+        assertThat(byNode.get("dev/node2").path("server").path("at").asString())
+            .as("detection failed").isEqualTo(NOW.toString());
+        assertThat(byNode.get("qa/node1").path("server").path("at").asString())
+            .as("observed").isEqualTo(NOW.toString());
+        assertThat(byNode.get("qa/node1").path("client").path("at").asString())
+            .as("client probe failed").isEqualTo(NOW.toString());
+    }
+
+    @Test
+    void aV9xNodeIsPartiallySupportedAndAnEightOneClientIsRefusedByItsLine() {
+        // V9_X gives no major.minor: reads run unverified, writes are unsupported (FR-012), and
+        // the 8.1 client's range excludes the whole 9.x line (FR-011, research D-8)
+        versions.clientProbed(QA3, clientVersion("8.1.17", "4.0.1", "8.1.17"));
+
+        JsonNode version = listVersions().get("qa/node3");
+
+        assertThat(version.path("setting").asString()).isEqualTo("V9_X");
+        assertThat(version.path("server").propertyNames()).containsExactly("version", "source");
+        assertThat(version.path("server").path("version").asString()).isEqualTo("9.x");
+        assertThat(version.path("server").path("source").asString()).isEqualTo("pinned");
+        assertThat(version.path("client").path("version").asString()).isEqualTo("8.1.17");
+        assertThat(version.path("client").path("comparison").asString())
+            .isEqualTo("not_comparable");
+        assertThat(version.path("status").asString()).isEqualTo("partially_supported");
+        assertThat(usable(version)).containsExactly("monitoring", "diagnosis", "inventory");
+        assertThat(notUsable(version)).containsExactly("inventory (StartCLI parts)",
+            "workspace_export", "development_writes", "process_control");
+        String excluded = "StartCLI client 8.1.17 of qa/node3 supports INUBIT 4.0.1 to 8.1.17,"
+            + " which excludes INUBIT 9.x (versionLine V9_X)";
+        assertThat(reason(version, "inventory (StartCLI parts)")).isEqualTo(excluded);
+        assertThat(reason(version, "workspace_export")).isEqualTo(excluded);
+        assertThat(reason(version, "development_writes")).isEqualTo("INUBIT 9.x (versionLine"
+            + " V9_X) on qa/node3 does not support development writes yet");
+        assertThat(reason(version, "process_control")).isEqualTo("INUBIT 9.x (versionLine"
+            + " V9_X) on qa/node3 does not support process control yet");
     }
 
     @Test

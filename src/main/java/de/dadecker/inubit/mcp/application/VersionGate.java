@@ -73,25 +73,37 @@ public final class VersionGate {
     /**
      * The outcome of {@link #evaluate} for one node: the version the call was judged on (empty if
      * unknown, also for a major-only line such as {@code V9_X}), that version as text, and either
-     * the admission's warnings or the refusal {@code admit} would throw.
+     * the admission's warnings or the refusal {@code admit} would throw with its cause.
      *
      * @param versionName e.g. "INUBIT 8.1.17", "INUBIT 9.x (versionLine V9_X)" or "INUBIT version
      *                    unknown"
+     * @param cause       the refusal's message without its closing "; nothing was sent";
+     *                    present exactly when {@code refusal} is
      */
     public record Evaluation(Optional<InubitVersion> version, String versionName,
-        List<String> warnings, Optional<ToolError> refusal) {
+        List<String> warnings, Optional<ToolError> refusal, Optional<String> cause) {
         public Evaluation {
             Objects.requireNonNull(version, "version");
             Objects.requireNonNull(versionName, "versionName");
             warnings = List.copyOf(warnings);
             Objects.requireNonNull(refusal, "refusal");
+            Objects.requireNonNull(cause, "cause");
+            if (refusal.isPresent() != cause.isPresent()) {
+                throw new IllegalArgumentException("A refusal needs its cause and vice versa");
+            }
         }
+    }
 
-        /** The refusal's message without its closing "; nothing was sent". */
-        public Optional<String> cause() {
-            return refusal.map(error -> error.message().endsWith(NOTHING_SENT)
-                ? error.message().substring(0, error.message().length() - NOTHING_SENT.length())
-                : error.message());
+    /** A refusal of this gate: the error and the cause its message was built from. */
+    private static final class Refusal extends ToolErrorException {
+
+        private static final long serialVersionUID = 1L;
+
+        private final String cause;
+
+        Refusal(ToolError error, String cause) {
+            super(error);
+            this.cause = cause;
         }
     }
 
@@ -139,7 +151,8 @@ public final class VersionGate {
      * throwing it (research D-11: {@code deploy_release} judges every node before it refuses);
      * the steps, texts and logging are the same.
      *
-     * @throws ToolErrorException as {@code admit}, except {@code UNSUPPORTED_VERSION}
+     * @throws ToolErrorException as {@code admit}, except this gate's own
+     *     {@code UNSUPPORTED_VERSION} refusals
      */
     public Evaluation evaluate(NodeId node, Capability capability, Capability.Kind purpose,
         Set<Channel> channels) {
@@ -157,12 +170,10 @@ public final class VersionGate {
         try {
             return new Evaluation(version, versionName,
                 judge(node, capability, purpose, channels, state, version).warnings(),
-                Optional.empty());
-        } catch (ToolErrorException e) {
-            if (e.error().code() != ErrorCode.UNSUPPORTED_VERSION) {
-                throw e;
-            }
-            return new Evaluation(version, versionName, List.of(), Optional.of(e.error()));
+                Optional.empty(), Optional.empty());
+        } catch (Refusal e) {
+            return new Evaluation(version, versionName, List.of(), Optional.of(e.error()),
+                Optional.of(e.cause));
         }
     }
 
@@ -310,7 +321,7 @@ public final class VersionGate {
         }
     }
 
-    private static ToolErrorException refuseContradiction(NodeId node, Capability capability,
+    private static Refusal refuseContradiction(NodeId node, Capability capability,
         NodeVersionState state) {
         Timed<InubitVersion> observed = state.observed().orElseThrow();
         return refuse(node, capability,
@@ -323,7 +334,7 @@ public final class VersionGate {
                 + observed.value().raw() + ") and restart the server");
     }
 
-    private static ToolErrorException refuseUnsupported(NodeId node, Capability capability,
+    private static Refusal refuseUnsupported(NodeId node, Capability capability,
         Capability.Kind purpose, NodeVersionState state, Optional<String> name) {
         if (name.isEmpty()) {
             return refuse(node, capability,
@@ -345,13 +356,13 @@ public final class VersionGate {
     }
 
     /** @param cause the message without its closing "; nothing was sent" */
-    private static ToolErrorException refuse(NodeId node, Capability capability, String cause,
+    private static Refusal refuse(NodeId node, Capability capability, String cause,
         String likelyCause, String nextStep) {
         String message = cause + NOTHING_SENT;
         LOG.info("{} on {}: REFUSED ({}): {}", capability, node, ErrorCode.UNSUPPORTED_VERSION,
             message);
-        return new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION, message,
-            likelyCause, nextStep).withNode(node));
+        return new Refusal(ToolError.of(ErrorCode.UNSUPPORTED_VERSION, message, likelyCause,
+            nextStep).withNode(node), cause);
     }
 
     /** "INUBIT 9.0.7", "INUBIT 9.x (versionLine V9_X)", or empty for an unknown version. */

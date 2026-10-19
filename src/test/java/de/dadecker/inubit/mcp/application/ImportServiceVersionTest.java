@@ -4,16 +4,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
@@ -196,14 +203,16 @@ class ImportServiceVersionTest {
     void aPinContradictedByGetHealthRefusesTheImportUntilAMatchingObservation()
         throws IOException {
         ImportHarness harness = ImportHarness.grpA(temp);
+        // 8.2 supports development writes here, so only the contradiction can refuse
+        harness.matrix = supported81And82();
         harness.versionLines.put(DEV, pin("8.1.17"));
         // what get_health records for the version it read (HealthService, T016)
-        harness.versions.observed(DEV, version("9.0.7"));
+        harness.versions.observed(DEV, version("8.2.0"));
 
         ToolError error = refusal(harness, Call.IMPORT);
 
         assertThat(error.message()).contains("versionLine 8.1.17 of dev/node1 contradicts"
-            + " INUBIT 9.0.7 observed by get_health at 2026-10-07T10:00:00Z");
+            + " INUBIT 8.2.0 observed by get_health at 2026-10-07T10:00:00Z");
 
         harness.versions.observed(DEV, version("8.1.17"));
         harness.edit(harness.workflow("Workflow-0001"), "xPos=\"120\"", "xPos=\"140\"");
@@ -219,6 +228,18 @@ class ImportServiceVersionTest {
 
     private static VersionSetting pin(String text) {
         return VersionSetting.parse(text).orElseThrow();
+    }
+
+    /** A matrix where every capability is supported on 8.1 and 8.2 and unsupported elsewhere. */
+    private static CapabilityMatrix supported81And82() {
+        Map<Capability, SupportState> all = new EnumMap<>(Capability.class);
+        Map<Capability, SupportState> otherwise = new EnumMap<>(Capability.class);
+        for (Capability capability : Capability.values()) {
+            all.put(capability, SupportState.SUPPORTED);
+            otherwise.put(capability, SupportState.UNSUPPORTED);
+        }
+        return new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+            new VersionRange(8, 1, 8, 2), all)), otherwise);
     }
 
     private static final String MISMATCH = "StartCLI client 8.1.17 and INUBIT 8.1.18 on"

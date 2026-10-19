@@ -77,8 +77,10 @@ public final class CliVersionProbe implements ClientVersionPort {
                 .withNode(node)
                 .withExcerpt(URL.matcher(excerpt).replaceAll(URL_REMOVED)));
         }
-        // a range StartCLI printed in an unknown form is not evaluable, not a failed probe (D-8)
-        boolean range = from.isPresent() && to.isPresent() && from.get().compareTo(to.get()) <= 0;
+        // a range StartCLI printed in an unknown form is not evaluable, not a failed probe; only
+        // major.minor counts (D-8)
+        boolean range = from.isPresent() && to.isPresent() && (from.get().major() < to.get().major()
+            || from.get().major() == to.get().major() && from.get().minor() <= to.get().minor());
         return new ClientVersion(version.get(), range ? from : Optional.empty(),
             range ? to : Optional.empty());
     }

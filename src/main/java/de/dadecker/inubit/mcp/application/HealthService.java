@@ -207,7 +207,8 @@ public final class HealthService {
             read.ifPresent(version -> versions.observed(server, version));
             List<String> versionWarnings = new ArrayList<>(
                 gate.admitMonitoring(server, read).warnings());
-            read.flatMap(version -> pinWarning(server, version)).ifPresent(versionWarnings::add);
+            read.flatMap(version -> pinWarning(server, versions.state(server).setting(), version))
+                .ifPresent(versionWarnings::add);
             ClientPart client = client(server, probe, deadline, timeout);
             client.warning().ifPresent(versionWarnings::add);
             return assemble(server, gatewayWarnings(server), versionWarnings, health, readiness,
@@ -249,11 +250,12 @@ public final class HealthService {
     /**
      * The warning about a pin that the version this call read (and just observed) differs from:
      * the contradiction of a different major.minor, or a patch-only difference to a concrete pin.
+     * Judged from {@code setting} and {@code read} alone, not from the contradiction flag in
+     * {@link NodeVersions}, which an overlapping {@code get_health} call may have set since.
      */
-    private Optional<String> pinWarning(NodeId server, InubitVersion read) {
-        NodeVersionState state = versions.state(server);
-        VersionSetting setting = state.setting();
-        if (state.pinContradiction()) {
+    static Optional<String> pinWarning(NodeId server, VersionSetting setting,
+        InubitVersion read) {
+        if (NodeVersionState.contradicts(setting, read)) {
             return Optional.of("versionLine " + setting.text() + " of " + server
                 + " contradicts INUBIT " + read.raw() + " read by get_health; writes on " + server
                 + " are refused until get_health reads a matching version or versionLine is"
@@ -322,7 +324,7 @@ public final class HealthService {
         Optional<InubitVersion> serverVersion, ClientVersion.Comparison comparison) {
         if (client.compatibleWith(serverVersion) == ClientVersion.Compatibility.INCOMPATIBLE) {
             InubitVersion version = serverVersion.orElseThrow();
-            return Optional.of("StartCLI client " + client.version().raw() + " on " + server
+            return Optional.of("StartCLI client " + client.version().raw() + " of " + server
                 + " supports INUBIT " + client.supportedFrom().orElseThrow().raw() + " to "
                 + client.supportedTo().orElseThrow().raw() + ", which excludes INUBIT "
                 + version.raw() + "; StartCLI-backed tools are refused on " + server + " ("

@@ -495,7 +495,7 @@ class HealthServiceTest {
         assertThat(report.version()).contains("9.0.2");
         // T016: the read also contradicts the pin
         assertThat(report.warnings()).containsExactly(UNVERIFIED_902,
-            CONTRADICTION_907.replace("9.0.7", "9.0.2"));
+            contradiction("9.0.2"));
         assertThat(gateDetections).hasValue(0);
     }
 
@@ -553,9 +553,12 @@ class HealthServiceTest {
 
     // --- feature 009: get_health observes the version of every node (T016, FR-012) ---------
 
-    private static final String CONTRADICTION_907 = "versionLine V8_1 of dev/node1 contradicts"
-        + " INUBIT 9.0.7 read by get_health; writes on dev/node1 are refused until get_health"
-        + " reads a matching version or versionLine is corrected and the server restarted";
+    /** The warning about the pin V8_1 of dev/node1 contradicted by a read of {@code raw}. */
+    private static String contradiction(String raw) {
+        return "versionLine V8_1 of dev/node1 contradicts INUBIT " + raw + " read by get_health;"
+            + " writes on dev/node1 are refused until get_health reads a matching version or"
+            + " versionLine is corrected and the server restarted";
+    }
 
     @Test
     void aPinnedNodeObservingAnotherMajorMinorIsContradictedUntilAMatchingRead() {
@@ -565,7 +568,7 @@ class HealthServiceTest {
         HealthReport contradicted = checkOne(DEV, false);
 
         assertThat(contradicted.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not"
-            + " verified for monitoring; results may be incomplete", CONTRADICTION_907);
+            + " verified for monitoring; results may be incomplete", contradiction("9.0.7"));
         assertThat(versions.state(DEV).pinContradiction()).isTrue();
         assertThat(versions.state(DEV).observed().orElseThrow().value().raw())
             .isEqualTo("9.0.7");
@@ -576,6 +579,20 @@ class HealthServiceTest {
         assertThat(matching.warnings()).isEmpty();
         assertThat(versions.state(DEV).pinContradiction()).isFalse();
         assertThat(gateDetections).hasValue(0);
+    }
+
+    @Test
+    void thePinWarningFollowsThisCallsReadNotTheFlagOfAnOverlappingCall() {
+        // the warning takes only the setting and this call's read: the flag in NodeVersions may
+        // already carry the read of another get_health call on the same node
+        assertThat(HealthService.pinWarning(DEV, VersionSetting.V8_1, version("9.0.7")))
+            .contains(contradiction("9.0.7"));
+        assertThat(HealthService.pinWarning(DEV, VersionSetting.V8_1, version("8.1.18")))
+            .isEmpty();
+        assertThat(HealthService.pinWarning(DEV, VersionSetting.AUTO, version("9.0.7")))
+            .isEmpty();
+        assertThat(HealthService.pinWarning(DEV, VersionSetting.parse("8.1.17").orElseThrow(),
+            version("8.1.18"))).get().asString().contains("in the patch only");
     }
 
     @Test
@@ -677,7 +694,7 @@ class HealthServiceTest {
 
         assertThat(report.client()).get().extracting(HealthReport.Client::comparison)
             .isEqualTo(Optional.of("mismatch"));
-        assertThat(report.warnings()).contains("StartCLI client 8.1.17 on dev/node1 supports"
+        assertThat(report.warnings()).contains("StartCLI client 8.1.17 of dev/node1 supports"
             + " INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7; StartCLI-backed tools are"
             + " refused on dev/node1 (UNSUPPORTED_VERSION) until a StartCLI client that"
             + " supports INUBIT 9.0 is installed");

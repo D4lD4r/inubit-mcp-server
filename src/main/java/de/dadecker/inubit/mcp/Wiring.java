@@ -431,7 +431,10 @@ final class Wiring implements AutoCloseable {
         return clock;
     }
 
-    /** True if at least one node is a development stage (feature 004, FR-001). */
+    /**
+     * True if at least one node is a development stage (feature 004, FR-001) that is not pinned
+     * to a version without development writes ({@link #possiblyCapable}).
+     */
     boolean anyDevelopmentNode() {
         return servers.stream().anyMatch(server -> server.development().enabled()
             && possiblyCapable(server, Capability.DEVELOPMENT_WRITE));
@@ -439,7 +442,8 @@ final class Wiring implements AutoCloseable {
 
     /**
      * Feature 005 (T026): true if a group receives deployments in mode {@code EXECUTE}; its
-     * nodes get deployment backups that {@code restore_backup} restores.
+     * nodes get deployment backups that {@code restore_backup} restores. Such a node must also
+     * not be pinned to a version without deployments ({@link #possiblyCapable}).
      */
     boolean anyDeploymentTarget() {
         return servers.stream().anyMatch(server -> chain.link(server.id().group())
@@ -456,7 +460,8 @@ final class Wiring implements AutoCloseable {
     /**
      * True if at least one development node allows end-to-end tests ({@code e2eTests} other
      * than {@code FORBIDDEN}, feature 004, contracts/mcp-tools-delta.md), or a non-production
-     * node of a group that receives deployments (feature 005, T027).
+     * node of a group that receives deployments (feature 005, T027); that node must also not be
+     * pinned to a version without end-to-end tests ({@link #possiblyCapable}).
      */
     boolean anyE2eNode() {
         return servers.stream().anyMatch(server -> possiblyCapable(server, Capability.E2E_TEST)
@@ -497,7 +502,10 @@ final class Wiring implements AutoCloseable {
         return allowed;
     }
 
-    /** True if at least one server has effective write access (Story 4 / AS 6). */
+    /**
+     * True if at least one server has effective write access (Story 4 / AS 6) and is not pinned
+     * to a version without process control ({@link #possiblyCapable}).
+     */
     boolean anyWriteEnabled() {
         return servers.stream().anyMatch(server -> server.effectiveWriteEnabled()
             && possiblyCapable(server, Capability.PROCESS_CONTROL));

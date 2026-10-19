@@ -150,7 +150,8 @@ public final class ConfigSummary {
     /**
      * Feature 009 (FR-011a): {@code , client: <version> (<from>–<to>)} (without range if the
      * client declares none), then {@code , client vs pin: match | mismatch | not comparable}
-     * for a concrete pin, else {@code , server version: determined at runtime}.
+     * for a concrete pin, followed by {@code , pin outside client range} if the client's range
+     * excludes the pin (FR-011), else {@code , server version: determined at runtime}.
      */
     private static String client(VersionSetting setting, ClientVersion client) {
         String range = client.supportedFrom().map(from -> " (" + from.raw() + "–"
@@ -160,7 +161,8 @@ public final class ConfigSummary {
                 case MATCH -> "match";
                 case MISMATCH -> "mismatch";
                 case NOT_COMPARABLE -> "not comparable";
-            }
+            } + (client.compatibleWith(Optional.of(pinned.version()))
+                == ClientVersion.Compatibility.INCOMPATIBLE ? ", pin outside client range" : "")
             : "server version: determined at runtime";
         return ", client: " + client.version().raw() + range + ", " + server;
     }

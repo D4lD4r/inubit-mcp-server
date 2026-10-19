@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import ch.qos.logback.classic.Level;
@@ -574,6 +575,23 @@ class VersionGateTest {
         assertThat(unknown.versionName()).isEqualTo("INUBIT version unknown");
         assertThat(unknown.cause()).contains("Deployment refused: the INUBIT version of"
             + " dev/node1 is unknown (AUTH_FAILED at 2026-10-18T08:00:00Z)");
+    }
+
+    @Test
+    void anEvaluationCarriesTheCauseOfItsRefusalItselfNotParsedFromTheMessage() {
+        ToolError refusal = ToolError.of(ErrorCode.UNSUPPORTED_VERSION, "any wording at all",
+            "likely cause", "next step");
+
+        Evaluation refused = new Evaluation(Optional.empty(), "INUBIT version unknown",
+            List.of(), Optional.of(refusal), Optional.of("the cause"));
+
+        assertThat(refused.cause()).contains("the cause");
+        assertThatThrownBy(() -> new Evaluation(Optional.empty(), "INUBIT version unknown",
+            List.of(), Optional.of(refusal), Optional.empty()))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new Evaluation(Optional.empty(), "INUBIT version unknown",
+            List.of(), Optional.empty(), Optional.of("the cause")))
+            .isInstanceOf(IllegalArgumentException.class);
     }
 
     /** FR-016: refusals and warnings never carry the URL or credentials of a detection error. */

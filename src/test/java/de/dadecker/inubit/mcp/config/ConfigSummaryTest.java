@@ -403,4 +403,19 @@ class ConfigSummaryTest {
         assertThat(summary).contains("inubit: 8.1.17, client: 8.1 (4.0.1–8.1.17), client vs pin:"
             + " not comparable, username ←");
     }
+
+    @Test
+    void aPinOutsideTheClientRangeIsNamed() {
+        // FR-011a: the pin is also checked against the declared range; at runtime FR-011
+        // refuses StartCLI-backed tools on such a node
+        String summary = render(PINS.replaceFirst("8\\.1\\.17", "9.0.7"), Map.of(
+            NodeId.parse("test/node1"), client("8.1.17", "4.0.1", "8.1.17"),
+            NodeId.parse("test/node2"), client("8.1.18", "4.0.1", "8.1.18")));
+
+        assertThat(summary).contains("test/node1: read-only, cli: available, inubit: 9.0.7,"
+            + " client: 8.1.17 (4.0.1–8.1.17), client vs pin: mismatch, pin outside client"
+            + " range, username ←");
+        assertThat(summary).as("a patch mismatch inside the range")
+            .contains("client vs pin: mismatch, username ←");
+    }
 }

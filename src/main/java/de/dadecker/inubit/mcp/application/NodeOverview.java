@@ -12,6 +12,8 @@ import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState.Timed;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -163,10 +165,10 @@ public final class NodeOverview {
                 Timed<InubitVersion> latest = state.latest().orElseThrow();
                 boolean observed = state.observed().equals(Optional.of(latest));
                 return NodeSummary.Server.known(version.get().raw(),
-                    observed ? "observed" : "detected", Optional.of(latest.at()));
+                    observed ? "observed" : "detected", Optional.of(at(latest)));
             }
             return state.observed().map(observed -> NodeSummary.Server.known(
-                    observed.value().raw(), "observed", Optional.of(observed.at())))
+                    observed.value().raw(), "observed", Optional.of(at(observed))))
                 .orElseGet(() -> NodeSummary.Server.known(version.get().raw(), "pinned",
                     Optional.empty()));
         }
@@ -174,7 +176,7 @@ public final class NodeOverview {
             return NodeSummary.Server.known(line.major() + ".x", "pinned", Optional.empty());
         }
         return state.detectionFailure()
-            .map(failure -> NodeSummary.Server.unknown(failure.value().name(), failure.at()))
+            .map(failure -> NodeSummary.Server.unknown(failure.value().name(), at(failure)))
             .orElse(NodeSummary.Server.NOT_YET_DETECTED);
     }
 
@@ -190,9 +192,14 @@ public final class NodeOverview {
         return state.clientFailure()
             .map(failure -> NodeSummary.Client.state(failure.value() == ErrorCode.TIMEOUT
                     ? "not_yet_detected" : "unknown", Optional.of(failure.value().name()),
-                Optional.of(failure.at())))
+                Optional.of(at(failure))))
             .orElseGet(() -> NodeSummary.Client.state("not_yet_detected", Optional.empty(),
                 Optional.empty()));
+    }
+
+    /** The time of {@code value} to the second, as in the gate's texts. */
+    private static Instant at(Timed<?> value) {
+        return value.at().truncatedTo(ChronoUnit.SECONDS);
     }
 
     /** As the gate's refusal: "versionLine V8_1 of qa/node1 contradicts INUBIT 9.0.7 …". */

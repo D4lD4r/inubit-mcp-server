@@ -98,6 +98,8 @@ public final class ImportHarness {
         node -> Duration.ofMinutes(10));
     /** Feature 009: the detections of the gate (none for pinned nodes). */
     public final FakeVersionDetection detection = new FakeVersionDetection(versions);
+    /** Feature 009: the capability matrix of the version gate of {@link #service()}. */
+    public CapabilityMatrix matrix = CapabilityMatrix.production();
     /** The nodes whose effective {@code development.repository} is {@code WRITE} (feature 008). */
     private final Set<NodeId> repositoryWrite = new HashSet<>();
     /** Wraps the archive port (e.g. to inject an unexpected failure). */
@@ -192,7 +194,7 @@ public final class ImportHarness {
         return new ImportService(new ImportService.Dependencies(root, "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV, TEST)), policies::get,
                 node -> imports.checkAvailable(), gateWithoutClients(versions, detection,
-                    CapabilityMatrix.production())),
+                    matrix)),
             policies::get, exports.history, inspector,
             new ArtifactCheckService(root, inspector, new SaxonXsltRunner(root),
                 group -> Optional.of(DEV), node -> inventory(), node -> Optional.of(owner),

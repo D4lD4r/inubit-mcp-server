@@ -77,7 +77,7 @@ public record NodeVersionState(
      */
     public NodeVersionState withObserved(InubitVersion version, Instant at) {
         return new NodeVersionState(setting, detected, Optional.empty(),
-            Optional.of(new Timed<>(version, at)), false, contradicts(version), client,
+            Optional.of(new Timed<>(version, at)), false, contradicts(setting, version), client,
             clientFailure);
     }
 
@@ -181,7 +181,11 @@ public record NodeVersionState(
         return failure.isPresent() && now.isBefore(failure.get().at().plus(RETRY_AFTER));
     }
 
-    private boolean contradicts(InubitVersion observedVersion) {
+    /**
+     * Whether {@code observedVersion} contradicts {@code setting} (FR-012): a different major, or
+     * a different minor for a line with minor or a concrete pin; never for {@code AUTO}.
+     */
+    public static boolean contradicts(VersionSetting setting, InubitVersion observedVersion) {
         return switch (setting) {
             case VersionSetting.Auto auto -> false;
             case VersionSetting.Line line -> observedVersion.major() != line.major()
