@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
@@ -82,7 +83,7 @@ class TagServiceTest {
         Map<NodeId, DevelopmentPolicy> policies = Map.of(DEV, dev, TEST, test);
         return new TagService(new TagService.Dependencies(root, "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV, TEST)), policies::get,
-                node -> port.checkAvailable(), new VersionGate(versions, detection,
+                node -> port.checkAvailable(), gateWithoutClients(versions, detection,
                     CapabilityMatrix.production())),
             node -> port, node -> Optional.of("jdoe"),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),

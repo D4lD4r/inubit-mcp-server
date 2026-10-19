@@ -91,7 +91,9 @@ import java.util.stream.Stream;
  *       list ({@code timeout}) and its budget ({@code cliExportTimeout}); the version gate's
  *       detection (feature 009) adds one {@code timeout}, always, because whether the gate
  *       detects is only known inside the call (first use, a stale version, the end of the
- *       back-off); plus {@link #FAN_OUT_GRACE}.
+ *       back-off); a call with a StartCLI part (module lists, all details) adds the gate's
+ *       client probe ({@code cliTimeout} plus the time to stop StartCLI, FR-002), always, for
+ *       the same reason; plus {@link #FAN_OUT_GRACE}.
  * </ul>
  */
 public final class InventoryService {
@@ -173,6 +175,7 @@ public final class InventoryService {
     private final Function<NodeId, Optional<String>> owners;
     private final Function<NodeId, Duration> timeouts;
     private final Function<NodeId, Duration> exportTimeouts;
+    private final Function<NodeId, Duration> cliTimeouts;
     private final Duration exportStopGrace;
     private final ToIntFunction<Object> sizeOf;
     private final Terminology terms;
@@ -183,7 +186,10 @@ public final class InventoryService {
      *                       configured ({@code NOT_CONFIGURED} for that node)
      * @param timeouts       the REST timeout of each server
      * @param exportTimeouts the {@code cliExportTimeout} of each server
-     * @param exportStopGrace how long a stopped export may take to end (2 × the CLI kill grace)
+     * @param cliTimeouts    the {@code cliTimeout} of each server, the bound of the version
+     *                       gate's client probe (feature 009)
+     * @param exportStopGrace how long a stopped StartCLI run (an export or the client probe) may
+     *                       take to end (2 × the CLI kill grace)
      * @param sizeOf         a value's serialized size in chars (the tool result's JSON)
      * @param terms          the display names of the levels in messages
      * @param gate           feature 009: the version gate
@@ -191,7 +197,7 @@ public final class InventoryService {
     public InventoryService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
         ResultLimiter limiter, InventoryCache cache, Function<NodeId, Optional<String>> owners,
         Function<NodeId, Duration> timeouts, Function<NodeId, Duration> exportTimeouts,
-        Duration exportStopGrace, ToIntFunction<Object> sizeOf, Terminology terms,
+        Function<NodeId, Duration> cliTimeouts, Duration exportStopGrace, ToIntFunction<Object> sizeOf, Terminology terms,
         VersionGate gate) {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.targets = Objects.requireNonNull(targets, "targets");
@@ -201,6 +207,7 @@ public final class InventoryService {
         this.owners = Objects.requireNonNull(owners, "owners");
         this.timeouts = Objects.requireNonNull(timeouts, "timeouts");
         this.exportTimeouts = Objects.requireNonNull(exportTimeouts, "exportTimeouts");
+        this.cliTimeouts = Objects.requireNonNull(cliTimeouts, "cliTimeouts");
         this.exportStopGrace = Objects.requireNonNull(exportStopGrace, "exportStopGrace");
         this.sizeOf = Objects.requireNonNull(sizeOf, "sizeOf");
         this.terms = Objects.requireNonNull(terms, "terms");
@@ -251,38 +258,50 @@ public final class InventoryService {
     }
 
     /**
-     * Diagrams: {@code 3 × timeout} (guard wait, detection, list); modules: one export
-     * ({@code cliExportTimeout + exportStopGrace}), the usage index ({@code cliExportTimeout})
-     * and {@code 4 × timeout} (guard wait, detection, the login before the export, the diagram
-     * list); plus {@link #FAN_OUT_GRACE} (review I4, T126; the detection: feature 009).
+     * Diagrams: {@code 3 × timeout} (guard wait, detection, list); modules: the client probe
+     * ({@code cliTimeout + exportStopGrace}), one export ({@code cliExportTimeout +
+     * exportStopGrace}), the usage index ({@code cliExportTimeout}) and {@code 4 × timeout}
+     * (guard wait, detection, the login before the export, the diagram list); plus
+     * {@link #FAN_OUT_GRACE} (review I4, T126; the detection and the probe: feature 009).
      */
     Duration listDeadline(InventoryKind kind, NodeId server) {
         Duration timeout = timeouts.apply(server);
         Duration deadline = kind == InventoryKind.MODULE
-            ? export(server).plus(usageBudget(server)).plus(timeout.multipliedBy(4))
+            ? probe(server).plus(export(server)).plus(usageBudget(server))
+                .plus(timeout.multipliedBy(4))
             : timeout.multipliedBy(3);
         return deadline.plus(FAN_OUT_GRACE);
     }
 
     /**
-     * Diagram: one history export plus {@code 6 × timeout} (guard wait, detection, list, nodes,
-     * export, login before the export); module: two exports (module index, history), the usage
-     * index ({@code cliExportTimeout}) and {@code 5 × timeout} (guard wait, detection, login,
-     * diagram list, login); plus grace. A stopped export thus ends before the deadline and
-     * becomes a partial result, not a {@code TIMEOUT}. The detection: feature 009.
+     * Both kinds start with the client probe ({@code cliTimeout + exportStopGrace}) before their
+     * StartCLI part. Diagram: one history export plus {@code 6 × timeout} (guard wait,
+     * detection, list, nodes, export, login before the export); module: two exports (module
+     * index, history), the usage index ({@code cliExportTimeout}) and {@code 5 × timeout}
+     * (guard wait, detection, login, diagram list, login); plus grace. A stopped export or probe
+     * thus ends before the deadline and becomes a partial result, not a {@code TIMEOUT}. The
+     * detection and the probe: feature 009.
      */
     Duration itemDeadline(InventoryKind kind, NodeId server) {
         Duration timeout = timeouts.apply(server);
-        Duration deadline = kind == InventoryKind.DIAGRAM
+        Duration deadline = probe(server).plus(kind == InventoryKind.DIAGRAM
             ? export(server).plus(timeout.multipliedBy(6))
             : export(server).multipliedBy(2).plus(usageBudget(server))
-                .plus(timeout.multipliedBy(5));
+                .plus(timeout.multipliedBy(5)));
         return deadline.plus(FAN_OUT_GRACE);
     }
 
     /** How long the usage index may take to read the workflows: {@code cliExportTimeout}. */
     private Duration usageBudget(NodeId server) {
         return exportTimeouts.apply(server);
+    }
+
+    /**
+     * The longest the version gate's client probe can take: {@code cliTimeout} plus the time to
+     * stop StartCLI (feature 009, FR-002).
+     */
+    private Duration probe(NodeId server) {
+        return cliTimeouts.apply(server).plus(exportStopGrace);
     }
 
     /** The longest one export can take: its timeout plus the time to stop StartCLI. */

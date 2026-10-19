@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
@@ -190,7 +191,7 @@ public final class ImportHarness {
         WorkspaceInspector inspector = new WorkspaceInspector();
         return new ImportService(new ImportService.Dependencies(root, "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV, TEST)), policies::get,
-                node -> imports.checkAvailable(), new VersionGate(versions, detection,
+                node -> imports.checkAvailable(), gateWithoutClients(versions, detection,
                     CapabilityMatrix.production())),
             policies::get, exports.history, inspector,
             new ArtifactCheckService(root, inspector, new SaxonXsltRunner(root),

@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
@@ -79,7 +80,7 @@ public final class ExportHarness {
         return new WorkspaceService(root, history, codec, node -> {
             assertThat(node).isEqualTo(DEV);
             return artifacts;
-        }, node -> inventory(), new VersionGate(versions, detection,
+        }, node -> inventory(), gateWithoutClients(versions, detection,
             CapabilityMatrix.production()));
     }
 

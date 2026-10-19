@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.mcp.tools;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -16,7 +17,6 @@ import de.dadecker.inubit.mcp.application.FanOut;
 import de.dadecker.inubit.mcp.application.HealthService;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.TargetResolver;
-import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
@@ -135,7 +135,7 @@ class GetHealthToolTest {
             EffectiveNodeConfig::id, EffectiveNodeConfig::timeout));
         HealthService health = new HealthService(gateways, new TargetResolver(ids),
             new FanOut(), timeouts::get, Clock.systemUTC(),
-            new VersionGate(versions, gateways, CapabilityMatrix.production()), versions, probe,
+            gateWithoutClients(versions, gateways, CapabilityMatrix.production()), versions, probe,
             withClient::contains);
         client = McpTestClient.start(List.of(new GetHealthTool(health)), scrubber);
         client.initialize();

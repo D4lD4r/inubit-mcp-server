@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.application.DiagnosisService.LogRequest;
@@ -135,7 +136,7 @@ class DiagnosisServiceTest {
         };
         return new DiagnosisService(gateways, new TargetResolver(SERVERS), new FanOut(),
             limiter, server -> TIMEOUT, thresholds::get, clock, item -> sizes.apply(item),
-            new VersionGate(versions, detection, matrix));
+            gateWithoutClients(versions, detection, matrix));
     }
 
     private static ProcessRequest processRequest(String target) {

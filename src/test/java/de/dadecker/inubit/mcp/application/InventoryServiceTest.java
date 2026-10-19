@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -70,6 +71,7 @@ class InventoryServiceTest {
     private static final Instant T0 = Instant.parse("2026-10-01T08:00:00Z");
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
     private static final Duration EXPORT_TIMEOUT = Duration.ofSeconds(120);
+    private static final Duration CLI_TIMEOUT = Duration.ofSeconds(30);
     /** How long a stopped export may take to die (2 × the CLI kill grace). */
     private static final Duration KILL_GRACES = Duration.ofSeconds(4);
 
@@ -133,8 +135,8 @@ class InventoryServiceTest {
         InventoryCache cache = new InventoryCache(clock, server -> Duration.ofMinutes(10));
         return new InventoryService(gateways, new TargetResolver(SERVERS), new FanOut(), limiter,
             cache, server -> Optional.of("OWNERS"), server -> TIMEOUT, server -> EXPORT_TIMEOUT,
-            KILL_GRACES, ResultJson::size, Terminology.DEFAULT,
-            new VersionGate(versions, detection, matrix));
+            server -> CLI_TIMEOUT, KILL_GRACES, ResultJson::size, Terminology.DEFAULT,
+            gateWithoutClients(versions, detection, matrix));
     }
 
     private static ListRequest list(String target, InventoryKind kind) {
@@ -918,24 +920,28 @@ class InventoryServiceTest {
     // --- deadlines (design note 10) ---------------------------------------------------------
 
     @Test
-    void theFanOutDeadlinesIncludeExportTimeoutKillGraceLoginGuardWaitAndDetection() {
+    void theFanOutDeadlinesIncludeExportTimeoutKillGraceLoginGuardWaitDetectionAndProbe() {
         // review I4: an export that is stopped (cliExportTimeout + 2 x kill grace) must end
         // before the fan-out deadline, so that it becomes a partial result, not a TIMEOUT;
-        // feature 009 (T012 review r1): the version gate's detection adds one timeout
+        // feature 009 (T012 review r1): the version gate's detection adds one timeout;
+        // T019 (FR-002): a call with a StartCLI part adds the gate's client probe, which is
+        // bounded by cliTimeout and stopped like an export (cliTimeout + 2 x kill grace)
         InventoryService service = service();
         Duration grace = InventoryService.FAN_OUT_GRACE;
         Duration export = EXPORT_TIMEOUT.plus(KILL_GRACES);
+        Duration probe = CLI_TIMEOUT.plus(KILL_GRACES);
 
         assertThat(service.listDeadline(InventoryKind.DIAGRAM, DEV))
             .isEqualTo(TIMEOUT.multipliedBy(3).plus(grace));
         // T126: the usage index adds the diagram list (timeout) and its own budget
         // (cliExportTimeout)
         assertThat(service.listDeadline(InventoryKind.MODULE, DEV))
-            .isEqualTo(export.plus(EXPORT_TIMEOUT).plus(TIMEOUT.multipliedBy(4)).plus(grace));
+            .isEqualTo(probe.plus(export).plus(EXPORT_TIMEOUT).plus(TIMEOUT.multipliedBy(4))
+                .plus(grace));
         assertThat(service.itemDeadline(InventoryKind.DIAGRAM, DEV))
-            .isEqualTo(export.plus(TIMEOUT.multipliedBy(6)).plus(grace));
+            .isEqualTo(probe.plus(export).plus(TIMEOUT.multipliedBy(6)).plus(grace));
         assertThat(service.itemDeadline(InventoryKind.MODULE, DEV))
-            .isEqualTo(export.multipliedBy(2).plus(EXPORT_TIMEOUT)
+            .isEqualTo(probe.plus(export.multipliedBy(2)).plus(EXPORT_TIMEOUT)
                 .plus(TIMEOUT.multipliedBy(5)).plus(grace));
     }
 

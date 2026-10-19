@@ -4,6 +4,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
@@ -19,7 +20,6 @@ import de.dadecker.inubit.mcp.application.InventoryService;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.TargetResolver;
-import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
@@ -118,9 +118,10 @@ final class InventoryToolFixture implements AutoCloseable {
             new FanOut(), ResultLimiter.withDefaults(),
             new InventoryCache(Clock.systemUTC(), id -> byId.get(id).inventory().cacheTtl()),
             id -> byId.get(id).inventory().owner(), id -> byId.get(id).timeout(),
-            id -> byId.get(id).cliExportTimeout(), CliRunner.KILL_GRACE.multipliedBy(2),
+            id -> byId.get(id).cliExportTimeout(), id -> byId.get(id).cliTimeout(),
+            CliRunner.KILL_GRACE.multipliedBy(2),
             ResultJson::size, Terminology.DEFAULT,
-            new VersionGate(versions, gateways, CapabilityMatrix.production()));
+            gateWithoutClients(versions, gateways, CapabilityMatrix.production()));
         client = McpTestClient.start(List.of(tool.apply(inventory)), scrubber);
         client.initialize();
     }

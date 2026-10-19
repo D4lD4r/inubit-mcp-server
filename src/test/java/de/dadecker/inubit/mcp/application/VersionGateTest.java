@@ -21,6 +21,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
@@ -31,7 +32,9 @@ import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,7 +50,8 @@ import org.slf4j.LoggerFactory;
  * T008: the version gate (research D-5, FR-005, FR-008 to FR-011, FR-015, FR-016). Detections go
  * through a scripted {@link GatewayFactory#detect} that reports to {@link NodeVersions} like the
  * real factory; every call of it is one {@code /system/info} request. Client results are seeded
- * through the {@link NodeVersions} API (the probe is wired in T019).
+ * through the {@link NodeVersions} API; T019: the gate's own client probe (FR-002) runs only for
+ * the nodes in {@link #withClient}, through a scripted {@link ClientVersionPort}.
  */
 class VersionGateTest {
 
@@ -56,6 +60,7 @@ class VersionGateTest {
     private static final NodeId V9_X = NodeId.parse("prod/node3");
     private static final Instant T0 = Instant.parse("2026-10-18T08:00:00Z");
     private static final Duration TTL = Duration.ofMinutes(10);
+    private static final Duration CLI_TIMEOUT = Duration.ofSeconds(45);
 
     private static final Set<Channel> REST = Set.of(Channel.REST);
     private static final Set<Channel> CLI = Set.of(Channel.CLI);
@@ -73,6 +78,9 @@ class VersionGateTest {
             V9_X, VersionSetting.V9_X)::get,
         node -> TTL);
     private final ScriptedDetection detection = new ScriptedDetection();
+    private final ScriptedProbe probe = new ScriptedProbe();
+    /** The nodes with a StartCLI installation; only they are probed (none by default). */
+    private final Set<NodeId> withClient = new HashSet<>();
 
     private final Logger logger = (Logger) LoggerFactory.getLogger(VersionGate.class);
     private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
@@ -95,11 +103,12 @@ class VersionGateTest {
     }
 
     private VersionGate gate() {
-        return new VersionGate(versions, detection, CapabilityMatrix.production());
+        return gate(CapabilityMatrix.production());
     }
 
     private VersionGate gate(CapabilityMatrix matrix) {
-        return new VersionGate(versions, detection, matrix);
+        return new VersionGate(versions, detection, matrix, probe, withClient::contains,
+            node -> CLI_TIMEOUT);
     }
 
     private static InubitVersion version(String raw) {
@@ -311,9 +320,9 @@ class VersionGateTest {
 
         Admission admission = gate().admit(AUTO, Capability.WORKSPACE_EXPORT, Kind.READ, CLI);
 
-        assertThat(admission.warnings()).containsExactly("The StartCLI client of dev/node1 could"
-            + " not be checked (TIMEOUT at 2026-10-18T08:00:00Z); StartCLI results may be"
-            + " unreliable");
+        assertThat(admission.warnings()).containsExactly("The StartCLI client probe of dev/node1"
+            + " failed (TIMEOUT at 2026-10-18T08:00:00Z); the INUBIT range of the client cannot"
+            + " be checked, StartCLI results may be unreliable");
     }
 
     @Test
@@ -396,6 +405,122 @@ class VersionGateTest {
         assertThat(appender.list).as("not a version refusal").isEmpty();
     }
 
+    // --- T019: the client probe outside get_health (FR-002, FR-011) ---------------------------
+
+    @Test
+    void theFirstCliAdmissionProbesTheClientOnceAndAPatchMismatchWarns() {
+        withClient.add(AUTO);
+        detection.answer("8.1.18");
+        probe.answer(client("8.1.17", "4.0.1", "8.1.17"));
+
+        Admission rest = gate().admit(AUTO, Capability.DIAGNOSIS, Kind.READ, REST);
+        assertThat(probe.calls).as("no probe for a REST-only call").isEmpty();
+        Admission first = gate().admit(AUTO, Capability.DEVELOPMENT_WRITE, Kind.WRITE, CLI_REST);
+        Admission second = gate().admit(AUTO, Capability.WORKSPACE_EXPORT, Kind.READ, CLI);
+
+        assertThat(rest.warnings()).isEmpty();
+        String mismatch = "StartCLI client 8.1.17 and INUBIT 8.1.18 on dev/node1 differ;"
+            + " StartCLI results may be unreliable";
+        assertThat(first.warnings()).containsExactly(mismatch);
+        assertThat(second.warnings()).containsExactly(mismatch);
+        assertThat(probe.calls).as("one probe bounded by cliTimeout, kept afterwards")
+            .containsExactly(CLI_TIMEOUT);
+        assertThat(versions.state(AUTO).client()).hasValueSatisfying(known ->
+            assertThat(known.value().version().raw()).isEqualTo("8.1.17"));
+    }
+
+    @Test
+    void aProbedClientWhoseRangeExcludesTheServerRefusesTheCliChannel() {
+        withClient.add(AUTO);
+        detection.answer("9.0.7");
+        probe.answer(client("8.1.17", "4.0.1", "8.1.17"));
+
+        ToolError error = refusal(() -> gate().admit("list_inventory", AUTO,
+            Capability.INVENTORY, Kind.READ, CLI));
+
+        assertThat(error.message()).isEqualTo("list_inventory: StartCLI client 8.1.17 of"
+            + " dev/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7;"
+            + " inventory via StartCLI refused; nothing was sent");
+        assertThat(error.nextStep()).isEqualTo(
+            "Install a StartCLI client on the host of this server that supports INUBIT 9.0");
+        assertThat(probe.calls).hasSize(1);
+        assertThat(detection.calls).isEqualTo(1);
+    }
+
+    @Test
+    void aProbedClientRefusesTheCliChannelOfAV9xLine() {
+        withClient.add(V9_X);
+        probe.answer(client("8.1.17", "4.0.1", "8.1.17"));
+
+        ToolError error = refusal(() -> gate().admit(V9_X, Capability.INVENTORY, Kind.READ,
+            CLI));
+
+        assertThat(error.message()).contains("StartCLI client 8.1.17", "4.0.1 to 8.1.17",
+            "INUBIT 9.x (versionLine V9_X)", "prod/node3");
+        assertThat(error.nextStep()).endsWith("supports INUBIT 9.x");
+        assertThat(probe.calls).hasSize(1);
+        assertThat(detection.calls).isZero();
+    }
+
+    @Test
+    void aTimedOutProbeAdmitsWithAWarningAndIsRetriedOnlyAfter60Seconds() {
+        withClient.add(AUTO);
+        detection.answer("8.1.17");
+        probe.fail(ErrorCode.TIMEOUT);
+
+        Admission timedOut = gate().admit(AUTO, Capability.DEVELOPMENT_WRITE, Kind.WRITE,
+            CLI_REST);
+        clock.advance(Duration.ofSeconds(59));
+        Admission inBackOff = gate().admit(AUTO, Capability.WORKSPACE_EXPORT, Kind.READ, CLI);
+
+        String warning = "The StartCLI client probe of dev/node1 failed (TIMEOUT at"
+            + " 2026-10-18T08:00:00Z); the INUBIT range of the client cannot be checked,"
+            + " StartCLI results may be unreliable";
+        assertThat(timedOut.warnings()).containsExactly(warning);
+        assertThat(inBackOff.warnings()).containsExactly(warning);
+        assertThat(probe.calls).as("no second probe within 60 s").hasSize(1);
+
+        clock.advance(Duration.ofSeconds(2));
+        probe.answer(client("8.1.17", "4.0.1", "8.1.17"));
+        Admission retried = gate().admit(AUTO, Capability.WORKSPACE_EXPORT, Kind.READ, CLI);
+
+        assertThat(probe.calls).hasSize(2);
+        assertThat(retried.warnings()).isEmpty();
+        assertThat(versions.state(AUTO).clientFailure()).isEmpty();
+    }
+
+    @Test
+    void aNodeWithoutStartCliInstallationIsNeverProbed() {
+        Admission admission = gate().admit(PINNED, Capability.DEVELOPMENT_WRITE, Kind.WRITE,
+            CLI_REST);
+
+        assertThat(admission.warnings()).isEmpty();
+        assertThat(probe.calls).isEmpty();
+        assertThat(versions.state(PINNED).clientFailure()).isEmpty();
+    }
+
+    @Test
+    void aCancelledProbeIsPassedThroughAndNotRecorded() {
+        withClient.add(PINNED);
+        ToolErrorException cancelled = new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT,
+            "The StartCLI call on prod/node1 was cancelled", "cause", "next").withNode(PINNED));
+        probe.outcome = () -> {
+            Thread.currentThread().interrupt();
+            throw cancelled;
+        };
+
+        ToolErrorException thrown;
+        try {
+            thrown = catchThrowableOfType(ToolErrorException.class,
+                () -> gate().admit(PINNED, Capability.WORKSPACE_EXPORT, Kind.READ, CLI));
+        } finally {
+            Thread.interrupted();
+        }
+
+        assertThat(thrown).isSameAs(cancelled);
+        assertThat(versions.state(PINNED).clientFailure()).as("no back-off").isEmpty();
+    }
+
     /** FR-016: refusals and warnings never carry the URL or credentials of a detection error. */
     @Test
     void noRefusalOrWarningContainsTheBaseUrlOrCredentials() {
@@ -425,6 +550,34 @@ class VersionGateTest {
         assertThat(texts).hasSizeGreaterThan(10).allSatisfy(text -> assertThat(text)
             .doesNotContain(BASE_URL, "inubit-dev.example.com", USERNAME, PASSWORD,
                 "Set versionLine: V8_1"));
+    }
+
+    /**
+     * A client probe that answers with the last scripted outcome and records the timeout of each
+     * call; each call is one StartCLI run.
+     */
+    private final class ScriptedProbe implements ClientVersionPort {
+
+        private Supplier<ClientVersion> outcome = () -> {
+            throw new AssertionError("no client probe scripted");
+        };
+        private final List<Duration> calls = new ArrayList<>();
+
+        void answer(ClientVersion client) {
+            outcome = () -> client;
+        }
+
+        void fail(ErrorCode code) {
+            outcome = () -> {
+                throw new ToolErrorException(ToolError.of(code, "probe failed", "c", "s"));
+            };
+        }
+
+        @Override
+        public ClientVersion probe(NodeId node, Duration timeout) {
+            calls.add(timeout);
+            return outcome.get();
+        }
     }
 
     /**

@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -154,7 +155,7 @@ class HealthServiceTest {
         };
         return new HealthService(gateways, new TargetResolver(SERVERS), new FanOut(),
             server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC),
-            new VersionGate(versions, gateways, CapabilityMatrix.production()), versions,
+            gateWithoutClients(versions, gateways, CapabilityMatrix.production()), versions,
             probe, withClient::contains);
     }
 

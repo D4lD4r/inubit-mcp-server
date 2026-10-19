@@ -1,5 +1,7 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
+
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
@@ -394,7 +396,7 @@ public final class DeployHarness {
         de.dadecker.inubit.mcp.domain.model.StageChain chain = chain(List.of());
         DevelopmentGuard guard = new DevelopmentGuard(new TargetResolver(
             new java.util.ArrayList<>(servers.keySet())), policies::get, node -> { },
-            new VersionGate(versions, detection, CapabilityMatrix.production()),
+            gateWithoutClients(versions, detection, CapabilityMatrix.production()),
             group -> chain.link(group).map(
                 de.dadecker.inubit.mcp.domain.model.StageChain.ChainLink::mode),
             Duration.ofMinutes(30));

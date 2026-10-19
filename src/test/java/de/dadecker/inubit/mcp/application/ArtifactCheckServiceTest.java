@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
@@ -63,7 +64,7 @@ class ArtifactCheckServiceTest {
             group -> group.equals(DEV) ? Optional.of(NODE) : Optional.empty(),
             node -> server, node -> Optional.of("OWNERS"), ResultLimiter.withDefaults(),
             java.time.Clock.systemUTC(),
-            new VersionGate(versions, detection, CapabilityMatrix.production()));
+            gateWithoutClients(versions, detection, CapabilityMatrix.production()));
     }
 
     /** The defect fixture {@code defects/<name>/} as an export ZIP. */

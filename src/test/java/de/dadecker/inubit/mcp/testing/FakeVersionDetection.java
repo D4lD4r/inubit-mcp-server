@@ -47,8 +47,19 @@ public final class FakeVersionDetection implements GatewayFactory {
     public static VersionGate pinned81() {
         NodeVersions versions = new NodeVersions(Clock.systemUTC(), node -> VersionSetting.V8_1,
             node -> Duration.ofMinutes(10));
-        return new VersionGate(versions, new FakeVersionDetection(versions),
+        return gateWithoutClients(versions, new FakeVersionDetection(versions),
             CapabilityMatrix.production());
+    }
+
+    /**
+     * A gate over nodes without a StartCLI installation, so it never probes a client (T019):
+     * client results of the tests that need one are seeded through {@link NodeVersions}.
+     */
+    public static VersionGate gateWithoutClients(NodeVersions versions, GatewayFactory gateways,
+        CapabilityMatrix matrix) {
+        return new VersionGate(versions, gateways, matrix, (node, timeout) -> {
+            throw new AssertionError("no client probe expected for " + node);
+        }, node -> false, node -> Duration.ZERO);
     }
 
     /** The detection of {@code node} finds {@code raw}, e.g. {@code 9.0.7}. */

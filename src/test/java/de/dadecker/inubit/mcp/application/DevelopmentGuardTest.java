@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
@@ -74,7 +75,7 @@ class DevelopmentGuardTest {
                 if (cliUnavailable != null) {
                     throw cliUnavailable;
                 }
-            }, new VersionGate(versions, detection, CapabilityMatrix.production()),
+            }, gateWithoutClients(versions, detection, CapabilityMatrix.production()),
             group -> Optional.ofNullable(deployModes.get(group)), DEPLOY_TTL);
     }
 

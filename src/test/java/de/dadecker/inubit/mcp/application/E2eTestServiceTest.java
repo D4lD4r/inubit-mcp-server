@@ -8,6 +8,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
@@ -184,7 +185,7 @@ class E2eTestServiceTest {
         return new E2eTestService(new E2eTestService.Dependencies(root,
             root.resolve("backups"), "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV)), Map.of(DEV, dev)::get,
-                node -> { }, new VersionGate(versions, detection,
+                node -> { }, gateWithoutClients(versions, detection,
                     CapabilityMatrix.production()), group -> deploymentTarget ? Optional.of(
                     de.dadecker.inubit.mcp.domain.model.DeployMode.EXECUTE) : Optional.empty(),
                 Duration.ofMinutes(30)), node -> client, node -> logs, node -> processes,

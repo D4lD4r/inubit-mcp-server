@@ -203,14 +203,16 @@ final class Wiring implements AutoCloseable {
         // feature 009 (research D-7): the StartCLI client probe, on the same runner so that a
         // shutdown also stops a running probe
         this.clientVersions = new CliVersionProbe(cliRunner, byId::get);
-        VersionGate versionGate = new VersionGate(versions, gateways, MATRIX);
-        this.summaries = servers.stream().map(server -> server.summary(exists, windows)).toList();
-        Map<NodeId, Duration> timeouts = new HashMap<>();
-        servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
-        // feature 009 (FR-002): get_health probes the client of nodes with StartCLI installed
+        // feature 009 (FR-002): get_health and the gate probe the client of nodes with StartCLI
+        // installed; outside get_health the probe is bounded by the node's cliTimeout
         Set<NodeId> withClient = servers.stream()
             .filter(server -> server.cliAvailable(exists, windows))
             .map(EffectiveNodeConfig::id).collect(Collectors.toUnmodifiableSet());
+        VersionGate versionGate = new VersionGate(versions, gateways, MATRIX, clientVersions,
+            withClient::contains, id -> byId.get(id).cliTimeout());
+        this.summaries = servers.stream().map(server -> server.summary(exists, windows)).toList();
+        Map<NodeId, Duration> timeouts = new HashMap<>();
+        servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
         this.health = new HealthService(gateways, targets, fanOut, timeouts::get, clock.clock(),
             versionGate, versions, clientVersions, withClient::contains);
         Map<NodeId, Duration> hangingThresholds = new HashMap<>();
@@ -220,7 +222,7 @@ final class Wiring implements AutoCloseable {
         this.inventory = new InventoryService(gateways, targets, fanOut, limiter,
             new InventoryCache(clock.clock(), id -> byId.get(id).inventory().cacheTtl()),
             id -> byId.get(id).inventory().owner(), timeouts::get,
-            id -> byId.get(id).cliExportTimeout(),
+            id -> byId.get(id).cliExportTimeout(), id -> byId.get(id).cliTimeout(),
             CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, terms, versionGate);
         // a plain HashMap is fine: it is filled here once, never modified afterwards, and safely
         // published to the request threads through the final fields of this object and the

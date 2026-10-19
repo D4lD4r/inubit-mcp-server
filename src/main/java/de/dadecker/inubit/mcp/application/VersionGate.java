@@ -13,13 +13,17 @@ import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
+import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,9 +38,13 @@ import org.slf4j.LoggerFactory;
  *   <li>look up the {@link CapabilityMatrix}: {@code SUPPORTED} admits, {@code UNVERIFIED} admits
  *       a read with a warning, anything else refuses ({@code MONITORING} is never refused and gets
  *       a warning instead);</li>
- *   <li>only when {@link Channel#CLI} is among the call's channels: check the known client result
- *       against the server's major.minor (FR-011); an excluded server refuses, a patch mismatch
- *       or a range that cannot be evaluated gives a warning.</li>
+ *   <li>only when {@link Channel#CLI} is among the call's channels: probe the StartCLI client of
+ *       a node with a StartCLI installation when no client result is known and no failed probe
+ *       lies within the last 60 s ({@link NodeVersions#needsClientProbe}; FR-002), bounded by the
+ *       node's {@code cliTimeout}, a run of its own before the tool's StartCLI call; then check
+ *       the client against the server's major.minor (FR-011): an excluded server refuses, a patch
+ *       mismatch or a range that cannot be evaluated (also a failed or timed-out probe) gives a
+ *       warning.</li>
  * </ol>
  * A refusal is a {@link ToolErrorException} with {@link ErrorCode#UNSUPPORTED_VERSION}, logged
  * (FR-015). Its texts are built here from the node id, versions and error codes only, never from
@@ -46,8 +54,8 @@ import org.slf4j.LoggerFactory;
  * <p>The purpose of a call is a {@link Capability.Kind} ({@code READ} or {@code WRITE}).
  *
  * <p>Thread-safe; it keeps no state of its own. Concurrent admissions on the same node may both
- * detect (the check and the detection are not atomic); {@link NodeVersions} keeps the latest
- * outcome, so no state is lost.
+ * detect or both probe the client (the check and the detection or probe are not atomic);
+ * {@link NodeVersions} keeps the latest outcome, so no state is lost.
  */
 public final class VersionGate {
 
@@ -63,11 +71,23 @@ public final class VersionGate {
     private final NodeVersions versions;
     private final GatewayFactory gateways;
     private final CapabilityMatrix matrix;
+    private final ClientVersionPort clients;
+    private final Predicate<NodeId> withClient;
+    private final Function<NodeId, Duration> cliTimeouts;
 
-    public VersionGate(NodeVersions versions, GatewayFactory gateways, CapabilityMatrix matrix) {
+    /**
+     * @param withClient  whether a node has a StartCLI installation (only those are probed)
+     * @param cliTimeouts the {@code cliTimeout} of each node, the bound of its client probe
+     */
+    public VersionGate(NodeVersions versions, GatewayFactory gateways, CapabilityMatrix matrix,
+        ClientVersionPort clients, Predicate<NodeId> withClient,
+        Function<NodeId, Duration> cliTimeouts) {
         this.versions = Objects.requireNonNull(versions, "versions");
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.matrix = Objects.requireNonNull(matrix, "matrix");
+        this.clients = Objects.requireNonNull(clients, "clients");
+        this.withClient = Objects.requireNonNull(withClient, "withClient");
+        this.cliTimeouts = Objects.requireNonNull(cliTimeouts, "cliTimeouts");
     }
 
     /**
@@ -75,7 +95,8 @@ public final class VersionGate {
      *                 {@link Channel#CLI}
      * @throws ToolErrorException {@code UNSUPPORTED_VERSION} if the call is refused;
      *     {@code TLS_ERROR} of the detection, passed through (no request was possible, so it is
-     *     no failed detection and no reason to refuse)
+     *     no failed detection and no reason to refuse); the error of a detection or client probe
+     *     cancelled by an interrupt, passed through and not recorded
      */
     public Admission admit(NodeId node, Capability capability, Capability.Kind purpose,
         Set<Channel> channels) {
@@ -127,7 +148,12 @@ public final class VersionGate {
             throw refuseUnsupported(node, capability, purpose, state, name);
         }
         if (channels.contains(Channel.CLI)) {
-            checkClient(node, capability, state, version, name, warnings);
+            boolean probe = withClient.test(node) && versions.needsClientProbe(node);
+            if (probe) {
+                probeClient(node);
+            }
+            checkClient(node, capability, probe ? versions.state(node) : state, version, name,
+                warnings);
         }
         return new Admission(warnings);
     }
@@ -168,6 +194,22 @@ public final class VersionGate {
         }
     }
 
+    /**
+     * Probes the client now and records the outcome in {@link NodeVersions}; a failure starts the
+     * 60 s back-off and is judged as a range that cannot be evaluated. A cancelled probe is passed
+     * through, as it was not recorded.
+     */
+    private void probeClient(NodeId node) {
+        try {
+            versions.clientProbed(node, clients.probe(node, cliTimeouts.apply(node)));
+        } catch (ToolErrorException e) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw e;
+            }
+            versions.clientProbeFailed(node, e.error().code());
+        }
+    }
+
     private SupportState support(NodeVersionState state, Optional<InubitVersion> version,
         Capability capability) {
         if (version.isEmpty() && state.setting() instanceof VersionSetting.Line line) {
@@ -176,13 +218,13 @@ public final class VersionGate {
         return matrix.state(version, capability);
     }
 
-    /** FR-011: only a known client result is checked; the probe itself runs elsewhere. */
+    /** FR-011: checks the known client result; without one, a failed probe gives a warning. */
     private void checkClient(NodeId node, Capability capability, NodeVersionState state,
         Optional<InubitVersion> version, Optional<String> name, List<String> warnings) {
         if (state.client().isEmpty()) {
-            state.clientFailure().ifPresent(failure -> warnings.add("The StartCLI client of "
-                + node + " could not be checked (" + timed(failure)
-                + "); StartCLI results may be unreliable"));
+            state.clientFailure().ifPresent(failure -> warnings.add("The StartCLI client probe of "
+                + node + " failed (" + timed(failure) + "); the INUBIT range of the client"
+                + " cannot be checked, StartCLI results may be unreliable"));
             return;
         }
         ClientVersion client = state.client().get().value();

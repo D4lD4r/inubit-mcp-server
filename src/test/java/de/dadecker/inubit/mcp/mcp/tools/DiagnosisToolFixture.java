@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.mcp.tools;
 
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -14,7 +15,6 @@ import de.dadecker.inubit.mcp.application.FanOut;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.TargetResolver;
-import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
@@ -83,7 +83,7 @@ final class DiagnosisToolFixture implements AutoCloseable {
         DiagnosisService diagnosis = new DiagnosisService(gateways, new TargetResolver(ids),
             new FanOut(), ResultLimiter.withDefaults(), timeouts::get, thresholds::get,
             Clock.systemUTC(), ResultJson::size,
-            new VersionGate(versions, gateways, CapabilityMatrix.production()));
+            gateWithoutClients(versions, gateways, CapabilityMatrix.production()));
         client = McpTestClient.start(List.of(tool.apply(diagnosis)), scrubber);
         client.initialize();
     }

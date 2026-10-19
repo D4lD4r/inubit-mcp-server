@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.TestWiring;
@@ -119,8 +120,8 @@ class InventoryOwnerTest {
             new InventoryCache(new MutableClock(Instant.parse("2026-10-01T08:00:00Z")),
                 node -> Duration.ofMinutes(10)),
             owners::get, node -> Duration.ofSeconds(5), node -> Duration.ofSeconds(120),
-            Duration.ofSeconds(4), ResultJson::size, CUSTOM,
-            new VersionGate(versions, detection, CapabilityMatrix.production()));
+            node -> Duration.ofSeconds(30), Duration.ofSeconds(4), ResultJson::size, CUSTOM,
+            gateWithoutClients(versions, detection, CapabilityMatrix.production()));
     }
 
     private static void assertNotConfigured(NodeResult<?> result) {

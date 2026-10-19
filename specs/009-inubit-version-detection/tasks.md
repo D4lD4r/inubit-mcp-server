@@ -305,7 +305,7 @@ after `get_health` it shows the detected version, the client version and `suppor
   no probe; FR-016: report and `unavailable` texts contain no baseUrl, username or password),
   `test/mcp/tools/GetHealthToolTest.java` (timing within `timeout` + 1 s with a probe that hangs),
   `test/performance/HealthOverviewPerformanceTest.java` stays within 10 s.
-- [ ] T019 [US1] Client check outside `get_health` (FR-002, FR-011): `VersionGate` runs the probe
+- [X] T019 [US1] Client check outside `get_health` (FR-002, FR-011): `VersionGate` runs the probe
   before the first `CLI`-channel admission on a node when no client result is known (bounded by
   `cliTimeout`, not counted against the tool's own timeout); `INCOMPATIBLE` refuses with the client
   version and range; `NOT_EVALUABLE` (probe failed/timed out, no range, server unknown) and
