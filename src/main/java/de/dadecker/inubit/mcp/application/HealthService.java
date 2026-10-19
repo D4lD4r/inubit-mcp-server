@@ -332,10 +332,8 @@ public final class HealthService {
                 + " INUBIT " + version.major() + "." + version.minor() + " is installed");
         }
         if (comparison == ClientVersion.Comparison.MISMATCH) {
-            return Optional.of("StartCLI client " + client.version().raw() + " on " + server
-                + " differs from INUBIT " + serverVersion.orElseThrow().raw()
-                + " (mismatch); StartCLI-backed tools still run, but their results may be"
-                + " unreliable");
+            return Optional.of(VersionGate.mismatchWarning(server, client,
+                serverVersion.orElseThrow()));
         }
         return Optional.empty();
     }

@@ -323,8 +323,9 @@ class TagServiceTest {
         TagOutcome outcome = run(service(), request(List.of("GRP-01")));
 
         assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
-        assertThat(outcome.warnings()).containsExactly("StartCLI client 8.1.17 and INUBIT 8.1.18"
-            + " on dev/node1 differ; StartCLI results may be unreliable");
+        assertThat(outcome.warnings()).containsExactly("StartCLI client 8.1.17 on dev/node1"
+            + " differs from INUBIT 8.1.18 (mismatch);"
+            + " StartCLI-backed tools still run, but their results may be unreliable");
     }
 
     private static InubitVersion version(String raw) {

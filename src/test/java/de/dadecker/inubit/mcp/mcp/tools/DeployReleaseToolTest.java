@@ -162,8 +162,8 @@ class DeployReleaseToolTest {
         assertThat(first.path("isError").asBoolean()).as(first.toString()).isFalse();
         JsonNode warnings = first.path("structuredContent").path("challenge").path("warnings");
         assertThat(warnings).extracting(JsonNode::asString).containsExactly("StartCLI client"
-            + " 8.1.17 and INUBIT 8.1.18 on int/node1 differ; StartCLI results may be"
-            + " unreliable");
+            + " 8.1.17 on int/node1 differs from INUBIT 8.1.18 (mismatch);"
+            + " StartCLI-backed tools still run, but their results may be unreliable");
     }
 
     @Test

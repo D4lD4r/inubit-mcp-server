@@ -310,8 +310,9 @@ class VersionGateTest {
         Admission cli = gate().admit(AUTO, Capability.DEVELOPMENT_WRITE, Kind.WRITE, CLI_REST);
         Admission rest = gate().admit(AUTO, Capability.DIAGNOSIS, Kind.READ, REST);
 
-        assertThat(cli.warnings()).containsExactly("StartCLI client 8.1.17 and INUBIT 8.1.18 on"
-            + " dev/node1 differ; StartCLI results may be unreliable");
+        assertThat(cli.warnings()).containsExactly("StartCLI client 8.1.17 on dev/node1"
+            + " differs from INUBIT 8.1.18 (mismatch);"
+            + " StartCLI-backed tools still run, but their results may be unreliable");
         assertThat(rest.warnings()).isEmpty();
     }
 
@@ -421,8 +422,9 @@ class VersionGateTest {
         Admission second = gate().admit(AUTO, Capability.WORKSPACE_EXPORT, Kind.READ, CLI);
 
         assertThat(rest.warnings()).isEmpty();
-        String mismatch = "StartCLI client 8.1.17 and INUBIT 8.1.18 on dev/node1 differ;"
-            + " StartCLI results may be unreliable";
+        String mismatch = "StartCLI client 8.1.17 on dev/node1"
+            + " differs from INUBIT 8.1.18 (mismatch);"
+            + " StartCLI-backed tools still run, but their results may be unreliable";
         assertThat(first.warnings()).containsExactly(mismatch);
         assertThat(second.warnings()).containsExactly(mismatch);
         assertThat(probe.calls).as("one probe bounded by cliTimeout, kept afterwards")
@@ -557,8 +559,9 @@ class VersionGateTest {
         assertThat(evaluation.refusal()).isEmpty();
         assertThat(evaluation.cause()).isEmpty();
         assertThat(evaluation.version()).contains(version("8.1.17"));
-        assertThat(evaluation.warnings()).containsExactly("StartCLI client 8.1.16 and INUBIT"
-            + " 8.1.17 on prod/node1 differ; StartCLI results may be unreliable");
+        assertThat(evaluation.warnings()).containsExactly("StartCLI client 8.1.16 on prod/node1"
+            + " differs from INUBIT 8.1.17 (mismatch);"
+            + " StartCLI-backed tools still run, but their results may be unreliable");
     }
 
     @Test

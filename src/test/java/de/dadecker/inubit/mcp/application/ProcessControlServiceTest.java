@@ -727,8 +727,9 @@ class ProcessControlServiceTest {
             Optional.empty()));
 
         assertThat(result.outcome()).isEqualTo(ProcessControlResult.Outcome.EXECUTED);
-        assertThat(result.warnings()).contains(List.of("StartCLI client 8.1.17 and INUBIT"
-            + " 8.1.18 on staging/inubit01 differ; StartCLI results may be unreliable"));
+        assertThat(result.warnings()).contains(List.of("StartCLI client 8.1.17 on staging/inubit01"
+            + " differs from INUBIT 8.1.18 (mismatch);"
+            + " StartCLI-backed tools still run, but their results may be unreliable"));
         assertThat(ports.actions()).hasSize(1);
         assertThat(detection.requests()).containsExactly(STAGING);
     }

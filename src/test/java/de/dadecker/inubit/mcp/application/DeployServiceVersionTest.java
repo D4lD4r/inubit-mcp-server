@@ -36,8 +36,9 @@ class DeployServiceVersionTest extends DeployExecution {
 
     private static final List<NodeId> NODES = List.of(DeployHarness.SOURCE,
         DeployHarness.SOURCE2, DeployHarness.INT1, DeployHarness.INT2, DeployHarness.INT3);
-    private static final String WARNING = "StartCLI client 8.1.17 and INUBIT 8.1.18 on"
-        + " int/node1 differ; StartCLI results may be unreliable";
+    private static final String WARNING = "StartCLI client 8.1.17 on int/node1"
+        + " differs from INUBIT 8.1.18 (mismatch);"
+        + " StartCLI-backed tools still run, but their results may be unreliable";
 
     private static InubitVersion version(String raw) {
         return InubitVersion.parse(raw).orElseThrow();

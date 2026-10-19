@@ -339,8 +339,9 @@ class DevelopmentGuardTest {
         detection.answer(DEV, "8.1.18");
         versions.clientProbed(DEV, new ClientVersion(version("8.1.17"),
             Optional.of(version("4.0.1")), Optional.of(version("8.1.17"))));
-        String mismatch = "StartCLI client 8.1.17 and INUBIT 8.1.18 on dev/node1 differ;"
-            + " StartCLI results may be unreliable";
+        String mismatch = "StartCLI client 8.1.17 on dev/node1"
+            + " differs from INUBIT 8.1.18 (mismatch);"
+            + " StartCLI-backed tools still run, but their results may be unreliable";
 
         DevelopmentPolicy admitted = guard().admit("dev/node1", Operation.IMPORT_ARTIFACTS);
 

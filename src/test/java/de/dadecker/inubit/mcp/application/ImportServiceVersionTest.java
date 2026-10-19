@@ -242,8 +242,9 @@ class ImportServiceVersionTest {
             new VersionRange(8, 1, 8, 2), all)), otherwise);
     }
 
-    private static final String MISMATCH = "StartCLI client 8.1.17 and INUBIT 8.1.18 on"
-        + " dev/node1 differ; StartCLI results may be unreliable";
+    private static final String MISMATCH = "StartCLI client 8.1.17 on dev/node1"
+        + " differs from INUBIT 8.1.18 (mismatch);"
+        + " StartCLI-backed tools still run, but their results may be unreliable";
 
     /** An {@code AUTO} node detected as 8.1.18 with a seeded 8.1.17 client. */
     private ImportHarness mismatched() throws IOException {

@@ -12,7 +12,9 @@ the five development tools of feature 004
 [their delta](../specs/004-development-stage/contracts/mcp-tools-delta.md), `deploy_release` of
 feature 005 [its delta](../specs/005-stage-chain-deployment/contracts/mcp-tools-delta.md), the
 repository files of feature 008
-[its delta](../specs/008-repo-file-editing/contracts/mcp-tools-delta.md).
+[its delta](../specs/008-repo-file-editing/contracts/mcp-tools-delta.md), the version-dependent
+capabilities of feature 009
+[its delta](../specs/009-inubit-version-detection/contracts/mcp-tools-delta.md).
 All sixteen tools are described here; each section quotes the description the server announces in
 `tools/list` for a profile `acme` without description and with the default terminology
 (Group/Node).
@@ -85,6 +87,116 @@ exceptions of feature 005: `restore_backup` of a deployment backup on the node i
 a development node), and `run_e2e_test` on a non-production node whose group receives
 deployments, as its `e2eTests` allows.
 
+Feature 009 adds one condition to every write tool: it is also not offered when every node that
+could run it by configuration is pinned to a version that does not support it (see
+[tool announcement](#tool-announcement)).
+
+## INUBIT versions and capabilities (feature 009)
+
+Each tool needs one **capability** from INUBIT. The server declares per INUBIT version which
+capabilities it supports, checks the node's version (and, for StartCLI, the local client) before
+a call, and refuses or warns. How a node's version is configured, detected and pinned is in
+[setup.md, INUBIT version](setup.md#inubit-version-versionline); the StartCLI client check in
+[setup.md, StartCLI client check](setup.md#startcli-client-check).
+
+| Tool | Capability (name in `list_nodes`) | Kind | Channels | INUBIT 8.1.x | INUBIT 9.0.x, any other version, an unknown version, `V9_X` |
+|---|---|---|---|---|---|
+| `list_nodes` | – | read | none | runs | runs (no INUBIT contact) |
+| `get_health` | `monitoring` | read | REST | supported | runs with a warning; never refused |
+| `find_processes`, `query_logs` | `diagnosis` | read | REST | supported | runs with a warning |
+| `list_inventory` `DIAGRAM` | `inventory` | read | REST | supported | runs with a warning |
+| `list_inventory` `MODULE`, `get_inventory_item` (diagram details via REST; the module list and every version history via StartCLI) | `inventory` | read | REST + StartCLI | supported | the REST part runs with a warning; the StartCLI part also needs the client check |
+| `export_artifacts` | `workspace_export` | read on INUBIT | StartCLI | supported | runs with a warning if the client check passes (refused on 9.0 with an 8.1 client) |
+| `check_artifacts` | – (its optional module lookup: `inventory` over StartCLI) | read | none, optional module lookup | runs | runs; the module lookup as `inventory` |
+| `import_artifacts`, `restore_backup` of a development backup, `set_active`, `tag_artifacts` | `development_writes` | write | StartCLI + REST | supported | refused |
+| `restore_backup` of a deployment backup, `deploy_release` | `deployment` | write | StartCLI + REST | supported | refused; `deploy_release` also only within one minor version |
+| `run_e2e_test` | `e2e_test` | write | SOAP + REST | supported | refused |
+| `restart_process`, `kill_process` | `process_control` | write | REST + StartCLI | supported | refused |
+
+A deployment backup restored on a node that is also a development stage is checked as
+`development_writes`; both capabilities have the same states in this version. Refusal and
+warning texts name the capability in words: `monitoring`, `diagnosis`, `inventory`,
+`workspace export`, `development writes`, `deployment`, `end-to-end test`, `process control`.
+
+**The version a call is judged on.** For a pinned node (`V8_1`, `V9_X`, a concrete version) the
+pin, unless `get_health` has read another version since (then that one, see
+[setup.md](setup.md#inubit-version-versionline)); `V9_X` gives no minor version. For an `AUTO`
+node the version detected by the server or read by `get_health`, whichever is newer:
+
+- a read on an `AUTO` node whose version is not known yet sends one `/system/info` request first;
+- a write on an `AUTO` node detects again (one request) if the known version is missing, marked
+  stale or older than the node's `inventory.cacheTtl` (default 10 minutes); nothing else is sent
+  before the check passes;
+- a failed detection is not repeated within 60 s (account-lockout protection);
+- `get_health` reads `/system/info` anyway and never sends an extra request; its reading counts as
+  the node's current version, for pinned nodes too;
+- an `UNEXPECTED_RESPONSE` from the node (also HTTP 406, or a 404 from a fixed endpoint such as
+  `/system/info`) marks the known version stale. The public healthcheck
+  (`/ibis/rest/healthcheck`) is not such an endpoint: any answer there means "reachable", so a
+  404 from it marks nothing stale.
+
+**Reads** run on a version without a verified capability (INUBIT 9.0, a later version, `V9_X`,
+an unknown version) with the 8.1 adapters and a warning in the result's `warnings`. **Writes**
+run only on a known version that supports their capability; they are refused with
+[`UNSUPPORTED_VERSION`](#unsupported_version) on any version other than 8.1 (9.0, a later
+version, `V9_X`), on an unknown version (also after a failed detection or a failed re-detection
+before the write) and while a pin is contradicted by `get_health`. A tool that targets a group judges each node on its own: a
+refused node gets its `error`, the other nodes are still reported (`deploy_release` excepted).
+Every version refusal is logged on stderr; refusals of write tools are audited as `REFUSED`.
+
+**StartCLI client check** (only for calls that use StartCLI): the client is probed once per node
+(see [setup.md](setup.md#startcli-client-check)) and compared with the version above. A server
+major.minor outside the client's declared range refuses the StartCLI part with
+`UNSUPPORTED_VERSION`; a different patch (`mismatch`), a failed or timed-out probe, a client
+without a declared range or an unknown server version give a warning. REST- and SOAP-only calls
+are not affected.
+
+**Warnings** (strings in `warnings`; examples):
+
+| Case | Text | In |
+|---|---|---|
+| unverified version | `INUBIT 9.0.7 on dev/node1 is not verified for diagnosis; results may be incomplete` (`INUBIT 9.x (versionLine V9_X) on …` for a `V9_X` node) | read tools, `get_health` |
+| unknown version | `the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T09:12:03Z); results are unverified` (`(not yet detected)` if no detection was attempted) | read tools, `get_health` |
+| client and server differ in the patch | `StartCLI client 8.1.17 on dev/node1 differs from INUBIT 8.1.18 (mismatch); StartCLI-backed tools still run, but their results may be unreliable` | StartCLI-backed tools, `get_health`, `list_nodes` |
+| server outside the client's range | `StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7; StartCLI-backed tools are refused on next/node1 (UNSUPPORTED_VERSION) until a StartCLI client that supports INUBIT 9.0 is installed` | `get_health`, `list_nodes` (the tools themselves refuse) |
+| client probe failed | `The StartCLI client probe of dev/node1 failed (TIMEOUT at 2026-10-18T09:12:03Z); the INUBIT range of the client cannot be checked, StartCLI results may be unreliable` | StartCLI-backed tools |
+| no declared range | `StartCLI client 8.1.17 of dev/node1 declares no supported INUBIT range; StartCLI results may be unreliable` | StartCLI-backed tools |
+| range not checkable, server version unknown | `The StartCLI client range of dev/node1 cannot be checked: the INUBIT version of dev/node1 is unknown (…); StartCLI results may be unreliable` | StartCLI-backed reads |
+| pin contradicted | `versionLine V8_1 of qa/node1 contradicts INUBIT 9.0.7 read by get_health; writes on qa/node1 are refused until get_health reads a matching version or versionLine is corrected and the server restarted` (in `list_nodes`: `… observed by get_health at <time>; writes on …`) | `get_health`, `list_nodes` |
+| pin differs in the patch only | `INUBIT 8.1.18 on dev/node2 differs from its versionLine 8.1.17 in the patch only; writes stay allowed, but correct versionLine of dev/node2` | `get_health` |
+
+### `UNSUPPORTED_VERSION`
+
+A call (for the inventory tools: its StartCLI part) is refused before any request other than the
+version detection and the local client probe. The `message` starts with the tool name and ends with `; nothing was sent`; `node` names
+the node:
+
+```json
+{"code": "UNSUPPORTED_VERSION",
+ "message": "import_artifacts: INUBIT 9.0.7 on next/node1 does not support development writes yet; nothing was sent",
+ "likelyCause": "The node runs a version for which no verified write access exists",
+ "nextStep": "Use a node whose INUBIT version supports development writes (list_nodes shows the usable capabilities per node), or wait for a version of this server that supports that INUBIT version",
+ "node": "next/node1"}
+```
+
+| Cause | `message` after `<tool>: ` (example) | `nextStep` |
+|---|---|---|
+| the version does not support the capability (9.0, `V9_X`, a version outside 8.1) | `INUBIT 9.x (versionLine V9_X) on next/node1 does not support process control yet; nothing was sent` | as in the example above |
+| the version is unknown (failed `AUTO` detection or re-detection) | `Development writes refused: the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T09:12:03Z); nothing was sent` | `Fix the cause of the failed version detection and retry in a minute, or set versionLine of dev/node1 to the version the node actually runs and restart the server` |
+| the pin is contradicted by `get_health` | `versionLine V8_1 of qa/node1 contradicts INUBIT 9.0.7 observed by get_health at 2026-10-18T09:12:03Z; development writes refused; nothing was sent` | `Correct versionLine of qa/node1 (get_health observed INUBIT 9.0.7) and restart the server` |
+| the client's range excludes the server | `StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7; workspace export via StartCLI refused; nothing was sent` | `Install a StartCLI client on the host of this server that supports INUBIT 9.0` |
+| `deploy_release`: a node refused or unknown, or different minor versions | `refused nodes: …` and every source and target node with its version (see [`deploy_release`](#deploy_release)) | the next steps of the refused nodes, and `Deploy only between nodes of the same INUBIT minor version (e.g. 8.1.x to 8.1.y) whose versions are known` |
+
+The next step never suggests pinning a version the node is not known to run.
+
+### Tool announcement
+
+The tool list is decided at startup, as before (no list-changed notification). A write tool is
+additionally not offered when every node that could run it by configuration is pinned (a version
+line or a concrete version) to a version that does not support its capability, e.g. a profile whose only
+development nodes are `V9_X`. `AUTO` nodes count as possibly capable; a later detection does not
+change the list, it leads to refusals.
+
 ## Common shapes: Page and ToolError
 
 Tools that target a group return one entry per node (`results[]` or `reports[]`, in
@@ -128,7 +240,8 @@ other nodes are still reported.
 | `UNEXPECTED_RESPONSE` | INUBIT or StartCLI answered in an unexpected way (status, format); see `excerpt` |
 | `WRITE_DISABLED` | only `restart_process` / `kill_process`: `write.enabled` is not `true` for the node (see their refusal table) |
 | `PRODUCTION_PROTECTED`, `CONFIRMATION_INVALID`, `PRECONDITION_FAILED` | refusals of `restart_process` / `kill_process` (see their refusal table), of the development tools and of `deploy_release`; `PRECONDITION_FAILED` also when the workspace is busy (another workspace operation is running) or not usable |
-| `CONFIRMATION_REQUIRED`, `UNSUPPORTED_VERSION` | reserved in the catalogue, not returned by this version: the first write call returns a `challenge`, and 9.x servers run with the 8.1 adapters and a warning |
+| `CONFIRMATION_REQUIRED` | reserved in the catalogue, not returned by this version: the first write call returns a `challenge` |
+| `UNSUPPORTED_VERSION` | the node's INUBIT version, a contradicted pin or the local StartCLI client does not allow the call (feature 009); nothing but the version detection was sent; see [its variants](#unsupported_version) |
 | `NOT_CONFIGURED` | a setting the tool needs is not configured for this node, e.g. `inventory.owner` for `list_inventory` / `get_inventory_item`; `nextStep` names the setting ("set inventory.owner for <group>/<node> or in defaults") |
 | `NOT_DEVELOPMENT` | a development tool was called for a node that is not a development stage (for `run_e2e_test`: nor a non-production node of a deployment target; a production node is always refused) |
 | `CONFLICT` | the artifacts changed on the server since the export (or since the referenced call), or a workflow is open in Workbench edit mode; nothing was sent, the difference is in `.reports/conflict-<auditId>.diff` |
@@ -144,12 +257,16 @@ other nodes are still reported.
 ## `list_nodes`
 
 > [acme] List the configured INUBIT groups and their nodes (ids `<group>/<node>`, e.g.
-> `test/node1`), with production classification and whether write actions are enabled. Call this
-> first to learn valid `target` and `node` values.
+> `test/node1`), with production classification, whether write actions are enabled, and per node
+> the INUBIT version and StartCLI client as last known, the support status and the usable
+> capabilities. No node is contacted: for a version `not_yet_detected` call `get_health`. Call
+> this first to learn valid `target` and `node` values.
 
-Lists the configured groups and their nodes, with production classification and whether write
-actions are enabled. The assistant calls it first to learn valid
-`target` and `node` values.
+Lists the configured groups and their nodes, with production classification, whether write
+actions are enabled and what the server knows about each node's INUBIT version (feature 009).
+The assistant calls it first to learn valid `target` and `node` values. It contacts no node and
+runs no StartCLI: the version block shows what earlier calls (`get_health`, a detection before a
+tool call, the client probe) recorded.
 
 **Input** (`list_nodes.input.json`): none — `{}`; any property is rejected.
 
@@ -162,7 +279,10 @@ is never part of the result.
 ```json
 {"profile":{"name":"acme","description":"ACME test"},
  "terminology":{"group":{"singular":"Umgebung","plural":"Umgebungen"},"node":{"singular":"Knoten","plural":"Knoten"}},
- "groups":[{"name":"test","production":false,"nodes":[{"id":"test/node1","group":"test","node":"node1","production":false,"writeEnabled":false,"developmentEnabled":true,"confirmationMode":"SERVER","repositoryWrite":false,"versionLine":"AUTO","cliAvailable":true}]}]}
+ "groups":[{"name":"test","production":false,"nodes":[{"id":"test/node1","group":"test","node":"node1","production":false,"writeEnabled":false,"developmentEnabled":true,"confirmationMode":"SERVER","repositoryWrite":false,"versionLine":"AUTO","cliAvailable":true,
+   "version":{"setting":"AUTO","server":{"version":"8.1.17","source":"detected","at":"2026-10-18T09:12:03Z"},
+    "client":{"version":"8.1.17","supportedFrom":"4.0.1","supportedTo":"8.1.17","comparison":"match"},
+    "status":"supported","capabilities":{"usable":["monitoring","diagnosis","inventory","workspace_export","development_writes"],"notUsable":[]}}}]}]}
 ```
 
 | `NodeSummary` field | Meaning |
@@ -174,11 +294,40 @@ is never part of the result.
 | `developmentEnabled` | a development stage: `development.enabled && !production`; `import_artifacts`, `restore_backup`, `set_active` and `tag_artifacts` work on this node |
 | `confirmationMode` | `SERVER` (two-step confirmation by the MCP server) or `CLIENT` |
 | `repositoryWrite` | `import_artifacts` and `restore_backup` may create and change repository files on this node (feature 008): `development.repository` resolves to `WRITE` and the node is a development stage (`developmentEnabled`); `false` by default (see [setup.md](setup.md#development-settings)) |
-| `versionLine` | as configured: `AUTO`, `V8_1` or `V9_X` |
+| `versionLine` | as configured: `AUTO`, `V8_1`, `V9_X` or a concrete version such as `8.1.17` (a string; see [setup.md](setup.md#inubit-version-versionline)) |
 | `cliAvailable` | a CLI home is configured and its `bin/startcli.sh` (`.bat` on Windows) exists |
+| `version` | the version block below (feature 009) |
 
-**Example prompt** (quickstart V1): "Which INUBIT systems do you know?" → the groups with their
-nodes, e.g. `test/node1`, `test/node2`, `prod/node1`.
+| `version` field | Meaning |
+|---|---|
+| `setting` | the configured `versionLine` |
+| `server` | `{version, source, at?}` with `source` `detected` (an `AUTO` node, detected before a tool call), `observed` (read by `get_health`, also on a pinned node) or `pinned` (the pin, without `at`; `8.1` for `V8_1`, `9.x` for `V9_X`); or only `{"state": "not_yet_detected"}` (call `get_health`), or `{"state": "unknown", "reason": "<error code>", "at": …}` after a failed detection. Times are ISO-8601 to the second |
+| `client` | the StartCLI client as in `get_health`: `{version, supportedFrom?, supportedTo?, comparison}` with `comparison` `match`, `mismatch` or `not_comparable` (the server version is unknown or has no patch, e.g. `V8_1`); or only `state`: `not_available` (no StartCLI installation), `not_yet_detected` (not probed yet; after a timed-out probe with `reason` `TIMEOUT` and `at`) or `unknown` (the probe failed: error code in `reason`, `at`) |
+| `status` | `supported` (every capability the configuration allows is supported), `partially_supported` (some are usable, others are unverified or not usable), `unsupported` (none is usable) or `unknown` (an `AUTO` node whose version is not yet detected or unknown) |
+| `capabilities` | `usable`: the capabilities whose tools run on the node now (supported, or unverified for reads, and not refused by the client), out of those its configuration allows (the reads always; `workspace_export` with a StartCLI installation; `development_writes` on a development stage; `deployment` in a group that receives deployments; `e2e_test` where `e2eTests` allows it; `process_control` with write access). `notUsable`: `[{capability, reason}]` with the reason the call would be refused; `inventory (StartCLI parts)` when `inventory` runs for its REST part but the client refuses its StartCLI parts (module list, version histories) |
+| `warnings` | only when non-empty: a pin contradicted by `get_health`, a client that differs from the server or excludes it (see [the warnings](#inubit-versions-and-capabilities-feature-009)) |
+
+A node detected as INUBIT 9.0.7 with an 8.1.17 client:
+
+```json
+{"setting":"AUTO","server":{"version":"9.0.7","source":"detected","at":"2026-10-18T09:12:03Z"},
+ "client":{"version":"8.1.17","supportedFrom":"4.0.1","supportedTo":"8.1.17","comparison":"mismatch"},
+ "status":"partially_supported",
+ "capabilities":{"usable":["monitoring","diagnosis","inventory"],
+  "notUsable":[{"capability":"inventory (StartCLI parts)","reason":"StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7"},
+   {"capability":"workspace_export","reason":"StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7"},
+   {"capability":"development_writes","reason":"INUBIT 9.0.7 on next/node1 does not support development writes yet"}]},
+ "warnings":["StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7; StartCLI-backed tools are refused on next/node1 (UNSUPPORTED_VERSION) until a StartCLI client that supports INUBIT 9.0 is installed"]}
+```
+
+A capability that is not usable because the version is unknown names the cause and the next step,
+e.g. `the INUBIT version of dev/node1 is unknown (not yet detected); call get_health to detect
+it`.
+
+**Example prompts**: "Which INUBIT systems do you know?" (quickstart V1) → the groups with their
+nodes, e.g. `test/node1`, `test/node2`, `prod/node1`. "Which INUBIT versions run where, and what
+can I do on next/node1?" → `list_nodes`, then `get_health` for nodes whose version is
+`not_yet_detected`.
 
 ## `get_health`
 
@@ -208,19 +357,22 @@ itself fails only for an invalid or unknown `target`.
 | `status` | `OK`, `ERROR` or `UNKNOWN` (from `/healthcheck`) |
 | `ready`, `readyMessage` | `/ready`: HTTP 200 = ready, 503 = not ready, with INUBIT's message |
 | `maintenanceMode` | from `/healthcheck`; when on, `warnings` says that the server is not processing normally |
-| `version` | e.g. `8.1.17`, from `/system/info` |
+| `version` | e.g. `8.1.17`, from `/system/info`; recorded as the node's current version (for an `AUTO` node it replaces the detected one, for a pinned node it is checked against the pin) |
 | `systemInfo` | only with `includeSystemInfo: true`: `version`, `jdk`, `os`, `maxHeap`, `tracingEnabled`, `schedulerThreads`, `raw` (the other name/value pairs, at most 50, values cut to 200 chars) |
 | `load` | from `/metrics`: `usedMemoryMb`, `freeMemoryMb`, `maxMemoryMb`, `memoryUsedPercent`, `threadsInUse`, `licensedThreads`, `maxThreads`, `blockingQueueEntries`, `maxBlockingQueueSize`, `blockingQueuePercent` (percentages derived, one decimal) |
-| `unavailable` | parts that could not be obtained: `{part, reason, likelyCause?, nextStep?}` with `part` one of `status`, `ready`, `version`, `systemInfo`, `load`; `reason` starts with a code, e.g. `METRICS_NOT_LICENSED: GET /ibis/rest/metrics answered HTTP 403`, `AUTH_FAILED: …`, `TIMEOUT: …`; `likelyCause` and `nextStep` as in a `ToolError` |
+| `client` | the local StartCLI client (feature 009): `{version, supportedFrom?, supportedTo?, comparison}` — the client version, the INUBIT range it declares (absent if it prints none) and `comparison` with the node's version: `match`, `mismatch` (major, minor or patch differ) or `not_comparable` (a version is unknown or has no patch); or `{"state": "not_available"}` for a node without a StartCLI installation. Absent when the probe failed (then the part `client` is in `unavailable`) |
+| `unavailable` | parts that could not be obtained: `{part, reason, likelyCause?, nextStep?}` with `part` one of `status`, `ready`, `version`, `systemInfo`, `load`, `client`; `reason` starts with a code, e.g. `METRICS_NOT_LICENSED: GET /ibis/rest/metrics answered HTTP 403`, `AUTH_FAILED: …`, `TIMEOUT: …`; `likelyCause` and `nextStep` as in a `ToolError` |
 | `error` | only when `reachable: false`: `UNREACHABLE` (connection refused, DNS, VPN), `TIMEOUT`, `TLS_ERROR` (certificate, pin, host name), … with `likelyCause` and `nextStep` |
-| `warnings` | e.g. maintenance mode, "INUBIT version could not be detected (AUTH_FAILED); assuming 8.1", an unsupported version line |
+| `warnings` | e.g. maintenance mode; "INUBIT 9.0.7 on dev/node1 is not verified for monitoring; results may be incomplete"; "the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T09:12:03Z); results are unverified"; a pin that this reading contradicts or differs from in the patch; a client that differs from the node's version or excludes it (texts in [the warnings table](#inubit-versions-and-capabilities-feature-009)) |
 
 How the report is built (research R-10):
 
 - `/healthcheck` and `/ready` (both without credentials) start at once and never wait for a
   version detection; the healthcheck alone decides `reachable`. `/system/info` (with
-  credentials) runs in parallel; for `versionLine: AUTO` its answer is also the version
-  detection. `/metrics?format=json` runs in parallel too once the credentials have been
+  credentials) runs in parallel; the version it returns is recorded for every node, pinned ones
+  too (feature 009): for `versionLine: AUTO` it is the version detection, for a pinned node a
+  different major.minor is a contradiction (writes refused, warned) until a later reading matches.
+  `get_health` itself is never refused for a version. `/metrics?format=json` runs in parallel too once the credentials have been
   accepted, otherwise right after `/system/info`. All nodes are checked in parallel. The whole
   call returns within the largest server `timeout` + 1 s, even if a server hangs (a hanging part
   is reported as `TIMEOUT`).
@@ -244,6 +396,13 @@ How the report is built (research R-10):
 - Any failure of a part is reported in `unavailable` while the rest is still returned (FR-008).
   Wrong credentials therefore show up as `AUTH_FAILED` for `version` and `load`, while
   reachability, readiness and maintenance mode are still reported.
+- **StartCLI client** (feature 009, [setup.md](setup.md#startcli-client-check)): on a node with a
+  StartCLI installation whose client is not known yet, `startcli.sh -v` runs locally in parallel
+  with the REST calls and within the same budget. A probe that does not finish in time is the
+  part `client` with `reason` `TIMEOUT: not yet detected (timeout); the StartCLI client of
+  <node> did not report its version within <timeout>`; a failed probe is retried at most once per
+  60 s (meanwhile the part names the failure and when it is retried). A known client is kept until
+  the server stops.
 - A `/metrics` failure other than 401, 503, timeout or unreachable (e.g. 402/403/404/500 or a
   body without the JSON figures) is reported as `METRICS_NOT_LICENSED`: the metrics depend on an
   INUBIT license entry.
@@ -282,10 +441,12 @@ the REST Queue Manager view `POST /ibis/rest/log/queueLog` (research R-8; the sa
 | `offset` | integer 0–9999 | 0 | paging; `offset + limit` ≤ 10,000 |
 | `limit` | integer 1–100 | 50 | page size (capped by `resultLimits.maxItems`) |
 
-**Output**: `{ "results": [ { "node", "page"?: Page<ProcessInstance>, "error"?: ToolError } ] }`
-— one entry per resolved server in configuration order; a server that fails (e.g.
-`UNREACHABLE`, `AUTH_FAILED`) has only `error`, the others are still reported. Items are sorted
-by `since`, newest first.
+**Output**: `{ "results": [ { "node", "page"?: Page<ProcessInstance>, "warnings"?: string[],
+"error"?: ToolError } ] }` — one entry per resolved server in configuration order; a server that
+fails (e.g. `UNREACHABLE`, `AUTH_FAILED`) has only `error`, the others are still reported. Items
+are sorted by `since`, newest first. `warnings` (feature 009, only when non-empty) carries the
+node's version warning, e.g. on INUBIT 9.0 or an unknown version (see
+[INUBIT versions](#inubit-versions-and-capabilities-feature-009)).
 
 | `ProcessInstance` field | Meaning |
 |---|---|
@@ -362,7 +523,8 @@ HTTP 400; spike S-5). Workflow executions are recorded in `systemLog` — use th
 | `text` | string ≤ 200 | — | `LIKE` on the log type's text field, see "Text" |
 | `offset`, `limit` | integers | 0, 50 | as for `find_processes` (`offset` 0–9999, `limit` 1–100, `offset + limit` ≤ 10,000) |
 
-**Output**: `{ "results": [ { "node", "page"?: Page<LogEntry>, "error"?: ToolError } ] }`.
+**Output**: `{ "results": [ { "node", "page"?: Page<LogEntry>, "warnings"?: string[], "error"?:
+ToolError } ] }`; `warnings` as for `find_processes`.
 
 | `LogEntry` field | Meaning |
 |---|---|
@@ -483,6 +645,15 @@ Times must fit INUBIT's epoch milliseconds (e.g. `+999999999-12-31T23:59:59Z` or
   diagram group are cached per server for `inventory.cacheTtl` (default 10 minutes). Every result carries `collectedAt`, the time the
   (oldest) cached data was collected; pass `refresh: true` to collect it again. Concurrent
   requests for the same data share one export.
+- **INUBIT version and StartCLI client** (feature 009, see
+  [INUBIT versions](#inubit-versions-and-capabilities-feature-009)): on INUBIT 9.0, a later or an
+  unknown version both tools run with a warning in the node's `warnings`. When the node's local
+  StartCLI client does not support its INUBIT version (e.g. an 8.1 client at a 9.0 node), the
+  StartCLI parts are refused with `UNSUPPORTED_VERSION`: `list_inventory` `MODULE` and
+  `get_inventory_item` `MODULE` give that node's `error` (the module list is a StartCLI export);
+  `get_inventory_item` `DIAGRAM` returns the REST data and reports the `versions` in
+  `unavailable` with reason `UNSUPPORTED_VERSION: …`; `list_inventory` `DIAGRAM` is REST only and
+  unaffected. The first call on an `AUTO` node detects its version (one extra request).
 - **No "active version"**: INUBIT 8.1 exposes no marker for an active version. The tools show
   the version history (number, check-in user and time, comments, tags) and the `active` flag of
   the diagram or module, and never infer an active version. Tags are the *current* assignment:
@@ -510,7 +681,9 @@ or all nodes of a group, filtered by name, type or INUBIT diagram/module group, 
 | `refresh` | boolean | `false` | bypass the cache |
 
 **Output**: `{ "results": [ { "node", "collectedAt"?, "usageComplete"?, "page"?:
-Page<InventoryItem>, "error"?: ToolError } ] }`, one entry per server in config order.
+Page<InventoryItem>, "warnings"?: string[], "error"?: ToolError } ] }`, one entry per server in
+config order; `warnings` (only when non-empty) as for `find_processes`, for modules also the
+StartCLI client warnings.
 `collectedAt` (ISO-8601) is present together with `page` (for modules: the older of the module
 list and the usage index); `usageComplete` only for `kind: MODULE` — whether every technical
 workflow of the owner could be read for the usage; a failed server has only `error`.
@@ -551,8 +724,8 @@ that a group target compares them field by field.
 **Input** (`get_inventory_item.input.json`): `target` (required), `kind` (`DIAGRAM` or `MODULE`,
 required), `name` (exact, case-sensitive, 1–200 chars, required), `refresh` (default `false`).
 
-**Output**: `{ "results": [ { "node", "collectedAt"?, "item"?: InventoryDetail, "error"?:
-ToolError } ] }`.
+**Output**: `{ "results": [ { "node", "collectedAt"?, "item"?: InventoryDetail, "warnings"?:
+string[], "error"?: ToolError } ] }`; `warnings` as for `list_inventory`.
 
 | `InventoryDetail` field | Diagram | Module |
 |---|---|---|
@@ -638,6 +811,7 @@ exist. Both tools are annotated `destructiveHint: true`, `idempotentHint: false`
 | `stateAfter` | re-read after the action: `ERROR`, `ACTIVE`, `WAITING`, `QUEUED`, `OTHER`, or `NOT_IN_QUEUE` if the instance left the Queue Manager; absent if the re-read failed |
 | `message` | INUBIT's confirmation text, or the failure (`CODE: message`, likely cause, next step, excerpt) |
 | `auditId` | id of the execution's audit records |
+| `warnings` | only when non-empty (feature 009): warnings of the version check, e.g. a StartCLI client that differs from the node's INUBIT version in the patch |
 
 **Decision flow** (every step that ends the flow writes an audit record):
 
@@ -648,6 +822,10 @@ exist. Both tools are annotated `destructiveHint: true`, `idempotentHint: false`
    `write.enabled` says**; also a production server with `write.confirmation: CLIENT` (normally
    already a startup error).
 3. `write.enabled: false` (the default) → `WRITE_DISABLED`; `nextStep` says how to enable it.
+   Then the version check (feature 009, capability `process_control`): an `AUTO` node's version
+   may be detected first (one request); a version other than 8.1, an unknown version, a
+   contradicted pin or a StartCLI client whose range excludes the node's version →
+   `UNSUPPORTED_VERSION` (see [the variants](#unsupported_version)), before the state read.
 4. No usable StartCLI (no `cliHome`, no JDK, Windows) → `CLI_UNAVAILABLE`; no credentials →
    `AUTH_FAILED`.
 5. The current state is read from the Queue Manager (REST `queueLog`, `workflowId EQUAL
@@ -682,6 +860,7 @@ preview and confirmation is reported (`NOT_FOUND` / `PRECONDITION_FAILED`) and n
 | `TARGET_UNKNOWN` | the server is not configured |
 | `PRODUCTION_PROTECTED` | production group without `write.productionOptIn`, or with `write.confirmation: CLIENT` |
 | `WRITE_DISABLED` | `write.enabled` is not `true` for the server |
+| `UNSUPPORTED_VERSION` | the node's INUBIT version does not allow process control (not 8.1, unknown, pin contradicted by `get_health`), or its StartCLI client does not support that version |
 | `CLI_UNAVAILABLE` | StartCLI cannot be used for the server |
 | `NOT_FOUND` | the instance is not (or no longer) in the Queue Manager |
 | `PRECONDITION_FAILED` | restart of an instance that is not in `ERROR`; the instance changed since the preview; the same instance is being changed by another call; too many pending confirmations |
@@ -750,7 +929,7 @@ repository file is not written at all. The history is never pushed anywhere.
 | `changes` | `[{path, kind}]`, at most `resultLimits.maxItems` |
 | `truncated`, `fullList` | `fullList` (`.reports/export-<commit>.txt`, all changes) only when `truncated` |
 | `secretsReplaced` | number of values replaced by placeholders (count only) |
-| `warnings` | e.g. a workflow in edit mode (`CheckoutUser`), used modules of another owner that were not exported, repository files with key material that were not written, values with a secret-like name that were kept |
+| `warnings` | e.g. a workflow in edit mode (`CheckoutUser`), used modules of another owner that were not exported, repository files with key material that were not written, values with a secret-like name that were kept; the version warnings of the node (feature 009: INUBIT 9.0 or an unknown version, a StartCLI client mismatch) |
 
 Directory layout: `<group>/<owner>/workflows/<diagram group>/<workflow>.xml`,
 `<group>/<owner>/modules/<plugin type>/<module>/{module.xml, index.xml, <property>.<ext>}`,
@@ -782,8 +961,9 @@ comments, archive context) under `.meta/`. Files of artifacts no longer exported
 repositoryPaths", a blank or unsupported name or repository path, a repository path given twice,
 an owner that is no repository root (e.g. `.` or `..`) with `repositoryPaths`, two artifacts or
 repository paths whose paths differ only in case, a repository export over 500 files or 100 MiB);
-`NOT_CONFIGURED` (no owner); `CLI_UNAVAILABLE`, `AUTH_FAILED`, `TIMEOUT` (names
-`cliExportTimeout`); `NOT_FOUND` (diagram group or module does not exist for the owner;
+`NOT_CONFIGURED` (no owner); `UNSUPPORTED_VERSION` (the node's StartCLI client does not support
+its INUBIT version, e.g. an 8.1 client at a 9.0 node; feature 009); `CLI_UNAVAILABLE`,
+`AUTH_FAILED`, `TIMEOUT` (names `cliExportTimeout`); `NOT_FOUND` (diagram group or module does not exist for the owner;
 repository paths missing on the node, all named); `UNEXPECTED_RESPONSE` (the archive cannot be
 processed — the workspace is unchanged); `PRECONDITION_FAILED` (workspace busy or not usable; a
 failed write is undone from the history); `INTERNAL`.
@@ -799,7 +979,11 @@ repositoryPaths: ["schemas"])`.
 > input file, or validate XML against a schema. Never changes INUBIT; writes only test outputs.
 
 Works offline on the workspace; only module names missing in the workspace are looked up in the
-module list of the group's first node. Writes only below `.tests/` (stylesheet outputs) and
+module list of the group's first node. That lookup is checked like an `inventory` read over
+StartCLI (feature 009): a refusal (e.g. a StartCLI client that does not support the node's INUBIT
+version) skips the lookup and turns each such module into `MODULE_UNVERIFIED` with the reason; a
+version warning (unverified or unknown INUBIT version, client mismatch) becomes one
+`MODULE_LOOKUP_WARNING`. The first lookup on an `AUTO` node may detect its version (one request). Writes only below `.tests/` (stylesheet outputs) and
 `.reports/` (full finding lists).
 
 **Input** (`check_artifacts.input.json`):
@@ -874,7 +1058,11 @@ every write; each step that refuses sends nothing to INUBIT:
 1. the node must be a **development stage** (`NOT_DEVELOPMENT` otherwise, never production);
    the inputs are checked (names StartCLI quoting can carry, a `reason` of 1–500 characters
    without `#`, `@` or control characters — it becomes the person-written segment of the
-   check-in comment);
+   check-in comment); the node's INUBIT version must support the tool's capability
+   (`development_writes`, for `run_e2e_test` `e2e_test`; feature 009): an `AUTO` node's version
+   may be detected first (one request), anything but a known 8.1 version, a contradicted pin, or a
+   StartCLI client whose range excludes the node's version is `UNSUPPORTED_VERSION`
+   ([variants](#unsupported_version)); version warnings go into the result's `warnings`;
 2. the workspace lock (one workspace operation at a time; `tag_artifacts` and `run_e2e_test`
    do not touch the workspace and take no lock); uncommitted edits are recorded as
    `local changes` first;
@@ -909,7 +1097,8 @@ every write; each step that refuses sends nothing to INUBIT:
 
 **Failure model.** Refusals before anything is sent are tool errors (`isError: true`):
 `NOT_DEVELOPMENT`, `INVALID_INPUT`, `PRECONDITION_FAILED`, `CONFLICT`, `SECRET_UNRESOLVED`,
-`CONFIRMATION_INVALID`, `CLI_UNAVAILABLE`, `AUTH_FAILED`, `NOT_FOUND`, `REPOSITORY_WRITE_DENIED`.
+`CONFIRMATION_INVALID`, `CLI_UNAVAILABLE`, `AUTH_FAILED`, `NOT_FOUND`, `REPOSITORY_WRITE_DENIED`,
+`UNSUPPORTED_VERSION`.
 Once anything may have been sent the call returns a **result** with `outcome: FAILED`, a
 `failure` `{code: IMPORT_FAILED | VERIFY_MISMATCH, step: import | protocol | verify | commit |
 tag, message}` and the `rollback` state. An unexpected internal error after sending is reported
@@ -1203,7 +1392,9 @@ REL-2026-10-07" adds `tag: "REL-2026-10-07"`.
   conflict check compares with the state the deployment left (`CONFLICT` for a change since, or
   edit mode). What the deployment created stays (`createdNotRemoved`); the workspace is not
   changed (the next export records the state). The ledger records the restored state, so the
-  next preview does not report this restore as `OUTSIDE_CHAIN`.
+  next preview does not report this restore as `OUTSIDE_CHAIN`. Its version check follows the
+  deployment rules (feature 009): the node must run a version that supports deployments
+  (`UNSUPPORTED_VERSION` otherwise).
 - **Preview** (`challenge`): `scope`, `modify` (repository files by their full path
   `/Root/<owner>/…`), `notes`, `confirmationCode`, `expiresAt`, `message`.
 - **Repository files** (feature 008) of a development call's backup: the restore also re-imports
@@ -1319,7 +1510,8 @@ Every history export appends to the check-in comments of the exported workflows 
 - **Result**: `auditId`, `testId`, `endpoint`, `status`, `durationMs`, `timedOut`,
   `responseFile`, `excerpt`, `correlation`, `processes`, `errors`, `logEntries` (at most 20 each),
   `truncated`, `warnings`. Errors: `NOT_DEVELOPMENT`, `E2E_FORBIDDEN`, `TARGET_UNKNOWN`,
-  `INVALID_INPUT`, `CONFIRMATION_INVALID`, `UNREACHABLE`, `TLS_ERROR`.
+  `INVALID_INPUT`, `CONFIRMATION_INVALID`, `UNSUPPORTED_VERSION` (not 8.1, unknown, pin
+  contradicted; SOAP only, so no StartCLI client check), `UNREACHABLE`, `TLS_ERROR`.
   The audit records only the payload hash, never the envelope.
 
 **Example prompt**: "Send samples/order.xml to /ibis/ws/Service-01 on dev" →
@@ -1353,6 +1545,33 @@ diagrams are never read and never deployed. Repository files that the release's 
 reference (`inubitrepository:`) belong to it; key material (keys, certificates) and files
 outside `/Root/<owner>/` are never deployed.
 
+**INUBIT versions** (feature 009). In the preview and again before the execution, every source
+and every target node is checked like a write (capability `deployment`, StartCLI + REST): an
+`AUTO` node's version is detected first if it is missing, stale or older than
+`inventory.cacheTtl` (one request per node), then the version, a contradicted pin and the
+StartCLI client are checked. The deployment is refused **as a whole** with one `UNSUPPORTED_VERSION` before
+anything else is sent if any node is refused (not 8.1, unknown, pin contradicted, client range
+excludes the version), any node's version is unknown (`V9_X` gives no minor version and counts as
+unknown) or the nodes run different minor versions (8.1.17 → 8.1.18 is allowed). The message
+names the refused nodes first, then every source and target node with its version and, per
+refused node, its cause; the refusal is audited:
+
+```text
+deploy_release: refused nodes: int/node1, int/node3; deployment from dev into int refused (the
+version check refused int/node1, int/node3; the nodes run different INUBIT minor versions (8.1,
+9.0)). Sources: dev/node1 INUBIT 8.1.17, dev/node2 INUBIT 8.1.17. Targets: int/node1 INUBIT 9.0.7
+(refused: INUBIT 9.0.7 on int/node1 does not support deployment yet), int/node2 INUBIT 8.1.17,
+int/node3 INUBIT 9.x (versionLine V9_X) (refused: INUBIT 9.x (versionLine V9_X) on int/node3 does
+not support deployment yet); nothing was sent
+```
+
+`likelyCause`: "deploy_release deploys only between nodes whose INUBIT versions are known,
+supported for deployments and of the same minor version"; `nextStep`: the next steps of the
+refused nodes and, for unknown or different versions, "Deploy only between nodes of the same
+INUBIT minor version (e.g. 8.1.x to 8.1.y) whose versions are known". Version warnings of the
+nodes (e.g. a client mismatch, a failed client probe) are in the challenge's top-level `warnings`
+and in the result's `warnings`.
+
 **Preview** (`challenge`, the call without `confirmationCode`; nothing is sent to the target):
 every target node is read (exports only) and compared with the release. Per node: `counts` of
 `new`, `changed`, `layoutOnly` (only positions and labels differ), `unchanged`, `excluded`
@@ -1378,7 +1597,9 @@ entry `<workflow> (<diagram group>): tagged version <n>, head <m>` per workflow 
 version is older than the head on the source), `nodes` (one plan per target node with the fields
 above and its own `executable`), `notes` (facts for the reader, e.g. that system diagrams are
 never read), `executable` (true only if every node plan is executable), `confirmationCode` and
-`expiresAt` (only if `executable` is true) and `message` (what to do next). `diagramGroups`,
+`expiresAt` (only if `executable` is true), `message` (what to do next) and `warnings` (only when
+non-empty: the version warnings of the source and target nodes as strings, unlike the per-plan
+`warnings` above, which are objects with a kind). `diagramGroups`,
 `olderThanHead` and the lists of a plan are bounded by `resultLimits.maxItems` (`<list>Truncated`
 names how many were left out).
 
@@ -1447,7 +1668,8 @@ source, tag, diagram groups, node states, backup references and artifact names; 
 secret values. A second deployment into the same group meanwhile is refused (`DEPLOY_LOCKED`),
 a call while another workspace operation runs with `PRECONDITION_FAILED`. Other refusals:
 `INVALID_INPUT` (a node id as `target`, a tag with a wildcard, a malformed code), `TARGET_UNKNOWN`,
-`NOT_CONFIGURED` (no owner), `CONFIRMATION_INVALID`.
+`NOT_CONFIGURED` (no owner), `CONFIRMATION_INVALID`, `UNSUPPORTED_VERSION` (see INUBIT versions
+above).
 
 | Code | Likely cause | Next step |
 |---|---|---|

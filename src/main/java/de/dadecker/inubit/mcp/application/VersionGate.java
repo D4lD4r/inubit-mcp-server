@@ -313,12 +313,20 @@ public final class VersionGate {
                     + unknown(node, state) + "; StartCLI results may be unreliable");
             case COMPATIBLE -> {
                 if (client.compare(version) == ClientVersion.Comparison.MISMATCH) {
-                    warnings.add("StartCLI client " + client.version().raw() + " and "
-                        + name.orElseThrow() + " on " + node
-                        + " differ; StartCLI results may be unreliable");
+                    warnings.add(mismatchWarning(node, client, version.orElseThrow()));
                 }
             }
         }
+    }
+
+    /**
+     * The warning about a client whose major.minor.patch differs from the server's (FR-011), in
+     * tool results as in {@code get_health} and {@code list_nodes}.
+     */
+    static String mismatchWarning(NodeId node, ClientVersion client, InubitVersion server) {
+        return "StartCLI client " + client.version().raw() + " on " + node
+            + " differs from INUBIT " + server.raw() + " (mismatch); StartCLI-backed tools still"
+            + " run, but their results may be unreliable";
     }
 
     private static Refusal refuseContradiction(NodeId node, Capability capability,

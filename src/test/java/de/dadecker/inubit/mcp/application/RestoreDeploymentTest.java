@@ -368,8 +368,9 @@ class RestoreDeploymentTest extends DeployExecution {
 
         assertThat(outcome.outcome()).as(outcome.toString())
             .isEqualTo(WriteOutcome.Outcome.EXECUTED);
-        assertThat(outcome.warnings()).contains("StartCLI client 8.1.17 and INUBIT 8.1.18 on"
-            + " int/node1 differ; StartCLI results may be unreliable");
+        assertThat(outcome.warnings()).contains("StartCLI client 8.1.17 on int/node1"
+            + " differs from INUBIT 8.1.18 (mismatch);"
+            + " StartCLI-backed tools still run, but their results may be unreliable");
         assertThat(harness.detection.requests()).containsOnly(DeployHarness.INT1);
         harness.verifyComplete();
     }

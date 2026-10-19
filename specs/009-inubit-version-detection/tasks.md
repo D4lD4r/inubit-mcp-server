@@ -461,7 +461,7 @@ shows the client against the pin, and a contradicting observation refuses writes
 - [X] T026 [P] `docs/setup.md`: `versionLine` values incl. concrete pins and quoting, when the
   version is detected, the deliberate behaviour changes (writes refused after a failed detection
   and on `V9_X`), the client probe and `--check-config` line.
-- [ ] T027 [P] `docs/tools.md`: the tool classification table; `UNSUPPORTED_VERSION` (now returned;
+- [X] T027 [P] `docs/tools.md`: the tool classification table; `UNSUPPORTED_VERSION` (now returned;
   replace "reserved … not returned by this version") with its variants; `list_nodes` `version`
   block; `get_health` `client` part and fields; `warnings` on the four read tools and on
   restart/kill; write-tool and `deploy_release` refusals; `check_artifacts` lookup behaviour; tool
