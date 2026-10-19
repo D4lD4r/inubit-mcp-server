@@ -409,12 +409,16 @@ shows the client against the pin, and a contradicting observation refuses writes
   version (no behaviour change). Wire it in `main/Wiring.java`. Test first:
   `test/adapter/AdapterGatewayFactoryTest.java` (default used for 8.1, 9.0 and unknown; a
   registered range selected after detection; rebuilt after a re-detection into another range).
-- [ ] T025 [US3] `test/application/CapabilityExtensionTest.java`: with a test-only
+- [X] T025 [US3] `test/application/CapabilityExtensionTest.java`: with a test-only
   `CapabilityMatrix` declaring a fictitious range (e.g. 7.9) with a subset of capabilities and a
   test-only port set registered for it (T024), a node of that version gets exactly the declared
   tools through that port set (others refused, except `get_health`, which is never refused and only
   warns), `list_nodes` shows exactly the declared capabilities as usable (US3-2), an 8.1 node is
   unchanged, a 9.0 node behaves as in US2 — without touching any tool or service class.
+  Open note (T024/T025 reviews r1): `DiagnosisService` calls `processes(server).validate` /
+  `logs(server).validate` before the gate admits, so a node's first call validates on the default
+  port set instead of the one for its detected range (D-16 says ports are chosen after admission);
+  no effect while only the 8.1 port set exists, revisit when a port set brings its own validation.
 
 ---
 
