@@ -41,3 +41,29 @@ Only read-only checks are useful here: run `get_health` and `list_nodes` against
 stage and compare the shown server and client versions with the Workbench "About" dialog and
 `startcli.sh -v`. No write is needed to validate this feature. Respect any organisational approval
 needed before connecting the server to real systems.
+
+## Validation record (T029)
+
+**2026-10-20, branch `009-inubit-version-detection`, commit `295b545`: offline validation done. The
+optional live check was not run (it needs the person's approval; live use is paused).**
+
+- `mvn -q -o clean verify`: exit 0 on the first run (no rerun). 219 test classes, 3120 tests,
+  0 failures, 0 errors, 3 skipped. The 3 skipped tests are the opt-in corpus tests
+  (`ArchiveCorpusTest`, `StructureCorpusTest`, `XsltCorpusTest`; corpus variables not set).
+- `NoCustomerIdentifiersTest` ran (not skipped) inside the build with the local identifier lists
+  (denylist, neutralize map, synthetic map and allowlist all present): 20 tests, 0 failures,
+  0 skipped; 1204 files scanned, no finding.
+- `mvn -q -o -Dtest=NoCustomerIdentifiersTest test` on its own: exit 0; 20 tests, 0 failures,
+  0 skipped; 1206 files scanned (the 1204 git files plus the two jars the build left in `target/`),
+  no finding.
+- Scenario coverage: every class named in the table above exists and ran green in the build
+  (tests per class): `InubitVersionTest` 20, `CapabilityMatrixTest` 55, `ConfigLoaderTest` 105,
+  `ConfigValidatorTest` 112, `ConfigSummaryTest` 17, `ListNodesToolTest` 21, `VersionGateTest` 29,
+  `AdapterGatewayFactoryTest` 44, `HealthServiceTest` 43, `GetHealthToolTest` 12,
+  `HealthOverviewPerformanceTest` 1, `ClientVersionTest` 15, `ImportServiceVersionTest` 15,
+  `TagServiceTest` 12, `E2eTestServiceTest` 17, `ProcessControlServiceTest` 43,
+  `DeployServiceVersionTest` 11, `DiagnosisServiceTest` 24, `InventoryServiceTest` 37,
+  `NodeVersionsTest` 21, `DevelopmentWiringTest` 10, `CapabilityExtensionTest` 5,
+  `CliVersionProbeTest` 13, `ArtifactCheckServiceTest` 31, `InubitHttpClientTest` 37. No scenario
+  is without automated coverage; SC-003 is covered by the full suite being green.
+- Live (optional) `get_health` / `list_nodes` against a real node: not run.

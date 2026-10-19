@@ -479,7 +479,7 @@ shows the client against the pin, and a contradicting observation refuses writes
   Open note (T030 review r1): the endpoint-404 message of `adapter/rest/InubitHttpClient` (T007,
   "the node may run another INUBIT version") still uses the plain word "node"; the adapter has no
   `Terminology`. Render it where the error leaves the application layer in a later change.
-- [ ] T029 Validate per quickstart.md: `mvn -q clean verify`; `mvn -q -Dtest=NoCustomerIdentifiersTest
+- [X] T029 Validate per quickstart.md: `mvn -q clean verify`; `mvn -q -Dtest=NoCustomerIdentifiersTest
   test` with the local lists (it must run, not skip); record the outcome in `quickstart.md`. The
   optional live check (read-only `get_health`/`list_nodes`) only with the person's approval.
 
