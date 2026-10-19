@@ -8,10 +8,12 @@ import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LoadFigures;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeResult;
+import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort.Healthcheck;
@@ -63,6 +65,10 @@ import org.slf4j.LoggerFactory;
  *       known version state (e.g. "the INUBIT version of &lt;node&gt; is unknown (&lt;code&gt; at
  *       &lt;time&gt;); results are unverified"). The gate never detects and never refuses here,
  *       so the call sends no extra request and keeps its time budget.
+ *   <li>Observation (feature 009, FR-012): this service alone reports the version it read to
+ *       {@link NodeVersions#observed} for every node, pinned ones too. A read whose major.minor
+ *       differs from the pin sets the pin contradiction (writes refused until a matching read)
+ *       and is warned about; a concrete pin that differs in the patch only is warned about.
  * </ul>
  */
 public final class HealthService {
@@ -80,20 +86,24 @@ public final class HealthService {
     private final Function<NodeId, Duration> timeouts;
     private final Clock clock;
     private final VersionGate gate;
+    private final NodeVersions versions;
 
     /**
      * @param timeouts the REST timeout of each server
      * @param clock    for {@code checkedAt} when INUBIT gives no timestamp
      * @param gate     gives the version warning of each report ({@code MONITORING})
+     * @param versions receives the version each call read and holds the pin contradiction
      */
     public HealthService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
-        Function<NodeId, Duration> timeouts, Clock clock, VersionGate gate) {
+        Function<NodeId, Duration> timeouts, Clock clock, VersionGate gate,
+        NodeVersions versions) {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.fanOut = Objects.requireNonNull(fanOut, "fanOut");
         this.timeouts = Objects.requireNonNull(timeouts, "timeouts");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.gate = Objects.requireNonNull(gate, "gate");
+        this.versions = Objects.requireNonNull(versions, "versions");
     }
 
     /**
@@ -164,9 +174,12 @@ public final class HealthService {
             }
             Optional<InubitVersion> read = info.failed() ? Optional.empty()
                 : info.value().version().flatMap(InubitVersion::parse);
-            return assemble(server, gatewayWarnings(server),
-                gate.admitMonitoring(server, read).warnings(), health, readiness, info, load,
-                includeSystemInfo);
+            read.ifPresent(version -> versions.observed(server, version));
+            List<String> versionWarnings = new ArrayList<>(
+                gate.admitMonitoring(server, read).warnings());
+            read.flatMap(version -> pinWarning(server, version)).ifPresent(versionWarnings::add);
+            return assemble(server, gatewayWarnings(server), versionWarnings, health, readiness,
+                info, load, includeSystemInfo);
         } finally {
             // never close(): it would wait for calls that ignore interrupts
             executor.shutdownNow();
@@ -199,6 +212,28 @@ public final class HealthService {
             "Retry: once the credentials are confirmed, the metrics run in parallel; or raise"
                 + " the timeout of " + server + " in the configuration")
             .withNode(server);
+    }
+
+    /**
+     * The warning about a pin that the version this call read (and just observed) differs from:
+     * the contradiction of a different major.minor, or a patch-only difference to a concrete pin.
+     */
+    private Optional<String> pinWarning(NodeId server, InubitVersion read) {
+        NodeVersionState state = versions.state(server);
+        VersionSetting setting = state.setting();
+        if (state.pinContradiction()) {
+            return Optional.of("versionLine " + setting.text() + " of " + server
+                + " contradicts INUBIT " + read.raw() + " read by get_health; writes on " + server
+                + " are refused until get_health reads a matching version or versionLine is"
+                + " corrected and the server restarted");
+        }
+        if (setting instanceof VersionSetting.Pinned pinned && read.patch().isPresent()
+            && !read.patch().equals(pinned.version().patch())) {
+            return Optional.of("INUBIT " + read.raw() + " on " + server + " differs from its"
+                + " versionLine " + setting.text() + " in the patch only; writes stay allowed,"
+                + " but correct versionLine of " + server);
+        }
+        return Optional.empty();
     }
 
     /** The warnings of the gateway, if its version line is known by now (no blocking). */

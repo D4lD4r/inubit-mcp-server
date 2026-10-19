@@ -198,7 +198,7 @@ final class Wiring implements AutoCloseable {
         Map<NodeId, Duration> timeouts = new HashMap<>();
         servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
         this.health = new HealthService(gateways, targets, fanOut, timeouts::get, clock.clock(),
-            versionGate);
+            versionGate, versions);
         Map<NodeId, Duration> hangingThresholds = new HashMap<>();
         servers.forEach(server -> hangingThresholds.put(server.id(), server.hangingThreshold()));
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,

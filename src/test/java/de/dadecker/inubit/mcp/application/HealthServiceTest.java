@@ -137,7 +137,7 @@ class HealthServiceTest {
         };
         return new HealthService(gateways, new TargetResolver(SERVERS), new FanOut(),
             server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC),
-            new VersionGate(versions, gateways, CapabilityMatrix.production()));
+            new VersionGate(versions, gateways, CapabilityMatrix.production()), versions);
     }
 
     private HealthReport checkOne(NodeId server, boolean includeSystemInfo) {
@@ -470,7 +470,9 @@ class HealthServiceTest {
         HealthReport report = checkOne(DEV, false);
 
         assertThat(report.version()).contains("9.0.2");
-        assertThat(report.warnings()).containsExactly(UNVERIFIED_902);
+        // T016: the read also contradicts the pin
+        assertThat(report.warnings()).containsExactly(UNVERIFIED_902,
+            CONTRADICTION_907.replace("9.0.7", "9.0.2"));
         assertThat(gateDetections).hasValue(0);
     }
 
@@ -524,6 +526,80 @@ class HealthServiceTest {
         };
 
         assertThat(checkOne(DEV, false).warnings()).isEmpty();
+    }
+
+    // --- feature 009: get_health observes the version of every node (T016, FR-012) ---------
+
+    private static final String CONTRADICTION_907 = "versionLine V8_1 of dev/node1 contradicts"
+        + " INUBIT 9.0.7 read by get_health; writes on dev/node1 are refused until get_health"
+        + " reads a matching version or versionLine is corrected and the server restarted";
+
+    @Test
+    void aPinnedNodeObservingAnotherMajorMinorIsContradictedUntilAMatchingRead() {
+        // dev/node1 is pinned to V8_1
+        monitoring(DEV).systemInfo = () -> systemInfoOf("9.0.7");
+
+        HealthReport contradicted = checkOne(DEV, false);
+
+        assertThat(contradicted.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not"
+            + " verified for monitoring; results may be incomplete", CONTRADICTION_907);
+        assertThat(versions.state(DEV).pinContradiction()).isTrue();
+        assertThat(versions.state(DEV).observed().orElseThrow().value().raw())
+            .isEqualTo("9.0.7");
+
+        monitoring(DEV).systemInfo = () -> SYSTEM_INFO;
+        HealthReport matching = checkOne(DEV, false);
+
+        assertThat(matching.warnings()).isEmpty();
+        assertThat(versions.state(DEV).pinContradiction()).isFalse();
+        assertThat(gateDetections).hasValue(0);
+    }
+
+    @Test
+    void aPinnedPatchDifferenceOnlyWarns() {
+        versionLines.put(DEV, VersionSetting.parse("8.1.17").orElseThrow());
+        monitoring(DEV).systemInfo = () -> systemInfoOf("8.1.18");
+
+        HealthReport report = checkOne(DEV, false);
+
+        assertThat(report.warnings()).containsExactly("INUBIT 8.1.18 on dev/node1 differs from"
+            + " its versionLine 8.1.17 in the patch only; writes stay allowed, but correct"
+            + " versionLine of dev/node1");
+        assertThat(versions.state(DEV).pinContradiction()).isFalse();
+    }
+
+    @Test
+    void aMatchingConcretePinGivesNoWarning() {
+        versionLines.put(DEV, VersionSetting.parse("8.1.17").orElseThrow());
+
+        assertThat(checkOne(DEV, false).warnings()).isEmpty();
+        assertThat(versions.state(DEV).observed()).isPresent();
+    }
+
+    @Test
+    void anAutoNodeRecordsTheObservationWithoutContradiction() {
+        versionLines.put(DEV, VersionSetting.AUTO);
+        monitoring(DEV).systemInfo = () -> systemInfoOf("9.0.7");
+
+        checkOne(DEV, false);
+
+        assertThat(versions.state(DEV).observed().orElseThrow().value().raw())
+            .isEqualTo("9.0.7");
+        assertThat(versions.state(DEV).pinContradiction()).isFalse();
+    }
+
+    @Test
+    void aFailedOrUnparsableReadRecordsNoObservation() {
+        monitoring(DEV).systemInfo = () -> {
+            throw error(ErrorCode.AUTH_FAILED, DEV, "INUBIT rejected the credentials (HTTP 401)");
+        };
+        monitoring(QA1).systemInfo = () -> systemInfoOf("unknown");
+
+        checkOne(DEV, false);
+        checkOne(QA1, false);
+
+        assertThat(versions.state(DEV).observed()).isEmpty();
+        assertThat(versions.state(QA1).observed()).isEmpty();
     }
 
     // --- targets ---------------------------------------------------------------------------

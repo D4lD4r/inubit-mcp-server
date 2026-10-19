@@ -125,7 +125,7 @@ class GetHealthToolTest {
             EffectiveNodeConfig::id, EffectiveNodeConfig::timeout));
         HealthService health = new HealthService(gateways, new TargetResolver(ids),
             new FanOut(), timeouts::get, Clock.systemUTC(),
-            new VersionGate(versions, gateways, CapabilityMatrix.production()));
+            new VersionGate(versions, gateways, CapabilityMatrix.production()), versions);
         client = McpTestClient.start(List.of(new GetHealthTool(health)), scrubber);
         client.initialize();
     }

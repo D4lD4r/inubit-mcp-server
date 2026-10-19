@@ -279,7 +279,7 @@ capabilities (FR-001, FR-002, FR-004, FR-011).
 **Independent Test**: `list_nodes` before `get_health` shows `not_yet_detected` with zero requests;
 after `get_health` it shows the detected version, the client version and `supported`.
 
-- [ ] T016 [US1] `get_health` observation (FR-001, FR-012): `HealthService` is the single owner of
+- [X] T016 [US1] `get_health` observation (FR-001, FR-012): `HealthService` is the single owner of
   observations and reports the version it reads for every node (pinned too) through
   `VersionObserver.observed`; an observed major.minor
   different from a pin sets the contradiction and adds a warning; a patch-only difference only
