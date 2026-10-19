@@ -1,16 +1,23 @@
 package de.dadecker.inubit.mcp;
 
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
+import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
+import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.config.ConfigException;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigSummary;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.ValidationReport;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.BuildInfo;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.LogLevels;
@@ -27,6 +34,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -163,8 +171,10 @@ final class Launcher {
             context.windows(), Path.of(System.getProperty("java.io.tmpdir")),
             source -> otherProfiles).validate(loaded, credentials);
         if (arguments.checkConfig()) {
+            Map<NodeId, ClientVersion> clients = new HashMap<>();
+            ValidationReport withProbes = probeClients(loaded.config(), report, clients);
             context.out().print(new ConfigSummary(context.exists(), context.windows())
-                .render(loaded, credentials, report));
+                .render(loaded, credentials, withProbes, clients));
             context.out().flush();
             return report.hasErrors() ? EXIT_ERROR : EXIT_OK;
         }
@@ -184,6 +194,41 @@ final class Launcher {
             LOG.error("Startup failed", e);
             return EXIT_ERROR;
         }
+    }
+
+    /**
+     * Feature 009 (FR-011a, research D-13): runs {@code startcli -v} for every node with a
+     * StartCLI installation, bounded by the node's {@code cliTimeout}, and puts the successes into
+     * {@code clients}. No credentials, no server URL, no INUBIT contact. A failed probe is a
+     * warning.
+     *
+     * @return {@code report} with a warning per failed probe
+     */
+    private ValidationReport probeClients(ProfileConfig config, ValidationReport report,
+        Map<NodeId, ClientVersion> clients) {
+        List<EffectiveNodeConfig> withClient = config.resolvableNodes().stream()
+            .filter(server -> server.cliAvailable(context.exists(), context.windows())).toList();
+        if (withClient.isEmpty()) {
+            return report;
+        }
+        Map<NodeId, EffectiveNodeConfig> byId = new HashMap<>();
+        withClient.forEach(server -> byId.put(server.id(), server));
+        List<String> warnings = new ArrayList<>(report.warnings());
+        // the profile name may be invalid here (an error of the report); it only names export
+        // directories, which the probe never creates
+        try (CliResources resources = new CliResources("check-config")) {
+            CliVersionProbe probe = new CliVersionProbe(new CliRunner(new SystemProcessLauncher(),
+                context.environment(), context.windows(), resources), byId::get);
+            for (EffectiveNodeConfig server : withClient) {
+                try {
+                    clients.put(server.id(), probe.probe(server.id(), server.cliTimeout()));
+                } catch (ToolErrorException e) {
+                    warnings.add(server.id() + ": StartCLI client probe failed: "
+                        + e.error().message());
+                }
+            }
+        }
+        return new ValidationReport(report.errors(), warnings, report.workspace());
     }
 
     private int serve(ProfileConfig config, CredentialResolution credentials,

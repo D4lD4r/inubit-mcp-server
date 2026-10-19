@@ -124,8 +124,11 @@ class MainTest {
         credentials();
         environment.put("INUBIT_ACME_QA_NODE2_PASSWORD", "other-Secret-99");
         environment.put("INUBIT_ACME_QA_USERNAME", "other-user");
-        Path cliHome = Files.createDirectories(home.resolve("client/bin")).getParent();
-        Files.writeString(cliHome.resolve("bin/startcli.sh"), "#!/bin/sh\n");
+        Path cliHome = fakeStartCli("""
+            echo "$@" > "$(dirname "$0")/arguments"
+            echo "CLI 8.1.17"
+            echo "Supported inubit Process Engine versions from 4.0.1 to 8.1.17."
+            """);
         Path file = config("""
             profile:
               name: acme
@@ -150,14 +153,57 @@ class MainTest {
         assertThat(exit).as(err()).isZero();
         assertThat(out())
             .contains("dev/node1: write enabled (confirmation SERVER), cli: unavailable,"
-                + " username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD")
-            .contains("qa/node2: read-only, cli: available,"
+                + " inubit: AUTO, username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD")
+            .contains("qa/node2: read-only, cli: available, inubit: AUTO,"
+                + " client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime,"
                 + " username ← INUBIT_ACME_QA_USERNAME,"
                 + " password ← INUBIT_ACME_QA_NODE2_PASSWORD")
             .contains("Result: OK")
             .doesNotContain(PASSWORD, USERNAME, "other-Secret-99", "other-user",
                 "inubit.example.test");
         assertThat(err()).doesNotContain(PASSWORD, "other-Secret-99");
+        // feature 009 (FR-011a): the local client probe only, without credentials or server URL
+        assertThat(Files.readString(cliHome.resolve("bin/arguments"))).isEqualTo("-v\n");
+    }
+
+    @Test
+    void checkConfigReportsAFailingClientProbeAsAWarning() throws IOException {
+        credentials();
+        Path cliHome = fakeStartCli("""
+            echo "Error: no JDK" >&2
+            exit 1
+            """);
+        Path file = config("""
+            profile:
+              name: acme
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: "8.1.17"
+                    cli:
+                      home: %s
+                      javaHome: %s
+            """.formatted(cliHome, home));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        assertThat(out()).contains("dev/node1: read-only, cli: available, inubit: 8.1.17,"
+                + " username ←")
+            .contains("Warnings:", "  - dev/node1: StartCLI client probe failed: StartCLI did not"
+                + " report its version (exit code 1)")
+            .contains("Result: OK");
+    }
+
+    /** An executable {@code <home>/client/bin/startcli.sh} running {@code body}; the CLI home. */
+    private Path fakeStartCli(String body) throws IOException {
+        Path cliHome = Files.createDirectories(home.resolve("client/bin")).getParent();
+        Path script = cliHome.resolve("bin/startcli.sh");
+        Files.writeString(script, "#!/bin/sh\n" + body);
+        Files.setPosixFilePermissions(script, PosixFilePermissions.fromString("rwx------"));
+        return cliHome;
     }
 
     @Test
@@ -599,7 +645,9 @@ class MainTest {
         int exit = run("--config", file.toString()); // empty stdin: starts and stops at once
 
         assertThat(exit).as(err()).isZero();
-        assertThat(err()).contains("Warnings:", "V9_X");
+        assertThat(err()).contains("Warnings:", "dev/node1: versionLine V9_X: write tools are"
+            + " refused on this node (INUBIT 9.x is not supported for writes yet); read tools run"
+            + " unverified");
         assertThat(out()).doesNotContain("V9_X");
     }
 

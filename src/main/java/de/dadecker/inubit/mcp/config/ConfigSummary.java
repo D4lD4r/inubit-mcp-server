@@ -1,10 +1,13 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
@@ -23,7 +26,9 @@ import java.util.function.Predicate;
  * availability, the {@code deploy} line of a node whose group receives deployments (feature 005)
  * and the source variable of each credential, then all warnings and errors. Feature 005 adds a
  * {@code Chains:} block (one line per stage chain and the exclusions of each target) before the
- * groups.
+ * groups. Feature 009 (FR-011a, research D-13) adds the {@code versionLine} setting and, for a
+ * node whose StartCLI client was probed, the client version with its declared range and its
+ * comparison with a concrete pin.
  * Groups and nodes are named with the profile's display names (FR-007). Values and URLs are never
  * printed.
  */
@@ -39,8 +44,12 @@ public final class ConfigSummary {
         this.windows = windows;
     }
 
+    /**
+     * @param clients the StartCLI client of each node whose probe succeeded (feature 009); a
+     *                failed probe is among the warnings of {@code report}
+     */
     public String render(LoadedConfig loaded, CredentialResolution credentials,
-        ValidationReport report) {
+        ValidationReport report, Map<NodeId, ClientVersion> clients) {
         ProfileConfig config = loaded.config();
         Terminology terms = config.terminology().effectiveOrDefault();
         StringBuilder out = new StringBuilder();
@@ -82,7 +91,10 @@ public final class ConfigSummary {
             out.append("  ").append(terms.render("{Node} ")).append(server.id()).append(": ")
                 .append(writeFlag(server))
                 .append(development ? ", " + development(server) : "")
-                .append(", cli: ").append(cliAvailable(server) ? "available" : "unavailable");
+                .append(", cli: ").append(cliAvailable(server) ? "available" : "unavailable")
+                .append(", inubit: ").append(server.versionLine().text());
+            Optional.ofNullable(clients.get(server.id()))
+                .ifPresent(client -> out.append(client(server.versionLine(), client)));
             Optional.ofNullable(deploys.get(server.id().group().value())).ifPresent(deploy ->
                 out.append(", deploy: from ").append(deploy.from().strip()).append(" (")
                     .append(deploy.mode()).append(')'));
@@ -133,6 +145,24 @@ public final class ConfigSummary {
                     .append('\n');
             }
         });
+    }
+
+    /**
+     * Feature 009 (FR-011a): {@code , client: <version> (<from>–<to>)} (without range if the
+     * client declares none), then {@code , client vs pin: match | mismatch | not comparable}
+     * for a concrete pin, else {@code , server version: determined at runtime}.
+     */
+    private static String client(VersionSetting setting, ClientVersion client) {
+        String range = client.supportedFrom().map(from -> " (" + from.raw() + "–"
+            + client.supportedTo().orElseThrow().raw() + ")").orElse("");
+        String server = setting instanceof VersionSetting.Pinned pinned
+            ? "client vs pin: " + switch (client.compare(Optional.of(pinned.version()))) {
+                case MATCH -> "match";
+                case MISMATCH -> "mismatch";
+                case NOT_COMPARABLE -> "not comparable";
+            }
+            : "server version: determined at runtime";
+        return ", client: " + client.version().raw() + range + ", " + server;
     }
 
     /** CLI home configured and {@code startcli} found (data-model.md → NodeSummary). */

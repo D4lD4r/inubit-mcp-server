@@ -354,7 +354,7 @@ shows the client against the pin, and a contradicting observation refuses writes
   executed with zero detection requests; `V9_X`: refused; a pin contradicted by `get_health` →
   refused, a later matching `get_health` → executed). If a case fails, fix it in the class
   responsible and name the fix in the commit.
-- [ ] T022 [US4] `--check-config` (research D-13, contracts/configuration-delta.md):
+- [X] T022 [US4] `--check-config` (research D-13, contracts/configuration-delta.md):
   `main/Launcher.java` creates a `CliRunner` for the check (no credentials, no server URL) and passes
   per-node client results to `main/config/ConfigSummary.java`; the node line gains
   `, inubit: <setting>` and, with a StartCLI installation, `, client: <version> (<from>–<to>)`, with

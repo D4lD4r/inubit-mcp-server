@@ -2,11 +2,15 @@ package de.dadecker.inubit.mcp.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 import org.junit.jupiter.api.Test;
@@ -34,6 +38,15 @@ class ConfigSummaryTest {
     }
 
     private String render(String yaml, WorkspaceDirectory.Preparer workspaces) {
+        return render(yaml, workspaces, Map.of());
+    }
+
+    private String render(String yaml, Map<NodeId, ClientVersion> clients) {
+        return render(yaml, NO_DISK, clients);
+    }
+
+    private String render(String yaml, WorkspaceDirectory.Preparer workspaces,
+        Map<NodeId, ClientVersion> clients) {
         LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, false).parse(yaml, SOURCE);
         CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
             loaded.config().credentialPrefix())
@@ -41,7 +54,7 @@ class ConfigSummaryTest {
         ValidationReport report =
             new ConfigValidator(exists, env, false, Path.of(System.getProperty("java.io.tmpdir")),
                 source -> List.of(), workspaces).validate(loaded, credentials);
-        return new ConfigSummary(exists, false).render(loaded, credentials, report);
+        return new ConfigSummary(exists, false).render(loaded, credentials, report, clients);
     }
 
     private static final String CONFIG = """
@@ -171,13 +184,13 @@ class ConfigSummaryTest {
 
         assertThat(summary).contains("Configuration: " + SOURCE);
         assertThat(summary).contains("test/inubit01: write enabled (confirmation SERVER), "
-            + "cli: available, username ← INUBIT_ACME_TEST_USERNAME,"
+            + "cli: available, inubit: AUTO, username ← INUBIT_ACME_TEST_USERNAME,"
             + " password ← INUBIT_ACME_TEST_PASSWORD");
-        assertThat(summary).contains("test/inubit02: read-only, cli: available, "
+        assertThat(summary).contains("test/inubit02: read-only, cli: available, inubit: AUTO, "
             + "username ← INUBIT_ACME_TEST_USERNAME,"
             + " password ← INUBIT_ACME_TEST_INUBIT02_PASSWORD");
         assertThat(summary).contains("prod/inubit01: read-only (production, no productionOptIn), "
-            + "cli: unavailable, username ← INUBIT_ACME_PROD_USERNAME,"
+            + "cli: unavailable, inubit: AUTO, username ← INUBIT_ACME_PROD_USERNAME,"
             + " password ← INUBIT_ACME_PROD_PASSWORD");
         assertThat(summary).contains("Result: OK");
     }
@@ -229,9 +242,12 @@ class ConfigSummaryTest {
         """);
 
         assertThat(summary).contains("prod/inubit01: read-only (production, no productionOptIn), "
-            + "cli: unavailable, username ← INUBIT_ACME_PROD_USERNAME, password ← (missing)");
+            + "cli: unavailable, inubit: AUTO, username ← INUBIT_ACME_PROD_USERNAME,"
+            + " password ← (missing)");
         assertThat(summary).contains("Errors:", "INUBIT_ACME_PROD_INUBIT01_PASSWORD");
-        assertThat(summary).contains("Warnings:", "unsupported in this version");
+        assertThat(summary).contains("Warnings:", "dev/inubit01: versionLine V9_X: write tools are"
+            + " refused on this node (INUBIT 9.x is not supported for writes yet); read tools run"
+            + " unverified");
         assertThat(summary).contains("Result: FAILED (");
     }
 
@@ -321,5 +337,70 @@ class ConfigSummaryTest {
         assertThat(summary).contains("Chains: not shown, see the errors")
             .doesNotContain("test → qa");
     }
-}
 
+    // --- feature 009 T022: the version setting and the client (FR-011a, research D-13) ---------
+
+    private static final String PINS = """
+        profile:
+          name: acme
+        groups:
+          - name: test
+            cli:
+              home: /opt/client
+            nodes:
+              - name: node1
+                baseUrl: https://inubit-dev-01.example.test:8443
+                versionLine: "8.1.17"
+              - name: node2
+                baseUrl: https://inubit-dev-02.example.test:8443
+                versionLine: "8.1.17"
+              - name: node3
+                baseUrl: https://inubit-dev-03.example.test:8443
+                versionLine: V8_1
+              - name: node4
+                baseUrl: https://inubit-dev-04.example.test:8443
+          - name: prod
+            production: true
+            versionLine: "8.1.17"
+            nodes:
+              - name: node1
+                baseUrl: https://inubit-prod-01.example.test:8443
+        """;
+
+    private static ClientVersion client(String version, String from, String to) {
+        return new ClientVersion(InubitVersion.parse(version).orElseThrow(),
+            Optional.ofNullable(from).flatMap(InubitVersion::parse),
+            Optional.ofNullable(to).flatMap(InubitVersion::parse));
+    }
+
+    @Test
+    void eachNodeShowsItsVersionSettingAndItsClientAgainstAConcretePin() {
+        String summary = render(PINS, Map.of(
+            NodeId.parse("test/node1"), client("8.1.17", "4.0.1", "8.1.17"),
+            NodeId.parse("test/node2"), client("8.1.18", "4.0.1", "8.1.18"),
+            NodeId.parse("test/node3"), client("8.1.17", null, null)));
+
+        assertThat(summary).contains("test/node1: read-only, cli: available, inubit: 8.1.17,"
+            + " client: 8.1.17 (4.0.1–8.1.17), client vs pin: match, username ←");
+        assertThat(summary).contains("test/node2: read-only, cli: available, inubit: 8.1.17,"
+            + " client: 8.1.18 (4.0.1–8.1.18), client vs pin: mismatch, username ←");
+        assertThat(summary).as("without a concrete pin there is nothing to compare with (FR-011a);"
+            + " a client without declared range shows its version only")
+            .contains("test/node3: read-only, cli: available, inubit: V8_1, client: 8.1.17,"
+                + " server version: determined at runtime, username ←");
+        assertThat(summary).as("no client result (failed probe, reported as a warning)")
+            .contains("test/node4: read-only, cli: available, inubit: AUTO, username ←");
+        assertThat(summary).as("no StartCLI installation: no client")
+            .contains("prod/node1: read-only, cli: unavailable, inubit: 8.1.17, username ←");
+        assertThat(summary).contains("Result: OK");
+    }
+
+    @Test
+    void aClientWithoutPatchIsNotComparableWithThePin() {
+        String summary = render(PINS, Map.of(NodeId.parse("test/node1"),
+            client("8.1", "4.0.1", "8.1.17")));
+
+        assertThat(summary).contains("inubit: 8.1.17, client: 8.1 (4.0.1–8.1.17), client vs pin:"
+            + " not comparable, username ←");
+    }
+}

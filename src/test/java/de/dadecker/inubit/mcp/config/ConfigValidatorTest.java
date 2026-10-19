@@ -751,12 +751,14 @@ class ConfigValidatorTest {
         }
 
         @Test
-        void versionLine9IsUnsupported() {
+        void versionLine9RefusesWritesAndRunsReadsUnverified() {
             ValidationReport report = validate(server("versionLine: V9_X\n"));
 
             assertThat(report.errors()).isEmpty();
-            assertThat(report.warnings()).singleElement().satisfies(w -> assertThat(w)
-                .contains("dev/node1", "V9_X", "unsupported in this version"));
+            // feature 009 (research D-13)
+            assertThat(report.warnings()).containsExactly("dev/node1: versionLine V9_X: write tools"
+                + " are refused on this node (INUBIT 9.x is not supported for writes yet); read"
+                + " tools run unverified");
         }
 
         @Test

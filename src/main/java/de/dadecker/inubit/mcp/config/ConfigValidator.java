@@ -502,8 +502,9 @@ public final class ConfigValidator {
             checkCli(server, findings);
         }
         if (server.versionLine().equals(VersionSetting.V9_X)) {
-            findings.warning(id + ": versionLine V9_X is unsupported in this version; the 8.1"
-                + " adapters are used");
+            // feature 009 (research D-13)
+            findings.termWarning("%s: versionLine V9_X: write tools are refused on this {node}"
+                + " (INUBIT 9.x is not supported for writes yet); read tools run unverified", id);
         }
         server.inventory().owner()
             .filter(owner -> !CLI_VALUE_PATTERN.matcher(owner).matches())
