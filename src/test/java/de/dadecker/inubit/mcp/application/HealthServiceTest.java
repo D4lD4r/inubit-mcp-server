@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.HealthReport;
 import de.dadecker.inubit.mcp.domain.model.HealthStatus;
@@ -15,6 +16,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
@@ -22,6 +24,7 @@ import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -60,6 +63,8 @@ class HealthServiceTest {
     private static final SystemInfo SYSTEM_INFO = new SystemInfo(Optional.of("8.1.17"),
         Optional.of("OpenJDK 17"), Optional.of("Linux"), Optional.of("9216 MB"),
         Optional.of(true), Optional.of(401), Map.of("FreeMemory", "2548"));
+    private static final ClientVersion CLIENT_8117 = new ClientVersion(version("8.1.17"),
+        Optional.of(version("4.0.1")), Optional.of(version("8.1.17")));
     private static final LoadFigures LOAD = LoadFigures.of(5500, 3716, 9216, 0, 999_999, 401, 0,
         200_000);
 
@@ -71,9 +76,17 @@ class HealthServiceTest {
     private final AtomicInteger detections = new AtomicInteger();
     /** Feature 009: the {@code versionLine} of each server ({@code V8_1} if absent). */
     private final Map<NodeId, VersionSetting> versionLines = new ConcurrentHashMap<>();
-    private final NodeVersions versions = new NodeVersions(Clock.fixed(NOW, ZoneOffset.UTC),
+    /** Moves only when a test advances it (the 60 s back-off of a failed client probe). */
+    private final MutableClock clock = new MutableClock(NOW);
+    private final NodeVersions versions = new NodeVersions(clock,
         node -> versionLines.getOrDefault(node, VersionSetting.V8_1),
         node -> Duration.ofMinutes(10));
+    /** Feature 009: nodes with a StartCLI installation; only these are probed. */
+    private final Set<NodeId> withClient = ConcurrentHashMap.newKeySet();
+    /** Feature 009: the client each probe reports (8.1.17 with range 4.0.1 – 8.1.17 if absent). */
+    private final Map<NodeId, Supplier<ClientVersion>> clients = new ConcurrentHashMap<>();
+    private final List<Duration> probeTimeouts = java.util.Collections.synchronizedList(
+        new ArrayList<>());
     /** Feature 009: detections requested by the version gate (never for get_health). */
     private final AtomicInteger gateDetections = new AtomicInteger();
 
@@ -135,9 +148,14 @@ class HealthServiceTest {
                         List.of()), HealthServiceTest.this.monitoring(server)));
             }
         };
+        ClientVersionPort probe = (server, timeout) -> {
+            probeTimeouts.add(timeout);
+            return clients.getOrDefault(server, () -> CLIENT_8117).get();
+        };
         return new HealthService(gateways, new TargetResolver(SERVERS), new FanOut(),
             server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC),
-            new VersionGate(versions, gateways, CapabilityMatrix.production()), versions);
+            new VersionGate(versions, gateways, CapabilityMatrix.production()), versions,
+            probe, withClient::contains);
     }
 
     private HealthReport checkOne(NodeId server, boolean includeSystemInfo) {
@@ -453,6 +471,10 @@ class HealthServiceTest {
     private static final String UNVERIFIED_902 = "INUBIT 9.0.2 on dev/node1 is not verified for"
         + " monitoring; results may be incomplete";
 
+    private static InubitVersion version(String raw) {
+        return InubitVersion.parse(raw).orElseThrow();
+    }
+
     private static SystemInfo systemInfoOf(String version) {
         return new SystemInfo(Optional.of(version), Optional.empty(), Optional.empty(),
             Optional.empty(), Optional.empty(), Optional.empty(), Map.of());
@@ -600,6 +622,201 @@ class HealthServiceTest {
 
         assertThat(versions.state(DEV).observed()).isEmpty();
         assertThat(versions.state(QA1).observed()).isEmpty();
+    }
+
+    // --- client probe (feature 009, FR-002, FR-011) ----------------------------------------
+
+    private static final String CLIENT_MISMATCH = "StartCLI client 8.1.17 on dev/node1 differs"
+        + " from INUBIT 8.1.18 (mismatch); StartCLI-backed tools still run, but their results"
+        + " may be unreliable";
+
+    @Test
+    void theClientIsProbedOnceWithinTheBudgetAndReportedWithItsRangeAndComparison() {
+        withClient.add(DEV);
+        versionLines.put(DEV, VersionSetting.parse("8.1.17").orElseThrow());
+
+        HealthReport first = checkOne(DEV, false);
+        HealthReport second = checkOne(DEV, false);
+
+        for (HealthReport report : List.of(first, second)) {
+            assertThat(report.client()).contains(new HealthReport.Client(Optional.of("8.1.17"),
+                Optional.of("4.0.1"), Optional.of("8.1.17"), Optional.of("match"),
+                Optional.empty()));
+            assertThat(report.unavailable()).isEmpty();
+            assertThat(report.warnings()).isEmpty();
+        }
+        assertThat(probeTimeouts).as("the second get_health reuses the result").singleElement()
+            .satisfies(timeout -> assertThat(timeout).isPositive()
+                .isLessThanOrEqualTo(TIMEOUT));
+        assertThat(versions.state(DEV).client().orElseThrow().value()).isEqualTo(CLIENT_8117);
+    }
+
+    @Test
+    void anOlderClientThanTheServerIsAMismatchWithAWarning() {
+        withClient.add(DEV);
+        monitoring(DEV).systemInfo = () -> systemInfoOf("8.1.18");
+
+        HealthReport report = checkOne(DEV, false);
+
+        assertThat(report.client()).get().satisfies(client -> {
+            assertThat(client.version()).contains("8.1.17");
+            assertThat(client.comparison()).contains("mismatch");
+        });
+        assertThat(report.warnings()).containsExactly(CLIENT_MISMATCH);
+    }
+
+    @Test
+    void aServerOutsideTheClientRangeIsAMismatchWhoseStartCliToolsAreRefused() {
+        // FR-011: an 8.1 client declares 4.0.1 to 8.1.17, so 9.0.7 lies outside its range
+        withClient.add(DEV);
+        versionLines.put(DEV, VersionSetting.AUTO);
+        monitoring(DEV).systemInfo = () -> systemInfoOf("9.0.7");
+
+        HealthReport report = checkOne(DEV, false);
+
+        assertThat(report.client()).get().extracting(HealthReport.Client::comparison)
+            .isEqualTo(Optional.of("mismatch"));
+        assertThat(report.warnings()).contains("StartCLI client 8.1.17 on dev/node1 supports"
+            + " INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7; StartCLI-backed tools are"
+            + " refused on dev/node1 (UNSUPPORTED_VERSION) until a StartCLI client that"
+            + " supports INUBIT 9.0 is installed");
+        assertThat(report.warnings()).noneMatch(warning -> warning.contains("still run"));
+    }
+
+    @Test
+    void anUnknownServerVersionIsNotComparableWithoutWarning() {
+        withClient.add(DEV);
+        versionLines.put(DEV, VersionSetting.AUTO);
+        monitoring(DEV).systemInfo = () -> {
+            throw error(ErrorCode.AUTH_FAILED, DEV, "INUBIT rejected the credentials (HTTP 401)");
+        };
+
+        HealthReport report = checkOne(DEV, false);
+
+        assertThat(report.client()).get().extracting(HealthReport.Client::comparison)
+            .isEqualTo(Optional.of("not_comparable"));
+        assertThat(report.warnings()).noneMatch(warning -> warning.contains("StartCLI client"));
+    }
+
+    @Test
+    void aNodeWithoutStartCliReportsTheClientAsNotAvailableAndRunsNoProbe() {
+        HealthReport report = checkOne(DEV, false);
+
+        assertThat(report.client()).contains(HealthReport.Client.NOT_AVAILABLE);
+        assertThat(report.client().orElseThrow().state()).contains("not_available");
+        assertThat(report.unavailable()).isEmpty();
+        assertThat(probeTimeouts).isEmpty();
+        assertThat(versions.state(DEV).client()).isEmpty();
+        assertThat(versions.state(DEV).clientFailure()).isEmpty();
+    }
+
+    @Test
+    void aFailedProbeIsUnavailableNotCachedAndRetriedAfterSixtySeconds() {
+        withClient.add(DEV);
+        clients.put(DEV, () -> {
+            throw error(ErrorCode.CLI_UNAVAILABLE, DEV, "StartCLI did not report its version"
+                + " (exit code 1)");
+        });
+
+        HealthReport failed = checkOne(DEV, false);
+
+        assertThat(failed.client()).isEmpty();
+        assertThat(failed.version()).contains("8.1.17");
+        assertThat(failed.unavailable()).singleElement().satisfies(part -> {
+            assertThat(part.part()).isEqualTo(UnavailablePart.CLIENT);
+            assertThat(part.reason()).isEqualTo("CLI_UNAVAILABLE: StartCLI did not report its"
+                + " version (exit code 1)");
+            assertThat(part.nextStep()).contains("next step");
+        });
+        assertThat(versions.state(DEV).clientFailure().orElseThrow().value())
+            .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+
+        clock.advance(Duration.ofSeconds(30));
+        HealthReport backOff = checkOne(DEV, false);
+
+        assertThat(probeTimeouts).as("no probe within 60 s of the failure").hasSize(1);
+        assertThat(backOff.unavailable()).singleElement().satisfies(part -> {
+            assertThat(part.part()).isEqualTo(UnavailablePart.CLIENT);
+            assertThat(part.reason()).isEqualTo("CLI_UNAVAILABLE: the StartCLI client probe"
+                + " of dev/node1 failed at 2026-10-01T08:00:00Z; it is retried from"
+                + " 2026-10-01T08:01:00Z");
+        });
+
+        clock.advance(Duration.ofSeconds(31));
+        clients.remove(DEV);
+        HealthReport retried = checkOne(DEV, false);
+
+        assertThat(probeTimeouts).as("retried after the back-off").hasSize(2);
+        assertThat(retried.unavailable()).isEmpty();
+        assertThat(retried.client()).get().extracting(HealthReport.Client::version)
+            .isEqualTo(Optional.of("8.1.17"));
+        assertThat(versions.state(DEV).clientFailure()).isEmpty();
+    }
+
+    @Test
+    void aHangingProbeIsNotYetDetectedWithinTheServerTimeoutPlusOneSecond() {
+        withClient.add(DEV);
+        CountDownLatch never = new CountDownLatch(1);
+        clients.put(DEV, () -> {
+            awaitQuietly(never);
+            return CLIENT_8117;
+        });
+
+        long start = System.nanoTime();
+        HealthReport report = checkOne(DEV, false);
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+        assertThat(elapsed).isLessThan(TIMEOUT.plus(SLACK));
+        assertThat(report.reachable()).isTrue();
+        assertThat(report.version()).contains("8.1.17");
+        assertThat(report.load()).contains(LOAD);
+        assertThat(report.client()).isEmpty();
+        assertThat(report.unavailable()).singleElement().satisfies(part -> {
+            assertThat(part.part()).isEqualTo(UnavailablePart.CLIENT);
+            assertThat(part.reason()).isEqualTo("TIMEOUT: not yet detected (timeout); the"
+                + " StartCLI client of dev/node1 did not report its version within 1 s");
+            assertThat(part.nextStep()).isPresent();
+        });
+        assertThat(versions.state(DEV).clientFailure().orElseThrow().value())
+            .isEqualTo(ErrorCode.TIMEOUT);
+    }
+
+    @Test
+    void aProbeTimeoutInTheBackOffIsStillNotYetDetected() {
+        withClient.add(DEV);
+        clients.put(DEV, () -> {
+            throw error(ErrorCode.TIMEOUT, DEV, "StartCLI did not finish within 1 s");
+        });
+        checkOne(DEV, false);
+
+        HealthReport report = checkOne(DEV, false);
+
+        assertThat(probeTimeouts).hasSize(1);
+        assertThat(report.unavailable()).singleElement().extracting(UnavailablePart::reason)
+            .isEqualTo("TIMEOUT: not yet detected (timeout); the StartCLI client probe of"
+                + " dev/node1 failed at 2026-10-01T08:00:00Z; it is retried from"
+                + " 2026-10-01T08:01:00Z");
+    }
+
+    @Test
+    void neitherTheClientReportNorItsUnavailableTextsExposeUrlsOrCredentials() {
+        // FR-016: the StartCLI output excerpt of a failed probe is not copied into the report
+        withClient.add(DEV);
+        withClient.add(QA1);
+        clients.put(DEV, () -> {
+            throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
+                    "StartCLI did not report its version (exit code 1)", "cause", "next step")
+                .withNode(DEV)
+                .withExcerpt("login jdoe/s3cret-pw at https://inubit.example:8443/ibis"));
+        });
+
+        List<HealthReport> reports = service().check(Optional.empty(), true);
+
+        assertThat(reports.get(0).unavailable()).extracting(UnavailablePart::part)
+            .containsExactly(UnavailablePart.CLIENT);
+        assertThat(reports.get(1).client()).isPresent();
+        assertThat(reports.toString()).doesNotContain("inubit.example", "https://", "jdoe",
+            "s3cret-pw");
     }
 
     // --- targets ---------------------------------------------------------------------------

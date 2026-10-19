@@ -20,8 +20,11 @@ import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
@@ -31,6 +34,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
@@ -62,6 +67,11 @@ class GetHealthToolTest {
     private static WireMockServer other;
 
     private SecretScrubber scrubber;
+    /** Feature 009: nodes with a StartCLI installation (none by default) and their probe. */
+    private Set<NodeId> withClient = Set.of();
+    private ClientVersionPort probe = (node, timeout) -> {
+        throw new AssertionError("no node has a StartCLI installation");
+    };
     private AdapterGatewayFactory gateways;
     private McpTestClient client;
 
@@ -125,7 +135,8 @@ class GetHealthToolTest {
             EffectiveNodeConfig::id, EffectiveNodeConfig::timeout));
         HealthService health = new HealthService(gateways, new TargetResolver(ids),
             new FanOut(), timeouts::get, Clock.systemUTC(),
-            new VersionGate(versions, gateways, CapabilityMatrix.production()), versions);
+            new VersionGate(versions, gateways, CapabilityMatrix.production()), versions, probe,
+            withClient::contains);
         client = McpTestClient.start(List.of(new GetHealthTool(health)), scrubber);
         client.initialize();
     }
@@ -312,6 +323,64 @@ class GetHealthToolTest {
         JsonNode hanging = reports.path(1);
         assertThat(hanging.path("reachable").asBoolean(true)).isFalse();
         assertThat(hanging.path("error").path("code").asString()).isEqualTo("TIMEOUT");
+    }
+
+    // --- feature 009: the StartCLI client probe (FR-002) -------------------------------------
+
+    @Test
+    void aHangingClientProbeIsNotYetDetectedWithinTimeoutPlusOneSecond() {
+        CountDownLatch never = new CountDownLatch(1);
+        withClient = Set.of(NodeId.parse("dev/node1"));
+        probe = (node, timeout) -> {
+            try {
+                never.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            throw new AssertionError("interrupted");
+        };
+        start(List.of(
+            server("dev/node1", "https://localhost:" + dev.httpsPort(), VersionSetting.AUTO),
+            server("qa/node1", "https://localhost:" + integration.httpsPort(),
+                VersionSetting.V8_1)));
+
+        long start = System.nanoTime();
+        JsonNode result = call(Map.of());
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+        assertThat(elapsed).as("SC-002 with a hanging probe").isLessThan(TIMEOUT.plusSeconds(1));
+        assertMatchesOutputSchema(result);
+        JsonNode reports = result.path("structuredContent").path("reports");
+        JsonNode probed = reports.path(0);
+        assertThat(probed.path("version").asString()).isEqualTo("8.1.17");
+        assertThat(probed.has("load")).isTrue();
+        assertThat(probed.has("client")).isFalse();
+        assertThat(probed.path("unavailable")).singleElement().satisfies(part -> {
+            assertThat(part.path("part").asString()).isEqualTo("client");
+            assertThat(part.path("reason").asString())
+                .startsWith("TIMEOUT: not yet detected (timeout)");
+        });
+        assertThat(reports.path(1).path("client").path("state").asString())
+            .isEqualTo("not_available");
+    }
+
+    @Test
+    void aProbedClientIsReportedWithItsRangeAndComparison() {
+        withClient = Set.of(NodeId.parse("dev/node1"));
+        probe = (node, timeout) -> new ClientVersion(InubitVersion.parse("8.1.17").orElseThrow(),
+            InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17"));
+        start(List.of(
+            server("dev/node1", "https://localhost:" + dev.httpsPort(), VersionSetting.AUTO)));
+
+        JsonNode result = call(Map.of());
+
+        assertMatchesOutputSchema(result);
+        JsonNode report = result.path("structuredContent").path("reports").path(0);
+        assertThat(report.path("client")).isEqualTo(JSON.readTree("{\"version\":\"8.1.17\","
+            + "\"supportedFrom\":\"4.0.1\",\"supportedTo\":\"8.1.17\","
+            + "\"comparison\":\"match\"}"));
+        assertThat(report.path("unavailable")).isEmpty();
+        assertThat(report.path("warnings")).isEmpty();
     }
 
     @Test

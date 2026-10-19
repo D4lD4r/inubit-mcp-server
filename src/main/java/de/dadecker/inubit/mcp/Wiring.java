@@ -93,9 +93,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * Composition root: builds the shared components from a validated configuration and the tool
@@ -205,8 +207,12 @@ final class Wiring implements AutoCloseable {
         this.summaries = servers.stream().map(server -> server.summary(exists, windows)).toList();
         Map<NodeId, Duration> timeouts = new HashMap<>();
         servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
+        // feature 009 (FR-002): get_health probes the client of nodes with StartCLI installed
+        Set<NodeId> withClient = servers.stream()
+            .filter(server -> server.cliAvailable(exists, windows))
+            .map(EffectiveNodeConfig::id).collect(Collectors.toUnmodifiableSet());
         this.health = new HealthService(gateways, targets, fanOut, timeouts::get, clock.clock(),
-            versionGate, versions);
+            versionGate, versions, clientVersions, withClient::contains);
         Map<NodeId, Duration> hangingThresholds = new HashMap<>();
         servers.forEach(server -> hangingThresholds.put(server.id(), server.hangingThreshold()));
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,

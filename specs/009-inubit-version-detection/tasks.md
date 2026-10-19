@@ -293,7 +293,7 @@ after `get_health` it shows the detected version, the client version and `suppor
   `test/adapter/cli/CliVersionProbeTest.java` (version with range, `version_no_range`, 9.0 variant,
   timeout → `TIMEOUT`, no installation → `CLI_UNAVAILABLE`; FR-016: a failure's StartCLI output
   excerpt is scrubbed by `SecretScrubber` and contains no credential or URL).
-- [ ] T018 [US1] Client probe in `get_health` (FR-002): `HealthService.checkServer` submits the
+- [X] T018 [US1] Client probe in `get_health` (FR-002): `HealthService.checkServer` submits the
   probe as a fourth parallel future bounded by the node's health deadline unless `NodeVersions`
   already holds a successful client result (reused for the process lifetime); the report gains
   `client` (`version`, `supportedFrom`, `supportedTo`, `comparison`); successes and failures are
