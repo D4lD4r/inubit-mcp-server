@@ -56,6 +56,17 @@ development stages and the stage chain: [docs/setup.md](docs/setup.md).
   `development.enabled` for the development tools, and a `deploy` record for deployments.
 - **Production lock.** On groups marked `production: true`, writes additionally require
   `write.productionOptIn: true`; development settings and end-to-end tests are not allowed there.
+- **Writes only on a verified INUBIT version.** Each call is checked against its node's INUBIT
+  version, pinned with `versionLine` or detected from the node on first use (`AUTO`). Write tools
+  run only on a known INUBIT 8.1 node. They are refused with `UNSUPPORTED_VERSION` before anything
+  but the version detection is sent on an unknown version (also after a failed detection), on
+  any version other than 8.1 (INUBIT 9.x, `V9_X`) and while `get_health` reads a version that
+  contradicts the pin;
+  read tools run there with a warning that their results are unverified. StartCLI-backed tools
+  are also refused where the local StartCLI client does not support the node's INUBIT
+  major.minor, and `deploy_release` deploys only between nodes of the same minor version.
+  `list_nodes` shows per node the version, the client and the usable capabilities without
+  contacting it ([INUBIT version](docs/setup.md#inubit-version-versionline)).
 - **Two-step confirmation.** By default the server issues a short-lived, one-time confirmation code
   for each write, bound to the node, the action and the state it previewed (process instance,
   workspace and server state, or release and target nodes); the action runs only when that code

@@ -49,6 +49,39 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
   See `docs/setup.md` ("Development settings", "Artifact workspace") and `docs/tools.md`
   ("Repository files (feature 008)", `restore_backup`).
+- INUBIT version detection and version-dependent capabilities (feature 009): every tool needs a
+  capability (`monitoring`, `diagnosis`, `inventory`, `workspace_export`, `development_writes`,
+  `deployment`, `e2e_test`, `process_control`), and the server declares per INUBIT version which
+  of them are supported. INUBIT 8.1.x supports all of them; INUBIT 9.0, any later version, `V9_X`
+  and an unknown version run reads unverified (with a warning) and refuse writes. No 9.0-specific
+  access is part of this version. What changes for existing profiles is listed under "Changed".
+  - `versionLine` also accepts a concrete version such as `"8.1.17"` or `"9.0.7-HF1"` (major,
+    minor and patch; a suffix is kept and ignored for matching; quote it). Any other value is a
+    configuration error that names the key.
+  - StartCLI client check: for each node with a StartCLI installation the server runs
+    `startcli.sh -v` locally (no credentials, no INUBIT contact) in `get_health`, before the first
+    StartCLI-backed call on the node and in `--check-config`, and compares the client version and
+    the INUBIT range it declares with the node's version. A different version gives a warning; a
+    failed or timed-out check is retried at most once per 60 s.
+  - `list_nodes` reports a `version` block per node: the setting, the last known server version
+    with its source and time (or `not_yet_detected` / `unknown` with the reason), the StartCLI
+    client, a support status (`supported`, `partially_supported`, `unsupported`, `unknown`) and
+    the usable and not usable capabilities. It still contacts no node.
+  - `get_health` reports the StartCLI client per node (`client`: version, declared range and
+    comparison with the server version, or `not_available`); a check that fails or does not
+    finish within the health time budget is the new part `client` in `unavailable`.
+  - Optional `warnings` in the results of `find_processes`, `query_logs`, `list_inventory`,
+    `get_inventory_item`, `restart_process` and `kill_process`, and at the top level of the
+    `deploy_release` preview: version and client warnings of the node. A version warning of the
+    `check_artifacts` module lookup becomes the new finding `MODULE_LOOKUP_WARNING`; a refused
+    lookup turns the modules into `MODULE_UNVERIFIED` with the reason.
+  - `--check-config` adds `inubit: <versionLine>` to each node's line and, after a successful
+    client check, `client: <version> (<from>–<to>)` with `client vs pin: …` for a concrete pin or
+    `server version: determined at runtime` otherwise. New warnings: one per `V9_X` node (writes
+    refused, reads unverified) and one per failed client check (not an error).
+
+  See `docs/setup.md` ("INUBIT version (`versionLine`)", "StartCLI client check") and
+  `docs/tools.md` ("INUBIT versions and capabilities (feature 009)", `UNSUPPORTED_VERSION`).
 
 ### Changed
 
@@ -68,6 +101,44 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Backup manifests of development calls name the repository files the backup holds
   (`repositoryPaths`) and keep them, and their `kind`, when the call's outcome is recorded.
   Manifests of earlier versions stay readable.
+- Deliberate behaviour changes of feature 009. Before, every tool ran with the 8.1 adapters and
+  at most a warning, whatever the version; now the error code `UNSUPPORTED_VERSION` (reserved
+  until now) is returned, before anything but the version detection and the local client check
+  is sent, and refusals of write tools are audited:
+  - Write tools (`restart_process`, `kill_process`, the development writes, `run_e2e_test`,
+    `deploy_release`, `restore_backup`) are refused on an unknown version, also after a failed
+    `AUTO` detection, which used to fall back to 8.1 with the warning "INUBIT version could not
+    be detected (…); assuming 8.1". The remedy is to fix the cause or to pin the version the node
+    runs (`V8_1` or a concrete version).
+  - Write tools are refused on `V9_X` nodes and on nodes detected as INUBIT 9.x (or any version
+    other than 8.1), which used to run them with an "unsupported" warning.
+  - A pin that `get_health` contradicts (a different major.minor) refuses writes on that node
+    until a later `get_health` reads a matching version or the server restarts with a corrected
+    pin; a different patch only gives a warning.
+  - StartCLI-backed tools, reads included, are refused on a node whose StartCLI client declares an
+    INUBIT range that excludes the node's major.minor (e.g. an 8.1 client at a 9.0 node);
+    `get_inventory_item` for a diagram then returns its REST data with the version history in
+    `unavailable`.
+  - `deploy_release` checks every source and target node in the preview and again before the
+    execution, and is refused as a whole if any node is refused or unknown or the nodes run
+    different minor versions (8.1.x → 8.1.y is allowed). `restore_backup` of a deployment backup
+    follows the deployment rules.
+  - A write tool is no longer announced when every node that could run it by configuration is
+    pinned to a version that does not support it (e.g. only `V9_X` nodes have `write.enabled`);
+    `deploy_release` (and `restore_backup` for deployment backups) only when a node of a target
+    group may deploy. `AUTO` nodes count as capable.
+- Before a write, the version of an `AUTO` node is detected again (one `/system/info` request)
+  if it is older than `inventory.cacheTtl` or was marked stale. A response the 8.1 adapters did
+  not expect marks it stale.
+- An HTTP 404 from a fixed endpoint (`/system/info`, the diagram list, the log query) is
+  `UNEXPECTED_RESPONSE` ("the node may run another INUBIT version") instead of `NOT_FOUND`; a 404
+  for a requested process or diagram stays `NOT_FOUND`.
+- `list_nodes` reports `versionLine` as the configured string (also a concrete version) instead
+  of an enum value.
+- The version warnings of `get_health` and the read tools read "INUBIT 9.0.7 on <node> is not
+  verified for <capability>; results may be incomplete" and "the INUBIT version of <node> is
+  unknown (<code> at <time>); results are unverified", instead of "… is unsupported in this
+  version; the 8.1 adapters are used" and "… assuming 8.1".
 
 ### Fixed
 

@@ -140,16 +140,17 @@ an unknown version) with the 8.1 adapters and a warning in the result's `warning
 run only on a known version that supports their capability; they are refused with
 [`UNSUPPORTED_VERSION`](#unsupported_version) on any version other than 8.1 (9.0, a later
 version, `V9_X`), on an unknown version (also after a failed detection or a failed re-detection
-before the write) and while a pin is contradicted by `get_health`. A tool that targets a group judges each node on its own: a
-refused node gets its `error`, the other nodes are still reported (`deploy_release` excepted).
+before the write) and while a pin is contradicted by `get_health`. A tool that targets a group
+judges each node on its own: a refused node gets its `error`, the other nodes are still reported
+(`deploy_release` excepted).
 Every version refusal is logged on stderr; refusals of write tools are audited as `REFUSED`.
 
 **StartCLI client check** (only for calls that use StartCLI): the client is probed once per node
 (see [setup.md](setup.md#startcli-client-check)) and compared with the version above. A server
 major.minor outside the client's declared range refuses the StartCLI part with
-`UNSUPPORTED_VERSION`; a different patch (`mismatch`), a failed or timed-out probe, a client
-without a declared range or an unknown server version give a warning. REST- and SOAP-only calls
-are not affected.
+`UNSUPPORTED_VERSION`; a client version that differs from the server's (`mismatch`: major, minor
+or patch differ), a failed or timed-out probe, a client without a declared range or an unknown
+server version give a warning. REST- and SOAP-only calls are not affected.
 
 **Warnings** (strings in `warnings`; examples):
 
@@ -157,7 +158,7 @@ are not affected.
 |---|---|---|
 | unverified version | `INUBIT 9.0.7 on dev/node1 is not verified for diagnosis; results may be incomplete` (`INUBIT 9.x (versionLine V9_X) on …` for a `V9_X` node) | read tools, `get_health` |
 | unknown version | `the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T09:12:03Z); results are unverified` (`(not yet detected)` if no detection was attempted) | read tools, `get_health` |
-| client and server differ in the patch | `StartCLI client 8.1.17 on dev/node1 differs from INUBIT 8.1.18 (mismatch); StartCLI-backed tools still run, but their results may be unreliable` | StartCLI-backed tools, `get_health`, `list_nodes` |
+| client and server differ (major, minor or patch) | `StartCLI client 8.1.17 on dev/node1 differs from INUBIT 8.1.18 (mismatch); StartCLI-backed tools still run, but their results may be unreliable` | StartCLI-backed tools, `get_health`, `list_nodes` |
 | server outside the client's range | `StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7; StartCLI-backed tools are refused on next/node1 (UNSUPPORTED_VERSION) until a StartCLI client that supports INUBIT 9.0 is installed` | `get_health`, `list_nodes` (the tools themselves refuse) |
 | client probe failed | `The StartCLI client probe of dev/node1 failed (TIMEOUT at 2026-10-18T09:12:03Z); the INUBIT range of the client cannot be checked, StartCLI results may be unreliable` | StartCLI-backed tools |
 | no declared range | `StartCLI client 8.1.17 of dev/node1 declares no supported INUBIT range; StartCLI results may be unreliable` | StartCLI-backed tools |
@@ -168,8 +169,9 @@ are not affected.
 ### `UNSUPPORTED_VERSION`
 
 A call (for the inventory tools: its StartCLI part) is refused before any request other than the
-version detection and the local client probe. The `message` starts with the tool name and ends with `; nothing was sent`; `node` names
-the node:
+version detection and the local client probe. The `message` starts with the tool name and ends
+with `; nothing was sent`; `node` names the node (not for `deploy_release`, which names its nodes
+in the message):
 
 ```json
 {"code": "UNSUPPORTED_VERSION",
@@ -185,7 +187,7 @@ the node:
 | the version is unknown (failed `AUTO` detection or re-detection) | `Development writes refused: the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T09:12:03Z); nothing was sent` | `Fix the cause of the failed version detection and retry in a minute, or set versionLine of dev/node1 to the version the node actually runs and restart the server` |
 | the pin is contradicted by `get_health` | `versionLine V8_1 of qa/node1 contradicts INUBIT 9.0.7 observed by get_health at 2026-10-18T09:12:03Z; development writes refused; nothing was sent` | `Correct versionLine of qa/node1 (get_health observed INUBIT 9.0.7) and restart the server` |
 | the client's range excludes the server | `StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7; workspace export via StartCLI refused; nothing was sent` | `Install a StartCLI client on the host of this server that supports INUBIT 9.0` |
-| `deploy_release`: a node refused or unknown, or different minor versions | `refused nodes: …` and every source and target node with its version (see [`deploy_release`](#deploy_release)) | the next steps of the refused nodes, and `Deploy only between nodes of the same INUBIT minor version (e.g. 8.1.x to 8.1.y) whose versions are known` |
+| `deploy_release`: a node refused or unknown, or different minor versions | `refused nodes: …` and every source and target node with its version (see [`deploy_release`](#deploy_release)) | the next steps of the refused nodes; only when the nodes run different minor versions, also `Deploy only between nodes of the same INUBIT minor version (e.g. 8.1.x to 8.1.y) whose versions are known` |
 
 The next step never suggests pinning a version the node is not known to run.
 
@@ -193,9 +195,9 @@ The next step never suggests pinning a version the node is not known to run.
 
 The tool list is decided at startup, as before (no list-changed notification). A write tool is
 additionally not offered when every node that could run it by configuration is pinned (a version
-line or a concrete version) to a version that does not support its capability, e.g. a profile whose only
-development nodes are `V9_X`. `AUTO` nodes count as possibly capable; a later detection does not
-change the list, it leads to refusals.
+line or a concrete version) to a version that does not support its capability, e.g. a profile
+whose only development nodes are `V9_X`. `AUTO` nodes count as possibly capable; a later
+detection does not change the list, it leads to refusals.
 
 ## Common shapes: Page and ToolError
 
@@ -372,10 +374,10 @@ How the report is built (research R-10):
   credentials) runs in parallel; the version it returns is recorded for every node, pinned ones
   too (feature 009): for `versionLine: AUTO` it is the version detection, for a pinned node a
   different major.minor is a contradiction (writes refused, warned) until a later reading matches.
-  `get_health` itself is never refused for a version. `/metrics?format=json` runs in parallel too once the credentials have been
-  accepted, otherwise right after `/system/info`. All nodes are checked in parallel. The whole
-  call returns within the largest server `timeout` + 1 s, even if a server hangs (a hanging part
-  is reported as `TIMEOUT`).
+  `get_health` itself is never refused for a version. `/metrics?format=json` runs in parallel too
+  once the credentials have been accepted, otherwise right after `/system/info`. All nodes are
+  checked in parallel. The whole call returns within the largest server `timeout` + 1 s, even if
+  a server hangs (a hanging part is reported as `TIMEOUT`).
 - **Account-lockout protection**: when INUBIT rejects a server's credentials (HTTP 401, or a
   StartCLI login failure), every authenticated call to that server fails for 60 s with
   `AUTH_FAILED` "authentication failed recently; not retried for N s to avoid account lockout",
@@ -811,7 +813,7 @@ exist. Both tools are annotated `destructiveHint: true`, `idempotentHint: false`
 | `stateAfter` | re-read after the action: `ERROR`, `ACTIVE`, `WAITING`, `QUEUED`, `OTHER`, or `NOT_IN_QUEUE` if the instance left the Queue Manager; absent if the re-read failed |
 | `message` | INUBIT's confirmation text, or the failure (`CODE: message`, likely cause, next step, excerpt) |
 | `auditId` | id of the execution's audit records |
-| `warnings` | only when non-empty (feature 009): warnings of the version check, e.g. a StartCLI client that differs from the node's INUBIT version in the patch |
+| `warnings` | only when non-empty (feature 009): warnings of the version check, e.g. a StartCLI client whose version differs from the node's INUBIT version (major, minor or patch) |
 
 **Decision flow** (every step that ends the flow writes an audit record):
 
@@ -963,10 +965,10 @@ an owner that is no repository root (e.g. `.` or `..`) with `repositoryPaths`, t
 repository paths whose paths differ only in case, a repository export over 500 files or 100 MiB);
 `NOT_CONFIGURED` (no owner); `UNSUPPORTED_VERSION` (the node's StartCLI client does not support
 its INUBIT version, e.g. an 8.1 client at a 9.0 node; feature 009); `CLI_UNAVAILABLE`,
-`AUTH_FAILED`, `TIMEOUT` (names `cliExportTimeout`); `NOT_FOUND` (diagram group or module does not exist for the owner;
-repository paths missing on the node, all named); `UNEXPECTED_RESPONSE` (the archive cannot be
-processed — the workspace is unchanged); `PRECONDITION_FAILED` (workspace busy or not usable; a
-failed write is undone from the history); `INTERNAL`.
+`AUTH_FAILED`, `TIMEOUT` (names `cliExportTimeout`); `NOT_FOUND` (diagram group or module does
+not exist for the owner; repository paths missing on the node, all named); `UNEXPECTED_RESPONSE`
+(the archive cannot be processed — the workspace is unchanged); `PRECONDITION_FAILED` (workspace
+busy or not usable; a failed write is undone from the history); `INTERNAL`.
 
 **Example prompts**: "Export diagram group GRP-01 of dev" → `export_artifacts(target: "dev",
 diagramGroups: ["GRP-01"])`; "Export the schema folder of dev" → `export_artifacts(target: "dev",
@@ -983,8 +985,8 @@ module list of the group's first node. That lookup is checked like an `inventory
 StartCLI (feature 009): a refusal (e.g. a StartCLI client that does not support the node's INUBIT
 version) skips the lookup and turns each such module into `MODULE_UNVERIFIED` with the reason; a
 version warning (unverified or unknown INUBIT version, client mismatch) becomes one
-`MODULE_LOOKUP_WARNING`. The first lookup on an `AUTO` node may detect its version (one request). Writes only below `.tests/` (stylesheet outputs) and
-`.reports/` (full finding lists).
+`MODULE_LOOKUP_WARNING`. The first lookup on an `AUTO` node may detect its version (one
+request). Writes only below `.tests/` (stylesheet outputs) and `.reports/` (full finding lists).
 
 **Input** (`check_artifacts.input.json`):
 
@@ -1549,10 +1551,10 @@ outside `/Root/<owner>/` are never deployed.
 and every target node is checked like a write (capability `deployment`, StartCLI + REST): an
 `AUTO` node's version is detected first if it is missing, stale or older than
 `inventory.cacheTtl` (one request per node), then the version, a contradicted pin and the
-StartCLI client are checked. The deployment is refused **as a whole** with one `UNSUPPORTED_VERSION` before
-anything else is sent if any node is refused (not 8.1, unknown, pin contradicted, client range
-excludes the version), any node's version is unknown (`V9_X` gives no minor version and counts as
-unknown) or the nodes run different minor versions (8.1.17 → 8.1.18 is allowed). The message
+StartCLI client are checked. The deployment is refused **as a whole** with one
+`UNSUPPORTED_VERSION` before anything else is sent if that check refuses any node (a version other
+than 8.1, `V9_X` included; an unknown version; a contradicted pin; a client range that excludes
+the version) or the nodes run different minor versions (8.1.17 → 8.1.18 is allowed). The message
 names the refused nodes first, then every source and target node with its version and, per
 refused node, its cause; the refusal is audited:
 
@@ -1566,11 +1568,11 @@ not support deployment yet); nothing was sent
 ```
 
 `likelyCause`: "deploy_release deploys only between nodes whose INUBIT versions are known,
-supported for deployments and of the same minor version"; `nextStep`: the next steps of the
-refused nodes and, for unknown or different versions, "Deploy only between nodes of the same
-INUBIT minor version (e.g. 8.1.x to 8.1.y) whose versions are known". Version warnings of the
-nodes (e.g. a client mismatch, a failed client probe) are in the challenge's top-level `warnings`
-and in the result's `warnings`.
+supported for deployments and of the same minor version"; `nextStep`: the next steps of the nodes
+the check refused and, only when the nodes run different minor versions, also "Deploy only
+between nodes of the same INUBIT minor version (e.g. 8.1.x to 8.1.y) whose versions are known".
+Version warnings of the nodes (e.g. a client mismatch, a failed client probe) are in the
+challenge's top-level `warnings` and in the result's `warnings`.
 
 **Preview** (`challenge`, the call without `confirmationCode`; nothing is sent to the target):
 every target node is read (exports only) and compared with the release. Per node: `counts` of

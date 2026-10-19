@@ -467,7 +467,7 @@ shows the client against the pin, and a contradicting observation refuses writes
   restart/kill; write-tool and `deploy_release` refusals; `check_artifacts` lookup behaviour; tool
   announcement rule. Keep `DevelopmentToolsReferenceTest`, `ArtifactToolsReferenceTest` and
   `DeploymentReferenceTest` green.
-- [ ] T028 [P] `README.md` "Safety model": writes only on verified INUBIT versions; `CHANGELOG.md`
+- [X] T028 [P] `README.md` "Safety model": writes only on verified INUBIT versions; `CHANGELOG.md`
   `[Unreleased]`: feature 009 with the deliberate behaviour changes.
 - [ ] T030 Gate texts in the profile's terminology (found in the T010 review): the refusal and
   warning texts built by `main/application/VersionGate.java` (and the `list_nodes` version reasons
