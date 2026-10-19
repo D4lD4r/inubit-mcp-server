@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
+import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
@@ -130,7 +131,7 @@ class GetHealthToolTest {
             "INUBIT")
             .resolve(ids), scrubber, Clock.systemUTC(),
             new CliRunner(new SystemProcessLauncher(), Map.of(), false,
-                new CliResources("acme")), versions);
+                new CliResources("acme")), versions, PortSetRegistry.v81Default());
         Map<NodeId, Duration> timeouts = servers.stream().collect(Collectors.toMap(
             EffectiveNodeConfig::id, EffectiveNodeConfig::timeout));
         HealthService health = new HealthService(gateways, new TargetResolver(ids),

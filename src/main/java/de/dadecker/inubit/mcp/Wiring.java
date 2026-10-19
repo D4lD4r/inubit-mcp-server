@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp;
 
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
+import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
@@ -200,8 +201,9 @@ final class Wiring implements AutoCloseable {
         NodeVersions versions = new NodeVersions(clock.clock(),
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
         CliRunner cliRunner = new CliRunner(launcher, environment, windows, cliResources);
+        // feature 009 (research D-16): only the 8.1 port set, as default for every version
         this.gateways = new AdapterGatewayFactory(servers, credentials, scrubber, clock.clock(),
-            cliRunner, versions);
+            cliRunner, versions, PortSetRegistry.v81Default());
         // feature 009 (research D-7): the StartCLI client probe, on the same runner so that a
         // shutdown also stops a running probe
         this.clientVersions = new CliVersionProbe(cliRunner, byId::get);

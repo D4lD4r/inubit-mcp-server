@@ -30,7 +30,7 @@ import java.util.function.Supplier;
 /**
  * Stale trigger of research D-10: wraps the ports of one node so that a
  * {@link ToolErrorException} with {@code UNEXPECTED_RESPONSE} (from the REST client, e.g. HTTP 406
- * or a missing endpoint, or from a v81 parser) reports {@link VersionObserver#stale} for the node
+ * or a missing endpoint, or from a parser of the port set) reports {@link VersionObserver#stale} for the node
  * before it is rethrown unchanged. Every other outcome passes through.
  */
 final class StaleReportingPorts {
@@ -47,8 +47,8 @@ final class StaleReportingPorts {
         return new Monitoring(port);
     }
 
-    V81Gateway.Ports ports(V81Gateway.Ports ports) {
-        return new V81Gateway.Ports(new Processes(ports.processes()), new Logs(ports.logs()),
+    PortSet ports(PortSet ports) {
+        return new PortSet(new Processes(ports.processes()), new Logs(ports.logs()),
             new Inventory(ports.inventory()), new ProcessControl(ports.processControl()),
             new Artifacts(ports.artifacts()), new Imports(ports.imports()),
             new Tags(ports.tags()));

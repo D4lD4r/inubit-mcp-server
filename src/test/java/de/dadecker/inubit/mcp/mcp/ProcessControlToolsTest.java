@@ -11,6 +11,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import de.dadecker.inubit.mcp.TestWiring;
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
+import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
@@ -197,7 +198,7 @@ class ProcessControlToolsTest {
             new CredentialResolver(Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD",
                 PASSWORD), scrubber, "INUBIT").resolve(ids), scrubber, Clock.systemUTC(),
             new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
-            new RecordingVersionObserver());
+            new RecordingVersionObserver(), PortSetRegistry.v81Default());
         closeables.add(gateways);
         Map<NodeId, WritePolicy> policies = Map.of(server.id(), new WritePolicy(server.id(),
             false, true, false, confirmation == ConfirmationMode.SERVER

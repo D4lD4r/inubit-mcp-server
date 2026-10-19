@@ -399,7 +399,7 @@ shows the client against the pin, and a contradicting observation refuses writes
 
 **Goal**: a new version needs only a port set and a matrix entry (FR-013, FR-014, SC-004).
 
-- [ ] T024 [US3] Port-set selection by effective version (research D-16):
+- [X] T024 [US3] Port-set selection by effective version (research D-16):
   `main/adapter/AdapterGatewayFactory.java` gets a `PortSetRegistry` constructor parameter (version
   ranges → port-set factories, plus a default); `Slot.ensureClient()` keeps the lazy client, but
   the port set is chosen from the registry by the node's effective version (read through the

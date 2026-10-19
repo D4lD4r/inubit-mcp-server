@@ -43,8 +43,8 @@ class StaleReportingPortsTest {
             }));
     }
 
-    private static V81Gateway.Ports throwingPorts(RuntimeException failure) {
-        return new V81Gateway.Ports(
+    private static PortSet throwingPorts(RuntimeException failure) {
+        return new PortSet(
             throwing(ProcessQueryPort.class, failure),
             throwing(LogPort.class, failure),
             throwing(InventoryPort.class, failure),
@@ -56,7 +56,7 @@ class StaleReportingPortsTest {
 
     /** Each port of the wrapped set with its interface, monitoring included. */
     private List<Object[]> wrapped(RuntimeException failure) {
-        V81Gateway.Ports ports = stale.ports(throwingPorts(failure));
+        PortSet ports = stale.ports(throwingPorts(failure));
         List<Object[]> all = new ArrayList<>();
         all.add(new Object[] {MonitoringPort.class,
             stale.monitoring(throwing(MonitoringPort.class, failure))});

@@ -8,6 +8,7 @@ import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutCli
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
+import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
@@ -113,7 +114,7 @@ final class InventoryToolFixture implements AutoCloseable {
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber, "INUBIT")
             .resolve(ids), scrubber, Clock.systemUTC(),
             new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
-            versions);
+            versions, PortSetRegistry.v81Default());
         InventoryService inventory = new InventoryService(gateways, new TargetResolver(ids),
             new FanOut(), ResultLimiter.withDefaults(),
             new InventoryCache(Clock.systemUTC(), id -> byId.get(id).inventory().cacheTtl()),

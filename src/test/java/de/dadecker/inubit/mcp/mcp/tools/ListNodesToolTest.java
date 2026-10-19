@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.TestWiring;
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
+import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
@@ -341,7 +342,7 @@ class ListNodesToolTest {
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber, "INUBIT")
             .resolve(List.copyOf(byId.keySet())), scrubber, Clock.systemUTC(),
             new CliRunner(noStartCli(new AtomicInteger()), Map.of(), false,
-                new CliResources("acme")), versions);
+                new CliResources("acme")), versions, PortSetRegistry.v81Default());
         Map<NodeId, Set<Capability>> allowed = Map.of(DEV1, DEVELOPMENT, DEV2, READS,
             QA1, DEVELOPMENT, NodeId.parse("qa/node2"), READS);
         NodeOverview overview = new NodeOverview(nodes.stream()

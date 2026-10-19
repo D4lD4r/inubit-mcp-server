@@ -17,6 +17,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
+import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
@@ -24,17 +25,24 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
+import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
+import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.domain.port.TagPort;
+import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -43,6 +51,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -115,6 +125,11 @@ class AdapterGatewayFactoryTest {
     private final RecordingVersionObserver versions = new RecordingVersionObserver();
 
     private AdapterGatewayFactory factory(EffectiveNodeConfig... servers) {
+        return factory(PortSetRegistry.v81Default(), versions, servers);
+    }
+
+    private AdapterGatewayFactory factory(PortSetRegistry portSets, VersionObserver observer,
+        EffectiveNodeConfig... servers) {
         List<NodeId> ids = new ArrayList<>();
         for (EffectiveNodeConfig server : servers) {
             ids.add(server.id());
@@ -124,7 +139,7 @@ class AdapterGatewayFactoryTest {
             scrubber, "INUBIT").resolve(ids);
         return new AdapterGatewayFactory(List.of(servers), credentials, scrubber, clock,
             new CliRunner(new SystemProcessLauncher(), Map.of(), false, new CliResources("acme")),
-            versions);
+            observer, portSets);
     }
 
     private static int systemInfoCalls() {
@@ -420,7 +435,7 @@ class AdapterGatewayFactoryTest {
         try (AdapterGatewayFactory factory = new AdapterGatewayFactory(List.of(config),
             credentials, scrubber, clock,
             new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
-            versions)) {
+            versions, PortSetRegistry.v81Default())) {
 
             assertThatThrownBy(() -> factory.inventory(DEV).listModules("OWNERS"))
                 .isInstanceOfSatisfying(ToolErrorException.class, e ->
@@ -774,6 +789,151 @@ class AdapterGatewayFactoryTest {
                 .isEqualTo(ErrorCode.NOT_FOUND);
 
             assertThat(versions.events()).containsExactly("stale dev/node1");
+        }
+    }
+
+    // --- feature 009 T024: port-set selection by effective version (research D-16) ----------
+
+    private static final NodeId ENT3 = NodeId.parse("dev/node3");
+    private static final VersionRange V7_9 = new VersionRange(7, 9, 7, 9);
+    private static final VersionRange V9_0 = new VersionRange(9, 0, 9, 0);
+
+    /** Every port factory call, e.g. {@code 7.9 dev/node1}. */
+    private final List<String> built = new CopyOnWriteArrayList<>();
+
+    /** A test-only port set whose ports throw {@code UnsupportedOperationException(name)}. */
+    private PortSetRegistry.Factory fakePortSet(String name) {
+        return node -> {
+            built.add(name + " " + node.server().id());
+            return new PortSet(fake(ProcessQueryPort.class, name), fake(LogPort.class, name),
+                fake(InventoryPort.class, name), fake(ProcessControlPort.class, name),
+                fake(ArtifactPort.class, name), fake(ImportPort.class, name),
+                fake(TagPort.class, name));
+        };
+    }
+
+    private static <T> T fake(Class<T> type, String name) {
+        return type.cast(Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type},
+            (proxy, method, args) -> {
+                throw new UnsupportedOperationException(name);
+            }));
+    }
+
+    /** The name of the port set behind a handed-out (stale-reporting) log port. */
+    private static String portSetOf(LogPort port) {
+        try {
+            port.validate(null);
+        } catch (UnsupportedOperationException e) {
+            return e.getMessage();
+        }
+        throw new AssertionError("not a test-only port set");
+    }
+
+    private NodeVersions nodeVersions(EffectiveNodeConfig... servers) {
+        Map<NodeId, VersionSetting> lines = new java.util.HashMap<>();
+        for (EffectiveNodeConfig server : servers) {
+            lines.put(server.id(), server.versionLine());
+        }
+        return new NodeVersions(clock, lines::get, id -> Duration.ofMinutes(10));
+    }
+
+    @Test
+    void theDefaultPortSetServes81_90AndUnknownVersions() {
+        EffectiveNodeConfig on81 = server(DEV, VersionSetting.parse("8.1.17").orElseThrow());
+        EffectiveNodeConfig on90 = server(ENT2, VersionSetting.parse("9.0.7").orElseThrow());
+        EffectiveNodeConfig unknown = server(ENT3, VersionSetting.AUTO);
+        PortSetRegistry portSets = new PortSetRegistry(fakePortSet("default"))
+            .register(V7_9, fakePortSet("7.9"));
+        try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(on81, on90, unknown),
+            on81, on90, unknown)) {
+            assertThat(portSetOf(factory.logs(DEV))).isEqualTo("default");
+            assertThat(portSetOf(factory.logs(ENT2))).isEqualTo("default");
+            assertThat(portSetOf(factory.logs(ENT3))).isEqualTo("default");
+            assertThat(built).containsExactly("default dev/node1", "default dev/node2",
+                "default dev/node3");
+            assertThat(wireMock.getAllServeEvents()).as("the selection detects nothing")
+                .isEmpty();
+        }
+    }
+
+    @Test
+    void productionRegistersOnlyThe81PortSetAsTheDefaultForEveryVersion() {
+        PortSetRegistry production = PortSetRegistry.v81Default();
+        for (String version : List.of("7.9.1", "8.1.17", "9.0.7", "10.2")) {
+            PortSetRegistry.Selection selection =
+                production.select(InubitVersion.parse(version));
+            assertThat(selection.range()).as(version).isEmpty();
+            assertThat(selection.factory()).as(version).isSameAs(production.select(
+                Optional.empty()).factory());
+        }
+        modelList(404, "<html>not found</html>");
+        EffectiveNodeConfig on90 = server(DEV, VersionSetting.parse("9.0.7").orElseThrow());
+        try (AdapterGatewayFactory factory = factory(production, nodeVersions(on90), on90)) {
+            assertThat(codeOf(() -> factory.inventory(DEV).listDiagrams("OWNERS")))
+                .as("the 8.1 model list endpoint").isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            wireMock.verify(1, getRequestedFor(urlPathEqualTo("/ibis/rest/model/models")));
+        }
+    }
+
+    @Test
+    void aRegisteredRangeIsSelectedAfterTheDetection() {
+        systemInfo(200, systemInfoWithVersion("7.9.3"));
+        EffectiveNodeConfig node = server(DEV, VersionSetting.AUTO);
+        PortSetRegistry portSets = new PortSetRegistry(fakePortSet("default"))
+            .register(V7_9, fakePortSet("7.9"));
+        try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(node), node)) {
+            assertThat(portSetOf(factory.logs(DEV))).as("before the detection").isEqualTo("default");
+
+            factory.detect(DEV);
+
+            assertThat(portSetOf(factory.logs(DEV))).isEqualTo("7.9");
+            assertThat(portSetOf(factory.forServer(DEV).logs())).as("the gateway's ports")
+                .isEqualTo("7.9");
+            assertThat(factory.processes(DEV)).as("kept within the range")
+                .isSameAs(factory.processes(DEV));
+            assertThat(built).containsExactly("default dev/node1", "7.9 dev/node1");
+            assertThat(systemInfoCalls()).as("only the detection").isEqualTo(1);
+        }
+    }
+
+    @Test
+    void aReDetectionIntoAnotherRangeRebuildsThePortSet() {
+        systemInfo(200, systemInfoWithVersion("7.9.3"));
+        EffectiveNodeConfig node = server(DEV, VersionSetting.AUTO);
+        PortSetRegistry portSets = new PortSetRegistry(fakePortSet("default"))
+            .register(V7_9, fakePortSet("7.9")).register(V9_0, fakePortSet("9.0"));
+        try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(node), node)) {
+            factory.detect(DEV);
+            LogPort on79 = factory.logs(DEV);
+            assertThat(portSetOf(on79)).isEqualTo("7.9");
+
+            systemInfo(200, systemInfoWithVersion("7.9.4"));
+            factory.detect(DEV);
+            assertThat(factory.logs(DEV)).as("same range: not rebuilt").isSameAs(on79);
+
+            systemInfo(200, systemInfoWithVersion("9.0.2"));
+            factory.detect(DEV);
+            assertThat(portSetOf(factory.logs(DEV))).isEqualTo("9.0");
+            assertThat(portSetOf(factory.forServer(DEV).logs())).isEqualTo("9.0");
+
+            systemInfo(200, fixture("system_info.xml"));
+            factory.detect(DEV);
+            assertThat(portSetOf(factory.logs(DEV))).as("8.1.17: the default")
+                .isEqualTo("default");
+
+            assertThat(built).containsExactly("7.9 dev/node1", "9.0 dev/node1",
+                "default dev/node1");
+        }
+    }
+
+    @Test
+    void theSelectedPortSetIsStillWrappedByTheStaleTrigger() {
+        EffectiveNodeConfig node = server(DEV, VersionSetting.parse("7.9.3").orElseThrow());
+        PortSetRegistry portSets = PortSetRegistry.v81Default().register(V7_9,
+            fakePortSet("7.9"));
+        try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(node), node)) {
+            assertThat(factory.logs(DEV)).isInstanceOf(StaleReportingPorts.Logs.class);
+            assertThat(portSetOf(factory.logs(DEV))).isEqualTo("7.9");
         }
     }
 }
