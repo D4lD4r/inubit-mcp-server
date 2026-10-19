@@ -4,9 +4,10 @@ How to build, configure and register the INUBIT MCP server. The authoritative co
 reference is [contracts/configuration.md](../specs/002-customer-agnostic-config/contracts/configuration.md)
 of feature 002 with the deltas of feature 003
 ([workspace](../specs/003-artifact-workspace/contracts/configuration-delta.md)), 004
-([development stage](../specs/004-development-stage/contracts/configuration-delta.md)) and 005
-([stage chain](../specs/005-stage-chain-deployment/contracts/configuration-delta.md)); this guide
-walks through it. All host names below are examples (`*.example.test`).
+([development stage](../specs/004-development-stage/contracts/configuration-delta.md)), 005
+([stage chain](../specs/005-stage-chain-deployment/contracts/configuration-delta.md)) and 009
+([INUBIT version](../specs/009-inubit-version-detection/contracts/configuration-delta.md)); this
+guide walks through it. All host names below are examples (`*.example.test`).
 
 ## 1. Prerequisites
 
@@ -14,7 +15,7 @@ walks through it. All host names below are examples (`*.example.test`).
 |---|---|
 | JDK 21 or newer on `PATH` (`java -version`) | runs the server |
 | Maven 3.9+ (`mvn -v`) | only to build the JAR from source; a released JAR can be downloaded instead ([README](../README.md#installation-in-claude-code)) |
-| INUBIT 8.1.17 client installation (Workbench), e.g. `/opt/inubit/client` with `bin/startcli.sh` | CLI-backed tools only (process restart/kill, module list and version histories of the inventory, `export_artifacts`, every development tool except `run_e2e_test`, and `deploy_release`, which needs it on every node of a target group and of its source group); must match the servers' patch level |
+| INUBIT 8.1.17 client installation (Workbench), e.g. `/opt/inubit/client` with `bin/startcli.sh` | CLI-backed tools only (process restart/kill, module list and version histories of the inventory, `export_artifacts`, every development tool except `run_e2e_test`, and `deploy_release`, which needs it on every node of a target group and of its source group); the INUBIT versions it declares must include the server's major.minor, and it should match the servers' patch level ([StartCLI client check](#startcli-client-check)) |
 | Temurin (or another) JDK **17** | StartCLI 8.1 runs on Java 17, not on the JDK of the server |
 | An INUBIT account per group (or node) with rights to read logs, monitoring and models, plus "CLI login access" for CLI-backed tools, and rights to export, import and tag the owner's diagrams and modules where the development tools or deployments are used | REST and CLI access |
 | `openssl` and `keytool` (part of the JDK) | only for a self-signed server certificate (section 5) |
@@ -147,17 +148,16 @@ use REST tools only.
   a group id (`dev`) addresses all its nodes.
 - Write access is off by default. It is enabled per group or node with `write.enabled: true`;
   groups with `production: true` additionally need `write.productionOptIn: true`.
-- `versionLine` defaults to `AUTO` (detected from `/system/info` on first use). `V9_X` and
-  detected 9.x servers run with the 8.1 adapters and an "unsupported" warning. AUTO detection
-  failure → 8.1 with a warning (retried after 60 s, so that rejected credentials are not tried
-  again on every call); set `versionLine: V8_1` to skip the detection.
+- `versionLine` says which INUBIT version a node runs; the default `AUTO` detects it from the
+  node on first use. Write tools run only on a known, supported version (8.1); see
+  [INUBIT version](#inubit-version-versionline).
 - Durations are ISO-8601 (`PT5S`, `PT10M`); `~` at the start of a path is your home directory.
 - Other settings, each with a working default (details in the configuration contract):
 
   | Setting | Default | Meaning |
   |---|---|---|
   | `timeout` | `PT5S` | timeout of one REST call; a health overview of all servers returns within the largest `timeout` + 1 s |
-  | `cliTimeout` | `PT30S` | timeout of one StartCLI call of `restart_process` / `kill_process` |
+  | `cliTimeout` | `PT30S` | timeout of one StartCLI call of `restart_process` / `kill_process`; also bounds the StartCLI client check outside `get_health` ([StartCLI client check](#startcli-client-check)) |
   | `hangingThreshold` | `PT60M` | when an `ACTIVE`, `WAITING` or `QUEUED` instance counts as hanging (`find_processes`) |
   | `resultLimits.maxItems` / `.maxChars` | `100` / `50000` | top level: largest page and largest result (characters of JSON) per tool call |
   | `logLevel` | `INFO` | top level: `ERROR`, `WARN`, `INFO`, `DEBUG` or `TRACE`; logs go to stderr as JSON lines |
@@ -217,6 +217,119 @@ credentials:                         # optional
 - `credentials.envPrefix` names the credential variables of the profile (section 4). Without it,
   the prefix is derived from the profile name, so two profiles never read the same variables by
   default.
+
+### INUBIT version (`versionLine`)
+
+`versionLine`, per group or per node (the node wins), says which INUBIT version a node runs. The
+server uses it to decide which tools may run on the node: on INUBIT 8.1.x every tool runs; on any
+other version (9.0, a later version) and on a version that is not known, read tools run with the
+8.1 adapters and a warning in the result, and write tools are refused.
+
+| Value | Detection | What runs on the node |
+|---|---|---|
+| `AUTO` (default) | from the node itself, see below | per the detected version; while the version is unknown, reads run with a warning and writes are refused |
+| `V8_1` | none | everything (INUBIT 8.1) |
+| `V9_X` | none | reads with a warning that the version is not verified; writes refused |
+| a concrete version, e.g. `"8.1.17"` or `"9.0.7-HF1"` | none | per the version's major.minor (`"8.1.17"`: everything; `"9.0.7-HF1"`: reads with a warning, writes refused); the patch is used for the [StartCLI client check](#startcli-client-check) |
+
+```yaml
+groups:
+  - name: dev
+    versionLine: AUTO            # the default: detected from the node on first use
+    nodes:
+      - name: node1
+        baseUrl: https://inubit-dev-1.example.test:8443
+      - name: node2
+        baseUrl: https://inubit-dev-2.example.test:8443
+        versionLine: "8.1.17"    # concrete pin: always quote it
+  - name: next
+    versionLine: V9_X            # line pin: reads run unverified, writes are refused
+    nodes:
+      - name: node1
+        baseUrl: https://inubit-next-1.example.test:8443
+```
+
+- A concrete version needs major, minor and patch; a suffix (`-HF1`, ` build 42`) is kept for
+  display and ignored for matching. **Quote it**: an unquoted `8.1` is a YAML number and is
+  refused. The values are case-sensitive (`auto` is refused). Any other value — a number, a
+  version without patch such as `"8.1"`, `V10` — is a configuration error that names the key, not
+  the value:
+  `Invalid versionLine at groups[0].nodes[1].versionLine in <file>: expected AUTO, V8_1, V9_X or a full version such as "8.1.17"`.
+- `--check-config` and `list_nodes` show the value as configured.
+- `list_nodes` shows per node the setting, the last known server version with its source and
+  time (or `not_yet_detected` / `unknown` with the reason), the StartCLI client, a support status
+  and the usable capabilities; it never contacts a node ([tools.md](tools.md)).
+
+**When the version is detected (`AUTO`).** Nothing is contacted at startup, by `list_nodes` or by
+`--check-config`.
+
+- The first tool call on a node that needs the version sends one `/system/info` request before
+  its own requests. `get_health` reads `/system/info` anyway; the version it reads counts as the
+  node's current version (also when it differs from an earlier detection).
+- Reads then use the known version. Before a **write** the server detects again if the known
+  version is older than the node's `inventory.cacheTtl` (default `PT10M`, see
+  [Inventory settings](#inventory-settings)) or was marked stale. A response the 8.1 adapters did
+  not expect marks it stale: `UNEXPECTED_RESPONSE`, including HTTP 406 and a 404 from a fixed
+  endpoint such as `/system/info` (a 404 for a requested process or diagram does not).
+- A failed detection (e.g. rejected credentials, a timeout) is not repeated within 60 s, so that
+  rejected credentials are not tried again on every call (account lockout). While no version is
+  known, reads run with the warning "the INUBIT version of `<node>` is unknown (`<code>` at
+  `<time>`); results are unverified" and writes are refused with `UNSUPPORTED_VERSION`, until a
+  later detection or a `get_health` call reads the version. A write whose re-detection failed is
+  refused too, while reads keep the version known before.
+- To skip the detection, pin the version the node actually runs (`V8_1` or a concrete version).
+
+**Pinned nodes** (`V8_1`, `V9_X`, a concrete version) send no detection request. `get_health`
+still reads the version for display; from then on that version is the one the node is judged by.
+If its major.minor differs from the pin (e.g. after an upgrade), `get_health` warns and writes on
+that node are refused until a later `get_health` reads a matching version or the server is
+restarted with a corrected pin. A difference in the patch only gives a warning.
+
+**Deliberate behaviour changes** (feature 009) — earlier versions ran every tool with the 8.1
+adapters and a warning in these cases:
+
+- **Writes after a failed `AUTO` detection are refused** (`restart_process`, `kill_process`, the
+  development writes, `run_e2e_test`, `deploy_release`). Fix the cause of the failed detection and
+  retry after a minute, or pin the version the node actually runs.
+- **Writes on `V9_X` and on detected 9.x servers are refused**; read tools run with a warning
+  such as "INUBIT 9.x (versionLine V9_X) on `<node>` is not verified for diagnosis; results may be
+  incomplete". `--check-config` warns for every `V9_X` node: `<id>: versionLine V9_X:
+  write tools are refused on this node (INUBIT 9.x is not supported for writes yet); read tools
+  run unverified`. A write tool is not announced at all when every node that could run it is
+  pinned to a version that does not support it (e.g. only `V9_X` nodes have `write.enabled`);
+  `AUTO` nodes count as capable.
+- `deploy_release` is refused unless every source and target node runs a known, supported
+  version with the same major.minor (8.1.17 → 8.1.18 is allowed; `V9_X` counts as unknown).
+
+Refusals name the node, its version and the missing capability, and are returned before anything
+but the version detection is sent; see `UNSUPPORTED_VERSION` in [tools.md](tools.md).
+
+### StartCLI client check
+
+For every node with a StartCLI installation (`cliHome` with `bin/startcli.sh`) the server runs
+`startcli.sh -v` **locally** — no credentials, no server URL, no INUBIT contact — and reads the
+client version and the INUBIT versions it declares ("Supported inubit Process Engine versions
+from 4.0.1 to 8.1.17."). The check runs
+
+- in `get_health`, in parallel with the REST checks and within the health time budget; if it does
+  not finish in time, the report lists the part `client` as unavailable
+  (`not yet detected (timeout)`);
+- before the first StartCLI-backed tool call on a node, as a run of its own bounded by the node's
+  `cliTimeout` (not counted against the tool's own StartCLI timeout);
+- in `--check-config` ([section 6](#6-check-the-configuration)).
+
+A successful result is kept until the server stops: restart or reconnect the MCP server after
+changing the client installation. A failed or timed-out check is retried at most once per 60 s.
+
+The client is compared with the node's server version (the most recent one detected or read by
+`get_health`; for a pinned node without such a reading, the pin):
+
+| Case | Effect |
+|---|---|
+| the server's major.minor lies outside the client's declared range (bounds inclusive, by major.minor; e.g. an 8.1.17 client at a 9.0 or `V9_X` node) | StartCLI-backed tools refused on that node with `UNSUPPORTED_VERSION`, naming the client version and range; REST-backed tools are unaffected |
+| inside the range, different patch (8.1.17 client, 8.1.18 server: `mismatch`) | StartCLI-backed tools run with a warning that their results may be unreliable |
+| the range cannot be evaluated (no range printed, the check failed or timed out, server version unknown) | StartCLI-backed reads run with a warning naming the cause (writes on an unknown version are refused by the version check anyway) |
+| no StartCLI installation | client `not_available`; StartCLI-backed tools report `CLI_UNAVAILABLE` as before |
 
 ### Inventory settings
 
@@ -499,7 +612,7 @@ or `e2e: FORBIDDEN`. The first `read-only` of the line is the restart and kill w
 
 ```text
 Group dev:
-  Node dev/node1: read-only, development: on (confirmation SERVER), repository: write, e2e: CONFIRM (https://inubit-dev-1.example.test:8443), cli: available, username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD
+  Node dev/node1: read-only, development: on (confirmation SERVER), repository: write, e2e: CONFIRM (https://inubit-dev-1.example.test:8443), cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD
 ```
 
 ### Stage chain and deployments
@@ -589,7 +702,7 @@ Chains:
   dev → int → prod (package only)
   int excludes: diagramGroup GRP-SYS, name CFG_*, repositoryPath /Root/*/stage/**
 Group int:
-  Node int/node1: read-only, development: off, e2e: CONFIRM (https://inubit-int-1.example.test:8443), cli: available, deploy: from dev (EXECUTE), username ← INUBIT_ACME_INT_USERNAME, password ← INUBIT_ACME_INT_PASSWORD
+  Node int/node1: read-only, development: off, e2e: CONFIRM (https://inubit-int-1.example.test:8443), cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, deploy: from dev (EXECUTE), username ← INUBIT_ACME_INT_USERNAME, password ← INUBIT_ACME_INT_PASSWORD
 ```
 
 ## 4. Credentials: environment variables
@@ -885,12 +998,15 @@ its terminology, the credential variable scheme, the audit directory and the wor
 a group has a `deploy` record — a `Chains:` block (one line per stage chain, then the exclusions
 of each target, see [Stage chain and deployments](#stage-chain-and-deployments)), then per group
 one line per node — id, read-only or write flag, the development settings (if any node has them,
-see [Development settings](#development-settings)), CLI availability, for a node of a target
-group `deploy: from <group> (<mode>)`, and the **names** of the variables used (never their
-values) — followed by warnings and errors. Groups and nodes are named with the profile's
-terminology. It does not start the MCP server; the only thing it may create is a missing
-workspace directory with its missing parents (owner-only, `rwx------`; shown as `(created)`).
-Example for the complete example profile of section 3,
+see [Development settings](#development-settings)), CLI availability, the INUBIT version setting
+and the StartCLI client (see below), for a node of a target group `deploy: from <group> (<mode>)`,
+and the **names** of the variables used (never their values) — followed by warnings and errors.
+Groups and nodes are named with the profile's terminology. It does not start the MCP server and
+never contacts an INUBIT server; the only thing it may create is a missing workspace directory
+with its missing parents (owner-only, `rwx------`; shown as `(created)`), and the only thing it
+runs is the local [StartCLI client check](#startcli-client-check) (`startcli.sh -v`, one node after
+the other, each bounded by the node's `cliTimeout`). Example for the complete example profile of
+section 3,
 saved as `~/.config/inubit-mcp/acme.yaml` (`--profile acme --check-config`):
 
 ```text
@@ -901,10 +1017,10 @@ Credential variables: INUBIT_ACME_<UMGEBUNG>[_<KNOTEN>]_USERNAME / _PASSWORD
 Audit directory: /Users/jdoe/.inubit-mcp/acme/audit
 Workspace: /Users/jdoe/.inubit-mcp/acme/workspace (ok)
 Umgebung test:
-  Knoten test/node1: write enabled (confirmation SERVER), cli: available, username ← INUBIT_ACME_TEST_USERNAME, password ← INUBIT_ACME_TEST_PASSWORD
-  Knoten test/node2: write enabled (confirmation SERVER), cli: available, username ← INUBIT_ACME_TEST_USERNAME, password ← INUBIT_ACME_TEST_PASSWORD
+  Knoten test/node1: write enabled (confirmation SERVER), cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, username ← INUBIT_ACME_TEST_USERNAME, password ← INUBIT_ACME_TEST_PASSWORD
+  Knoten test/node2: write enabled (confirmation SERVER), cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, username ← INUBIT_ACME_TEST_USERNAME, password ← INUBIT_ACME_TEST_PASSWORD
 Umgebung prod (production):
-  Knoten prod/node1: read-only, cli: available, username ← INUBIT_ACME_PROD_USERNAME, password ← INUBIT_ACME_PROD_PASSWORD
+  Knoten prod/node1: read-only, cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, username ← INUBIT_ACME_PROD_USERNAME, password ← INUBIT_ACME_PROD_PASSWORD
 Warnings:
   - test/node1: hostname verification is disabled; the certificate is checked against the pinned SHA-256 fingerprint instead
   - …
@@ -917,6 +1033,30 @@ that matches no configured group or node (e.g. `INUBIT_ACME_QA_PASSWORD` while t
 configures only `dev`; a typo otherwise), or another profile file in the default configuration
 directory that has the same profile name, the same credential prefix or the same audit directory
 (see "Several profiles side by side"; profile files elsewhere are not seen).
+
+The version part of a node line ([INUBIT version](#inubit-version-versionline)):
+
+- `inubit: <setting>`: the effective `versionLine` as configured (`AUTO`, `V8_1`, `V9_X` or the
+  concrete version).
+- With a StartCLI installation and a successful client check: `client: <version> (<from>–<to>)`
+  (without the range if the client declares none), then
+  - for a concrete pin `client vs pin: match`, `mismatch` (any of major, minor, patch differs) or
+    `not comparable` (the client version has no patch), followed by `, pin outside client range`
+    when the client's declared range excludes the pin's major.minor (StartCLI-backed tools are
+    then refused on that node at runtime);
+  - otherwise `server version: determined at runtime`.
+- A client check that fails (e.g. no JDK at `cliJavaHome`, a timeout) is a warning
+  (`<id>: StartCLI client probe failed: <message>`), not an error, and the line shows no client.
+
+```text
+Group dev:
+  Node dev/node1: read-only, cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD
+  Node dev/node2: read-only, cli: available, inubit: 8.1.17, client: 8.1.17 (4.0.1–8.1.17), client vs pin: match, username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD
+Group next:
+  Node next/node1: read-only, cli: unavailable, inubit: V9_X, username ← INUBIT_ACME_NEXT_USERNAME, password ← INUBIT_ACME_NEXT_PASSWORD
+Warnings:
+  - next/node1: versionLine V9_X: write tools are refused on this node (INUBIT 9.x is not supported for writes yet); read tools run unverified
+```
 
 The server itself refuses to start on any configuration error and prints all of them to stderr;
 warnings are printed to stderr as well. `--version` prints `inubit-mcp-server <version>` to

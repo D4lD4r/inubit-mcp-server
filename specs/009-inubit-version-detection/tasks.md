@@ -458,7 +458,7 @@ shows the client against the pin, and a contradicting observation refuses writes
   `VersionGate`, `Wiring` and `NodeOverview`. Out of scope (kept as notes): sequential
   `--check-config` probes, renaming `V81Gateway`, the back-off cause message, the open notes under
   T011 and T025. Test first for (a)–(g).
-- [ ] T026 [P] `docs/setup.md`: `versionLine` values incl. concrete pins and quoting, when the
+- [X] T026 [P] `docs/setup.md`: `versionLine` values incl. concrete pins and quoting, when the
   version is detected, the deliberate behaviour changes (writes refused after a failed detection
   and on `V9_X`), the client probe and `--check-config` line.
 - [ ] T027 [P] `docs/tools.md`: the tool classification table; `UNSUPPORTED_VERSION` (now returned;
