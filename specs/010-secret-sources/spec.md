@@ -190,7 +190,8 @@ and an unchanged value still pauses the node for 60 s.
 - The trust store password and the end-to-end test credentials: come from the node's effective
   source. For environment variables they follow today's naming rules; for Parameter Store they are
   read only if a parameter name is configured for them, and without a name they are absent, as an
-  unset variable is today.
+  unset variable is today. Configuring only one of the two end-to-end names (username or password)
+  is a startup configuration error naming the node and the missing name.
 - Two profiles read the same parameter: allowed (unlike environment variables, a shared parameter
   is deliberate). The checks for shared and unmatched environment variables apply only to nodes
   whose effective source is environment variables.
@@ -220,7 +221,11 @@ and an unchanged value still pauses the node for 60 s.
 - **FR-004**: The AWS Parameter Store source MUST be configurable in the profile with the region
   (required) and, per group or node, the full parameter name of each secret kind it needs (a
   node-level name wins over a group-level one; there is no path prefix and no derived name); it MAY
-  name an AWS profile of the local AWS configuration. Group-level parameter names apply only to
+  name an AWS profile of the local AWS configuration. A parameter name is a plain hierarchical name
+  (for example `/inubit/prod/node1/password`), validated at startup; version or label selectors
+  and ARNs are not supported. Parameter names configured on a group or node whose effective source
+  is environment variables are ignored with a warning at startup and in `--check-config`.
+  Group-level parameter names apply only to
   nodes whose effective source is the group's source; a node with its own source override MUST
   configure its own names for the required kinds (otherwise a startup configuration error). The
   profile MUST NOT contain AWS access keys or any other secret.
@@ -244,7 +249,8 @@ and an unchanged value still pauses the node for 60 s.
   behaviour (read and validated at startup).
 - **FR-007**: Secrets from any source MUST be handled exactly as today: never in tool parameters,
   results, logs, error messages or command lines; scrubbed from error output; the same validity
-  checks on usernames and passwords; the same lockout protection (Constitution II).
+  checks on usernames and passwords; the same lockout protection, except for the single extra login
+  after a changed re-read that FR-010 allows for re-readable sources (Constitution II).
 - **FR-008**: Every error about a secret MUST name the node, the source and the exact name
   (variable or parameter) and the kind of failure (missing, access denied, store unreachable,
   invalid value), never a value, and give a next step that refers to the effective source (for
@@ -254,11 +260,14 @@ and an unchanged value still pauses the node for 60 s.
 - **FR-009**: `--check-config` MUST show the source per node and the names it uses. For the AWS
   source it MUST, when AWS access is available, read each configured parameter and check that it
   exists, is readable and passes the same validity checks as at run time, never printing a value;
-  a required parameter that is missing, denied or invalid, and an AWS profile named in the profile
+  a configured parameter (required or optional) that is missing, denied or invalid, and an AWS
+  profile named in the profile
   that does not exist locally, are errors and the check exits with code 1. When AWS access is
   unavailable (no credentials resolvable from the chain, including an expired login, or the store
   unreachable or timed out), it validates the structure, lists the parameter names, reports that
-  resolvability could not be checked as a warning and exits with code 0 if nothing else is wrong. Exit codes otherwise stay as today (0 success, 1 configuration error, 2
+  resolvability could not be checked as a warning and exits with code 0 if nothing else is wrong.
+  Warnings (unencrypted `String` parameter, resolvability not checked, ignored parameter names) do
+  not change the exit code. Exit codes otherwise stay as today (0 success, 1 configuration error, 2
   usage).
 - **FR-010**: When INUBIT rejects the username and password of a node whose source supports
   re-reading (Parameter Store), the server MUST re-read that node's username and password once.
@@ -267,20 +276,23 @@ and an unchanged value still pauses the node for 60 s.
   login is rejected too, the node is paused for 60 s without another re-read. If the values are
   unchanged (or the re-read fails), the node is paused for 60 s as today. This bounds failed logins
   to at most two per node per 60 s (today: one). Rejections that happen at the same time share one
-  re-read. A rejected end-to-end test login does not trigger a re-read. There is no time-based
-  refresh.
+  re-read. A failed re-read keeps the held values, is logged as a failed fetch and leads to the
+  60 s pause, without an additional 30 s back-off. A rejected end-to-end test login does not
+  trigger a re-read. There is no time-based refresh.
 - **FR-011**: A fetch from the store MUST be bounded by a 10 s timeout and MUST NOT block tools on
   nodes whose secrets are already available. After a failed fetch the node's secrets are not
   fetched again for 30 s (calls fail at once with the recorded failure); a fetch whose value fails
   validation counts as a failed fetch (invalid value). Concurrent calls that need the same node's
-  secrets share one fetch.
+  secrets share one fetch. The separate fetch of the end-to-end test credentials follows the same
+  rules and FR-013.
 - **FR-012**: The access to the store MUST need read permission only, on the configured parameters
   only; the documentation MUST name the minimal permissions (read the parameters, decrypt with the
   key used).
 - **FR-013**: Every fetch attempt from an external store MUST be logged (structured, stderr) with
   node, source, parameter names and outcome, never a value: INFO for success, WARN for failure, one
-  record per attempt; calls refused during the 30 s pause after a failure are not logged again
-  (Constitution VII).
+  record per attempt, including re-reads after a rejected login (FR-010) with whether the value
+  changed (never the value itself); calls refused during the 30 s pause after a failure are not
+  logged again (Constitution VII).
 - **FR-014**: The documentation MUST describe both sources, the profile settings, the naming
   scheme, the AWS permissions and how to move an existing installation from a start script with
   environment variables to Parameter Store.
