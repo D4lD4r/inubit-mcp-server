@@ -126,7 +126,8 @@ Decisions R-1 … R-17. Each: decision, rationale, alternatives considered.
   the startup-resolved `NodeCredentials`. For AWS nodes `current(bound)`:
   - returns the held credentials if present;
   - within 30 s after a failed fetch, throws the recorded `ToolError` at once (FR-011);
-  - otherwise joins the in-flight fetch or starts one (`CompletableFuture`, single flight) that
+  - otherwise joins the in-flight fetch or starts one (`CompletableFuture` on its own virtual
+    thread, so fetches of different nodes never wait for each other; single flight) that
     calls `ParameterStore.get(location, [username, password, trustStorePassword?], 10 s)` and waits
     at most `min(bound, 10 s)`; a fetch that outlives the caller's bound is not cancelled — its
     result is stored for the next call (needed for `get_health`, R-9).

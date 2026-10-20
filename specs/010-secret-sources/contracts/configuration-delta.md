@@ -54,6 +54,8 @@ parameters:
 | only one of `e2eUsername` / `e2ePassword` | error naming the node and the missing key |
 | profile-level `environment` source with `prefix` ≠ `credentials.envPrefix` | error naming both values' keys |
 | invalid `region`, `awsProfile` or parameter name | error naming the key path |
+| `trustStorePassword` name on a node with a StartCLI installation | error (StartCLI could only get it as a process argument), as today for the variable |
+| `trustStorePassword` name without `tls.trustStore` | warning, as today for the variable |
 | AWS node with `e2eUsername`/`e2ePassword` names and an `http://` `e2e.soap.baseUrl` (end-to-end tests not forbidden) | error: the credentials would travel in clear text (names the parameters), as today for the variables |
 | `parameters` on a node or group whose effective source is `environment` (incl. a node overriding an AWS group with `environment`) | warning: ignored |
 | unknown `type` or unknown key inside `credentials` | error |

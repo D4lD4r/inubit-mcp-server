@@ -38,8 +38,10 @@ top-level only.
 
 Validation (startup configuration errors): aws without `username` or `password` name; only one of
 `e2eUsername`/`e2ePassword`; profile-level `environment.prefix` ≠ `credentials.envPrefix`;
-invalid region/profile/name pattern; e2e parameter names with an `http://` SOAP URL (clear-text
-rule). Warning: parameter names on a node or group whose effective source is environment.
+invalid region/profile/name pattern; e2e parameter names with an `http://` SOAP URL while
+end-to-end tests are not forbidden (clear-text rule); a `trustStorePassword` name on a node with a
+StartCLI installation. Warnings: a `trustStorePassword` name without `tls.trustStore`; parameter
+names on a node or group whose effective source is environment.
 
 ## NodeCredentials (config, extended)
 
@@ -70,8 +72,9 @@ String logDetail)`, plus a whole-call failure (`NO_CREDENTIALS`, `UNKNOWN_PROFIL
 
 Operations: `current(Duration bound)` → `NodeCredentials` or `ToolErrorException`;
 `reread()` → `Reread(CHANGED | UNCHANGED | FAILED)` (username or password differ = changed);
-`allowance()` → extra fan-out time (10 s + grace for aws, zero for environment). Environment nodes:
-`held` set at startup, `reread()` not supported. Separate cell `e2e` with the same rules for the
+Each fetch runs on its own virtual thread, so fetches of different nodes never wait for each
+other. (The fan-out allowance is owned by `SecretTiming` only.) Environment nodes: `held` set at
+startup, `reread()` not supported. Separate cell `e2e` with the same rules for the
 end-to-end credentials.
 
 ## CredentialGuard (adapter, extended)

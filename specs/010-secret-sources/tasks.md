@@ -221,7 +221,8 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   (INFO/WARN, scrubbed `logDetail`, none within the back-off). (The end-to-end cell is T012.)
   Test first: `test/adapter/NodeSecretsTest.java` (fake store,
   fake clock: first use only; concurrent callers share one fetch; back-off 30 s then retry; a store
-  call that never returns ends after 10 s as `UNREACHABLE`; bound
+  call that never returns ends after 10 s as `UNREACHABLE`; two AWS nodes with a 1 s store delay
+  resolve together in about 1 s, not 2 s (one virtual thread per fetch); bound
   shorter than the fetch returns a timeout but the next call gets the stored result; each failure
   kind's error text; `String` warning and `StringList` refusal; validation failure counts as
   failure; scrubber registration; log records via a list appender; SC-005 timing with a 1 s store
