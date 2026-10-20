@@ -65,6 +65,7 @@ import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
+import de.dadecker.inubit.mcp.domain.port.E2ePort;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.infra.AuditLog;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
@@ -217,9 +218,10 @@ final class Wiring implements AutoCloseable {
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
         CliRunner cliRunner = new CliRunner(launcher, environment, windows, cliResources);
         // feature 009 (research D-16): only the 8.1 port set, as default for every version
-        this.gateways = new AdapterGatewayFactory(servers,
-            secrets(servers, credentials, scrubber, clock, parameterStore), scrubber,
-            clock.clock(), cliRunner, versions, PortSetRegistry.v81Default());
+        Map<NodeId, NodeSecrets> secrets = secrets(servers, credentials, scrubber, clock,
+            parameterStore);
+        this.gateways = new AdapterGatewayFactory(servers, secrets, scrubber, clock.clock(),
+            cliRunner, versions, PortSetRegistry.v81Default());
         // feature 009 (research D-7): the StartCLI client probe, on the same runner so that a
         // shutdown also stops a running probe
         this.clientVersions = new CliVersionProbe(cliRunner, byId::get);
@@ -294,12 +296,28 @@ final class Wiring implements AutoCloseable {
         CredentialResolver e2eCredentials = new CredentialResolver(environment, scrubber,
             config.terminology().effectiveOrDefault(), config.credentialPrefix(),
             config.secretPlans());
+        Function<NodeId, E2ePort> e2ePorts = id -> {
+            if (!byId.get(id).secretPlan().aws()) {
+                return e2eClients.computeIfAbsent(id, node -> new SoapE2eClient(byId.get(node),
+                    development.get(node).soapBaseUrl().orElseThrow(),
+                    trustStorePassword(credentials, node), e2eCredentials.e2e(node)
+                        .map(e2e -> new SoapE2eClient.BasicAuth(e2e.username().value(),
+                            e2e.password().value()))));
+            }
+            // feature 010 (FR-006a, research R-7): both fetches before computeIfAbsent, so a slow
+            // fetch blocks no other entry and a failed one is not cached as a client
+            NodeSecrets nodeSecrets = secrets.get(id);
+            Optional<de.dadecker.inubit.mcp.infra.Secret> trustStorePassword = nodeSecrets
+                .current(NodeSecrets.STORE_TIMEOUT).trustStorePassword()
+                .map(SourcedValue::value);
+            Optional<SoapE2eClient.BasicAuth> auth = nodeSecrets.e2e(NodeSecrets.STORE_TIMEOUT)
+                .map(e2e -> new SoapE2eClient.BasicAuth(e2e.username().value(),
+                    e2e.password().value()));
+            return e2eClients.computeIfAbsent(id, node -> new SoapE2eClient(byId.get(node),
+                development.get(node).soapBaseUrl().orElseThrow(), trustStorePassword, auth));
+        };
         this.runE2eTest = new RunE2eTestTool(new E2eTestService(new E2eTestService.Dependencies(
-            workspace, backups, profile.name(), developmentGuard, id -> e2eClients.computeIfAbsent(id,
-                node -> new SoapE2eClient(byId.get(node), development.get(node).soapBaseUrl()
-                    .orElseThrow(), trustStorePassword(credentials, node), e2eCredentials
-                    .e2e(node).map(e2e -> new SoapE2eClient.BasicAuth(e2e.username().value(),
-                        e2e.password().value())))),
+            workspace, backups, profile.name(), developmentGuard, e2ePorts,
             gateways::logs, gateways::processes, hangingThresholds::get, accounts, challenges,
             audit, clock.clock(), UUID::randomUUID)));
         // feature 005: deploy_release along the stage chain (offered only with a chain)

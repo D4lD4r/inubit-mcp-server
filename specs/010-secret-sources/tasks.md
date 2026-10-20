@@ -262,7 +262,7 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   Carry-over (T011 review r1): give the spin loop `while (store.calls() == 0)` in
   `AdapterGatewayFactoryTest.aCallerInterruptedWhileAnotherCallersFetchIsPendingReturnsAtOnce` the
   same 5 s deadline as the next loop, so a regression fails instead of hanging.
-- [ ] T012 [US2] End-to-end credentials per source (FR-006a, R-7): `main/adapter/NodeSecrets.java`
+- [X] T012 [US2] End-to-end credentials per source (FR-006a, R-7): `main/adapter/NodeSecrets.java`
   gets the end-to-end cell (same rules as the main fetch: single flight, 10 s, 30 s back-off,
   `CredentialRules`, logging) for the `e2eUsername`/`e2ePassword` parameters; `main/Wiring.java`
   takes the e2e credentials of an AWS node from that cell on the first `run_e2e_test` on that node,

@@ -1066,9 +1066,11 @@ class AdapterGatewayFactoryTest {
             List<ToolErrorException> second = new CopyOnWriteArrayList<>();
             Thread fetching = Thread.ofVirtual().start(() -> collect(() -> factory.forServer(DEV),
                 first));
-            while (store.calls() == 0) {
+            long fetchDeadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (store.calls() == 0 && System.nanoTime() < fetchDeadline) {
                 Thread.onSpinWait();
             }
+            assertThat(store.calls()).as("the first caller's fetch has started").isEqualTo(1);
             // detect takes the same slot lock as forServer; it waits for the secrets before
             Thread waiting = Thread.ofVirtual().start(() -> collect(() -> factory.detect(DEV),
                 second));

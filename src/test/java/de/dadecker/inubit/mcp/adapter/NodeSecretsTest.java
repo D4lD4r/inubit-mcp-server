@@ -7,6 +7,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.Fetched;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
@@ -621,6 +622,198 @@ class NodeSecretsTest {
         assertThat(first).isGreaterThanOrEqualTo(Duration.ofSeconds(1))
             .isLessThanOrEqualTo(Duration.ofSeconds(2));
         assertThat(second).isLessThanOrEqualTo(Duration.ofMillis(50));
+    }
+
+    // --- end-to-end cell (T012, FR-006a, FR-011, FR-013) ---
+
+    private static final String E2E_USERNAME = "/test/dev/node1/e2e-username";
+    private static final String E2E_PASSWORD = "/test/dev/node1/e2e-password";
+
+    private NodeSecrets secretsWithE2e(Duration timeout) {
+        return new NodeSecrets(new SecretPlan(NODE1,
+            new SecretSourceConfig.AwsParameterStore(EU.region(), EU.awsProfile()),
+            SecretPlan.Origin.NODE, Optional.empty(), Optional.of(new ParameterNames(
+                Optional.of(USERNAME), Optional.of(PASSWORD), Optional.empty(),
+                Optional.of(E2E_USERNAME), Optional.of(E2E_PASSWORD)))), store, scrubber, clock,
+            timeout);
+    }
+
+    private void putValidE2e() {
+        store.put(EU, E2E_USERNAME, "test-e2e-user").put(EU, E2E_PASSWORD, "test-e2e-password");
+    }
+
+    private static ToolError e2eFailure(NodeSecrets secrets) {
+        return catchThrowableOfType(ToolErrorException.class, () -> secrets.e2e(LONG)).error();
+    }
+
+    @Test
+    void theEndToEndCellIsFetchedSeparatelyOnlyOnItsFirstUse() {
+        putValid();
+        putValidE2e();
+        NodeSecrets secrets = secretsWithE2e(NodeSecrets.STORE_TIMEOUT);
+
+        secrets.current(LONG);
+
+        assertThat(store.requests()).singleElement().satisfies(request ->
+            assertThat(request.names()).containsExactly(USERNAME, PASSWORD));
+
+        CredentialResolver.E2eCredentials first = secrets.e2e(LONG).orElseThrow();
+        CredentialResolver.E2eCredentials second = secrets.e2e(LONG).orElseThrow();
+
+        assertThat(second).isSameAs(first);
+        assertThat(store.requests()).hasSize(2).last().isEqualTo(new FakeParameterStore.Request(
+            EU, List.of(E2E_USERNAME, E2E_PASSWORD), NodeSecrets.STORE_TIMEOUT));
+        assertThat(first.username()).isEqualTo(new SourcedValue<>("test-e2e-user",
+            E2E_USERNAME));
+        assertThat(first.password().value().reveal()).isEqualTo("test-e2e-password");
+        assertThat(first.password().sourceVariable()).isEqualTo(E2E_PASSWORD);
+        String token = Base64.getEncoder().encodeToString(
+            "test-e2e-user:test-e2e-password".getBytes(StandardCharsets.UTF_8));
+        assertThat(scrubber.scrub("a test-e2e-password b " + token)).isEqualTo("a *** b ***");
+        assertThat(appender.list).hasSize(2).last().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.INFO);
+            assertThat(fields(event)).containsEntry("event", "secret.fetch")
+                .containsEntry("parameters", E2E_USERNAME + "," + E2E_PASSWORD)
+                .containsEntry("outcome", "ok");
+            assertThat(event.getFormattedMessage()).contains("end-to-end test credentials")
+                .doesNotContain("test-e2e-user", "test-e2e-password");
+        });
+    }
+
+    @Test
+    void theEndToEndCellNeedsNoMainFetch() {
+        putValidE2e();
+        NodeSecrets secrets = secretsWithE2e(NodeSecrets.STORE_TIMEOUT);
+
+        assertThat(secrets.e2e(LONG)).isPresent();
+
+        assertThat(store.requests()).singleElement().satisfies(request ->
+            assertThat(request.names()).containsExactly(E2E_USERNAME, E2E_PASSWORD));
+        assertThat(secrets.held()).isEmpty();
+    }
+
+    @Test
+    void withoutEndToEndNamesOrOnAnEnvironmentNodeThereIsNoEndToEndCell() {
+        NodeSecrets environment = NodeSecrets.environment(new NodeCredentials(NODE1,
+            Optional.of(new SourcedValue<>("test-user-1", "INUBIT_DEV_NODE1_USERNAME")),
+            Optional.of(new SourcedValue<>(Secret.of("test-password-1"),
+                "INUBIT_DEV_NODE1_PASSWORD")),
+            Optional.empty(), Optional.empty()));
+
+        assertThat(secrets().e2e(LONG)).isEmpty();
+        assertThat(environment.e2e(LONG)).isEmpty();
+        assertThat(store.calls()).isZero();
+    }
+
+    @Test
+    void concurrentEndToEndCallersShareOneFetch() throws Exception {
+        putValidE2e();
+        store.delay(EU, Duration.ofMillis(500));
+        NodeSecrets secrets = secretsWithE2e(NodeSecrets.STORE_TIMEOUT);
+        List<Future<Optional<CredentialResolver.E2eCredentials>>> results = new ArrayList<>();
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (int i = 0; i < 8; i++) {
+                results.add(executor.submit(() -> secrets.e2e(LONG)));
+            }
+            CredentialResolver.E2eCredentials first = results.get(0).get().orElseThrow();
+            for (Future<Optional<CredentialResolver.E2eCredentials>> result : results) {
+                assertThat(result.get()).containsSame(first);
+            }
+        }
+
+        assertThat(store.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void aFailedEndToEndFetchNamesItsParameterBacksOffFor30SecondsThenRetries() {
+        putValid();
+        store.put(EU, E2E_USERNAME, "test-e2e-user")
+            .fail(EU, E2E_PASSWORD, FailureKind.ACCESS_DENIED, AWS_DETAIL);
+        NodeSecrets secrets = secretsWithE2e(NodeSecrets.STORE_TIMEOUT);
+
+        ToolError first = e2eFailure(secrets);
+
+        assertThat(first.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(first.node()).contains(NODE1);
+        assertThat(first.message()).contains("dev/node1", "end-to-end test credentials",
+            "eu-central-1", "access denied for " + E2E_PASSWORD);
+        assertThat(first.nextStep()).contains("ssm:GetParameters", E2E_PASSWORD);
+        assertThat(allText(first)).doesNotContain("123456789012", "test-e2e-user");
+        assertThat(appender.list).singleElement().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(fields(event)).containsEntry("outcome", "ACCESS_DENIED")
+                .containsEntry("parameters", E2E_USERNAME + "," + E2E_PASSWORD);
+        });
+        assertThat(secrets.current(LONG).complete()).as("the main cell is not affected")
+            .isTrue();
+
+        clock.advance(Duration.ofSeconds(29));
+        assertThat(e2eFailure(secrets)).isEqualTo(first);
+        assertThat(store.calls()).as("main fetch plus one e2e fetch").isEqualTo(2);
+
+        clock.advance(Duration.ofSeconds(1));
+        store.put(EU, E2E_PASSWORD, "test-e2e-password");
+
+        assertThat(secrets.e2e(LONG).orElseThrow().username().value())
+            .isEqualTo("test-e2e-user");
+        assertThat(store.calls()).isEqualTo(3);
+    }
+
+    static Stream<Arguments> invalidEndToEndValues() {
+        return Stream.of(
+            Arguments.of("-test-e2e-user", "test-e2e-password", ParameterType.SECURE_STRING,
+                E2E_USERNAME, "must not start with '-'"),
+            Arguments.of("test-e2e-user", "abc", ParameterType.SECURE_STRING, E2E_PASSWORD,
+                "shorter than 4"),
+            Arguments.of("test-e2e-user", "test-e2e-password,x", ParameterType.STRING_LIST,
+                E2E_PASSWORD, "StringList"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidEndToEndValues")
+    void anInvalidEndToEndValueCountsAsAFailedFetch(String username, String password,
+        ParameterType passwordType, String parameter, String rule) {
+        store.put(EU, E2E_USERNAME, username).put(EU, E2E_PASSWORD, password, passwordType);
+        NodeSecrets secrets = secretsWithE2e(NodeSecrets.STORE_TIMEOUT);
+
+        ToolError error = e2eFailure(secrets);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(error.message()).contains(parameter, "invalid value", rule);
+        assertThat(allText(error)).doesNotContain(username.equals("-test-e2e-user") ? username
+            : password);
+        assertThat(e2eFailure(secrets)).as("back-off").isEqualTo(error);
+        assertThat(store.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void aStringEndToEndParameterIsAcceptedWithANotEncryptedWarning() {
+        store.put(EU, E2E_USERNAME, "test-e2e-user")
+            .put(EU, E2E_PASSWORD, "test-e2e-password", ParameterType.STRING);
+
+        assertThat(secretsWithE2e(NodeSecrets.STORE_TIMEOUT).e2e(LONG)).isPresent();
+
+        assertThat(appender.list).singleElement().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("not encrypted", E2E_PASSWORD);
+        });
+    }
+
+    @Test
+    void anEndToEndStoreCallThatNeverReturnsEndsAfterTheTimeoutAsUnreachable() {
+        putValidE2e();
+        store.delay(EU, Duration.ofSeconds(60));
+        Duration timeout = Duration.ofMillis(300);
+        NodeSecrets secrets = secretsWithE2e(timeout);
+
+        ToolError error = catchThrowableOfType(ToolErrorException.class,
+            () -> secrets.e2e(timeout)).error();
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNREACHABLE);
+        assertThat(error.message()).contains("dev/node1", "end-to-end test credentials",
+            "Parameter Store unreachable");
+        assertThat(store.requests()).singleElement()
+            .satisfies(request -> assertThat(request.timeout()).isEqualTo(timeout));
     }
 
     @Test
