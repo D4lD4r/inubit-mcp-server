@@ -57,6 +57,7 @@ import de.dadecker.inubit.mcp.mcp.tools.ListInventoryTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -180,10 +181,10 @@ class CapabilityExtensionTest {
             built79.add(node.server().id());
             return portSet79();
         });
-        gateways = new AdapterGatewayFactory(servers, new CredentialResolver(Map.of(
+        gateways = new AdapterGatewayFactory(servers, TestSecrets.environment(new CredentialResolver(Map.of(
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber, "INUBIT")
-            .resolve(ids), scrubber, clock, new CliRunner(spec -> {
+            .resolve(ids)), scrubber, clock, new CliRunner(spec -> {
                 throw new AssertionError("no StartCLI run expected: " + spec.command());
             }, Map.of(), false, new CliResources("acme")), versions, portSets);
         VersionGate gate = gateWithoutClients(versions, gateways, MATRIX);

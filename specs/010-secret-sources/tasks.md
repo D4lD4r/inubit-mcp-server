@@ -241,7 +241,7 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   the wall-clock upper bounds (lines ~113/115) to avoid flakiness; document in
   `FakeParameterStore`'s Javadoc that an interrupted caller gets `CallFailed(UNREACHABLE,
   "interrupted")` and that the fake never enforces the timeout (NodeSecrets must).
-- [ ] T011 [US2] Slot integration (R-7, FR-006a): `main/adapter/AdapterGatewayFactory.java` takes
+- [X] T011 [US2] Slot integration (R-7, FR-006a): `main/adapter/AdapterGatewayFactory.java` takes
   `Map<NodeId, NodeSecrets>` instead of fixed `NodeCredentials`; before building the client the
   slot awaits `NodeSecrets.current(10 s)` **outside** `lock`/`clientLock` (interruptible wait), then
   builds the probe, the HTTP client and the port set under the lock (the trust store password is
@@ -259,6 +259,9 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   `orTimeout` bound fires (avoid piling up stuck threads); give the post-timeout `fetch.get()` a small
   grace bound (e.g. 1 s) instead of waiting without limit; log class plus scrubbed message (or the
   throwable at DEBUG) for an unexpected RuntimeException instead of only the class name.
+  Carry-over (T011 review r1): give the spin loop `while (store.calls() == 0)` in
+  `AdapterGatewayFactoryTest.aCallerInterruptedWhileAnotherCallersFetchIsPendingReturnsAtOnce` the
+  same 5 s deadline as the next loop, so a regression fails instead of hanging.
 - [ ] T012 [US2] End-to-end credentials per source (FR-006a, R-7): `main/adapter/NodeSecrets.java`
   gets the end-to-end cell (same rules as the main fetch: single flight, 10 s, 30 s back-off,
   `CredentialRules`, logging) for the `e2eUsername`/`e2ePassword` parameters; `main/Wiring.java`

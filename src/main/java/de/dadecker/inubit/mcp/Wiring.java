@@ -1,11 +1,13 @@
 package de.dadecker.inubit.mcp;
 
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
+import de.dadecker.inubit.mcp.adapter.NodeSecrets;
 import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
+import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
@@ -47,6 +49,7 @@ import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.config.ParameterStore;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.Capability;
@@ -99,6 +102,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -172,7 +176,7 @@ final class Wiring implements AutoCloseable {
     Wiring(ProfileConfig config, CredentialResolution credentials, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows) {
         this(config, credentials, scrubber, clock, exists, windows, new SystemProcessLauncher(),
-            System.getenv());
+            System.getenv(), SsmParameterStore::new);
     }
 
     /**
@@ -182,6 +186,17 @@ final class Wiring implements AutoCloseable {
     Wiring(ProfileConfig config, CredentialResolution credentials, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment) {
+        this(config, credentials, scrubber, clock, exists, windows, launcher, environment,
+            SsmParameterStore::new);
+    }
+
+    /**
+     * As above, with the Parameter Store of the AWS nodes (feature 010), created only if a node
+     * reads its secrets from it; nothing is fetched here (FR-006a).
+     */
+    Wiring(ProfileConfig config, CredentialResolution credentials, SecretScrubber scrubber,
+        ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
+        Map<String, String> environment, Supplier<ParameterStore> parameterStore) {
         this.profile = config.profileInfo();
         this.scrubber = scrubber;
         // 002 research D-8: the export directories carry the profile name
@@ -202,8 +217,9 @@ final class Wiring implements AutoCloseable {
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
         CliRunner cliRunner = new CliRunner(launcher, environment, windows, cliResources);
         // feature 009 (research D-16): only the 8.1 port set, as default for every version
-        this.gateways = new AdapterGatewayFactory(servers, credentials, scrubber, clock.clock(),
-            cliRunner, versions, PortSetRegistry.v81Default());
+        this.gateways = new AdapterGatewayFactory(servers,
+            secrets(servers, credentials, scrubber, clock, parameterStore), scrubber,
+            clock.clock(), cliRunner, versions, PortSetRegistry.v81Default());
         // feature 009 (research D-7): the StartCLI client probe, on the same runner so that a
         // shutdown also stops a running probe
         this.clientVersions = new CliVersionProbe(cliRunner, byId::get);
@@ -339,6 +355,25 @@ final class Wiring implements AutoCloseable {
         // last step (N2): SIGTERM (and System.exit) stop running StartCLI work and delete the
         // export directories
         Runtime.getRuntime().addShutdownHook(cleanupHook);
+    }
+
+    /**
+     * Feature 010 (research R-7): one {@link NodeSecrets} per node; environment nodes hold their
+     * startup credentials, AWS nodes fetch on first use from the one Parameter Store, which is
+     * created only if there is an AWS node.
+     */
+    private static Map<NodeId, NodeSecrets> secrets(List<EffectiveNodeConfig> servers,
+        CredentialResolution credentials, SecretScrubber scrubber, ClockProvider clock,
+        Supplier<ParameterStore> parameterStore) {
+        ParameterStore store = servers.stream().anyMatch(server -> server.secretPlan().aws())
+            ? parameterStore.get() : null;
+        Map<NodeId, NodeSecrets> secrets = new HashMap<>();
+        for (EffectiveNodeConfig server : servers) {
+            secrets.put(server.id(), server.secretPlan().aws()
+                ? NodeSecrets.aws(server.secretPlan(), store, scrubber, clock.clock())
+                : NodeSecrets.environment(credentials.credentials(server.id())));
+        }
+        return secrets;
     }
 
     /** The resolved trust-store password of {@code node}, if any. */

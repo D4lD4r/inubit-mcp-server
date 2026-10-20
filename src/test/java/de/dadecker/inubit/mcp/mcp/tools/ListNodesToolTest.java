@@ -37,6 +37,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import java.nio.file.Path;
@@ -344,10 +345,10 @@ class ListNodesToolTest {
         versions = new NodeVersions(clock,
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
         SecretScrubber scrubber = new SecretScrubber();
-        gateways = new AdapterGatewayFactory(nodes, new CredentialResolver(Map.of(
+        gateways = new AdapterGatewayFactory(nodes, TestSecrets.environment(new CredentialResolver(Map.of(
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber, "INUBIT")
-            .resolve(List.copyOf(byId.keySet())), scrubber, Clock.systemUTC(),
+            .resolve(List.copyOf(byId.keySet()))), scrubber, Clock.systemUTC(),
             new CliRunner(noStartCli(new AtomicInteger()), Map.of(), false,
                 new CliResources("acme")), versions, PortSetRegistry.v81Default());
         Map<NodeId, Set<Capability>> allowed = Map.of(DEV1, DEVELOPMENT, DEV2, READS,

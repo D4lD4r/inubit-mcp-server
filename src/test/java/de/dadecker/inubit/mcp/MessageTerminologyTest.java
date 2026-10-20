@@ -13,6 +13,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -293,7 +294,7 @@ class MessageTerminologyTest {
         Launcher.Context context = new Launcher.Context(env, Path.of("/home/test"), false,
             InputStream.nullInputStream(), new PrintStream(out, true, StandardCharsets.UTF_8),
             new PrintStream(err, true, StandardCharsets.UTF_8), new SecretScrubber(),
-            path -> true);
+            path -> true, FakeParameterStore::new);
 
         int exit = new Launcher(context).run("--config", file.toString(), "--check-config");
 

@@ -8,8 +8,10 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import de.dadecker.inubit.mcp.config.FailureKind;
+import de.dadecker.inubit.mcp.config.Fetched;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.ParameterNames;
+import de.dadecker.inubit.mcp.config.ParameterStore;
 import de.dadecker.inubit.mcp.config.ParameterType;
 import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.SecretSourceConfig;
@@ -31,9 +33,11 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
@@ -145,6 +149,7 @@ class NodeSecretsTest {
 
         assertThat(secrets.node()).isEqualTo(NODE1);
         assertThat(secrets.current(Duration.ZERO)).isSameAs(startup);
+        assertThat(secrets.held()).containsSame(startup);
         assertThat(store.calls()).isZero();
         assertThat(appender.list).isEmpty();
     }
@@ -332,6 +337,61 @@ class NodeSecretsTest {
         assertThat(errors).singleElement()
             .satisfies(error -> assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT));
         assertThat(secrets.current(LONG).complete()).isTrue();
+        assertThat(store.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void aStoreCallThatOutlivesTheTimeoutIsInterrupted() throws Exception {
+        CountDownLatch interrupted = new CountDownLatch(1);
+        ParameterStore hanging = (location, names, timeout) -> {
+            try {
+                Thread.sleep(Duration.ofSeconds(60));
+            } catch (InterruptedException e) {
+                interrupted.countDown();
+            }
+            return new Fetched.CallFailed(new Fetched.Failure(FailureKind.UNREACHABLE, "late"));
+        };
+        Duration timeout = Duration.ofMillis(300);
+        NodeSecrets secrets = new NodeSecrets(plan(NODE1, USERNAME, PASSWORD, Optional.empty()),
+            hanging, scrubber, clock, timeout);
+
+        assertThat(failure(secrets, LONG).code()).isEqualTo(ErrorCode.UNREACHABLE);
+        assertThat(interrupted.await(5, TimeUnit.SECONDS))
+            .as("the fetch thread is interrupted when the fetch's bound fires").isTrue();
+    }
+
+    @Test
+    void anUnexpectedStoreExceptionIsUnreachableAndLogsItsClassAndScrubbedMessage() {
+        scrubber.register("test-secret-in-exception");
+        ParameterStore broken = (location, names, timeout) -> {
+            throw new IllegalStateException("broken store test-secret-in-exception");
+        };
+        NodeSecrets secrets = NodeSecrets.aws(plan(NODE1, USERNAME, PASSWORD, Optional.empty()),
+            broken, scrubber, clock);
+
+        ToolError error = failure(secrets, LONG);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNREACHABLE);
+        assertThat(allText(error)).doesNotContain("broken store", "IllegalStateException");
+        assertThat(appender.list).singleElement().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(String.valueOf(fields(event).get("detail")))
+                .contains("java.lang.IllegalStateException", "broken store", "***")
+                .doesNotContain("test-secret-in-exception");
+        });
+    }
+
+    @Test
+    void heldAnswersWithoutStartingAFetch() {
+        putValid();
+        NodeSecrets secrets = secrets();
+
+        assertThat(secrets.held()).isEmpty();
+        assertThat(store.calls()).isZero();
+
+        NodeCredentials fetched = secrets.current(LONG);
+
+        assertThat(secrets.held()).containsSame(fetched);
         assertThat(store.calls()).isEqualTo(1);
     }
 

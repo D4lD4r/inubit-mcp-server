@@ -29,6 +29,7 @@ import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import java.time.Clock;
@@ -124,12 +125,12 @@ class GetHealthToolTest {
             EffectiveNodeConfig::id, Function.identity()));
         NodeVersions versions = new NodeVersions(Clock.systemUTC(),
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
-        gateways = new AdapterGatewayFactory(servers, new CredentialResolver(Map.of(
+        gateways = new AdapterGatewayFactory(servers, TestSecrets.environment(new CredentialResolver(Map.of(
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD,
             "INUBIT_STAGING_USERNAME", "jdoe", "INUBIT_STAGING_PASSWORD", PASSWORD), scrubber,
             "INUBIT")
-            .resolve(ids), scrubber, Clock.systemUTC(),
+            .resolve(ids)), scrubber, Clock.systemUTC(),
             new CliRunner(new SystemProcessLauncher(), Map.of(), false,
                 new CliResources("acme")), versions, PortSetRegistry.v81Default());
         Map<NodeId, Duration> timeouts = servers.stream().collect(Collectors.toMap(

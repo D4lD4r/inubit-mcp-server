@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp;
 
+import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
@@ -12,6 +13,7 @@ import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
+import de.dadecker.inubit.mcp.config.ParameterStore;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.ValidationReport;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
@@ -44,6 +46,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -84,10 +87,12 @@ final class Launcher {
      * Everything the process touches, injectable for tests.
      *
      * @param out the protocol stdout (also used for {@code --version}/{@code --check-config})
+     * @param parameterStore creates the AWS Parameter Store client of the server (feature 010);
+     *     called only if a node reads its secrets from it
      */
     record Context(Map<String, String> environment, Path userHome, boolean windows,
         InputStream in, PrintStream out, PrintStream err, SecretScrubber scrubber,
-        Predicate<Path> exists) {
+        Predicate<Path> exists, Supplier<ParameterStore> parameterStore) {
 
         Context {
             environment = Map.copyOf(environment);
@@ -97,12 +102,14 @@ final class Launcher {
             Objects.requireNonNull(err, "err");
             Objects.requireNonNull(scrubber, "scrubber");
             Objects.requireNonNull(exists, "exists");
+            Objects.requireNonNull(parameterStore, "parameterStore");
         }
 
         static Context system(PrintStream protocolOut) {
             return new Context(System.getenv(), Path.of(System.getProperty("user.home")),
                 System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows"),
-                System.in, protocolOut, System.err, SecretScrubber.global(), Files::exists);
+                System.in, protocolOut, System.err, SecretScrubber.global(), Files::exists,
+                SsmParameterStore::new);
         }
     }
 
@@ -252,7 +259,8 @@ final class Launcher {
             }
         }
         try (Wiring wiring = new Wiring(config, credentials, context.scrubber(),
-            ClockProvider.system(), context.exists(), context.windows())) {
+            ClockProvider.system(), context.exists(), context.windows(),
+            new SystemProcessLauncher(), System.getenv(), context.parameterStore())) {
             McpServerFactory factory = wiring.serverFactory(BuildInfo.version(),
                 toolHandlers.apply(wiring));
             try (McpServerFactory.RunningServer server = factory.start(context.in(),

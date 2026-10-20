@@ -66,6 +66,12 @@ public final class NodeSecrets {
     /** How long a failed fetch is returned at once without a new fetch (FR-011). */
     public static final Duration BACK_OFF = Duration.ofSeconds(30);
 
+    /**
+     * How long a caller whose wait ended with the fetch's own bound still waits for the fetch to
+     * record its outcome.
+     */
+    private static final Duration SETTLE_GRACE = Duration.ofSeconds(1);
+
     private static final Logger LOG = LoggerFactory.getLogger(NodeSecrets.class);
 
     private static final String USERNAME = "username";
@@ -164,6 +170,13 @@ public final class NodeSecrets {
         return node;
     }
 
+    /** The credentials if they are held already; never starts a fetch and never waits. */
+    public Optional<NodeCredentials> held() {
+        synchronized (lock) {
+            return Optional.ofNullable(held);
+        }
+    }
+
     /**
      * The node's credentials; starts or joins the fetch of an AWS node if they are not held yet.
      *
@@ -192,12 +205,16 @@ public final class NodeSecrets {
             try {
                 return fetch.get(wait.toNanos(), TimeUnit.NANOSECONDS);
             } catch (TimeoutException e) {
-                if (wait.equals(timeout)) {
-                    // The fetch's own bound (armed before this wait) has expired as well, so its
-                    // outcome is due; report it instead of "still fetching".
-                    return fetch.get();
+                if (!wait.equals(timeout)) {
+                    throw new ToolErrorException(pending());
                 }
-                throw new ToolErrorException(pending());
+                // The fetch's own bound (armed before this wait) has expired as well, so its
+                // outcome is due; report it instead of "still fetching".
+                try {
+                    return fetch.get(SETTLE_GRACE.toNanos(), TimeUnit.NANOSECONDS);
+                } catch (TimeoutException late) {
+                    throw new ToolErrorException(pending());
+                }
             }
         } catch (ExecutionException e) {
             if (e.getCause() instanceof ToolErrorException error) {
@@ -214,27 +231,39 @@ public final class NodeSecrets {
         }
     }
 
-    /** Starts a fetch; called under {@link #lock}, so {@link #settle} runs after it returns. */
+    /**
+     * Starts a fetch; called under {@link #lock}, so {@link #settle} runs after it returns. When
+     * the fetch's bound fires, its thread is interrupted, so that a hanging store call does not
+     * keep it alive.
+     */
     private CompletableFuture<NodeCredentials> start() {
         long started = System.nanoTime();
         CompletableFuture<Attempt> attempt = new CompletableFuture<>();
-        CompletableFuture<NodeCredentials> settled = attempt
-            .orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS)
-            .handle((result, thrown) -> settle(result, thrown, started));
-        Thread.ofVirtual().name("secret-fetch-" + node.value()).start(() -> {
+        Thread worker = Thread.ofVirtual().name("secret-fetch-" + node.value()).unstarted(() -> {
             try {
                 attempt.complete(fetch());
             } catch (RuntimeException e) {
                 attempt.completeExceptionally(e);
             }
         });
+        CompletableFuture<NodeCredentials> settled = attempt
+            .orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS)
+            .handle((result, thrown) -> {
+                if (thrown instanceof TimeoutException) {
+                    worker.interrupt();
+                }
+                return settle(result, thrown, started);
+            });
+        worker.start();
         return settled;
     }
 
     /** Records and logs the outcome of a fetch (exactly once per fetch). */
     private NodeCredentials settle(Attempt result, Throwable thrown, long started) {
         Attempt outcome = result != null ? result : unreachable(thrown instanceof TimeoutException
-            ? "no answer within " + timeout.toMillis() + " ms" : thrown.getClass().getName());
+            ? "no answer within " + timeout.toMillis() + " ms"
+            : thrown.getMessage() == null ? thrown.getClass().getName()
+            : thrown.getClass().getName() + ": " + thrown.getMessage());
         synchronized (lock) {
             inFlight = null;
             if (outcome instanceof Success success) {

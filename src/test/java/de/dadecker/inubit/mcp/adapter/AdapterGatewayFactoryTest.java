@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.adapter;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
@@ -21,6 +22,11 @@ import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.config.FailureKind;
+import de.dadecker.inubit.mcp.config.ParameterNames;
+import de.dadecker.inubit.mcp.config.SecretPlan;
+import de.dadecker.inubit.mcp.config.SecretSourceConfig;
+import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -38,8 +44,10 @@ import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Proxy;
@@ -49,6 +57,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -137,7 +146,8 @@ class AdapterGatewayFactoryTest {
         CredentialResolution credentials = new CredentialResolver(
             Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", "gateway-test-pw"),
             scrubber, "INUBIT").resolve(ids);
-        return new AdapterGatewayFactory(List.of(servers), credentials, scrubber, clock,
+        return new AdapterGatewayFactory(List.of(servers), TestSecrets.environment(credentials),
+            scrubber, clock,
             new CliRunner(new SystemProcessLauncher(), Map.of(), false, new CliResources("acme")),
             observer, portSets);
     }
@@ -433,7 +443,7 @@ class AdapterGatewayFactoryTest {
             Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", "gateway-test-pw"),
             scrubber, "INUBIT").resolve(List.of(DEV));
         try (AdapterGatewayFactory factory = new AdapterGatewayFactory(List.of(config),
-            credentials, scrubber, clock,
+            TestSecrets.environment(credentials), scrubber, clock,
             new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
             versions, PortSetRegistry.v81Default())) {
 
@@ -936,4 +946,151 @@ class AdapterGatewayFactoryTest {
             assertThat(portSetOf(factory.logs(DEV))).isEqualTo("7.9");
         }
     }
+
+    // --- feature 010 T011: secrets of AWS nodes, fetched on first use (R-7, FR-006a) -------
+
+    private static final StoreLocation EU = new StoreLocation("eu-central-1", Optional.empty());
+    private static final String AWS_USERNAME = "/test/dev/node1/username";
+    private static final String AWS_PASSWORD = "/test/dev/node1/password";
+    private static final String AWS_TRUST = "/test/dev/node1/truststore-password";
+
+    private final FakeParameterStore store = new FakeParameterStore();
+
+    private NodeSecrets awsSecrets(Optional<String> trustStorePassword) {
+        return NodeSecrets.aws(new SecretPlan(DEV,
+            new SecretSourceConfig.AwsParameterStore(EU.region(), EU.awsProfile()),
+            SecretPlan.Origin.NODE, Optional.empty(), Optional.of(new ParameterNames(
+                Optional.of(AWS_USERNAME), Optional.of(AWS_PASSWORD), trustStorePassword,
+                Optional.empty(), Optional.empty()))), store, scrubber, clock);
+    }
+
+    private AdapterGatewayFactory awsFactory(EffectiveNodeConfig server, NodeSecrets secrets) {
+        return new AdapterGatewayFactory(List.of(server), Map.of(server.id(), secrets), scrubber,
+            clock, new CliRunner(new SystemProcessLauncher(), Map.of(), false,
+                new CliResources("acme")), versions, PortSetRegistry.v81Default());
+    }
+
+    private void putAwsCredentials() {
+        store.put(EU, AWS_USERNAME, "test-user-1").put(EU, AWS_PASSWORD, "test-password-1");
+    }
+
+    private static void collect(Runnable call, List<ToolErrorException> failures) {
+        try {
+            call.run();
+        } catch (ToolErrorException e) {
+            failures.add(e);
+        }
+    }
+
+    @Test
+    void anAwsNodesFirstAuthenticatedCallFetchesOnceAndUsesTheStoredValues() {
+        systemInfo(200, fixture("system_info.xml"));
+        putAwsCredentials();
+        store.put(EU, AWS_TRUST, TestCertificates.PASSWORD);
+        // the trust store needs the fetched password: it is part of the TLS context
+        EffectiveNodeConfig node = TestNodeConfig.node().id(DEV.value())
+            .baseUrl("https://localhost:" + wireMock.httpsPort())
+            .trustStore(TestCertificates.get().protectedTrustStore())
+            .versionLine(VersionSetting.AUTO).build();
+        try (AdapterGatewayFactory factory = awsFactory(node, awsSecrets(Optional.of(AWS_TRUST)))) {
+            assertThat(store.calls()).as("nothing is fetched at construction").isZero();
+
+            Gateway gateway = factory.forServer(DEV);
+            factory.monitoring(DEV);
+            factory.logs(DEV);
+            factory.detect(DEV);
+
+            assertThat(gateway.detectedVersion()).contains("8.1.17");
+            assertThat(store.requests()).singleElement().satisfies(request -> assertThat(
+                request.names()).containsExactly(AWS_USERNAME, AWS_PASSWORD, AWS_TRUST));
+        }
+        String basic = "Basic " + Base64.getEncoder().encodeToString(
+            "test-user-1:test-password-1".getBytes(StandardCharsets.UTF_8));
+        wireMock.verify(2, getRequestedFor(urlPathEqualTo(SYSTEM_INFO))
+            .withHeader("Authorization", equalTo(basic)));
+    }
+
+    @Test
+    void aFailedFetchFailsTheCallBeforeAnyInubitRequest() {
+        systemInfo(200, fixture("system_info.xml"));
+        store.put(EU, AWS_USERNAME, "test-user-1")
+            .fail(EU, AWS_PASSWORD, FailureKind.ACCESS_DENIED, "test detail");
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.AUTO),
+            awsSecrets(Optional.empty()))) {
+            List<ToolErrorException> failures = new ArrayList<>();
+            collect(() -> factory.forServer(DEV), failures);
+            collect(() -> factory.detect(DEV), failures);
+            collect(() -> factory.monitoring(DEV), failures);
+            collect(() -> factory.processes(DEV), failures);
+            collect(() -> factory.inventory(DEV), failures);
+
+            assertThat(failures).hasSize(5).allSatisfy(e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.AUTH_FAILED);
+                assertThat(e.error().message()).contains("dev/node1", AWS_PASSWORD,
+                    "access denied");
+            });
+            assertThat(store.calls()).as("the back-off answers the later calls").isEqualTo(1);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+        assertThat(versions.events()).as("no detection was attempted").isEmpty();
+    }
+
+    @Test
+    void pathsThatDoNotContactTheNodeFetchNothing() {
+        putAwsCredentials();
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.V8_1),
+            awsSecrets(Optional.empty()))) {
+            assertThat(factory.knownGateway(DEV)).as("unknown until the secrets are there")
+                .isEmpty();
+            assertThatThrownBy(() -> factory.forServer(ENT2))
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.TARGET_UNKNOWN));
+            assertThat(store.calls()).isZero();
+
+            factory.logs(DEV);
+
+            assertThat(store.calls()).isEqualTo(1);
+            assertThat(factory.knownGateway(DEV)).isPresent();
+        }
+        assertThat(store.calls()).isEqualTo(1);
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void aCallerInterruptedWhileAnotherCallersFetchIsPendingReturnsAtOnce() throws Exception {
+        putAwsCredentials();
+        store.delay(EU, Duration.ofSeconds(30));
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.AUTO),
+            awsSecrets(Optional.empty()))) {
+            List<ToolErrorException> first = new CopyOnWriteArrayList<>();
+            List<ToolErrorException> second = new CopyOnWriteArrayList<>();
+            Thread fetching = Thread.ofVirtual().start(() -> collect(() -> factory.forServer(DEV),
+                first));
+            while (store.calls() == 0) {
+                Thread.onSpinWait();
+            }
+            // detect takes the same slot lock as forServer; it waits for the secrets before
+            Thread waiting = Thread.ofVirtual().start(() -> collect(() -> factory.detect(DEV),
+                second));
+            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (waiting.getState() != Thread.State.TIMED_WAITING
+                && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+
+            waiting.interrupt();
+
+            assertThat(waiting.join(Duration.ofSeconds(5))).as("returns at once").isTrue();
+            assertThat(second).singleElement().satisfies(e ->
+                assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT));
+            assertThat(fetching.isAlive()).as("the first caller still waits").isTrue();
+            fetching.interrupt();
+            assertThat(fetching.join(Duration.ofSeconds(5))).isTrue();
+            assertThat(first).singleElement().satisfies(e ->
+                assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT));
+            assertThat(store.calls()).isEqualTo(1);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
 }
+

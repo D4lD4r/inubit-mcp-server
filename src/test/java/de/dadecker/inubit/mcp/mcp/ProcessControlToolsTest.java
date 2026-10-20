@@ -35,6 +35,7 @@ import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -195,8 +196,8 @@ class ProcessControlToolsTest {
         SecretScrubber scrubber = new SecretScrubber();
         List<NodeId> ids = List.of(server.id());
         AdapterGatewayFactory gateways = new AdapterGatewayFactory(List.of(server),
-            new CredentialResolver(Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD",
-                PASSWORD), scrubber, "INUBIT").resolve(ids), scrubber, Clock.systemUTC(),
+            TestSecrets.environment(new CredentialResolver(Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD",
+                PASSWORD), scrubber, "INUBIT").resolve(ids)), scrubber, Clock.systemUTC(),
             new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
             new RecordingVersionObserver(), PortSetRegistry.v81Default());
         closeables.add(gateways);

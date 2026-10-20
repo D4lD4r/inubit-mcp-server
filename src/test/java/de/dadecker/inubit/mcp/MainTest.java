@@ -2,11 +2,14 @@ package de.dadecker.inubit.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.config.FailureKind;
+import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.infra.BuildInfo;
 import de.dadecker.inubit.mcp.infra.LogLevels;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import de.dadecker.inubit.mcp.mcp.ToolHints;
+import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -23,6 +26,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -54,6 +58,8 @@ class MainTest {
     private final ByteArrayOutputStream stdout = new ByteArrayOutputStream();
     private final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
     private final Map<String, String> environment = new HashMap<>();
+    /** The Parameter Store of AWS nodes; no test reaches AWS. */
+    private final FakeParameterStore store = new FakeParameterStore();
 
     @AfterEach
     void restoreTestLogLevel() {
@@ -69,7 +75,7 @@ class MainTest {
         return new Launcher(new Launcher.Context(Map.copyOf(environment), home, false, in,
             new PrintStream(out, true, StandardCharsets.UTF_8),
             new PrintStream(stderr, true, StandardCharsets.UTF_8), new SecretScrubber(),
-            Files::exists), handlers);
+            Files::exists, () -> store), handlers);
     }
 
     private int run(String... args) {
@@ -301,6 +307,51 @@ class MainTest {
             "no password variable");
         assertThat(start).as(err()).isZero();
         assertThat(err()).doesNotContain("INUBIT_ACME_PROD", PASSWORD);
+    }
+
+    @Test
+    void theServerStartsWithAnAwsNodeWithoutAwsAccessAndFetchesNothing() throws Exception {
+        store.failCall(new StoreLocation("eu-central-1", Optional.empty()),
+            FailureKind.NO_CREDENTIALS, "no AWS credentials in this test");
+        Path file = config("""
+            profile:
+              name: acme
+            auditDirectory: %s
+            groups:
+              - name: prod
+                credentials:
+                  source:
+                    type: awsParameterStore
+                    region: eu-central-1
+                  parameters:
+                    username: /test/prod/username
+                    password: /test/prod/password
+                nodes:
+                  - name: node1
+                    baseUrl: https://prod.example.test:8443
+                    versionLine: V8_1
+            """.formatted(home.resolve("audit")));
+        PipedInputStream serverIn = new PipedInputStream(1 << 16);
+        PipedOutputStream toServer = new PipedOutputStream(serverIn);
+        LineQueue protocol = new LineQueue();
+        Launcher main = main(serverIn, protocol);
+
+        CompletableFuture<Integer> exit = CompletableFuture.supplyAsync(
+            () -> main.run("--config", file.toString()));
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":"
+            + "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},"
+            + "\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}");
+        protocol.next();
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":"
+            + "{\"name\":\"list_nodes\",\"arguments\":{}}}");
+        JsonNode nodes = protocol.next();
+        toServer.close();
+
+        assertThat(exit.get(20, TimeUnit.SECONDS)).as(err()).isZero();
+        assertThat(nodes.path("result").path("structuredContent").path("groups").path(0)
+            .path("nodes").path(0).path("id").asString()).isEqualTo("prod/node1");
+        assertThat(store.calls()).as("neither the startup nor list_nodes fetches").isZero();
     }
 
     @Test
