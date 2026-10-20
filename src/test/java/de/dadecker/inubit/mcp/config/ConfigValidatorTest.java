@@ -2,7 +2,6 @@ package de.dadecker.inubit.mcp.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -887,14 +886,15 @@ class ConfigValidatorTest {
         private ValidationReport validateFile(Path file) {
             ConfigLoader loader = new ConfigLoader(Map.of(), home, false);
             LoadedConfig loaded = loader.loadFile(file);
-            String prefix = loaded.config().credentialPrefix();
-            for (NodeId node : loaded.config().nodeIds()) {
-                CredentialVariables variables = new CredentialVariables(prefix, node);
+            ProfileConfig config = loaded.config();
+            // the group-wide variables of every environment node (feature 010: AWS nodes read none)
+            config.secretPlans().values().forEach(plan -> plan.variables().ifPresent(variables -> {
                 env.put(variables.groupVariable("USERNAME"), "user");
                 env.put(variables.groupVariable("PASSWORD"), "secret-value");
-            }
+            }));
             CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
-                prefix).resolve(loaded.config().nodeIds());
+                config.terminology().effectiveOrDefault(), config.credentialPrefix(),
+                config.secretPlans()).resolve(config.nodeIds());
             return new ConfigValidator(existing::contains, env, false, tempDirectory,
                 loader::otherProfiles).validate(loaded, credentials);
         }
@@ -940,6 +940,39 @@ class ConfigValidatorTest {
             // both configure test/node1, so they also derive the same names (review P1)
             assertThat(report.errors()).singleElement().asString()
                 .contains(globex.toString(), "INUBIT_ACME_TEST_USERNAME");
+        }
+
+        @Test
+        void profilesWhoseNodesAreAllAwsShareNoCredentialVariables() throws IOException {
+            // T007 (research R-13, spec edge case "two profiles read the same parameter")
+            String aws = """
+                credentials:
+                  envPrefix: INUBIT_SHARED
+                groups:
+                  - name: test
+                    credentials:
+                      source:
+                        type: awsParameterStore
+                        region: eu-central-1
+                      parameters:
+                        username: /inubit/test/username
+                        password: /inubit/test/password
+                    nodes:
+                      - name: node1
+                        baseUrl: https://node1.test.example.test:8443
+                """;
+            Path acme = write(configDirectory().resolve("acme.yaml"),
+                "profile:\n  name: acme\n" + aws);
+            Path globex = write(configDirectory().resolve("globex.yaml"),
+                "profile:\n  name: globex\n" + aws);
+
+            assertThat(validateFile(acme).errors()).isEmpty();
+            assertThat(validateFile(globex).errors()).isEmpty();
+            // an environment profile with the same names next to them shares nothing either
+            Path initech = profileFile("initech.yaml", "initech",
+                "credentials:\n  envPrefix: INUBIT_SHARED\n");
+            assertThat(validateFile(initech).errors()).isEmpty();
+            assertThat(validateFile(acme).errors()).isEmpty();
         }
 
         // --- T035 (feature 003, FR-003): no shared workspace ----------------------------------
@@ -2113,6 +2146,146 @@ class ConfigValidatorTest {
 
             assertThat(validate(yaml).errors()).hasSize(2).allSatisfy(e -> assertThat(e)
                 .contains("on the server or its stage"));
+        }
+
+        // --- T007 (research R-13): the environment checks consider only environment nodes -----
+
+        /**
+         * Like {@link ConfigValidatorTest#validate}, but resolved with the secret plans (as the
+         * Launcher does) and with the group-wide variables of the environment nodes only.
+         */
+        private ValidationReport validateWithPlans(String yaml) {
+            LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, windows)
+                .parse(yaml, HOME.resolve("config.yaml"));
+            ProfileConfig config = loaded.config();
+            config.secretPlans().values().forEach(plan -> plan.variables().ifPresent(variables -> {
+                env.putIfAbsent(variables.groupVariable("USERNAME"), "user");
+                env.putIfAbsent(variables.groupVariable("PASSWORD"), "secret-value");
+            }));
+            CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
+                config.terminology().effectiveOrDefault(), config.credentialPrefix(),
+                config.secretPlans()).resolve(config.nodeIds());
+            return new ConfigValidator(existing::contains, env, windows, tempDirectory,
+                source -> List.of(), workspace -> workspaceResult).validate(loaded, credentials);
+        }
+
+        private static ProfileConfig parse(String yaml) {
+            return new ConfigLoader(Map.of(), HOME, false).parse(yaml, HOME.resolve("config.yaml"))
+                .config();
+        }
+
+        @Test
+        void aMixedProfileReportsCollisionsOnlyAmongItsEnvironmentNodes() {
+            // a-b/c and a/b-c (environment) collide; q-r/s (environment) and q/r-s (AWS) do not
+            String yaml = """
+                profile:
+                  name: acme
+                groups:
+                  - name: a-b
+                    nodes:
+                      - name: c
+                        baseUrl: https://c.example.test:8443
+                  - name: a
+                    nodes:
+                      - name: b-c
+                        baseUrl: https://b-c.example.test:8443
+                  - name: q-r
+                    nodes:
+                      - name: s
+                        baseUrl: https://s.example.test:8443
+                  - name: q
+                    credentials:
+                """ + (AWS + NAMES).indent(6) + """
+                    nodes:
+                      - name: r-s
+                        baseUrl: https://r-s.example.test:8443
+                """;
+
+            ValidationReport report = validateWithPlans(yaml);
+
+            assertThat(report.errors()).singleElement().asString()
+                .contains("collide", "a-b/c", "a/b-c", "INUBIT_ACME_A_B_C_USERNAME")
+                .doesNotContain("q-r", "r-s", "INUBIT_ACME_Q");
+        }
+
+        @Test
+        void aProfileDerivesTheVariableNamesOfItsEnvironmentNodesOnly() {
+            ProfileConfig allAws = parse(profile("credentials:\n" + AWS.indent(2), NAMES, "",
+                ""));
+            ProfileConfig mixed = parse(profile("", awsGroup(""),
+                "source:\n  type: environment\n  prefix: INUBIT_OWN\n", "") + """
+                  - name: qa
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-qa.example.test:8443
+                """);
+
+            assertThat(allAws.credentialVariableNames()).isEmpty();
+            assertThat(mixed.credentialVariableNames())
+                .contains("INUBIT_OWN_DEV_NODE1_PASSWORD", "INUBIT_OWN_DEV_E2E_USERNAME",
+                    "INUBIT_ACME_QA_NODE1_PASSWORD", "INUBIT_ACME_QA_E2E_PASSWORD")
+                .noneMatch(name -> name.startsWith("INUBIT_ACME_DEV"));
+        }
+
+        @Test
+        void endToEndVariablesDoNotCountForAnAwsNodeOverPlainHttp() {
+            // variables that would match the AWS node under the profile prefix are not its own
+            env.put("INUBIT_ACME_DEV_E2E_USERNAME", "e2e-user");
+            env.put("INUBIT_ACME_DEV_E2E_PASSWORD", "e2e-validator-pw");
+            String development = """
+                development:
+                  enabled: true
+                e2eTests: FREE
+                e2e:
+                  soap:
+                    baseUrl: http://inubit-dev.example.test:8080
+                """;
+
+            ValidationReport withoutNames = validateWithPlans(profile("", awsGroup(""), "",
+                development));
+            ValidationReport withNames = validateWithPlans(profile("",
+                awsGroup("e2eUsername: /inubit/dev/e2e-user\ne2ePassword: /inubit/dev/e2e-pass"),
+                "", development));
+
+            assertThat(withoutNames.errors()).isEmpty();
+            assertThat(withoutNames.warnings()).anySatisfy(warning -> assertThat(warning)
+                .contains("dev/node1", "http://", "unencrypted"));
+            assertThat(withNames.errors()).singleElement().asString()
+                .contains("dev/node1", "/inubit/dev/e2e-user", "/inubit/dev/e2e-pass",
+                    "clear text")
+                .doesNotContain("INUBIT_ACME_DEV_E2E");
+        }
+
+        @Test
+        void aNodeNamedE2eClashesOnlyAsAnEnvironmentNode() {
+            String development = """
+                e2eTests: CONFIRM
+                e2e:
+                  soap:
+                    baseUrl: https://inubit-dev.example.test:8443
+                """;
+            String yaml = """
+                profile:
+                  name: acme
+                groups:
+                  - name: dev
+                    credentials:
+                """ + (AWS + NAMES).indent(6) + development.indent(4) + """
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-dev.example.test:8443
+                      - name: e2e
+                        baseUrl: https://inubit-dev-2.example.test:8443
+                %s
+                """;
+
+            ValidationReport aws = validateWithPlans(yaml.formatted(""));
+            ValidationReport environment = validateWithPlans(yaml.formatted(
+                "credentials:\n  source:\n    type: environment\n".indent(8).stripTrailing()));
+
+            assertThat(aws.errors()).isEmpty();
+            assertThat(environment.errors()).anySatisfy(error -> assertThat(error)
+                .contains("dev/e2e", "clashes", "INUBIT_ACME_DEV_E2E_USERNAME"));
         }
     }
 }

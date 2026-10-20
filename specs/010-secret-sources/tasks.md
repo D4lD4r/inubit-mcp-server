@@ -170,13 +170,16 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
   environment node or group with its own `source.prefix` is resolved with the same variables. Also
   consider moving the duplicated group-source precedence in
   `ConfigValidator.checkIgnoredParameterNames` into `SecretPlan`.
-- [ ] T007 [US1] Environment checks only for environment nodes (R-13):
+- [X] T007 [US1] Environment checks only for environment nodes (R-13):
   `ProfileConfig.credentialVariableNames()`, the collision check, `ConfigValidator.checkOtherProfiles`
   `CredentialResolver.unmatchedPasswordVariables`, `ConfigValidator.e2eCredentialVariables` and
   `checkE2eNodeNames` consider only environment nodes. Test first:
   `test/config/ConfigValidatorTest.java` (two profiles whose nodes are all AWS: no shared-variable
   error; a mixed profile still reports collisions among its environment nodes),
   `test/config/CredentialResolverTest.java`.
+  Carry-over (T007 review r1): the cross-profile warning "the credential variable prefix X (both read
+  the same variables)" in `ConfigValidator.checkOtherProfiles` should appear only when both profiles
+  have at least one environment node (both `credentialVariableNames()` non-empty).
 - [ ] T008 [US1] `--check-config` environment part (contracts/configuration-delta.md, SC-001):
   profiles without any `credentials.source` setting keep today's output byte for byte; as soon as
   `source` is used anywhere in the profile, each node line gains `secrets: environment` (plus the

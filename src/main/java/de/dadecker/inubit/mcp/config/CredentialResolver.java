@@ -33,7 +33,8 @@ import java.util.TreeSet;
  *       reads the plan's variables (its source's {@code prefix} or the profile's); an AWS node is
  *       not looked up and gets {@link NodeCredentials#deferred(NodeId)} without a missing-variable
  *       error. A node without a plan reads the variables under the profile's prefix (a profile
- *       without {@code credentials.source}).
+ *       without {@code credentials.source}). The collision check and the unmatched-variable
+ *       warning consider only environment nodes (research R-13).
  * </ul>
  */
 public final class CredentialResolver {
@@ -50,7 +51,8 @@ public final class CredentialResolver {
     private final Map<NodeId, SecretPlan> plans;
 
     /**
-     * With the default terminology in messages; every node reads environment variables.
+     * With the default terminology in messages; every node reads environment variables (for
+     * profiles without {@code credentials.source}).
      *
      * @param prefix the effective credential prefix ({@link ProfileConfig#credentialPrefix()})
      */
@@ -60,7 +62,7 @@ public final class CredentialResolver {
     }
 
     /**
-     * Every node reads environment variables.
+     * Every node reads environment variables (for profiles without {@code credentials.source}).
      *
      * @param terms  the display names of the levels in messages (FR-007)
      * @param prefix the effective credential prefix ({@link ProfileConfig#credentialPrefix()})
@@ -194,7 +196,10 @@ public final class CredentialResolver {
             + names.get(1) + ")";
     }
 
-    /** Groups every derived name of the node credentials by the groups/nodes it is for. */
+    /**
+     * Groups every derived name of the node credentials by the groups/nodes it is for; environment
+     * nodes only (research R-13).
+     */
     private Map<String, Set<String>> owners(List<NodeId> servers) {
         return owners(servers, KINDS);
     }
@@ -202,11 +207,15 @@ public final class CredentialResolver {
     /**
      * Groups every derived name of {@code kinds} by the groups/nodes it is derived for. The
      * end-to-end kinds count as known names (no typo warning) but not for the collision check:
-     * a node named {@code e2e} clashes only where e2e tests are allowed (ConfigValidator).
+     * a node named {@code e2e} clashes only where e2e tests are allowed (ConfigValidator). AWS
+     * nodes derive no names (research R-13): they neither collide nor make a variable known.
      */
     private Map<String, Set<String>> owners(List<NodeId> servers, List<String> kinds) {
         Map<String, Set<String>> owners = new LinkedHashMap<>();
         for (NodeId server : servers) {
+            if (aws(server)) {
+                continue;
+            }
             for (String kind : kinds) {
                 String serverVariable = variables(server).nodeVariable(kind);
                 String stageVariable = variables(server).groupVariable(kind);

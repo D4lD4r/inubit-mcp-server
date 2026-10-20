@@ -180,6 +180,8 @@ public final class ConfigValidator {
      *       (e.g. {@code INUBIT_ACME} + group {@code 2-test} and {@code INUBIT_ACME_2} + group
      *       {@code test}) or by an equal prefix with equal group names (002 US2 review P1,
      *       re-review N1): two customers would read the same variable. Only names are printed;
+     *       only environment nodes derive names ({@link ProfileConfig#credentialVariableNames()},
+     *       research R-13), so two profiles may read the same Parameter Store names;
      *   <li>one <b>warning</b> per file that has the same profile name (a copy, which may start;
      *       shared variable names are listed in the warning then), the same effective credential
      *       prefix or the same audit directory.
@@ -578,9 +580,15 @@ public final class ConfigValidator {
         });
     }
 
-    /** The set e2e basic-authentication variables of {@code server} (names only). */
+    /**
+     * The set e2e basic-authentication variables of {@code server} (names only); none for an AWS
+     * node, which reads no variables (research R-6, R-13).
+     */
     private List<String> e2eCredentialVariables(EffectiveNodeConfig server) {
         List<String> set = new ArrayList<>();
+        if (server.secretPlan().aws()) {
+            return set;
+        }
         for (String kind : CredentialVariables.E2E_KINDS) {
             for (String variable : server.credentialVariables().candidates(kind)) {
                 if (CredentialRules.isSet(environment.get(variable))) {
@@ -675,12 +683,14 @@ public final class ConfigValidator {
 
     /**
      * Review m-d: in a {@code group} where any node allows end-to-end tests, a node named
-     * {@code e2e} would read {@code <PREFIX>_<GROUP>_E2E_USERNAME} as its own username.
+     * {@code e2e} would read {@code <PREFIX>_<GROUP>_E2E_USERNAME} as its own username. Only
+     * environment nodes read these variables (research R-6, R-13), so AWS nodes are left out.
      */
     private static void checkE2eNodeNames(ProfileConfig config, Findings findings) {
         Map<String, List<EffectiveNodeConfig>> byGroup = new TreeMap<>();
-        config.resolvableNodes().forEach(server -> byGroup.computeIfAbsent(
-            server.id().group().value(), group -> new ArrayList<>()).add(server));
+        config.resolvableNodes().stream().filter(server -> !server.secretPlan().aws())
+            .forEach(server -> byGroup.computeIfAbsent(server.id().group().value(),
+                group -> new ArrayList<>()).add(server));
         byGroup.values().forEach(nodes -> {
             boolean e2e = nodes.stream().anyMatch(server -> server.development().e2eTests()
                 != E2ePolicy.FORBIDDEN);

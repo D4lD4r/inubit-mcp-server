@@ -572,4 +572,75 @@ class CredentialResolverTest {
             new NodeCredentials(DEV, Optional.of(username), Optional.empty(), Optional.empty(),
                 Optional.empty(), true));
     }
+
+    // --- T007 (research R-13): the environment checks consider only environment nodes ----------
+
+    /** Profile {@code acme} with the groups {@code a-b} (node c) and {@code a} (node b-c). */
+    private static ProfileConfig collidingNames(String groupA) {
+        Path home = Path.of("/home/test");
+        return new ConfigLoader(Map.of(), home, false).parse("""
+            profile:
+              name: acme
+            groups:
+              - name: a-b
+                nodes:
+                  - name: c
+                    baseUrl: https://c.example.test:8443
+              - name: a
+            """ + groupA.indent(4) + """
+                nodes:
+                  - name: b-c
+                    baseUrl: https://b-c.example.test:8443
+            """, home.resolve("acme.yaml")).config();
+    }
+
+    @Test
+    void namesAnAwsNodeWouldDeriveCollideWithNoEnvironmentNode() {
+        env.put("INUBIT_ACME_A_B_C_USERNAME", "u");
+        env.put("INUBIT_ACME_A_B_C_PASSWORD", "p-secret");
+        ProfileConfig bothEnvironment = collidingNames("");
+        ProfileConfig groupAws = collidingNames("""
+            credentials:
+              source:
+                type: awsParameterStore
+                region: eu-central-1
+              parameters:
+                username: /inubit/a/username
+                password: /inubit/a/password
+            """);
+
+        assertThat(resolveWithPlans(bothEnvironment).errors()).singleElement().asString()
+            .contains("collide", "a-b/c", "a/b-c", "INUBIT_ACME_A_B_C_USERNAME");
+        CredentialResolution mixed = resolveWithPlans(groupAws);
+        assertThat(mixed.errors()).isEmpty();
+        assertThat(mixed.credentials(NodeId.parse("a-b/c")).complete()).isTrue();
+    }
+
+    @Test
+    void theVariablesOfAnAwsNodeAreUnmatched() {
+        // dev/node1 reads Parameter Store, so INUBIT_ACME_DEV_… belongs to no environment node
+        env.put("INUBIT_ACME_DEV_PASSWORD", "leftover-pw");
+        env.put("INUBIT_ACME_DEV_E2E_PASSWORD", "leftover-e2e-pw");
+        env.put("INUBIT_ACME_QA_USERNAME", "qa-user");
+        env.put("INUBIT_ACME_QA_PASSWORD", "qa-pw");
+        env.put("INUBIT_ACME_QA_E2E_PASSWORD", "qa-e2e-pw");
+        ProfileConfig config = acme("", """
+            credentials:
+              source:
+                type: awsParameterStore
+                region: eu-central-1
+              parameters:
+                username: /inubit/dev/username
+                password: /inubit/dev/password
+            """);
+
+        CredentialResolution resolution = resolveWithPlans(config);
+
+        assertThat(resolution.errors()).isEmpty();
+        assertThat(resolution.warnings()).hasSize(2)
+            .anySatisfy(warning -> assertThat(warning).contains("INUBIT_ACME_DEV_PASSWORD"))
+            .anySatisfy(warning -> assertThat(warning).contains("INUBIT_ACME_DEV_E2E_PASSWORD"))
+            .allSatisfy(warning -> assertThat(warning).doesNotContain("INUBIT_ACME_QA",
+                "leftover-pw"));
+    }
 }

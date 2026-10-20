@@ -69,12 +69,17 @@ public record ProfileConfig(
 
     /**
      * Every credential variable name this profile derives: per node, the node-specific and the
-     * group-wide name of each kind, under {@link #credentialPrefix()} (002 US2 review P1).
+     * group-wide name of each kind (002 US2 review P1), under the prefix of the node's
+     * {@link SecretPlan}. Only nodes whose effective source is environment variables derive names
+     * (feature 010, research R-13); a profile whose nodes are all AWS derives none.
      */
     public Set<String> credentialVariableNames() {
         Set<String> names = new TreeSet<>();
-        for (NodeId node : nodeIds()) {
-            CredentialVariables variables = new CredentialVariables(credentialPrefix(), node);
+        for (SecretPlan plan : secretPlans().values()) {
+            if (plan.variables().isEmpty()) {
+                continue;
+            }
+            CredentialVariables variables = plan.variables().get();
             for (String kind : CredentialVariables.KINDS) {
                 names.addAll(variables.candidates(kind));
             }
