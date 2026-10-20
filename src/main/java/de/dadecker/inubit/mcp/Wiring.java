@@ -276,7 +276,8 @@ final class Wiring implements AutoCloseable {
             id -> byId.get(id).inventory().owner(), accounts, challenges, audit, clock.clock(),
             UUID::randomUUID)));
         CredentialResolver e2eCredentials = new CredentialResolver(environment, scrubber,
-            config.credentialPrefix());
+            config.terminology().effectiveOrDefault(), config.credentialPrefix(),
+            config.secretPlans());
         this.runE2eTest = new RunE2eTestTool(new E2eTestService(new E2eTestService.Dependencies(
             workspace, backups, profile.name(), developmentGuard, id -> e2eClients.computeIfAbsent(id,
                 node -> new SoapE2eClient(byId.get(node), development.get(node).soapBaseUrl()

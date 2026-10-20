@@ -49,6 +49,17 @@ public record SecretPlan(
     }
 
     /**
+     * The source the nodes of {@code group} inherit: the group's, else the profile's, else
+     * environment variables.
+     *
+     * @param profile the top-level {@code credentials} section
+     */
+    static SecretSourceConfig groupSource(CredentialsConfig profile, GroupConfig group) {
+        return group.credentials().source().or(profile::source)
+            .orElseGet(() -> new SecretSourceConfig.Environment(Optional.empty()));
+    }
+
+    /**
      * The plan of {@code node} in {@code group}.
      *
      * @param profile       the top-level {@code credentials} section
@@ -63,15 +74,10 @@ public record SecretPlan(
         if (own.isPresent()) {
             source = own.get();
             origin = Origin.NODE;
-        } else if (group.credentials().source().isPresent()) {
-            source = group.credentials().source().get();
-            origin = Origin.GROUP;
-        } else if (profile.source().isPresent()) {
-            source = profile.source().get();
-            origin = Origin.PROFILE;
         } else {
-            source = new SecretSourceConfig.Environment(Optional.empty());
-            origin = Origin.DEFAULT;
+            source = groupSource(profile, group);
+            origin = group.credentials().source().isPresent() ? Origin.GROUP
+                : profile.source().isPresent() ? Origin.PROFILE : Origin.DEFAULT;
         }
         if (source instanceof SecretSourceConfig.Environment environment) {
             String prefix = environment.prefix().orElse(profilePrefix);

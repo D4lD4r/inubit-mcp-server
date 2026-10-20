@@ -29,6 +29,11 @@ import java.util.TreeSet;
  *       {@link SecretScrubber}.
  *   <li>A {@code <PREFIX>_*_PASSWORD} variable that belongs to no configured node is a warning.
  *   <li>Messages name the levels with the profile's terminology.
+ *   <li>Feature 010 (research R-6): each node follows its {@link SecretPlan}. An environment node
+ *       reads the plan's variables (its source's {@code prefix} or the profile's); an AWS node is
+ *       not looked up and gets {@link NodeCredentials#deferred(NodeId)} without a missing-variable
+ *       error. A node without a plan reads the variables under the profile's prefix (a profile
+ *       without {@code credentials.source}).
  * </ul>
  */
 public final class CredentialResolver {
@@ -42,9 +47,10 @@ public final class CredentialResolver {
     private final SecretScrubber scrubber;
     private final Terminology terms;
     private final String prefix;
+    private final Map<NodeId, SecretPlan> plans;
 
     /**
-     * With the default terminology in messages.
+     * With the default terminology in messages; every node reads environment variables.
      *
      * @param prefix the effective credential prefix ({@link ProfileConfig#credentialPrefix()})
      */
@@ -54,20 +60,42 @@ public final class CredentialResolver {
     }
 
     /**
+     * Every node reads environment variables.
+     *
      * @param terms  the display names of the levels in messages (FR-007)
      * @param prefix the effective credential prefix ({@link ProfileConfig#credentialPrefix()})
      */
     public CredentialResolver(Map<String, String> environment, SecretScrubber scrubber,
         Terminology terms, String prefix) {
+        this(environment, scrubber, terms, prefix, Map.of());
+    }
+
+    /**
+     * @param terms  the display names of the levels in messages (FR-007)
+     * @param prefix the effective credential prefix ({@link ProfileConfig#credentialPrefix()})
+     * @param plans  the secret plan of each node ({@link ProfileConfig#secretPlans()})
+     */
+    public CredentialResolver(Map<String, String> environment, SecretScrubber scrubber,
+        Terminology terms, String prefix, Map<NodeId, SecretPlan> plans) {
         this.environment = Map.copyOf(environment);
         this.scrubber = scrubber;
         this.terms = Objects.requireNonNull(terms, "terms");
         this.prefix = Objects.requireNonNull(prefix, "prefix");
+        this.plans = Map.copyOf(plans);
     }
 
-    /** The variables of {@code node} under this resolver's prefix. */
+    /**
+     * The variables of {@code node}: those of its plan; for an AWS node or a node without a plan
+     * those under this resolver's prefix (like {@link EffectiveNodeConfig#credentialVariables()}).
+     */
     public CredentialVariables variables(NodeId node) {
-        return new CredentialVariables(prefix, node);
+        return Optional.ofNullable(plans.get(node)).flatMap(SecretPlan::variables)
+            .orElseGet(() -> new CredentialVariables(prefix, node));
+    }
+
+    private boolean aws(NodeId node) {
+        SecretPlan plan = plans.get(node);
+        return plan != null && plan.aws();
     }
 
     /**
@@ -85,9 +113,12 @@ public final class CredentialResolver {
     /**
      * The end-to-end test credentials of {@code server}: both variables set and a safe username
      * ({@link CredentialRules#isSafeUsername}), else none. The password is registered with the
-     * scrubber.
+     * scrubber. None for an AWS node: its values are fetched on first use.
      */
     public Optional<E2eCredentials> e2e(NodeId server) {
+        if (aws(server)) {
+            return Optional.empty();
+        }
         Optional<SourcedValue<String>> username = lookup(server, CredentialVariables.E2E_USERNAME)
             .filter(value -> CredentialRules.isSafeUsername(value.value()));
         Optional<SourcedValue<String>> password = lookup(server,
@@ -116,6 +147,10 @@ public final class CredentialResolver {
         List<String> errors = new ArrayList<>(collisions(servers));
         List<NodeCredentials> all = new ArrayList<>();
         for (NodeId server : servers) {
+            if (aws(server)) {
+                all.add(NodeCredentials.deferred(server));
+                continue;
+            }
             Optional<SourcedValue<String>> username = lookup(server, USERNAME);
             Optional<SourcedValue<Secret>> password = lookup(server, PASSWORD).map(this::register);
             Optional<SourcedValue<Secret>> trustStorePassword =

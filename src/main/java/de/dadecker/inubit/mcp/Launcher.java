@@ -165,7 +165,7 @@ final class Launcher {
             other.config().credentialVariableNames()));
         CredentialResolution credentials = new CredentialResolver(context.environment(),
             context.scrubber(), loaded.config().terminology().effectiveOrDefault(),
-            loaded.config().credentialPrefix())
+            loaded.config().credentialPrefix(), loaded.config().secretPlans())
             .resolve(loaded.config().nodeIds(), otherVariables);
         ValidationReport report = new ConfigValidator(context.exists(), context.environment(),
             context.windows(), Path.of(System.getProperty("java.io.tmpdir")),

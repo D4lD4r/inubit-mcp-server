@@ -166,6 +166,143 @@ class MainTest {
         assertThat(Files.readString(cliHome.resolve("bin/arguments"))).isEqualTo("-v\n");
     }
 
+    // --- feature 010 (T006): existing profiles behave as before; AWS nodes are deferred -------
+
+    /**
+     * A profile of today (no {@code credentials.source}) plus {@code credentials} settings, with
+     * an existing workspace so that repeated runs print the same.
+     */
+    private Path profileWithCredentials(String credentials) throws IOException {
+        Files.createDirectories(home.resolve("workspace"));
+        return config("""
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            %sgroups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+              - name: qa
+                nodes:
+                  - name: node2
+                    baseUrl: https://node2.example.test:8443
+            """.formatted(home.resolve("audit"), home.resolve("workspace"), credentials));
+    }
+
+    @Test
+    void checkConfigOutputOfAnExistingProfileIsUnchanged() throws IOException {
+        credentials();
+        environment.put("INUBIT_ACME_QA_NODE2_USERNAME", "qa-user");
+        environment.put("INUBIT_ACME_DEV_NODE9_PASSWORD", "typo-Secret-1");
+        Path file = profileWithCredentials("");
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).isEqualTo(1);
+        assertThat(out()).isEqualTo("""
+            Configuration: %s
+            Profile: acme
+            Terminology: group/groups, node/nodes
+            Credential variables: INUBIT_ACME_<GROUP>[_<NODE>]_USERNAME / _PASSWORD
+            Audit directory: %s
+            Workspace: %s (ok)
+            Group dev:
+              Node dev/node1: read-only, cli: unavailable, inubit: V8_1, \
+            username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD
+            Group qa:
+              Node qa/node2: read-only, cli: unavailable, inubit: AUTO, \
+            username ← INUBIT_ACME_QA_NODE2_USERNAME, password ← (missing)
+            Warnings:
+              - Environment variable INUBIT_ACME_DEV_NODE9_PASSWORD matches no configured group or \
+            node (typo?)
+            Errors:
+              - qa/node2: no password variable set (expected INUBIT_ACME_QA_NODE2_PASSWORD or \
+            INUBIT_ACME_QA_PASSWORD)
+            Result: FAILED (1 error(s))
+            """.formatted(file, home.resolve("audit"), home.resolve("workspace")));
+    }
+
+    @Test
+    void anExplicitEnvironmentSourceChecksAndStartsLikeAProfileWithoutSource()
+        throws IOException {
+        credentials();
+        environment.put("INUBIT_ACME_QA_USERNAME", "qa-user");
+        environment.put("INUBIT_ACME_QA_PASSWORD", "qa-Password-2");
+        String explicit = """
+            credentials:
+              source:
+                type: environment
+            """;
+        String explicitWithPrefix = """
+            credentials:
+              envPrefix: INUBIT_ACME
+              source:
+                type: environment
+                prefix: INUBIT_ACME
+            """;
+        List<String> variants = List.of("", explicit, explicitWithPrefix);
+        List<String> outputs = new java.util.ArrayList<>();
+        List<String> startups = new java.util.ArrayList<>();
+        for (String credentials : variants) {
+            Path file = profileWithCredentials(credentials);
+            stdout.reset();
+            stderr.reset();
+            assertThat(run("--check-config", "--config", file.toString())).as(out()).isZero();
+            // T008 adds "secrets: environment" to each node line of a profile that uses source
+            outputs.add(out().replace("secrets: environment, ", ""));
+            stdout.reset();
+            assertThat(run("--config", file.toString())).as(err()).isZero();
+            startups.add(err());
+        }
+
+        assertThat(outputs).as("--check-config").containsOnly(outputs.get(0));
+        assertThat(outputs.get(0)).contains("username ← INUBIT_ACME_QA_USERNAME");
+        assertThat(startups).as("startup messages").containsOnly(startups.get(0));
+    }
+
+    @Test
+    void anAwsNodeNeedsNoCredentialVariablesToCheckOrStart() throws IOException {
+        credentials();
+        Path file = config("""
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+              - name: prod
+                credentials:
+                  source:
+                    type: awsParameterStore
+                    region: eu-central-1
+                  parameters:
+                    username: /inubit/prod/username
+                    password: /inubit/prod/password
+                nodes:
+                  - name: node1
+                    baseUrl: https://prod.example.test:8443
+                    versionLine: V8_1
+            """.formatted(home.resolve("audit"), home.resolve("workspace")));
+
+        int check = run("--check-config", "--config", file.toString());
+        String checkOutput = out();
+        stdout.reset();
+        int start = run("--config", file.toString());
+
+        assertThat(check).as(checkOutput).isZero();
+        assertThat(checkOutput).doesNotContain("INUBIT_ACME_PROD", "no username variable",
+            "no password variable");
+        assertThat(start).as(err()).isZero();
+        assertThat(err()).doesNotContain("INUBIT_ACME_PROD", PASSWORD);
+    }
+
     @Test
     void checkConfigReportsAFailingClientProbeAsAWarning() throws IOException {
         credentials();

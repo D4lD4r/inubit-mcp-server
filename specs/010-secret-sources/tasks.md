@@ -156,7 +156,7 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
 `credentials.source: {type: environment}` reads the same variables and gives the same
 `--check-config` output apart from the `secrets: environment` part.
 
-- [ ] T006 [US1] Resolver per plan: `main/config/CredentialResolver.java` resolves only nodes whose
+- [X] T006 [US1] Resolver per plan: `main/config/CredentialResolver.java` resolves only nodes whose
   effective source is environment (with the plan's prefix and variables, rules unchanged) and
   returns `NodeCredentials.deferred(node)` for AWS nodes (`NodeCredentials` gains
   `boolean deferred()`; `complete()` false); `Launcher` and `Wiring` (e2e resolver) pass the plans.

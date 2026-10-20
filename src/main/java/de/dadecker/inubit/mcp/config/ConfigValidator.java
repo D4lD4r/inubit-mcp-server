@@ -649,10 +649,8 @@ public final class ConfigValidator {
      */
     private static void checkIgnoredParameterNames(ProfileConfig config, Findings findings) {
         for (GroupConfig group : config.groups()) {
-            Optional<SecretSourceConfig> source = group.credentials().source()
-                .or(config.credentials()::source);
-            boolean environment = source.isEmpty()
-                || source.get() instanceof SecretSourceConfig.Environment;
+            boolean environment = SecretPlan.groupSource(config.credentials(), group)
+                instanceof SecretSourceConfig.Environment;
             if (environment && group.credentials().parameters().isPresent()) {
                 findings.termWarning("{Group} '%s': credentials.parameters is ignored; the"
                     + " secrets of this {group} come from environment variables", group.name());
