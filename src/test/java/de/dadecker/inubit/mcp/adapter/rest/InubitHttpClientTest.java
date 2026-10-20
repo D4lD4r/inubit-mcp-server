@@ -11,13 +11,13 @@ import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
@@ -228,7 +228,7 @@ class InubitHttpClientTest {
     @Test
     void aRejectedLoginBlocksAuthenticatedCallsForSixtySecondsWithoutNetwork() {
         stubStatus(401, "text/html", "<html>HTTP Status 401</html>");
-        CredentialGuard guard = new CredentialGuard(new CredentialVariables("INUBIT", ID), clock);
+        CredentialGuard guard = new CredentialGuard(environmentLabels("INUBIT", ID), clock);
         InubitHttpClient client = guardedClient(guard);
 
         assertThat(errorOf(() -> client.get("/ibis/rest/system/info", Map.of())).code())
@@ -256,7 +256,7 @@ class InubitHttpClientTest {
         wireMock.stubFor(any(anyUrl()).willReturn(aResponse().withStatus(401)
             .withFixedDelay(300).withBody("no")));
         InubitHttpClient client =
-            guardedClient(new CredentialGuard(new CredentialVariables("INUBIT", ID), clock));
+            guardedClient(new CredentialGuard(environmentLabels("INUBIT", ID), clock));
         List<java.util.concurrent.Future<ErrorCode>> calls = new ArrayList<>();
         try (java.util.concurrent.ExecutorService executor =
             java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
@@ -274,13 +274,13 @@ class InubitHttpClientTest {
 
     @Test
     void successAndForbiddenConfirmTheCredentials() {
-        CredentialGuard guard = new CredentialGuard(new CredentialVariables("INUBIT", ID), clock);
+        CredentialGuard guard = new CredentialGuard(environmentLabels("INUBIT", ID), clock);
         InubitHttpClient client = guardedClient(guard);
         stubStatus(403, "text/html", "forbidden");
         errorOf(() -> client.get("/ibis/rest/metrics", Map.of()));
         assertThat(guard.confirmed()).as("403: authenticated, but not allowed").isTrue();
 
-        CredentialGuard other = new CredentialGuard(new CredentialVariables("INUBIT", ID), clock);
+        CredentialGuard other = new CredentialGuard(environmentLabels("INUBIT", ID), clock);
         stubStatus(200, "application/json", "{}");
         guardedClient(other).get("/ibis/rest/metrics", Map.of());
         assertThat(other.confirmed()).isTrue();
@@ -288,7 +288,7 @@ class InubitHttpClientTest {
 
     @Test
     void otherFailuresNeitherConfirmNorBlock() {
-        CredentialGuard guard = new CredentialGuard(new CredentialVariables("INUBIT", ID), clock);
+        CredentialGuard guard = new CredentialGuard(environmentLabels("INUBIT", ID), clock);
         InubitHttpClient client = guardedClient(guard);
         stubStatus(500, "text/html", "boom");
 

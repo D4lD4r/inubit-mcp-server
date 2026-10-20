@@ -1,15 +1,19 @@
 package de.dadecker.inubit.mcp.adapter;
 
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import de.dadecker.inubit.mcp.config.CredentialVariables;
+import de.dadecker.inubit.mcp.config.ParameterNames;
+import de.dadecker.inubit.mcp.config.SecretLabels;
+import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -28,7 +32,7 @@ class CredentialGuardTest {
 
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-01T08:00:00Z"));
     private final CredentialGuard guard =
-        new CredentialGuard(new CredentialVariables("INUBIT_ACME", DEV), clock);
+        new CredentialGuard(environmentLabels("INUBIT_ACME", DEV), clock);
 
     private void reject() {
         try (CredentialGuard.Permit permit = guard.acquire()) {
@@ -48,9 +52,11 @@ class CredentialGuardTest {
                 assertThat(e.error().message()).contains("dev/node1",
                     "authentication failed recently", "not retried for 42 s",
                     "avoid account lockout");
-                // 002 research D-6: the variables under the profile's effective prefix
-                assertThat(e.error().nextStep()).contains("INUBIT_ACME_DEV_NODE1_PASSWORD",
-                    "INUBIT_ACME_DEV_PASSWORD", "restart the MCP client");
+                // 002 research D-6: the variables under the profile's effective prefix;
+                // unchanged by feature 010 for environment nodes
+                assertThat(e.error().nextStep()).isEqualTo("Fix INUBIT_ACME_DEV_NODE1_PASSWORD"
+                    + " (or INUBIT_ACME_DEV_PASSWORD) and _USERNAME, then restart the MCP client"
+                    + " from a shell with the new values");
             });
 
         clock.advance(Duration.ofSeconds(41));
@@ -61,6 +67,33 @@ class CredentialGuardTest {
             permit.accepted();
         }
         assertThat(guard.confirmed()).isTrue();
+    }
+
+    @Test
+    void theCachedAuthFailedOfAnAwsNodeNamesItsParametersAndNeedsNoRestart() {
+        // feature 010 (T021, research R-10/R-15, FR-008, contracts/mcp-tools-delta.md)
+        CredentialGuard aws = new CredentialGuard(new SecretLabels.Aws(DEV,
+            new StoreLocation("eu-central-1", Optional.of("inubit")), new ParameterNames(
+                Optional.of("/inubit/dev/node1/username"),
+                Optional.of("/inubit/dev/node1/password"), Optional.empty(), Optional.empty(),
+                Optional.empty())), clock);
+        try (CredentialGuard.Permit permit = aws.acquire()) {
+            permit.rejected();
+        }
+
+        assertThatThrownBy(aws::acquire).isInstanceOfSatisfying(ToolErrorException.class,
+            e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.AUTH_FAILED);
+                assertThat(e.error().node()).contains(DEV);
+                assertThat(e.error().nextStep()).isEqualTo("Correct the parameter value(s)"
+                    + " /inubit/dev/node1/username, /inubit/dev/node1/password in Parameter Store"
+                    + " (eu-central-1, profile inubit); no restart is needed")
+                    .doesNotContain("INUBIT_");
+            });
+        // the direct AUTH_FAILED of REST (HTTP 401) and StartCLI uses the same next step
+        assertThat(aws.fixCredentials())
+            .contains("/inubit/dev/node1/password", "no restart is needed")
+            .doesNotContain("INUBIT_", "restart the MCP client");
     }
 
     @Test

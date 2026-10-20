@@ -86,7 +86,7 @@ class CliRunnerTest {
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-01T08:00:00Z"));
 
     private CredentialGuard guard() {
-        return new CredentialGuard(server().build().credentialVariables(), clock);
+        return new CredentialGuard(server().build().secretLabels(), clock);
     }
 
     private CliResult runGuarded(FakeProcessLauncher launcher, CredentialGuard guard) {
@@ -96,7 +96,7 @@ class CliRunnerTest {
 
     @Test
     void aCliLoginFailureBlocksFurtherCliAndRestLoginsForSixtySeconds() {
-        CredentialGuard guard = new CredentialGuard(server().build().credentialVariables(), clock);
+        CredentialGuard guard = new CredentialGuard(server().build().secretLabels(), clock);
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("login_failed");
 
         runGuarded(launcher, guard);
@@ -131,7 +131,7 @@ class CliRunnerTest {
 
     @Test
     void aSuccessfulCliRunConfirmsTheCredentials() {
-        CredentialGuard guard = new CredentialGuard(server().build().credentialVariables(), clock);
+        CredentialGuard guard = new CredentialGuard(server().build().secretLabels(), clock);
 
         runGuarded(FakeProcessLauncher.replaying("processErrorStart_ok"), guard);
 

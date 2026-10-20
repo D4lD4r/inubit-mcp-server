@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
 import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
@@ -16,7 +17,6 @@ import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81TagAdapter;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
@@ -206,7 +206,7 @@ public final class DeployHarness {
     }
 
     private CredentialGuard guard(NodeId node) {
-        return new CredentialGuard(new CredentialVariables("INUBIT", node), clock);
+        return new CredentialGuard(environmentLabels("INUBIT", node), clock);
     }
 
     private CliExportRunner exports(NodeId node) {

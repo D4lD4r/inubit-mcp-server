@@ -1,11 +1,11 @@
 package de.dadecker.inubit.mcp.adapter.cli;
 
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -50,7 +50,7 @@ class CliImportRunnerTest {
     @TempDir
     Path tempRoot;
 
-    private final CredentialGuard guard = new CredentialGuard(new CredentialVariables("INUBIT",
+    private final CredentialGuard guard = new CredentialGuard(environmentLabels("INUBIT",
         DEV), new MutableClock(Instant.parse("2026-10-07T08:00:00Z")));
 
     @BeforeEach

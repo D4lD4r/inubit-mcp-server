@@ -6,6 +6,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig.Tls;
+import de.dadecker.inubit.mcp.config.ParameterNames;
+import de.dadecker.inubit.mcp.config.SecretLabels;
+import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -25,8 +28,27 @@ class SslContextsTest {
 
     private static final TestCertificates CERTS = TestCertificates.get();
     /** Profile {@code acme} with its default credential prefix (002 research D-6). */
-    private static final CredentialVariables NODE =
-        new CredentialVariables("INUBIT_ACME", NodeId.parse("test/node1"));
+    private static final SecretLabels NODE = new SecretLabels.Environment(
+        new CredentialVariables("INUBIT_ACME", NodeId.parse("test/node1")));
+
+    /** An AWS node (feature 010, research R-15), with or without a trust-store parameter. */
+    private static SecretLabels awsNode(Optional<String> trustStorePassword) {
+        return new SecretLabels.Aws(NodeId.parse("test/node1"),
+            new StoreLocation("eu-central-1", Optional.of("inubit")),
+            new ParameterNames(Optional.of("/inubit/test/node1/username"),
+                Optional.of("/inubit/test/node1/password"), trustStorePassword,
+                Optional.empty(), Optional.empty()));
+    }
+
+    private static ToolErrorException tlsError(Runnable call) {
+        try {
+            call.run();
+        } catch (ToolErrorException e) {
+            assertThat(e.error().code()).isEqualTo(ErrorCode.TLS_ERROR);
+            return e;
+        }
+        throw new AssertionError("expected a TLS_ERROR");
+    }
 
     @TempDir
     Path tmp;
@@ -84,6 +106,57 @@ class SslContextsTest {
                 .nextStep()).contains("INUBIT_ACME_TEST_NODE1_TRUSTSTORE_PASSWORD",
                     "INUBIT_ACME_TEST_TRUSTSTORE_PASSWORD")
                 .doesNotContainPattern("(?i)\\b(stage|server)\\b|<"));
+    }
+
+    @Test
+    void theTextsOfAnEnvironmentNodeAreUnchanged() {
+        String variables = "INUBIT_ACME_TEST_NODE1_TRUSTSTORE_PASSWORD (or"
+            + " INUBIT_ACME_TEST_TRUSTSTORE_PASSWORD)";
+        ToolErrorException empty = tlsError(() -> SslContexts.forServer(NODE,
+            trustStore(CERTS.protectedTrustStore()), Optional.empty()));
+        assertThat(empty.error().likelyCause()).isEqualTo("The trust store is empty, or its"
+            + " certificates are encrypted and neither " + variables + " is set");
+        assertThat(empty.error().nextStep()).isEqualTo("Import the INUBIT server certificate"
+            + " into a password-less PKCS12 trust store, or set " + variables
+            + " (not allowed together with a CLI)");
+
+        ToolErrorException wrong = tlsError(() -> SslContexts.forServer(NODE,
+            trustStore(CERTS.protectedTrustStore()), Optional.of(Secret.of("wrong-pw-123"))));
+        assertThat(wrong.error().nextStep()).isEqualTo("Check tls.trustStore and " + variables);
+    }
+
+    @Test
+    void trustStoreErrorsOfAnAwsNodeNameItsParameterInsteadOfVariables() {
+        SecretLabels aws = awsNode(Optional.of("/inubit/test/node1/truststore-password"));
+        String parameter =
+            "Parameter Store /inubit/test/node1/truststore-password (eu-central-1, profile inubit)";
+
+        ToolErrorException empty = tlsError(() -> SslContexts.forServer(aws,
+            trustStore(CERTS.protectedTrustStore()), Optional.empty()));
+        assertThat(empty.error().likelyCause()).isEqualTo("The trust store is empty, or its"
+            + " certificates are encrypted and no trust store password is set in " + parameter);
+        assertThat(empty.error().nextStep()).isEqualTo("Import the INUBIT server certificate"
+            + " into a password-less PKCS12 trust store, or store its password in " + parameter
+            + " (not allowed together with a CLI)");
+
+        ToolErrorException wrong = tlsError(() -> SslContexts.forServer(aws,
+            trustStore(CERTS.protectedTrustStore()), Optional.of(Secret.of("wrong-pw-123"))));
+        assertThat(wrong.error().nextStep()).isEqualTo("Check tls.trustStore and " + parameter);
+        assertThat(wrong.error().toString()).doesNotContain("INUBIT_", "wrong-pw-123");
+    }
+
+    @Test
+    void anAwsNodeWithoutTrustStoreParameterIsToldWhichSettingToConfigure() {
+        ToolErrorException empty = tlsError(() -> SslContexts.forServer(awsNode(Optional.empty()),
+            trustStore(CERTS.protectedTrustStore()), Optional.empty()));
+
+        assertThat(empty.error().likelyCause()).isEqualTo("The trust store is empty, or its"
+            + " certificates are encrypted and no trust store password parameter is configured"
+            + " (credentials.parameters.trustStorePassword)");
+        assertThat(empty.error().nextStep()).isEqualTo("Import the INUBIT server certificate"
+            + " into a password-less PKCS12 trust store, or store its password in Parameter Store"
+            + " (eu-central-1, profile inubit) and set credentials.parameters.trustStorePassword"
+            + " to its name (not allowed together with a CLI)");
     }
 
     @Test

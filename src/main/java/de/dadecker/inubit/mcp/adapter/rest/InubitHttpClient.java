@@ -121,7 +121,7 @@ public final class InubitHttpClient implements AutoCloseable {
         Optional<Secret> trustStorePassword, MaintenanceProbe maintenanceProbe,
         SecretScrubber scrubber) {
         this(server, credentials, trustStorePassword, maintenanceProbe, scrubber,
-            new CredentialGuard(server.credentialVariables(), Clock.systemUTC()));
+            new CredentialGuard(server.secretLabels(), Clock.systemUTC()));
     }
 
     /** As above, with the server's shared {@link CredentialGuard} (Phase 3 review M2). */
@@ -136,7 +136,7 @@ public final class InubitHttpClient implements AutoCloseable {
         Optional<Secret> trustStorePassword, MaintenanceProbe maintenanceProbe,
         SecretScrubber scrubber, long maxBodyBytes) {
         this(server, credentials, trustStorePassword, maintenanceProbe, scrubber,
-            new CredentialGuard(server.credentialVariables(), Clock.systemUTC()), maxBodyBytes);
+            new CredentialGuard(server.secretLabels(), Clock.systemUTC()), maxBodyBytes);
     }
 
     private InubitHttpClient(EffectiveNodeConfig server, Optional<Credentials> credentials,
@@ -173,7 +173,7 @@ public final class InubitHttpClient implements AutoCloseable {
         NodeCredentials credentials, MaintenanceProbe maintenanceProbe,
         SecretScrubber scrubber) {
         return create(server, credentials, maintenanceProbe, scrubber,
-            new CredentialGuard(server.credentialVariables(), Clock.systemUTC()));
+            new CredentialGuard(server.secretLabels(), Clock.systemUTC()));
     }
 
     /** A client with the resolved credentials and the shared credential guard of a server. */
@@ -193,7 +193,7 @@ public final class InubitHttpClient implements AutoCloseable {
     private static SSLContext sslContext(EffectiveNodeConfig server,
         Optional<Secret> trustStorePassword) {
         try {
-            return SslContexts.forServer(server.credentialVariables(), server.tls(),
+            return SslContexts.forServer(server.secretLabels(), server.tls(),
                 trustStorePassword);
         } catch (ToolErrorException e) {
             throw new ToolErrorException(e.error().withNode(server.id()));

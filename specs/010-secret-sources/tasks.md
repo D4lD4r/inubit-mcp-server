@@ -132,7 +132,7 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
   Note (T002 review r1): `main/config/ParameterType.java` already exists from T002 (needed by
   `CredentialRules.checkType`); reuse it, do not create it again.
 
-- [ ] T021 Source-aware message names (research R-15): `main/config/SecretLabels.java` per node
+- [X] T021 Source-aware message names (research R-15): `main/config/SecretLabels.java` per node
   (environment `<NODE_VAR> (or <GROUP_VAR>)`; AWS `Parameter Store <name> (<region>[, profile <p>])`;
   `fixCredentials()` with the source-specific next step) built from the `SecretPlan`; it replaces
   `CredentialVariables` in the `CredentialGuard` constructor, `InubitHttpClient`,

@@ -1,9 +1,8 @@
 package de.dadecker.inubit.mcp.adapter.cli;
 
-import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutput.Marker;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutput.Message;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
+import de.dadecker.inubit.mcp.config.SecretLabels;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -73,22 +72,22 @@ public final class CliOutputClassifier {
             + "No subject alternative");
 
     private final SecretScrubber scrubber;
-    /** The node's credential variables for the next step of {@code AUTH_FAILED}, if known. */
-    private final Optional<CredentialVariables> variables;
+    /** The names of the node's secrets for the next step of {@code AUTH_FAILED}, if known. */
+    private final Optional<SecretLabels> labels;
 
     /** A classifier whose {@code AUTH_FAILED} next step refers to {@code --check-config}. */
     public CliOutputClassifier(SecretScrubber scrubber) {
         this.scrubber = scrubber;
-        this.variables = Optional.empty();
+        this.labels = Optional.empty();
     }
 
     /**
-     * A classifier for one node: {@code AUTH_FAILED} names its credential variables under the
-     * profile's effective prefix (002 research D-6).
+     * A classifier for one node: {@code AUTH_FAILED} names its secrets per source (002 research
+     * D-6, feature 010 research R-15).
      */
-    public CliOutputClassifier(SecretScrubber scrubber, CredentialVariables variables) {
+    public CliOutputClassifier(SecretScrubber scrubber, SecretLabels labels) {
         this.scrubber = scrubber;
-        this.variables = Optional.of(variables);
+        this.labels = Optional.of(labels);
     }
 
     /** True if StartCLI reported that the login was rejected ({@code @Start@LoginFailure}). */
@@ -254,7 +253,7 @@ public final class CliOutputClassifier {
     private ToolError authFailed(String inubitText) {
         return error(ErrorCode.AUTH_FAILED, "StartCLI login failed: " + inubitText,
             "Wrong username or password for this INUBIT server, or the account is locked",
-            variables.map(CredentialGuard::fixCredentials).orElse("Check the username and"
+            labels.map(SecretLabels::fixCredentials).orElse("Check the username and"
                 + " password variables (see --check-config) and restart the MCP client"));
     }
 

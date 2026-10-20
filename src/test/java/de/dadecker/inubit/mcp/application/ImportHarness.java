@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
 import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -21,7 +22,6 @@ import de.dadecker.inubit.mcp.adapter.cli.ScriptedProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter;
 import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
@@ -169,7 +169,7 @@ public final class ImportHarness {
     }
 
     public ImportService service() {
-        CredentialGuard guard = new CredentialGuard(new CredentialVariables("INUBIT", DEV),
+        CredentialGuard guard = new CredentialGuard(environmentLabels("INUBIT", DEV),
             clock);
         CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
             new CliResources("acme"));
@@ -212,7 +212,7 @@ public final class ImportHarness {
      * {@link #service()} (feature 008: {@link RepositoryStep} tests).
      */
     public ArtifactPort artifacts() {
-        CredentialGuard guard = new CredentialGuard(new CredentialVariables("INUBIT", DEV),
+        CredentialGuard guard = new CredentialGuard(environmentLabels("INUBIT", DEV),
             clock);
         CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
             new CliResources("acme"));

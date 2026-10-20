@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.cli;
 
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -7,7 +8,6 @@ import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -60,7 +60,7 @@ class V81ArtifactAdapterTest {
             Optional.empty(), Optional.empty());
         return new V81ArtifactAdapter(new CliExportRunner(TestNodeConfig.node()
             .cliHome(cliHome).cliJavaHome(Path.of("/opt/jdk-17")).build(), credentials,
-            new CredentialGuard(new CredentialVariables("INUBIT", DEV),
+            new CredentialGuard(environmentLabels("INUBIT", DEV),
                 new MutableClock(Instant.parse("2026-10-06T08:00:00Z"))),
             runner, new CliOutputClassifier(new SecretScrubber()), tempRoot),
             () -> events.add("confirm"));

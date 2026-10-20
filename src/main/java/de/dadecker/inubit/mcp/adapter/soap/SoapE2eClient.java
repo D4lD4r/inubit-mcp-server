@@ -72,7 +72,7 @@ public final class SoapE2eClient implements E2ePort, AutoCloseable {
     private final HttpClient client;
 
     /**
-     * @param server             the node (TLS settings, credential variables, id)
+     * @param server             the node (TLS settings, secret labels, id)
      * @param baseUrl            its {@code e2e.soap.baseUrl}
      * @param trustStorePassword the resolved trust-store password of the node, if any
      * @param auth               the configured e2e basic authentication, if any
@@ -85,7 +85,7 @@ public final class SoapE2eClient implements E2ePort, AutoCloseable {
         this.auth = Objects.requireNonNull(auth, "auth");
         SSLContext ssl;
         try {
-            ssl = SslContexts.forServer(server.credentialVariables(), server.tls(),
+            ssl = SslContexts.forServer(server.secretLabels(), server.tls(),
                 trustStorePassword);
         } catch (ToolErrorException e) {
             throw new ToolErrorException(e.error().withNode(node));

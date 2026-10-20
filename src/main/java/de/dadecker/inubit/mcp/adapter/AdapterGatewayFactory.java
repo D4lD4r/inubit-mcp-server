@@ -227,7 +227,7 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
         Slot(EffectiveNodeConfig server, NodeCredentials credentials) {
             this.server = server;
             this.credentials = credentials;
-            this.guard = new CredentialGuard(server.credentialVariables(), clock);
+            this.guard = new CredentialGuard(server.secretLabels(), clock);
             this.stale = new StaleReportingPorts(server.id(), versions);
         }
 

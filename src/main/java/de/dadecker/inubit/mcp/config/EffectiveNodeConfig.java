@@ -160,6 +160,11 @@ public record EffectiveNodeConfig(
             .orElseGet(() -> new CredentialVariables(credentialPrefix, id));
     }
 
+    /** The names of this node's secrets in messages, per its source (research R-15). */
+    public SecretLabels secretLabels() {
+        return SecretLabels.of(secretPlan);
+    }
+
     /** Write access after the production lock: {@code enabled && (!production || optIn)}. */
     public boolean effectiveWriteEnabled() {
         return write.enabled() && (!production || write.productionOptIn());

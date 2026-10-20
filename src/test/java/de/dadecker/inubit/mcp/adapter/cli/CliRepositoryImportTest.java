@@ -1,10 +1,10 @@
 package de.dadecker.inubit.mcp.adapter.cli;
 
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -66,7 +66,7 @@ class CliRepositoryImportTest {
             Optional.empty(), Optional.empty());
         return new CliImportRunner(TestNodeConfig.node().id(INT.value()).cliHome(cliHome)
             .cliJavaHome(Path.of("/opt/jdk-17")).build(), credentials,
-            new CredentialGuard(new CredentialVariables("INUBIT", INT),
+            new CredentialGuard(environmentLabels("INUBIT", INT),
                 new MutableClock(Instant.parse("2026-10-07T08:00:00Z"))), runner,
             new CliOutputClassifier(new SecretScrubber()), tempRoot);
     }

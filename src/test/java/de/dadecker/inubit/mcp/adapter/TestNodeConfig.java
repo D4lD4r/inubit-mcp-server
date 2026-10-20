@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.adapter;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.config.SecretLabels;
 import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.SecretSourceConfig;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -37,6 +38,11 @@ public final class TestNodeConfig {
     private EffectiveNodeConfig.Development development = EffectiveNodeConfig.NO_DEVELOPMENT;
 
     private TestNodeConfig() {
+    }
+
+    /** The message names of an environment node with credential prefix {@code prefix}. */
+    public static SecretLabels environmentLabels(String prefix, NodeId node) {
+        return new SecretLabels.Environment(new CredentialVariables(prefix, node));
     }
 
     public static TestNodeConfig node() {

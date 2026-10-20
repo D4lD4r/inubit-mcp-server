@@ -38,6 +38,6 @@ final class V81PortSet {
     }
 
     private static CliOutputClassifier classifier(PortSetRegistry.NodeResources node) {
-        return new CliOutputClassifier(node.scrubber(), node.server().credentialVariables());
+        return new CliOutputClassifier(node.scrubber(), node.server().secretLabels());
     }
 }
