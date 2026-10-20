@@ -1,6 +1,6 @@
 # Research: Configurable Secret Sources (feature 010)
 
-Decisions R-1 … R-14. Each: decision, rationale, alternatives considered.
+Decisions R-1 … R-17. Each: decision, rationale, alternatives considered.
 
 ## R-1 AWS access through the AWS SDK for Java v2
 
@@ -37,8 +37,9 @@ Decisions R-1 … R-14. Each: decision, rationale, alternatives considered.
     only package that may use `software.amazon.awssdk`.
   - `adapter` (root): `NodeSecrets` (per-node lazy credentials: shared fetch, 30 s back-off, re-read)
     and the extended `CredentialGuard`.
-  - No domain port and no application change beyond the fan-out deadlines (R-8): credentials never
-    cross into `domain`/`application` today and must not start now.
+  - No secret value or secret type crosses into `domain`/`application`. The only domain additions
+    are the value-free `CredentialState` enum and `GatewayFactory.prepareCredentials` (R-9); the
+    application changes are the fan-out deadlines (R-8), `HealthService` (R-9) and `SecretTiming`.
   - `PackageBoundaryTest`: new rule "only `adapter/aws` uses `software/amazon/`", `adapter/aws`
     must not reach `mcp`/`application`, and `adapter/aws` is added to the package-existence list.
 - **Rationale**: keeps AWS behind one adapter (Constitution V), keeps secrets out of the layers
@@ -136,7 +137,10 @@ Decisions R-1 … R-14. Each: decision, rationale, alternatives considered.
   `run_e2e_test` (FR-006a); the SOAP end-to-end client of an AWS node takes its trust store
   password from the main cell.
   The slot builds the HTTP client (`ensureClient`) only after `current()` returned, because the
-  trust store password is part of the TLS context. Only callers that are allowed to wait reach
+  trust store password is part of the TLS context. The slot awaits `NodeSecrets.current(10 s)`
+  **before** taking `clientLock` (the wait is interruptible, so a fan-out branch interrupted at its
+  deadline returns at once even while another caller's fetch is pending); only the client
+  construction runs under the lock. Only callers that are allowed to wait reach
   `ensureClient()` on an AWS node with pending secrets: fan-out branches (bounded by R-8) and
   single-node tools. `get_health` asks first without blocking (R-9).
 - **Rationale**: FR-006a, FR-011, SC-006; the slot already serializes client creation.
@@ -212,7 +216,9 @@ Decisions R-1 … R-14. Each: decision, rationale, alternatives considered.
 - **Decision**: `Launcher` builds an `SsmParameterStore` for the check only if some node has an
   AWS source, fetches every configured parameter of every AWS node (grouped per `StoreLocation`,
   `GetParameters` takes up to 10 names per call), validates as at run time, never prints values.
-  Per node line: `secrets: environment` with today's variable details, or
+  Profiles without any `credentials.source` setting keep today's output byte for byte (SC-001).
+  As soon as a profile uses `source` anywhere, every node line shows its source:
+  `secrets: environment` with today's variable details, or
   `secrets: awsParameterStore (eu-central-1, profile inubit) username ← /…, password ← /…[,
   trustStorePassword ← /…][, e2e ← /…, /…]` followed by `ok` / the failure kind per name.
   Errors (exit 1): missing, denied or invalid parameter (required or configured optional),
@@ -228,6 +234,17 @@ Decisions R-1 … R-14. Each: decision, rationale, alternatives considered.
   effective source is `environment`. A profile whose nodes are all AWS derives no variable names.
 - **Rationale**: spec edge case "two profiles read the same parameter: allowed".
 
+## R-14 Logging
+
+- **Decision**: one structured stderr record per fetch attempt (`secret.fetch`, fields node,
+  source, region, profile, parameter names, outcome, durationMs, changed for re-reads): INFO on
+  success, WARN on failure (with the scrubbed raw store message), none for calls refused within the
+  30 s back-off (FR-013). The AWS SDK's own logging is set to WARN in `logback.xml` so that it never
+  logs request details.
+- **Rationale**: Constitution VII and II.
+</content>
+</invoke>
+
 ## R-15 Source-aware names in messages (`SecretLabels`)
 
 - **Decision**: `config/SecretLabels` per node gives the human-readable name of each kind for
@@ -241,11 +258,13 @@ Decisions R-1 … R-14. Each: decision, rationale, alternatives considered.
 
 ## R-16 Audited account of AWS nodes
 
-- **Decision**: `WritePolicy` gets the account through a per-node supplier instead of a startup
-  string. Environment nodes: the startup username (unchanged). AWS nodes: the username held by
-  `NodeSecrets` (the current one after a rotation); before the first fetch the supplier returns
-  `"(Parameter Store <username parameter name>)"`, which only appears on records written before
-  any authenticated call (for example a refusal before anything was sent).
+- **Decision**: `WritePolicy` (a record in `domain/model`) keeps `Optional<String> account`.
+  `Wiring` builds each node's policy and its entry of the `accounts` function (used by the import,
+  deploy, tag and end-to-end audits and the INUBIT check-in comments) **at lookup time** from the
+  node's credentials: environment nodes the startup username (unchanged); AWS nodes the username
+  held by `NodeSecrets` (the current one after a rotation), or
+  `"(Parameter Store <username parameter name>)"` before the first fetch — which only appears on
+  records written before any authenticated call (for example a refusal before anything was sent).
 - **Rationale**: Constitution VII (who acted must be traceable); every write authenticates before
   it runs, so executed writes always carry the real username.
 
@@ -256,14 +275,3 @@ Decisions R-1 … R-14. Each: decision, rationale, alternatives considered.
   least `MIN_SCRUBBED_LENGTH` = 4; non-empty) plus the parameter-type rule (`STRING_LIST` refused,
   `STRING` warned). `CredentialResolver`, `NodeSecrets` and the `--check-config` path use it.
 - **Rationale**: spec FR-007/FR-009 ("the same validity checks"); no divergent copies.
-
-## R-14 Logging
-
-- **Decision**: one structured stderr record per fetch attempt (`secret.fetch`, fields node,
-  source, region, profile, parameter names, outcome, durationMs, changed for re-reads): INFO on
-  success, WARN on failure (with the scrubbed raw store message), none for calls refused within the
-  30 s back-off (FR-013). The AWS SDK's own logging is set to WARN in `logback.xml` so that it never
-  logs request details.
-- **Rationale**: Constitution VII and II.
-</content>
-</invoke>

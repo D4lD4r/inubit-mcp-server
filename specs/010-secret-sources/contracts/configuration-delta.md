@@ -54,7 +54,7 @@ parameters:
 | only one of `e2eUsername` / `e2ePassword` | error naming the node and the missing key |
 | profile-level `environment` source with `prefix` ≠ `credentials.envPrefix` | error naming both values' keys |
 | invalid `region`, `awsProfile` or parameter name | error naming the key path |
-| `parameters` on a node whose source is `environment` | warning: ignored |
+| `parameters` on a node or group whose effective source is `environment` (incl. a node overriding an AWS group with `environment`) | warning: ignored |
 | unknown `type` or unknown key inside `credentials` | error |
 
 The cross-profile shared-variable check, the collision check and the unmatched
@@ -62,7 +62,9 @@ The cross-profile shared-variable check, the collision check and the unmatched
 
 ## `--check-config` output
 
-Per node, after `cli:` and the 009 parts:
+Profiles without any `credentials.source` setting keep today's output unchanged (SC-001). As soon
+as `source` is used anywhere in the profile, every node line shows its source, after `cli:` and the
+009 parts:
 
 ```
   dev/node1   …, secrets: environment, username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD

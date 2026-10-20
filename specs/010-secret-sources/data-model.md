@@ -96,9 +96,10 @@ Shared value checks (R-17): `isSafeUsername`, `MIN_SCRUBBED_LENGTH` = 4, non-emp
 `READY` | `PENDING`. `default CredentialState prepareCredentials(NodeId, Duration bound)` returns
 `READY`; `AdapterGatewayFactory` overrides it (R-9). A failed fetch throws its `ToolErrorException`.
 
-## WritePolicy account (application, changed)
+## WritePolicy account (domain/model, unchanged shape)
 
-`Supplier<String>` per node instead of a startup string (R-16).
+`Optional<String> account` stays; `Wiring` builds the policy and the `accounts` entry per call from
+the node's current credentials (R-16).
 
 ## SecretTiming (application, new)
 

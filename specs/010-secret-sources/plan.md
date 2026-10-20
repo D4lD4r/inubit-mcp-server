@@ -72,9 +72,9 @@ configuration.
   resolution from Maven Central.
 
 **Scale/Scope**: no new tool; changed: profile schema (`credentials`), `--check-config`, error
-texts, `get_health` part reasons; about 8 new classes (`SecretSourceConfig`, `ParameterNames`,
-`SecretPlan`, `StoreLocation`, `ParameterStore` + `Fetched`, `SsmParameterStore`, `NodeSecrets`,
-`SecretTiming`) and extensions of `CredentialsConfig`, `GroupConfig`, `NodeConfig`,
+texts, `get_health` failure reason; about 11 new classes (`SecretSourceConfig`, `ParameterNames`,
+`SecretPlan`, `StoreLocation`, `ParameterStore` + `Fetched`, `SecretLabels`, `CredentialRules`,
+`CredentialState`, `SsmParameterStore`, `NodeSecrets`, `SecretTiming`) and extensions of `CredentialsConfig`, `GroupConfig`, `NodeConfig`,
 `ConfigLoader`, `ConfigValidator`, `CredentialResolver`, `ConfigSummary`, `Launcher`,
 `CredentialGuard`, `AdapterGatewayFactory`, `InubitHttpClient`, `HealthService`,
 `InventoryService`, `DiagnosisService`, `Wiring`, `PackageBoundaryTest`, docs.
@@ -104,7 +104,7 @@ Complexity Tracking: none.
 ```text
 specs/010-secret-sources/
 ├── plan.md
-├── research.md                 # R-1 … R-14
+├── research.md                 # R-1 … R-17
 ├── data-model.md
 ├── quickstart.md
 ├── contracts/
@@ -130,7 +130,7 @@ src/main/java/de/dadecker/inubit/mcp/
 ├── adapter/rest/  # InubitHttpClient, SslContexts: texts per source (SecretLabels)
 ├── adapter/soap/  # SoapE2eClient: trust store password from NodeSecrets, texts per source
 ├── application/   # SecretTiming (new); InventoryService, DiagnosisService (deadlines), HealthService (budget),
-│                  # WritePolicy account supplier (R-16)
+│                  # (WritePolicy in domain/model unchanged; Wiring fills the account per call, R-16)
 ├── Launcher.java  # --check-config with a ParameterStore when AWS nodes exist
 └── Wiring.java    # ParameterStore, NodeSecrets per node, SecretTiming, e2e credentials per source
 src/main/resources/logback.xml   # software.amazon.awssdk at WARN
