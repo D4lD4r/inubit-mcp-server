@@ -973,6 +973,11 @@ class ConfigValidatorTest {
                 "credentials:\n  envPrefix: INUBIT_SHARED\n");
             assertThat(validateFile(initech).errors()).isEmpty();
             assertThat(validateFile(acme).errors()).isEmpty();
+            // T007 review r1: the same prefix is no shared variable unless both read variables
+            assertThat(validateFile(acme).warnings()).as("acme and globex: AWS only")
+                .noneMatch(warning -> warning.contains("credential variable prefix"));
+            assertThat(validateFile(initech).warnings()).as("initech next to AWS-only profiles")
+                .noneMatch(warning -> warning.contains("credential variable prefix"));
         }
 
         // --- T035 (feature 003, FR-003): no shared workspace ----------------------------------

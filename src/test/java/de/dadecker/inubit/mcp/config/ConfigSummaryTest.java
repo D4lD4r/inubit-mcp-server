@@ -49,7 +49,8 @@ class ConfigSummaryTest {
         Map<NodeId, ClientVersion> clients) {
         LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, false).parse(yaml, SOURCE);
         CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
-            loaded.config().credentialPrefix())
+            loaded.config().terminology().effectiveOrDefault(),
+            loaded.config().credentialPrefix(), loaded.config().secretPlans())
             .resolve(loaded.config().nodeIds());
         ValidationReport report =
             new ConfigValidator(exists, env, false, Path.of(System.getProperty("java.io.tmpdir")),
@@ -417,5 +418,93 @@ class ConfigSummaryTest {
             + " range, username ←");
         assertThat(summary).as("a patch mismatch inside the range")
             .contains("client vs pin: mismatch, username ←");
+    }
+
+    // --- feature 010 T008: the secret source per node (contracts/configuration-delta.md) -------
+
+    /** test: environment variables under its own prefix; prod: AWS Parameter Store. */
+    private static final String SOURCES = """
+        profile:
+          name: acme
+        groups:
+          - name: test
+            credentials:
+              source:
+                type: environment
+                prefix: INUBIT_TEAM
+            nodes:
+              - name: inubit01
+                baseUrl: https://inubit-test-01.example.test:8443
+          - name: prod
+            credentials:
+              source:
+                type: awsParameterStore
+                region: eu-central-1
+              parameters:
+                username: /inubit/prod/username
+                password: /inubit/prod/password
+            nodes:
+              - name: inubit01
+                baseUrl: https://inubit-prod-01.example.test:8443
+        """;
+
+    @Test
+    void aProfileWithoutSourceShowsNoSecretsPart() {
+        // SC-001: today's output; the explicit default source only adds "secrets: environment"
+        String summary = render(CONFIG);
+        String explicit = render(CONFIG + "credentials:\n  source:\n    type: environment\n");
+
+        assertThat(summary).doesNotContain("secrets:")
+            .contains("Credential variables: INUBIT_ACME_<GROUP>[_<NODE>]_USERNAME / _PASSWORD\n");
+        assertThat(explicit).contains("test/inubit01: write enabled (confirmation SERVER), "
+            + "cli: available, inubit: AUTO, secrets: environment, username ←");
+        assertThat(explicit.replace("secrets: environment, ", "")).isEqualTo(summary);
+    }
+
+    @Test
+    void withSourceEveryNodeLineShowsItsSource() {
+        env.put("INUBIT_TEAM_TEST_USERNAME", "jdoe");
+        env.put("INUBIT_TEAM_TEST_PASSWORD", "team-secret");
+        env.put("INUBIT_TEAM_TEST_TRUSTSTORE_PASSWORD", "ts-secret");
+
+        String summary = render(SOURCES);
+
+        assertThat(summary).contains("Credential variables: INUBIT_ACME_<GROUP>[_<NODE>]_USERNAME"
+            + " / _PASSWORD\n");
+        assertThat(summary).contains("test/inubit01: read-only, cli: unavailable, inubit: AUTO,"
+            + " secrets: environment, username ← INUBIT_TEAM_TEST_USERNAME,"
+            + " password ← INUBIT_TEAM_TEST_PASSWORD,"
+            + " trustStorePassword ← INUBIT_TEAM_TEST_TRUSTSTORE_PASSWORD\n");
+        // the AWS part with names and fetch results is T015; no misleading "(missing)" here
+        assertThat(summary).contains("prod/inubit01: read-only, cli: unavailable, inubit: AUTO,"
+            + " secrets: awsParameterStore\n");
+        assertThat(summary).doesNotContain("(missing)", "jdoe", "team-secret", "ts-secret",
+            "prod-secret");
+    }
+
+    @Test
+    void theCredentialVariablesLineNeedsANodeWithEnvironmentVariables() {
+        String allAws = """
+            profile:
+              name: acme
+            credentials:
+              source:
+                type: awsParameterStore
+                region: eu-central-1
+            groups:
+              - name: test
+                credentials:
+                  parameters:
+                    username: /inubit/test/username
+                    password: /inubit/test/password
+                nodes:
+                  - name: inubit01
+                    baseUrl: https://inubit-test-01.example.test:8443
+            """;
+
+        assertThat(render(allAws)).doesNotContain("Credential variables:", "username ←",
+                "(missing)")
+            .contains("test/inubit01: read-only, cli: unavailable, inubit: AUTO,"
+                + " secrets: awsParameterStore\n");
     }
 }

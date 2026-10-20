@@ -180,7 +180,7 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
   Carry-over (T007 review r1): the cross-profile warning "the credential variable prefix X (both read
   the same variables)" in `ConfigValidator.checkOtherProfiles` should appear only when both profiles
   have at least one environment node (both `credentialVariableNames()` non-empty).
-- [ ] T008 [US1] `--check-config` environment part (contracts/configuration-delta.md, SC-001):
+- [X] T008 [US1] `--check-config` environment part (contracts/configuration-delta.md, SC-001):
   profiles without any `credentials.source` setting keep today's output byte for byte; as soon as
   `source` is used anywhere in the profile, each node line gains `secrets: environment` (plus the
   existing `username ← …`, `password ← …`, `trustStorePassword ← …` details) and the header line
@@ -307,6 +307,9 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
 
 ## Phase 5: User Story 3 - See and check where secrets come from (Priority: P2)
 
+  Carry-over (T008 review r1): the `Credential variables:` header shows the profile prefix even when
+  every environment node uses its own `source.prefix`; show it only when some environment plan uses
+  the profile prefix, or list the distinct prefixes.
 - [ ] T015 [US3] `--check-config` for AWS nodes (R-12, FR-009, contracts/configuration-delta.md):
   `main/Launcher.java` creates an `SsmParameterStore` only if some node is AWS and fetches every
   configured parameter of every AWS node grouped per `StoreLocation` (10 s timeout per batch);

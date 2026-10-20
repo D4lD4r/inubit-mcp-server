@@ -184,7 +184,7 @@ public final class ConfigValidator {
      *       research R-13), so two profiles may read the same Parameter Store names;
      *   <li>one <b>warning</b> per file that has the same profile name (a copy, which may start;
      *       shared variable names are listed in the warning then), the same effective credential
-     *       prefix or the same audit directory.
+     *       prefix (if both profiles have environment nodes) or the same audit directory.
      * </ul>
      *
      * A profile name read from another file is printed only if valid (review P3a).
@@ -198,7 +198,8 @@ public final class ConfigValidator {
             String otherFile = "The profile file " + other.source() + " (profile "
                 + (otherName.equals(ProfileInfo.INVALID_NAME) ? otherName : "'" + otherName + "'")
                 + ")";
-            Set<String> sharedVariables = new TreeSet<>(otherConfig.credentialVariableNames());
+            Set<String> otherVariables = otherConfig.credentialVariableNames();
+            Set<String> sharedVariables = new TreeSet<>(otherVariables);
             sharedVariables.retainAll(ownVariables);
             String name = config.profile().name();
             boolean copy = !name.isEmpty() && name.equals(otherConfig.profile().name());
@@ -215,7 +216,9 @@ public final class ConfigValidator {
                 shared.add("the profile name " + shown
                     + " (profile names must be unique per workstation)");
             }
-            if (config.credentialPrefix().equals(otherConfig.credentialPrefix())) {
+            // T007 review r1: a profile without environment nodes reads no variables
+            if (config.credentialPrefix().equals(otherConfig.credentialPrefix())
+                && !ownVariables.isEmpty() && !otherVariables.isEmpty()) {
                 shared.add("the credential variable prefix " + config.credentialPrefix()
                     + " (both read the same variables)");
             }

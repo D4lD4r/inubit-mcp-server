@@ -28,7 +28,10 @@ import java.util.function.Predicate;
  * {@code Chains:} block (one line per stage chain and the exclusions of each target) before the
  * groups. Feature 009 (FR-011a, research D-13) adds the {@code versionLine} setting and, for a
  * node whose StartCLI client was probed, the client version with its declared range and its
- * comparison with a concrete pin.
+ * comparison with a concrete pin. Feature 010 (research R-12) adds {@code secrets: environment |
+ * awsParameterStore} to every node line once the profile sets {@code credentials.source}
+ * anywhere; an AWS node has no variables and the {@code Credential variables:} line is left out
+ * if every node is an AWS node.
  * Groups and nodes are named with the profile's display names (FR-007). Values and URLs are never
  * printed.
  */
@@ -62,9 +65,13 @@ public final class ConfigSummary {
         out.append("Terminology: ").append(terms.groupSingular()).append('/')
             .append(terms.groupPlural()).append(", ").append(terms.nodeSingular()).append('/')
             .append(terms.nodePlural()).append('\n');
-        // 002 US2: what keeps this profile apart from others running side by side
-        out.append("Credential variables: ").append(config.credentialPrefix()).append('_')
-            .append(ConfigValidator.variablePart(terms)).append("_USERNAME / _PASSWORD\n");
+        // 002 US2: what keeps this profile apart from others running side by side; feature 010:
+        // not shown if every node reads its secrets from AWS Parameter Store
+        Map<NodeId, SecretPlan> plans = config.secretPlans();
+        if (plans.isEmpty() || !plans.values().stream().allMatch(SecretPlan::aws)) {
+            out.append("Credential variables: ").append(config.credentialPrefix()).append('_')
+                .append(ConfigValidator.variablePart(terms)).append("_USERNAME / _PASSWORD\n");
+        }
         out.append("Audit directory: ").append(config.auditDirectory()).append('\n');
         // feature 003 (FR-004): ok, created just now, or why it cannot be used
         out.append("Workspace: ").append(config.workspace()).append(" (")
@@ -81,6 +88,8 @@ public final class ConfigSummary {
         config.groups().forEach(group -> group.deploy()
             .ifPresent(deploy -> deploys.putIfAbsent(group.name(), deploy)));
         appendChains(out, config, deploys);
+        // feature 010 (SC-001): the secret source per node only once the profile sets one
+        boolean sources = usesSource(config);
         GroupId group = null;
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
             if (!server.id().group().equals(group)) {
@@ -98,17 +107,14 @@ public final class ConfigSummary {
             Optional.ofNullable(deploys.get(server.id().group().value())).ifPresent(deploy ->
                 out.append(", deploy: from ").append(deploy.from().strip()).append(" (")
                     .append(deploy.mode()).append(')'));
-            Optional<NodeCredentials> serverCredentials = credentials.all().stream()
-                .filter(c -> c.node().equals(server.id()))
-                .findFirst();
-            out.append(", username ← ").append(serverCredentials
-                .flatMap(NodeCredentials::username).map(SourcedValue::sourceVariable)
-                .orElse(MISSING));
-            out.append(", password ← ").append(serverCredentials
-                .flatMap(NodeCredentials::password).map(SourcedValue::sourceVariable)
-                .orElse(MISSING));
-            serverCredentials.flatMap(NodeCredentials::trustStorePassword)
-                .ifPresent(ts -> out.append(", trustStorePassword ← ").append(ts.sourceVariable()));
+            if (sources) {
+                out.append(", secrets: ").append(server.secretPlan().aws() ? "awsParameterStore"
+                    : "environment");
+            }
+            // feature 010: an AWS node reads no credential variables
+            if (!server.secretPlan().aws()) {
+                appendVariables(out, credentials, server);
+            }
             out.append('\n');
         }
         appendList(out, "Warnings:", report.warnings());
@@ -117,6 +123,29 @@ public final class ConfigSummary {
             ? "Result: FAILED (" + report.errors().size() + " error(s))"
             : "Result: OK").append('\n');
         return out.toString();
+    }
+
+    /** {@code , username ← <variable>, password ← <variable>[, trustStorePassword ← …]}. */
+    private static void appendVariables(StringBuilder out, CredentialResolution credentials,
+        EffectiveNodeConfig server) {
+        Optional<NodeCredentials> serverCredentials = credentials.all().stream()
+            .filter(c -> c.node().equals(server.id()))
+            .findFirst();
+        out.append(", username ← ").append(serverCredentials
+            .flatMap(NodeCredentials::username).map(SourcedValue::sourceVariable)
+            .orElse(MISSING));
+        out.append(", password ← ").append(serverCredentials
+            .flatMap(NodeCredentials::password).map(SourcedValue::sourceVariable)
+            .orElse(MISSING));
+        serverCredentials.flatMap(NodeCredentials::trustStorePassword)
+            .ifPresent(ts -> out.append(", trustStorePassword ← ").append(ts.sourceVariable()));
+    }
+
+    /** True if {@code credentials.source} is set on the profile, a group or a node (feature 010). */
+    private static boolean usesSource(ProfileConfig config) {
+        return config.credentials().source().isPresent() || config.groups().stream()
+            .anyMatch(group -> group.credentials().source().isPresent() || group.nodes().stream()
+                .anyMatch(node -> node.credentials().source().isPresent()));
     }
 
     /**
