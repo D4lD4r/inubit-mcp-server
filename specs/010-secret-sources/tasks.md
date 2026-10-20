@@ -103,7 +103,7 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
   refused; unknown key inside `credentials`, `source` and `parameters` refused, incl.
   `accessKeyId`/`secretAccessKey` without echoing values; existing credential-key cases unchanged),
   `test/config/ProfileSectionTest.java` (top-level `source`).
-- [ ] T004 Effective source and names (R-6): `main/config/SecretPlan.java` per node (effective
+- [X] T004 Effective source and names (R-6): `main/config/SecretPlan.java` per node (effective
   source with its origin `node|group|profile|default`, `CredentialVariables` for environment
   nodes, resolved `ParameterNames` for AWS nodes: node name per kind, else the group name only if
   the node has no own `source`); `ProfileConfig.secretPlans()` and `EffectiveNodeConfig` carry the
@@ -165,6 +165,11 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
   equals today; a group-level environment override with its own prefix; an AWS node is deferred and
   produces no missing-variable error), `test/MainTest.java` (an existing profile's startup and
   `--check-config` output byte-for-byte unchanged except the new `secrets:` part, see T008).
+  Carry-over (T004 review r1): `EffectiveNodeConfig.credentialVariables()` already follows the plan's
+  prefix; the resolver (and Launcher/Wiring) must read `server.secretPlan().variables()` so that an
+  environment node or group with its own `source.prefix` is resolved with the same variables. Also
+  consider moving the duplicated group-source precedence in
+  `ConfigValidator.checkIgnoredParameterNames` into `SecretPlan`.
 - [ ] T007 [US1] Environment checks only for environment nodes (R-13):
   `ProfileConfig.credentialVariableNames()`, the collision check, `ConfigValidator.checkOtherProfiles`
   `CredentialResolver.unmatchedPasswordVariables`, `ConfigValidator.e2eCredentialVariables` and

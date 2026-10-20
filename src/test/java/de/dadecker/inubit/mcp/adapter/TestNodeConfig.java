@@ -1,7 +1,10 @@
 package de.dadecker.inubit.mcp.adapter;
 
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
+import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.config.SecretPlan;
+import de.dadecker.inubit.mcp.config.SecretSourceConfig;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.net.URI;
@@ -148,6 +151,9 @@ public final class TestNodeConfig {
             Duration.ofMinutes(60),
             Duration.ofMinutes(5),
             credentialPrefix,
-            development);
+            development,
+            new SecretPlan(id, new SecretSourceConfig.Environment(Optional.empty()),
+                SecretPlan.Origin.DEFAULT,
+                Optional.of(new CredentialVariables(credentialPrefix, id)), Optional.empty()));
     }
 }

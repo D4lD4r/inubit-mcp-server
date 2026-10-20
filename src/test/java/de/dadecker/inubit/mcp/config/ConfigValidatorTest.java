@@ -1908,5 +1908,211 @@ class ConfigValidatorTest {
                 .contains("an existing stage other than this one");
         }
     }
-}
 
+    /** Feature 010 (T004, research R-6, contracts/configuration-delta.md). */
+    @Nested
+    class SecretSources {
+
+        private static final String AWS = """
+            source:
+              type: awsParameterStore
+              region: eu-central-1
+            """;
+
+        private static final String NAMES = """
+            parameters:
+              username: /inubit/dev/username
+              password: /inubit/dev/password
+            """;
+
+        /** Group {@code dev} with {@code credentials} (group) and node1 with (node). */
+        private static String profile(String top, String group, String node, String settings) {
+            return "profile:\n  name: acme\n" + top + """
+                groups:
+                  - name: dev
+                    inventory:
+                      owner: INTEGRATION
+                """ + section(group).indent(4) + """
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit.example.test:8443
+                """ + section(node).indent(8) + settings.indent(8);
+        }
+
+        private static String section(String credentials) {
+            return credentials.isEmpty() ? "" : "credentials:\n" + credentials.indent(2);
+        }
+
+        private static String awsGroup(String extraNames) {
+            return AWS + NAMES + extraNames.indent(2);
+        }
+
+        @Test
+        void anAwsGroupWithBothNamesHasNoFindings() {
+            ValidationReport report = validate(profile("", awsGroup(""), "", ""));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).isEmpty();
+        }
+
+        @Test
+        void anAwsNodeWithoutAUsernameOrPasswordNameIsAnError() {
+            ValidationReport report = validate(profile("", AWS
+                + "parameters:\n  username: /inubit/dev/username\n", "", ""));
+            ValidationReport noNames = validate(profile("", AWS, "", ""));
+
+            assertThat(report.errors()).singleElement().asString().contains("dev/node1",
+                "no Parameter Store name for the password",
+                "credentials.parameters.password on the node or its group");
+            assertThat(noNames.errors()).hasSize(2)
+                .anySatisfy(e -> assertThat(e).contains("credentials.parameters.username"))
+                .anySatisfy(e -> assertThat(e).contains("credentials.parameters.password"));
+        }
+
+        @Test
+        void aNodeWithItsOwnSourceNeedsItsOwnNames() {
+            String own = """
+                source:
+                  type: awsParameterStore
+                  region: eu-west-1
+                parameters:
+                  password: /inubit/node1/password
+                """;
+
+            ValidationReport report = validate(profile("", awsGroup(""), own, ""));
+
+            assertThat(report.errors()).singleElement().asString()
+                .contains("dev/node1", "credentials.parameters.username", "own credentials.source")
+                .doesNotContain("or its group");
+        }
+
+        @Test
+        void onlyOneEndToEndNameIsAnErrorNamingTheMissingKey() {
+            ValidationReport report = validate(profile("",
+                awsGroup("e2eUsername: /inubit/dev/e2e-user"), "", ""));
+            ValidationReport both = validate(profile("",
+                awsGroup("e2eUsername: /inubit/dev/e2e-user"),
+                "parameters:\n  e2ePassword: /inubit/node1/e2e-pass\n", ""));
+
+            assertThat(report.errors()).singleElement().asString()
+                .contains("dev/node1", "credentials.parameters.e2ePassword", "e2eUsername");
+            assertThat(both.errors()).isEmpty();
+        }
+
+        @Test
+        void aProfileEnvironmentPrefixOtherThanEnvPrefixIsAnErrorNamingBothKeys() {
+            // US1-3
+            String top = "credentials:\n  envPrefix: INUBIT_LEGACY\n  source:\n"
+                + "    type: environment\n    prefix: %s\n";
+
+            ValidationReport report = validate(profile(top.formatted("INUBIT_OTHER"), "", "", ""));
+            ValidationReport equal = validate(profile(top.formatted("INUBIT_LEGACY"), "", "", ""));
+            // a group or node with its own prefix is an override, not a contradiction
+            ValidationReport group = validate(profile("credentials:\n  envPrefix: INUBIT_LEGACY\n",
+                "source:\n  type: environment\n  prefix: INUBIT_OTHER\n", "", ""));
+
+            assertThat(report.errors()).anySatisfy(e -> assertThat(e)
+                .contains("credentials.source.prefix", "credentials.envPrefix"));
+            assertThat(equal.errors()).isEmpty();
+            assertThat(group.errors()).isEmpty();
+        }
+
+        @Test
+        void aTrustStorePasswordNameOnANodeWithACliIsAnError() {
+            String cli = """
+                tls:
+                  trustStore: /opt/truststore.p12
+                cli:
+                  home: /opt/client
+                  javaHome: /opt/jdk17
+                """;
+            String names = awsGroup("trustStorePassword: /inubit/dev/ts-pass");
+
+            ValidationReport report = validate(profile("", names, "", cli));
+            ValidationReport withoutCli = validate(profile("", names, "",
+                "tls:\n  trustStore: /opt/truststore.p12\n"));
+
+            assertThat(report.errors()).singleElement().asString().contains("dev/node1",
+                "credentials.parameters.trustStorePassword", "/inubit/dev/ts-pass", "CLI",
+                "process argument");
+            assertThat(withoutCli.errors()).isEmpty();
+            assertThat(withoutCli.warnings()).isEmpty();
+        }
+
+        @Test
+        void aTrustStorePasswordNameWithoutATrustStoreIsAWarning() {
+            ValidationReport report = validate(profile("",
+                awsGroup("trustStorePassword: /inubit/dev/ts-pass"), "", ""));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).singleElement().asString().contains("dev/node1",
+                "credentials.parameters.trustStorePassword", "/inubit/dev/ts-pass",
+                "tls.trustStore", "ignored");
+        }
+
+        @Test
+        void parameterNamesOfAnEnvironmentGroupAreIgnoredWithAWarning() {
+            // the profile is AWS, the group overrides it with environment variables
+            String top = "credentials:\n" + AWS.indent(2);
+
+            ValidationReport report = validate(profile(top,
+                "source:\n  type: environment\n" + NAMES, "", ""));
+            ValidationReport implicit = validate(profile("", NAMES, "", ""));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).singleElement().asString()
+                .contains("Group 'dev'", "credentials.parameters", "ignored",
+                    "environment variables");
+            assertThat(implicit.warnings()).singleElement().asString()
+                .contains("Group 'dev'", "credentials.parameters", "ignored");
+        }
+
+        @Test
+        void parameterNamesOfAnEnvironmentNodeInAnAwsGroupAreIgnoredWithAWarning() {
+            String node = "source:\n  type: environment\n"
+                + "parameters:\n  password: /inubit/node1/password\n";
+
+            ValidationReport report = validate(profile("", awsGroup(""), node, ""));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).singleElement().asString()
+                .contains("dev/node1", "credentials.parameters", "ignored",
+                    "environment variables");
+        }
+
+        @Test
+        void endToEndNamesOverPlainHttpAreAnError() {
+            String development = """
+                development:
+                  enabled: true
+                e2eTests: %s
+                e2e:
+                  soap:
+                    baseUrl: http://inubit-dev.example.test:8080
+                """;
+            String names = awsGroup("e2eUsername: /inubit/dev/e2e-user\n"
+                + "e2ePassword: /inubit/dev/e2e-pass");
+
+            ValidationReport report = validate(profile("", names, "",
+                development.formatted("FREE")));
+            ValidationReport forbidden = validate(profile("", names, "",
+                development.formatted("FORBIDDEN")));
+            ValidationReport withoutNames = validate(profile("", awsGroup(""), "",
+                development.formatted("FREE")));
+
+            assertThat(report.errors()).singleElement().asString().contains("dev/node1",
+                "http://", "/inubit/dev/e2e-user", "/inubit/dev/e2e-pass", "clear text");
+            assertThat(forbidden.errors()).isEmpty();
+            assertThat(withoutNames.errors()).isEmpty();
+        }
+
+        @Test
+        void theMessagesUseTheProfilesTerminology() {
+            String yaml = profile("terminology:\n  group: { singular: stage, plural: stages }\n"
+                + "  node: { singular: server, plural: servers }\n", AWS, "", "");
+
+            assertThat(validate(yaml).errors()).hasSize(2).allSatisfy(e -> assertThat(e)
+                .contains("on the server or its stage"));
+        }
+    }
+}

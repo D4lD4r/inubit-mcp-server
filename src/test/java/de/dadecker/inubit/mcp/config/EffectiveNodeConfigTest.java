@@ -51,9 +51,16 @@ class EffectiveNodeConfigTest {
             null, null, null, null, null, development, null, null, null, null);
     }
 
+    /** Resolves without any {@code credentials} section (prefix {@code INUBIT}). */
+    private static EffectiveNodeConfig resolve(Defaults defaults, GroupConfig group,
+        NodeConfig node) {
+        return EffectiveNodeConfig.resolve(defaults, group, node, "INUBIT",
+            SecretPlan.resolve(CredentialsConfig.EMPTY, "INUBIT", group, node));
+    }
+
     private static boolean repositoryWrite(Defaults defaults, GroupConfig group) {
         EffectiveNodeConfig server =
-            EffectiveNodeConfig.resolve(defaults, group, group.nodes().get(0), "INUBIT");
+            resolve(defaults, group, group.nodes().get(0));
         return server.development().repositoryWrite();
     }
 
@@ -100,7 +107,7 @@ class EffectiveNodeConfigTest {
     void theDevelopmentPolicyAndWithTimeoutKeepTheEffectiveSwitch() {
         GroupConfig group = group(false, ENABLED, node(WRITE));
         EffectiveNodeConfig server =
-            EffectiveNodeConfig.resolve(Defaults.EMPTY, group, group.nodes().get(0), "INUBIT");
+            resolve(Defaults.EMPTY, group, group.nodes().get(0));
 
         assertThat(server.developmentPolicy().repositoryWrite()).isTrue();
         assertThat(server.withTimeout(Duration.ofSeconds(1)).development().repositoryWrite())
@@ -119,7 +126,7 @@ class EffectiveNodeConfigTest {
         GroupConfig group = new GroupConfig("dev", false, List.of(node), null, null, null, null,
             Optional.ofNullable(groupValue), null, null, null, null, null, null, null, null, null,
             null);
-        return EffectiveNodeConfig.resolve(Defaults.EMPTY, group, node, "INUBIT").versionLine();
+        return resolve(Defaults.EMPTY, group, node).versionLine();
     }
 
     @Test
@@ -146,7 +153,7 @@ class EffectiveNodeConfigTest {
                 null, null, null);
             GroupConfig group = group(false, null, node);
             EffectiveNodeConfig server =
-                EffectiveNodeConfig.resolve(Defaults.EMPTY, group, node, "INUBIT");
+                resolve(Defaults.EMPTY, group, node);
 
             assertThat(server.summary(path -> false, false).versionLine())
                 .isEqualTo(setting.text());

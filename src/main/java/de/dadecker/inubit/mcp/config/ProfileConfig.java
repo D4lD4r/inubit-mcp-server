@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -159,6 +160,27 @@ public record ProfileConfig(
         return List.copyOf(ids);
     }
 
+    /**
+     * The secret plan of every server with valid stage and server names (feature 010, research
+     * R-6), in config order.
+     */
+    public Map<NodeId, SecretPlan> secretPlans() {
+        Map<NodeId, SecretPlan> plans = new LinkedHashMap<>();
+        for (GroupConfig group : groups) {
+            for (NodeConfig node : group.nodes()) {
+                if (GroupId.isValidName(group.name()) && GroupId.isValidName(node.name())) {
+                    SecretPlan plan = secretPlan(group, node);
+                    plans.put(plan.node(), plan);
+                }
+            }
+        }
+        return Collections.unmodifiableMap(plans);
+    }
+
+    private SecretPlan secretPlan(GroupConfig group, NodeConfig node) {
+        return SecretPlan.resolve(credentials, credentialPrefix(), group, node);
+    }
+
     private List<EffectiveNodeConfig> nodes(boolean strict) {
         List<EffectiveNodeConfig> result = new ArrayList<>();
         for (GroupConfig group : groups) {
@@ -167,7 +189,7 @@ public record ProfileConfig(
                     && GroupId.isValidName(node.name()) && node.baseUrl().isPresent();
                 if (strict || resolvable) {
                     result.add(EffectiveNodeConfig.resolve(defaults, group, node,
-                        credentialPrefix()));
+                        credentialPrefix(), secretPlan(group, node)));
                 }
             }
         }

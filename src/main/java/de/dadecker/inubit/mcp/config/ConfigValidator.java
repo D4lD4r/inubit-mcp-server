@@ -24,6 +24,7 @@ import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * Checks a loaded configuration and its resolved credentials at startup (contracts/configuration.md
@@ -130,7 +131,9 @@ public final class ConfigValidator {
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
             checkServer(server, credentials, findings);
             checkDevelopment(server, findings);
+            checkParameterNames(server, findings);
         }
+        checkIgnoredParameterNames(config, findings);
         checkOneDevelopmentNodePerGroup(config, findings);
         checkRepositorySwitch(config, findings);
         checkE2eNodeNames(config, findings);
@@ -369,6 +372,15 @@ public final class ConfigValidator {
             .filter(prefix -> !ProfileInfo.isValidPrefix(prefix))
             .ifPresent(prefix -> findings.error("Invalid credentials.envPrefix: expected "
                 + ProfileInfo.PREFIX_PATTERN.pattern()));
+        // feature 010 (US1-3): envPrefix is the default of every environment source without one
+        Optional<String> envPrefix = config.credentials().envPrefix();
+        if (config.credentials().source().orElse(null)
+            instanceof SecretSourceConfig.Environment environment
+            && environment.prefix().isPresent() && envPrefix.isPresent()
+            && !environment.prefix().equals(envPrefix)) {
+            findings.error("credentials.source.prefix and credentials.envPrefix differ; set only"
+                + " one of them or make them equal");
+        }
     }
 
     private static void checkTerminology(TerminologyConfig terminology, Findings findings) {
@@ -552,7 +564,8 @@ public final class ConfigValidator {
                 findings.error(id + ": e2e.soap.baseUrl must be an absolute https:// URL"
                     + " (http:// is accepted with a warning)");
             } else if (scheme.equals("http")) {
-                List<String> credentials = e2eCredentialVariables(server);
+                List<String> credentials = new ArrayList<>(e2eCredentialVariables(server));
+                credentials.addAll(e2eParameterNames(server));
                 if (e2eTests != E2ePolicy.FORBIDDEN && !credentials.isEmpty()) {
                     findings.error(id + ": e2e.soap.baseUrl uses http:// while the e2e basic"
                         + " authentication is set (" + String.join(", ", credentials) + "); the"
@@ -576,6 +589,90 @@ public final class ConfigValidator {
             }
         }
         return set;
+    }
+
+    /** Feature 010 (research R-6): the configured e2e Parameter Store names of an AWS node. */
+    private static List<String> e2eParameterNames(EffectiveNodeConfig server) {
+        return server.secretPlan().names()
+            .map(names -> Stream.of(names.e2eUsername(), names.e2ePassword())
+                .flatMap(Optional::stream).toList())
+            .orElse(List.of());
+    }
+
+    /**
+     * The Parameter Store names of an AWS node (feature 010, research R-6,
+     * contracts/configuration-delta.md): {@code username} and {@code password} are required, the
+     * e2e names come in pairs, and a {@code trustStorePassword} name follows the rules of the
+     * trust store password variable ({@link #checkCredentials}).
+     */
+    private static void checkParameterNames(EffectiveNodeConfig server, Findings findings) {
+        SecretPlan plan = server.secretPlan();
+        if (plan.names().isEmpty()) {
+            return;
+        }
+        ParameterNames names = plan.names().get();
+        String id = server.id().value();
+        String where = plan.origin() == SecretPlan.Origin.NODE
+            ? "on the {node}; the names of its {group} do not apply because the {node} declares"
+                + " its own credentials.source"
+            : "on the {node} or its {group}";
+        if (names.username().isEmpty()) {
+            findings.termError("%s: no Parameter Store name for the username (set"
+                + " credentials.parameters.username " + where + ")", id);
+        }
+        if (names.password().isEmpty()) {
+            findings.termError("%s: no Parameter Store name for the password (set"
+                + " credentials.parameters.password " + where + ")", id);
+        }
+        if (names.e2eUsername().isPresent() != names.e2ePassword().isPresent()) {
+            String missing = names.e2eUsername().isPresent() ? "e2ePassword" : "e2eUsername";
+            findings.error(id + ": credentials.parameters." + missing + " is missing; the"
+                + " end-to-end credentials need both e2eUsername and e2ePassword");
+        }
+        names.trustStorePassword().ifPresent(name -> {
+            if (server.cliConfigured()) {
+                findings.termError("%s: credentials.parameters.trustStorePassword (%s) is set,"
+                    + " but this {node} has a CLI configured and needs a password-less trust"
+                    + " store (StartCLI could only receive the password as a process argument)",
+                    id, name);
+            }
+            if (server.tls().trustStore().isEmpty()) {
+                findings.warning(id + ": credentials.parameters.trustStorePassword (" + name
+                    + ") is set, but no tls.trustStore is configured; the parameter is ignored");
+            }
+        });
+    }
+
+    /**
+     * Feature 010 (research R-6): {@code credentials.parameters} on a group or node whose
+     * effective source is environment variables is ignored, with a warning.
+     */
+    private static void checkIgnoredParameterNames(ProfileConfig config, Findings findings) {
+        for (GroupConfig group : config.groups()) {
+            Optional<SecretSourceConfig> source = group.credentials().source()
+                .or(config.credentials()::source);
+            boolean environment = source.isEmpty()
+                || source.get() instanceof SecretSourceConfig.Environment;
+            if (environment && group.credentials().parameters().isPresent()) {
+                findings.termWarning("{Group} '%s': credentials.parameters is ignored; the"
+                    + " secrets of this {group} come from environment variables", group.name());
+            }
+            if (!GroupId.isValidName(group.name())) {
+                continue;
+            }
+            for (NodeConfig node : group.nodes()) {
+                if (!GroupId.isValidName(node.name())
+                    || node.credentials().parameters().isEmpty()) {
+                    continue;
+                }
+                SecretPlan plan = SecretPlan.resolve(config.credentials(),
+                    config.credentialPrefix(), group, node);
+                if (!plan.aws()) {
+                    findings.termWarning("%s: credentials.parameters is ignored; the secrets of"
+                        + " this {node} come from environment variables", plan.node().value());
+                }
+            }
+        }
     }
 
     /**

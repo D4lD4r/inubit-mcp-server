@@ -20,6 +20,7 @@ import java.util.function.Predicate;
  * @param credentialPrefix the profile's effective credential prefix (002 research D-6), so that
  *     every message about this node's credentials names its own variables
  *     ({@link #credentialVariables()})
+ * @param secretPlan where this node's credentials come from (feature 010, research R-6)
  */
 public record EffectiveNodeConfig(
     NodeId id,
@@ -37,7 +38,8 @@ public record EffectiveNodeConfig(
     Duration hangingThreshold,
     Duration confirmationTtl,
     String credentialPrefix,
-    Development development) {
+    Development development,
+    SecretPlan secretPlan) {
 
     /** Path of the StartCLI SOAP endpoint relative to the base URL (8.1). */
     public static final String DEFAULT_CLI_PATH = "/ibis/servlet/IBISSoapServlet";
@@ -60,6 +62,11 @@ public record EffectiveNodeConfig(
         Objects.requireNonNull(confirmationTtl, "confirmationTtl");
         Objects.requireNonNull(credentialPrefix, "credentialPrefix");
         Objects.requireNonNull(development, "development");
+        Objects.requireNonNull(secretPlan, "secretPlan");
+        if (!secretPlan.node().equals(id)) {
+            throw new IllegalArgumentException("The secret plan of " + secretPlan.node()
+                + " does not belong to " + id);
+        }
     }
 
     public record Write(boolean enabled, boolean productionOptIn, ConfirmationMode confirmation) {
@@ -141,12 +148,16 @@ public record EffectiveNodeConfig(
     public EffectiveNodeConfig withTimeout(Duration newTimeout) {
         return new EffectiveNodeConfig(id, production, baseUrl, allowInsecureHttp, versionLine,
             write, tls, cli, inventory, newTimeout, cliTimeout, cliExportTimeout, hangingThreshold,
-            confirmationTtl, credentialPrefix, development);
+            confirmationTtl, credentialPrefix, development, secretPlan);
     }
 
-    /** The credential environment variables of this node. */
+    /**
+     * The credential environment variables of this node: those of its plan; for an AWS node
+     * (no variables) those under the profile's prefix, as before feature 010.
+     */
     public CredentialVariables credentialVariables() {
-        return new CredentialVariables(credentialPrefix, id);
+        return secretPlan.variables()
+            .orElseGet(() -> new CredentialVariables(credentialPrefix, id));
     }
 
     /** Write access after the production lock: {@code enabled && (!production || optIn)}. */
@@ -184,9 +195,10 @@ public record EffectiveNodeConfig(
      * Resolves one server; see {@link ProfileConfig#effectiveNodes()} for the preconditions.
      *
      * @param credentialPrefix {@link ProfileConfig#credentialPrefix()}
+     * @param secretPlan the node's entry of {@link ProfileConfig#secretPlans()}
      */
     static EffectiveNodeConfig resolve(Defaults defaults, GroupConfig group,
-        NodeConfig node, String credentialPrefix) {
+        NodeConfig node, String credentialPrefix, SecretPlan secretPlan) {
         NodeId id = NodeId.of(group.name(), node.name());
         URI baseUrl = Urls.withoutTrailingSlash(node.baseUrl().orElseThrow(
             () -> new IllegalArgumentException("baseUrl missing for " + id)));
@@ -249,6 +261,7 @@ public record EffectiveNodeConfig(
                 node.e2e().soap().baseUrl().or(group.e2e().soap()::baseUrl)
                     .map(Urls::withoutTrailingSlash),
                 repository == RepositoryMode.WRITE && developmentEnabled
-                    && !group.production()));
+                    && !group.production()),
+            secretPlan);
     }
 }

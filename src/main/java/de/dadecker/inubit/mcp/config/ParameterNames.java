@@ -26,6 +26,10 @@ public record ParameterNames(
     public static final String NAME_RULE = NAME_PATTERN.pattern()
         + ", without '//' and without a trailing '/'";
 
+    /** No names. */
+    public static final ParameterNames EMPTY = new ParameterNames(Optional.empty(),
+        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+
     public ParameterNames {
         username = checked("username", username);
         password = checked("password", password);

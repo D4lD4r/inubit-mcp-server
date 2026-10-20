@@ -763,7 +763,8 @@ class ConfigLoaderTest {
                 null, null, null, null, null, null, null, null, null, null, null, null);
 
             assertThatThrownBy(() -> EffectiveNodeConfig.resolve(Defaults.EMPTY, stage, entry,
-                "INUBIT_ACME"))
+                "INUBIT_ACME", SecretPlan.resolve(CredentialsConfig.EMPTY, "INUBIT_ACME", stage,
+                    entry)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageNotContaining("secretpw");
         }
@@ -779,7 +780,8 @@ class ConfigLoaderTest {
                 null, null, null, null, null, null, null, null, null, null, null, null);
 
             assertThatThrownBy(() -> EffectiveNodeConfig.resolve(Defaults.EMPTY, stage, entry,
-                "INUBIT_ACME"))
+                "INUBIT_ACME", SecretPlan.resolve(CredentialsConfig.EMPTY, "INUBIT_ACME", stage,
+                    entry)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageNotContaining("secretpw");
         }
