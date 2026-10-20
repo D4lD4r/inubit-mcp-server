@@ -58,36 +58,47 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
   (`ServicesResourceTransformer` already present) and make sure the shaded JAR still starts
   (`MainProcessTest`). Set `software.amazon.awssdk` to `WARN` in `res/logback.xml` (R-14). Add the
   SDK to `THIRD-PARTY-NOTICES.md` (Apache-2.0, with its NOTICE). Resolve the new artifacts once
-  online (`mvn -q dependency:resolve`), then build offline. Test: `test/architecture/DependencyTest`
-  (or the existing dependency check, if any) asserting no Netty/Apache HTTP client class is on the
-  runtime classpath; `mvn -q -o clean verify` green.
+  online (`mvn -q dependency:resolve`), then build offline. Test first:
+  `test/architecture/AwsSdkDependencyTest.java` asserting that
+  `software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient` and
+  `software.amazon.awssdk.services.ssm.SsmClient` load, and that
+  `software.amazon.awssdk.http.apache.ApacheHttpClient`,
+  `software.amazon.awssdk.http.apache5.Apache5HttpClient` and
+  `software.amazon.awssdk.http.nio.netty.NettyNioAsyncHttpClient` do not (`Class.forName` throws);
+  `mvn -q -o clean verify` green.
 
 ---
 
 ## Phase 2: Foundational (blocks all stories)
 
-- [ ] T002 [P] Source and name types (data-model, R-3, R-5): `main/config/SecretSourceConfig.java`
+- [ ] T002 Source and name types (data-model, R-3, R-5): `main/config/SecretSourceConfig.java`
   (sealed `Environment(Optional<String> prefix)` | `AwsParameterStore(String region,
   Optional<String> awsProfile)`), `main/config/ParameterNames.java` (optional `username`,
   `password`, `trustStorePassword`, `e2eUsername`, `e2ePassword`), `main/config/StoreLocation.java`
   (`region`, `Optional<String> awsProfile`). Validation: prefix `^[A-Z][A-Z0-9_]{0,63}$`; region
   `^[a-z]{2}(-[a-z]+)+-\d$`; AWS profile `^[A-Za-z0-9_.+=,@-]{1,64}$`; parameter name
   `^/[A-Za-z0-9_.\-/]{1,1010}$`, no `//`, no trailing `/`, no `:` (no version/label selectors), no
-  ARN. `toString` of `ParameterNames` shows names (they are not secrets). Test first:
-  `test/config/SecretSourceConfigTest.java`, `test/config/ParameterNamesTest.java` (valid and
-  invalid values of every pattern).
+  ARN. `toString` of `ParameterNames` shows names (they are not secrets). Also
+  `main/config/CredentialRules.java` (research R-17): the value checks moved from
+  `CredentialResolver`/`ConfigValidator` (safe username, `MIN_SCRUBBED_LENGTH` = 4, non-empty) plus
+  the parameter-type rule; `CredentialResolver` and `ConfigValidator` use it (behaviour unchanged).
+  Test first: `test/config/SecretSourceConfigTest.java`, `test/config/ParameterNamesTest.java`
+  (valid and invalid values of every pattern), `test/config/CredentialRulesTest.java`.
 - [ ] T003 `credentials` section at three levels (contracts/configuration-delta.md, R-4):
   `main/config/CredentialsConfig.java` gains `Optional<SecretSourceConfig> source`;
   `main/config/GroupConfig.java` and `NodeConfig.java` gain `CredentialsConfig credentials`
   (`envPrefix` allowed at top level only, `parameters` only on groups and nodes).
   `main/config/ConfigLoader.java`: the `credentials` mapping is no longer stripped at group and node
-  level; inside it only `envPrefix` (top), `source` and `parameters` are allowed (unknown keys are
-  errors); inside `parameters` the five kind keys are kept and every value must match the
+  level; inside it only `envPrefix` (top), `source` and `parameters` are allowed; unknown keys are
+  errors inside `credentials`, inside `source` (only `type`, `prefix`, `region`, `awsProfile`, per
+  type) and inside `parameters` — so AWS keys such as `accessKeyId` or `secretAccessKey` are
+  refused (FR-004); inside `parameters` the five kind keys are kept and every value must match the
   parameter-name pattern — a non-matching value is an error naming the key path, never the value;
   `username`/`password` keys anywhere else are still stripped and reported as today. Test first:
   `test/config/ConfigLoaderTest.java` (parameter names loaded at all levels; a pasted password in
   `credentials.parameters.password` refused without echoing it; `credentials.envPrefix` on a group
-  refused; unknown key inside `credentials` refused; existing credential-key cases unchanged),
+  refused; unknown key inside `credentials`, `source` and `parameters` refused, incl.
+  `accessKeyId`/`secretAccessKey` without echoing values; existing credential-key cases unchanged),
   `test/config/ProfileSectionTest.java` (top-level `source`).
 - [ ] T004 Effective source and names (R-6): `main/config/SecretPlan.java` per node (effective
   source with its origin `node|group|profile|default`, `CredentialVariables` for environment
@@ -96,11 +107,14 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
   plan (environment prefix = source `prefix` ?? `credentials.envPrefix` ?? default).
   `main/config/ConfigValidator.java` errors: AWS node without `username` or `password` name; only
   one of `e2eUsername`/`e2ePassword`; profile-level environment `prefix` ≠ `credentials.envPrefix`
-  (US1-3); warning: `parameters` on an environment node (ignored). Messages in the profile's
-  terminology, never values. Test first: `test/config/SecretPlanTest.java` (precedence node →
+  (US1-3); a `trustStorePassword` name on a node with a StartCLI installation (error, as for the
+  variable today: StartCLI could only get it as a process argument); a `trustStorePassword` name
+  without `tls.trustStore` (warning, as today); warning: `parameters` on an environment node
+  (ignored). Messages in the profile's terminology, never values. Test first: `test/config/SecretPlanTest.java` (precedence node →
   group → profile → default; group names not inherited by a node with its own source; e2e pair),
-  `test/config/ConfigValidatorTest.java` (each error and the warning).
-- [ ] T005 [P] Port and test double (R-2, data-model): `main/config/ParameterStore.java`
+  `test/config/ConfigValidatorTest.java` (each error and warning, incl. the two trust store
+  checks by name).
+- [ ] T005 [P] Port and test double (after T002, parallel to T003) (R-2, data-model): `main/config/ParameterStore.java`
   (`Fetched get(StoreLocation, List<String> names, Duration timeout)`), `main/config/Fetched.java`
   (per name `Value(Secret, ParameterType)` or `Failure(FailureKind, String logDetail)`, plus a
   whole-call failure), `ParameterType` (`SECURE_STRING`, `STRING`, `STRING_LIST`), `FailureKind`
@@ -132,7 +146,7 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
   equals today; a group-level environment override with its own prefix; an AWS node is deferred and
   produces no missing-variable error), `test/MainTest.java` (an existing profile's startup and
   `--check-config` output byte-for-byte unchanged except the new `secrets:` part, see T008).
-- [ ] T007 [P] [US1] Environment checks only for environment nodes (R-13):
+- [ ] T007 [US1] Environment checks only for environment nodes (R-13):
   `ProfileConfig.credentialVariableNames()`, the collision check, `ConfigValidator.checkOtherProfiles`
   and `CredentialResolver.unmatchedPasswordVariables` consider only environment nodes. Test first:
   `test/config/ConfigValidatorTest.java` (two profiles whose nodes are all AWS: no shared-variable
@@ -173,43 +187,64 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   of 12 names, 400 `AccessDeniedException`, throttling, a delay beyond the timeout, unknown
   profile via a temporary `AWS_CONFIG_FILE`/`AWS_SHARED_CREDENTIALS_FILE` set through system
   properties, no request when the name list is empty).
-- [ ] T010 [US2] Lazy node secrets (R-7, R-11, R-14): `main/adapter/NodeSecrets.java` — for
+- [ ] T010 [US2] Lazy node secrets (R-7, R-11, R-14, R-17): `main/adapter/NodeSecrets.java` — for
   environment nodes the startup `NodeCredentials`; for AWS nodes `current(Duration bound)` with
   single-flight fetch of username, password and (if named) trust store password, 10 s store
-  timeout, waiting at most `min(bound, 10 s)` without cancelling the fetch, 30 s back-off after a
-  failure (the recorded `ToolError` returned at once), validation as today (safe username, password
-  ≥ 4 characters, non-empty; `STRING_LIST` → invalid value; `STRING` → accepted with a WARN "not
+  timeout plus the same 10 s bound on the shared future (`orTimeout`, a hanging credential-provider
+  step → `UNREACHABLE`), waiting at most `min(bound, 10 s)` without cancelling the fetch, 30 s
+  back-off after a failure (the recorded `ToolError` returned at once), validation through
+  `CredentialRules` (`STRING_LIST` → invalid value; `STRING` → accepted with a WARN "not
   encrypted"), a validation failure counts as a failed fetch, registration of password, trust store
   password and Basic token with the `SecretScrubber` before use; error mapping per
   contracts/mcp-tools-delta.md (`AUTH_FAILED`/`UNREACHABLE`, node, region, profile, parameter,
   kind, next step; never a value or the raw AWS message); one structured log record per attempt
-  (INFO/WARN, scrubbed `logDetail`, none within the back-off). A second cell for the end-to-end
-  credentials with the same rules. Test first: `test/adapter/NodeSecretsTest.java` (fake store,
-  fake clock: first use only; concurrent callers share one fetch; back-off 30 s then retry; bound
+  (INFO/WARN, scrubbed `logDetail`, none within the back-off). (The end-to-end cell is T012.)
+  Test first: `test/adapter/NodeSecretsTest.java` (fake store,
+  fake clock: first use only; concurrent callers share one fetch; back-off 30 s then retry; a store
+  call that never returns ends after 10 s as `UNREACHABLE`; bound
   shorter than the fetch returns a timeout but the next call gets the stored result; each failure
   kind's error text; `String` warning and `StringList` refusal; validation failure counts as
   failure; scrubber registration; log records via a list appender; SC-005 timing with a 1 s store
   delay: first call ≤ 2 s extra, second call ≤ 50 ms).
-- [ ] T011 [US2] Slot integration (R-7, FR-006a, FR-008): `main/adapter/AdapterGatewayFactory.java`
-  takes `Map<NodeId, NodeSecrets>` instead of fixed `NodeCredentials`; `Slot.ensureClient()` obtains
-  the credentials from `NodeSecrets.current(...)` first (the trust store password is part of the
-  TLS context), then builds the probe, the HTTP client and the port set; detection (`detectNow`)
-  and every authenticated port go through it; tools that do not contact a node (e.g. `list_nodes`)
-  never trigger a fetch. `CredentialGuard.fixCredentials()` returns the next step of the node's
-  source (environment: as today; AWS: "Correct the parameter value(s) <names> in Parameter Store; no
-  restart is needed"), used by `InubitHttpClient` and `CliOutputClassifier`. `main/Wiring.java`
-  creates the `SsmParameterStore` (only if some node is AWS) and one `NodeSecrets` per node.
-  Test first: `test/adapter/AdapterGatewayFactoryTest.java` (an AWS node's first authenticated call
-  fetches once and authenticates against WireMock with the stored values; a fetch failure fails the
-  call before any INUBIT request; `list_nodes`/configuration-only paths fetch nothing; the
-  rejected-credentials next step per source), `test/MainTest.java` (startup with an AWS node and no
+- [ ] T011 [US2] Slot integration (R-7, R-9, R-15, FR-006a, FR-008):
+  `main/adapter/AdapterGatewayFactory.java` takes `Map<NodeId, NodeSecrets>` instead of fixed
+  `NodeCredentials`; `Slot.ensureClient()` obtains the credentials from `NodeSecrets.current(...)`
+  first (the trust store password is part of the TLS context), then builds the probe, the HTTP
+  client and the port set; detection (`detectNow`) and every authenticated port go through it;
+  tools that do not contact a node never trigger a fetch. Implements
+  `GatewayFactory.prepareCredentials(NodeId, Duration)` (new default method in
+  `main/domain/port/GatewayFactory.java` returning `READY`; new `main/domain/model/CredentialState.java`
+  `READY`|`PENDING`): `NodeSecrets.current(bound)`, a bound that ran out → `PENDING`, a failed fetch
+  throws. `main/config/SecretLabels.java` (R-15) replaces `CredentialVariables` in the
+  `CredentialGuard` constructor, in `InubitHttpClient`, in `CliOutputClassifier` (constructed in
+  `main/adapter/V81PortSet.java` and the slot) and in `main/adapter/rest/SslContexts.java` (TLS_ERROR
+  texts about the trust store password); `fixCredentials()` gives the source-specific next step
+  (environment: as today; AWS: "Correct the parameter value(s) <names> in Parameter Store; no
+  restart is needed"). `main/Wiring.java` creates the `SsmParameterStore` (only if some node is
+  AWS) and one `NodeSecrets` per node. Test first: `test/adapter/AdapterGatewayFactoryTest.java`
+  (an AWS node's first authenticated call fetches once and authenticates against WireMock with the
+  stored values; a fetch failure fails the call before any INUBIT request; configuration-only paths
+  fetch nothing; `prepareCredentials` READY/PENDING/throws without blocking beyond the bound; the
+  rejected-credentials next step per source), `test/adapter/rest/SslContextsTest.java` (a wrong
+  trust store password of an AWS node names the parameter), `test/MainTest.java` (startup with an AWS node and no
   AWS access succeeds; no store call at startup), `test/security/NoSecretLeakTest.java` (AWS source:
   no value in results, logs, errors, audit).
-- [ ] T012 [P] [US2] End-to-end credentials per source (FR-006a): `main/Wiring.java` takes the e2e
-  credentials of an AWS node from its `NodeSecrets` e2e cell on the first `run_e2e_test` on that
-  node (environment nodes unchanged); failures name the `e2eUsername`/`e2ePassword` parameters.
-  Test first: `test/application/E2eTestServiceTest.java` or `test/WiringE2eTest.java` (fetched only
-  when an e2e test runs; failure text; environment unchanged).
+- [ ] T012 [US2] End-to-end credentials per source (FR-006a, R-7): `main/adapter/NodeSecrets.java`
+  gets the end-to-end cell (same rules as the main fetch: single flight, 10 s, 30 s back-off,
+  `CredentialRules`, logging) for the `e2eUsername`/`e2ePassword` parameters; `main/Wiring.java`
+  takes the e2e credentials of an AWS node from that cell on the first `run_e2e_test` on that node,
+  and builds the node's `SoapE2eClient` with the trust store password from the main cell (for
+  environment nodes unchanged); `SoapE2eClient` uses `SecretLabels` for its TLS texts. Failures name
+  the parameters. Test first: `test/adapter/NodeSecretsTest.java` (e2e cell), `test/WiringE2eTest.java`
+  (fetched only when an e2e test runs; failure text; SOAP TLS with a trust store password from the
+  fake store; environment unchanged).
+- [ ] T020 [US2] Audited account per source (research R-16, Constitution VII): `WritePolicy` takes a
+  per-node `Supplier<String>` account; `main/Wiring.java` (`policy(...)`) supplies the startup
+  username for environment nodes and, for AWS nodes, the username held by `NodeSecrets` (current
+  after a rotation), or `"(Parameter Store <username parameter name>)"` before the first fetch.
+  Test first: `test/application/ProcessControlServiceTest.java` or a new `test/WiringAuditTest.java`
+  (the audit record of an executed write on an AWS node carries the fetched username; a refusal
+  before any fetch carries the parameter-name placeholder; environment nodes unchanged).
 - [ ] T013 [US2] Fan-out deadlines (R-8): `main/application/SecretTiming.java`
   (`allowance(NodeId)`: 10 s + 1 s grace for AWS nodes, zero otherwise; built in `Wiring` from the
   plans); `InventoryService.listDeadline`/`itemDeadline` and `DiagnosisService.deadline` add it
@@ -218,13 +253,14 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   with and without an AWS node; a store slower than the request timeout yields that node's error
   or partial result, not a fan-out `TIMEOUT`).
 - [ ] T014 [US2] `get_health` budget (R-9, contracts/mcp-tools-delta.md): in
-  `main/application/HealthService.java` the authenticated parts of an AWS node wait for its
-  secrets at most for what is left of the health budget (through a non-blocking readiness check on
-  the gateway, no AWS type in `application`); if not ready, those parts are `unavailable` with
-  "credentials not yet available (fetching from Parameter Store)", the unauthenticated parts run,
-  and the fetch continues; a failed fetch shows its classified error. Test first:
-  `test/application/HealthServiceTest.java` (slow store: budget kept, parts unavailable with the
-  text, next call uses the stored secrets; failed fetch text), `test/mcp/tools/GetHealthToolTest.java`
+  `main/application/HealthService.java` `checkServer` calls `gateways.prepareCredentials(server,
+  <what is left of the budget>)` before `monitoring()`/`knownGateway()`; `PENDING` → a failed report
+  with `TIMEOUT` "credentials not yet available (still fetching from AWS Parameter Store); call
+  get_health again shortly", sending nothing to that node, returned within the budget; a thrown
+  fetch error → a failed report with that error; `READY` → as today. Test first:
+  `test/application/HealthServiceTest.java` (a fake `GatewayFactory` answering `PENDING`: report
+  within the budget, no monitoring call; a throwing one: the classified error; a slow fake store end
+  to end: the next call reports normally), `test/mcp/tools/GetHealthToolTest.java`
   (timing within `timeout` + 1 s; schema-valid), `test/performance/HealthOverviewPerformanceTest.java`
   stays within 10 s.
 
@@ -253,7 +289,8 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
 - [ ] T016 [US4] Re-read on rejection (R-10, FR-010): `main/adapter/CredentialGuard.java` gets an
   optional re-read hook (AWS nodes only) and a grace state: on `rejected()` outside grace, call
   `NodeSecrets.reread()` once (simultaneous rejections share it); `CHANGED` (username or password
-  differ) → the slot discards its client and ports and the guard allows exactly one further attempt
+  differ) → the slot discards its client, ports and cached gateway and the guard allows exactly one
+  further attempt
   without a pause; `UNCHANGED` or `FAILED` → pause 60 s as today; `rejected()` in grace → pause 60 s
   without re-read. A failed re-read keeps the held values, is logged as a failed fetch (with
   `changed=false`) and does not start the 30 s fetch back-off. The rejected call fails as today;
@@ -262,7 +299,7 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   one grace attempt → rejected → pause; unchanged → pause; failed re-read → pause; at most two
   failed logins per 60 s; concurrent rejections share one re-read), `test/adapter/
   AdapterGatewayFactoryTest.java` (end to end with the fake store and WireMock: rotated password
-  used by the next call; old client discarded), `test/adapter/NodeSecretsTest.java` (`reread()`
+  used by the next call; old client, ports and gateway discarded — also through `forServer`), `test/adapter/NodeSecretsTest.java` (`reread()`
   results and logging).
 
 ---
@@ -293,10 +330,10 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
 ## Dependencies & Execution Order
 
 - T001 first (the dependency is needed by T009; the other tasks do not use it but share
-  `pom.xml`). T002 and T005 in parallel; T003 after T002; T004 after T003.
-- US1 (T006–T008) needs T004; T007 parallel to T006; T008 after T006.
-- US2: T009 needs T001, T005; T010 needs T005 (not T009); T011 needs T006, T010; T012 after T011;
-  T013 after T011; T014 after T011.
+  `pom.xml`). T002 next; then T003 and T005 in parallel; T004 after T003.
+- US1 (T006–T008) needs T004; T006, then T007 (both change `CredentialResolver`), then T008.
+- US2: T009 needs T001, T005; T010 needs T005 (not T009); T011 needs T006, T010; then T012, T020,
+  T013 and T014 one after another (they share `Wiring.java` or the slot).
 - US3 (T015) needs T009, T008.
 - US4 (T016) needs T011.
 - Polish (T017–T019) last; T017 and T018 in parallel.
@@ -304,8 +341,8 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
 ## Parallel Example
 
 ```text
-Phase 2:  T002 source/name types  |  T005 port + FakeParameterStore   →  T003 → T004
-Phase 4:  T009 SsmParameterStore  |  T010 NodeSecrets                  →  T011 → T012 | T013 | T014
+Phase 2:  T002 source/name types  →  T003 loader  |  T005 port + FakeParameterStore  →  T004
+Phase 4:  T009 SsmParameterStore  |  T010 NodeSecrets  →  T011 → T012 → T020 → T013 → T014
 Phase 7:  T017 setup.md  |  T018 tools.md/README/CHANGELOG
 ```
 

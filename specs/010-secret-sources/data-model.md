@@ -81,6 +81,25 @@ hook: `UNCONFIRMED/CONFIRMED` → re-read → `CHANGED` → `GRACE` (slot rebuil
 `UNCHANGED/FAILED` → `PAUSED(now+60 s)`; `GRACE` + `rejected()` → `PAUSED(now+60 s)` (no re-read).
 Without a hook: as today.
 
+## SecretLabels (config, new; per node)
+
+Message names per kind (R-15): environment `<NODE_VAR> (or <GROUP_VAR>)`; AWS `Parameter Store
+<name> (<region>[, profile <p>])`. `fixCredentials()`: source-specific next step.
+
+## CredentialRules (config, new)
+
+Shared value checks (R-17): `isSafeUsername`, `MIN_SCRUBBED_LENGTH` = 4, non-empty, parameter type
+(`STRING_LIST` refused, `STRING` warned).
+
+## CredentialState (domain/model, new) and `GatewayFactory.prepareCredentials` (domain/port)
+
+`READY` | `PENDING`. `default CredentialState prepareCredentials(NodeId, Duration bound)` returns
+`READY`; `AdapterGatewayFactory` overrides it (R-9). A failed fetch throws its `ToolErrorException`.
+
+## WritePolicy account (application, changed)
+
+`Supplier<String>` per node instead of a startup string (R-16).
+
 ## SecretTiming (application, new)
 
 `Duration allowance(NodeId)` — extra per-node fan-out time for a first-use fetch (R-8); built in

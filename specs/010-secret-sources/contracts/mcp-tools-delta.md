@@ -26,11 +26,13 @@ environment-variable text.
 ## `get_health`
 
 - On an AWS node whose secrets are not yet fetched, `get_health` waits for them at most for what
-  is left of its health budget. If they are not available in time, the authenticated parts
-  (`status`, `systemInfo`, `load`, and the detection) are `unavailable` with "credentials not yet
-  available (fetching from Parameter Store)"; the unauthenticated parts still run. The fetch
-  continues and the next call uses it.
-- A failed fetch shows the classified error (table above) in those parts.
+  is left of its health budget. If they are not available in time, that node's report is a failed
+  report with `TIMEOUT`: "credentials not yet available (still fetching from AWS Parameter Store);
+  call get_health again shortly". No call is sent to that node in this report (its TLS client is
+  built once the secrets are there). The fetch continues and the next call uses it.
+- A failed fetch gives a failed report with the classified error (table above).
+- TLS errors caused by the trust store password name its source (the Parameter Store name for AWS
+  nodes) instead of the environment variables.
 
 ## Fan-out tools
 

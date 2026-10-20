@@ -124,15 +124,21 @@ Decisions R-1 … R-14. Each: decision, rationale, alternatives considered.
     calls `ParameterStore.get(location, [username, password, trustStorePassword?], 10 s)` and waits
     at most `min(bound, 10 s)`; a fetch that outlives the caller's bound is not cancelled — its
     result is stored for the next call (needed for `get_health`, R-9).
-  - validation as today (`CredentialResolver.isSafeUsername`, password ≥ 4 characters, non-empty);
-    `STRING_LIST` → `INVALID_VALUE`; `STRING` → accepted, WARN log "not encrypted"; a validation
-    failure is a failed fetch (FR-011).
+  - the shared future itself is bounded by 10 s (`orTimeout`), so a hanging credential-provider
+    step (instance metadata, SSO refresh) that the SDK's `ApiCallTimeout` does not cover is
+    recorded as `UNREACHABLE` and starts the back-off;
+  - validation through `config/CredentialRules` (R-17) — the same checks as for environment
+    variables; `STRING_LIST` → `INVALID_VALUE`; `STRING` → accepted, WARN log "not encrypted"; a
+    validation failure is a failed fetch (FR-011).
   - registers password, trust store password and Basic token with the `SecretScrubber` before
     anything else sees them.
   The end-to-end credentials use a second cell with the same rules, fetched only by
-  `run_e2e_test` (FR-006a).
+  `run_e2e_test` (FR-006a); the SOAP end-to-end client of an AWS node takes its trust store
+  password from the main cell.
   The slot builds the HTTP client (`ensureClient`) only after `current()` returned, because the
-  trust store password is part of the TLS context.
+  trust store password is part of the TLS context. Only callers that are allowed to wait reach
+  `ensureClient()` on an AWS node with pending secrets: fan-out branches (bounded by R-8) and
+  single-node tools. `get_health` asks first without blocking (R-9).
 - **Rationale**: FR-006a, FR-011, SC-006; the slot already serializes client creation.
 - **Alternatives**: fetching every node at startup — rejected by the spec (Q1); per-call fetch
   without a cache — rejected (latency, AWS cost, throttling).
@@ -149,14 +155,25 @@ Decisions R-1 … R-14. Each: decision, rationale, alternatives considered.
 
 ## R-9 `get_health` keeps its time budget
 
-- **Decision**: in `HealthService.checkServer` the authenticated parts wait for the node's secrets
-  at most for what is left of the health budget (as the client probe of 009 T018). If they are not
-  available in time, each authenticated part is `unavailable` with the reason
-  "credentials not yet available (fetching from Parameter Store)"; the unauthenticated healthcheck
-  and readiness still run. The fetch continues in the background (bounded by 10 s) and the next
-  call uses its result. A failed fetch reports the classified error (R-11) in those parts.
+- **Decision**: the domain port `GatewayFactory` gets
+  `default CredentialState prepareCredentials(NodeId server, Duration bound)` (domain enum
+  `READY` | `PENDING`; a failed fetch throws its classified `ToolErrorException`). The default
+  returns `READY`, so existing fakes stay unchanged; `AdapterGatewayFactory` implements it with
+  `NodeSecrets.current(bound)` and maps a bound that ran out to `PENDING` (the fetch continues).
+  `HealthService.checkServer` calls it first with what is left of the health budget, before
+  `monitoring()`/`knownGateway()`:
+  - `READY` → as today;
+  - `PENDING` → the node's report is a failed report with `TIMEOUT` "credentials not yet
+    available (still fetching from AWS Parameter Store); call get_health again shortly" — no
+    healthcheck or readiness call, because the TLS client (whose trust store password may itself
+    come from Parameter Store) is built only after the secrets arrive; the report is returned
+    within the budget;
+  - a failed fetch → a failed report with the classified error (R-11).
+  The next call uses the fetched secrets.
 - **Rationale**: feature 001 SC-002 (5 s per environment) must still hold; spec Q1 says
-  `get_health` without a target fetches every node.
+  `get_health` without a target fetches every node. Building an unauthenticated client before the
+  secrets arrive was rejected: with a trust store password in Parameter Store there is no TLS
+  context yet, and two client lifecycles per node would complicate the slot.
 
 ## R-10 Rotation: re-read on rejection (`CredentialGuard` + `NodeSecrets`)
 
@@ -210,6 +227,35 @@ Decisions R-1 … R-14. Each: decision, rationale, alternatives considered.
   shared-variable check and the unmatched `<PREFIX>_*_PASSWORD` warning consider only nodes whose
   effective source is `environment`. A profile whose nodes are all AWS derives no variable names.
 - **Rationale**: spec edge case "two profiles read the same parameter: allowed".
+
+## R-15 Source-aware names in messages (`SecretLabels`)
+
+- **Decision**: `config/SecretLabels` per node gives the human-readable name of each kind for
+  messages: environment → `<NODE_VAR> (or <GROUP_VAR>)` as today; AWS → `Parameter Store <name>
+  (<region>[, profile <p>])`. `CredentialGuard` (constructor takes `SecretLabels` instead of
+  `CredentialVariables`), `InubitHttpClient`, `CliOutputClassifier` (built in `V81PortSet` and the
+  slot), `SslContexts` (TLS_ERROR texts about the trust store password) and `SoapE2eClient` use
+  it. `fixCredentials()` gives the source-specific next step (FR-008).
+- **Rationale**: FR-008 requires the source and the exact name in every secret-related error,
+  including TLS errors caused by a wrong trust store password.
+
+## R-16 Audited account of AWS nodes
+
+- **Decision**: `WritePolicy` gets the account through a per-node supplier instead of a startup
+  string. Environment nodes: the startup username (unchanged). AWS nodes: the username held by
+  `NodeSecrets` (the current one after a rotation); before the first fetch the supplier returns
+  `"(Parameter Store <username parameter name>)"`, which only appears on records written before
+  any authenticated call (for example a refusal before anything was sent).
+- **Rationale**: Constitution VII (who acted must be traceable); every write authenticates before
+  it runs, so executed writes always carry the real username.
+
+## R-17 One place for value checks (`CredentialRules`)
+
+- **Decision**: `config/CredentialRules` holds the checks used today by `CredentialResolver` and
+  `ConfigValidator` (safe username: no leading `-`, no `:`, no control characters; password at
+  least `MIN_SCRUBBED_LENGTH` = 4; non-empty) plus the parameter-type rule (`STRING_LIST` refused,
+  `STRING` warned). `CredentialResolver`, `NodeSecrets` and the `--check-config` path use it.
+- **Rationale**: spec FR-007/FR-009 ("the same validity checks"); no divergent copies.
 
 ## R-14 Logging
 
