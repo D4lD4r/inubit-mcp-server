@@ -217,7 +217,7 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   profile via a temporary `AWS_CONFIG_FILE`/`AWS_SHARED_CREDENTIALS_FILE` set through system
   properties, a credential provider that fails (expired SSO token, failing profile credentials) →
   `NO_CREDENTIALS`, no request when the name list is empty).
-- [ ] T010 [P] [US2] Lazy node secrets (R-7, R-11, R-14, R-17): `main/adapter/NodeSecrets.java` — for
+- [X] T010 [P] [US2] Lazy node secrets (R-7, R-11, R-14, R-17): `main/adapter/NodeSecrets.java` — for
   environment nodes the startup `NodeCredentials`; for AWS nodes `current(Duration bound)` with
   single-flight fetch of username, password and (if named) trust store password, 10 s store
   timeout plus the same 10 s bound on the shared future (`orTimeout`, a hanging credential-provider
@@ -255,6 +255,10 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   `test/MainTest.java` (startup with an AWS node and no
   AWS access succeeds; no store call at startup), `test/security/NoSecretLeakTest.java` (AWS source:
   no value in results, logs, errors, audit).
+  Carry-over (T010 review r1), in `NodeSecrets`: interrupt the fetch's virtual thread when the
+  `orTimeout` bound fires (avoid piling up stuck threads); give the post-timeout `fetch.get()` a small
+  grace bound (e.g. 1 s) instead of waiting without limit; log class plus scrubbed message (or the
+  throwable at DEBUG) for an unexpected RuntimeException instead of only the class name.
 - [ ] T012 [US2] End-to-end credentials per source (FR-006a, R-7): `main/adapter/NodeSecrets.java`
   gets the end-to-end cell (same rules as the main fetch: single flight, 10 s, 30 s back-off,
   `CredentialRules`, logging) for the `e2eUsername`/`e2ePassword` parameters; `main/Wiring.java`

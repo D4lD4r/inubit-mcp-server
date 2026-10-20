@@ -18,8 +18,10 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * scripted per location and name, whole-call failures and delays per location, delays also per
  * name. A call sleeps the longest delay that applies to it (real time, interruptible), then
  * answers from the script as it is at that moment; names without a script are {@code NOT_FOUND}.
- * The {@code timeout} is recorded but not enforced, so a long delay stands for a store call that
- * never returns.
+ * The {@code timeout} is recorded but never enforced, so a long delay stands for a store call that
+ * never returns; bounding the call is the caller's job ({@code NodeSecrets} does it). A caller
+ * interrupted during the delay gets {@code CallFailed(UNREACHABLE, "interrupted")} with its
+ * interrupt flag set again.
  */
 public final class FakeParameterStore implements ParameterStore {
 

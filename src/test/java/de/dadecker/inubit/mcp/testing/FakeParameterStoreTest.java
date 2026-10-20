@@ -107,14 +107,16 @@ class FakeParameterStoreTest {
 
     @Test
     void delaysCallsPerLocationAndPerNameWithTheLongestDelayWinning() {
-        store.delay(EU, Duration.ofMillis(50)).delay(EU, "/test/slow", Duration.ofMillis(300));
+        store.delay(EU, Duration.ofMillis(50)).delay(EU, "/test/slow", Duration.ofMillis(2500));
 
+        // Generous upper bounds (T005 review r1): 2 s still tells these calls apart from the
+        // 2.5 s delay of /test/slow without failing on a busy machine.
         assertThat(elapsed(() -> store.get(US, List.of("/test/slow"), TIMEOUT)))
-            .isLessThan(Duration.ofMillis(200));
+            .isLessThan(Duration.ofSeconds(2));
         assertThat(elapsed(() -> store.get(EU, List.of("/test/fast"), TIMEOUT)))
-            .isGreaterThanOrEqualTo(Duration.ofMillis(50)).isLessThan(Duration.ofMillis(250));
+            .isGreaterThanOrEqualTo(Duration.ofMillis(50)).isLessThan(Duration.ofSeconds(2));
         assertThat(elapsed(() -> store.get(EU, List.of("/test/fast", "/test/slow"), TIMEOUT)))
-            .isGreaterThanOrEqualTo(Duration.ofMillis(300));
+            .isGreaterThanOrEqualTo(Duration.ofMillis(2500));
     }
 
     @Test
