@@ -42,6 +42,21 @@ configuration in the profile."
   scheme for Parameter Store). A group-level name applies to every node of the group; a node-level
   name wins.
 
+### Session 2026-10-20 (spec review r1)
+
+- Q: Does a fan-out call (for example `get_health` without a target) count as first use of every
+  node it addresses? → A: Yes. Every call that has to authenticate to a node fetches that node's
+  secrets, also within a fan-out; only secrets of nodes no call ever addresses are never fetched.
+- Q: May a group or node override set its own source settings (region, AWS profile, prefix)? → A:
+  Yes. An override replaces the whole source including its settings (for example production in
+  another AWS account). All secret kinds of a node come from the same effective source.
+- Q: Is rotation without restart (US4) in scope? → A: Yes, in its simple form: after a rejected
+  login the node's secrets are re-read once; if they changed, the next call (not the rejected one)
+  uses the new value; if not, the node is paused for 60 s as today. No time-based refresh.
+- Q: A node-level parameter name is configured but the parameter is missing or empty. → A: Error.
+  The node-level name is the only one read for that kind; there is no fallback to the group-level
+  parameter.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Keep using environment variables, now as an explicit, configurable source (Priority: P1)
@@ -73,8 +88,8 @@ same startup errors and `--check-config` output appear, and all existing tests s
 
 An administrator runs the server on a machine or in an environment with access to AWS. They store
 each node's username and password as parameters in AWS Systems Manager Parameter Store (encrypted)
-and declare in the profile that secrets come from there, with the region and where the parameters
-live. The server fetches the values itself; no secret is set as an environment variable or written
+and declare in the profile that secrets come from there, with the region and the parameter name
+of each secret per group or node. The server fetches the values itself; no secret is set as an environment variable or written
 to a file.
 
 **Why this priority**: This is the new capability the feature asks for.
@@ -86,20 +101,23 @@ parameter produces a clear error naming the parameter and the node.
 
 **Acceptance Scenarios**:
 
-1. **Given** a profile with the AWS Parameter Store source, a region and a parameter path, and
-   parameters for every node, **When** a tool runs on a node, **Then** it authenticates with the
+1. **Given** a profile with the AWS Parameter Store source, a region and explicit parameter names
+   for every node, **When** a tool runs on a node, **Then** it authenticates with the
    values from Parameter Store, and no secret appears in results, logs or errors.
 2. **Given** a parameter that does not exist or that the server's AWS identity may not read,
    **When** the secret is needed, **Then** the error names the node, the parameter name and the
    kind of failure (not found, access denied, store unreachable), and suggests the fix, without
    any value.
-3. **Given** encrypted (secure string) parameters, **When** they are read, **Then** they are
-   decrypted by the store and used; a parameter stored as plain text is accepted [default
-   assumed: with a warning recommending encryption].
+3. **Given** encrypted (`SecureString`) parameters, **When** they are read, **Then** they are
+   decrypted by the store and used. A plain `String` parameter is accepted with a warning that
+   recommends encryption, in the log of the fetch and in `--check-config`; a `StringList`
+   parameter is refused as an invalid value.
 4. **Given** that the server's AWS access itself is configured outside the profile (the usual AWS
-   credential chain: environment, shared AWS profile, instance or container role), **When** the
-   profile names an AWS profile or no AWS credentials at all, **Then** the server uses that chain;
-   the profile never contains AWS access keys.
+   credential chain: environment, shared AWS configuration, container or instance role), **When**
+   the source names an AWS profile of the local AWS configuration, or none, **Then** the server
+   uses that profile or the default chain; the profile never contains AWS access keys. An AWS
+   profile that does not exist locally is reported as an error of the first fetch (and by
+   `--check-config`), not at startup.
 
 ---
 
@@ -114,7 +132,7 @@ check must cover the new source as well as the old.
 
 **Independent Test**: Run `--check-config` on profiles with each source and with deliberate
 mistakes (missing parameter, wrong region, missing variable) and confirm the report names the
-problem per node and exits with the documented code.
+problem per node and exits with the code defined in FR-009.
 
 **Acceptance Scenarios**:
 
@@ -129,21 +147,24 @@ problem per node and exits with the documented code.
 ### User Story 4 - Rotate a password without restarting (Priority: P3)
 
 The password of an INUBIT technical user is rotated in Parameter Store. The server picks up the new
-value without a restart, at the latest when the old value is rejected.
+value without a restart when INUBIT rejects the old one.
 
-**Why this priority**: Central stores exist largely for rotation; without it, a rotation still
-needs a restart, which is acceptable for a first version.
+**Why this priority**: Central stores exist largely for rotation. It is in scope in its simple
+form (re-read on rejection); a time-based refresh is not.
 
 **Independent Test**: With a stubbed store, change a parameter value, provoke a rejected login with
-the old value, and confirm the next call uses the new value while the 60-second protection against
-account lockout still holds.
+the old value, and confirm that the rejected call fails, the next call logs in with the new value,
+and an unchanged value still pauses the node for 60 s.
 
 **Acceptance Scenarios**:
 
 1. **Given** a rotated password, **When** INUBIT rejects the old one, **Then** the server re-reads
-   the secret once and retries no earlier than today's lockout protection allows.
-2. **Given** an unchanged password that INUBIT rejects, **When** the secret is re-read and is the
-   same, **Then** the node is paused as today and no further login is attempted within the pause.
+   the node's username and password once; the rejected call fails as today, the value has changed,
+   so the node is not paused and the next call logs in with the new value. If that login is
+   rejected too, the node is paused for 60 s without another re-read.
+2. **Given** an unchanged password that INUBIT rejects, **When** the secrets are re-read and are
+   the same, **Then** the node is paused for 60 s as today and no further login is attempted within
+   the pause.
 
 ### Edge Cases
 
@@ -153,70 +174,113 @@ account lockout still holds.
 - A node with the AWS source but no parameter name configured for one of the required kinds
   (username, password): a configuration error at startup and in `--check-config`, naming the node
   and the missing setting.
+- A node-level parameter name is configured but the parameter is missing or empty: an error of the
+  call naming the node and that parameter; the group-level name is not tried.
 - A group uses the AWS source and one of its nodes overrides it with environment variables (or the
-  reverse): each node uses its own effective source; `--check-config` shows it per node.
+  reverse, or another AWS region or AWS profile): each node uses its own effective source, and the
+  group's parameter names do not apply to a node with its own source; `--check-config` shows the
+  source per node.
 - The secrets of a node fetched once are kept for the process lifetime (until re-read after a
-  rejected login, US4); a failed fetch is retried on the next call, but not more often than a
-  bounded back-off, so an unreachable store does not slow every call.
+  rejected login, US4). A failed fetch is not repeated for that node within 30 s; calls in that
+  time fail at once with the recorded failure, so an unreachable store does not slow every call.
+- Concurrent calls that need the same node's secrets share one fetch.
 - A parameter value contains characters that are not allowed in a username or password today (a
   `:` in a username, control characters, a leading `-`): refused as today, naming the parameter,
   never the value.
-- The trust store password and the end-to-end test credentials: come from the same source and
-  follow the same naming rules as username and password.
+- The trust store password and the end-to-end test credentials: come from the node's effective
+  source. For environment variables they follow today's naming rules; for Parameter Store they are
+  read only if a parameter name is configured for them, and without a name they are absent, as an
+  unset variable is today.
 - Two profiles read the same parameter: allowed (unlike environment variables, a shared parameter
-  is deliberate); the shared-name error of environment variables does not apply to parameters.
-- Very many nodes: reading secrets must not take noticeably longer than today's startup (batched
-  reads where the store allows).
-- The store answers slowly or throttles: bounded by a timeout, reported like any unreachable store.
+  is deliberate). The checks for shared and unmatched environment variables apply only to nodes
+  whose effective source is environment variables.
+- A fan-out call that needs the secrets of many nodes fetches them without a noticeable delay per
+  node (the fetches of different nodes do not wait for each other).
+- The store answers slowly or throttles: a fetch is bounded by a 10 s timeout and reported like an
+  unreachable store.
+- `credentials.envPrefix` and an explicit environment-variable source: the legacy prefix stays the
+  default prefix of every environment-variable source that names none; a profile-level
+  environment-variable source that names a different prefix is a configuration error naming both
+  (US1-3).
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
 - **FR-001**: The profile MUST be able to declare where secrets come from, once for the profile and
-  optionally overridden per group and per node (node before group before profile). Supported
-  sources in this feature: environment variables and AWS Systems Manager Parameter Store. The design
-  MUST allow further sources later (for example the macOS Keychain or another vault) without
-  changing how tools obtain secrets.
+  optionally overridden per group and per node (node before group before profile). An override
+  replaces the whole source of that group or node, including its settings (prefix; region, AWS
+  profile); all secret kinds of a node come from the same effective source. Supported sources in
+  this feature: environment variables and AWS Systems Manager Parameter Store. Adding a further
+  source later MUST NOT require changes to tools.
 - **FR-002**: Without a source setting, the server MUST behave exactly as today (environment
   variables, `credentials.envPrefix`, all existing naming, precedence and validation rules).
 - **FR-003**: The environment-variable source MUST support the existing prefix and naming scheme
   and MUST be selectable explicitly; existing profiles MUST NOT need any change.
 - **FR-004**: The AWS Parameter Store source MUST be configurable in the profile with the region
-  and, per group or node, the explicit parameter name of each secret kind it needs (a node-level
-  name wins over a group-level one); it MAY name an AWS profile of the local AWS configuration. The
+  (required) and, per group or node, the full parameter name of each secret kind it needs (a
+  node-level name wins over a group-level one; there is no path prefix and no derived name); it MAY
+  name an AWS profile of the local AWS configuration. Group-level parameter names apply only to
+  nodes whose effective source is the group's source; a node with its own source override MUST
+  configure its own names for the required kinds (otherwise a startup configuration error). The
   profile MUST NOT contain AWS access keys or any other secret.
 - **FR-005**: The server MUST authenticate to AWS through the standard AWS credential chain
   (environment, shared configuration and profile, container or instance role), so that the same
   profile works on a workstation and in a hosted environment.
 - **FR-006**: For every node the server MUST resolve username, password and, where configured, the
   trust store password and the end-to-end test credentials from the node's effective source, with
-  node-specific names taking precedence over group-wide ones (as today for environment variables;
-  explicit parameter names for Parameter Store).
+  node-specific names taking precedence over group-wide ones. For environment variables precedence
+  works by value as today (an unset or empty node variable falls back to the group variable). For
+  Parameter Store precedence works on the configured names only: if a node-level name is
+  configured, it is the only one read for that kind, and a missing or empty parameter is an error.
 - **FR-006a**: Secrets from AWS Parameter Store MUST be fetched on first use per node, not at
-  startup; the server MUST start without AWS access. A missing parameter-name setting is a startup
-  configuration error; a missing or unreadable parameter is an error of the call that needs it.
-  Environment variables keep today's behaviour (read and validated at startup).
+  startup; the server MUST start without AWS access. First use is the first call that has to
+  authenticate to that node, including each node of a fan-out call; tools that do not contact a
+  node (for example `list_nodes`) fetch nothing. One fetch loads the node's username, password and,
+  if configured, trust store password together (the trust store password is needed before the
+  first request); the end-to-end test credentials are fetched only when an end-to-end test runs on
+  that node. A missing parameter-name setting is a startup configuration error; a missing or
+  unreadable parameter is an error of the call that needs it. Environment variables keep today's
+  behaviour (read and validated at startup).
 - **FR-007**: Secrets from any source MUST be handled exactly as today: never in tool parameters,
   results, logs, error messages or command lines; scrubbed from error output; the same validity
   checks on usernames and passwords; the same lockout protection (Constitution II).
 - **FR-008**: Every error about a secret MUST name the node, the source and the exact name
   (variable or parameter) and the kind of failure (missing, access denied, store unreachable,
-  invalid value), never a value, and give a next step.
-- **FR-009**: `--check-config` MUST show the source per node and the names it uses; for the AWS
-  source it MUST check, when AWS access is available, that each required parameter exists and is
-  readable, and otherwise report that this could not be checked without failing the structural
-  validation.
-- **FR-010**: When INUBIT rejects credentials from a source that supports re-reading, the server
-  MUST re-read that node's secrets once before pausing the node, and MUST NOT attempt more logins
-  than today's lockout protection allows.
-- **FR-011**: Reading from the store MUST be bounded by a timeout and MUST NOT block tools on nodes
-  whose secrets are already available.
+  invalid value), never a value, and give a next step that refers to the effective source (for
+  environment variables as today; for Parameter Store: correct the parameter or its permissions, no
+  restart needed). Tool errors carry only this classification; the raw message of the store (which
+  may contain account ids or role names) goes to the log only.
+- **FR-009**: `--check-config` MUST show the source per node and the names it uses. For the AWS
+  source it MUST, when AWS access is available, read each configured parameter and check that it
+  exists, is readable and passes the same validity checks as at run time, never printing a value;
+  a required parameter that is missing, denied or invalid, and an AWS profile named in the profile
+  that does not exist locally, are errors and the check exits with code 1. When AWS access is
+  unavailable (no credentials resolvable from the chain, including an expired login, or the store
+  unreachable or timed out), it validates the structure, lists the parameter names, reports that
+  resolvability could not be checked as a warning and exits with code 0 if nothing else is wrong. Exit codes otherwise stay as today (0 success, 1 configuration error, 2
+  usage).
+- **FR-010**: When INUBIT rejects the username and password of a node whose source supports
+  re-reading (Parameter Store), the server MUST re-read that node's username and password once.
+  The rejected call fails as today. If the username or the password differs from the value held,
+  the node is not paused and exactly one further login with the new values is allowed; if that
+  login is rejected too, the node is paused for 60 s without another re-read. If the values are
+  unchanged (or the re-read fails), the node is paused for 60 s as today. This bounds failed logins
+  to at most two per node per 60 s (today: one). Rejections that happen at the same time share one
+  re-read. A rejected end-to-end test login does not trigger a re-read. There is no time-based
+  refresh.
+- **FR-011**: A fetch from the store MUST be bounded by a 10 s timeout and MUST NOT block tools on
+  nodes whose secrets are already available. After a failed fetch the node's secrets are not
+  fetched again for 30 s (calls fail at once with the recorded failure); a fetch whose value fails
+  validation counts as a failed fetch (invalid value). Concurrent calls that need the same node's
+  secrets share one fetch.
 - **FR-012**: The access to the store MUST need read permission only, on the configured parameters
   only; the documentation MUST name the minimal permissions (read the parameters, decrypt with the
   key used).
-- **FR-013**: Every secret read from an external store MUST be logged (structured, stderr) with
-  node, source and parameter name and outcome, never the value (Constitution VII).
+- **FR-013**: Every fetch attempt from an external store MUST be logged (structured, stderr) with
+  node, source, parameter names and outcome, never a value: INFO for success, WARN for failure, one
+  record per attempt; calls refused during the 30 s pause after a failure are not logged again
+  (Constitution VII).
 - **FR-014**: The documentation MUST describe both sources, the profile settings, the naming
   scheme, the AWS permissions and how to move an existing installation from a start script with
   environment variables to Parameter Store.
@@ -224,15 +288,15 @@ account lockout still holds.
 ### Key Entities
 
 - **Secret source**: where a profile's (or a group's/node's) secrets come from: its kind
-  (environment variables, AWS Parameter Store) and its settings (prefix; region, path, optional
-  AWS profile).
+  (environment variables, AWS Parameter Store) and its settings (prefix; region, optional AWS
+  profile).
 - **Secret reference**: the name under which one secret of one node is found in its source (a
   derived variable name, or the explicit parameter name configured for the group or node), with its
   precedence (node-specific before group-wide).
 - **Secret kind**: username, password, trust store password, end-to-end test username and
   password.
-- **Resolved secret**: the value held in memory for one node and kind, never shown, with the time
-  it was read (for re-reading after rotation).
+- **Resolved secret**: the value held in memory for one node and kind, never shown; replaced only
+  by a re-read after a rejected login (FR-010).
 
 ## Success Criteria *(mandatory)*
 
@@ -247,9 +311,18 @@ account lockout still holds.
   `--check-config` output, verified by dedicated tests for both sources.
 - **SC-004**: Every misconfigured secret (missing, unreadable, invalid) is reported with node,
   source and name in one message that is enough to fix it without reading logs.
-- **SC-005**: Fetching a node's secrets from the store adds no more than a few seconds to the first
-  call on that node, and nothing to startup or to later calls.
+- **SC-005**: With a stubbed store that answers within 1 s, the first call on a node takes at most
+  2 s longer than with environment variables; startup and later calls differ by at most 50 ms from
+  the environment-variable source.
 - **SC-006**: Secrets of a node that no tool call addresses are never fetched from the store.
+
+## Out of Scope
+
+- AWS Secrets Manager, a native macOS Keychain source or any other vault (possible later sources).
+- Writing, creating or rotating parameters from the server.
+- Time-based refresh of secrets; re-reading environment variables.
+- Assume-role or cross-account setup inside the server (use an AWS profile of the local AWS
+  configuration instead).
 
 ## Assumptions
 
