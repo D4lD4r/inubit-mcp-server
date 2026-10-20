@@ -115,9 +115,11 @@ public final class ConfigValidator {
         Findings findings = new Findings(terms);
         for (String key : loaded.credentialKeys()) {
             // 002 research D-6: the variables under the profile's effective prefix
+            // feature 010 (T003): the next step names both sources
             findings.termError("Credential key '%s' is not allowed in the configuration file;"
-                + " credentials belong in environment variables (%s_%s_USERNAME /"
-                + " _PASSWORD)", key, config.credentialPrefix(), variablePart(terms));
+                + " set the value in the environment variable (%s_%s_USERNAME / _PASSWORD) or"
+                + " store it in AWS Parameter Store and name it in credentials.parameters", key,
+                config.credentialPrefix(), variablePart(terms));
         }
         loaded.urlProblems().forEach(findings::error);
         checkProfile(config, findings);

@@ -42,13 +42,13 @@ class EffectiveNodeConfigTest {
     private static NodeConfig node(DevelopmentConfig development) {
         return new NodeConfig("node1", Optional.of(URI.create("https://inubit.example.test:8443")),
             false, null, null, null, null, null, null, null, null, null, null, development, null,
-            null);
+            null, null);
     }
 
     private static GroupConfig group(boolean production, DevelopmentConfig development,
         NodeConfig node) {
         return new GroupConfig("dev", production, List.of(node), null, null, null, null, null,
-            null, null, null, null, null, development, null, null, null);
+            null, null, null, null, null, development, null, null, null, null);
     }
 
     private static boolean repositoryWrite(Defaults defaults, GroupConfig group) {
@@ -115,9 +115,10 @@ class EffectiveNodeConfigTest {
         NodeConfig node = new NodeConfig("node1",
             Optional.of(URI.create("https://inubit.example.test:8443")), false,
             Optional.ofNullable(nodeValue), null, null, null, null, null, null, null, null, null,
-            null, null, null);
+            null, null, null, null);
         GroupConfig group = new GroupConfig("dev", false, List.of(node), null, null, null, null,
-            Optional.ofNullable(groupValue), null, null, null, null, null, null, null, null, null);
+            Optional.ofNullable(groupValue), null, null, null, null, null, null, null, null, null,
+            null);
         return EffectiveNodeConfig.resolve(Defaults.EMPTY, group, node, "INUBIT").versionLine();
     }
 
@@ -142,7 +143,7 @@ class EffectiveNodeConfigTest {
             NodeConfig node = new NodeConfig("node1",
                 Optional.of(URI.create("https://inubit.example.test:8443")), false,
                 Optional.of(setting), null, null, null, null, null, null, null, null, null, null,
-                null, null);
+                null, null, null);
             GroupConfig group = group(false, null, node);
             EffectiveNodeConfig server =
                 EffectiveNodeConfig.resolve(Defaults.EMPTY, group, node, "INUBIT");

@@ -1,13 +1,21 @@
 package de.dadecker.inubit.mcp.config;
 
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
  * Where the credentials of a node come from (feature 010, data-model.md → SecretSourceConfig,
- * research R-3). Errors name the field and its rule, never the refused value.
+ * research R-3). Errors name the field and its rule, never the refused value. In the YAML,
+ * {@code type} selects the record; {@link ConfigLoader} checks the keys and values before binding.
  */
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
+@JsonSubTypes({
+    @JsonSubTypes.Type(value = SecretSourceConfig.Environment.class, name = "environment"),
+    @JsonSubTypes.Type(value = SecretSourceConfig.AwsParameterStore.class,
+        name = "awsParameterStore")})
 public sealed interface SecretSourceConfig {
 
     /** AWS region, e.g. {@code eu-central-1}. */

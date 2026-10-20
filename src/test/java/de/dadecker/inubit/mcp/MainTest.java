@@ -319,7 +319,7 @@ class MainTest {
 
         assertThat(exit).isEqualTo(1);
         assertThat(err()).contains("confirmation CLIENT", "http://",
-            "credentials belong in environment variables", "INUBIT_ACME_PROD_NODE1_USERNAME")
+            "set the value in the environment variable", "INUBIT_ACME_PROD_NODE1_USERNAME")
             .doesNotContain(PASSWORD);
         assertThat(out()).as("nothing on the protocol stdout").isEmpty();
     }

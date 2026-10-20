@@ -85,7 +85,7 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
   the parameter-type rule; `CredentialResolver` and `ConfigValidator` use it (behaviour unchanged).
   Test first: `test/config/SecretSourceConfigTest.java`, `test/config/ParameterNamesTest.java`
   (valid and invalid values of every pattern), `test/config/CredentialRulesTest.java`.
-- [ ] T003 `credentials` section at three levels (contracts/configuration-delta.md, R-4):
+- [X] T003 `credentials` section at three levels (contracts/configuration-delta.md, R-4):
   `main/config/CredentialsConfig.java` gains `Optional<SecretSourceConfig> source`;
   `main/config/GroupConfig.java` and `NodeConfig.java` gain `CredentialsConfig credentials`
   (`envPrefix` allowed at top level only, `parameters` only on groups and nodes).

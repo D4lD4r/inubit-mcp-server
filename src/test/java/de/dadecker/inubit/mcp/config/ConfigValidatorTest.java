@@ -163,7 +163,8 @@ class ConfigValidatorTest {
 
             assertThat(report.errors()).hasSize(3);
             assertThat(report.errors()).anySatisfy(e -> assertThat(e)
-                .contains("groups[0].nodes[0].password", "environment variables"));
+                .contains("groups[0].nodes[0].password", "set the value in the environment variable",
+                    "or store it in AWS Parameter Store and name it in credentials.parameters"));
             // 002: the top-level credentials section is allowed, a password inside it is not
             assertThat(report.errors()).anySatisfy(e -> assertThat(e)
                 .contains("credentials.password"));

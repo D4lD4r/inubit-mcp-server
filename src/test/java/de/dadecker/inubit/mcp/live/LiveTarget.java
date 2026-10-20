@@ -247,7 +247,8 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
                     .toList(), group.write(), group.tls(), group.cli(), group.inventory(),
                     group.versionLine(), group.timeout(), group.cliTimeout(),
                     group.cliExportTimeout(), group.hangingThreshold(), group.confirmationTtl(),
-                    group.development(), group.e2eTests(), group.e2e(), group.deploy()))
+                    group.development(), group.e2eTests(), group.e2e(), group.deploy(),
+                    group.credentials()))
             .toList();
         return new ProfileConfig(config.profile(), config.terminology(), config.credentials(),
             groups, config.defaults(), config.auditDirectory(), config.logLevel(),
@@ -261,7 +262,7 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
             node.timeout(), node.cliTimeout(), node.cliExportTimeout(), node.hangingThreshold(),
             node.confirmationTtl(), new DevelopmentConfig(development.enabled(),
                 development.confirmation(), Optional.of(RepositoryMode.READ_ONLY)),
-            node.e2eTests(), node.e2e());
+            node.e2eTests(), node.e2e(), node.credentials());
     }
 
     private TestWiring wiring(ProfileConfig config, Path workspace) {
