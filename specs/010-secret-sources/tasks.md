@@ -200,7 +200,7 @@ FR-013, SC-005, SC-006).
 **Independent Test**: with the fake store, a tool on an AWS node authenticates with the stored
 values; untouched nodes are never fetched; failures name node, parameter and kind; nothing leaks.
 
-- [ ] T009 [P] [US2] AWS adapter (R-1, R-2): `main/adapter/aws/SsmParameterStore.java` (+
+- [X] T009 [P] [US2] AWS adapter (R-1, R-2): `main/adapter/aws/SsmParameterStore.java` (+
   `package-info.java`) implements `ParameterStore`: one cached `SsmClient` per `StoreLocation`
   built with `UrlConnectionHttpClient`, the region, and `ProfileCredentialsProvider` (named AWS
   profile) or `DefaultCredentialsProvider`; `GetParameters` with `WithDecryption=true` in batches of
