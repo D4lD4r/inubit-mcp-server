@@ -41,9 +41,6 @@ public final class ConfigValidator {
     static final Pattern CLI_VALUE_PATTERN =
         Pattern.compile("^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$");
 
-    /** Passwords shorter than this are a configuration error (Phase 3 review m4). */
-    static final int MIN_SCRUBBED_LENGTH = 4;
-
     /** Upper bound of {@code confirmationTtl} (Phase 6 review W5). */
     static final Duration MAX_CONFIRMATION_TTL = Duration.ofHours(1);
 
@@ -571,8 +568,7 @@ public final class ConfigValidator {
         List<String> set = new ArrayList<>();
         for (String kind : CredentialVariables.E2E_KINDS) {
             for (String variable : server.credentialVariables().candidates(kind)) {
-                String value = environment.get(variable);
-                if (value != null && !value.isEmpty()) {
+                if (CredentialRules.isSet(environment.get(variable))) {
                     set.add(variable);
                 }
             }
@@ -815,11 +811,9 @@ public final class ConfigValidator {
             }
         });
         credentials.password()
-            .filter(password -> password.value().reveal().length() < MIN_SCRUBBED_LENGTH)
+            .filter(password -> !CredentialRules.isScrubbable(password.value().reveal()))
             .ifPresent(password -> findings.error(id + ": the password from "
-                + password.sourceVariable() + " is shorter than " + MIN_SCRUBBED_LENGTH
-                + " characters; such a short value cannot be scrubbed reliably from logs and"
-                + " results without masking unrelated text"));
+                + password.sourceVariable() + " " + CredentialRules.SHORT_PASSWORD_RULE));
     }
 
     private void checkTls(EffectiveNodeConfig server, Findings findings) {

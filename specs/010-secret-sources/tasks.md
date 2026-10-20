@@ -72,7 +72,7 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
 
 ## Phase 2: Foundational (blocks all stories)
 
-- [ ] T002 Source and name types (data-model, R-3, R-5): `main/config/SecretSourceConfig.java`
+- [X] T002 Source and name types (data-model, R-3, R-5): `main/config/SecretSourceConfig.java`
   (sealed `Environment(Optional<String> prefix)` | `AwsParameterStore(String region,
   Optional<String> awsProfile)`), `main/config/ParameterNames.java` (optional `username`,
   `password`, `trustStorePassword`, `e2eUsername`, `e2ePassword`), `main/config/StoreLocation.java`
@@ -129,6 +129,8 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
   location, scriptable delay, per-name and whole-call failures, call counter and recorded names.
   Test first: `test/config/FetchedTest.java` (`toString` never reveals a value) and a small
   self-test of the fake.
+  Note (T002 review r1): `main/config/ParameterType.java` already exists from T002 (needed by
+  `CredentialRules.checkType`); reuse it, do not create it again.
 
 - [ ] T021 Source-aware message names (research R-15): `main/config/SecretLabels.java` per node
   (environment `<NODE_VAR> (or <GROUP_VAR>)`; AWS `Parameter Store <name> (<region>[, profile <p>])`;

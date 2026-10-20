@@ -84,11 +84,12 @@ public final class CredentialResolver {
 
     /**
      * The end-to-end test credentials of {@code server}: both variables set and a safe username
-     * ({@link #isSafeUsername}), else none. The password is registered with the scrubber.
+     * ({@link CredentialRules#isSafeUsername}), else none. The password is registered with the
+     * scrubber.
      */
     public Optional<E2eCredentials> e2e(NodeId server) {
         Optional<SourcedValue<String>> username = lookup(server, CredentialVariables.E2E_USERNAME)
-            .filter(value -> isSafeUsername(value.value()));
+            .filter(value -> CredentialRules.isSafeUsername(value.value()));
         Optional<SourcedValue<String>> password = lookup(server,
             CredentialVariables.E2E_PASSWORD);
         if (username.isEmpty() || password.isEmpty()) {
@@ -121,10 +122,9 @@ public final class CredentialResolver {
                 lookup(server, TRUSTSTORE_PASSWORD).map(this::register);
             if (username.isEmpty()) {
                 errors.add(missing(server, "username", USERNAME));
-            } else if (!isSafeUsername(username.get().value())) {
+            } else if (!CredentialRules.isSafeUsername(username.get().value())) {
                 errors.add(server + ": the username in " + username.get().sourceVariable()
-                    + " must not contain ':' or control characters and must not start with '-'"
-                    + " (it is used in the Basic-auth header and as StartCLI argument)");
+                    + " " + CredentialRules.SAFE_USERNAME_RULE);
             }
             if (password.isEmpty()) {
                 errors.add(missing(server, "password", PASSWORD));
@@ -139,16 +139,10 @@ public final class CredentialResolver {
             unmatchedPasswordVariables(servers, otherProfiles));
     }
 
-    /** No ':' (Basic auth), no control characters, no leading '-' (StartCLI option). */
-    static boolean isSafeUsername(String username) {
-        return !username.startsWith("-") && username.indexOf(':') < 0
-            && username.chars().noneMatch(Character::isISOControl);
-    }
-
     private Optional<SourcedValue<String>> lookup(NodeId server, String kind) {
         for (String variable : variables(server).candidates(kind)) {
             String value = environment.get(variable);
-            if (value != null && !value.isEmpty()) {
+            if (CredentialRules.isSet(value)) {
                 return Optional.of(new SourcedValue<>(value, variable));
             }
         }
