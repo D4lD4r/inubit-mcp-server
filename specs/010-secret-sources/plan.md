@@ -158,5 +158,3 @@ docs/setup.md (section 4: both sources, AWS permissions, migration from a start 
 ## Complexity Tracking
 
 None.
-</content>
-</invoke>

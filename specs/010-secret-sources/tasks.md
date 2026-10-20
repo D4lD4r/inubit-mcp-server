@@ -374,5 +374,3 @@ Phase 7:  T017 setup.md  |  T018 tools.md/README/CHANGELOG
 - Then `--check-config` (US3), rotation (US4) and the docs.
 - Run each task through the implementer → reviewer loop (`/speckit-duo:implement`); every commit
   stays green because each task carries its own tests.
-</content>
-</invoke>

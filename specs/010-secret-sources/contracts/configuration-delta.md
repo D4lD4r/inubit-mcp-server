@@ -54,6 +54,7 @@ parameters:
 | only one of `e2eUsername` / `e2ePassword` | error naming the node and the missing key |
 | profile-level `environment` source with `prefix` ≠ `credentials.envPrefix` | error naming both values' keys |
 | invalid `region`, `awsProfile` or parameter name | error naming the key path |
+| AWS node with `e2eUsername`/`e2ePassword` names and an `http://` `e2e.soap.baseUrl` (end-to-end tests not forbidden) | error: the credentials would travel in clear text (names the parameters), as today for the variables |
 | `parameters` on a node or group whose effective source is `environment` (incl. a node overriding an AWS group with `environment`) | warning: ignored |
 | unknown `type` or unknown key inside `credentials` | error |
 
@@ -77,5 +78,3 @@ as `source` is used anywhere in the profile, every node line shows its source, a
 - Exit unchanged with a warning: no AWS credentials resolvable (incl. an expired login), store
   unreachable or timed out ("resolvability not checked"), `String` parameters, ignored names.
 - The environment-variable details stay as today for environment nodes.
-</content>
-</invoke>

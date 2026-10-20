@@ -46,5 +46,3 @@ The first build after adding the AWS SDK needs one online dependency resolution 
 
 Only with the person's explicit approval and a real Parameter Store: `--check-config` against a
 profile with an AWS node (read-only). Not part of the automated suite.
-</content>
-</invoke>

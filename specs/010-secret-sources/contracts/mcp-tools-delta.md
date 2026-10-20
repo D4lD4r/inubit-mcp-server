@@ -51,5 +51,3 @@ Parameter Store is shown by `--check-config`, not by any tool.)
 The end-to-end credentials of an AWS node are fetched when the first end-to-end test runs on that
 node; failures as in the table, naming the `e2eUsername`/`e2ePassword` parameters. A rejected
 end-to-end login never triggers a re-read.
-</content>
-</invoke>

@@ -112,7 +112,12 @@ Decisions R-1 … R-17. Each: decision, rationale, alternatives considered.
   Configuration errors at startup (and in `--check-config`): AWS node without `username` or
   `password` name; only one of `e2eUsername`/`e2ePassword`; profile-level `environment` source with
   a `prefix` different from `credentials.envPrefix`; invalid region, AWS profile name or parameter
-  name. Warning: `parameters` on a node whose effective source is `environment`.
+  name. Warning (ignored): `parameters` on a node or group whose effective source is `environment`,
+  including a node whose own `environment` override sits in an AWS group. For AWS nodes, configured
+  `e2eUsername`/`e2ePassword` names count as "end-to-end basic authentication is set": with an
+  `http://` `e2e.soap.baseUrl` and end-to-end tests not forbidden that is an error (today's clear-text
+  rule, FR-007); the variable-name checks for end-to-end credentials (`e2eCredentialVariables`,
+  `checkE2eNodeNames`) apply only to environment nodes.
 - **Rationale**: spec FR-001/FR-004/FR-006, US1-3.
 
 ## R-7 First use, caching, back-off, single flight (`NodeSecrets`)
@@ -242,8 +247,6 @@ Decisions R-1 … R-17. Each: decision, rationale, alternatives considered.
   30 s back-off (FR-013). The AWS SDK's own logging is set to WARN in `logback.xml` so that it never
   logs request details.
 - **Rationale**: Constitution VII and II.
-</content>
-</invoke>
 
 ## R-15 Source-aware names in messages (`SecretLabels`)
 

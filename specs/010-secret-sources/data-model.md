@@ -38,7 +38,8 @@ top-level only.
 
 Validation (startup configuration errors): aws without `username` or `password` name; only one of
 `e2eUsername`/`e2ePassword`; profile-level `environment.prefix` ≠ `credentials.envPrefix`;
-invalid region/profile/name pattern. Warning: parameter names on an environment node.
+invalid region/profile/name pattern; e2e parameter names with an `http://` SOAP URL (clear-text
+rule). Warning: parameter names on a node or group whose effective source is environment.
 
 ## NodeCredentials (config, extended)
 
@@ -105,5 +106,3 @@ the node's current credentials (R-16).
 
 `Duration allowance(NodeId)` — extra per-node fan-out time for a first-use fetch (R-8); built in
 `Wiring` from the `SecretPlan`s. Pure value, no AWS type.
-</content>
-</invoke>
