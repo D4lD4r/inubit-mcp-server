@@ -120,7 +120,7 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
   group → profile → default; group names not inherited by a node with its own source; e2e pair),
   `test/config/ConfigValidatorTest.java` (each error and warning, incl. the two trust store
   checks by name, both ignored-names cases and the clear-text e2e rule for parameter names).
-- [ ] T005 [P] Port and test double (after T002, parallel to T003) (R-2, data-model): `main/config/ParameterStore.java`
+- [X] T005 [P] Port and test double (after T002, parallel to T003) (R-2, data-model): `main/config/ParameterStore.java`
   (`Fetched get(StoreLocation, List<String> names, Duration timeout)`), `main/config/Fetched.java`
   (per name `Value(Secret, ParameterType)` or `Failure(FailureKind, String logDetail)`, plus a
   whole-call failure), `ParameterType` (`SECURE_STRING`, `STRING`, `STRING_LIST`), `FailureKind`
@@ -234,6 +234,10 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   kind's error text; `String` warning and `StringList` refusal; validation failure counts as
   failure; scrubber registration; log records via a list appender; SC-005 timing with a 1 s store
   delay: first call ≤ 2 s extra, second call ≤ 50 ms).
+  Carry-over (T005 review r1): in `test/testing/FakeParameterStoreTest.java` drop or widen (≥ 2 s)
+  the wall-clock upper bounds (lines ~113/115) to avoid flakiness; document in
+  `FakeParameterStore`'s Javadoc that an interrupted caller gets `CallFailed(UNREACHABLE,
+  "interrupted")` and that the fake never enforces the timeout (NodeSecrets must).
 - [ ] T011 [US2] Slot integration (R-7, FR-006a): `main/adapter/AdapterGatewayFactory.java` takes
   `Map<NodeId, NodeSecrets>` instead of fixed `NodeCredentials`; before building the client the
   slot awaits `NodeSecrets.current(10 s)` **outside** `lock`/`clientLock` (interruptible wait), then
