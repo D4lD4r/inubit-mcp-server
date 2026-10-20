@@ -29,7 +29,9 @@ the adapter layer.
 - **Rotation** (R-10): `CredentialGuard` re-reads once after a rejection; a changed value gets one
   grace attempt; at most two failed logins per node per 60 s.
 - **Time budgets** (R-8, R-9): fan-out deadlines add the fetch allowance for AWS nodes;
-  `get_health` waits only within its budget.
+  `get_health` asks `GatewayFactory.prepareCredentials` first and waits only within its budget.
+- **Messages and audit** (R-15, R-16): source-aware names in every secret-related error (incl.
+  TLS); the audited account of AWS nodes is the fetched username.
 - **`--check-config`** (R-12) reads and validates parameters, never prints values; exit 1 on
   missing/denied/invalid/unknown profile, warning when AWS is unavailable.
 - **Errors** (R-11): `AUTH_FAILED` / `UNREACHABLE` with classified texts, raw AWS messages only in
@@ -117,14 +119,18 @@ specs/010-secret-sources/
 
 ```text
 src/main/java/de/dadecker/inubit/mcp/
-├── config/        # SecretSourceConfig, ParameterNames, SecretPlan, StoreLocation, ParameterStore (+ Fetched);
+├── domain/        # model/CredentialState (READY|PENDING); port/GatewayFactory.prepareCredentials (default READY) — R-9
+├── config/        # SecretSourceConfig, ParameterNames, SecretPlan, StoreLocation, ParameterStore (+ Fetched),
+│                  # SecretLabels (R-15), CredentialRules (R-17);
 │                  # CredentialsConfig/GroupConfig/NodeConfig (credentials section), ConfigLoader (R-4),
 │                  # ConfigValidator (R-6, R-13), CredentialResolver (environment nodes only; deferred AWS nodes),
 │                  # ProfileConfig.credentialVariableNames (env nodes), ConfigSummary (secrets part)
 ├── adapter/aws/   # SsmParameterStore (+ package-info) — the only AWS SDK user
 ├── adapter/       # NodeSecrets (new), CredentialGuard (re-read hook, grace), AdapterGatewayFactory (Slot uses NodeSecrets)
-├── adapter/rest/  # InubitHttpClient: AUTH_FAILED next step per source
-├── application/   # SecretTiming (new); InventoryService, DiagnosisService (deadlines), HealthService (budget)
+├── adapter/rest/  # InubitHttpClient, SslContexts: texts per source (SecretLabels)
+├── adapter/soap/  # SoapE2eClient: trust store password from NodeSecrets, texts per source
+├── application/   # SecretTiming (new); InventoryService, DiagnosisService (deadlines), HealthService (budget),
+│                  # WritePolicy account supplier (R-16)
 ├── Launcher.java  # --check-config with a ParameterStore when AWS nodes exist
 └── Wiring.java    # ParameterStore, NodeSecrets per node, SecretTiming, e2e credentials per source
 src/main/resources/logback.xml   # software.amazon.awssdk at WARN
