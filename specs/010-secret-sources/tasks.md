@@ -114,10 +114,12 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
   variable today: StartCLI could only get it as a process argument); a `trustStorePassword` name
   without `tls.trustStore` (warning, as today); warning (ignored): `parameters` on a node or group
   whose effective source is environment, including a node whose own `environment` override sits in
-  an AWS group. Messages in the profile's terminology, never values. Test first: `test/config/SecretPlanTest.java` (precedence node →
+  an AWS group; for AWS nodes, configured `e2eUsername`/`e2ePassword` names with an `http://`
+  `e2e.soap.baseUrl` and end-to-end tests not forbidden are an error ("the credentials would travel
+  in clear text", naming the parameters), like today's rule for the variables. Messages in the profile's terminology, never values. Test first: `test/config/SecretPlanTest.java` (precedence node →
   group → profile → default; group names not inherited by a node with its own source; e2e pair),
   `test/config/ConfigValidatorTest.java` (each error and warning, incl. the two trust store
-  checks by name and both ignored-names cases).
+  checks by name, both ignored-names cases and the clear-text e2e rule for parameter names).
 - [ ] T005 [P] Port and test double (after T002, parallel to T003) (R-2, data-model): `main/config/ParameterStore.java`
   (`Fetched get(StoreLocation, List<String> names, Duration timeout)`), `main/config/Fetched.java`
   (per name `Value(Secret, ParameterType)` or `Failure(FailureKind, String logDetail)`, plus a
@@ -133,8 +135,9 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
   `fixCredentials()` with the source-specific next step) built from the `SecretPlan`; it replaces
   `CredentialVariables` in the `CredentialGuard` constructor, `InubitHttpClient`,
   `CliOutputClassifier` (constructed in `main/adapter/V81PortSet.java` and the slot) and
-  `main/adapter/rest/SslContexts.java` (TLS_ERROR texts about the trust store password); for
-  environment nodes every text stays identical. Test first: `test/adapter/CredentialGuardTest.java`,
+  `main/adapter/rest/SslContexts.java` (TLS_ERROR texts about the trust store password), with its
+  second caller `main/adapter/soap/SoapE2eClient.java` switched mechanically to the node's labels;
+  for environment nodes every text stays identical. Test first: `test/adapter/CredentialGuardTest.java`,
   `test/adapter/rest/SslContextsTest.java`, `test/adapter/cli/CliOutputClassifierTest.java` (AWS
   labels name the parameter and say "no restart is needed"; environment texts unchanged).
 
@@ -162,7 +165,8 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
   `--check-config` output byte-for-byte unchanged except the new `secrets:` part, see T008).
 - [ ] T007 [US1] Environment checks only for environment nodes (R-13):
   `ProfileConfig.credentialVariableNames()`, the collision check, `ConfigValidator.checkOtherProfiles`
-  and `CredentialResolver.unmatchedPasswordVariables` consider only environment nodes. Test first:
+  `CredentialResolver.unmatchedPasswordVariables`, `ConfigValidator.e2eCredentialVariables` and
+  `checkE2eNodeNames` consider only environment nodes. Test first:
   `test/config/ConfigValidatorTest.java` (two profiles whose nodes are all AWS: no shared-variable
   error; a mixed profile still reports collisions among its environment nodes),
   `test/config/CredentialResolverTest.java`.
@@ -241,10 +245,12 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   `CredentialRules`, logging) for the `e2eUsername`/`e2ePassword` parameters; `main/Wiring.java`
   takes the e2e credentials of an AWS node from that cell on the first `run_e2e_test` on that node,
   and builds the node's `SoapE2eClient` with the trust store password from the main cell (for
-  environment nodes unchanged); `SoapE2eClient` uses `SecretLabels` for its TLS texts. Failures name
+  environment nodes unchanged). Both fetches happen **before** `e2eClients.computeIfAbsent`, so a
+  slow fetch never blocks other entries and a failed fetch is not cached as a client. Failures name
   the parameters. Test first: `test/adapter/NodeSecretsTest.java` (e2e cell), `test/WiringE2eTest.java`
-  (fetched only when an e2e test runs; failure text; SOAP TLS with a trust store password from the
-  fake store; environment unchanged).
+  (fetched only when an e2e test runs; failure text; a failed fetch is retried after the back-off
+  instead of a cached broken client; SOAP TLS with a trust store password from the fake store;
+  environment unchanged).
 - [ ] T020 [US2] Audited account per source (research R-16, Constitution VII): `WritePolicy`
   (`main/domain/model/WritePolicy.java`) keeps `Optional<String> account`; `main/Wiring.java` builds
   each node's policy (`policy(...)`) and its entry of the `accounts` function (used by the import,
