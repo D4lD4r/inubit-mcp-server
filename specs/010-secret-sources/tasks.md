@@ -52,7 +52,7 @@ reference behaviour. US3 (`--check-config`, P2) and US4 (rotation, P3) follow.
 
 ## Phase 1: Setup
 
-- [ ] T001 AWS SDK dependency (research R-1): in `pom.xml` import the AWS SDK BOM `2.54.3` and add
+- [X] T001 AWS SDK dependency (research R-1): in `pom.xml` import the AWS SDK BOM `2.54.3` and add
   `ssm`, `sso`, `ssooidc`, `sts` and `url-connection-client`; exclude `netty-nio-client`,
   `apache-client` and `apache5-client` from every SDK artifact; keep the shade configuration
   (`ServicesResourceTransformer` already present) and make sure the shaded JAR still starts
