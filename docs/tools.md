@@ -265,7 +265,7 @@ other nodes are still reported.
 A node reads its INUBIT credentials either from environment variables (the default, read at
 startup) or from AWS Systems Manager Parameter Store; the profile chooses per profile, group or
 node ([setup.md](setup.md#4-credentials-sources)). The tools are the same for both sources: no
-tool takes or returns a secret, and no result says where a node's secrets come from
+tool takes or returns a secret, and no result field says where a node's secrets come from
 (`--check-config` shows it, [setup.md](setup.md#the-secrets-part)). `list_nodes` never fetches
 secrets. For a node with Parameter Store ("AWS node" below):
 
@@ -432,7 +432,7 @@ itself fails only for an invalid or unknown `target`.
 |---|---|
 | `node`, `group` | the node id and its group |
 | `checkedAt` | ISO-8601; the timestamp of the INUBIT healthcheck (server clock), or the MCP server's clock if INUBIT gave none |
-| `reachable` | `/healthcheck` gave any HTTP answer |
+| `reachable` | `/healthcheck` gave any HTTP answer; `false` also when the node's credentials could not be prepared (feature 010) |
 | `status` | `OK`, `ERROR` or `UNKNOWN` (from `/healthcheck`) |
 | `ready`, `readyMessage` | `/ready`: HTTP 200 = ready, 503 = not ready, with INUBIT's message |
 | `maintenanceMode` | from `/healthcheck`; when on, `warnings` says that the server is not processing normally |
@@ -441,7 +441,7 @@ itself fails only for an invalid or unknown `target`.
 | `load` | from `/metrics`: `usedMemoryMb`, `freeMemoryMb`, `maxMemoryMb`, `memoryUsedPercent`, `threadsInUse`, `licensedThreads`, `maxThreads`, `blockingQueueEntries`, `maxBlockingQueueSize`, `blockingQueuePercent` (percentages derived, one decimal) |
 | `client` | the local StartCLI client (feature 009): `{version, supportedFrom?, supportedTo?, comparison}` — the client version, the INUBIT range it declares (absent if it prints none) and `comparison` with the node's version: `match`, `mismatch` (major, minor or patch differ) or `not_comparable` (a version is unknown or has no patch); or `{"state": "not_available"}` for a node without a StartCLI installation. Absent when the probe failed (then the part `client` is in `unavailable`) |
 | `unavailable` | parts that could not be obtained: `{part, reason, likelyCause?, nextStep?}` with `part` one of `status`, `ready`, `version`, `systemInfo`, `load`, `client`; `reason` starts with a code, e.g. `METRICS_NOT_LICENSED: GET /ibis/rest/metrics answered HTTP 403`, `AUTH_FAILED: …`, `TIMEOUT: …`; `likelyCause` and `nextStep` as in a `ToolError` |
-| `error` | only when `reachable: false`: `UNREACHABLE` (connection refused, DNS, VPN), `TIMEOUT`, `TLS_ERROR` (certificate, pin, host name), … with `likelyCause` and `nextStep` |
+| `error` | only when `reachable: false`: `UNREACHABLE` (connection refused, DNS, VPN), `TIMEOUT`, `TLS_ERROR` (certificate, pin, host name), `AUTH_FAILED` (the node's credentials could not be prepared, feature 010), … with `likelyCause` and `nextStep` |
 | `warnings` | e.g. maintenance mode; "INUBIT 9.0.7 on dev/node1 is not verified for monitoring; results may be incomplete"; "the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T09:12:03Z); results are unverified"; a pin that this reading contradicts or differs from in the patch; a client that differs from the node's version or excludes it (texts in [the warnings table](#inubit-versions-and-capabilities-feature-009)) |
 
 How the report is built (research R-10):
@@ -1605,9 +1605,10 @@ Every history export appends to the check-in comments of the exported workflows 
   source: the variables `<PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME` / `_E2E_PASSWORD`, or for a node
   with AWS Parameter Store the parameters `credentials.parameters.e2eUsername` / `e2ePassword`;
   redirects are never followed.
-- **Parameter Store** (feature 010): the end-to-end credentials of such a node are fetched on its
-  first `run_e2e_test` (together with the node's INUBIT credentials, if not held yet, for the
-  trust store password), before the preview or the send; then they are kept. A failed fetch
+- **Parameter Store** (feature 010): on the first `run_e2e_test` of such a node, before the
+  preview or the send, the node's INUBIT credentials are fetched first if they are not held yet
+  (they include the trust store password), then the end-to-end credentials in a separate fetch;
+  both are then kept. A failed fetch
   refuses the call (audited, nothing sent) with the error of
   [Credentials from AWS Parameter Store](#credentials-from-aws-parameter-store-feature-010),
   naming the parameters that failed, e.g. `AUTH_FAILED` "dev/node1: end-to-end test credentials

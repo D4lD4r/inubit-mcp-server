@@ -396,7 +396,7 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   (~:435/:444); reword the `run_e2e_test` sentence (~:1609) so the main credentials are fetched first
   (for the trust store password) and the e2e credentials separately; "no result says where a node's
   secrets come from" (~:268) → "no result field …".
-- [ ] T019 Validate per quickstart.md: `mvn -q -o clean verify`; `mvn -q -o
+- [X] T019 Validate per quickstart.md: `mvn -q -o clean verify`; `mvn -q -o
   -Dtest=NoCustomerIdentifiersTest test` with the local lists (it must run, not skip); record the
   outcome (counts only) in `quickstart.md`. The optional live check only with the person's
   approval.
