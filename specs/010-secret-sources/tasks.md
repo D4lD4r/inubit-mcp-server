@@ -345,7 +345,7 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   timeout in a future (timeout → UNREACHABLE warning) so a stalled credential provider cannot stretch
   `--check-config`; say in `MainProcessTest`'s smoke-test comment that it runs on the test classpath,
   not the shaded JAR.
-- [ ] T016 [US4] Re-read on rejection (R-10, FR-010): `main/adapter/CredentialGuard.java` gets an
+- [X] T016 [US4] Re-read on rejection (R-10, FR-010): `main/adapter/CredentialGuard.java` gets an
   optional re-read hook (AWS nodes only) and a grace state: on `rejected()` outside grace, call
   `NodeSecrets.reread()` once (simultaneous rejections share it); `CHANGED` (username or password
   differ) → the slot discards its client, ports and cached gateway and the guard allows exactly one
@@ -365,6 +365,11 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
+  Carry-over (T016 review r1): document in the rotation section that a rejected call's re-read runs on
+  that call (up to 10 s) and that a call spanning a rotation may see a connection failure on
+  unauthenticated requests through the replaced client (or note it in the `AdapterGatewayFactory.Slot`
+  Javadoc); update the class Javadoc of `CredentialGuardTest` ("at most one failed login per server" →
+  one for environment nodes, two per 60 s for Parameter Store nodes).
 - [ ] T017 [P] `docs/setup.md`: section 4 becomes "Credentials: sources" with the environment
   source (today's text, `credentials.source` optional), the Parameter Store source (YAML from
   contracts/configuration-delta.md, precedence and overrides, parameter-name rules, first use,

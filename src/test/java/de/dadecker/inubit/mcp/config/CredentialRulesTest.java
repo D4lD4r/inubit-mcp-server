@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.config.CredentialRules.Refusal;
 import de.dadecker.inubit.mcp.config.CredentialRules.ValueRole;
@@ -28,6 +29,19 @@ class CredentialRulesTest {
         assertThat(CredentialRules.MIN_SCRUBBED_LENGTH).isEqualTo(4);
         assertThat(CredentialRules.isScrubbable("abc")).isFalse();
         assertThat(CredentialRules.isScrubbable("abcd")).isTrue();
+    }
+
+    @Test
+    void eachCredentialsParametersKeyHasOneRole() {
+        // T015 review r1: one key → role mapping for NodeSecrets and ParameterCheck
+        assertThat(CredentialRules.roleOf("username")).isEqualTo(ValueRole.USERNAME);
+        assertThat(CredentialRules.roleOf("e2eUsername")).isEqualTo(ValueRole.USERNAME);
+        assertThat(CredentialRules.roleOf("password")).isEqualTo(ValueRole.PASSWORD);
+        assertThat(CredentialRules.roleOf("e2ePassword")).isEqualTo(ValueRole.PASSWORD);
+        assertThat(CredentialRules.roleOf("trustStorePassword"))
+            .isEqualTo(ValueRole.TRUST_STORE_PASSWORD);
+        assertThatThrownBy(() -> CredentialRules.roleOf("token"))
+            .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

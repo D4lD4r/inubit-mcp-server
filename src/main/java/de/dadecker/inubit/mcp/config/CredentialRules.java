@@ -38,6 +38,21 @@ public final class CredentialRules {
     }
 
     /**
+     * The role of a {@code credentials.parameters} key (one mapping for run time and
+     * {@code --check-config}).
+     *
+     * @throws IllegalArgumentException for any other key
+     */
+    public static ValueRole roleOf(String key) {
+        return switch (key) {
+            case "username", "e2eUsername" -> ValueRole.USERNAME;
+            case "password", "e2ePassword" -> ValueRole.PASSWORD;
+            case "trustStorePassword" -> ValueRole.TRUST_STORE_PASSWORD;
+            default -> throw new IllegalArgumentException("Unknown credentials key: " + key);
+        };
+    }
+
+    /**
      * A fetched value refused by {@link #checkValue}.
      *
      * @param rule the broken rule, for messages; never the value

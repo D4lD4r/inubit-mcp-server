@@ -30,6 +30,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -61,8 +62,21 @@ import org.slf4j.spi.LoggingEventBuilder;
  *
  * <p>Errors name the node, region, AWS profile, parameter and failure kind, never a value or the
  * raw store message.
+ *
+ * <p>Rotation (research R-10, FR-010): after INUBIT rejected the login, the node's
+ * {@link CredentialGuard} calls {@link #reread()} once; there is no time-based refresh.
  */
-public final class NodeSecrets {
+public final class NodeSecrets implements CredentialGuard.Rereadable {
+
+    /** The outcome of {@link #reread()}. */
+    public enum Reread {
+        /** The username or the password differs; the new credentials are held. */
+        CHANGED,
+        /** Username and password are the same; the held credentials stay. */
+        UNCHANGED,
+        /** The fetch failed; the held credentials stay. */
+        FAILED
+    }
 
     /** Upper bound of a store call and of the shared fetch (FR-011). */
     public static final Duration STORE_TIMEOUT = Duration.ofSeconds(10);
@@ -183,8 +197,42 @@ public final class NodeSecrets {
     }
 
     /** The credentials if they are held already; never starts a fetch and never waits. */
+    @Override
     public Optional<NodeCredentials> held() {
         return main.held();
+    }
+
+    /** True for an AWS node, whose credentials {@link #reread()} can fetch again. */
+    public boolean rereadable() {
+        return store != null;
+    }
+
+    /**
+     * Fetches username, password and (if named) trust store password again after INUBIT rejected
+     * the login (research R-10, FR-010); the end-to-end test credentials are not read. Waits for
+     * the fetch (at most {@link #STORE_TIMEOUT}, also when interrupted, so that the outcome is
+     * known). {@code CHANGED}: the new credentials are held from now on (their secrets
+     * registered with the scrubber; the old ones stay registered). {@code UNCHANGED} and
+     * {@code FAILED} keep the held credentials (the same instance); a failure starts no
+     * {@link #BACK_OFF}. One {@code secret.fetch} log record with {@code changed}. Not single
+     * flight: the node's {@link CredentialGuard} runs one re-read at a time.
+     *
+     * @throws UnsupportedOperationException for an environment node
+     */
+    @Override
+    public Reread reread() {
+        if (!rereadable()) {
+            throw new UnsupportedOperationException(node + ": environment variables are read at"
+                + " startup only");
+        }
+        return main.reread(NodeSecrets::sameAccount);
+    }
+
+    private static boolean sameAccount(NodeCredentials held, NodeCredentials fetched) {
+        return held.username().map(SourcedValue::value)
+            .equals(fetched.username().map(SourcedValue::value))
+            && held.password().map(password -> password.value().reveal())
+            .equals(fetched.password().map(password -> password.value().reveal()));
     }
 
     /**
@@ -314,13 +362,19 @@ public final class NodeSecrets {
             }
         }
 
-        /**
-         * Starts a fetch; called under {@link #lock}, so {@link #settle} runs after it returns.
-         * When the fetch's bound fires, its thread is interrupted, so that a hanging store call
-         * does not keep it alive.
-         */
+        /** Starts a fetch; called under {@link #lock}, so {@link #settle} runs after it returns. */
         private CompletableFuture<T> start() {
             long started = System.nanoTime();
+            return attempt(outcome -> settle(outcome, started));
+        }
+
+        /**
+         * One fetch on its own virtual thread, bounded by {@code timeout}; {@code then} gets its
+         * outcome (a fetch that does not end in time or throws is {@code UNREACHABLE}) on the
+         * worker or timer thread. When the bound fires, the worker is interrupted, so that a
+         * hanging store call does not keep it alive.
+         */
+        private <R> CompletableFuture<R> attempt(Function<Attempt<T>, R> then) {
             CompletableFuture<Attempt<T>> attempt = new CompletableFuture<>();
             Thread worker = Thread.ofVirtual().name("secret-fetch-" + node.value())
                 .unstarted(() -> {
@@ -330,25 +384,51 @@ public final class NodeSecrets {
                         attempt.completeExceptionally(e);
                     }
                 });
-            CompletableFuture<T> settled = attempt
+            CompletableFuture<R> done = attempt
                 .orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS)
                 .handle((result, thrown) -> {
                     if (thrown instanceof TimeoutException) {
                         worker.interrupt();
                     }
-                    return settle(result, thrown, started);
+                    return then.apply(result != null ? result : unreachable(
+                        thrown instanceof TimeoutException
+                            ? "no answer within " + timeout.toMillis() + " ms"
+                            : thrown.getMessage() == null ? thrown.getClass().getName()
+                            : thrown.getClass().getName() + ": " + thrown.getMessage()));
                 });
             worker.start();
-            return settled;
+            return done;
+        }
+
+        /**
+         * {@link NodeSecrets#reread()}: one fetch outside the single flight and the back-off;
+         * {@code join} waits uninterruptibly, bounded by the fetch's own {@code timeout}.
+         */
+        Reread reread(BiPredicate<T, T> same) {
+            long started = System.nanoTime();
+            return attempt(outcome -> reconcile(outcome, same, started)).join();
+        }
+
+        /** Holds the fetched credentials if they differ from the held ones, and logs. */
+        private Reread reconcile(Attempt<T> outcome, BiPredicate<T, T> same, long started) {
+            Reread result = Reread.FAILED;
+            if (outcome instanceof Success<T> success) {
+                synchronized (lock) {
+                    if (held != null && same.test(held, success.credentials())) {
+                        result = Reread.UNCHANGED;
+                    } else {
+                        held = success.credentials();
+                        result = Reread.CHANGED;
+                    }
+                }
+            }
+            log(outcome, Duration.ofNanos(System.nanoTime() - started).toMillis(),
+                Optional.of(result == Reread.CHANGED));
+            return result;
         }
 
         /** Records and logs the outcome of a fetch (exactly once per fetch). */
-        private T settle(Attempt<T> result, Throwable thrown, long started) {
-            Attempt<T> outcome = result != null ? result : unreachable(
-                thrown instanceof TimeoutException
-                    ? "no answer within " + timeout.toMillis() + " ms"
-                    : thrown.getMessage() == null ? thrown.getClass().getName()
-                    : thrown.getClass().getName() + ": " + thrown.getMessage());
+        private T settle(Attempt<T> outcome, long started) {
             synchronized (lock) {
                 inFlight = null;
                 if (outcome instanceof Success<T> success) {
@@ -357,7 +437,8 @@ public final class NodeSecrets {
                     refusal = new Refusal(((Failed<T>) outcome).error(), clock.instant());
                 }
             }
-            log(outcome, Duration.ofNanos(System.nanoTime() - started).toMillis());
+            log(outcome, Duration.ofNanos(System.nanoTime() - started).toMillis(),
+                Optional.empty());
             return switch (outcome) {
                 case Success<T> success -> success.credentials();
                 case Failed<T> failed -> throw new ToolErrorException(failed.error());
@@ -482,7 +563,8 @@ public final class NodeSecrets {
 
         // --- logging (research R-14) ---
 
-        private void log(Attempt<T> outcome, long durationMs) {
+        /** @param changed present for a re-read: whether the values changed */
+        private void log(Attempt<T> outcome, long durationMs, Optional<Boolean> changed) {
             Level level = outcome instanceof Success<T> success && success.unencrypted().isEmpty()
                 ? Level.INFO : Level.WARN;
             LoggingEventBuilder record = LOG.atLevel(level)
@@ -497,11 +579,16 @@ public final class NodeSecrets {
                 .addKeyValue("parameters", wanted.stream().map(Wanted::name)
                     .collect(Collectors.joining(",")))
                 .addKeyValue("durationMs", durationMs);
+            if (changed.isPresent()) {
+                record = record.addKeyValue("changed", changed.get());
+            }
+            String verb = changed.isPresent() ? "re-read after a rejected login" : "fetched";
             switch (outcome) {
                 case Success<T> success -> {
                     record = record.addKeyValue("outcome", "ok");
-                    String message = node + ": " + subject + " fetched from AWS Parameter Store ("
-                        + where() + ") in " + durationMs + " ms";
+                    String message = node + ": " + subject + " " + verb
+                        + " from AWS Parameter Store (" + where() + ") in " + durationMs + " ms"
+                        + changed.map(c -> c ? "; changed" : "; unchanged").orElse("");
                     if (!success.unencrypted().isEmpty()) {
                         message += "; not encrypted (type String): "
                             + String.join(", ", success.unencrypted())
@@ -511,20 +598,18 @@ public final class NodeSecrets {
                 }
                 case Failed<T> failed -> record.addKeyValue("outcome", failed.outcome())
                     .addKeyValue("detail", scrubber.scrub(failed.detail()))
-                    .log(node + ": " + subject + " could not be fetched from AWS Parameter Store ("
-                        + where() + "): " + failed.outcome());
+                    .log(node + ": " + subject + " could not be "
+                        + (changed.isPresent() ? "re-read" : "fetched") + " from AWS Parameter"
+                        + " Store (" + where() + "): " + failed.outcome()
+                        + (changed.isPresent() ? "; the held values are kept" : ""));
             }
         }
     }
 
     /** The {@link CredentialRules} checks of one value; the value itself is never described. */
     private static Optional<Problem> check(Wanted parameter, Fetched.Value value) {
-        CredentialRules.ValueRole role = switch (parameter.key()) {
-            case USERNAME, E2E_USERNAME -> CredentialRules.ValueRole.USERNAME;
-            case PASSWORD, E2E_PASSWORD -> CredentialRules.ValueRole.PASSWORD;
-            default -> CredentialRules.ValueRole.TRUST_STORE_PASSWORD;
-        };
-        return CredentialRules.checkValue(role, value.type(), value.value().reveal())
+        return CredentialRules.checkValue(CredentialRules.roleOf(parameter.key()), value.type(),
+            value.value().reveal())
             .map(refusal -> new Problem(parameter, refusal.kind(), refusal.rule(),
                 refusal.rule()));
     }

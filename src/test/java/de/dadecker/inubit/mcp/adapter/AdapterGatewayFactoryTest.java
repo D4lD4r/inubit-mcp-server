@@ -1182,5 +1182,117 @@ class AdapterGatewayFactoryTest {
         }
         assertThat(wireMock.getAllServeEvents()).isEmpty();
     }
-}
 
+    // --- feature 010 T016: re-read on rejection (R-10, FR-010, US4) ----------------------------
+
+    private static String basic(String username, String password) {
+        return "Basic " + Base64.getEncoder().encodeToString(
+            (username + ":" + password).getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** INUBIT answers {@code /system/info} with 200 for {@code password} and 401 otherwise. */
+    private static void inubitAccepts(String password) {
+        systemInfo(401, "<html>HTTP Status 401</html>");
+        wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO))
+            .withHeader("Authorization", equalTo(basic("test-user-1", password)))
+            .willReturn(aResponse().withStatus(200)
+                .withHeader("Content-Type", "application/xml;charset=UTF-8")
+                .withBody(fixture("system_info.xml"))));
+    }
+
+    private static int loginsWith(String password) {
+        return wireMock.findAll(getRequestedFor(urlPathEqualTo(SYSTEM_INFO))
+            .withHeader("Authorization", equalTo(basic("test-user-1", password)))).size();
+    }
+
+    @Test
+    void aRotatedPasswordIsUsedByTheNextCallAndTheOldClientPortsAndGatewayAreDiscarded() {
+        putAwsCredentials();
+        inubitAccepts("test-password-2"); // rotated in INUBIT and in Parameter Store
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.AUTO),
+            awsSecrets(Optional.empty()))) {
+            MonitoringPort oldMonitoring = factory.monitoring(DEV); // built with the old values
+            LogPort oldLogs = factory.logs(DEV);
+            store.put(EU, AWS_PASSWORD, "test-password-2");
+
+            // the detection's login is rejected while the slot's lock is held; the re-read
+            // finds the new password; the rejected detection fails as today (fallback)
+            Gateway fallback = factory.forServer(DEV);
+
+            assertThat(fallback.detectedVersion()).isEmpty();
+            assertThat(store.calls()).as("first fetch and one re-read").isEqualTo(2);
+
+            Gateway next = factory.forServer(DEV);
+
+            assertThat(next).isNotSameAs(fallback);
+            assertThat(next.detectedVersion()).as("detected with the new password")
+                .contains("8.1.17");
+            assertThat(next.monitoring()).isNotSameAs(oldMonitoring)
+                .isSameAs(factory.monitoring(DEV));
+            assertThat(factory.logs(DEV)).isNotSameAs(oldLogs);
+            assertThat(factory.monitoring(DEV).credentialsConfirmed()).isTrue();
+            // a caller still holding the old client does not log in with the old values
+            assertThatThrownBy(oldMonitoring::systemInfo)
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.AUTH_FAILED);
+                    assertThat(e.error().message()).contains("replaced");
+                });
+            assertThat(store.calls()).isEqualTo(2);
+        }
+        assertThat(loginsWith("test-password-1")).isEqualTo(1);
+        assertThat(loginsWith("test-password-2")).isEqualTo(1);
+    }
+
+    @Test
+    void anUnchangedPasswordPausesTheNodeForSixtySecondsAfterOneReRead() {
+        putAwsCredentials();
+        inubitAccepts("test-password-2"); // INUBIT has a new password, Parameter Store not yet
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.V8_1),
+            awsSecrets(Optional.empty()))) {
+            MonitoringPort monitoring = factory.monitoring(DEV);
+
+            assertThatThrownBy(monitoring::systemInfo)
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.AUTH_FAILED));
+            assertThatThrownBy(() -> factory.monitoring(DEV).systemInfo())
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().message()).contains("avoid account lockout"));
+            assertThat(factory.monitoring(DEV)).as("nothing changed: same client")
+                .isSameAs(monitoring);
+            assertThat(store.calls()).as("first fetch and one re-read").isEqualTo(2);
+            assertThat(authenticatedCalls()).isEqualTo(1);
+
+            // corrected in Parameter Store: picked up by the first rejection after the pause
+            store.put(EU, AWS_PASSWORD, "test-password-2");
+            clock.advance(CredentialGuard.PAUSE);
+            assertThatThrownBy(monitoring::systemInfo).isInstanceOf(ToolErrorException.class);
+            assertThat(factory.monitoring(DEV).systemInfo().version()).contains("8.1.17");
+        }
+        assertThat(loginsWith("test-password-1")).isEqualTo(2);
+        assertThat(loginsWith("test-password-2")).isEqualTo(1);
+    }
+
+    @Test
+    void aRejectedGraceLoginPausesTheNodeWithoutAnotherReRead() {
+        putAwsCredentials();
+        systemInfo(401, "<html>HTTP Status 401</html>"); // INUBIT accepts neither value
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.V8_1),
+            awsSecrets(Optional.empty()))) {
+            MonitoringPort monitoring = factory.monitoring(DEV);
+            store.put(EU, AWS_PASSWORD, "test-password-2");
+
+            assertThatThrownBy(monitoring::systemInfo).isInstanceOf(ToolErrorException.class);
+            assertThatThrownBy(() -> factory.monitoring(DEV).systemInfo())
+                .as("the one further login, with the new password")
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().message()).contains("HTTP 401"));
+            assertThatThrownBy(() -> factory.monitoring(DEV).systemInfo())
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().message()).contains("avoid account lockout"));
+
+            assertThat(store.calls()).as("first fetch and one re-read").isEqualTo(2);
+            assertThat(authenticatedCalls()).as("at most two failed logins").isEqualTo(2);
+        }
+        assertThat(loginsWith("test-password-2")).isEqualTo(1);
+    }
+}

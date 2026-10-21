@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.adapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import ch.qos.logback.classic.Level;
@@ -823,5 +824,147 @@ class NodeSecretsTest {
         secrets.current(LONG);
 
         assertThat(secrets.toString()).isEqualTo("NodeSecrets[dev/node1]");
+    }
+
+    // --- re-read after a rejected login (T016, R-10, R-14, FR-010, FR-013) ---
+
+    private static ILoggingEvent lastLog(ListAppender<ILoggingEvent> appender) {
+        return appender.list.get(appender.list.size() - 1);
+    }
+
+    @Test
+    void aReReadWithANewPasswordIsChangedHoldsAndRegistersTheNewValues() {
+        putValid();
+        NodeSecrets secrets = secrets();
+        NodeCredentials old = secrets.current(LONG);
+        store.put(EU, PASSWORD, "test-password-2");
+
+        assertThat(secrets.reread()).isEqualTo(NodeSecrets.Reread.CHANGED);
+
+        NodeCredentials rotated = secrets.held().orElseThrow();
+        assertThat(rotated).isNotSameAs(old);
+        assertThat(secrets.current(LONG)).isSameAs(rotated);
+        assertThat(rotated.password().orElseThrow().value().reveal())
+            .isEqualTo("test-password-2");
+        assertThat(store.requests()).hasSize(2).last().satisfies(request ->
+            assertThat(request.names()).containsExactly(USERNAME, PASSWORD));
+        String token = rotated.basicAuthToken().orElseThrow().reveal();
+        assertThat(scrubber.scrub("a test-password-1 b test-password-2 c " + token))
+            .as("the new values are registered, the old ones stay").isEqualTo("a *** b *** c ***");
+        assertThat(appender.list).hasSize(2);
+        ILoggingEvent event = lastLog(appender);
+        assertThat(event.getLevel()).isEqualTo(Level.INFO);
+        assertThat(fields(event)).containsEntry("event", "secret.fetch")
+            .containsEntry("outcome", "ok").containsEntry("changed", true)
+            .containsEntry("parameters", USERNAME + "," + PASSWORD).containsKey("durationMs");
+        assertThat(event.getFormattedMessage()).contains("dev/node1", "re-read")
+            .doesNotContain("test-password-1", "test-password-2");
+    }
+
+    @Test
+    void aNewUsernameAloneIsChangedToo() {
+        putValid();
+        NodeSecrets secrets = secrets();
+        secrets.current(LONG);
+        store.put(EU, USERNAME, "test-user-2");
+
+        assertThat(secrets.reread()).isEqualTo(NodeSecrets.Reread.CHANGED);
+        assertThat(secrets.held().orElseThrow().username().orElseThrow().value())
+            .isEqualTo("test-user-2");
+    }
+
+    @Test
+    void aReReadWithTheSameValuesIsUnchangedAndKeepsTheHeldCredentials() {
+        putValid();
+        NodeSecrets secrets = secrets();
+        NodeCredentials held = secrets.current(LONG);
+
+        assertThat(secrets.reread()).isEqualTo(NodeSecrets.Reread.UNCHANGED);
+
+        assertThat(secrets.held()).containsSame(held);
+        assertThat(store.calls()).isEqualTo(2);
+        assertThat(fields(lastLog(appender))).containsEntry("outcome", "ok")
+            .containsEntry("changed", false);
+    }
+
+    @Test
+    void aFailedReReadKeepsTheHeldValuesIsLoggedAsAFailedFetchAndStartsNoBackOff() {
+        putValid();
+        NodeSecrets secrets = secrets();
+        NodeCredentials held = secrets.current(LONG);
+        store.fail(EU, PASSWORD, FailureKind.ACCESS_DENIED, AWS_DETAIL);
+
+        assertThat(secrets.reread()).isEqualTo(NodeSecrets.Reread.FAILED);
+
+        assertThat(secrets.held()).containsSame(held);
+        assertThat(secrets.current(LONG)).isSameAs(held);
+        ILoggingEvent event = lastLog(appender);
+        assertThat(event.getLevel()).isEqualTo(Level.WARN);
+        assertThat(fields(event)).containsEntry("event", "secret.fetch")
+            .containsEntry("outcome", "ACCESS_DENIED").containsEntry("changed", false);
+        assertThat(event.getFormattedMessage()).contains("re-read");
+
+        store.put(EU, PASSWORD, "test-password-2");
+        assertThat(secrets.reread()).as("no 30 s back-off: the next re-read asks the store")
+            .isEqualTo(NodeSecrets.Reread.CHANGED);
+        assertThat(store.calls()).isEqualTo(3);
+    }
+
+    @Test
+    void anInvalidNewValueIsAFailedReRead() {
+        putValid();
+        NodeSecrets secrets = secrets();
+        NodeCredentials held = secrets.current(LONG);
+        store.put(EU, PASSWORD, "abc");
+
+        assertThat(secrets.reread()).isEqualTo(NodeSecrets.Reread.FAILED);
+        assertThat(secrets.held()).containsSame(held);
+        assertThat(fields(lastLog(appender))).containsEntry("outcome", "INVALID_VALUE");
+    }
+
+    @Test
+    void aReReadThatNeverReturnsFailsAfterTheTimeout() {
+        putValid();
+        Duration timeout = Duration.ofMillis(300);
+        NodeSecrets secrets = new NodeSecrets(plan(NODE1, USERNAME, PASSWORD, Optional.empty()),
+            store, scrubber, clock, timeout);
+        NodeCredentials held = secrets.current(LONG);
+        store.delay(EU, Duration.ofSeconds(60));
+
+        Duration elapsed = elapsed(() -> assertThat(secrets.reread())
+            .isEqualTo(NodeSecrets.Reread.FAILED));
+
+        assertThat(elapsed).isLessThan(Duration.ofSeconds(5));
+        assertThat(secrets.held()).containsSame(held);
+        assertThat(fields(lastLog(appender))).containsEntry("outcome", "UNREACHABLE")
+            .containsEntry("changed", false);
+    }
+
+    @Test
+    void aReReadReadsTheMainParametersOnlyNeverTheEndToEndOnes() {
+        putValid();
+        putValidE2e();
+        NodeSecrets secrets = secretsWithE2e(NodeSecrets.STORE_TIMEOUT);
+        secrets.current(LONG);
+
+        secrets.reread();
+
+        assertThat(store.requests()).hasSize(2).allSatisfy(request ->
+            assertThat(request.names()).containsExactly(USERNAME, PASSWORD));
+    }
+
+    @Test
+    void onlyAnAwsNodeCanBeReRead() {
+        NodeSecrets environment = NodeSecrets.environment(new NodeCredentials(NODE1,
+            Optional.of(new SourcedValue<>("test-user-1", "INUBIT_DEV_NODE1_USERNAME")),
+            Optional.of(new SourcedValue<>(Secret.of("test-password-1"),
+                "INUBIT_DEV_NODE1_PASSWORD")),
+            Optional.empty(), Optional.empty()));
+
+        assertThat(environment.rereadable()).isFalse();
+        assertThat(secrets().rereadable()).isTrue();
+        assertThatThrownBy(environment::reread)
+            .isInstanceOf(UnsupportedOperationException.class);
+        assertThat(store.calls()).isZero();
     }
 }

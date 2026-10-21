@@ -39,6 +39,8 @@ class ConfigSummaryTest {
     private final Predicate<Path> exists = Set.of(Path.of("/opt/client/bin/startcli.sh"))::contains;
     /** The Parameter Store of the AWS nodes (feature 010); unscripted names are not found. */
     private final FakeParameterStore store = new FakeParameterStore();
+    /** The bound of each store call of {@link ParameterCheck}. */
+    private Duration storeTimeout = ParameterCheck.TIMEOUT;
 
     private String render(String yaml) {
         return render(yaml, NO_DISK);
@@ -63,7 +65,7 @@ class ConfigSummaryTest {
             new ConfigValidator(exists, env, false, Path.of(System.getProperty("java.io.tmpdir")),
                 source -> List.of(), workspaces).validate(loaded, credentials);
         ParameterCheck.Result parameters =
-            ParameterCheck.run(loaded.config().secretPlans().values(), store);
+            ParameterCheck.run(loaded.config().secretPlans().values(), store, storeTimeout);
         return new ConfigSummary(exists, false).render(loaded, credentials,
             parameters.addTo(report), clients, parameters);
     }
@@ -717,6 +719,25 @@ class ConfigSummaryTest {
             + " prod/inubit01, prod/inubit02: resolvability not checked: ", "Result: OK");
         assertThat(summary).doesNotContain("Errors:", "123456789012");
         assertThat(store.calls()).as("no further batch after a failed call").isEqualTo(1);
+    }
+
+    @Test
+    void aStalledStoreCallIsBoundedByTheTimeoutAndReportedAsUnreachable() {
+        // T015 review r1: a stalled credential provider must not stretch --check-config
+        storeAll();
+        store.delay(EU_CENTRAL, Duration.ofSeconds(30));
+        storeTimeout = Duration.ofMillis(300);
+        long start = System.nanoTime();
+
+        String summary = render(AWS);
+
+        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(10));
+        assertThat(summary).contains(LINE1 + "username ← /inubit/prod/username not checked,"
+            + " password ← /inubit/prod/password not checked\n");
+        assertThat(summary).contains("Warnings:", "  - AWS Parameter Store (eu-central-1) for"
+            + " prod/inubit01, prod/inubit02: resolvability not checked: the store could not be"
+            + " reached or did not answer within ", "Result: OK");
+        assertThat(summary).doesNotContain("Errors:");
     }
 
     @Test

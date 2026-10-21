@@ -240,8 +240,25 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
      * the gateway state, held during a blocking detection. Neither the monitoring port nor the
      * port set waits for {@code lock}. The wait for the secrets happens before either lock is
      * taken ({@link #awaitCredentials()}).
+     *
+     * <p>Rotation (feature 010, research R-10): an AWS node's guard re-reads the secrets after a
+     * rejected login, without touching the slot. When {@link NodeSecrets#held()} answers other
+     * credentials than the client was built with, the next call builds a new client and
+     * monitoring adapter and drops the port set; the gateway, built for the old client, is no
+     * longer {@link #valid}. The old client is closed in the background; the guard refuses
+     * attempts with its credentials ({@link CredentialGuard#bind}).
      */
     private final class Slot implements V81MonitoringAdapter.SystemInfoListener {
+
+        /** A client with the credentials it was built with and what belongs to it. */
+        private record Client(NodeCredentials credentials, CredentialGuard guard,
+            V81MaintenanceProbe probe, InubitHttpClient http, MonitoringPort monitoring) {
+
+            void close() {
+                http.close();
+                probe.close();
+            }
+        }
 
         private final EffectiveNodeConfig server;
         private final NodeSecrets secrets;
@@ -249,68 +266,73 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
         private final StaleReportingPorts stale;
         private final ReentrantLock clientLock = new ReentrantLock();
         private final ReentrantLock lock = new ReentrantLock();
-        private V81MaintenanceProbe probe;
-        /** The credentials {@link #client} was built with. */
-        private NodeCredentials credentials;
-        private InubitHttpClient client;
-        private MonitoringPort monitoring;
+        /** Guarded by {@code clientLock}. */
+        private Client client;
         private PortSet ports;
         /** The registry range {@link #ports} was built for; empty for the default. */
         private Optional<VersionRange> portsRange;
+        /** Guarded by {@code lock}. */
         private V81Gateway gateway;
+        /** The client {@link #gateway} was built with. */
+        private Client gatewayClient;
         /** Set while {@link #gateway} is the fallback of a failed detection. */
         private Instant fallbackUntil;
 
         Slot(EffectiveNodeConfig server, NodeSecrets secrets) {
             this.server = server;
             this.secrets = secrets;
-            this.guard = new CredentialGuard(server.secretLabels(), clock);
+            this.guard = secrets.rereadable()
+                ? new CredentialGuard(server.secretLabels(), clock, secrets)
+                : new CredentialGuard(server.secretLabels(), clock);
             this.stale = new StaleReportingPorts(server.id(), versions);
         }
 
         /**
-         * The server's credentials; waits (interruptibly) for a pending fetch. Called before
-         * {@code lock} or {@code clientLock} is taken.
+         * Waits (interruptibly) for a pending fetch of the server's credentials. Called before
+         * {@code lock} or {@code clientLock} is taken; afterwards {@link NodeSecrets#held()} is
+         * present for good.
          *
          * @throws ToolErrorException the fetch failure, or {@code TIMEOUT} if the wait ends
          */
-        private NodeCredentials awaitCredentials() {
-            return secrets.current(SECRETS_WAIT);
+        private void awaitCredentials() {
+            secrets.current(SECRETS_WAIT);
         }
 
         Gateway gateway() {
-            NodeCredentials current = awaitCredentials();
+            awaitCredentials();
             lock.lock();
             try {
-                if (valid()) {
+                Client current = ensureClient();
+                if (valid(current)) {
                     return gateway;
                 }
-                ensureClient(current);
-                return auto() ? detect() : cache(Optional.empty());
+                return auto() ? detect(current) : cache(current, Optional.empty());
             } finally {
                 lock.unlock();
             }
         }
 
         MonitoringPort monitoring() {
-            ensureClient(awaitCredentials());
-            return monitoring;
+            awaitCredentials();
+            return ensureClient().monitoring();
         }
 
         /**
          * The port set for the node's current effective version, built on the first request and
-         * rebuilt when the version has moved to another registry range; no network access.
+         * rebuilt when the version has moved to another registry range or the client was
+         * replaced; no network access.
          */
         PortSet ports() {
-            NodeCredentials current = awaitCredentials();
+            awaitCredentials();
             PortSetRegistry.Selection selection =
                 portSets.select(versions.effectiveVersion(server.id()));
             clientLock.lock();
             try {
-                ensureClient(current);
+                Client current = ensureClient();
                 if (ports == null || !selection.range().equals(portsRange)) {
                     ports = stale.ports(selection.factory().create(new PortSetRegistry
-                        .NodeResources(server, credentials, guard, client, cliRunner, scrubber)));
+                        .NodeResources(server, current.credentials(), current.guard(),
+                            current.http(), cliRunner, scrubber)));
                     portsRange = selection.range();
                 }
                 return ports;
@@ -320,19 +342,18 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
         }
 
         Optional<Gateway> knownGateway() {
-            Optional<NodeCredentials> held = secrets.held();
-            if (!lock.tryLock()) {
-                return Optional.empty(); // a detection is running
+            if (secrets.held().isEmpty() || !lock.tryLock()) {
+                return Optional.empty(); // secrets not fetched yet, or a detection is running
             }
             try {
-                if (valid()) {
+                if (gateway == null && auto()) {
+                    return Optional.empty(); // needs a detection
+                }
+                Client current = ensureClient();
+                if (valid(current)) {
                     return Optional.of(gateway);
                 }
-                if (auto() || held.isEmpty()) {
-                    return Optional.empty(); // needs a detection, or secrets not fetched yet
-                }
-                ensureClient(held.get());
-                return Optional.of(cache(Optional.empty()));
+                return auto() ? Optional.empty() : Optional.of(cache(current, Optional.empty()));
             } finally {
                 lock.unlock();
             }
@@ -342,8 +363,9 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
             return server.versionLine() instanceof VersionSetting.Auto;
         }
 
-        private boolean valid() {
-            return gateway != null
+        /** A gateway of {@code current}, outside the window of a failed detection. */
+        private boolean valid(Client current) {
+            return gateway != null && gatewayClient == current
                 && (fallbackUntil == null || clock.instant().isBefore(fallbackUntil));
         }
 
@@ -352,20 +374,20 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
          * {@link #FAILED_DETECTION_TTL}. A cancelled (interrupted) detection is neither cached
          * nor reported.
          */
-        private Gateway detect() {
+        private Gateway detect(Client current) {
             String version;
             try {
-                version = V81VersionDetector.detect(server.id(), client);
+                version = V81VersionDetector.detect(server.id(), current.http());
             } catch (ToolErrorException e) {
                 if (Thread.currentThread().isInterrupted()) {
-                    return new V81Gateway(server.id(), Optional.empty(), List.of(), client,
-                        monitoring, this::ports, guard);
+                    return new V81Gateway(server.id(), Optional.empty(), List.of(),
+                        current.http(), current.monitoring(), this::ports, current.guard());
                 }
                 report(e.error().code());
-                return fallback(e.error().code());
+                return fallback(current, e.error().code());
             }
             report(version);
-            return detected(version);
+            return detected(current, version);
         }
 
         /**
@@ -375,25 +397,25 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
          * is cached (a known version is kept).
          */
         InubitVersion detectNow() {
-            NodeCredentials current = awaitCredentials();
+            awaitCredentials();
             lock.lock();
             try {
-                ensureClient(current);
+                Client current = ensureClient();
                 String version;
                 try {
-                    version = V81VersionDetector.detect(server.id(), client);
+                    version = V81VersionDetector.detect(server.id(), current.http());
                 } catch (ToolErrorException e) {
                     if (!Thread.currentThread().isInterrupted()) {
                         report(e.error().code());
-                        if (auto() && !valid()) {
-                            fallback(e.error().code());
+                        if (auto() && !valid(current)) {
+                            fallback(current, e.error().code());
                         }
                     }
                     throw e;
                 }
                 Optional<InubitVersion> parsed = report(version);
                 if (auto()) {
-                    detected(version);
+                    detected(current, version);
                 }
                 return parsed.orElseThrow(() -> new ToolErrorException(ToolError.of(
                     ErrorCode.UNEXPECTED_RESPONSE,
@@ -429,15 +451,16 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                 return;
             }
             try {
-                if (gateway != null && fallbackUntil == null) {
+                Client current = builtClient();
+                if (current == null || (valid(current) && fallbackUntil == null)) {
                     return; // already detected
                 }
                 if (info.version().isPresent()) {
                     report(info.version().get());
-                    detected(info.version().get());
-                } else if (!valid()) {
+                    detected(current, info.version().get());
+                } else if (!valid(current)) {
                     report(ErrorCode.UNEXPECTED_RESPONSE);
-                    fallback(ErrorCode.UNEXPECTED_RESPONSE);
+                    fallback(current, ErrorCode.UNEXPECTED_RESPONSE);
                 }
             } finally {
                 lock.unlock();
@@ -451,59 +474,79 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                 return;
             }
             try {
-                if (!valid()) {
+                Client current = builtClient();
+                if (current != null && !valid(current)) {
                     report(error.code());
-                    fallback(error.code());
+                    fallback(current, error.code());
                 }
             } finally {
                 lock.unlock();
             }
         }
 
-        private Gateway detected(String version) {
-            return cache(Optional.of(version));
+        private Gateway detected(Client current, String version) {
+            return cache(current, Optional.of(version));
         }
 
-        private Gateway fallback(ErrorCode code) {
+        private Gateway fallback(Client current, ErrorCode code) {
             LOG.warn("{}: INUBIT version could not be detected ({})", server.id(), code);
-            gateway = new V81Gateway(server.id(), Optional.empty(), List.of(), client,
-                monitoring, this::ports, guard);
+            cache(current, Optional.empty());
             fallbackUntil = clock.instant().plus(FAILED_DETECTION_TTL);
             return gateway;
         }
 
-        private Gateway cache(Optional<String> detected) {
-            gateway = new V81Gateway(server.id(), detected, List.of(), client, monitoring,
-                this::ports, guard);
+        private Gateway cache(Client current, Optional<String> detected) {
+            gateway = new V81Gateway(server.id(), detected, List.of(), current.http(),
+                current.monitoring(), this::ports, current.guard());
+            gatewayClient = current;
             fallbackUntil = null;
             return gateway;
         }
 
+        /** The client built last, without building one; {@code null} if there is none. */
+        private Client builtClient() {
+            clientLock.lock();
+            try {
+                return client;
+            } finally {
+                clientLock.unlock();
+            }
+        }
+
         /**
-         * Creates the client (with {@code current}, the 8.1 maintenance probe and the server's
-         * credential guard) and the monitoring adapter, wrapped by {@link StaleReportingPorts},
-         * once; no network access.
+         * The client for the credentials held now: created once (with them, the 8.1 maintenance
+         * probe and the server's credential guard bound to them) together with the monitoring
+         * adapter, wrapped by {@link StaleReportingPorts}; replaced, together with the port set,
+         * when other credentials are held (research R-10); no network access. Call after
+         * {@link #awaitCredentials()}.
          *
-         * @param current the credentials from {@link #awaitCredentials()}, awaited before
-         *     any lock
          * @throws ToolErrorException {@code TLS_ERROR} if the trust store or pin is unusable;
          *     not cached, so a fixed trust store is picked up on the next call
          */
-        private void ensureClient(NodeCredentials current) {
+        private Client ensureClient() {
             clientLock.lock();
             try {
+                NodeCredentials current = secrets.held().orElseThrow();
+                if (client != null && client.credentials() == current) {
+                    return client;
+                }
                 if (client != null) {
-                    return;
+                    // a caller may still wait for a response of the old client
+                    Thread.ofVirtual().name("client-close-" + server.id().value())
+                        .start(client::close);
+                    client = null;
+                    ports = null;
+                    portsRange = null;
                 }
                 V81MaintenanceProbe newProbe = new V81MaintenanceProbe(server,
                     current.trustStorePassword().map(SourcedValue::value), scrubber);
                 try {
-                    client = InubitHttpClient.create(server, current, newProbe, scrubber,
-                        guard);
-                    credentials = current;
-                    probe = newProbe;
-                    monitoring = stale.monitoring(
-                        new V81MonitoringAdapter(server.id(), client, this));
+                    CredentialGuard bound = guard.bind(current);
+                    InubitHttpClient http = InubitHttpClient.create(server, current, newProbe,
+                        scrubber, bound);
+                    client = new Client(current, bound, newProbe, http, stale.monitoring(
+                        new V81MonitoringAdapter(server.id(), http, this)));
+                    return client;
                 } catch (RuntimeException e) {
                     newProbe.close();
                     throw e;
@@ -518,17 +561,13 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
             clientLock.lock();
             try {
                 gateway = null;
+                gatewayClient = null;
                 fallbackUntil = null;
-                monitoring = null;
                 ports = null;
                 portsRange = null;
                 if (client != null) {
                     client.close();
                     client = null;
-                }
-                if (probe != null) {
-                    probe.close();
-                    probe = null;
                 }
             } finally {
                 clientLock.unlock();

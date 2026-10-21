@@ -12,6 +12,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 /**
@@ -97,6 +101,11 @@ public final class ParameterCheck {
 
     /** Reads and checks the names of the AWS plans among {@code plans}; others are skipped. */
     public static Result run(Collection<SecretPlan> plans, ParameterStore store) {
+        return run(plans, store, TIMEOUT);
+    }
+
+    /** With {@code timeout} instead of {@link #TIMEOUT}, so tests need not wait 10 s. */
+    static Result run(Collection<SecretPlan> plans, ParameterStore store, Duration timeout) {
         Map<StoreLocation, List<SecretPlan>> byLocation = new LinkedHashMap<>();
         for (SecretPlan plan : plans) {
             if (plan.source() instanceof SecretSourceConfig.AwsParameterStore aws) {
@@ -111,7 +120,8 @@ public final class ParameterCheck {
             Set<String> names = new LinkedHashSet<>();
             located.forEach(plan -> KEYS.forEach(key -> name(plan.names().orElseThrow(), key)
                 .ifPresent(names::add)));
-            Map<String, Fetched.Result> results = fetch(store, location, List.copyOf(names));
+            Map<String, Fetched.Result> results =
+                fetch(store, location, List.copyOf(names), timeout);
             Set<FailureKind> unchecked = EnumSet.noneOf(FailureKind.class);
             for (SecretPlan plan : located) {
                 Map<String, Status> nodeStatuses = new HashMap<>();
@@ -153,7 +163,7 @@ public final class ParameterCheck {
             }
             if (unchecked.contains(FailureKind.UNREACHABLE)) {
                 warnings.add(access + "resolvability not checked: the store could not be reached"
-                    + " or did not answer within " + TIMEOUT.toSeconds() + " s");
+                    + " or did not answer within " + timeout.toSeconds() + " s");
             }
         });
         return new Result(statuses, errors, warnings);
@@ -181,11 +191,11 @@ public final class ParameterCheck {
      * next call would fail the same way) and get that failure.
      */
     private static Map<String, Fetched.Result> fetch(ParameterStore store, StoreLocation location,
-        List<String> names) {
+        List<String> names, Duration timeout) {
         Map<String, Fetched.Result> results = new HashMap<>();
         for (int from = 0; from < names.size(); from += BATCH_SIZE) {
             List<String> batch = names.subList(from, Math.min(from + BATCH_SIZE, names.size()));
-            switch (store.get(location, batch, TIMEOUT)) {
+            switch (bounded(store, location, batch, timeout)) {
                 case Fetched.PerName perName -> batch.forEach(name -> results.put(name,
                     perName.results().getOrDefault(name,
                         new Fetched.Failure(FailureKind.NOT_FOUND, "no result for this name"))));
@@ -199,15 +209,41 @@ public final class ParameterCheck {
         return results;
     }
 
+    /**
+     * {@code store.get} on its own virtual thread, waited for at most {@code timeout}: a step
+     * the store's own timeout does not cover (e.g. a stalled credential provider) must not
+     * stretch {@code --check-config}. A call that does not end in time is interrupted and
+     * {@code UNREACHABLE}.
+     */
+    private static Fetched bounded(ParameterStore store, StoreLocation location,
+        List<String> batch, Duration timeout) {
+        FutureTask<Fetched> call = new FutureTask<>(() -> store.get(location, batch, timeout));
+        Thread.ofVirtual().name("check-config-parameters").start(call);
+        try {
+            return call.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException e) {
+            call.cancel(true);
+            return unreachable("no answer within " + timeout.toMillis() + " ms");
+        } catch (InterruptedException e) {
+            call.cancel(true);
+            Thread.currentThread().interrupt();
+            return unreachable("interrupted");
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof RuntimeException unexpected) {
+                throw unexpected; // as an unbounded call would have thrown it
+            }
+            throw new IllegalStateException("Unexpected store failure", e.getCause());
+        }
+    }
+
+    private static Fetched unreachable(String detail) {
+        return new Fetched.CallFailed(new Fetched.Failure(FailureKind.UNREACHABLE, detail));
+    }
+
     private static Status checkValue(String key, Fetched.Value value, String subject,
         List<String> errors, List<String> warnings) {
-        CredentialRules.ValueRole role = switch (key) {
-            case "username", "e2eUsername" -> CredentialRules.ValueRole.USERNAME;
-            case "password", "e2ePassword" -> CredentialRules.ValueRole.PASSWORD;
-            default -> CredentialRules.ValueRole.TRUST_STORE_PASSWORD;
-        };
-        Optional<CredentialRules.Refusal> refusal =
-            CredentialRules.checkValue(role, value.type(), value.value().reveal());
+        Optional<CredentialRules.Refusal> refusal = CredentialRules.checkValue(
+            CredentialRules.roleOf(key), value.type(), value.value().reveal());
         if (refusal.isPresent()) {
             Status status = refusal.get().kind() == FailureKind.NOT_FOUND ? Status.NOT_FOUND
                 : Status.INVALID_VALUE;

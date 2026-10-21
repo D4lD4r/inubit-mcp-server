@@ -95,6 +95,8 @@ class MainProcessTest {
     void checkConfigOfAnAwsNodeBuildsTheRealParameterStoreWithoutAnyNetworkCall()
         throws Exception {
         // feature 010 T015: the real SsmParameterStore through the normal --check-config path.
+        // The child runs Main from the test classpath (java.class.path), not from the shaded
+        // JAR; the shaded JAR itself is not started here.
         // Instance metadata is disabled and the AWS files are empty, so no credentials resolve
         // and no request is sent; the child's home is the temporary directory, never ~/.aws.
         Path awsConfig = Files.createFile(home.resolve("aws-config"));
