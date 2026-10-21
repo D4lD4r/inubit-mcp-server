@@ -321,7 +321,7 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   Carry-over (T008 review r1): the `Credential variables:` header shows the profile prefix even when
   every environment node uses its own `source.prefix`; show it only when some environment plan uses
   the profile prefix, or list the distinct prefixes.
-- [ ] T015 [US3] `--check-config` for AWS nodes (R-12, FR-009, contracts/configuration-delta.md):
+- [X] T015 [US3] `--check-config` for AWS nodes (R-12, FR-009, contracts/configuration-delta.md):
   `main/Launcher.java` creates an `SsmParameterStore` only if some node is AWS and fetches every
   configured parameter of every AWS node grouped per `StoreLocation` (10 s timeout per batch);
   `main/config/ConfigSummary.java` shows per AWS node
@@ -340,6 +340,11 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
 
 ## Phase 6: User Story 4 - Rotate a password without restarting (Priority: P3)
 
+  Carry-over (T015 review r1): add a `CredentialRules.roleOf(key)` helper used by both `ParameterCheck`
+  and `NodeSecrets` (one key → ValueRole mapping); bound `store.get` in `ParameterCheck` by the 10 s
+  timeout in a future (timeout → UNREACHABLE warning) so a stalled credential provider cannot stretch
+  `--check-config`; say in `MainProcessTest`'s smoke-test comment that it runs on the test classpath,
+  not the shaded JAR.
 - [ ] T016 [US4] Re-read on rejection (R-10, FR-010): `main/adapter/CredentialGuard.java` gets an
   optional re-read hook (AWS nodes only) and a grace state: on `rejected()` outside grace, call
   `NodeSecrets.reread()` once (simultaneous rejections share it); `CHANGED` (username or password

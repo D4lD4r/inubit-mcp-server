@@ -13,8 +13,10 @@ import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
+import de.dadecker.inubit.mcp.config.ParameterCheck;
 import de.dadecker.inubit.mcp.config.ParameterStore;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
+import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.ValidationReport;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -36,6 +38,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -72,8 +75,8 @@ final class Launcher {
           --config <path>   configuration file
           --profile <name>  the profile's file <name>.yaml in ~/.config/inubit-mcp
                             (Windows: %APPDATA%\\inubit-mcp); its profile.name must be <name>
-          --check-config    validate the configuration, print a summary (variable names only,
-                            no values) and exit 0 (valid) or 1 (errors)
+          --check-config    validate the configuration, print a summary (variable and
+                            parameter names only, no values) and exit 0 (valid) or 1 (errors)
           --version         print the server version and exit
         Without --config/--profile: $INUBIT_MCP_CONFIG (a path), then $INUBIT_MCP_PROFILE (a
         profile name), then ~/.config/inubit-mcp/config.yaml.
@@ -180,10 +183,16 @@ final class Launcher {
         if (arguments.checkConfig()) {
             Map<NodeId, ClientVersion> clients = new HashMap<>();
             ValidationReport withProbes = probeClients(loaded.config(), report, clients);
+            // feature 010 (research R-12): the Parameter Store client only for AWS nodes
+            Collection<SecretPlan> plans = loaded.config().secretPlans().values();
+            ParameterCheck.Result parameters = plans.stream().anyMatch(SecretPlan::aws)
+                ? ParameterCheck.run(plans, context.parameterStore().get())
+                : ParameterCheck.Result.NONE;
+            ValidationReport checked = parameters.addTo(withProbes);
             context.out().print(new ConfigSummary(context.exists(), context.windows())
-                .render(loaded, credentials, withProbes, clients));
+                .render(loaded, credentials, checked, clients, parameters));
             context.out().flush();
-            return report.hasErrors() ? EXIT_ERROR : EXIT_OK;
+            return checked.hasErrors() ? EXIT_ERROR : EXIT_OK;
         }
         if (report.hasErrors()) {
             printFindings("Configuration errors in " + loaded.source() + " (the MCP server does not"

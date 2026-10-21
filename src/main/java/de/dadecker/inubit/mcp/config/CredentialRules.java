@@ -1,5 +1,7 @@
 package de.dadecker.inubit.mcp.config;
 
+import java.util.Optional;
+
 /**
  * The value checks of credentials, the same for every source (feature 010, research R-17).
  */
@@ -26,7 +28,49 @@ public final class CredentialRules {
         REFUSED
     }
 
+    /** What a fetched value is used as; decides which value rules apply. */
+    public enum ValueRole {
+        /** {@code username} or {@code e2eUsername}. */
+        USERNAME,
+        /** {@code password} or {@code e2ePassword}. */
+        PASSWORD,
+        TRUST_STORE_PASSWORD
+    }
+
+    /**
+     * A fetched value refused by {@link #checkValue}.
+     *
+     * @param rule the broken rule, for messages; never the value
+     */
+    public record Refusal(FailureKind kind, String rule) {
+    }
+
     private CredentialRules() {
+    }
+
+    /**
+     * The checks of a value read from a secret store, the same at run time and in
+     * {@code --check-config}: a {@code StringList} and a value breaking the rule of its role are
+     * {@code INVALID_VALUE}, an empty value is {@code NOT_FOUND}. A {@code String} is accepted
+     * here; its warning is the caller's ({@link #checkType}).
+     */
+    public static Optional<Refusal> checkValue(ValueRole role, ParameterType type, String value) {
+        if (checkType(type) == TypeVerdict.REFUSED) {
+            return Optional.of(new Refusal(FailureKind.INVALID_VALUE,
+                "a StringList is not accepted; store it as SecureString"));
+        }
+        if (!isSet(value)) {
+            return Optional.of(new Refusal(FailureKind.NOT_FOUND, "the value is empty"));
+        }
+        if (role == ValueRole.USERNAME && !isSafeUsername(value)) {
+            return Optional.of(new Refusal(FailureKind.INVALID_VALUE,
+                "the username " + SAFE_USERNAME_RULE));
+        }
+        if (role == ValueRole.PASSWORD && !isScrubbable(value)) {
+            return Optional.of(new Refusal(FailureKind.INVALID_VALUE,
+                "the password " + SHORT_PASSWORD_RULE));
+        }
+        return Optional.empty();
     }
 
     /** No ':' (Basic auth), no control characters, no leading '-' (StartCLI option). */

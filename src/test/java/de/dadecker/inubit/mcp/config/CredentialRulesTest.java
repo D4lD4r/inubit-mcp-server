@@ -2,6 +2,8 @@ package de.dadecker.inubit.mcp.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.config.CredentialRules.Refusal;
+import de.dadecker.inubit.mcp.config.CredentialRules.ValueRole;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -44,5 +46,34 @@ class CredentialRulesTest {
             .isEqualTo(CredentialRules.TypeVerdict.UNENCRYPTED);
         assertThat(CredentialRules.checkType(ParameterType.STRING_LIST))
             .isEqualTo(CredentialRules.TypeVerdict.REFUSED);
+    }
+
+    @Test
+    void aFetchedValueIsCheckedAsAtRunTime() {
+        // T015: NodeSecrets and --check-config share these checks (research R-17)
+        assertThat(CredentialRules.checkValue(ValueRole.USERNAME, ParameterType.SECURE_STRING,
+            "alice")).isEmpty();
+        assertThat(CredentialRules.checkValue(ValueRole.PASSWORD, ParameterType.STRING,
+            "abcd")).as("String is only warned").isEmpty();
+        assertThat(CredentialRules.checkValue(ValueRole.TRUST_STORE_PASSWORD,
+            ParameterType.SECURE_STRING, "abc")).as("no length rule").isEmpty();
+        assertThat(CredentialRules.checkValue(ValueRole.USERNAME, ParameterType.STRING_LIST,
+            "a,b")).hasValue(new Refusal(FailureKind.INVALID_VALUE,
+                "a StringList is not accepted; store it as SecureString"));
+        assertThat(CredentialRules.checkValue(ValueRole.TRUST_STORE_PASSWORD,
+            ParameterType.SECURE_STRING, "")).hasValue(
+                new Refusal(FailureKind.NOT_FOUND, "the value is empty"));
+        assertThat(CredentialRules.checkValue(ValueRole.USERNAME, ParameterType.SECURE_STRING,
+            "al:ice")).hasValue(new Refusal(FailureKind.INVALID_VALUE,
+                "the username " + CredentialRules.SAFE_USERNAME_RULE));
+        assertThat(CredentialRules.checkValue(ValueRole.PASSWORD, ParameterType.SECURE_STRING,
+            "abc")).hasValue(new Refusal(FailureKind.INVALID_VALUE,
+                "the password " + CredentialRules.SHORT_PASSWORD_RULE));
+    }
+
+    @Test
+    void aRefusalNeverShowsTheValue() {
+        assertThat(CredentialRules.checkValue(ValueRole.USERNAME, ParameterType.SECURE_STRING,
+            "-svc:Secret-9").orElseThrow().toString()).doesNotContain("Secret-9");
     }
 }

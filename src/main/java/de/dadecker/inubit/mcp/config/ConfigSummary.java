@@ -30,8 +30,9 @@ import java.util.function.Predicate;
  * node whose StartCLI client was probed, the client version with its declared range and its
  * comparison with a concrete pin. Feature 010 (research R-12) adds {@code secrets: environment |
  * awsParameterStore} to every node line once the profile sets {@code credentials.source}
- * anywhere; an AWS node has no variables and the {@code Credential variables:} line is left out
- * if every node is an AWS node.
+ * anywhere; an AWS node shows its region, AWS profile and parameter names with the outcome of
+ * {@link ParameterCheck} instead of variables, and the {@code Credential variables:} line is left
+ * out unless some node reads variables under the profile prefix.
  * Groups and nodes are named with the profile's display names (FR-007). Values and URLs are never
  * printed.
  */
@@ -50,9 +51,12 @@ public final class ConfigSummary {
     /**
      * @param clients the StartCLI client of each node whose probe succeeded (feature 009); a
      *                failed probe is among the warnings of {@code report}
+     * @param parameters the Parameter Store check of the AWS nodes (feature 010); its findings
+     *                are among those of {@code report}
      */
     public String render(LoadedConfig loaded, CredentialResolution credentials,
-        ValidationReport report, Map<NodeId, ClientVersion> clients) {
+        ValidationReport report, Map<NodeId, ClientVersion> clients,
+        ParameterCheck.Result parameters) {
         ProfileConfig config = loaded.config();
         Terminology terms = config.terminology().effectiveOrDefault();
         StringBuilder out = new StringBuilder();
@@ -66,9 +70,11 @@ public final class ConfigSummary {
             .append(terms.groupPlural()).append(", ").append(terms.nodeSingular()).append('/')
             .append(terms.nodePlural()).append('\n');
         // 002 US2: what keeps this profile apart from others running side by side; feature 010:
-        // not shown if every node reads its secrets from AWS Parameter Store
+        // only if some node reads its variables under the profile prefix
         Map<NodeId, SecretPlan> plans = config.secretPlans();
-        if (plans.isEmpty() || !plans.values().stream().allMatch(SecretPlan::aws)) {
+        if (plans.isEmpty() || plans.values().stream().anyMatch(plan -> plan.variables()
+            .filter(variables -> variables.prefix().equals(config.credentialPrefix()))
+            .isPresent())) {
             out.append("Credential variables: ").append(config.credentialPrefix()).append('_')
                 .append(ConfigValidator.variablePart(terms)).append("_USERNAME / _PASSWORD\n");
         }
@@ -112,7 +118,9 @@ public final class ConfigSummary {
                     : "environment");
             }
             // feature 010: an AWS node reads no credential variables
-            if (!server.secretPlan().aws()) {
+            if (server.secretPlan().aws()) {
+                appendParameters(out, server.secretPlan(), parameters);
+            } else {
                 appendVariables(out, credentials, server);
             }
             out.append('\n');
@@ -139,6 +147,28 @@ public final class ConfigSummary {
             .orElse(MISSING));
         serverCredentials.flatMap(NodeCredentials::trustStorePassword)
             .ifPresent(ts -> out.append(", trustStorePassword ← ").append(ts.sourceVariable()));
+    }
+
+    /**
+     * Feature 010: {@code (<region>[, profile <p>]), username ← <name> <status>, password ← …}
+     * and the optional names that are configured; a missing required name is
+     * {@code (missing)}.
+     */
+    private static void appendParameters(StringBuilder out, SecretPlan plan,
+        ParameterCheck.Result parameters) {
+        SecretSourceConfig.AwsParameterStore source =
+            (SecretSourceConfig.AwsParameterStore) plan.source();
+        out.append(" (").append(ParameterCheck.where(
+            new StoreLocation(source.region(), source.awsProfile()))).append(')');
+        for (String key : ParameterCheck.KEYS) {
+            Optional<String> name = ParameterCheck.name(plan.names().orElseThrow(), key);
+            boolean required = key.equals("username") || key.equals("password");
+            if (name.isPresent() || required) {
+                out.append(", ").append(key).append(" ← ").append(name.orElse(MISSING));
+                parameters.status(plan.node(), key)
+                    .ifPresent(status -> out.append(' ').append(status.text()));
+            }
+        }
     }
 
     /** True if {@code credentials.source} is set on the profile, a group or a node (feature 010). */

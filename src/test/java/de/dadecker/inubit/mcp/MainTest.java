@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.config.FailureKind;
+import de.dadecker.inubit.mcp.config.ParameterType;
 import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.infra.BuildInfo;
 import de.dadecker.inubit.mcp.infra.LogLevels;
@@ -31,6 +32,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -60,6 +62,8 @@ class MainTest {
     private final Map<String, String> environment = new HashMap<>();
     /** The Parameter Store of AWS nodes; no test reaches AWS. */
     private final FakeParameterStore store = new FakeParameterStore();
+    /** How often the launcher asked for {@link #store}. */
+    private final AtomicInteger storesCreated = new AtomicInteger();
 
     @AfterEach
     void restoreTestLogLevel() {
@@ -75,7 +79,10 @@ class MainTest {
         return new Launcher(new Launcher.Context(Map.copyOf(environment), home, false, in,
             new PrintStream(out, true, StandardCharsets.UTF_8),
             new PrintStream(stderr, true, StandardCharsets.UTF_8), new SecretScrubber(),
-            Files::exists, () -> store), handlers);
+            Files::exists, () -> {
+                storesCreated.incrementAndGet();
+                return store;
+            }), handlers);
     }
 
     private int run(String... args) {
@@ -229,6 +236,7 @@ class MainTest {
             INUBIT_ACME_QA_PASSWORD)
             Result: FAILED (1 error(s))
             """.formatted(file, home.resolve("audit"), home.resolve("workspace")));
+        assertThat(storesCreated).as("T015: no Parameter Store without an AWS node").hasValue(0);
     }
 
     @Test
@@ -297,6 +305,9 @@ class MainTest {
                     versionLine: V8_1
             """.formatted(home.resolve("audit"), home.resolve("workspace")));
 
+        store.put(EU_CENTRAL, "/inubit/prod/username", "prod-user")
+            .put(EU_CENTRAL, "/inubit/prod/password", "prod-Password-1");
+
         int check = run("--check-config", "--config", file.toString());
         String checkOutput = out();
         stdout.reset();
@@ -352,6 +363,126 @@ class MainTest {
         assertThat(nodes.path("result").path("structuredContent").path("groups").path(0)
             .path("nodes").path(0).path("id").asString()).isEqualTo("prod/node1");
         assertThat(store.calls()).as("neither the startup nor list_nodes fetches").isZero();
+    }
+
+    // --- feature 010 T015: --check-config reads the AWS parameters (FR-009) --------------------
+
+    private static final StoreLocation EU_CENTRAL =
+        new StoreLocation("eu-central-1", Optional.empty());
+
+    /** dev: environment variables; prod: AWS Parameter Store, optionally with an AWS profile. */
+    private Path awsProfile(String awsProfileLine) throws IOException {
+        return config("""
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+              - name: prod
+                credentials:
+                  source:
+                    type: awsParameterStore
+                    region: eu-central-1
+                    %s
+                  parameters:
+                    username: /inubit/prod/username
+                    password: /inubit/prod/password
+                    trustStorePassword: /inubit/prod/ts-password
+                nodes:
+                  - name: node1
+                    baseUrl: https://prod.example.test:8443
+                    versionLine: V8_1
+            """.formatted(home.resolve("audit"), home.resolve("workspace"), awsProfileLine));
+    }
+
+    @Test
+    void checkConfigReadsTheAwsParametersOnceAndExitsZeroWhenAllAreValid() throws IOException {
+        credentials();
+        store.put(EU_CENTRAL, "/inubit/prod/username", "prod-user")
+            .put(EU_CENTRAL, "/inubit/prod/password", "prod-Password-1")
+            .put(EU_CENTRAL, "/inubit/prod/ts-password", "prod-Ts-Password-2");
+
+        int exit = run("--check-config", "--config", awsProfile("").toString());
+
+        assertThat(exit).as(out()).isZero();
+        assertThat(out()).contains("prod/node1: read-only, cli: unavailable, inubit: V8_1,"
+            + " secrets: awsParameterStore (eu-central-1), username ← /inubit/prod/username ok,"
+            + " password ← /inubit/prod/password ok, trustStorePassword ← /inubit/prod/ts-password"
+            + " ok\n", "Result: OK");
+        assertThat(out() + err()).doesNotContain("prod-user", "prod-Password-1",
+            "prod-Ts-Password-2", PASSWORD);
+        assertThat(storesCreated).hasValue(1);
+        assertThat(store.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void checkConfigExitsOneForAMissingDeniedOrInvalidParameter() throws IOException {
+        credentials();
+        Path file = awsProfile("");
+        List<Runnable> mistakes = List.of(
+            () -> store.put(EU_CENTRAL, "/inubit/prod/username", "prod-user")
+                .put(EU_CENTRAL, "/inubit/prod/password", "prod-Password-1"),
+            () -> store.put(EU_CENTRAL, "/inubit/prod/ts-password", "prod-Ts-Password-2")
+                .fail(EU_CENTRAL, "/inubit/prod/password", FailureKind.ACCESS_DENIED,
+                    "not authorized"),
+            () -> store.put(EU_CENTRAL, "/inubit/prod/password", "x9z"));
+        List<String> expected = List.of("/inubit/prod/ts-password not found",
+            "/inubit/prod/password access denied", "/inubit/prod/password invalid value");
+        for (int i = 0; i < mistakes.size(); i++) {
+            mistakes.get(i).run();
+            stdout.reset();
+
+            int exit = run("--check-config", "--config", file.toString());
+
+            assertThat(exit).as(out()).isEqualTo(1);
+            assertThat(out()).contains(expected.get(i), "Result: FAILED (1 error(s))")
+                .doesNotContain("prod-Password-1", "x9z");
+        }
+    }
+
+    @Test
+    void checkConfigExitsOneForAnUnknownAwsProfile() throws IOException {
+        credentials();
+        store.failCall(new StoreLocation("eu-central-1", Optional.of("missing-profile")),
+            FailureKind.UNKNOWN_PROFILE, "AWS profile 'missing-profile' not found");
+
+        int exit = run("--check-config", "--config",
+            awsProfile("awsProfile: missing-profile").toString());
+
+        assertThat(exit).as(out()).isEqualTo(1);
+        assertThat(out()).contains("secrets: awsParameterStore (eu-central-1, profile"
+            + " missing-profile), username ← /inubit/prod/username not checked",
+            "the AWS profile missing-profile is not defined in the local AWS configuration files");
+    }
+
+    @Test
+    void checkConfigWithoutAwsAccessOrWithStringParametersOnlyWarnsAndExitsZero()
+        throws IOException {
+        credentials();
+        Path file = awsProfile("");
+        store.failCall(EU_CENTRAL, FailureKind.NO_CREDENTIALS, "Unable to load credentials");
+
+        int withoutAccess = run("--check-config", "--config", file.toString());
+        String withoutAccessOutput = out();
+        store.clearCallFailure(EU_CENTRAL)
+            .put(EU_CENTRAL, "/inubit/prod/username", "prod-user", ParameterType.STRING)
+            .put(EU_CENTRAL, "/inubit/prod/password", "prod-Password-1", ParameterType.STRING)
+            .put(EU_CENTRAL, "/inubit/prod/ts-password", "prod-Ts-Password-2");
+        stdout.reset();
+        int unencrypted = run("--check-config", "--config", file.toString());
+
+        assertThat(withoutAccess).as(withoutAccessOutput).isZero();
+        assertThat(withoutAccessOutput).contains("resolvability not checked", "Result: OK")
+            .doesNotContain("Unable to load credentials");
+        assertThat(unencrypted).as(out()).isZero();
+        assertThat(out()).contains("password ← /inubit/prod/password not encrypted",
+            "is not encrypted (type String); store it as SecureString", "Result: OK")
+            .doesNotContain("prod-user", "prod-Password-1");
     }
 
     @Test

@@ -519,25 +519,14 @@ public final class NodeSecrets {
 
     /** The {@link CredentialRules} checks of one value; the value itself is never described. */
     private static Optional<Problem> check(Wanted parameter, Fetched.Value value) {
-        String rule = null;
-        FailureKind kind = FailureKind.INVALID_VALUE;
-        String text = value.value().reveal();
-        boolean username = parameter.key().equals(USERNAME)
-            || parameter.key().equals(E2E_USERNAME);
-        boolean password = parameter.key().equals(PASSWORD)
-            || parameter.key().equals(E2E_PASSWORD);
-        if (CredentialRules.checkType(value.type()) == CredentialRules.TypeVerdict.REFUSED) {
-            rule = "a StringList is not accepted; store it as SecureString";
-        } else if (!CredentialRules.isSet(text)) {
-            kind = FailureKind.NOT_FOUND;
-            rule = "the value is empty";
-        } else if (username && !CredentialRules.isSafeUsername(text)) {
-            rule = "the username " + CredentialRules.SAFE_USERNAME_RULE;
-        } else if (password && !CredentialRules.isScrubbable(text)) {
-            rule = "the password " + CredentialRules.SHORT_PASSWORD_RULE;
-        }
-        return rule == null ? Optional.empty()
-            : Optional.of(new Problem(parameter, kind, rule, rule));
+        CredentialRules.ValueRole role = switch (parameter.key()) {
+            case USERNAME, E2E_USERNAME -> CredentialRules.ValueRole.USERNAME;
+            case PASSWORD, E2E_PASSWORD -> CredentialRules.ValueRole.PASSWORD;
+            default -> CredentialRules.ValueRole.TRUST_STORE_PASSWORD;
+        };
+        return CredentialRules.checkValue(role, value.type(), value.value().reveal())
+            .map(refusal -> new Problem(parameter, refusal.kind(), refusal.rule(),
+                refusal.rule()));
     }
 
     /** Kinds that concern the store access as a whole, not one parameter. */
