@@ -14,7 +14,11 @@ feature 005 [its delta](../specs/005-stage-chain-deployment/contracts/mcp-tools-
 repository files of feature 008
 [its delta](../specs/008-repo-file-editing/contracts/mcp-tools-delta.md), the version-dependent
 capabilities of feature 009
-[its delta](../specs/009-inubit-version-detection/contracts/mcp-tools-delta.md).
+[its delta](../specs/009-inubit-version-detection/contracts/mcp-tools-delta.md), the credentials
+from AWS Parameter Store of feature 010
+[its delta](../specs/010-secret-sources/contracts/mcp-tools-delta.md) (no new tool, parameter,
+field or error code; see
+[Credentials from AWS Parameter Store](#credentials-from-aws-parameter-store-feature-010)).
 All sixteen tools are described here; each section quotes the description the server announces in
 `tools/list` for a profile `acme` without description and with the default terminology
 (Group/Node).
@@ -230,10 +234,10 @@ other nodes are still reported.
 | `code` | Meaning |
 |---|---|
 | `TARGET_UNKNOWN` | the group or node id is not configured; the message lists the configured ids |
-| `UNREACHABLE` | connection refused, DNS or VPN problem, or HTTP 503 outside maintenance mode |
+| `UNREACHABLE` | connection refused, DNS or VPN problem, or HTTP 503 outside maintenance mode; or AWS Parameter Store could not be reached for the node's credentials ([feature 010](#credentials-from-aws-parameter-store-feature-010)) |
 | `TIMEOUT` | no answer within `timeout` (REST), `cliTimeout` or `cliExportTimeout` (StartCLI); `nextStep` names the setting |
 | `TLS_ERROR` | certificate not trusted, pin mismatch or host name mismatch |
-| `AUTH_FAILED` | INUBIT rejected the credentials (HTTP 401, StartCLI login failure), a recent rejection is not retried (account-lockout protection), or no credentials are set |
+| `AUTH_FAILED` | INUBIT rejected the credentials (HTTP 401, StartCLI login failure), a recent rejection is not retried (account-lockout protection), no credentials are set, or they could not be fetched from AWS Parameter Store (parameter missing, access denied, invalid value, AWS login; [feature 010](#credentials-from-aws-parameter-store-feature-010)) |
 | `FORBIDDEN` | HTTP 403: the account lacks the INUBIT permission or license |
 | `MAINTENANCE_MODE` | HTTP 503 while the server is in maintenance mode |
 | `NOT_FOUND` | the name, id or process instance does not exist (for `get_inventory_item` with `similarNames`) |
@@ -255,6 +259,79 @@ other nodes are still reported.
 | `DEPLOY_LOCKED` | another deployment into the same target group is running (feature 005) |
 | `REPOSITORY_WRITE_DENIED` | `import_artifacts` or `restore_backup` would create or change a repository file on a node whose `development.repository` is `READ_ONLY` (feature 008); the whole call is refused, nothing was sent, the message names the paths. `nextStep`: revert the files in the workspace (`git restore`) or ask the administrator to set `WRITE` on that development node; for `restore_backup`: ask for `WRITE` and restore again, or restore in the Workbench |
 | `INTERNAL` | an unexpected error inside the MCP server, the server is shutting down, or an audit record could not be written |
+
+## Credentials from AWS Parameter Store (feature 010)
+
+A node reads its INUBIT credentials either from environment variables (the default, read at
+startup) or from AWS Systems Manager Parameter Store; the profile chooses per profile, group or
+node ([setup.md](setup.md#4-credentials-sources)). The tools are the same for both sources: no
+tool takes or returns a secret, and no result says where a node's secrets come from
+(`--check-config` shows it, [setup.md](setup.md#the-secrets-part)). `list_nodes` never fetches
+secrets. For a node with Parameter Store ("AWS node" below):
+
+- **First use.** Username, password and (if named) trust store password are fetched together the
+  first time a call needs the node, and kept for the life of the server process. Nothing is sent
+  to INUBIT before they are there. Calls on the same node share one fetch; nodes do not wait for
+  each other. A fetch is bounded by 10 s. The end-to-end credentials are fetched separately, on
+  the node's first `run_e2e_test`.
+- **Errors.** A failed fetch fails the call (or that node's entry of a group target) before
+  anything is sent to INUBIT. The message names the node, the region, the AWS profile (if set),
+  the parameter and the failure, never a value and never AWS's own message (that goes to the
+  log, scrubbed). It starts with `<node>: INUBIT credentials from AWS Parameter Store (<region>[,
+  profile <p>]) are unavailable: ` (for the end-to-end credentials `<node>: end-to-end test
+  credentials from AWS Parameter Store …`), followed by:
+
+  | Failure | `code` | message ends with | `nextStep` |
+  |---|---|---|---|
+  | parameter missing | `AUTH_FAILED` | `not found for /inubit/prod/node1/password` | `Create the parameter /inubit/prod/node1/password in Parameter Store (eu-west-1, profile prod-account) or correct credentials.parameters.password` |
+  | empty value | `AUTH_FAILED` | `not found for /inubit/prod/node1/password (the value is empty)` | as above |
+  | access denied (no `ssm:GetParameters` or `kms:Decrypt`) | `AUTH_FAILED` | `access denied for /inubit/prod/username; access denied for /inubit/prod/node1/password` (every name of the refused request) | `Grant ssm:GetParameters on /inubit/prod/username and kms:Decrypt on its KMS key to the AWS identity in use; …` (one per name) |
+  | invalid value | `AUTH_FAILED` | `invalid value for /inubit/prod/username (the username must not contain ':' or control characters and must not start with '-' (it is used in the Basic-auth header and as StartCLI argument))`; for a password `(the password is shorter than 4 characters; …)`, for a `StringList` `(a StringList is not accepted; store it as SecureString)` | `Correct the value of /inubit/prod/username in Parameter Store (as SecureString; the value is never shown); no restart is needed` |
+  | unknown AWS profile (`awsProfile` not defined in the local AWS configuration files) | `AUTH_FAILED` | `the AWS profile prod-account is unknown` | `Configure the AWS profile prod-account in the AWS configuration files and log in to it` |
+  | no AWS credentials (not logged in, login expired) | `AUTH_FAILED` | `no AWS credentials` | `Log in to the AWS profile prod-account (for example aws sso login --profile prod-account) or configure its credentials`; without `awsProfile`: `Configure AWS credentials for the default credential chain or log in (for example aws sso login)` |
+  | store unreachable, throttled, no answer within 10 s | `UNREACHABLE` | `Parameter Store unreachable` | `Check network access to ssm.eu-west-1.amazonaws.com; the fetch is retried after 30 s` |
+
+  Several failing parameters are listed in one message, separated by `; `. For 30 s after a
+  failed fetch, calls on the node get the same error at once, without a new fetch; the first
+  call after that fetches again, so a corrected parameter or permission needs no restart. A
+  call whose wait for a fetch ends before the fetch does gets `TIMEOUT` (`<node>: the INUBIT
+  credentials from AWS Parameter Store (…) are not yet available (still fetching)`, next step
+  "Retry shortly; the fetch continues and the next call uses its result"); the fetch continues.
+- **Group targets.** `find_processes`, `query_logs`, `list_inventory` and `get_inventory_item`
+  query the nodes of a group in parallel, each within its own deadline. Each node's branch
+  fetches that node's secrets itself, and the deadline of an AWS node's branch is 11 s longer
+  (the 10 s fetch plus 1 s), also when its secrets are held already. A slow or failing store
+  therefore gives that node's `error` or partial result, never a `TIMEOUT` of the whole call.
+  `find_processes` and `query_logs` check their filters for a not-yet-fetched AWS node at the
+  start of its own branch: an `INVALID_INPUT` of these node checks (see
+  [`query_logs`](#query_logs)) is then that node's `error`, while the checks that need no node
+  (time format and range, paging, `processId` pattern) still fail the whole call before any
+  server is contacted.
+- **`get_health`** keeps its time budget: see [its section](#get_health) ("Credentials from AWS
+  Parameter Store").
+- **Rejected credentials.** When INUBIT rejects the login of an AWS node (HTTP 401, StartCLI
+  login failure), the call fails with `AUTH_FAILED` as with environment variables; its next step,
+  and that of the following 60-s pause, names the parameters: "Correct the parameter value(s)
+  /inubit/prod/username, /inubit/prod/node1/password in Parameter Store (eu-west-1, profile
+  prod-account); no restart is needed". Before the call returns, the server reads the node's
+  credentials once more (up to 10 s, on that call). If username or password changed, the new
+  values are used from the next call on, with exactly one further login attempt; if that one is
+  rejected too, the node is paused for 60 s without another re-read. Unchanged values (or a
+  failed re-read) pause the node for 60 s at once. At most two failed logins per AWS node per
+  60 s (one for an environment node). A call that started with the old values and would log in
+  again after they were replaced is refused without contacting INUBIT: `AUTH_FAILED` "INUBIT
+  login to prod/node1: not attempted with the previous username and password; they were
+  replaced by new values from AWS Parameter Store after a rejected login", next step "Retry the
+  call; it uses the new values". A rejected end-to-end login never re-reads. Details:
+  [setup.md](setup.md#rotation-re-read-after-a-rejected-login).
+- **Trust store.** A `TLS_ERROR` about the trust store password names its parameter instead of
+  the variables, e.g. "Check tls.trustStore and Parameter Store /inubit/prod/truststore-password
+  (eu-west-1, profile prod-account)".
+- **Audit.** The `account` of the audit records (and the user in the INUBIT check-in comments of
+  the development tools and deployments) of an AWS node is the username fetched from Parameter
+  Store, after a rotation the current one. Before the node's first fetch it is
+  `(Parameter Store <username parameter>)`, e.g. `(Parameter Store /inubit/prod/username)`; that
+  appears only on records written before anything was sent to the node, such as a refusal.
 
 ## `list_nodes`
 
@@ -380,12 +457,28 @@ How the report is built (research R-10):
   a server hangs (a hanging part is reported as `TIMEOUT`).
 - **Account-lockout protection**: when INUBIT rejects a server's credentials (HTTP 401, or a
   StartCLI login failure), every authenticated call to that server fails for 60 s with
-  `AUTH_FAILED` "authentication failed recently; not retried for N s to avoid account lockout",
-  without contacting INUBIT. At most one failed login per server per 60 s; reachability,
-  readiness and maintenance mode are still reported. Both the first `AUTH_FAILED` (HTTP 401)
-  and the cached one name the concrete variables of the server, e.g. "Fix
-  `INUBIT_DEV_NODE1_PASSWORD` (or `INUBIT_DEV_PASSWORD`) and `_USERNAME`, then restart Claude
-  Code". The guard is shared by all tools of a server (REST and StartCLI).
+  `AUTH_FAILED` "INUBIT login to dev/node1: authentication failed recently; not retried for N s
+  to avoid account lockout", without contacting INUBIT. At most one failed login per server per
+  60 s; reachability, readiness and maintenance mode are still reported. Both the first
+  `AUTH_FAILED` (HTTP 401) and the cached one name the concrete variables of the server, e.g.
+  "Fix INUBIT_ACME_DEV_NODE1_PASSWORD (or INUBIT_ACME_DEV_PASSWORD) and _USERNAME, then restart
+  the MCP client from a shell with the new values". The guard is shared by all tools of a server
+  (REST and StartCLI). A node with AWS Parameter Store re-reads its parameters once after a
+  rejection instead of pausing at once (at most two failed logins per 60 s), and the next step
+  names the parameters ("… in Parameter Store (…); no restart is needed"; see
+  [Credentials from AWS Parameter Store](#credentials-from-aws-parameter-store-feature-010)).
+- **Credentials from AWS Parameter Store** (feature 010): before anything else, `get_health`
+  makes sure that the credentials of a node with Parameter Store are there, and waits for a
+  first fetch at most for what is left of the node's budget. If they are not there in time, the
+  node's report is `reachable: false` with `error` `TIMEOUT` "prod/node1: credentials not yet
+  available (still fetching from AWS Parameter Store); call get_health again shortly" (next
+  step "Call get_health again shortly; the fetch continues and the next call uses its result"),
+  still within the budget; nothing is sent to that node in this report, not even `/healthcheck`
+  (its connection is built once the secrets are there, because the trust store password may
+  come from Parameter Store too). A failed fetch gives `reachable: false` with the fetch's error
+  (`AUTH_FAILED` or `UNREACHABLE`, see
+  [the table](#credentials-from-aws-parameter-store-feature-010)); within 30 s after it the same
+  error comes at once. The other nodes are reported normally.
 - **First call after start (trade-off)**: until INUBIT has accepted a server's credentials once,
   its authenticated calls run one after the other, so `/metrics` starts only when
   `/system/info` has answered. On a very slow server the first `get_health` can therefore report
@@ -581,6 +674,13 @@ for `workflow`, `tag` and `processId` of both tools.
 
 Validation errors that do not depend on a server (schema bounds, time format, an unsupported
 filter, an unsendable character) fail the whole call with `INVALID_INPUT` and carry no `node`.
+Exception (feature 010): for a node with AWS Parameter Store whose credentials are not fetched
+yet, the checks of the node's adapter (an unsupported filter, an unsendable character) run at
+the start of that node's branch, so such an `INVALID_INPUT` is that node's `error` (with `node`)
+and the other nodes are still queried; the same holds for `find_processes` (`workflow`, `tag`).
+Time format, time range, `offset + limit` and the `processId` pattern are checked before any
+node and still fail the whole call
+([Credentials from AWS Parameter Store](#credentials-from-aws-parameter-store-feature-010)).
 Times must fit INUBIT's epoch milliseconds (e.g. `+999999999-12-31T23:59:59Z` or
 `P106751991167300D` are `INVALID_INPUT`).
 
@@ -760,6 +860,9 @@ string[], "error"?: ToolError } ] }`; `warnings` as for `list_inventory`.
   | `list_inventory` `MODULE` | export + `cliExportTimeout` (usage index) + 3 t |
   | `get_inventory_item` `DIAGRAM` | export + 5 t |
   | `get_inventory_item` `MODULE` | 2 × export + `cliExportTimeout` (usage index) + 4 t |
+
+  On a node with AWS Parameter Store each deadline is 11 s longer, for the first fetch of its
+  credentials (feature 010).
 - Bounds: texts are cut to 200 chars; if the detail exceeds the server's share of
   `resultLimits.maxChars`, the list of `workflows` is cut to a quarter of it first
   (`workflowCount` stays), then the oldest versions are dropped (`truncated: true`).
@@ -1498,8 +1601,18 @@ Every history export appends to the check-in comments of the exported workflows 
 - The envelope must be a regular file inside the workspace (real path; not below `.git`,
   `.meta`, `.reports`); an envelope with a `Password` element holding a value other than a
   `${secret:…}` placeholder is refused. The endpoint path must stay below the base address (no
-  scheme, host, `..`, query). Optional basic authentication comes only from the variables
-  `<PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME` / `_E2E_PASSWORD`; redirects are never followed.
+  scheme, host, `..`, query). Optional basic authentication comes only from the node's secret
+  source: the variables `<PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME` / `_E2E_PASSWORD`, or for a node
+  with AWS Parameter Store the parameters `credentials.parameters.e2eUsername` / `e2ePassword`;
+  redirects are never followed.
+- **Parameter Store** (feature 010): the end-to-end credentials of such a node are fetched on its
+  first `run_e2e_test` (together with the node's INUBIT credentials, if not held yet, for the
+  trust store password), before the preview or the send; then they are kept. A failed fetch
+  refuses the call (audited, nothing sent) with the error of
+  [Credentials from AWS Parameter Store](#credentials-from-aws-parameter-store-feature-010),
+  naming the parameters that failed, e.g. `AUTH_FAILED` "dev/node1: end-to-end test credentials
+  from AWS Parameter Store (eu-central-1) are unavailable: not found for
+  /inubit/dev/e2e-password". A rejected end-to-end login never re-reads the parameters.
 - The envelope is sent unchanged with `Content-Type: text/xml; charset=utf-8`, `SOAPAction` and
   a unique test id in the header `X-Inubit-Mcp-Test-Id`. The response goes to
   `.tests/e2e/<auditId>.response.xml` (files older than 30 days are removed); `excerpt` (at most
@@ -1513,7 +1626,8 @@ Every history export appends to the check-in comments of the exported workflows 
   `responseFile`, `excerpt`, `correlation`, `processes`, `errors`, `logEntries` (at most 20 each),
   `truncated`, `warnings`. Errors: `NOT_DEVELOPMENT`, `E2E_FORBIDDEN`, `TARGET_UNKNOWN`,
   `INVALID_INPUT`, `CONFIRMATION_INVALID`, `UNSUPPORTED_VERSION` (not 8.1, unknown, pin
-  contradicted; SOAP only, so no StartCLI client check), `UNREACHABLE`, `TLS_ERROR`.
+  contradicted; SOAP only, so no StartCLI client check), `UNREACHABLE`, `TLS_ERROR`; for a node
+  with AWS Parameter Store also `AUTH_FAILED` or `UNREACHABLE` of a failed fetch.
   The audit records only the payload hash, never the envelope.
 
 **Example prompt**: "Send samples/order.xml to /ibis/ws/Service-01 on dev" →

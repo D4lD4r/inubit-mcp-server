@@ -1125,9 +1125,10 @@ For an installation that loads `INUBIT_*` variables in a start script
 2. Add `credentials.source` and `credentials.parameters` to the group (or the profile) as in the
    example above, and make sure the AWS login works (`aws sso login --profile prod-account`).
 3. Check: `java -jar target/inubit-mcp-server-*.jar --profile acme --check-config` shows
-   `secrets: awsParameterStore` and `ok` after every name (section 6). A variable that the
-   shell still exports for that group is now reported as
-   `Environment variable INUBIT_ACME_PROD_PASSWORD matches no configured group or node (typo?)`.
+   `secrets: awsParameterStore` and `ok` after every name (section 6). A password variable that
+   the shell still exports for that group is now reported as
+   `Environment variable INUBIT_ACME_PROD_PASSWORD matches no configured group or node (typo?)`
+   (only `<PREFIX>_*_PASSWORD` variables are reported; a leftover `_USERNAME` variable is not).
 4. Remove the group's variables from the script's loop (and from `~/.zshrc`) and delete their
    Keychain entries, e.g.
    `security delete-generic-password -s inubit-mcp -a INUBIT_ACME_PROD_PASSWORD`. Once no node
@@ -1332,7 +1333,9 @@ and the StartCLI client (see below), for a node of a target group `deploy: from 
 and the **names** of the variables or parameters used (never their values) — followed by
 warnings and errors. Groups and nodes are named with the profile's terminology. It does not start
 the MCP server and never contacts an INUBIT server; its only network access is reading the
-Parameter Store parameters. The only thing it may create is a missing workspace directory
+Parameter Store parameters (and what the AWS credential chain itself may contact to obtain AWS
+credentials: the IAM Identity Center (SSO/OIDC) endpoints, AWS STS, or the container or instance
+metadata endpoint). The only thing it may create is a missing workspace directory
 with its missing parents (owner-only, `rwx------`; shown as `(created)`), and the only thing it
 runs is the local [StartCLI client check](#startcli-client-check) (`startcli.sh -v`, one node after
 the other, each bounded by the node's `cliTimeout`). Example for the complete example profile of
@@ -1429,7 +1432,7 @@ required name is shown as `(missing)`, with its error. The outcome after a name:
 |---|---|---|
 | `ok` | readable, valid, `SecureString` | — |
 | `not encrypted` | a `String` parameter | warning: `prod/node1: Parameter Store /inubit/prod/username (eu-west-1, profile prod-account) for credentials.parameters.username is not encrypted (type String); store it as SecureString` |
-| `not found` | no such parameter in this region and account, or an empty value | error: `prod/node1: Parameter Store /inubit/prod/node1/password (eu-west-1, profile prod-account) for credentials.parameters.password: not found` |
+| `not found` | no such parameter in this region and account, or an empty value | error: `prod/node1: Parameter Store /inubit/prod/node1/password (eu-west-1, profile prod-account) for credentials.parameters.password: not found`; for an empty value followed by ` (the value is empty)` |
 | `access denied` | the AWS identity may not read or decrypt it ([AWS permissions](#aws-permissions)) | error, as above with `access denied` |
 | `invalid value` | the value breaks a rule ([First use, timeout and back-off](#first-use-timeout-and-back-off)) or is a `StringList` | error, as above with `invalid value` and the rule it breaks |
 | `not checked` | the store could not be asked: see below | error or warning per region and AWS profile |
@@ -1469,7 +1472,10 @@ elsewhere. Without either, the server reads `~/.config/inubit-mcp/config.yaml`. 
 Claude Code was started with.
 
 1. Open a new shell that has the `INUBIT_*` variables (`env | grep -c '^INUBIT_'` shows a
-   count, never print the values) and start `claude` from it.
+   count, never print the values) and start `claude` from it. For a profile whose nodes all read
+   Parameter Store, no `INUBIT_*` variables are needed, only a valid AWS login (e.g.
+   `aws sso login --profile prod-account`, see
+   [AWS credentials and AWS profiles](#aws-credentials-and-aws-profiles)).
 2. `/mcp` shows `inubit-acme` as connected with at least the six read-only tools `list_nodes`,
    `get_health`, `find_processes`, `query_logs`, `list_inventory` and `get_inventory_item`, and
    `check_artifacts`. `export_artifacts` appears when a node has a StartCLI installation
@@ -1509,7 +1515,7 @@ profile is used by the other:
 
 | What | Per profile | Keep apart by |
 |---|---|---|
-| Credentials | variables under the profile's prefix: `INUBIT_ACME_TEST_USERNAME` for `acme`, `INUBIT_GLOBEX_TEST_USERNAME` for `globex` (section 4) | the default prefix `INUBIT_<PROFILE>`; an explicit `credentials.envPrefix` must differ from every other profile's |
+| Credentials | variables under the profile's prefix: `INUBIT_ACME_TEST_USERNAME` for `acme`, `INUBIT_GLOBEX_TEST_USERNAME` for `globex` (section 4); or Parameter Store names in the profile's `credentials.parameters` | the default prefix `INUBIT_<PROFILE>`; an explicit `credentials.envPrefix` must differ from every other profile's. Parameter Store names need no separation: two profiles may read the same parameter |
 | Audit records | `~/.inubit-mcp/acme/audit`, `~/.inubit-mcp/globex/audit`; every record carries `profile` | the default `auditDirectory`; an explicit one must differ from every other profile's |
 | Temporary export data | `inubit-mcp-export-<profile>-<pid>-<random>` below `java.io.tmpdir`, deleted after each export and when the server stops; the name shows the profile name to whoever can list `java.io.tmpdir` (on macOS a per-user directory; on Linux usually the shared `/tmp`) | automatic |
 | Confirmation codes, caches, the 60-s login pause | in the memory of the profile's own process | automatic: a code issued by one profile is refused by the other (`CONFIRMATION_INVALID`) |

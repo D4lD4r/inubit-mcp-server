@@ -75,11 +75,17 @@ development stages and the stage chain: [docs/setup.md](docs/setup.md).
   appended to an owner-only JSON Lines audit log per profile; if the record cannot be written, the
   action is not executed.
 - **Credential guard.** After a rejected login the server does not retry that node's credentials
-  for 60 s, so an assistant cannot lock the INUBIT account out. Passwords and tokens are scrubbed
-  from every result, error message and log line.
-- **Secrets only via environment variables.** Credentials are never read from the YAML file (a
-  credential key there is a startup error) or from tool parameters; StartCLI receives the password
-  on stdin, never as a process argument.
+  for 60 s, so an assistant cannot lock the INUBIT account out: at most one failed login per node
+  per 60 s with environment variables, at most two with AWS Parameter Store (after a rejection
+  the server re-reads the parameters once and allows one login with changed values, so a rotated
+  password needs no restart). Passwords and tokens are scrubbed from every result, error message
+  and log line.
+- **Secrets only from environment variables or AWS Parameter Store.** Each node reads its
+  credentials from environment variables (the default) or from AWS Systems Manager Parameter
+  Store ([details](docs/setup.md#4-credentials-sources)), never from the profile or the
+  conversation: the YAML file names variables or parameters only (a credential value there is a
+  startup error), no tool takes or returns a secret, and no AWS access key is configured.
+  StartCLI receives the password on stdin, never as a process argument.
 - **Local artifact history, never pushed.** `export_artifacts` writes only to the local workspace
   and its local git history; secrets are replaced before anything is written, and nothing is ever
   sent anywhere. `check_artifacts` runs stylesheets without access to the server's environment,

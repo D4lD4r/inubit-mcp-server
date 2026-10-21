@@ -87,6 +87,52 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
   See `docs/setup.md` ("INUBIT version (`versionLine`)", "StartCLI client check") and
   `docs/tools.md` ("INUBIT versions and capabilities (feature 009)", `UNSUPPORTED_VERSION`).
+- Configurable secret sources (feature 010): a node's INUBIT credentials come from environment
+  variables (the default, as before) or from AWS Systems Manager Parameter Store. A profile
+  without the new settings behaves as before. No tool, parameter, result field or error code is
+  new. What changes for existing profiles is listed under "Changed".
+  - `credentials.source` at the top level, on a group or on a node (node before group before
+    profile): `type: environment` (optional `prefix`) or `type: awsParameterStore` with `region`
+    and an optional `awsProfile` of the local AWS configuration. `credentials.parameters` on a
+    group or node names the full Parameter Store name per kind (`username`, `password`,
+    `trustStorePassword`, `e2eUsername`, `e2ePassword`); a node's own name wins over its group's,
+    and the group's names apply only to nodes without their own `source`. The profile holds names
+    only, never a value or an AWS key; a value that is not a valid parameter name is refused
+    without being echoed.
+  - The server starts without contacting AWS. A node's username, password and (if named) trust
+    store password are fetched together on the node's first use (one `GetParameters` request with
+    decryption, bounded by 10 s), shared by concurrent calls and kept in memory for the life of
+    the process; its end-to-end credentials on its first `run_e2e_test`. A failed fetch is not
+    repeated for 30 s. AWS access uses the standard AWS credential chain, or the named AWS
+    profile (SSO and assume-role profiles included). Fetched values pass the same checks as
+    environment variables; a `StringList` is refused, a plain `String` is accepted with a
+    warning in the log.
+  - Rotation: when INUBIT rejects the login of a Parameter Store node, its credentials are read
+    once more; changed values are used from the next call on, without a restart, with exactly one
+    further login, otherwise the node pauses for 60 s as before.
+  - A failed fetch is `AUTH_FAILED` (parameter missing or empty, access denied, invalid value,
+    unknown AWS profile, no AWS credentials) or `UNREACHABLE` (store unreachable, throttled or
+    not answering within 10 s), naming node, region, AWS profile, parameter and failure, never a
+    value or AWS's own message (that goes to the scrubbed log; one `secret.fetch` record per
+    fetch). `AUTH_FAILED` after a rejected login names the parameters ("… in Parameter Store
+    (…); no restart is needed"), and `TLS_ERROR` about the trust store password names its
+    parameter.
+  - `get_health` keeps its time budget: a node whose first fetch does not finish within it is
+    reported as `TIMEOUT` "<node>: credentials not yet available (still fetching from AWS
+    Parameter Store); call get_health again shortly", without any request to that node. The
+    per-node deadlines of `find_processes`, `query_logs`, `list_inventory` and
+    `get_inventory_item` are 11 s longer for Parameter Store nodes, so a slow store fails only
+    that node.
+  - The audited `account` of a Parameter Store node is the fetched username (after a rotation the
+    current one), or `(Parameter Store <username parameter>)` on records written before the first
+    fetch.
+  - `--check-config` reads and validates every configured parameter, never printing a value, and,
+    once the profile uses `credentials.source`, shows per node `secrets: environment` or
+    `secrets: awsParameterStore (<region>[, profile <awsProfile>])` with each name and its outcome
+    (`ok`, `not encrypted`, `not found`, `access denied`, `invalid value`, `not checked`).
+
+  See `docs/setup.md` ("4. Credentials: sources", "The `secrets:` part") and `docs/tools.md`
+  ("Credentials from AWS Parameter Store (feature 010)").
 
 ### Changed
 
@@ -144,12 +190,41 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   verified for <capability>; results may be incomplete" and "the INUBIT version of <node> is
   unknown (<code> at <time>); results are unverified", instead of "… is unsupported in this
   version; the 8.1 adapters are used" and "… assuming 8.1".
+- Deliberate behaviour changes of feature 010:
+  - A `credentials` section on a group or node, refused before as a credential key, now sets
+    `source` and `parameters`. Inside every `credentials` section only the documented keys are
+    accepted (top level `envPrefix` and `source`; group and node `source` and `parameters`); any
+    other key, an AWS access key included, is a startup error naming its path. The error for a
+    credential key in the file now names both sources ("… set the value in the environment
+    variable (…) or store it in AWS Parameter Store and name it in credentials.parameters").
+  - `--check-config` exits 1 also for a configured Parameter Store parameter that is missing,
+    empty, denied or invalid, and for an unknown AWS profile; missing AWS credentials and an
+    unreachable store are warnings ("resolvability not checked"). It may now access the network,
+    but only to read these parameters (and what the AWS credential chain contacts for a login).
+  - The checks of the environment variables (collisions, variables shared with another profile,
+    `<PREFIX>_*_PASSWORD` variables that match no group or node) consider only nodes that read
+    environment variables. A password variable left over for a node that now reads Parameter
+    Store is therefore warned about as matching no configured group or node.
+  - `find_processes` and `query_logs`: for a Parameter Store node whose credentials are not
+    fetched yet, an `INVALID_INPUT` of the node's adapter checks (an unsupported log filter, an
+    unsendable character) is that node's `error`; before, it failed the whole call. Checks that
+    need no node (time format and range, paging, the `processId` pattern) still fail the whole
+    call.
+  - A Parameter Store node allows up to two failed logins per 60 s (the re-read after a rejection
+    allows one further login with changed values); a node with environment variables keeps one.
 
 ### Fixed
 
 - `check_artifacts` decodes percent-escaped repository paths before the existence check, so a
   reference to e.g. `a%20b.xsd` no longer gives a false `REPOSITORY_REF_MISSING`; its messages
   show the decoded path.
+
+### Dependencies
+
+- AWS SDK for Java v2 `2.54.3` (Apache-2.0, pinned by its BOM) for Parameter Store: `ssm`, `sso`,
+  `ssooidc`, `sts` and `url-connection-client` as the only HTTP client (the Netty and Apache
+  HTTP clients are excluded), used only in `adapter/aws`; the modules are listed in
+  `THIRD-PARTY-NOTICES.md`. The executable JAR grows from about 14 MB to about 26 MB.
 
 ## [0.5.3] - 2026-10-17
 

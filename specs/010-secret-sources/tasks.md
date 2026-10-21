@@ -386,11 +386,16 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   container/instance metadata endpoint); section 7 (step 1 "Open a new shell that has the `INUBIT_*`
   variables" and the "Credentials" row of "Several profiles side by side") should mention Parameter
   Store profiles.
-- [ ] T018 [P] `docs/tools.md` (errors from contracts/mcp-tools-delta.md, `get_health` part reason,
+- [X] T018 [P] `docs/tools.md` (errors from contracts/mcp-tools-delta.md, `get_health` part reason,
   fan-out behaviour, `run_e2e_test`), `README.md` "Safety model" ("Secrets only via environment
   variables" → environment variables or Parameter Store, never in the profile or the
   conversation), `CHANGELOG.md` `[Unreleased]` (feature 010, the new dependency). Every quoted value
   checked against the code.
+  Carry-over (T018 review r1), docs/tools.md: the `get_health` field table — `reachable` row should add
+  "or the node's credentials could not be prepared (feature 010)" and the `error` row AUTH_FAILED
+  (~:435/:444); reword the `run_e2e_test` sentence (~:1609) so the main credentials are fetched first
+  (for the trust store password) and the e2e credentials separately; "no result says where a node's
+  secrets come from" (~:268) → "no result field …".
 - [ ] T019 Validate per quickstart.md: `mvn -q -o clean verify`; `mvn -q -o
   -Dtest=NoCustomerIdentifiersTest test` with the local lists (it must run, not skip); record the
   outcome (counts only) in `quickstart.md`. The optional live check only with the person's
