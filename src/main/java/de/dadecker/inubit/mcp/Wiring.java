@@ -245,14 +245,14 @@ final class Wiring implements AutoCloseable {
             id -> byId.get(id).inventory().owner(), timeouts::get,
             id -> byId.get(id).cliExportTimeout(), id -> byId.get(id).cliTimeout(),
             CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, terms, versionGate);
-        // a plain HashMap is fine: it is filled here once, never modified afterwards, and safely
-        // published to the request threads through the final fields of this object and the
-        // services; lookups of unknown ids return null, which the guard treats as no write access
-        Map<NodeId, WritePolicy> policies = new HashMap<>();
-        servers.forEach(server -> policies.put(server.id(), policy(server, credentials)));
+        // feature 010 (research R-16): built per lookup, so that the account of an AWS node is
+        // the username fetched after startup; a lookup never fetches. Unknown ids give null,
+        // which the guard treats as no write access
+        Function<NodeId, WritePolicy> policies = id -> byId.containsKey(id)
+            ? policy(byId.get(id), secrets.get(id)) : null;
         AuditLog audit = new AuditLog(config.auditDirectory(), scrubber);
         this.processControl = new ProcessControlService(
-            new WriteGuard(targets, policies::get, gateways, versionGate), policies::get,
+            new WriteGuard(targets, policies, gateways, versionGate), policies,
             gateways, new ConfirmationRegistry(clock.clock()), audit, clock.clock(),
             UUID::randomUUID, profile.name());
         // feature 003: the workspace history uses the system git (not the StartCLI launcher)
@@ -285,7 +285,7 @@ final class Wiring implements AutoCloseable {
                 chain.targets().get(group)).map(StageChain.ChainLink::mode),
             config.defaults().effectiveDeployConfirmationTtl());
         Function<NodeId, ImportService.Account> accounts = id -> new ImportService.Account(
-            policies.get(id).account().orElse("unknown"), byId.get(id).baseUrl().getHost());
+            policies.apply(id).account().orElse("unknown"), byId.get(id).baseUrl().getHost());
         WriteChallengeRegistry challenges = new WriteChallengeRegistry(clock.clock());
         Path backups = BackupStore.defaultRoot(Path.of(System.getProperty("user.home")),
             profile.name());
@@ -402,13 +402,19 @@ final class Wiring implements AutoCloseable {
             .map(SourcedValue::value);
     }
 
-    /** The write settings of {@code server} with the INUBIT account for the audit. */
-    private static WritePolicy policy(EffectiveNodeConfig server,
-        CredentialResolution credentials) {
-        Optional<String> account = credentials.all().stream()
-            .filter(resolved -> resolved.node().equals(server.id()))
-            .findFirst()
-            .flatMap(resolved -> resolved.username().map(SourcedValue::value));
+    /**
+     * The write settings of {@code server} with the INUBIT account for the audit (research
+     * R-16): the username {@code secrets} hold (an environment node's startup username, an AWS
+     * node's fetched one), else for an AWS node {@code (Parameter Store <username parameter>)};
+     * never fetches.
+     */
+    private static WritePolicy policy(EffectiveNodeConfig server, NodeSecrets secrets) {
+        Optional<String> account = secrets.held()
+            .flatMap(held -> held.username().map(SourcedValue::value));
+        if (account.isEmpty() && server.secretPlan().aws()) {
+            account = Optional.of("(Parameter Store " + server.secretPlan().names().orElseThrow()
+                .username().orElseThrow() + ")");
+        }
         return new WritePolicy(server.id(), server.production(), server.write().enabled(),
             server.write().productionOptIn(),
             server.write().confirmation() == ConfirmationMode.CLIENT

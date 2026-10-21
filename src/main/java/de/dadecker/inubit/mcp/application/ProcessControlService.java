@@ -132,7 +132,8 @@ public final class ProcessControlService {
 
     /**
      * @param policies the write settings of each configured server (for account and stage of
-     *                 refusals); the same as the guard's
+     *                 refusals, and the account of every record, looked up as it is written);
+     *                 the same as the guard's
      * @param ids      the audit ids
      * @param profile  the profile name every audit record carries (002 research D-7)
      */
@@ -471,10 +472,14 @@ public final class ProcessControlService {
         AuditRecord record(UUID auditId, AuditRecord.Step step, Map<String, String> inputs,
             AuditOutcome outcome, Optional<String> reason) {
             Optional<WritePolicy> known = known();
+            // feature 010 (research R-16): the account as of now, not of the admission; an AWS
+            // node's username is known only once the call has fetched it
+            Optional<String> account = known.map(p -> policies.apply(p.node()))
+                .flatMap(WritePolicy::account);
             return new AuditRecord(auditId, clock.instant(), profile,
                 known.map(p -> p.node().value()).orElse(bounded(request.node())), group(),
-                request.action().capability(), step, inputs,
-                known.flatMap(WritePolicy::account), outcome, reason, request.mcpClient());
+                request.action().capability(), step, inputs, account, outcome, reason,
+                request.mcpClient());
         }
 
         /** Audits {@code error} as {@code REFUSED}; discards a presented code. */

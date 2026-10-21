@@ -273,7 +273,7 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   (fetched only when an e2e test runs; failure text; a failed fetch is retried after the back-off
   instead of a cached broken client; SOAP TLS with a trust store password from the fake store;
   environment unchanged).
-- [ ] T020 [US2] Audited account per source (research R-16, Constitution VII): `WritePolicy`
+- [X] T020 [US2] Audited account per source (research R-16, Constitution VII): `WritePolicy`
   (`main/domain/model/WritePolicy.java`) keeps `Optional<String> account`; `main/Wiring.java` builds
   each node's policy (`policy(...)`) and its entry of the `accounts` function (used by the import,
   deploy, tag and end-to-end audits and the INUBIT check-in comments) at lookup time: environment
