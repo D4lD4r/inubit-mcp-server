@@ -124,6 +124,9 @@ class MainProcessTest {
         ProcessBuilder builder = new ProcessBuilder(java.toString(),
             "-cp", System.getProperty("java.class.path"),
             "-Dlogback.configurationFile=logback.xml", "-Duser.home=" + home,
+            // the cleared environment has no locale; without these the summary's "←" is
+            // printed as "?" on hosts whose default console encoding is not UTF-8
+            "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8",
             Main.class.getName(), "--check-config", "--config", config.toString());
         Map<String, String> environment = builder.environment();
         environment.clear();
