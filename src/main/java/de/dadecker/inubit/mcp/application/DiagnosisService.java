@@ -24,12 +24,14 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.ToIntFunction;
 import java.util.regex.Pattern;
@@ -43,14 +45,18 @@ import java.util.regex.Pattern;
  *       ({@code TARGET_UNKNOWN}), {@code since}/{@code until} (ISO-8601 with offset, or a
  *       duration such as {@code PT24H} meaning "now minus the duration"), {@code offset + limit
  *       <= 10000}, the {@code processId} pattern, and the log filters of every resolved server
- *       ({@code LogPort.validate}); a failure fails the whole call.
+ *       ({@code LogPort.validate}); a failure fails the whole call. Feature 010 (R-8): a server
+ *       whose credentials are not held yet (first fetch from AWS Parameter Store pending) is
+ *       checked at the start of its own branch instead, so that no wait for a fetch happens
+ *       outside its deadline; a failure there is that server's {@code error}.
  *   <li>Servers are queried in parallel ({@link FanOut}); results come in config order, one per
  *       server, a failed server only gets its {@code error}. The ports are taken without waiting
  *       for the adapter selection's version detection, and only REST is used (no CLI home
  *       needed). The per-server deadline is three times the server timeout plus
  *       {@link #FAN_OUT_GRACE}: while the credentials are unconfirmed the first request runs
  *       alone (credential guard), the others after it; then the version gate's detection
- *       (feature 009) and the query.
+ *       (feature 009) and the query. A node whose secrets come from AWS Parameter Store adds
+ *       the {@link SecretTiming} allowance for their first fetch (feature 010).
  *   <li>Feature 009 (research D-5, D-6, FR-006, FR-009): before its query, each server's call
  *       asks the {@link VersionGate} for {@code DIAGNOSIS} ({@code READ}, {@code {REST}}), which
  *       detects the version of an {@code AUTO} node on first use; its warnings go into that
@@ -136,6 +142,7 @@ public final class DiagnosisService {
     private final Clock clock;
     private final ToIntFunction<Object> sizeOf;
     private final VersionGate gate;
+    private final SecretTiming secretTiming;
 
     /**
      * @param timeouts          the REST timeout of each server
@@ -144,11 +151,12 @@ public final class DiagnosisService {
      * @param clock             "now" for durations, {@code timeInState} and {@code hanging}
      * @param sizeOf            an item's serialized size in chars (the tool result's JSON)
      * @param gate              feature 009: the version gate
+     * @param secretTiming      feature 010: the fan-out allowance for fetching the secrets
      */
     public DiagnosisService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
         ResultLimiter limiter, Function<NodeId, Duration> timeouts,
         Function<NodeId, Duration> hangingThresholds, Clock clock,
-        ToIntFunction<Object> sizeOf, VersionGate gate) {
+        ToIntFunction<Object> sizeOf, VersionGate gate, SecretTiming secretTiming) {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.fanOut = Objects.requireNonNull(fanOut, "fanOut");
@@ -158,6 +166,7 @@ public final class DiagnosisService {
         this.clock = Objects.requireNonNull(clock, "clock");
         this.sizeOf = Objects.requireNonNull(sizeOf, "sizeOf");
         this.gate = Objects.requireNonNull(gate, "gate");
+        this.secretTiming = Objects.requireNonNull(secretTiming, "secretTiming");
     }
 
     /**
@@ -176,11 +185,13 @@ public final class DiagnosisService {
         Function<NodeId, ProcessQuery> queryOf = server -> new ProcessQuery(request.states(),
             request.hangingOnly(), threshold(request, server), request.workflow(),
             request.tag(), since, until, request.offset(), request.limit(), now);
-        for (NodeId server : servers) {
-            validate(() -> gateways.processes(server).validate(queryOf.apply(server)));
-        }
+        Set<NodeId> unchecked = validateHeld(servers,
+            server -> gateways.processes(server).validate(queryOf.apply(server)));
         ResultLimiter shared = limiter.share(servers.size());
         return fanOut.run(servers, this::deadline, server -> {
+            if (unchecked.contains(server)) {
+                gateways.processes(server).validate(queryOf.apply(server));
+            }
             List<String> warnings = admit("find_processes", server);
             ProcessQuery query = queryOf.apply(server);
             Duration threshold = query.hangingThreshold();
@@ -217,11 +228,13 @@ public final class DiagnosisService {
         LogQuery query = new LogQuery(request.logType(), since, until, request.workflow(),
             request.processId(), request.severities(), request.text(), request.offset(),
             request.limit());
-        for (NodeId server : servers) {
-            validate(() -> gateways.logs(server).validate(query));
-        }
+        Set<NodeId> unchecked = validateHeld(servers,
+            server -> gateways.logs(server).validate(query));
         ResultLimiter shared = limiter.share(servers.size());
         return fanOut.run(servers, this::deadline, server -> {
+            if (unchecked.contains(server)) {
+                gateways.logs(server).validate(query);
+            }
             List<String> warnings = admit("query_logs", server);
             Page<LogEntry> page = gateways.logs(server).query(query);
             List<LogEntry> items = new ArrayList<>(page.items());
@@ -245,6 +258,23 @@ public final class DiagnosisService {
      * A port's check without network: {@code INVALID_INPUT} fails the whole call; other
      * failures (e.g. an unusable trust store) are reported per server by the fan-out.
      */
+    /**
+     * Runs {@code check} now for every server whose credentials are held and returns the
+     * others, unchecked: taking their port would wait for their first fetch, so they are checked
+     * at the start of their own fan-out branch, within their deadline (feature 010, R-8).
+     */
+    private Set<NodeId> validateHeld(List<NodeId> servers, Consumer<NodeId> check) {
+        Set<NodeId> unchecked = new HashSet<>();
+        for (NodeId server : servers) {
+            if (gateways.credentialsHeld(server)) {
+                validate(() -> check.accept(server));
+            } else {
+                unchecked.add(server);
+            }
+        }
+        return unchecked;
+    }
+
     private static void validate(Runnable check) {
         try {
             check.run();
@@ -258,10 +288,13 @@ public final class DiagnosisService {
     /**
      * {@code 3 × timeout} (guard wait, the version gate's detection, the query) plus
      * {@link #FAN_OUT_GRACE}. The detection is always counted: whether the gate detects is only
-     * known inside the call (first use, a stale version, the end of the back-off).
+     * known inside the call (first use, a stale version, the end of the back-off). Feature 010:
+     * plus the {@link SecretTiming#allowance fetch allowance} of an AWS node, always, for the
+     * same reason.
      */
     Duration deadline(NodeId server) {
-        return timeouts.apply(server).multipliedBy(3).plus(FAN_OUT_GRACE);
+        return timeouts.apply(server).multipliedBy(3).plus(FAN_OUT_GRACE)
+            .plus(secretTiming.allowance(server));
     }
 
     private Duration threshold(ProcessRequest request, NodeId server) {

@@ -90,8 +90,8 @@ import org.slf4j.LoggerFactory;
  * {@link NodeSecrets#current} for at most {@link #SECRETS_WAIT}, holding no lock of the slot, so
  * an interrupted caller returns at once even while another caller's fetch is pending; a failed
  * fetch fails the call before anything is sent to INUBIT. The client is built with the
- * credentials, because the trust store password is part of its TLS context. Construction and
- * {@link #knownGateway} never start a fetch.
+ * credentials, because the trust store password is part of its TLS context. Construction,
+ * {@link #credentialsHeld} and {@link #knownGateway} never start a fetch.
  */
 public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseable {
 
@@ -194,6 +194,11 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
     @Override
     public ProcessControlPort processControl(NodeId server) {
         return slot(server).ports().processControl();
+    }
+
+    @Override
+    public boolean credentialsHeld(NodeId server) {
+        return slot(server).secrets.held().isPresent();
     }
 
     @Override

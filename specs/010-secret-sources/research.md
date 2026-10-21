@@ -38,7 +38,8 @@ Decisions R-1 … R-17. Each: decision, rationale, alternatives considered.
   - `adapter` (root): `NodeSecrets` (per-node lazy credentials: shared fetch, 30 s back-off, re-read)
     and the extended `CredentialGuard`.
   - No secret value or secret type crosses into `domain`/`application`. The only domain additions
-    are the value-free `CredentialState` enum and `GatewayFactory.prepareCredentials` (R-9); the
+    are the value-free `CredentialState` enum, `GatewayFactory.prepareCredentials` (R-9) and the
+    non-fetching `GatewayFactory.credentialsHeld(NodeId)` (R-8, added in T013); the
     application changes are the fan-out deadlines (R-8), `HealthService` (R-9) and `SecretTiming`.
   - `PackageBoundaryTest`: new rule "only `adapter/aws` uses `software/amazon/`", `adapter/aws`
     must not reach `mcp`/`application`, and `adapter/aws` is added to the package-existence list.
@@ -162,6 +163,13 @@ Decisions R-1 … R-17. Each: decision, rationale, alternatives considered.
   fetch timeout is not counted against the tool's own request timeouts.
 - **Rationale**: the lesson of 009 T019: anything a per-node branch may wait for must be in its
   deadline, otherwise a slow store turns a partial result into a fan-out `TIMEOUT`.
+- **Addendum (T013 review)**: `find_processes` and `query_logs` validate their input per node
+  before the fan-out; that validation acquires the node's port and would wait for a first fetch
+  outside every deadline. They now validate up front only nodes whose credentials are held
+  (`GatewayFactory.credentialsHeld`, default `true`, never fetches) and validate the other nodes at
+  the start of their own branch, so a version-specific `INVALID_INPUT` of a not-yet-fetched AWS node
+  becomes that node's error; input checks that need no node (time range, paging, id patterns) still
+  fail the whole call before any server contact.
 
 ## R-9 `get_health` keeps its time budget
 

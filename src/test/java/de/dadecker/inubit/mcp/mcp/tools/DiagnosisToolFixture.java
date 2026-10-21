@@ -15,6 +15,7 @@ import de.dadecker.inubit.mcp.application.DiagnosisService;
 import de.dadecker.inubit.mcp.application.FanOut;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
+import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
@@ -85,7 +86,8 @@ final class DiagnosisToolFixture implements AutoCloseable {
         DiagnosisService diagnosis = new DiagnosisService(gateways, new TargetResolver(ids),
             new FanOut(), ResultLimiter.withDefaults(), timeouts::get, thresholds::get,
             Clock.systemUTC(), ResultJson::size,
-            gateWithoutClients(versions, gateways, CapabilityMatrix.production()));
+            gateWithoutClients(versions, gateways, CapabilityMatrix.production()),
+            SecretTiming.NONE);
         client = McpTestClient.start(List.of(tool.apply(diagnosis)), scrubber);
         client.initialize();
     }

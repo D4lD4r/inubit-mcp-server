@@ -47,9 +47,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import tools.jackson.databind.JsonNode;
@@ -85,6 +88,15 @@ class InventoryServiceTest {
         node -> Duration.ofMinutes(10));
     private final FakeVersionDetection detection = new FakeVersionDetection(versions);
     private CapabilityMatrix matrix = CapabilityMatrix.production();
+    /** Feature 010: the per-node fetch allowance (no AWS node unless a test sets one). */
+    private SecretTiming secretTiming = SecretTiming.NONE;
+    /** The REST timeout of every server. */
+    private Duration timeout = TIMEOUT;
+    /**
+     * Feature 010: runs on every acquisition of an inventory port, where
+     * {@code AdapterGatewayFactory} waits for the first fetch of an AWS node.
+     */
+    private volatile Consumer<NodeId> acquisition = server -> { };
 
     private FakeInventory port(NodeId server) {
         return ports.computeIfAbsent(server, FakeInventory::new);
@@ -119,6 +131,7 @@ class InventoryServiceTest {
 
             @Override
             public InventoryPort inventory(NodeId server) {
+                acquisition.accept(server);
                 return port(server);
             }
 
@@ -134,9 +147,9 @@ class InventoryServiceTest {
         };
         InventoryCache cache = new InventoryCache(clock, server -> Duration.ofMinutes(10));
         return new InventoryService(gateways, new TargetResolver(SERVERS), new FanOut(), limiter,
-            cache, server -> Optional.of("OWNERS"), server -> TIMEOUT, server -> EXPORT_TIMEOUT,
+            cache, server -> Optional.of("OWNERS"), server -> timeout, server -> EXPORT_TIMEOUT,
             server -> CLI_TIMEOUT, KILL_GRACES, ResultJson::size, Terminology.DEFAULT,
-            gateWithoutClients(versions, detection, matrix));
+            gateWithoutClients(versions, detection, matrix), secretTiming);
     }
 
     private static ListRequest list(String target, InventoryKind kind) {
@@ -943,6 +956,52 @@ class InventoryServiceTest {
         assertThat(service.itemDeadline(InventoryKind.MODULE, DEV))
             .isEqualTo(probe.plus(export.multipliedBy(2)).plus(EXPORT_TIMEOUT)
                 .plus(TIMEOUT.multipliedBy(5)).plus(grace));
+    }
+
+    @Test
+    void theFanOutDeadlinesOfAnAwsNodeAddTheFetchAllowance() {
+        // feature 010 (T013, research R-8): always for an AWS node (whether or not its secrets
+        // are held already), never for the others
+        InventoryService environment = service();
+        secretTiming = new SecretTiming(Set.of(QA1), Duration.ofSeconds(10));
+        InventoryService service = service();
+        Duration allowance = Duration.ofSeconds(10).plusSeconds(1);
+
+        for (InventoryKind kind : InventoryKind.values()) {
+            assertThat(service.listDeadline(kind, QA1))
+                .isEqualTo(environment.listDeadline(kind, QA1).plus(allowance));
+            assertThat(service.itemDeadline(kind, QA1))
+                .isEqualTo(environment.itemDeadline(kind, QA1).plus(allowance));
+            assertThat(service.listDeadline(kind, DEV))
+                .isEqualTo(environment.listDeadline(kind, DEV));
+            assertThat(service.itemDeadline(kind, DEV))
+                .isEqualTo(environment.itemDeadline(kind, DEV));
+        }
+    }
+
+    @Test
+    void aSlowFirstFetchGivesThatNodesResultNotAFanOutTimeout() {
+        // feature 010 (T013, research R-8): acquiring the port of qa/node1 waits 3 s for its
+        // first fetch, longer than the 1.3 s diagram list deadline without the allowance
+        timeout = Duration.ofMillis(100);
+        secretTiming = new SecretTiming(Set.of(QA1), Duration.ofSeconds(10));
+        AtomicBoolean fetched = new AtomicBoolean();
+        acquisition = server -> {
+            if (server.equals(QA1) && fetched.compareAndSet(false, true)) {
+                try {
+                    Thread.sleep(Duration.ofSeconds(3));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("interrupted");
+                }
+            }
+        };
+
+        List<NodeResult<Listing>> results = service().list(list("qa", InventoryKind.DIAGRAM));
+
+        assertThat(fetched).isTrue();
+        assertThat(results).extracting(NodeResult::node).containsExactly(QA1, QA2);
+        assertThat(results).allSatisfy(result -> assertThat(result.error()).isEmpty());
     }
 
     /** A configurable inventory of one server that counts its calls. */

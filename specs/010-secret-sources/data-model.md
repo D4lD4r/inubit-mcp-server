@@ -99,6 +99,8 @@ Shared value checks (R-17): `isSafeUsername`, `MIN_SCRUBBED_LENGTH` = 4, non-emp
 
 `READY` | `PENDING`. `default CredentialState prepareCredentials(NodeId, Duration bound)` returns
 `READY`; `AdapterGatewayFactory` overrides it (R-9). A failed fetch throws its `ToolErrorException`.
+`default boolean credentialsHeld(NodeId)` returns `true`; `AdapterGatewayFactory` answers from
+`NodeSecrets.held()` without fetching or waiting (R-8 addendum, T013).
 
 ## WritePolicy account (domain/model, unchanged shape)
 

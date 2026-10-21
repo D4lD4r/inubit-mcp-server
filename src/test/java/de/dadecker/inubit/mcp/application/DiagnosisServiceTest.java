@@ -48,6 +48,8 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import org.junit.jupiter.api.Test;
@@ -83,6 +85,21 @@ class DiagnosisServiceTest {
         node -> Duration.ofMinutes(10));
     private final FakeVersionDetection detection = new FakeVersionDetection(versions);
     private CapabilityMatrix matrix = CapabilityMatrix.production();
+    /** Feature 010: the per-node fetch allowance (no AWS node unless a test sets one). */
+    private SecretTiming secretTiming = SecretTiming.NONE;
+    /**
+     * Feature 010: the nodes whose secrets are not held yet; acquiring one of their ports runs
+     * {@link #fetch} first, as {@code AdapterGatewayFactory} waits for the first fetch there.
+     */
+    private final Set<NodeId> pendingSecrets = ConcurrentHashMap.newKeySet();
+    /** Feature 010: the first fetch of a pending node (default: succeeds at once). */
+    private volatile Consumer<NodeId> fetch = pendingSecrets::remove;
+
+    private void acquire(NodeId server) {
+        if (pendingSecrets.contains(server)) {
+            fetch.accept(server);
+        }
+    }
 
     private FakeProcesses processes(NodeId server) {
         return processes.computeIfAbsent(server, s -> new FakeProcesses());
@@ -110,12 +127,19 @@ class DiagnosisServiceTest {
             }
 
             @Override
+            public boolean credentialsHeld(NodeId server) {
+                return !pendingSecrets.contains(server);
+            }
+
+            @Override
             public ProcessQueryPort processes(NodeId server) {
+                acquire(server);
                 return DiagnosisServiceTest.this.processes(server);
             }
 
             @Override
             public LogPort logs(NodeId server) {
+                acquire(server);
                 return DiagnosisServiceTest.this.logs(server);
             }
 
@@ -136,7 +160,7 @@ class DiagnosisServiceTest {
         };
         return new DiagnosisService(gateways, new TargetResolver(SERVERS), new FanOut(),
             limiter, server -> TIMEOUT, thresholds::get, clock, item -> sizes.apply(item),
-            gateWithoutClients(versions, detection, matrix));
+            gateWithoutClients(versions, detection, matrix), secretTiming);
     }
 
     private static ProcessRequest processRequest(String target) {
@@ -493,6 +517,106 @@ class DiagnosisServiceTest {
         // feature 009 (T012 review r1): the version gate's detection adds one timeout
         assertThat(service().deadline(DEV))
             .isEqualTo(TIMEOUT.multipliedBy(3).plus(DiagnosisService.FAN_OUT_GRACE));
+    }
+
+    @Test
+    void theFanOutDeadlineOfAnAwsNodeAddsTheFetchAllowance() {
+        // feature 010 (T013, research R-8): always for an AWS node, never for the others
+        secretTiming = new SecretTiming(Set.of(QA1), Duration.ofSeconds(10));
+        DiagnosisService service = service();
+        Duration base = TIMEOUT.multipliedBy(3).plus(DiagnosisService.FAN_OUT_GRACE);
+
+        assertThat(service.deadline(QA1)).isEqualTo(base.plusSeconds(10).plusSeconds(1));
+        assertThat(service.deadline(DEV)).isEqualTo(base);
+    }
+
+    @Test
+    void aSlowFirstFetchDelaysNoOtherNodeAndGivesThatNodesErrorNotAFanOutTimeout() {
+        // feature 010 (T013, research R-8): acquiring the port of qa/node1 waits for its first
+        // fetch. The fetch ends only after qa/node2 was queried (no node waits for another), and
+        // 3 s later still, longer than the 1.9 s deadline without the allowance; then it fails
+        secretTiming = new SecretTiming(Set.of(QA1), Duration.ofSeconds(10));
+        pendingSecrets.add(QA1);
+        CountDownLatch otherQueried = new CountDownLatch(1);
+        Set<Thread> fetchThreads = ConcurrentHashMap.newKeySet();
+        fetch = node -> {
+            fetchThreads.add(Thread.currentThread());
+            boolean released;
+            try {
+                released = otherQueried.await(10, TimeUnit.SECONDS);
+                Thread.sleep(Duration.ofSeconds(3));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted");
+            }
+            if (!released) {
+                throw new IllegalStateException("qa/node2 was not queried while qa/node1 fetched");
+            }
+            throw new ToolErrorException(ToolError.of(ErrorCode.UNREACHABLE,
+                "AWS Parameter Store did not answer", "cause", "next").withNode(node));
+        };
+        processes(QA2).answer = query -> {
+            otherQueried.countDown();
+            return page(List.of(), query.offset(), query.limit(), 0, false);
+        };
+        Thread caller = Thread.currentThread();
+
+        List<NodeResult<NodePage<ProcessInstance>>> results = service().findProcesses(
+            processRequest("qa"));
+
+        assertThat(fetchThreads).as("fetched in the node's own branch only").hasSize(1)
+            .doesNotContain(caller);
+        assertThat(results.get(0).error()).hasValueSatisfying(error ->
+            assertThat(error.code()).isEqualTo(ErrorCode.UNREACHABLE));
+        assertThat(results.get(1).isSuccess()).isTrue();
+        assertThat(processes(QA1).validated()).isEmpty();
+    }
+
+    @Test
+    void anInvalidQueryOfANodeWithHeldSecretsFailsTheCallBeforeAnyFetchOrQuery() {
+        // feature 010 (T013): nodes whose secrets are held are still validated up front
+        pendingSecrets.add(QA1);
+        AtomicInteger fetches = new AtomicInteger();
+        fetch = node -> fetches.incrementAndGet();
+        logs(QA2).validator = query -> {
+            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT, "bad filter",
+                "cause", "next"));
+        };
+
+        ToolError error = errorOf(() -> service().queryLogs(logRequest("qa",
+            LogType.SYSTEM_LOG)));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(fetches).hasValue(0);
+        assertThat(logs(QA1).queries()).isEmpty();
+        assertThat(logs(QA2).queries()).isEmpty();
+    }
+
+    @Test
+    void aNodeWithoutHeldSecretsIsValidatedInItsOwnBranchAfterItsFetch() {
+        // feature 010 (T013): its INVALID_INPUT becomes that node's error only
+        pendingSecrets.add(QA1);
+        Set<Thread> fetchThreads = ConcurrentHashMap.newKeySet();
+        fetch = node -> {
+            fetchThreads.add(Thread.currentThread());
+            pendingSecrets.remove(node);
+        };
+        logs(QA1).validator = query -> {
+            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT, "bad filter",
+                "cause", "next"));
+        };
+        Thread caller = Thread.currentThread();
+
+        List<NodeResult<NodePage<LogEntry>>> results = service().queryLogs(logRequest("qa",
+            LogType.SYSTEM_LOG));
+
+        assertThat(fetchThreads).singleElement().isNotEqualTo(caller);
+        assertThat(results.get(0).error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+            assertThat(error.node()).contains(QA1);
+        });
+        assertThat(logs(QA1).queries()).isEmpty();
+        assertThat(results.get(1).isSuccess()).isTrue();
     }
 
     @Test

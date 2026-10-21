@@ -283,13 +283,17 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   carry the fetched username in their audit records; the check-in comment of an import carries it
   too, never the placeholder; a refusal before any fetch carries the placeholder; environment nodes
   unchanged).
-- [ ] T013 [US2] Fan-out deadlines (R-8): `main/application/SecretTiming.java`
+- [X] T013 [US2] Fan-out deadlines (R-8): `main/application/SecretTiming.java`
   (`allowance(NodeId)`: 10 s + 1 s grace for AWS nodes, zero otherwise; built in `Wiring` from the
   plans); `InventoryService.listDeadline`/`itemDeadline` and `DiagnosisService.deadline` add it
   (always for AWS nodes, like the 009 detection and probe allowances). Test first:
   `test/application/InventoryServiceTest.java` and `DiagnosisServiceTest.java` (deadline arithmetic
   with and without an AWS node; a store slower than the request timeout yields that node's error
   or partial result, not a fan-out `TIMEOUT`).
+  Carry-over (T013 review r2): move the dangling Javadoc of `DiagnosisService.validate(Runnable)` back
+  above its method (the `validateHeld` Javadoc was inserted in between); qualify the tool Javadocs
+  `QueryLogsTool` (~:18-20) and `FindProcessesTool` (~:15) ("fails the whole call"): a node whose
+  secrets are not fetched yet is validated in its own branch (research R-8 addendum).
 - [ ] T014 [US2] `get_health` budget (R-9, contracts/mcp-tools-delta.md): in
   `main/application/HealthService.java` `checkServer` calls `gateways.prepareCredentials(server,
   <what is left of the budget>)` before `monitoring()`/`knownGateway()`; `PENDING` → a failed report

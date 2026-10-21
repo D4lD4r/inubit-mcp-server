@@ -20,6 +20,7 @@ import de.dadecker.inubit.mcp.application.InventoryCache;
 import de.dadecker.inubit.mcp.application.InventoryService;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
+import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
@@ -123,7 +124,8 @@ final class InventoryToolFixture implements AutoCloseable {
             id -> byId.get(id).cliExportTimeout(), id -> byId.get(id).cliTimeout(),
             CliRunner.KILL_GRACE.multipliedBy(2),
             ResultJson::size, Terminology.DEFAULT,
-            gateWithoutClients(versions, gateways, CapabilityMatrix.production()));
+            gateWithoutClients(versions, gateways, CapabilityMatrix.production()),
+            SecretTiming.NONE);
         client = McpTestClient.start(List.of(tool.apply(inventory)), scrubber);
         client.initialize();
     }

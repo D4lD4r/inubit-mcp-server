@@ -121,7 +121,8 @@ class InventoryOwnerTest {
                 node -> Duration.ofMinutes(10)),
             owners::get, node -> Duration.ofSeconds(5), node -> Duration.ofSeconds(120),
             node -> Duration.ofSeconds(30), Duration.ofSeconds(4), ResultJson::size, CUSTOM,
-            gateWithoutClients(versions, detection, CapabilityMatrix.production()));
+            gateWithoutClients(versions, detection, CapabilityMatrix.production()),
+            SecretTiming.NONE);
     }
 
     private static void assertNotConfigured(NodeResult<?> result) {

@@ -39,7 +39,10 @@ environment-variable text.
 `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item` (and every tool addressing
 several nodes): each node's branch fetches that node's secrets on first use; the per-node deadline
 includes the fetch allowance (10 s + grace) for AWS nodes, so a slow store gives that node's error
-or partial result, never a fan-out `TIMEOUT`.
+or partial result, never a fan-out `TIMEOUT`. `find_processes` and `query_logs` validate a node
+whose secrets are not fetched yet at the start of its own branch: a version-specific
+`INVALID_INPUT` for that node is its own error, not a failure of the whole call (checks that need
+no node, such as time range and paging, still fail the whole call before any server contact).
 
 ## `list_nodes`
 

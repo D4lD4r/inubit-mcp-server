@@ -93,7 +93,9 @@ import java.util.stream.Stream;
  *       detects is only known inside the call (first use, a stale version, the end of the
  *       back-off); a call with a StartCLI part (module lists, all details) adds the gate's
  *       client probe ({@code cliTimeout} plus the time to stop StartCLI, FR-002), always, for
- *       the same reason; plus {@link #FAN_OUT_GRACE}.
+ *       the same reason; a node whose secrets come from AWS Parameter Store adds the
+ *       {@link SecretTiming} allowance for their first fetch, always (feature 010); plus
+ *       {@link #FAN_OUT_GRACE}.
  * </ul>
  */
 public final class InventoryService {
@@ -180,6 +182,7 @@ public final class InventoryService {
     private final ToIntFunction<Object> sizeOf;
     private final Terminology terms;
     private final VersionGate gate;
+    private final SecretTiming secretTiming;
 
     /**
      * @param owners         the effective {@code inventory.owner} of each node; empty if none is
@@ -193,12 +196,14 @@ public final class InventoryService {
      * @param sizeOf         a value's serialized size in chars (the tool result's JSON)
      * @param terms          the display names of the levels in messages
      * @param gate           feature 009: the version gate
+     * @param secretTiming   feature 010: the fan-out allowance for fetching the secrets
      */
     public InventoryService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
         ResultLimiter limiter, InventoryCache cache, Function<NodeId, Optional<String>> owners,
         Function<NodeId, Duration> timeouts, Function<NodeId, Duration> exportTimeouts,
         Function<NodeId, Duration> cliTimeouts, Duration exportStopGrace,
-        ToIntFunction<Object> sizeOf, Terminology terms, VersionGate gate) {
+        ToIntFunction<Object> sizeOf, Terminology terms, VersionGate gate,
+        SecretTiming secretTiming) {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.fanOut = Objects.requireNonNull(fanOut, "fanOut");
@@ -212,6 +217,7 @@ public final class InventoryService {
         this.sizeOf = Objects.requireNonNull(sizeOf, "sizeOf");
         this.terms = Objects.requireNonNull(terms, "terms");
         this.gate = Objects.requireNonNull(gate, "gate");
+        this.secretTiming = Objects.requireNonNull(secretTiming, "secretTiming");
     }
 
     /**
@@ -262,7 +268,8 @@ public final class InventoryService {
      * ({@code cliTimeout + exportStopGrace}), one export ({@code cliExportTimeout +
      * exportStopGrace}), the usage index ({@code cliExportTimeout}) and {@code 4 × timeout}
      * (guard wait, detection, the login before the export, the diagram list); plus
-     * {@link #FAN_OUT_GRACE} (review I4, T126; the detection and the probe: feature 009).
+     * {@link #FAN_OUT_GRACE} (review I4, T126; the detection and the probe: feature 009); plus
+     * the fetch allowance of an AWS node (feature 010).
      */
     Duration listDeadline(InventoryKind kind, NodeId server) {
         Duration timeout = timeouts.apply(server);
@@ -270,7 +277,7 @@ public final class InventoryService {
             ? probe(server).plus(export(server)).plus(usageBudget(server))
                 .plus(timeout.multipliedBy(4))
             : timeout.multipliedBy(3);
-        return deadline.plus(FAN_OUT_GRACE);
+        return deadline.plus(FAN_OUT_GRACE).plus(secretTiming.allowance(server));
     }
 
     /**
@@ -280,7 +287,8 @@ public final class InventoryService {
      * index, history), the usage index ({@code cliExportTimeout}) and {@code 5 × timeout}
      * (guard wait, detection, login, diagram list, login); plus grace. A stopped export or probe
      * thus ends before the deadline and becomes a partial result, not a {@code TIMEOUT}. The
-     * detection and the probe: feature 009.
+     * detection and the probe: feature 009; plus the fetch allowance of an AWS node (feature
+     * 010).
      */
     Duration itemDeadline(InventoryKind kind, NodeId server) {
         Duration timeout = timeouts.apply(server);
@@ -288,7 +296,7 @@ public final class InventoryService {
             ? export(server).plus(timeout.multipliedBy(6))
             : export(server).multipliedBy(2).plus(usageBudget(server))
                 .plus(timeout.multipliedBy(5)));
-        return deadline.plus(FAN_OUT_GRACE);
+        return deadline.plus(FAN_OUT_GRACE).plus(secretTiming.allowance(server));
     }
 
     /** How long the usage index may take to read the workflows: {@code cliExportTimeout}. */

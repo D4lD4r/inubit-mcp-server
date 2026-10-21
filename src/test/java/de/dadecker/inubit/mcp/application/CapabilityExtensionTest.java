@@ -192,12 +192,13 @@ class CapabilityExtensionTest {
         Function<NodeId, Duration> timeouts = id -> byId.get(id).timeout();
         DiagnosisService diagnosis = new DiagnosisService(gateways, targets, new FanOut(),
             ResultLimiter.withDefaults(), timeouts, id -> byId.get(id).hangingThreshold(), clock,
-            ResultJson::size, gate);
+            ResultJson::size, gate, SecretTiming.NONE);
         InventoryService inventory = new InventoryService(gateways, targets, new FanOut(),
             ResultLimiter.withDefaults(), new InventoryCache(clock,
                 id -> byId.get(id).inventory().cacheTtl()), id -> byId.get(id).inventory().owner(),
             timeouts, id -> byId.get(id).cliExportTimeout(), id -> byId.get(id).cliTimeout(),
-            CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, Terminology.DEFAULT, gate);
+            CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, Terminology.DEFAULT, gate,
+            SecretTiming.NONE);
         HealthService health = new HealthService(gateways, targets, new FanOut(), timeouts,
             clock, gate, versions, (node, timeout) -> {
                 throw new AssertionError("no client probe expected for " + node);

@@ -536,6 +536,13 @@ class AdapterGatewayFactoryTest {
     }
 
     @Test
+    void theCredentialsOfAnEnvironmentNodeAreHeldFromTheStart() {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
+            assertThat(factory.credentialsHeld(DEV)).isTrue();
+        }
+    }
+
+    @Test
     void anInterruptedDetectionIsNotCached() throws Exception {
         wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO)).willReturn(aResponse()
             .withFixedDelay(3000).withBody(fixture("system_info.xml"))));
@@ -1042,6 +1049,8 @@ class AdapterGatewayFactoryTest {
             awsSecrets(Optional.empty()))) {
             assertThat(factory.knownGateway(DEV)).as("unknown until the secrets are there")
                 .isEmpty();
+            // T013: the up-front validation of the fan-out tools asks this without fetching
+            assertThat(factory.credentialsHeld(DEV)).isFalse();
             assertThatThrownBy(() -> factory.forServer(ENT2))
                 .isInstanceOfSatisfying(ToolErrorException.class, e ->
                     assertThat(e.error().code()).isEqualTo(ErrorCode.TARGET_UNKNOWN));
@@ -1051,6 +1060,7 @@ class AdapterGatewayFactoryTest {
 
             assertThat(store.calls()).isEqualTo(1);
             assertThat(factory.knownGateway(DEV)).isPresent();
+            assertThat(factory.credentialsHeld(DEV)).isTrue();
         }
         assertThat(store.calls()).isEqualTo(1);
         assertThat(wireMock.getAllServeEvents()).isEmpty();

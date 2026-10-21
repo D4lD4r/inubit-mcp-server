@@ -40,6 +40,7 @@ import de.dadecker.inubit.mcp.application.ProcessControlService;
 import de.dadecker.inubit.mcp.application.ReleaseDiscovery;
 import de.dadecker.inubit.mcp.application.ReleasePlanner;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
+import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TagService;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.WorkspaceService;
@@ -238,13 +239,18 @@ final class Wiring implements AutoCloseable {
             versionGate, versions, clientVersions, withClient::contains);
         Map<NodeId, Duration> hangingThresholds = new HashMap<>();
         servers.forEach(server -> hangingThresholds.put(server.id(), server.hangingThreshold()));
+        // feature 010 (research R-8): a fan-out branch of an AWS node may wait for its fetch
+        SecretTiming secretTiming = new SecretTiming(servers.stream()
+            .filter(server -> server.secretPlan().aws()).map(EffectiveNodeConfig::id)
+            .collect(Collectors.toUnmodifiableSet()), NodeSecrets.STORE_TIMEOUT);
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
-            hangingThresholds::get, clock.clock(), ResultJson::size, versionGate);
+            hangingThresholds::get, clock.clock(), ResultJson::size, versionGate, secretTiming);
         this.inventory = new InventoryService(gateways, targets, fanOut, limiter,
             new InventoryCache(clock.clock(), id -> byId.get(id).inventory().cacheTtl()),
             id -> byId.get(id).inventory().owner(), timeouts::get,
             id -> byId.get(id).cliExportTimeout(), id -> byId.get(id).cliTimeout(),
-            CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, terms, versionGate);
+            CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, terms, versionGate,
+            secretTiming);
         // feature 010 (research R-16): built per lookup, so that the account of an AWS node is
         // the username fetched after startup; a lookup never fetches. Unknown ids give null,
         // which the guard treats as no write access

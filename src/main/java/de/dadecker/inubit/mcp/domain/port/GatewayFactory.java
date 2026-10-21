@@ -95,6 +95,20 @@ public interface GatewayFactory {
     }
 
     /**
+     * Whether the credentials of {@code server} are held already, so that taking one of its
+     * ports does not wait for them (feature 010, research R-8): environment credentials always
+     * are, Parameter Store credentials once their first fetch succeeded. Never starts a fetch
+     * and never waits. The default, for a factory whose credentials are all known at start-up,
+     * is {@code true}.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException
+     *     {@code TARGET_UNKNOWN} for a server that is not configured
+     */
+    default boolean credentialsHeld(NodeId server) {
+        return true;
+    }
+
+    /**
      * The gateway of {@code server} if its adapter set is known without contacting the server:
      * a configured version line, or a detected (or cached fallback) {@code AUTO} version. Never
      * blocks on a running detection.
