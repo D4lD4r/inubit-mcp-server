@@ -17,7 +17,9 @@ import java.util.stream.Collectors;
 /**
  * {@code query_logs} (contracts/mcp-tools.md §4, US2): one page of log entries per resolved
  * server, newest first; a server that fails gets only its {@code error}. A filter that the log
- * type does not support fails the whole call with {@code INVALID_INPUT}.
+ * type does not support fails the whole call with {@code INVALID_INPUT}, except on a server
+ * whose credentials are not fetched yet (feature 010, research R-8 addendum): that server is
+ * checked in its own branch and the {@code INVALID_INPUT} becomes its {@code error}.
  */
 public final class QueryLogsTool implements ToolHandler {
 

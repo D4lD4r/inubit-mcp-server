@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.HealthReport;
 import de.dadecker.inubit.mcp.domain.model.HealthStatus;
@@ -37,10 +38,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -90,6 +93,12 @@ class HealthServiceTest {
         new ArrayList<>());
     /** Feature 009: detections requested by the version gate (never for get_health). */
     private final AtomicInteger gateDetections = new AtomicInteger();
+    /** Feature 010: how each server answers {@code prepareCredentials} ({@code READY} if absent). */
+    private final Map<NodeId, Function<Duration, CredentialState>> credentials =
+        new ConcurrentHashMap<>();
+    /** Feature 010: the bounds {@code prepareCredentials} was called with. */
+    private final List<Duration> credentialBounds = java.util.Collections.synchronizedList(
+        new ArrayList<>());
 
     private FakeMonitoring monitoring(NodeId server) {
         return monitorings.computeIfAbsent(server, s -> new FakeMonitoring());
@@ -108,6 +117,12 @@ class HealthServiceTest {
             public InubitVersion detect(NodeId server) {
                 gateDetections.incrementAndGet();
                 throw new AssertionError("get_health's version gate never detects");
+            }
+
+            @Override
+            public CredentialState prepareCredentials(NodeId server, Duration bound) {
+                credentialBounds.add(bound);
+                return credentials.getOrDefault(server, b -> CredentialState.READY).apply(bound);
             }
 
             @Override
@@ -998,6 +1013,103 @@ class HealthServiceTest {
             assertThat(error.message()).isEqualTo("No answer from qa/node2 while preparing"
                 + " the connection within 1 s");
         });
+    }
+
+    // --- feature 010 T014: credentials from AWS Parameter Store (R-9) ------------------------
+
+    /** The answer of a fetch that does not end within the bound: waits for it, then PENDING. */
+    private static CredentialState pendingAfter(Duration bound) {
+        sleepQuietly(bound.toMillis());
+        return CredentialState.PENDING;
+    }
+
+    @Test
+    void pendingCredentialsAreATimeoutReportWithinTheBudgetWithoutAnyCallToThatServer() {
+        credentials.put(QA1, HealthServiceTest::pendingAfter);
+
+        long start = System.nanoTime();
+        List<HealthReport> reports = service().check(Optional.empty(), false);
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+        assertThat(elapsed).as("SC-002").isLessThan(TIMEOUT.plus(SLACK));
+        assertThat(reports).extracting(HealthReport::node).containsExactly(DEV, QA1, QA2);
+        assertThat(reports).extracting(HealthReport::reachable).containsExactly(true, false,
+            true);
+        HealthReport pending = reports.get(1);
+        assertThat(pending.status()).isEqualTo(HealthStatus.UNKNOWN);
+        assertThat(pending.unavailable()).isEmpty();
+        assertThat(pending.warnings()).isEmpty();
+        assertThat(pending.error()).get().satisfies(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+            assertThat(error.message()).isEqualTo("qa/node1: credentials not yet available"
+                + " (still fetching from AWS Parameter Store); call get_health again shortly");
+            assertThat(error.node()).contains(QA1);
+            assertThat(error.nextStep()).isNotBlank();
+        });
+        assertThat(monitorings).as("neither monitoring() nor knownGateway() for qa/node1")
+            .doesNotContainKey(QA1).containsKeys(DEV, QA2);
+        assertThat(credentialBounds).as("each bound is what is left of the 1 s budget")
+            .hasSize(3).allSatisfy(bound -> assertThat(bound)
+                .isLessThanOrEqualTo(TIMEOUT).isGreaterThan(TIMEOUT.minusMillis(500)));
+    }
+
+    @Test
+    void aFailedFetchIsAReportWithItsClassifiedError() {
+        credentials.put(DEV, bound -> {
+            throw new ToolErrorException(ToolError.of(ErrorCode.AUTH_FAILED,
+                "dev/node1: INUBIT credentials from AWS Parameter Store (eu-central-1) are"
+                    + " unavailable: no AWS credentials", "cause", "next step"));
+        });
+
+        HealthReport report = checkOne(DEV, false);
+
+        assertThat(report.reachable()).isFalse();
+        assertThat(report.error()).get().satisfies(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+            assertThat(error.message()).endsWith("no AWS credentials");
+            assertThat(error.node()).as("the server id is added").contains(DEV);
+        });
+        assertThat(monitorings).isEmpty();
+    }
+
+    @Test
+    void afterASlowFirstFetchTheNextCallReportsNormally() throws Exception {
+        // a store that answers after 1.5 s, longer than the 1 s budget; the fetch continues
+        CompletableFuture<Void> fetch = new CompletableFuture<>();
+        java.util.concurrent.atomic.AtomicBoolean started =
+            new java.util.concurrent.atomic.AtomicBoolean();
+        credentials.put(DEV, bound -> {
+            if (started.compareAndSet(false, true)) {
+                CompletableFuture.delayedExecutor(1500, TimeUnit.MILLISECONDS)
+                    .execute(() -> fetch.complete(null));
+            }
+            try {
+                fetch.get(bound.toNanos(), TimeUnit.NANOSECONDS);
+                return CredentialState.READY;
+            } catch (java.util.concurrent.TimeoutException e) {
+                return CredentialState.PENDING;
+            } catch (InterruptedException | java.util.concurrent.ExecutionException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+
+        long start = System.nanoTime();
+        HealthReport first = checkOne(DEV, false);
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+        assertThat(elapsed).isLessThan(TIMEOUT.plus(SLACK));
+        assertThat(first.reachable()).isFalse();
+        assertThat(first.error()).get().extracting(ToolError::code)
+            .isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(monitorings).isEmpty();
+
+        fetch.get(5, TimeUnit.SECONDS);
+        HealthReport next = checkOne(DEV, false);
+
+        assertThat(next.reachable()).isTrue();
+        assertThat(next.version()).contains("8.1.17");
+        assertThat(next.load()).contains(LOAD);
+        assertThat(next.error()).isEmpty();
     }
 
     // --- fakes -----------------------------------------------------------------------------

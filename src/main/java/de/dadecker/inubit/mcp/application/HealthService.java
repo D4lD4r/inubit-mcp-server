@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.application;
 
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.HealthReport;
@@ -83,6 +84,11 @@ import org.slf4j.LoggerFactory;
  *       warning; a failed or timed-out probe is the part
  *       {@code client} in {@code unavailable} ({@code not yet detected (timeout)} or the cause).
  *       A node without a StartCLI installation reports the client as {@code not_available}.
+ *   <li>Credentials (feature 010, research R-9): before anything else the server's credentials
+ *       are prepared within what is left of the budget. A first fetch from AWS Parameter Store
+ *       that is still running then gives a failed report with {@code TIMEOUT} and sends nothing
+ *       to the server (its client needs the secrets); the fetch continues for the next call. A
+ *       failed fetch gives a failed report with its error.
  * </ul>
  */
 public final class HealthService {
@@ -152,8 +158,20 @@ public final class HealthService {
         throws InterruptedException {
         Duration timeout = timeouts.apply(server);
         long deadline = System.nanoTime() + timeout.plus(PART_GRACE).toNanos();
+        long budgetEnd = deadline - PART_GRACE.toNanos();
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
         try {
+            // a first fetch of the credentials may use what is left of the budget (R-9)
+            Duration bound = remaining(budgetEnd);
+            Outcome<CredentialState> credentials = await(executor.submit(() ->
+                gateways.prepareCredentials(server, bound)), deadline, server, timeout,
+                "while preparing the connection");
+            if (credentials.failed()) {
+                return failed(server, credentials.error());
+            }
+            if (credentials.value() == CredentialState.PENDING) {
+                return failed(server, credentialsPending(server, timeout));
+            }
             // never waits for a version detection (Phase 3 review H1)
             Outcome<MonitoringPort> port = await(executor.submit(() ->
                 gateways.monitoring(server)), deadline, server, timeout,
@@ -166,12 +184,10 @@ public final class HealthService {
             Future<Healthcheck> healthcheck = executor.submit(monitoring::healthcheck);
             Future<Readiness> ready = executor.submit(monitoring::ready);
             Future<SystemInfo> systemInfo = executor.submit(monitoring::systemInfo);
-            long budgetEnd = deadline - PART_GRACE.toNanos();
             // the local client probe, bounded by what is left of the budget (FR-002)
             Future<ClientVersion> probe = withClient.test(server)
                 && versions.needsClientProbe(server)
-                ? executor.submit(() -> clients.probe(server,
-                    Duration.ofNanos(Math.max(budgetEnd - System.nanoTime(), 0))))
+                ? executor.submit(() -> clients.probe(server, remaining(budgetEnd)))
                 : null;
             // unconfirmed credentials: one login attempt at a time (Phase 3 review M2)
             boolean serialized = !monitoring.credentialsConfirmed();
@@ -217,6 +233,25 @@ public final class HealthService {
             // never close(): it would wait for calls that ignore interrupts
             executor.shutdownNow();
         }
+    }
+
+    /** What is left until {@code budgetEnd} (nano time), never negative. */
+    private static Duration remaining(long budgetEnd) {
+        return Duration.ofNanos(Math.max(budgetEnd - System.nanoTime(), 0));
+    }
+
+    /**
+     * The TIMEOUT of a server whose credentials are still being fetched from AWS Parameter Store
+     * (contracts/mcp-tools-delta.md → {@code get_health}).
+     */
+    private static ToolError credentialsPending(NodeId server, Duration timeout) {
+        return ToolError.of(ErrorCode.TIMEOUT, server + ": credentials not yet available (still"
+                + " fetching from AWS Parameter Store); call get_health again shortly",
+            "The first fetch of the credentials of " + server + " from AWS Parameter Store"
+                + " takes longer than its health budget of " + Durations.human(timeout),
+            "Call get_health again shortly; the fetch continues and the next call uses its"
+                + " result")
+            .withNode(server);
     }
 
     /**

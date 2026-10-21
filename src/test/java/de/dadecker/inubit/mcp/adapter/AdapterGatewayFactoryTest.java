@@ -27,6 +27,7 @@ import de.dadecker.inubit.mcp.config.ParameterNames;
 import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.SecretSourceConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
+import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -539,7 +540,11 @@ class AdapterGatewayFactoryTest {
     void theCredentialsOfAnEnvironmentNodeAreHeldFromTheStart() {
         try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
             assertThat(factory.credentialsHeld(DEV)).isTrue();
+            // T014: get_health finds them ready without waiting, even with a zero bound
+            assertThat(factory.prepareCredentials(DEV, Duration.ZERO))
+                .isEqualTo(CredentialState.READY);
         }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
     }
 
     @Test
@@ -1100,6 +1105,79 @@ class AdapterGatewayFactoryTest {
             assertThat(fetching.join(Duration.ofSeconds(5))).isTrue();
             assertThat(first).singleElement().satisfies(e ->
                 assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT));
+            assertThat(store.calls()).isEqualTo(1);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    // --- feature 010 T014: get_health prepares the credentials within its budget (R-9) -----
+
+    @Test
+    void preparingTheCredentialsReturnsPendingAtTheBoundAndTheFetchContinues() {
+        putAwsCredentials();
+        store.delay(EU, Duration.ofMillis(1500));
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.V8_1),
+            awsSecrets(Optional.empty()))) {
+            long start = System.nanoTime();
+            CredentialState first = factory.prepareCredentials(DEV, Duration.ofMillis(200));
+            Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+            assertThat(first).isEqualTo(CredentialState.PENDING);
+            assertThat(elapsed).as("never blocks beyond the bound")
+                .isLessThan(Duration.ofMillis(200 + 700));
+            assertThat(factory.credentialsHeld(DEV)).isFalse();
+
+            // the same fetch continues: a later call with enough bound finds it ready
+            assertThat(factory.prepareCredentials(DEV, Duration.ofSeconds(5)))
+                .isEqualTo(CredentialState.READY);
+            assertThat(factory.credentialsHeld(DEV)).isTrue();
+            assertThat(store.calls()).as("one fetch for both calls").isEqualTo(1);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void preparingTheCredentialsWithAZeroBoundStartsTheFetchWithoutWaiting() throws InterruptedException {
+        putAwsCredentials();
+        store.delay(EU, Duration.ofMillis(500));
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.V8_1),
+            awsSecrets(Optional.empty()))) {
+            long start = System.nanoTime();
+            CredentialState state = factory.prepareCredentials(DEV, Duration.ZERO);
+            Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+            assertThat(state).isEqualTo(CredentialState.PENDING);
+            assertThat(elapsed).isLessThan(Duration.ofMillis(400));
+            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (!factory.credentialsHeld(DEV) && System.nanoTime() < deadline) {
+                Thread.sleep(20);
+            }
+            assertThat(factory.credentialsHeld(DEV)).as("the fetch ran on its own").isTrue();
+            assertThat(factory.prepareCredentials(DEV, Duration.ZERO))
+                .isEqualTo(CredentialState.READY);
+            assertThat(store.calls()).isEqualTo(1);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void preparingTheCredentialsThrowsTheFailureOfTheFetch() {
+        store.put(EU, AWS_USERNAME, "test-user-1")
+            .fail(EU, AWS_PASSWORD, FailureKind.ACCESS_DENIED, "test detail");
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.V8_1),
+            awsSecrets(Optional.empty()))) {
+            assertThatThrownBy(() -> factory.prepareCredentials(DEV, Duration.ofSeconds(5)))
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.AUTH_FAILED);
+                    assertThat(e.error().message()).contains("dev/node1", AWS_PASSWORD);
+                });
+            // within the back-off the recorded failure is thrown at once, also for a zero bound
+            assertThatThrownBy(() -> factory.prepareCredentials(DEV, Duration.ZERO))
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.AUTH_FAILED));
+            assertThatThrownBy(() -> factory.prepareCredentials(ENT2, Duration.ZERO))
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.TARGET_UNKNOWN));
             assertThat(store.calls()).isEqualTo(1);
         }
         assertThat(wireMock.getAllServeEvents()).isEmpty();

@@ -1,7 +1,9 @@
 package de.dadecker.inubit.mcp.domain.port;
 
+import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import java.time.Duration;
 import java.util.Optional;
 
 /**
@@ -106,6 +108,22 @@ public interface GatewayFactory {
      */
     default boolean credentialsHeld(NodeId server) {
         return true;
+    }
+
+    /**
+     * Makes the credentials of {@code server} available, waiting at most {@code bound} (feature
+     * 010, research R-9): {@code get_health} asks this first, so that a first fetch from AWS
+     * Parameter Store cannot outlast its time budget. Starts the fetch if none is running, also
+     * for a zero bound; a fetch that outlives {@code bound} is not cancelled ({@code PENDING}),
+     * the next call uses its result. The default, for a factory whose credentials are all known
+     * at start-up, is {@code READY}.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException the classified failure of
+     *     the fetch (also at once within its back-off), or {@code TARGET_UNKNOWN} for a server
+     *     that is not configured
+     */
+    default CredentialState prepareCredentials(NodeId server, Duration bound) {
+        return CredentialState.READY;
     }
 
     /**

@@ -294,7 +294,7 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   above its method (the `validateHeld` Javadoc was inserted in between); qualify the tool Javadocs
   `QueryLogsTool` (~:18-20) and `FindProcessesTool` (~:15) ("fails the whole call"): a node whose
   secrets are not fetched yet is validated in its own branch (research R-8 addendum).
-- [ ] T014 [US2] `get_health` budget (R-9, contracts/mcp-tools-delta.md): in
+- [X] T014 [US2] `get_health` budget (R-9, contracts/mcp-tools-delta.md): in
   `main/application/HealthService.java` `checkServer` calls `gateways.prepareCredentials(server,
   <what is left of the budget>)` before `monitoring()`/`knownGateway()`; `PENDING` → a failed report
   with `TIMEOUT` "credentials not yet available (still fetching from AWS Parameter Store); call

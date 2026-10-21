@@ -255,10 +255,6 @@ public final class DiagnosisService {
     }
 
     /**
-     * A port's check without network: {@code INVALID_INPUT} fails the whole call; other
-     * failures (e.g. an unusable trust store) are reported per server by the fan-out.
-     */
-    /**
      * Runs {@code check} now for every server whose credentials are held and returns the
      * others, unchecked: taking their port would wait for their first fetch, so they are checked
      * at the start of their own fan-out branch, within their deadline (feature 010, R-8).
@@ -275,6 +271,10 @@ public final class DiagnosisService {
         return unchecked;
     }
 
+    /**
+     * A port's check without network: {@code INVALID_INPUT} fails the whole call; other
+     * failures (e.g. an unusable trust store) are reported per server by the fan-out.
+     */
     private static void validate(Runnable check) {
         try {
             check.run();

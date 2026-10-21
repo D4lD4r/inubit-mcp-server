@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.adapter.rest.v81.V81VersionDetector;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
+import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.Names;
@@ -91,7 +92,8 @@ import org.slf4j.LoggerFactory;
  * an interrupted caller returns at once even while another caller's fetch is pending; a failed
  * fetch fails the call before anything is sent to INUBIT. The client is built with the
  * credentials, because the trust store password is part of its TLS context. Construction,
- * {@link #credentialsHeld} and {@link #knownGateway} never start a fetch.
+ * {@link #credentialsHeld} and {@link #knownGateway} never start a fetch;
+ * {@link #prepareCredentials} starts or joins it and waits at most its bound (research R-9).
  */
 public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseable {
 
@@ -199,6 +201,25 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
     @Override
     public boolean credentialsHeld(NodeId server) {
         return slot(server).secrets.held().isPresent();
+    }
+
+    /**
+     * {@link NodeSecrets#current} within {@code bound}: its {@code TIMEOUT} (the fetch outlived
+     * the bound and continues) is {@code PENDING}; a failed fetch is {@code AUTH_FAILED} or
+     * {@code UNREACHABLE} and is thrown, as is the {@code TIMEOUT} of an interrupted caller.
+     */
+    @Override
+    public CredentialState prepareCredentials(NodeId server, Duration bound) {
+        Slot slot = slot(server);
+        try {
+            slot.secrets.current(bound);
+            return CredentialState.READY;
+        } catch (ToolErrorException e) {
+            if (e.error().code() == ErrorCode.TIMEOUT && !Thread.currentThread().isInterrupted()) {
+                return CredentialState.PENDING;
+            }
+            throw e;
+        }
     }
 
     @Override
