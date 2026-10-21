@@ -5,8 +5,9 @@ reference is [contracts/configuration.md](../specs/002-customer-agnostic-config/
 of feature 002 with the deltas of feature 003
 ([workspace](../specs/003-artifact-workspace/contracts/configuration-delta.md)), 004
 ([development stage](../specs/004-development-stage/contracts/configuration-delta.md)), 005
-([stage chain](../specs/005-stage-chain-deployment/contracts/configuration-delta.md)) and 009
-([INUBIT version](../specs/009-inubit-version-detection/contracts/configuration-delta.md)); this
+([stage chain](../specs/005-stage-chain-deployment/contracts/configuration-delta.md)), 009
+([INUBIT version](../specs/009-inubit-version-detection/contracts/configuration-delta.md)) and 010
+([secret sources](../specs/010-secret-sources/contracts/configuration-delta.md)); this
 guide walks through it. All host names below are examples (`*.example.test`).
 
 ## 1. Prerequisites
@@ -61,8 +62,11 @@ nodes and credential variables.
 The file describes one **profile** (one customer or project) with its groups (e.g. stages such as
 `dev`, `test`, `prod`) and their nodes (the INUBIT servers), **never
 credentials**: a key named `username`, `credentials` or containing `password` is a startup error.
-The only exception is the top-level `credentials` section below, which names the credential
-variables and never holds a value (a `password` key inside it is an error as well). One server
+The only exceptions are the `credentials` sections at the top, group and node level (section 4),
+which say where the credentials come from and never hold a value: inside them only `envPrefix`
+(top level only), `source` and `parameters` are allowed, and the keys inside `parameters`
+(`username`, `password`, …) hold Parameter Store names, not values (any other key, also a
+`password` key directly in `credentials`, is an error as well). One server
 process serves exactly one profile; several customers mean several files and registrations
 (section 7).
 
@@ -581,10 +585,12 @@ groups:
   the target node, in memory and in the private temporary import file only (deleted after the
   import). A placeholder without a value on the target is refused (`SECRET_UNRESOLVED`).
 - **End-to-end tests.** Envelopes are workspace files; a WS-Security password must stay a
-  placeholder. An optional HTTP basic authentication for the SOAP endpoints comes only from the
+  placeholder. An optional HTTP basic authentication for the SOAP endpoints comes from the
   variables `<PREFIX>_<GROUP>_E2E_USERNAME` / `<PREFIX>_<GROUP>_E2E_PASSWORD` (node-specific
   `<PREFIX>_<GROUP>_<NODE>_E2E_USERNAME` / `_E2E_PASSWORD` win), like the node credentials;
-  without both, no `Authorization` header is sent. Responses are stored below
+  without both, no `Authorization` header is sent. A node whose credentials come from AWS
+  Parameter Store reads them from `credentials.parameters.e2eUsername` / `e2ePassword` instead
+  (both or neither, section 4). Responses are stored below
   `<workspace>/.tests/e2e/` and removed after 30 days.
 - **Backups.** Every write first stores the raw export of its scope (with repository files, also
   the node's exports of the folders they lie in, or of single files (directly below
@@ -706,11 +712,44 @@ Group int:
   Node int/node1: read-only, development: off, e2e: CONFIRM (https://inubit-int-1.example.test:8443), cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, deploy: from dev (EXECUTE), username ← INUBIT_ACME_INT_USERNAME, password ← INUBIT_ACME_INT_PASSWORD
 ```
 
-## 4. Credentials: environment variables
+## 4. Credentials: sources
 
-Credentials come only from environment variables. Their names start with the profile's
-**credential prefix**, followed by the group and node name: upper case, with every character
-other than `A–Z`/`0–9` replaced by `_`.
+Every node needs a username and a password; a password-protected trust store (section 5) and the
+basic authentication of end-to-end tests ([Development settings](#development-settings)) need
+further secrets. They come from one of two **sources**, chosen per node:
+
+| Source | `type` | Read |
+|---|---|---|
+| Environment variables (default) | `environment` | once, when the server starts |
+| AWS Systems Manager Parameter Store | `awsParameterStore` | on the node's first use, and once more after INUBIT rejects its login |
+
+The source is set by `credentials.source` at the top level (the whole profile), on a group or on
+a node; the most specific one wins: node → group → profile → environment variables. A profile
+without any `source` reads environment variables exactly as before. One profile may mix both
+sources, e.g. development stages with variables and production with Parameter Store.
+
+| Level | Keys allowed in `credentials` |
+|---|---|
+| top level | `envPrefix`, `source` |
+| group | `source`, `parameters` |
+| node | `source`, `parameters` |
+
+The profile never holds a secret value, and no AWS access key either: `source` accepts only the
+keys of its `type`, anything else is a startup error.
+
+Secret values are never logged, printed or returned; every tool result and log line is scrubbed
+of them. StartCLI receives the password on stdin, never as a process argument. A password
+shorter than 4 characters is refused, because such a short value cannot be scrubbed reliably: a
+configuration error for the `_PASSWORD` variable, an invalid value for the `password` and
+`e2ePassword` parameters.
+
+<a id="4-credentials-environment-variables"></a>
+
+### Environment variables
+
+The default source. The variable names start with the profile's **credential prefix**, followed
+by the group and node name: upper case, with every character other than `A–Z`/`0–9` replaced by
+`_`.
 
 | Variable | Scope |
 |---|---|
@@ -718,7 +757,8 @@ other than `A–Z`/`0–9` replaced by `_`.
 | `<PREFIX>_<GROUP>_USERNAME` / `_PASSWORD` | every node of the group |
 | `<PREFIX>_<GROUP>[_<NODE>]_TRUSTSTORE_PASSWORD` | only for a password-protected trust store; **not allowed** for nodes with CLI configured |
 
-- `<PREFIX>` is `credentials.envPrefix` if set, otherwise `INUBIT_` plus the profile name
+- `<PREFIX>` is the `prefix` of the node's environment source (below) if set, otherwise
+  `credentials.envPrefix` if set, otherwise `INUBIT_` plus the profile name
   (`acme` → `INUBIT_ACME`, `acme-2` → `INUBIT_ACME_2`). A profile reads only the names it derives
   for its own groups and nodes, so two profiles with the same group and node names (both
   `test/node1`) read different variables by default (`INUBIT_ACME_TEST_…`,
@@ -734,6 +774,8 @@ other than `A–Z`/`0–9` replaced by `_`.
   values. A file with the **same** `profile.name` is a copy of this profile: it gets a warning
   (listing what it shares) and both may start. Profile files elsewhere are not seen; keeping
   their names apart is your responsibility.
+- These checks and the warning below consider only nodes whose credentials come from
+  environment variables; two profiles may read the same Parameter Store parameters.
 - The warning about a `<PREFIX>_*_PASSWORD` variable that matches no group or node ignores the
   variables of the other profiles in the default configuration directory (`INUBIT_ACME_2_…` is
   no typo of `acme`). Variables of profiles whose files are elsewhere may still be reported.
@@ -742,6 +784,20 @@ other than `A–Z`/`0–9` replaced by `_`.
   ([migration-001-to-002.md](migration-001-to-002.md)).
 - Every message that asks you to fix a credential names the exact variables of the node, with
   the effective prefix; `--check-config` shows the scheme and, per node, the variables it uses.
+- `credentials.source` is optional for this source. Written out:
+
+  ```yaml
+  credentials:
+    source:
+      type: environment
+      prefix: INUBIT_ACME_LEGACY     # optional
+  ```
+
+  On a group or node, a `prefix` replaces the prefix for its nodes (e.g. for a group whose
+  variables keep an older name). At the top level, set the prefix with `credentials.envPrefix`;
+  a top-level `source.prefix` that differs from it is an error: "credentials.source.prefix and
+  credentials.envPrefix differ; set only one of them or make them equal". A node with
+  `source: { type: environment }` inside a Parameter Store group reads variables again.
 
 Username and password are resolved independently. Example for the profile `acme` with the group
 `dev`, in `~/.zshrc`:
@@ -759,7 +815,12 @@ The variables are read **once, when the server starts**. After changing them, op
 Reconnecting with `/mcp` is not enough: it restarts the server with the environment of the
 running Claude Code process, which still has the old values.
 
-### Claude Desktop and other GUI clients (macOS)
+If INUBIT rejects a password (HTTP 401 or a StartCLI login failure), the server does not try
+that server's credentials again for 60 s and reports `AUTH_FAILED` "authentication failed
+recently; not retried for N s to avoid account lockout" instead: at most one failed login per
+server per minute.
+
+#### Claude Desktop and other GUI clients (macOS)
 
 A client started from the Dock, Finder or Spotlight (e.g. the Claude desktop app) does **not**
 read `~/.zshrc`: it gets the environment of `launchd`, without your `export` lines and without
@@ -812,13 +873,278 @@ may ask whether `security` may read the entry; choose "Always Allow".
 > `claude mcp add -e INUBIT_ACME_DEV_PASSWORD=…`. That stores the password in plain text in the
 > client's configuration file. Export the variables in your shell profile instead.
 
-If INUBIT rejects a password (HTTP 401 or a StartCLI login failure), the server does not try
-that server's credentials again for 60 s and reports `AUTH_FAILED` "authentication failed
-recently; not retried for N s to avoid account lockout" instead: at most one failed login per
-server per minute. A resolved password shorter than 4 characters is a configuration error.
+### AWS Systems Manager Parameter Store
 
-Passwords are never logged, printed or returned; every tool result and log line is scrubbed of
-them. StartCLI receives the password on stdin, never as a process argument.
+The secrets are parameters in AWS Systems Manager Parameter Store, stored as `SecureString`; the
+profile names them. Example: the production group of `acme` reads Parameter Store, the
+development group keeps its variables:
+
+```yaml
+credentials:
+  envPrefix: INUBIT_ACME                  # still used by dev
+
+groups:
+  - name: dev                             # no source: environment variables
+    nodes:
+      - name: node1
+        baseUrl: https://inubit-dev-1.example.test:8443
+  - name: prod
+    production: true
+    credentials:
+      source:
+        type: awsParameterStore
+        region: eu-west-1                 # required
+        awsProfile: prod-account          # optional: a profile of the local AWS configuration
+      parameters:
+        username: /inubit/prod/username   # required (here or on each node)
+        password: /inubit/prod/password   # required (here or on each node)
+    nodes:
+      - name: node1
+        baseUrl: https://inubit-prod-1.example.test:8443
+        credentials:
+          parameters:
+            password: /inubit/prod/node1/password   # this node's own password
+      - name: node2
+        baseUrl: https://inubit-prod-2.example.test:8443
+```
+
+Here `prod/node1` reads `/inubit/prod/username` and `/inubit/prod/node1/password`, `prod/node2`
+both names of the group.
+
+| `source` key | Rule |
+|---|---|
+| `type` | `awsParameterStore` |
+| `region` | required: the AWS region of the parameters, e.g. `eu-central-1` (`^[a-z]{2}(-[a-z]+)+-\d$`) |
+| `awsProfile` | optional: a profile of the local AWS configuration files (`^[A-Za-z0-9_.+=,@-]{1,64}$`); without it, the default credential chain ([AWS credentials and AWS profiles](#aws-credentials-and-aws-profiles)) |
+
+| `parameters` key | Required | Used for |
+|---|---|---|
+| `username`, `password` | yes, for every node with this source (on the node or its group) | the INUBIT login (REST and StartCLI) |
+| `trustStorePassword` | no | the password of `tls.trustStore` (section 5); **not allowed** for nodes with CLI configured (StartCLI could only receive it as a process argument); without `tls.trustStore` a warning: it is ignored |
+| `e2eUsername`, `e2ePassword` | no; both or neither | the basic authentication of `run_e2e_test` ([Development settings](#development-settings)); an error together with an `http://` `e2e.soap.baseUrl` while end-to-end tests are not `FORBIDDEN`, because the credentials would travel in clear text |
+
+**Parameter names.** Only full hierarchical names: they start with `/` and match
+`^/[A-Za-z0-9_.\-/]{1,1010}$`, without `//` and without a trailing `/`. Version and label
+selectors (`/inubit/prod/password:3`) and ARNs are refused (`:` is not allowed). Names are not
+secrets: they appear in `--check-config`, in error messages and in the log. A value that is not a
+valid name stops the server with the key path, never the value, so a password pasted there by
+mistake is not echoed:
+
+```text
+Invalid value at groups[1].credentials.parameters.password in /Users/jdoe/.config/inubit-mcp/acme.yaml: expected ^/[A-Za-z0-9_.\-/]{1,1010}$, without '//' and without a trailing '/'
+```
+
+**Precedence and overrides.**
+
+- The effective source of a node is its own `credentials.source`, else its group's, else the
+  top-level one, else environment variables.
+- An override replaces the whole source including its settings: a node with
+  `source: { type: awsParameterStore, region: eu-central-1 }` in the `prod` group above uses no
+  AWS profile, although the group names one.
+- The parameter names, per key: the node's own name, else the group's. The group's names apply
+  only to nodes **without** their own `source`; a node that declares its own source names at
+  least its own `username` and `password`.
+- `parameters` on a group or node whose effective source is environment variables are ignored,
+  with a warning: `dev/node1: credentials.parameters is ignored; the secrets of this node come
+  from environment variables` (or `Group 'dev': credentials.parameters is ignored; the secrets
+  of this group come from environment variables`). This includes a node that overrides a
+  Parameter Store group with `source: { type: environment }`. `parameters` at the top level are
+  not allowed.
+
+**Errors** stop the server; `--check-config` reports them and exits 1. Messages use the profile's
+terminology:
+
+| Case | Message |
+|---|---|
+| no `username` or `password` name | `prod/node2: no Parameter Store name for the password (set credentials.parameters.password on the node or its group)`; for a node with its own `source`: `… (set credentials.parameters.username on the node; the names of its group do not apply because the node declares its own credentials.source)` |
+| only one of `e2eUsername` / `e2ePassword` | `prod/node1: credentials.parameters.e2ePassword is missing; the end-to-end credentials need both e2eUsername and e2ePassword` |
+| `region` missing | `groups[1].credentials.source.region is missing in <file>: required for type awsParameterStore` |
+| a key that the `type` does not know, e.g. an access key | `Unknown key 'accessKeyId' at groups[1].credentials.source in <file> (allowed for type awsParameterStore: type, region, awsProfile)` |
+| invalid `type`, `region`, `awsProfile` or parameter name | `Invalid value at <path> in <file>: expected <rule>` |
+
+The last three are errors in the file's structure: they are reported one at a time on stderr
+(the first one stops the check); the others are listed together with all other findings.
+
+#### First use, timeout and back-off
+
+- The server starts without contacting AWS. A node's username, password and (if named) trust
+  store password are fetched together, in one `GetParameters` request with decryption, the first
+  time a tool needs the node. Its end-to-end credentials are fetched separately, on its first
+  `run_e2e_test`. The values are kept in memory for the life of the server process, never on
+  disk.
+- Calls that need the same node at the same time share one fetch. Fetches of different nodes run
+  in parallel, and nodes whose credentials are already held never wait for a fetch.
+- A fetch is bounded by **10 s**. A tool that covers several nodes counts this time in the
+  deadline of each node with Parameter Store, so a slow store fails that node's part, not the
+  whole call. `get_health` keeps its time budget: a node still fetching is reported as
+  `TIMEOUT` "prod/node1: credentials not yet available (still fetching from AWS Parameter
+  Store); call get_health again shortly"; the fetch continues and the next call uses its result
+  ([tools.md](tools.md)).
+- A failed fetch fails the call that needs the node: `AUTH_FAILED` when someone must fix the
+  source (parameter not found or empty, access denied, invalid value, unknown AWS profile, no
+  AWS credentials), `UNREACHABLE` when the store cannot be reached, throttles the request or
+  does not answer within 10 s. The message names the node, region, AWS profile, parameter and
+  failure, e.g. `prod/node1: INUBIT credentials from AWS Parameter Store (eu-west-1, profile
+  prod-account) are unavailable: access denied for /inubit/prod/node1/password`, never a value
+  and never the store's own message (it may contain account ids and role names; it goes to the
+  log, scrubbed).
+- After a failed fetch, the node's credentials are **not fetched again for 30 s**: calls fail at
+  once with the recorded error. The first call after that fetches again, so a corrected
+  parameter or permission needs no restart.
+- The values are checked before use: the username must not contain `:` or control
+  characters and must not start with `-`; a password (`password`, `e2ePassword`) needs at least
+  4 characters; an empty value counts as not found. A value that breaks a rule is a failed fetch
+  ("invalid value"), and so is a `StringList` parameter. A plain `String` parameter is accepted
+  with a warning in the log ("not encrypted (type String)"); store secrets as `SecureString`.
+- Every fetch writes one log record (a JSON line on stderr) with the key-value pairs `event`
+  (`secret.fetch`), `node`, `source` (`awsParameterStore`), `region`, `profile` (if set),
+  `parameters` (the names), `durationMs`, `outcome` (`ok`, or the failure such as `NOT_FOUND`,
+  `ACCESS_DENIED`, `INVALID_VALUE`, `UNKNOWN_PROFILE`, `NO_CREDENTIALS`, `UNREACHABLE`), on
+  failure `detail` (the store's message, scrubbed) and for a re-read `changed`: INFO on success,
+  WARN on failure or for `String` parameters, never a value. Calls refused within the 30 s are
+  not logged again. The AWS SDK itself logs warnings and errors only.
+
+#### Rotation: re-read after a rejected login
+
+There is no time-based refresh: a held password is used until INUBIT rejects it. When INUBIT
+rejects the login of a node with Parameter Store (HTTP 401 or a StartCLI login failure):
+
+1. The rejected call fails with `AUTH_FAILED`, as before. Before it returns, the server reads
+   the node's username and password (and trust store password, if named) once more; this re-read
+   runs on that call and can add up to 10 s to it. Calls rejected at the same time share the
+   re-read; new calls on the node wait for it.
+2. If the username or the password differs from the held one, the new values are used from the
+   next call on (over a new connection), and exactly one further login is allowed without a
+   pause. If INUBIT rejects that one too, the node is paused for 60 s without another re-read.
+3. If the values are unchanged, or the re-read fails, the node is paused for 60 s, as with
+   environment variables. A failed re-read keeps the held values, is logged as a failed fetch
+   (`changed` `false`) and does not start the 30 s back-off.
+
+This bounds failed logins to **two per node per 60 s** (one with environment variables). During
+the pause, calls fail with `AUTH_FAILED` "INUBIT login to prod/node1: authentication failed
+recently; not retried for N s to avoid account lockout", and the next step names the parameters:
+"Correct the parameter value(s) /inubit/prod/username, /inubit/prod/node1/password in Parameter
+Store (eu-west-1, profile prod-account); no restart is needed". Logins of end-to-end tests never
+trigger a re-read.
+
+A call that is still running when new values arrive (it started with the old ones) may fail:
+its further logins are not attempted with the old values (`AUTH_FAILED` "… they were replaced by
+new values from AWS Parameter Store after a rejected login", next step "Retry the call; it uses
+the new values"), and an unauthenticated request over the replaced connection (health check,
+readiness) may end in a connection failure. Retry the call.
+
+To change a password, store the new value in Parameter Store **first**, then change it in
+INUBIT: the next login with the old value is rejected once, the re-read finds the new value and
+the following calls work. The other way round, a login in between finds the parameter unchanged
+and pauses the node for 60 s; the first rejected login after the pause re-reads again.
+
+### AWS permissions
+
+The AWS identity the server uses needs read access to the configured parameters, nothing else:
+
+- `ssm:GetParameters` on the named parameters (the server reads all names of a node in one
+  request; it never lists, searches or writes parameters);
+- `kms:Decrypt` on the KMS key that encrypts them. With the AWS managed key `aws/ssm` (the
+  default for `SecureString`), the key's own policy already allows this for identities of the
+  same account, and the second statement below is not needed; with a customer managed key it is.
+
+Example policy for the names of the example above (placeholders in angle brackets):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadInubitCredentials",
+      "Effect": "Allow",
+      "Action": "ssm:GetParameters",
+      "Resource": [
+        "arn:aws:ssm:<region>:<account-id>:parameter/inubit/prod/username",
+        "arn:aws:ssm:<region>:<account-id>:parameter/inubit/prod/password",
+        "arn:aws:ssm:<region>:<account-id>:parameter/inubit/prod/node1/password"
+      ]
+    },
+    {
+      "Sid": "DecryptInubitCredentials",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "arn:aws:kms:<region>:<account-id>:key/<key-id>"
+    }
+  ]
+}
+```
+
+A path such as `arn:aws:ssm:<region>:<account-id>:parameter/inubit/prod/*` instead of single
+names is shorter but grants more. `--check-config` needs the same permissions.
+
+### AWS credentials and AWS profiles
+
+The server finds its AWS credentials like the AWS CLI and other AWS SDK tools on the machine:
+
+- **Without `awsProfile`**: the default credential chain of the AWS SDK for Java 2.x: Java
+  system properties, the environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+  `AWS_SESSION_TOKEN`), a web identity token, the profile `AWS_PROFILE` (or `default`) of the
+  shared files `~/.aws/config` and `~/.aws/credentials`, container credentials and the EC2
+  instance role. Environment variables come from the MCP client, like the INUBIT variables; a
+  client started from the Dock does not see an `AWS_PROFILE` exported in `~/.zshrc`.
+- **With `awsProfile: <name>`**: only that profile of the shared files, e.g. an IAM Identity
+  Center (SSO) profile or a profile that assumes a role; `AWS_PROFILE` and the access-key
+  variables are not consulted. A name that neither file defines is an error in
+  `--check-config` ("the AWS profile prod-account is not defined in the local AWS configuration
+  files; configure it and log in to it") and `AUTH_FAILED` at run time.
+- Log in as usual, e.g. `aws sso login --profile prod-account`. Without a valid login (none, or
+  expired) a fetch fails with `AUTH_FAILED` "… are unavailable: no AWS credentials" and the next
+  step "Log in to the AWS profile prod-account (for example aws sso login --profile
+  prod-account) or configure its credentials"; `--check-config` only warns ("resolvability not
+  checked"). Values already fetched stay in use: an expired login affects only fetches still to
+  come (the first use of another node, a re-read, the end-to-end credentials).
+
+### Moving from a start script to Parameter Store
+
+For an installation that loads `INUBIT_*` variables in a start script
+([Claude Desktop and other GUI clients](#claude-desktop-and-other-gui-clients-macos)), per group
+(here `prod`):
+
+1. Create the parameters as `SecureString` in the region you will configure, in the AWS console
+   (Systems Manager → Parameter Store) or with the AWS CLI. To take the values straight from the
+   Keychain entries of the script:
+
+   ```zsh
+   aws ssm put-parameter --profile prod-account --region eu-west-1 --type SecureString \
+     --name /inubit/prod/username \
+     --value "$(security find-generic-password -s inubit-mcp -a INUBIT_ACME_PROD_USERNAME -w)"
+   aws ssm put-parameter --profile prod-account --region eu-west-1 --type SecureString \
+     --name /inubit/prod/password \
+     --value "$(security find-generic-password -s inubit-mcp -a INUBIT_ACME_PROD_PASSWORD -w)"
+   ```
+
+   (`--key-id` selects a customer managed key; `--overwrite` replaces an existing value. While
+   the command runs, the value is visible to other processes of your user as an argument of
+   `aws`; use the console where that matters.) Grant the AWS identity the
+   [permissions](#aws-permissions) above.
+2. Add `credentials.source` and `credentials.parameters` to the group (or the profile) as in the
+   example above, and make sure the AWS login works (`aws sso login --profile prod-account`).
+3. Check: `java -jar target/inubit-mcp-server-*.jar --profile acme --check-config` shows
+   `secrets: awsParameterStore` and `ok` after every name (section 6). A variable that the
+   shell still exports for that group is now reported as
+   `Environment variable INUBIT_ACME_PROD_PASSWORD matches no configured group or node (typo?)`.
+4. Remove the group's variables from the script's loop (and from `~/.zshrc`) and delete their
+   Keychain entries, e.g.
+   `security delete-generic-password -s inubit-mcp -a INUBIT_ACME_PROD_PASSWORD`. Once no node
+   reads variables any more and the script does nothing else (such as the certificate check of
+   section 5), register the JAR directly, with the absolute path of `java`:
+
+   ```bash
+   claude mcp remove --scope user inubit-acme
+   claude mcp add --scope user inubit-acme -- /opt/homebrew/opt/openjdk/bin/java \
+     -jar "$HOME/.local/lib/inubit-mcp-server-X.Y.Z.jar" --profile acme
+   ```
+
+   Name the AWS profile with `awsProfile` rather than `AWS_PROFILE`, which a GUI client does
+   not see.
+5. Restart the server (`/mcp` → reconnect, or restart the client) to load the changed profile.
+   From then on, a new password only needs a new parameter value
+   ([Rotation](#rotation-re-read-after-a-rejected-login)); no restart.
 
 ## 5. TLS: trust store and pinned certificate
 
@@ -994,16 +1320,19 @@ adoption's summary says when there are any).
 java -jar target/inubit-mcp-server-*.jar --profile acme --check-config
 ```
 
-It validates the file, resolves the credential variables and prints to **stdout** the profile,
+It validates the file, resolves the credential variables, reads the Parameter Store parameters
+of the nodes with that source (see [The `secrets:` part](#the-secrets-part)) and prints to
+**stdout** the profile,
 its terminology, the credential variable scheme, the audit directory and the workspace, then — if
 a group has a `deploy` record — a `Chains:` block (one line per stage chain, then the exclusions
 of each target, see [Stage chain and deployments](#stage-chain-and-deployments)), then per group
 one line per node — id, read-only or write flag, the development settings (if any node has them,
 see [Development settings](#development-settings)), CLI availability, the INUBIT version setting
 and the StartCLI client (see below), for a node of a target group `deploy: from <group> (<mode>)`,
-and the **names** of the variables used (never their values) — followed by warnings and errors.
-Groups and nodes are named with the profile's terminology. It does not start the MCP server and
-never contacts an INUBIT server; the only thing it may create is a missing workspace directory
+and the **names** of the variables or parameters used (never their values) — followed by
+warnings and errors. Groups and nodes are named with the profile's terminology. It does not start
+the MCP server and never contacts an INUBIT server; its only network access is reading the
+Parameter Store parameters. The only thing it may create is a missing workspace directory
 with its missing parents (owner-only, `rwx------`; shown as `(created)`), and the only thing it
 runs is the local [StartCLI client check](#startcli-client-check) (`startcli.sh -v`, one node after
 the other, each bounded by the node's `cliTimeout`). Example for the complete example profile of
@@ -1066,8 +1395,62 @@ stdout.
 | Exit code | Meaning |
 |---|---|
 | `0` | success: `--version`, `--check-config` without errors, or the server stopped because stdin was closed |
-| `1` | configuration error (also with `--check-config`), no configuration file found, or another startup failure (one line on stderr) |
+| `1` | configuration error (also with `--check-config`, there also a Parameter Store parameter that is missing, denied or invalid, or an unknown AWS profile), no configuration file found, or another startup failure (one line on stderr) |
 | `2` | usage error: unknown argument, `--config` without value or twice, `--profile` without a valid profile name or twice, `--config` together with `--profile`, `--check-config` together with `--version` |
+
+### The `secrets:` part
+
+As soon as the profile sets `credentials.source` anywhere (top level, group or node), every node
+line shows its source after the other parts: `secrets: environment` followed by the variables as
+above, or `secrets: awsParameterStore (<region>[, profile <awsProfile>])` followed by each
+configured parameter name with its outcome. Profiles without any `source` keep the output shown
+above, unchanged. The `Credential variables:` line is left out when no node reads variables under
+the profile's prefix. For the example of
+[AWS Systems Manager Parameter Store](#aws-systems-manager-parameter-store), with the variables
+of `dev` set:
+
+```text
+Group dev:
+  Node dev/node1: read-only, cli: unavailable, inubit: AUTO, secrets: environment, username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD
+Group prod (production):
+  Node prod/node1: read-only, cli: unavailable, inubit: AUTO, secrets: awsParameterStore (eu-west-1, profile prod-account), username ← /inubit/prod/username ok, password ← /inubit/prod/node1/password ok
+  Node prod/node2: read-only, cli: unavailable, inubit: AUTO, secrets: awsParameterStore (eu-west-1, profile prod-account), username ← /inubit/prod/username ok, password ← /inubit/prod/password ok
+Result: OK
+```
+
+`--check-config` reads every configured name of every node with Parameter Store (each name once
+per region and AWS profile, at most 10 names per request, each request bounded by 10 s) and
+checks each value as the server does at run time; it never prints a value. (The server itself
+reads them only on first use, not at startup.) The optional names
+(`trustStorePassword`, `e2eUsername`, `e2ePassword`) are shown only when configured; a missing
+required name is shown as `(missing)`, with its error. The outcome after a name:
+
+| Outcome | Meaning | Reported as |
+|---|---|---|
+| `ok` | readable, valid, `SecureString` | — |
+| `not encrypted` | a `String` parameter | warning: `prod/node1: Parameter Store /inubit/prod/username (eu-west-1, profile prod-account) for credentials.parameters.username is not encrypted (type String); store it as SecureString` |
+| `not found` | no such parameter in this region and account, or an empty value | error: `prod/node1: Parameter Store /inubit/prod/node1/password (eu-west-1, profile prod-account) for credentials.parameters.password: not found` |
+| `access denied` | the AWS identity may not read or decrypt it ([AWS permissions](#aws-permissions)) | error, as above with `access denied` |
+| `invalid value` | the value breaks a rule ([First use, timeout and back-off](#first-use-timeout-and-back-off)) or is a `StringList` | error, as above with `invalid value` and the rule it breaks |
+| `not checked` | the store could not be asked: see below | error or warning per region and AWS profile |
+
+When the store cannot be asked, every name of that region and AWS profile shows `not checked`,
+with one finding:
+
+- an unknown AWS profile is an **error**: `AWS Parameter Store (eu-west-1, profile prod-account)
+  for prod/node1, prod/node2: the AWS profile prod-account is not defined in the local AWS
+  configuration files; configure it and log in to it`;
+- no AWS credentials (not logged in, or the login expired) is a **warning**: `… for prod/node1,
+  prod/node2: resolvability not checked: no AWS credentials could be resolved (not logged in, or
+  the login expired)`;
+- a store that cannot be reached or does not answer in time is a **warning**: `… resolvability
+  not checked: the store could not be reached or did not answer within 10 s`.
+
+So the exit code is 1 when a configured parameter is missing, denied or invalid, or an AWS
+profile is unknown (besides every other configuration error, see
+[AWS Systems Manager Parameter Store](#aws-systems-manager-parameter-store)); it stays 0 with a
+warning when no AWS credentials are available, the store is unreachable or slow, a parameter is
+a `String`, or `parameters` are ignored on a node with environment variables.
 
 ## 7. Register with Claude Code
 

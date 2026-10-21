@@ -31,7 +31,9 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * Phase 3 review M2: the per-server credential circuit breaker against account lockout. At most
- * one failed login per server per {@link CredentialGuard#PAUSE} (60 s).
+ * one failed login per {@link CredentialGuard#PAUSE} (60 s) for a node with environment
+ * variables; at most two for a node with AWS Parameter Store, whose credentials are re-read once
+ * after a rejection (feature 010, research R-10, FR-010).
  */
 @Timeout(30)
 class CredentialGuardTest {

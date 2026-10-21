@@ -370,7 +370,7 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   unauthenticated requests through the replaced client (or note it in the `AdapterGatewayFactory.Slot`
   Javadoc); update the class Javadoc of `CredentialGuardTest` ("at most one failed login per server" →
   one for environment nodes, two per 60 s for Parameter Store nodes).
-- [ ] T017 [P] `docs/setup.md`: section 4 becomes "Credentials: sources" with the environment
+- [X] T017 [P] `docs/setup.md`: section 4 becomes "Credentials: sources" with the environment
   source (today's text, `credentials.source` optional), the Parameter Store source (YAML from
   contracts/configuration-delta.md, precedence and overrides, parameter-name rules, first use,
   10 s timeout and 30 s back-off, rotation and the two-login bound), the minimal IAM permissions
@@ -379,6 +379,13 @@ values; untouched nodes are never fetched; failures name node, parameter and kin
   Parameter Store"; section 6 (`--check-config`) shows the `secrets:` part and the new exit-code
   cases. Every quoted value checked against the code. Keep `DevelopmentToolsReferenceTest` and
   `DeploymentReferenceTest` green.
+  Carry-over (T017 review r1), docs/setup.md: the migration step about leftover variables applies only
+  to `<PREFIX>_*_PASSWORD` variables (`_USERNAME` leftovers are not reported); the `not found` row
+  should mention the `(the value is empty)` suffix; qualify "its only network access is reading the
+  Parameter Store parameters" (the AWS credential chain may also contact SSO/OIDC, STS or the
+  container/instance metadata endpoint); section 7 (step 1 "Open a new shell that has the `INUBIT_*`
+  variables" and the "Credentials" row of "Several profiles side by side") should mention Parameter
+  Store profiles.
 - [ ] T018 [P] `docs/tools.md` (errors from contracts/mcp-tools-delta.md, `get_health` part reason,
   fan-out behaviour, `run_e2e_test`), `README.md` "Safety model" ("Secrets only via environment
   variables" → environment variables or Parameter Store, never in the profile or the
