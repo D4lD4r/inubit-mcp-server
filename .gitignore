@@ -23,3 +23,14 @@ __pycache__/
 .neutralize-map
 .synthetic-map
 .identifier-allowlist
+
+# Spec Kit: Das Gerüst unter .specify/ (Skripte, Templates, Workflows, Manifeste, Erweiterungen) ist
+# generiert und wird von `specify integration upgrade claude` gepflegt (nächtliche Routine
+# nightly-tooling-update-check). Im Repo bleibt nur die Verfassung. Nach einem frischen Klon einmal:
+#   specify init --here --force --integration claude --script sh --non-interactive --ignore-agent-tools
+#   (danach .claude/skills/speckit-<Kern-Skills> wieder löschen; sie liegen global in ~/.claude/skills)
+#   Erweiterungen dieses Projekts danach wieder hinzufügen: specify extension add git; 
+/.specify/*
+!/.specify/memory/
+/.specify/memory/*
+!/.specify/memory/constitution.md
