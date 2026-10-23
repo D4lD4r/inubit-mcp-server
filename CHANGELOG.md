@@ -7,6 +7,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-23
+
+Features 008 (repository files on a development stage), 009 (INUBIT version detection) and 010
+(configurable secret sources). Verified by the offline test suite only: the live checks against a
+real INUBIT node and a real AWS Parameter Store have not been run for this release.
+
 ### Added
 
 - Repository files on a development stage (feature 008): schemas, stylesheets, WSDLs and other XML
@@ -500,7 +506,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.0...v0.5.1
