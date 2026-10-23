@@ -1,9 +1,11 @@
 package de.dadecker.inubit.mcp.adapter;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
+import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -16,30 +18,51 @@ import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
+import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
-import de.dadecker.inubit.mcp.config.VersionLine;
+import de.dadecker.inubit.mcp.config.FailureKind;
+import de.dadecker.inubit.mcp.config.ParameterNames;
+import de.dadecker.inubit.mcp.config.SecretPlan;
+import de.dadecker.inubit.mcp.config.SecretSourceConfig;
+import de.dadecker.inubit.mcp.config.StoreLocation;
+import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionRange;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
+import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
+import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.domain.port.TagPort;
+import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -102,15 +125,21 @@ class AdapterGatewayFactoryTest {
             .withBody(body)));
     }
 
-    private static EffectiveNodeConfig server(NodeId id, VersionLine line) {
+    private static EffectiveNodeConfig server(NodeId id, VersionSetting line) {
         return TestNodeConfig.node().id(id.value())
             .baseUrl("https://localhost:" + wireMock.httpsPort())
             .trustStore(TestCertificates.get().trustStore()).versionLine(line).build();
     }
 
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-01T08:00:00Z"));
+    private final RecordingVersionObserver versions = new RecordingVersionObserver();
 
     private AdapterGatewayFactory factory(EffectiveNodeConfig... servers) {
+        return factory(PortSetRegistry.v81Default(), versions, servers);
+    }
+
+    private AdapterGatewayFactory factory(PortSetRegistry portSets, VersionObserver observer,
+        EffectiveNodeConfig... servers) {
         List<NodeId> ids = new ArrayList<>();
         for (EffectiveNodeConfig server : servers) {
             ids.add(server.id());
@@ -118,8 +147,10 @@ class AdapterGatewayFactoryTest {
         CredentialResolution credentials = new CredentialResolver(
             Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", "gateway-test-pw"),
             scrubber, "INUBIT").resolve(ids);
-        return new AdapterGatewayFactory(List.of(servers), credentials, scrubber, clock,
-            new CliRunner(new SystemProcessLauncher(), Map.of(), false, new CliResources("acme")));
+        return new AdapterGatewayFactory(List.of(servers), TestSecrets.environment(credentials),
+            scrubber, clock,
+            new CliRunner(new SystemProcessLauncher(), Map.of(), false, new CliResources("acme")),
+            observer, portSets);
     }
 
     private static int systemInfoCalls() {
@@ -128,7 +159,7 @@ class AdapterGatewayFactoryTest {
 
     @Test
     void configuredV81SelectsTheV81AdaptersWithoutCallingTheServer() {
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
             Gateway gateway = factory.forServer(DEV);
 
             assertThat(gateway.node()).isEqualTo(DEV);
@@ -142,8 +173,8 @@ class AdapterGatewayFactoryTest {
     @Test
     void autoIsDetectedLazilyOnceAndCachedPerServer() {
         systemInfo(200, fixture("system_info.xml"));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO),
-            server(ENT2, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO),
+            server(ENT2, VersionSetting.AUTO))) {
             assertThat(systemInfoCalls()).as("nothing is called at construction").isZero();
 
             Gateway first = factory.forServer(DEV);
@@ -166,7 +197,7 @@ class AdapterGatewayFactoryTest {
     @Test
     void concurrentCallsDetectOnlyOnce() throws Exception {
         systemInfo(200, fixture("system_info.xml"));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO));
             ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<Callable<Gateway>> calls = new ArrayList<>();
             for (int i = 0; i < 8; i++) {
@@ -183,39 +214,59 @@ class AdapterGatewayFactoryTest {
     }
 
     @Test
-    void configuredV9xFallsBackToV81WithUnsupportedWarning() {
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V9_X))) {
+    void configuredV9xUsesTheV81AdaptersWithoutAVersionWarning() {
+        // feature 009 (T013): version warnings come from the version gate, not the gateway
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V9_X))) {
             Gateway gateway = factory.forServer(DEV);
 
             assertThat(gateway.adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
-            assertThat(gateway.warnings()).singleElement().asString().contains("unsupported");
+            assertThat(gateway.warnings()).isEmpty();
+            assertThat(systemInfoCalls()).isZero();
+        }
+    }
+
+    /** Feature 009 T005: until the version gate exists, a pin behaves like its line. */
+    @Test
+    void aPinnedVersionBehavesLikeItsLineWithoutCallingTheServer() {
+        VersionSetting pinned81 = VersionSetting.parse("8.1.17").orElseThrow();
+        VersionSetting pinned90 = VersionSetting.parse("9.0.7-HF1").orElseThrow();
+        try (AdapterGatewayFactory factory = factory(server(DEV, pinned81),
+            server(ENT2, pinned90))) {
+            Gateway on81 = factory.forServer(DEV);
+            Gateway on90 = factory.forServer(ENT2);
+
+            assertThat(on81.adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
+            assertThat(on81.detectedVersion()).isEmpty();
+            assertThat(on81.warnings()).isEmpty();
+            assertThat(on90.adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
+            assertThat(on90.warnings()).as("no version warning (T013)").isEmpty();
             assertThat(systemInfoCalls()).isZero();
         }
     }
 
     @Test
-    void detected9xFallsBackToV81WithUnsupportedWarning() {
+    void detected9xUsesTheV81AdaptersAndReportsTheVersionWithoutAWarning() {
         systemInfo(200, systemInfoWithVersion("9.0.2"));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             Gateway gateway = factory.forServer(DEV);
 
             assertThat(gateway.adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
             assertThat(gateway.detectedVersion()).contains("9.0.2");
-            assertThat(gateway.warnings()).singleElement().asString()
-                .contains("9.0.2", "unsupported");
+            assertThat(gateway.warnings()).as("no version warning (T013)").isEmpty();
+            assertThat(versions.events()).containsExactly("detected dev/node1 9.0.2");
         }
     }
 
     @Test
-    void detectionFailureFallsBackToV81WithWarningCachedForSixtySecondsThenRetried() {
+    void detectionFailureFallsBackToV81CachedForSixtySecondsThenRetried() {
         systemInfo(401, "<html><body>HTTP Status 401</body></html>");
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             Gateway fallback = factory.forServer(DEV);
 
             assertThat(fallback.adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
             assertThat(fallback.detectedVersion()).isEmpty();
-            assertThat(fallback.warnings()).containsExactly(
-                "INUBIT version could not be detected (AUTH_FAILED); assuming 8.1");
+            assertThat(fallback.warnings()).as("no \"assuming 8.1\" warning (T013)").isEmpty();
+            assertThat(versions.events()).containsExactly("detectionFailed dev/node1 AUTH_FAILED");
 
             systemInfo(200, fixture("system_info.xml"));
             clock.advance(AdapterGatewayFactory.FAILED_DETECTION_TTL.minusSeconds(1));
@@ -237,7 +288,7 @@ class AdapterGatewayFactoryTest {
     void rejectedCredentialsAreNotRetriedWithinTheWindow(int status) {
         // every retry would be another failed login and could lock the account (Phase 2c R1)
         systemInfo(status, "<html><body>HTTP Status " + status + "</body></html>");
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             Gateway fallback = factory.forServer(DEV);
             for (int i = 0; i < 5; i++) {
                 clock.advance(Duration.ofSeconds(10));
@@ -245,8 +296,8 @@ class AdapterGatewayFactoryTest {
             }
 
             assertThat(systemInfoCalls()).isEqualTo(1);
-            assertThat(fallback.warnings()).singleElement().asString()
-                .contains(status == 401 ? "(AUTH_FAILED)" : "(FORBIDDEN)");
+            assertThat(versions.events()).containsExactly("detectionFailed dev/node1 "
+                + (status == 401 ? "AUTH_FAILED" : "FORBIDDEN"));
         }
     }
 
@@ -254,14 +305,13 @@ class AdapterGatewayFactoryTest {
     void anUnreachableServerIsAlsoNotProbedAgainWithinTheWindow() {
         wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO)).willReturn(aResponse()
             .withFault(Fault.CONNECTION_RESET_BY_PEER)));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             Gateway fallback = factory.forServer(DEV);
             int callsOfTheDetection = systemInfoCalls(); // the JDK client may retry a reset GET
             clock.advance(Duration.ofSeconds(30));
 
             assertThat(factory.forServer(DEV)).isSameAs(fallback);
-            assertThat(fallback.warnings()).singleElement().asString()
-                .contains("(UNREACHABLE)");
+            assertThat(versions.events()).containsExactly("detectionFailed dev/node1 UNREACHABLE");
             assertThat(systemInfoCalls()).isEqualTo(callsOfTheDetection);
         }
     }
@@ -282,7 +332,7 @@ class AdapterGatewayFactoryTest {
         systemInfo(200, fixture("system_info.xml"));
         wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO)).willReturn(aResponse()
             .withFixedDelay(5000).withBody(fixture("system_info.xml"))));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             long start = System.nanoTime();
             assertThat(factory.monitoring(DEV).healthcheck().status().name()).isEqualTo("OK");
 
@@ -298,7 +348,7 @@ class AdapterGatewayFactoryTest {
         // US2 uses the same non-blocking rule as the monitoring (Phase 3 review H1)
         wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO)).willReturn(aResponse()
             .withFixedDelay(5000).withBody(fixture("system_info.xml"))));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             long start = System.nanoTime();
             ProcessQueryPort processes = factory.processes(DEV);
             LogPort logs = factory.logs(DEV);
@@ -314,7 +364,7 @@ class AdapterGatewayFactoryTest {
 
     @Test
     void theGatewayHandsOutTheSameUs2Ports() {
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
             Gateway gateway = factory.forServer(DEV);
 
             assertThat(gateway.processes()).isSameAs(factory.processes(DEV));
@@ -328,7 +378,7 @@ class AdapterGatewayFactoryTest {
         // US3 uses the same non-blocking rule (design note 2 of the US3 handoff)
         wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO)).willReturn(aResponse()
             .withFixedDelay(5000).withBody(fixture("system_info.xml"))));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             long start = System.nanoTime();
             InventoryPort inventory = factory.inventory(DEV);
 
@@ -345,7 +395,7 @@ class AdapterGatewayFactoryTest {
         // T020: the 8.1 gateway overrides the CLI_UNAVAILABLE default of Gateway.artifacts()
         assertThat(V81Gateway.class.getDeclaredMethod("artifacts").getDeclaringClass())
             .isEqualTo(V81Gateway.class);
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
             assertThat(factory.forServer(DEV).artifacts()).isNotNull()
                 .isSameAs(factory.artifacts(DEV));
             assertThat(wireMock.getAllServeEvents()).isEmpty();
@@ -357,21 +407,22 @@ class AdapterGatewayFactoryTest {
         // feature 004 (T014): the 8.1 gateway overrides the CLI_UNAVAILABLE defaults
         assertThat(V81Gateway.class.getDeclaredMethod("imports").getDeclaringClass())
             .isEqualTo(V81Gateway.class);
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
+            // feature 009 T007: the 8.1 adapters behind the stale-reporting decorators
             assertThat(factory.forServer(DEV).imports()).isNotNull()
                 .isSameAs(factory.imports(DEV))
-                .isInstanceOf(de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter.class);
+                .isInstanceOf(StaleReportingPorts.Imports.class);
             // T021
             assertThat(factory.forServer(DEV).tags()).isNotNull()
                 .isSameAs(factory.tags(DEV))
-                .isInstanceOf(de.dadecker.inubit.mcp.adapter.cli.v81.V81TagAdapter.class);
+                .isInstanceOf(StaleReportingPorts.Tags.class);
             assertThat(wireMock.getAllServeEvents()).isEmpty();
         }
     }
 
     @Test
     void theGatewayHandsOutTheSameInventoryPort() {
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
             assertThat(factory.forServer(DEV).inventory()).isNotNull()
                 .isSameAs(factory.inventory(DEV));
             assertThat(wireMock.getAllServeEvents()).isEmpty();
@@ -393,8 +444,9 @@ class AdapterGatewayFactoryTest {
             Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", "gateway-test-pw"),
             scrubber, "INUBIT").resolve(List.of(DEV));
         try (AdapterGatewayFactory factory = new AdapterGatewayFactory(List.of(config),
-            credentials, scrubber, clock,
-            new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")))) {
+            TestSecrets.environment(credentials), scrubber, clock,
+            new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
+            versions, PortSetRegistry.v81Default())) {
 
             assertThatThrownBy(() -> factory.inventory(DEV).listModules("OWNERS"))
                 .isInstanceOfSatisfying(ToolErrorException.class, e ->
@@ -412,7 +464,7 @@ class AdapterGatewayFactoryTest {
     @Test
     void theSystemInfoOfTheMonitoringCompletesTheDetection() {
         systemInfo(200, fixture("system_info.xml"));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             factory.monitoring(DEV).systemInfo();
 
             Gateway known = factory.knownGateway(DEV).orElseThrow();
@@ -424,13 +476,15 @@ class AdapterGatewayFactoryTest {
     }
 
     @Test
-    void anUnsupportedVersionFromTheMonitoringIsWarnedAbout() {
+    void anUnsupportedVersionFromTheMonitoringIsReportedWithoutAWarning() {
         systemInfo(200, systemInfoWithVersion("9.0.2"));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             factory.monitoring(DEV).systemInfo();
 
-            assertThat(factory.knownGateway(DEV).orElseThrow().warnings()).singleElement()
-                .asString().contains("9.0.2", "unsupported");
+            Gateway known = factory.knownGateway(DEV).orElseThrow();
+            assertThat(known.detectedVersion()).contains("9.0.2");
+            assertThat(known.warnings()).as("no version warning (T013)").isEmpty();
+            assertThat(versions.events()).containsExactly("detected dev/node1 9.0.2");
         }
     }
 
@@ -439,7 +493,7 @@ class AdapterGatewayFactoryTest {
         systemInfo(401, "<html>HTTP Status 401</html>");
         wireMock.stubFor(get(urlPathEqualTo("/ibis/rest/metrics")).willReturn(aResponse()
             .withStatus(401)));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             MonitoringPort monitoring = factory.monitoring(DEV);
             assertThatThrownBy(monitoring::systemInfo).isInstanceOf(ToolErrorException.class);
             assertThatThrownBy(monitoring::metrics)
@@ -447,8 +501,9 @@ class AdapterGatewayFactoryTest {
                     e.error().message()).contains("avoid account lockout"));
 
             Gateway known = factory.knownGateway(DEV).orElseThrow();
-            assertThat(known.warnings()).containsExactly(
-                "INUBIT version could not be detected (AUTH_FAILED); assuming 8.1");
+            assertThat(known.detectedVersion()).isEmpty();
+            assertThat(known.warnings()).as("no \"assuming 8.1\" warning (T013)").isEmpty();
+            assertThat(versions.events()).containsExactly("detectionFailed dev/node1 AUTH_FAILED");
             assertThat(factory.forServer(DEV)).isSameAs(known);
             assertThat(monitoring.credentialsConfirmed()).isFalse();
             assertThat(authenticatedCalls()).as("one failed login only").isEqualTo(1);
@@ -458,7 +513,7 @@ class AdapterGatewayFactoryTest {
     @Test
     void successfulAuthenticatedCallsConfirmTheCredentials() {
         systemInfo(200, fixture("system_info.xml"));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
             MonitoringPort monitoring = factory.monitoring(DEV);
             assertThat(monitoring.credentialsConfirmed()).isFalse();
 
@@ -471,21 +526,32 @@ class AdapterGatewayFactoryTest {
 
     @Test
     void configuredLinesAreKnownWithoutCallingTheServer() {
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1),
-            server(ENT2, VersionLine.V9_X))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1),
+            server(ENT2, VersionSetting.V9_X))) {
             assertThat(factory.knownGateway(DEV)).get()
                 .extracting(Gateway::warnings).asList().isEmpty();
-            assertThat(factory.knownGateway(ENT2).orElseThrow().warnings()).singleElement()
-                .asString().contains("unsupported");
+            assertThat(factory.knownGateway(ENT2).orElseThrow().warnings())
+                .as("no version warning (T013)").isEmpty();
             assertThat(wireMock.getAllServeEvents()).isEmpty();
         }
+    }
+
+    @Test
+    void theCredentialsOfAnEnvironmentNodeAreHeldFromTheStart() {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
+            assertThat(factory.credentialsHeld(DEV)).isTrue();
+            // T014: get_health finds them ready without waiting, even with a zero bound
+            assertThat(factory.prepareCredentials(DEV, Duration.ZERO))
+                .isEqualTo(CredentialState.READY);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
     }
 
     @Test
     void anInterruptedDetectionIsNotCached() throws Exception {
         wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO)).willReturn(aResponse()
             .withFixedDelay(3000).withBody(fixture("system_info.xml"))));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             Thread detection = Thread.ofVirtual().start(() -> factory.forServer(DEV));
             Thread.sleep(300);
             detection.interrupt();
@@ -503,6 +569,7 @@ class AdapterGatewayFactoryTest {
 
             assertThat(factory.knownGateway(DEV)).as("a cancelled call is no failed detection")
                 .isEmpty();
+            assertThat(versions.events()).as("nor is it reported").isEmpty();
             systemInfo(200, fixture("system_info.xml"));
             assertThat(factory.forServer(DEV).detectedVersion()).contains("8.1.17");
         }
@@ -515,21 +582,23 @@ class AdapterGatewayFactoryTest {
         wireMock.stubFor(get(urlEqualTo(HEALTHCHECK)).willReturn(aResponse().withStatus(503)
             .withHeader("Content-Type", "application/json")
             .withBody("{\"status\":\"OK\",\"maintenancemode\":1}")));
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
-            assertThat(factory.forServer(DEV).warnings()).singleElement().asString()
-                .contains("(MAINTENANCE_MODE)");
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            factory.forServer(DEV);
+            assertThat(versions.events())
+                .containsExactly("detectionFailed dev/node1 MAINTENANCE_MODE");
         }
         wireMock.verify(1, getRequestedFor(urlEqualTo(HEALTHCHECK)));
     }
 
     @Test
-    void systemInfoWithoutVersionFallsBackWithWarning() {
+    void systemInfoWithoutVersionFallsBackAndIsAFailedDetection() {
         systemInfo(200,
             "<SystemInformationList xmlns=\"inubit.com/ibis/external/systeminformation\">"
             + "<SystemInformation name=\"FreeMemory\" value=\"1\"/></SystemInformationList>");
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.AUTO))) {
-            assertThat(factory.forServer(DEV).warnings()).singleElement().asString()
-                .contains("(UNEXPECTED_RESPONSE)");
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            assertThat(factory.forServer(DEV).detectedVersion()).isEmpty();
+            assertThat(versions.events())
+                .containsExactly("detectionFailed dev/node1 UNEXPECTED_RESPONSE");
         }
     }
 
@@ -538,7 +607,7 @@ class AdapterGatewayFactoryTest {
         EffectiveNodeConfig broken = TestNodeConfig.node().id(DEV.value())
             .baseUrl("https://localhost:" + wireMock.httpsPort())
             .trustStore(java.nio.file.Path.of("does-not-exist.p12"))
-            .versionLine(VersionLine.AUTO).build();
+            .versionLine(VersionSetting.AUTO).build();
         try (AdapterGatewayFactory factory = factory(broken)) {
             assertThatThrownBy(() -> factory.forServer(DEV))
                 .isInstanceOfSatisfying(ToolErrorException.class, e -> {
@@ -550,10 +619,680 @@ class AdapterGatewayFactoryTest {
 
     @Test
     void anUnconfiguredServerIsUnknown() {
-        try (AdapterGatewayFactory factory = factory(server(DEV, VersionLine.V8_1))) {
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
             assertThatThrownBy(() -> factory.forServer(ENT2))
                 .isInstanceOfSatisfying(ToolErrorException.class, e ->
                     assertThat(e.error().code()).isEqualTo(ErrorCode.TARGET_UNKNOWN));
         }
+    }
+
+    // --- feature 009 T007: detection port, reporting and stale triggers ----------------------
+
+    private static void queueLog(int status, String body) {
+        wireMock.stubFor(post(urlPathEqualTo("/ibis/rest/log/queueLog")).willReturn(aResponse()
+            .withStatus(status).withHeader("Content-Type", "application/json").withBody(body)));
+    }
+
+    private static void modelList(int status, String body) {
+        wireMock.stubFor(get(urlPathEqualTo("/ibis/rest/model/models")).willReturn(aResponse()
+            .withStatus(status).withHeader("Content-Type", "application/xml").withBody(body)));
+    }
+
+    private static ErrorCode codeOf(Runnable call) {
+        try {
+            call.run();
+        } catch (ToolErrorException e) {
+            return e.error().code();
+        }
+        throw new AssertionError("expected a ToolErrorException");
+    }
+
+    @Test
+    void detectOnAnUndetectedNodeSendsOneRequestAndCompletesTheSlotsDetection() {
+        systemInfo(200, fixture("system_info.xml"));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            InubitVersion version = factory.detect(DEV);
+
+            assertThat(version.raw()).isEqualTo("8.1.17");
+            assertThat(factory.forServer(DEV).detectedVersion()).contains("8.1.17");
+            assertThat(systemInfoCalls()).as("forServer uses the detection").isEqualTo(1);
+            assertThat(versions.events()).containsExactly("detected dev/node1 8.1.17");
+        }
+    }
+
+    @Test
+    void detectBypassesTheDetectedGatewayAndDetectsAgain() {
+        systemInfo(200, fixture("system_info.xml"));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            factory.forServer(DEV);
+            assertThat(factory.detect(DEV).raw()).isEqualTo("8.1.17");
+            assertThat(systemInfoCalls()).as("not answered from the slot's cache").isEqualTo(2);
+
+            systemInfo(200, systemInfoWithVersion("9.0.2"));
+            InubitVersion upgraded = factory.detect(DEV);
+
+            assertThat(upgraded.major()).isEqualTo(9);
+            assertThat(systemInfoCalls()).isEqualTo(3);
+            assertThat(factory.knownGateway(DEV).orElseThrow().detectedVersion())
+                .as("the adapter selection follows the re-detection").contains("9.0.2");
+            assertThat(versions.events()).containsExactly("detected dev/node1 8.1.17",
+                "detected dev/node1 8.1.17", "detected dev/node1 9.0.2");
+        }
+    }
+
+    @Test
+    void aFailedDetectIsThrownAndReportedAndTheSlotsBackOffOnlyHoldsTheAdapterSelection() {
+        systemInfo(500, "<html>internal error</html>");
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            assertThat(codeOf(() -> factory.detect(DEV)))
+                .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            Gateway fallback = factory.forServer(DEV);
+            assertThat(fallback.detectedVersion()).isEmpty();
+            assertThat(systemInfoCalls()).as("forServer keeps the slot's 60 s fallback")
+                .isEqualTo(1);
+
+            clock.advance(Duration.ofSeconds(10));
+            systemInfo(200, fixture("system_info.xml"));
+            assertThat(factory.detect(DEV).raw())
+                .as("detect is not held back by the slot's fallback").isEqualTo("8.1.17");
+
+            assertThat(systemInfoCalls()).isEqualTo(2);
+            assertThat(factory.forServer(DEV).detectedVersion()).contains("8.1.17");
+            assertThat(versions.events()).containsExactly(
+                "detectionFailed dev/node1 UNEXPECTED_RESPONSE", "detected dev/node1 8.1.17");
+        }
+    }
+
+    @Test
+    void aFailedReDetectionKeepsTheDetectedGateway() {
+        systemInfo(200, fixture("system_info.xml"));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            Gateway detected = factory.forServer(DEV);
+            systemInfo(401, "<html>HTTP Status 401</html>");
+
+            assertThat(codeOf(() -> factory.detect(DEV))).isEqualTo(ErrorCode.AUTH_FAILED);
+
+            assertThat(factory.forServer(DEV)).isSameAs(detected);
+            assertThat(versions.events()).containsExactly("detected dev/node1 8.1.17",
+                "detectionFailed dev/node1 AUTH_FAILED");
+        }
+    }
+
+    @Test
+    void aVersionWithoutMajorMinorIsAFailedDetection() {
+        systemInfo(200, systemInfoWithVersion("unknown"));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            assertThatThrownBy(() -> factory.detect(DEV))
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+                    assertThat(e.error().node()).contains(DEV);
+                    assertThat(e.error().message()).contains("'unknown'");
+                });
+            assertThat(versions.events())
+                .containsExactly("detectionFailed dev/node1 UNEXPECTED_RESPONSE");
+        }
+    }
+
+    @Test
+    void theSlotReportsOnlyItsAutoDetections() {
+        systemInfo(200, fixture("system_info.xml"));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO),
+            server(ENT2, VersionSetting.V8_1))) {
+            factory.forServer(DEV);
+            factory.forServer(DEV);
+            factory.forServer(ENT2);
+            factory.monitoring(ENT2).systemInfo(); // observations are HealthService's (T016)
+
+            assertThat(versions.events()).containsExactly("detected dev/node1 8.1.17");
+        }
+    }
+
+    @Test
+    void theMonitoringsSystemInfoReportsTheSlotsFirstDetectionOnly() {
+        systemInfo(200, fixture("system_info.xml"));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            MonitoringPort monitoring = factory.monitoring(DEV);
+            monitoring.systemInfo();
+            monitoring.systemInfo();
+
+            assertThat(versions.events()).containsExactly("detected dev/node1 8.1.17");
+        }
+    }
+
+    @Test
+    void theMonitoringsFailedSystemInfoReportsTheSlotsFailedDetection() {
+        systemInfo(401, "<html>HTTP Status 401</html>");
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            assertThat(codeOf(factory.monitoring(DEV)::systemInfo))
+                .isEqualTo(ErrorCode.AUTH_FAILED);
+
+            assertThat(versions.events()).containsExactly("detectionFailed dev/node1 AUTH_FAILED");
+        }
+    }
+
+    @Test
+    void aParserUnexpectedResponseMarksTheNodeStaleAndIsRethrown() {
+        queueLog(200, "{\"somethingElse\":{}}");
+        modelList(200, "<unexpected/>");
+        systemInfo(200, "not xml");
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
+            assertThat(codeOf(() -> factory.processes(DEV).findByProcessId("1",
+                clock.instant(), Duration.ofMinutes(60)))).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            assertThat(codeOf(() -> factory.forServer(DEV).inventory().listDiagrams("OWNERS")))
+                .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            assertThat(codeOf(factory.monitoring(DEV)::systemInfo))
+                .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+
+            assertThat(versions.events()).containsExactly("stale dev/node1", "stale dev/node1",
+                "stale dev/node1");
+        }
+    }
+
+    @Test
+    void a406MarksTheNodeStale() {
+        queueLog(406, "Not Acceptable");
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
+            assertThat(codeOf(() -> factory.processes(DEV).findByProcessId("1",
+                clock.instant(), Duration.ofMinutes(60)))).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+
+            assertThat(versions.events()).containsExactly("stale dev/node1");
+        }
+    }
+
+    @Test
+    void aMissingEndpointMarksTheNodeStaleButAMissingResourceDoesNot() {
+        modelList(404, "<html>not found</html>");
+        wireMock.stubFor(get(urlPathEqualTo("/ibis/rest/model/modelByName/Missing"))
+            .willReturn(aResponse().withStatus(404)));
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
+            assertThat(codeOf(() -> factory.inventory(DEV).listDiagrams("OWNERS")))
+                .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            assertThat(codeOf(() -> factory.inventory(DEV).diagramDetail("OWNERS", "Missing")))
+                .isEqualTo(ErrorCode.NOT_FOUND);
+
+            assertThat(versions.events()).containsExactly("stale dev/node1");
+        }
+    }
+
+    // --- feature 009 T024: port-set selection by effective version (research D-16) ----------
+
+    private static final NodeId ENT3 = NodeId.parse("dev/node3");
+    private static final VersionRange V7_9 = new VersionRange(7, 9, 7, 9);
+    private static final VersionRange V9_0 = new VersionRange(9, 0, 9, 0);
+
+    /** Every port factory call, e.g. {@code 7.9 dev/node1}. */
+    private final List<String> built = new CopyOnWriteArrayList<>();
+
+    /** A test-only port set whose ports throw {@code UnsupportedOperationException(name)}. */
+    private PortSetRegistry.Factory fakePortSet(String name) {
+        return node -> {
+            built.add(name + " " + node.server().id());
+            return new PortSet(fake(ProcessQueryPort.class, name), fake(LogPort.class, name),
+                fake(InventoryPort.class, name), fake(ProcessControlPort.class, name),
+                fake(ArtifactPort.class, name), fake(ImportPort.class, name),
+                fake(TagPort.class, name));
+        };
+    }
+
+    private static <T> T fake(Class<T> type, String name) {
+        return type.cast(Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type},
+            (proxy, method, args) -> {
+                throw new UnsupportedOperationException(name);
+            }));
+    }
+
+    /** The name of the port set behind a handed-out (stale-reporting) log port. */
+    private static String portSetOf(LogPort port) {
+        try {
+            port.validate(null);
+        } catch (UnsupportedOperationException e) {
+            return e.getMessage();
+        }
+        throw new AssertionError("not a test-only port set");
+    }
+
+    private NodeVersions nodeVersions(EffectiveNodeConfig... servers) {
+        Map<NodeId, VersionSetting> lines = new java.util.HashMap<>();
+        for (EffectiveNodeConfig server : servers) {
+            lines.put(server.id(), server.versionLine());
+        }
+        return new NodeVersions(clock, lines::get, id -> Duration.ofMinutes(10));
+    }
+
+    @Test
+    void theDefaultPortSetServes81_90AndUnknownVersions() {
+        EffectiveNodeConfig on81 = server(DEV, VersionSetting.parse("8.1.17").orElseThrow());
+        EffectiveNodeConfig on90 = server(ENT2, VersionSetting.parse("9.0.7").orElseThrow());
+        EffectiveNodeConfig unknown = server(ENT3, VersionSetting.AUTO);
+        PortSetRegistry portSets = new PortSetRegistry(fakePortSet("default"))
+            .register(V7_9, fakePortSet("7.9"));
+        try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(on81, on90, unknown),
+            on81, on90, unknown)) {
+            assertThat(portSetOf(factory.logs(DEV))).isEqualTo("default");
+            assertThat(portSetOf(factory.logs(ENT2))).isEqualTo("default");
+            assertThat(portSetOf(factory.logs(ENT3))).isEqualTo("default");
+            assertThat(built).containsExactly("default dev/node1", "default dev/node2",
+                "default dev/node3");
+            assertThat(wireMock.getAllServeEvents()).as("the selection detects nothing")
+                .isEmpty();
+        }
+    }
+
+    @Test
+    void productionRegistersOnlyThe81PortSetAsTheDefaultForEveryVersion() {
+        PortSetRegistry production = PortSetRegistry.v81Default();
+        for (String version : List.of("7.9.1", "8.1.17", "9.0.7", "10.2")) {
+            PortSetRegistry.Selection selection =
+                production.select(InubitVersion.parse(version));
+            assertThat(selection.range()).as(version).isEmpty();
+            assertThat(selection.factory()).as(version).isSameAs(production.select(
+                Optional.empty()).factory());
+        }
+        modelList(404, "<html>not found</html>");
+        EffectiveNodeConfig on90 = server(DEV, VersionSetting.parse("9.0.7").orElseThrow());
+        try (AdapterGatewayFactory factory = factory(production, nodeVersions(on90), on90)) {
+            assertThat(codeOf(() -> factory.inventory(DEV).listDiagrams("OWNERS")))
+                .as("the 8.1 model list endpoint").isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            wireMock.verify(1, getRequestedFor(urlPathEqualTo("/ibis/rest/model/models")));
+        }
+    }
+
+    @Test
+    void aRegisteredRangeIsSelectedAfterTheDetection() {
+        systemInfo(200, systemInfoWithVersion("7.9.3"));
+        EffectiveNodeConfig node = server(DEV, VersionSetting.AUTO);
+        PortSetRegistry portSets = new PortSetRegistry(fakePortSet("default"))
+            .register(V7_9, fakePortSet("7.9"));
+        try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(node), node)) {
+            assertThat(portSetOf(factory.logs(DEV))).as("before the detection").isEqualTo("default");
+
+            factory.detect(DEV);
+
+            assertThat(portSetOf(factory.logs(DEV))).isEqualTo("7.9");
+            assertThat(portSetOf(factory.forServer(DEV).logs())).as("the gateway's ports")
+                .isEqualTo("7.9");
+            assertThat(factory.processes(DEV)).as("kept within the range")
+                .isSameAs(factory.processes(DEV));
+            assertThat(built).containsExactly("default dev/node1", "7.9 dev/node1");
+            assertThat(systemInfoCalls()).as("only the detection").isEqualTo(1);
+        }
+    }
+
+    @Test
+    void aReDetectionIntoAnotherRangeRebuildsThePortSet() {
+        systemInfo(200, systemInfoWithVersion("7.9.3"));
+        EffectiveNodeConfig node = server(DEV, VersionSetting.AUTO);
+        PortSetRegistry portSets = new PortSetRegistry(fakePortSet("default"))
+            .register(V7_9, fakePortSet("7.9")).register(V9_0, fakePortSet("9.0"));
+        try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(node), node)) {
+            factory.detect(DEV);
+            LogPort on79 = factory.logs(DEV);
+            assertThat(portSetOf(on79)).isEqualTo("7.9");
+
+            systemInfo(200, systemInfoWithVersion("7.9.4"));
+            factory.detect(DEV);
+            assertThat(factory.logs(DEV)).as("same range: not rebuilt").isSameAs(on79);
+
+            systemInfo(200, systemInfoWithVersion("9.0.2"));
+            factory.detect(DEV);
+            assertThat(portSetOf(factory.logs(DEV))).isEqualTo("9.0");
+            assertThat(portSetOf(factory.forServer(DEV).logs())).isEqualTo("9.0");
+
+            systemInfo(200, fixture("system_info.xml"));
+            factory.detect(DEV);
+            assertThat(portSetOf(factory.logs(DEV))).as("8.1.17: the default")
+                .isEqualTo("default");
+
+            assertThat(built).containsExactly("7.9 dev/node1", "9.0 dev/node1",
+                "default dev/node1");
+        }
+    }
+
+    @Test
+    void theSelectedPortSetIsStillWrappedByTheStaleTrigger() {
+        EffectiveNodeConfig node = server(DEV, VersionSetting.parse("7.9.3").orElseThrow());
+        PortSetRegistry portSets = PortSetRegistry.v81Default().register(V7_9,
+            fakePortSet("7.9"));
+        try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(node), node)) {
+            assertThat(factory.logs(DEV)).isInstanceOf(StaleReportingPorts.Logs.class);
+            assertThat(portSetOf(factory.logs(DEV))).isEqualTo("7.9");
+        }
+    }
+
+    // --- feature 010 T011: secrets of AWS nodes, fetched on first use (R-7, FR-006a) -------
+
+    private static final StoreLocation EU = new StoreLocation("eu-central-1", Optional.empty());
+    private static final String AWS_USERNAME = "/test/dev/node1/username";
+    private static final String AWS_PASSWORD = "/test/dev/node1/password";
+    private static final String AWS_TRUST = "/test/dev/node1/truststore-password";
+
+    private final FakeParameterStore store = new FakeParameterStore();
+
+    private NodeSecrets awsSecrets(Optional<String> trustStorePassword) {
+        return NodeSecrets.aws(new SecretPlan(DEV,
+            new SecretSourceConfig.AwsParameterStore(EU.region(), EU.awsProfile()),
+            SecretPlan.Origin.NODE, Optional.empty(), Optional.of(new ParameterNames(
+                Optional.of(AWS_USERNAME), Optional.of(AWS_PASSWORD), trustStorePassword,
+                Optional.empty(), Optional.empty()))), store, scrubber, clock);
+    }
+
+    private AdapterGatewayFactory awsFactory(EffectiveNodeConfig server, NodeSecrets secrets) {
+        return new AdapterGatewayFactory(List.of(server), Map.of(server.id(), secrets), scrubber,
+            clock, new CliRunner(new SystemProcessLauncher(), Map.of(), false,
+                new CliResources("acme")), versions, PortSetRegistry.v81Default());
+    }
+
+    private void putAwsCredentials() {
+        store.put(EU, AWS_USERNAME, "test-user-1").put(EU, AWS_PASSWORD, "test-password-1");
+    }
+
+    private static void collect(Runnable call, List<ToolErrorException> failures) {
+        try {
+            call.run();
+        } catch (ToolErrorException e) {
+            failures.add(e);
+        }
+    }
+
+    @Test
+    void anAwsNodesFirstAuthenticatedCallFetchesOnceAndUsesTheStoredValues() {
+        systemInfo(200, fixture("system_info.xml"));
+        putAwsCredentials();
+        store.put(EU, AWS_TRUST, TestCertificates.PASSWORD);
+        // the trust store needs the fetched password: it is part of the TLS context
+        EffectiveNodeConfig node = TestNodeConfig.node().id(DEV.value())
+            .baseUrl("https://localhost:" + wireMock.httpsPort())
+            .trustStore(TestCertificates.get().protectedTrustStore())
+            .versionLine(VersionSetting.AUTO).build();
+        try (AdapterGatewayFactory factory = awsFactory(node, awsSecrets(Optional.of(AWS_TRUST)))) {
+            assertThat(store.calls()).as("nothing is fetched at construction").isZero();
+
+            Gateway gateway = factory.forServer(DEV);
+            factory.monitoring(DEV);
+            factory.logs(DEV);
+            factory.detect(DEV);
+
+            assertThat(gateway.detectedVersion()).contains("8.1.17");
+            assertThat(store.requests()).singleElement().satisfies(request -> assertThat(
+                request.names()).containsExactly(AWS_USERNAME, AWS_PASSWORD, AWS_TRUST));
+        }
+        String basic = "Basic " + Base64.getEncoder().encodeToString(
+            "test-user-1:test-password-1".getBytes(StandardCharsets.UTF_8));
+        wireMock.verify(2, getRequestedFor(urlPathEqualTo(SYSTEM_INFO))
+            .withHeader("Authorization", equalTo(basic)));
+    }
+
+    @Test
+    void aFailedFetchFailsTheCallBeforeAnyInubitRequest() {
+        systemInfo(200, fixture("system_info.xml"));
+        store.put(EU, AWS_USERNAME, "test-user-1")
+            .fail(EU, AWS_PASSWORD, FailureKind.ACCESS_DENIED, "test detail");
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.AUTO),
+            awsSecrets(Optional.empty()))) {
+            List<ToolErrorException> failures = new ArrayList<>();
+            collect(() -> factory.forServer(DEV), failures);
+            collect(() -> factory.detect(DEV), failures);
+            collect(() -> factory.monitoring(DEV), failures);
+            collect(() -> factory.processes(DEV), failures);
+            collect(() -> factory.inventory(DEV), failures);
+
+            assertThat(failures).hasSize(5).allSatisfy(e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.AUTH_FAILED);
+                assertThat(e.error().message()).contains("dev/node1", AWS_PASSWORD,
+                    "access denied");
+            });
+            assertThat(store.calls()).as("the back-off answers the later calls").isEqualTo(1);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+        assertThat(versions.events()).as("no detection was attempted").isEmpty();
+    }
+
+    @Test
+    void pathsThatDoNotContactTheNodeFetchNothing() {
+        putAwsCredentials();
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.V8_1),
+            awsSecrets(Optional.empty()))) {
+            assertThat(factory.knownGateway(DEV)).as("unknown until the secrets are there")
+                .isEmpty();
+            // T013: the up-front validation of the fan-out tools asks this without fetching
+            assertThat(factory.credentialsHeld(DEV)).isFalse();
+            assertThatThrownBy(() -> factory.forServer(ENT2))
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.TARGET_UNKNOWN));
+            assertThat(store.calls()).isZero();
+
+            factory.logs(DEV);
+
+            assertThat(store.calls()).isEqualTo(1);
+            assertThat(factory.knownGateway(DEV)).isPresent();
+            assertThat(factory.credentialsHeld(DEV)).isTrue();
+        }
+        assertThat(store.calls()).isEqualTo(1);
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void aCallerInterruptedWhileAnotherCallersFetchIsPendingReturnsAtOnce() throws Exception {
+        putAwsCredentials();
+        store.delay(EU, Duration.ofSeconds(30));
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.AUTO),
+            awsSecrets(Optional.empty()))) {
+            List<ToolErrorException> first = new CopyOnWriteArrayList<>();
+            List<ToolErrorException> second = new CopyOnWriteArrayList<>();
+            Thread fetching = Thread.ofVirtual().start(() -> collect(() -> factory.forServer(DEV),
+                first));
+            long fetchDeadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (store.calls() == 0 && System.nanoTime() < fetchDeadline) {
+                Thread.onSpinWait();
+            }
+            assertThat(store.calls()).as("the first caller's fetch has started").isEqualTo(1);
+            // detect takes the same slot lock as forServer; it waits for the secrets before
+            Thread waiting = Thread.ofVirtual().start(() -> collect(() -> factory.detect(DEV),
+                second));
+            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (waiting.getState() != Thread.State.TIMED_WAITING
+                && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+
+            waiting.interrupt();
+
+            assertThat(waiting.join(Duration.ofSeconds(5))).as("returns at once").isTrue();
+            assertThat(second).singleElement().satisfies(e ->
+                assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT));
+            assertThat(fetching.isAlive()).as("the first caller still waits").isTrue();
+            fetching.interrupt();
+            assertThat(fetching.join(Duration.ofSeconds(5))).isTrue();
+            assertThat(first).singleElement().satisfies(e ->
+                assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT));
+            assertThat(store.calls()).isEqualTo(1);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    // --- feature 010 T014: get_health prepares the credentials within its budget (R-9) -----
+
+    @Test
+    void preparingTheCredentialsReturnsPendingAtTheBoundAndTheFetchContinues() {
+        putAwsCredentials();
+        store.delay(EU, Duration.ofMillis(1500));
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.V8_1),
+            awsSecrets(Optional.empty()))) {
+            long start = System.nanoTime();
+            CredentialState first = factory.prepareCredentials(DEV, Duration.ofMillis(200));
+            Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+            assertThat(first).isEqualTo(CredentialState.PENDING);
+            assertThat(elapsed).as("never blocks beyond the bound")
+                .isLessThan(Duration.ofMillis(200 + 700));
+            assertThat(factory.credentialsHeld(DEV)).isFalse();
+
+            // the same fetch continues: a later call with enough bound finds it ready
+            assertThat(factory.prepareCredentials(DEV, Duration.ofSeconds(5)))
+                .isEqualTo(CredentialState.READY);
+            assertThat(factory.credentialsHeld(DEV)).isTrue();
+            assertThat(store.calls()).as("one fetch for both calls").isEqualTo(1);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void preparingTheCredentialsWithAZeroBoundStartsTheFetchWithoutWaiting() throws InterruptedException {
+        putAwsCredentials();
+        store.delay(EU, Duration.ofMillis(500));
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.V8_1),
+            awsSecrets(Optional.empty()))) {
+            long start = System.nanoTime();
+            CredentialState state = factory.prepareCredentials(DEV, Duration.ZERO);
+            Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+            assertThat(state).isEqualTo(CredentialState.PENDING);
+            assertThat(elapsed).isLessThan(Duration.ofMillis(400));
+            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (!factory.credentialsHeld(DEV) && System.nanoTime() < deadline) {
+                Thread.sleep(20);
+            }
+            assertThat(factory.credentialsHeld(DEV)).as("the fetch ran on its own").isTrue();
+            assertThat(factory.prepareCredentials(DEV, Duration.ZERO))
+                .isEqualTo(CredentialState.READY);
+            assertThat(store.calls()).isEqualTo(1);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void preparingTheCredentialsThrowsTheFailureOfTheFetch() {
+        store.put(EU, AWS_USERNAME, "test-user-1")
+            .fail(EU, AWS_PASSWORD, FailureKind.ACCESS_DENIED, "test detail");
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.V8_1),
+            awsSecrets(Optional.empty()))) {
+            assertThatThrownBy(() -> factory.prepareCredentials(DEV, Duration.ofSeconds(5)))
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.AUTH_FAILED);
+                    assertThat(e.error().message()).contains("dev/node1", AWS_PASSWORD);
+                });
+            // within the back-off the recorded failure is thrown at once, also for a zero bound
+            assertThatThrownBy(() -> factory.prepareCredentials(DEV, Duration.ZERO))
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.AUTH_FAILED));
+            assertThatThrownBy(() -> factory.prepareCredentials(ENT2, Duration.ZERO))
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.TARGET_UNKNOWN));
+            assertThat(store.calls()).isEqualTo(1);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    // --- feature 010 T016: re-read on rejection (R-10, FR-010, US4) ----------------------------
+
+    private static String basic(String username, String password) {
+        return "Basic " + Base64.getEncoder().encodeToString(
+            (username + ":" + password).getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** INUBIT answers {@code /system/info} with 200 for {@code password} and 401 otherwise. */
+    private static void inubitAccepts(String password) {
+        systemInfo(401, "<html>HTTP Status 401</html>");
+        wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO))
+            .withHeader("Authorization", equalTo(basic("test-user-1", password)))
+            .willReturn(aResponse().withStatus(200)
+                .withHeader("Content-Type", "application/xml;charset=UTF-8")
+                .withBody(fixture("system_info.xml"))));
+    }
+
+    private static int loginsWith(String password) {
+        return wireMock.findAll(getRequestedFor(urlPathEqualTo(SYSTEM_INFO))
+            .withHeader("Authorization", equalTo(basic("test-user-1", password)))).size();
+    }
+
+    @Test
+    void aRotatedPasswordIsUsedByTheNextCallAndTheOldClientPortsAndGatewayAreDiscarded() {
+        putAwsCredentials();
+        inubitAccepts("test-password-2"); // rotated in INUBIT and in Parameter Store
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.AUTO),
+            awsSecrets(Optional.empty()))) {
+            MonitoringPort oldMonitoring = factory.monitoring(DEV); // built with the old values
+            LogPort oldLogs = factory.logs(DEV);
+            store.put(EU, AWS_PASSWORD, "test-password-2");
+
+            // the detection's login is rejected while the slot's lock is held; the re-read
+            // finds the new password; the rejected detection fails as today (fallback)
+            Gateway fallback = factory.forServer(DEV);
+
+            assertThat(fallback.detectedVersion()).isEmpty();
+            assertThat(store.calls()).as("first fetch and one re-read").isEqualTo(2);
+
+            Gateway next = factory.forServer(DEV);
+
+            assertThat(next).isNotSameAs(fallback);
+            assertThat(next.detectedVersion()).as("detected with the new password")
+                .contains("8.1.17");
+            assertThat(next.monitoring()).isNotSameAs(oldMonitoring)
+                .isSameAs(factory.monitoring(DEV));
+            assertThat(factory.logs(DEV)).isNotSameAs(oldLogs);
+            assertThat(factory.monitoring(DEV).credentialsConfirmed()).isTrue();
+            // a caller still holding the old client does not log in with the old values
+            assertThatThrownBy(oldMonitoring::systemInfo)
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.AUTH_FAILED);
+                    assertThat(e.error().message()).contains("replaced");
+                });
+            assertThat(store.calls()).isEqualTo(2);
+        }
+        assertThat(loginsWith("test-password-1")).isEqualTo(1);
+        assertThat(loginsWith("test-password-2")).isEqualTo(1);
+    }
+
+    @Test
+    void anUnchangedPasswordPausesTheNodeForSixtySecondsAfterOneReRead() {
+        putAwsCredentials();
+        inubitAccepts("test-password-2"); // INUBIT has a new password, Parameter Store not yet
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.V8_1),
+            awsSecrets(Optional.empty()))) {
+            MonitoringPort monitoring = factory.monitoring(DEV);
+
+            assertThatThrownBy(monitoring::systemInfo)
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.AUTH_FAILED));
+            assertThatThrownBy(() -> factory.monitoring(DEV).systemInfo())
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().message()).contains("avoid account lockout"));
+            assertThat(factory.monitoring(DEV)).as("nothing changed: same client")
+                .isSameAs(monitoring);
+            assertThat(store.calls()).as("first fetch and one re-read").isEqualTo(2);
+            assertThat(authenticatedCalls()).isEqualTo(1);
+
+            // corrected in Parameter Store: picked up by the first rejection after the pause
+            store.put(EU, AWS_PASSWORD, "test-password-2");
+            clock.advance(CredentialGuard.PAUSE);
+            assertThatThrownBy(monitoring::systemInfo).isInstanceOf(ToolErrorException.class);
+            assertThat(factory.monitoring(DEV).systemInfo().version()).contains("8.1.17");
+        }
+        assertThat(loginsWith("test-password-1")).isEqualTo(2);
+        assertThat(loginsWith("test-password-2")).isEqualTo(1);
+    }
+
+    @Test
+    void aRejectedGraceLoginPausesTheNodeWithoutAnotherReRead() {
+        putAwsCredentials();
+        systemInfo(401, "<html>HTTP Status 401</html>"); // INUBIT accepts neither value
+        try (AdapterGatewayFactory factory = awsFactory(server(DEV, VersionSetting.V8_1),
+            awsSecrets(Optional.empty()))) {
+            MonitoringPort monitoring = factory.monitoring(DEV);
+            store.put(EU, AWS_PASSWORD, "test-password-2");
+
+            assertThatThrownBy(monitoring::systemInfo).isInstanceOf(ToolErrorException.class);
+            assertThatThrownBy(() -> factory.monitoring(DEV).systemInfo())
+                .as("the one further login, with the new password")
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().message()).contains("HTTP 401"));
+            assertThatThrownBy(() -> factory.monitoring(DEV).systemInfo())
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().message()).contains("avoid account lockout"));
+
+            assertThat(store.calls()).as("first fetch and one re-read").isEqualTo(2);
+            assertThat(authenticatedCalls()).as("at most two failed logins").isEqualTo(2);
+        }
+        assertThat(loginsWith("test-password-2")).isEqualTo(1);
     }
 }

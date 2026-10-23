@@ -16,7 +16,7 @@ file); several profiles run side by side as separate registrations.
 
 | Tool | What it answers | INUBIT access |
 |---|---|---|
-| `list_nodes` | which profile this is and which groups and nodes are configured (production flag, write access, CLI) | none |
+| `list_nodes` | which profile this is and which groups and nodes are configured (production flag, write access, repository writes, CLI) | none |
 | `get_health` | is a node or a whole group reachable and ready; maintenance mode, version, memory, threads, queue | REST |
 | `find_processes` | failed (`ERROR`), waiting, queued or hanging process instances | REST |
 | `query_logs` | log entries (systemLog, queueLog, auditLog, …) by time, workflow, severity, process id, text | REST |
@@ -24,9 +24,9 @@ file); several profiles run side by side as separate registrations.
 | `get_inventory_item` | one diagram or module: versions, tags, active flag, modules used | REST + StartCLI |
 | `restart_process` | restart ONE process instance in `ERROR` on ONE node (two-step confirmation) | REST + StartCLI |
 | `kill_process` | kill ONE process instance on ONE node (two-step confirmation) | REST + StartCLI |
-| `export_artifacts` | export technical workflows (by diagram group) or modules into a local, git-versioned workspace as readable files, secrets replaced by placeholders | StartCLI `export` (read-only) |
+| `export_artifacts` | export technical workflows (by diagram group), modules, or repository files and folders (by path) into a local, git-versioned workspace as readable files, with the repository files the exported artifacts reference (also indirectly); secrets replaced by placeholders, key material withheld | StartCLI `export` (read-only) |
 | `check_artifacts` | check workspace files offline: workflow structure, referenced modules, a stylesheet run with deterministic stand-ins, XML/XSD validation | only the module list for modules missing locally |
-| `import_artifacts` | import the changed workflows of one diagram group (with changed or new modules), or changed modules, into one development node — checked, conflict-free, backed up, verified, rolled back on failure; the preview lists modules the node has already as `existing` (updated as a new version) or `identical` (not sent, the workflows are bound to them) | StartCLI `export` + `import` |
+| `import_artifacts` | import the changed workflows of one diagram group (with changed or new modules), changed modules, or new and changed repository files (by path), into one development node, together with the new and changed repository files they reference — checked, conflict-free, backed up, verified, rolled back on failure; the preview lists modules the node has already as `existing` (updated as a new version) or `identical` (not sent, the workflows are bound to them) | StartCLI `export` + `import` |
 | `restore_backup` | re-import the backup of an earlier development call, or of a deployment on one node of a target group | StartCLI `export` + `import` |
 | `set_active` | activate or deactivate one workflow on a development node | StartCLI `export` + `import` |
 | `tag_artifacts` | tag the head versions of whole named diagram groups (never owner-wide; an existing tag name is reused), verified | StartCLI history `export` + `tag` |
@@ -56,6 +56,17 @@ development stages and the stage chain: [docs/setup.md](docs/setup.md).
   `development.enabled` for the development tools, and a `deploy` record for deployments.
 - **Production lock.** On groups marked `production: true`, writes additionally require
   `write.productionOptIn: true`; development settings and end-to-end tests are not allowed there.
+- **Writes only on a verified INUBIT version.** Each call is checked against its node's INUBIT
+  version, pinned with `versionLine` or detected from the node on first use (`AUTO`). Write tools
+  run only on a known INUBIT 8.1 node. They are refused with `UNSUPPORTED_VERSION` before anything
+  but the version detection is sent on an unknown version (also after a failed detection), on
+  any version other than 8.1 (INUBIT 9.x, `V9_X`) and while `get_health` reads a version that
+  contradicts the pin. On an unknown version and on versions other than 8.1, read tools run with
+  a warning that their results are unverified. StartCLI-backed tools are also refused where the
+  local StartCLI client does not support the node's INUBIT major.minor, and `deploy_release`
+  deploys only between nodes of the same minor version.
+  `list_nodes` shows per node the version, the client and the usable capabilities without
+  contacting it ([INUBIT version](docs/setup.md#inubit-version-versionline)).
 - **Two-step confirmation.** By default the server issues a short-lived, one-time confirmation code
   for each write, bound to the node, the action and the state it previewed (process instance,
   workspace and server state, or release and target nodes); the action runs only when that code
@@ -64,11 +75,17 @@ development stages and the stage chain: [docs/setup.md](docs/setup.md).
   appended to an owner-only JSON Lines audit log per profile; if the record cannot be written, the
   action is not executed.
 - **Credential guard.** After a rejected login the server does not retry that node's credentials
-  for 60 s, so an assistant cannot lock the INUBIT account out. Passwords and tokens are scrubbed
-  from every result, error message and log line.
-- **Secrets only via environment variables.** Credentials are never read from the YAML file (a
-  credential key there is a startup error) or from tool parameters; StartCLI receives the password
-  on stdin, never as a process argument.
+  for 60 s, so an assistant cannot lock the INUBIT account out: at most one failed login per node
+  per 60 s with environment variables, at most two with AWS Parameter Store (after a rejection
+  the server re-reads the parameters once and allows one login with changed values, so a rotated
+  password needs no restart). Passwords and tokens are scrubbed from every result, error message
+  and log line.
+- **Secrets only from environment variables or AWS Parameter Store.** Each node reads its
+  credentials from environment variables (the default) or from AWS Systems Manager Parameter
+  Store ([details](docs/setup.md#4-credentials-sources)), never from the profile or the
+  conversation: the YAML file names variables or parameters only (a credential value there is a
+  startup error), no tool takes or returns a secret, and no AWS access key is configured.
+  StartCLI receives the password on stdin, never as a process argument.
 - **Local artifact history, never pushed.** `export_artifacts` writes only to the local workspace
   and its local git history; secrets are replaced before anything is written, and nothing is ever
   sent anywhere. `check_artifacts` runs stylesheets without access to the server's environment,
@@ -79,6 +96,14 @@ development stages and the stage chain: [docs/setup.md](docs/setup.md).
   the target's own secret values, is verified by a re-export and rolled back from the backup on
   failure; by default it needs a server-issued confirmation code. Nothing is ever deleted in
   INUBIT.
+- **Repository files only where allowed.** `import_artifacts` and `restore_backup` create or
+  change repository files (schemas, stylesheets, WSDLs, …) only on a development node with
+  `development.repository: WRITE` (default `READ_ONLY`; effective only on development nodes,
+  never on production). Such a write always needs a **server-issued confirmation code**, also
+  with `development.confirmation: CLIENT`, because a repository file is shared by every workflow
+  and module that uses it. Key material and `${secret:…}` placeholders are never written, and no
+  repository file is ever deleted. Deployments and their backups follow the stage chain rules
+  below instead.
 - **Stage chain, never skipping a stage.** `deploy_release` deploys only into a group with a
   `deploy` record, and only from its configured source (`deploy.from`); the record is the write
   enablement of deployments. Every deployment first returns a preview per node and a

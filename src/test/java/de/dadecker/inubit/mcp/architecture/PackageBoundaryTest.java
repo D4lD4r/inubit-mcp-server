@@ -61,6 +61,10 @@ import org.junit.jupiter.api.Test;
  * neither on {@code mcp} nor on {@code application}, and is the only package besides
  * {@code adapter.rest} that uses {@code java.net.http} (the end-to-end test client); the new
  * adapters are reached from {@code application} only through ports (rule above).
+ *
+ * <p>Feature 010 (T009, research R-2): the Parameter Store adapter {@code adapter.aws} exists, is
+ * the only package that uses the AWS SDK ({@code software.amazon}), and depends neither on
+ * {@code mcp} nor on {@code application}.
  */
 class PackageBoundaryTest {
 
@@ -76,6 +80,9 @@ class PackageBoundaryTest {
         List.of("adapter/archive", "adapter/git", "adapter/xslt");
     /** The SOAP end-to-end adapter of feature 004 (T003). */
     private static final String SOAP_ADAPTER = "adapter/soap";
+    /** The Parameter Store adapter of feature 010 (T009). */
+    private static final String AWS_ADAPTER = "adapter/aws";
+    private static final String AWS_SDK = "software/amazon/";
 
     /** Class (internal name) → its type names and member references. */
     private static Map<String, ClassRefs> classes;
@@ -148,6 +155,19 @@ class PackageBoundaryTest {
     }
 
     @Test
+    void onlyTheAwsAdapterUsesTheAwsSdk() {
+        assertThat(violations(inPackage(AWS_ADAPTER).negate(), forbidden(AWS_SDK)))
+            .as("software.amazon outside adapter.aws").isEmpty();
+    }
+
+    @Test
+    void theAwsAdapterReachesNeitherTheMcpLayerNorTheApplication() {
+        assertThat(violations(inPackage(AWS_ADAPTER), forbidden(BASE + "mcp/",
+            BASE + "application/")))
+            .as("adapter.aws → mcp / application").isEmpty();
+    }
+
+    @Test
     void onlyTheCliAdapterStartsOrInspectsProcesses() {
         assertThat(violations(inPackage("adapter/cli").negate(), PROCESS_TYPES::contains))
             .as("ProcessBuilder / Process / ProcessHandle outside adapter.cli").isEmpty();
@@ -176,14 +196,15 @@ class PackageBoundaryTest {
     }
 
     /**
-     * The packages of the workspace adapters and of the SOAP adapter exist and are documented. A {@code package-info}
-     * without annotations compiles to no class file, so the sources are checked.
+     * The packages of the workspace adapters, the SOAP adapter and the AWS adapter exist and are
+     * documented. A {@code package-info} without annotations compiles to no class file, so the
+     * sources are checked.
      */
     @Test
     void theWorkspaceAdapterPackagesExist() {
         Path sources = Path.of("src", "main", "java");
         for (String pkg : List.of("adapter/archive/v81", "adapter/git", "adapter/xslt",
-            SOAP_ADAPTER)) {
+            SOAP_ADAPTER, AWS_ADAPTER)) {
             assertThat(sources.resolve(BASE + pkg).resolve("package-info.java"))
                 .as("package-info of %s", pkg).isRegularFile();
         }
@@ -200,6 +221,8 @@ class PackageBoundaryTest {
         assertThat(types(BASE + "adapter/cli/SystemProcessLauncher"))
             .contains("java/lang/ProcessBuilder", "java/lang/Process");
         assertThat(types(BASE + "adapter/cli/CliResources")).contains("java/lang/ProcessHandle");
+        assertThat(types(BASE + "adapter/aws/SsmParameterStore"))
+            .anyMatch(t -> t.startsWith(AWS_SDK));
         assertThat(types(BASE + "application/FanOut")).anyMatch(t -> t.startsWith("org/slf4j/"));
         assertThat(classes.get(BASE + "Wiring").members())
             .contains("java/lang/Runtime.getRuntime");

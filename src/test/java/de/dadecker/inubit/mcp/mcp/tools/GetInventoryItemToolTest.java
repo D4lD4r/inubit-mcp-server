@@ -1,11 +1,17 @@
 package de.dadecker.inubit.mcp.mcp.tools;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static de.dadecker.inubit.mcp.mcp.tools.DiagnosisToolFixture.assertMatchesOutputSchema;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import java.io.IOException;
+import java.io.InputStream;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -21,7 +27,8 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * T088: {@code get_inventory_item} over MCP with the real adapters against WireMock and a fake
- * StartCLI (contracts/mcp-tools.md §6, quickstart V8).
+ * StartCLI (contracts/mcp-tools.md §6, quickstart V8). Feature 009 (T012): the version warning
+ * of a node is in its entry.
  */
 @Timeout(60)
 class GetInventoryItemToolTest {
@@ -100,6 +107,29 @@ class GetInventoryItemToolTest {
     }
 
     @Test
+    void onInubit90TheEntryOfTheNodeCarriesTheUnverifiedWarning() throws IOException {
+        fixture.close();
+        fixture = new InventoryToolFixture(dev, integration, GetInventoryItemTool::new,
+            VersionSetting.AUTO);
+        try (InputStream body = getClass().getResourceAsStream(
+            "/fixtures/v9_0/rest/system_info.xml")) {
+            dev.stubFor(get(urlPathEqualTo("/ibis/rest/system/info")).willReturn(aResponse()
+                .withStatus(200).withHeader("Content-Type", "application/xml;charset=UTF-8")
+                .withBody(body.readAllBytes())));
+        }
+
+        JsonNode result = call(Map.of("target", "dev/node1", "kind", "DIAGRAM",
+            "name", "Workflow-0101"));
+
+        assertMatchesOutputSchema("get_inventory_item", result);
+        JsonNode entry = entry(result, 0);
+        assertThat(entry.path("warnings")).extracting(JsonNode::asString).containsExactly(
+            "INUBIT 9.0.7 on dev/node1 is not verified for inventory; results may be"
+                + " incomplete");
+        assertThat(entry.path("item").path("versions")).isNotEmpty();
+    }
+
+    @Test
     void aWorkflowShowsItsVersionsNewestFirstActiveFlagAndModules() {
         // quickstart V8
         JsonNode result = call(Map.of("target", "dev/node1", "kind", "DIAGRAM",
@@ -108,6 +138,7 @@ class GetInventoryItemToolTest {
         assertMatchesOutputSchema("get_inventory_item", result);
         JsonNode entry = entry(result, 0);
         assertThat(entry.has("error")).isFalse();
+        assertThat(entry.has("warnings")).as("INUBIT 8.1: no warnings").isFalse();
         assertThat(entry.has("collectedAt")).isTrue();
         JsonNode item = entry.path("item");
         assertThat(item.path("name").asString()).isEqualTo("Workflow-0101");

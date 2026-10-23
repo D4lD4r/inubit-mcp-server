@@ -11,19 +11,24 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * {@code list_nodes} (contracts/mcp-tools.md §1, FR-003; 002 contracts/mcp-tools-delta.md): the
  * profile, its terminology, and the configured groups and their nodes in config order.
  * Configuration only, so closed-world; the result carries no URLs, usernames, credentials or
- * credential variable prefix (dedicated result records, 002 review G6).
+ * credential variable prefix (dedicated result records, 002 review G6). Feature 009 (FR-004,
+ * research D-9): each node carries its version block as of the call, read from the server's
+ * memory; no node is contacted.
  */
 public final class ListNodesTool implements ToolHandler {
 
     static final String DESCRIPTION = "List the configured INUBIT {groups} and their {nodes} (ids"
-        + " `<{group}>/<{node}>`, e.g. `test/node1`), with production classification and whether"
-        + " write actions are enabled. Call this first to learn valid `target` and `node`"
-        + " values.";
+        + " `<{group}>/<{node}>`, e.g. `test/node1`), with production classification, whether"
+        + " write actions are enabled, and per {node} the INUBIT version and StartCLI client as"
+        + " last known, the support status and the usable capabilities. No {node} is contacted:"
+        + " for a version `not_yet_detected` call `get_health`. Call this first to learn valid"
+        + " `target` and `node` values.";
 
     /** The result: {@code {profile, terminology, groups: [{name, production, nodes}]}}. */
     record Result(Profile profile, Names terminology, List<Group> groups) {
@@ -43,25 +48,17 @@ public final class ListNodesTool implements ToolHandler {
     record Group(String name, boolean production, List<NodeSummary> nodes) {
     }
 
-    private final Result result;
+    private final ProfileInfo profile;
+    private final Supplier<List<NodeSummary>> nodes;
 
     /**
      * @param profile the profile this process serves
-     * @param nodes   the summaries of all configured nodes, in config order
+     * @param nodes   the summaries of all configured nodes in config order, with their version
+     *                block as of the call; must not contact a node
      */
-    public ListNodesTool(ProfileInfo profile, List<NodeSummary> nodes) {
-        Map<GroupId, List<NodeSummary>> byGroup = new LinkedHashMap<>();
-        for (NodeSummary node : nodes) {
-            byGroup.computeIfAbsent(node.group(), group -> new ArrayList<>()).add(node);
-        }
-        List<Group> groups = new ArrayList<>();
-        byGroup.forEach((group, groupNodes) -> groups.add(new Group(group.value(),
-            groupNodes.get(0).production(), List.copyOf(groupNodes))));
-        Terminology terms = profile.terminology();
-        this.result = new Result(new Profile(profile.name(), profile.description()),
-            new Names(new Level(terms.groupSingular(), terms.groupPlural()),
-                new Level(terms.nodeSingular(), terms.nodePlural())),
-            List.copyOf(groups));
+    public ListNodesTool(ProfileInfo profile, Supplier<List<NodeSummary>> nodes) {
+        this.profile = profile;
+        this.nodes = nodes;
     }
 
     @Override
@@ -81,6 +78,17 @@ public final class ListNodesTool implements ToolHandler {
 
     @Override
     public Object handle(Map<String, Object> arguments) {
-        return result;
+        Map<GroupId, List<NodeSummary>> byGroup = new LinkedHashMap<>();
+        for (NodeSummary node : nodes.get()) {
+            byGroup.computeIfAbsent(node.group(), group -> new ArrayList<>()).add(node);
+        }
+        List<Group> groups = new ArrayList<>();
+        byGroup.forEach((group, groupNodes) -> groups.add(new Group(group.value(),
+            groupNodes.get(0).production(), List.copyOf(groupNodes))));
+        Terminology terms = profile.terminology();
+        return new Result(new Profile(profile.name(), profile.description()),
+            new Names(new Level(terms.groupSingular(), terms.groupPlural()),
+                new Level(terms.nodeSingular(), terms.nodePlural())),
+            List.copyOf(groups));
     }
 }

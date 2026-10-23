@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.config;
 
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -11,6 +12,7 @@ import java.util.Optional;
  *
  * @param deploy feature 005: the group receives releases along the stage chain (group-level
  *               only; there is no {@code deploy} on a node)
+ * @param credentials feature 010: the group's secret source and Parameter Store names
  */
 public record GroupConfig(
     String name,
@@ -20,7 +22,7 @@ public record GroupConfig(
     TlsConfig tls,
     CliConfig cli,
     InventoryConfig inventory,
-    Optional<VersionLine> versionLine,
+    Optional<VersionSetting> versionLine,
     Optional<Duration> timeout,
     Optional<Duration> cliTimeout,
     Optional<Duration> cliExportTimeout,
@@ -29,7 +31,8 @@ public record GroupConfig(
     DevelopmentConfig development,
     Optional<E2ePolicy> e2eTests,
     E2eConfig e2e,
-    Optional<DeployConfig> deploy) {
+    Optional<DeployConfig> deploy,
+    CredentialsConfig credentials) {
 
     public GroupConfig {
         name = Optionals.orDefault(name, "");
@@ -48,5 +51,6 @@ public record GroupConfig(
         e2eTests = Optionals.orEmpty(e2eTests);
         e2e = Optionals.orDefault(e2e, E2eConfig.EMPTY);
         deploy = Optionals.orEmpty(deploy);
+        credentials = Optionals.orDefault(credentials, CredentialsConfig.EMPTY);
     }
 }

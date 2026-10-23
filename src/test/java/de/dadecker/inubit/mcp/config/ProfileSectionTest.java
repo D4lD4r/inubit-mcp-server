@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -156,8 +157,9 @@ class ProfileSectionTest {
         }
 
         @Test
-        void credentialsBelowTheTopLevelAreStillCredentialKeys() {
-            LoadedConfig loaded = load("""
+        void envPrefixBelowTheTopLevelIsRefused() {
+            // feature 010 (T003): groups and nodes have a credentials section, without envPrefix
+            assertThatThrownBy(() -> load("""
                 profile:
                   name: acme
                 groups:
@@ -167,9 +169,62 @@ class ProfileSectionTest {
                     nodes:
                       - name: node1
                         baseUrl: https://node1.dev.example.test:8443
-                """);
+                """)).isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'envPrefix' at groups[0].credentials")
+                .hasMessageContaining("top level");
+        }
 
-            assertThat(loaded.credentialKeys()).containsExactly("groups[0].credentials");
+        @Test
+        void aTopLevelEnvironmentSourceIsLoaded() {
+            ProfileConfig config = load("profile:\n  name: acme\ncredentials:\n"
+                + "  envPrefix: INUBIT\n  source:\n    type: environment\n"
+                + "    prefix: INUBIT\n" + GROUPS).config();
+
+            assertThat(config.credentials().source())
+                .contains(new SecretSourceConfig.Environment(Optional.of("INUBIT")));
+            assertThat(config.credentials().envPrefix()).contains("INUBIT");
+        }
+
+        @Test
+        void aTopLevelParameterStoreSourceIsLoaded() {
+            LoadedConfig loaded = load("profile:\n  name: acme\ncredentials:\n  source:\n"
+                + "    type: awsParameterStore\n    region: eu-central-1\n"
+                + "    awsProfile: test-profile\n" + GROUPS);
+
+            assertThat(loaded.credentialKeys()).isEmpty();
+            assertThat(loaded.config().credentials().source()).contains(
+                new SecretSourceConfig.AwsParameterStore("eu-central-1",
+                    Optional.of("test-profile")));
+            assertThat(loaded.config().credentials().envPrefix()).isEmpty();
+            assertThat(loaded.config().credentials().parameters()).isEmpty();
+        }
+
+        @Test
+        void aTopLevelSourceWithoutAwsProfileUsesTheDefaultChain() {
+            ProfileConfig config = load("profile:\n  name: acme\ncredentials:\n  source:\n"
+                + "    type: awsParameterStore\n    region: eu-west-1\n" + GROUPS).config();
+
+            assertThat(config.credentials().source()).contains(
+                new SecretSourceConfig.AwsParameterStore("eu-west-1", Optional.empty()));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"type: Environment", "type: aws", "region: eu-central-1"})
+        void aTopLevelSourceWithAnUnknownOrMissingTypeIsRefused(String line) {
+            assertThatThrownBy(() -> load("profile:\n  name: acme\ncredentials:\n  source:\n"
+                + "    " + line + "\n" + GROUPS)).isInstanceOf(ConfigException.class)
+                .hasMessageContaining("credentials.source.type")
+                .hasMessageContaining("environment, awsParameterStore");
+        }
+
+        @Test
+        void aTopLevelSourceRefusesAwsAccessKeysWithoutEchoingThem() {
+            assertThatThrownBy(() -> load("profile:\n  name: acme\ncredentials:\n  source:\n"
+                + "    type: awsParameterStore\n    region: eu-central-1\n"
+                + "    secretAccessKey: test-secret-1\n" + GROUPS))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'secretAccessKey' at credentials.source")
+                .hasMessageNotContaining("test-secret-1");
         }
     }
 

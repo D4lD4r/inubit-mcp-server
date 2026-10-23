@@ -1,12 +1,12 @@
 package de.dadecker.inubit.mcp.adapter.cli;
 
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -71,7 +71,7 @@ class CliDeployExportsTest {
             Optional.empty(), Optional.empty());
         return new CliExportRunner(TestNodeConfig.node().id(DEV.value()).cliHome(cliHome)
             .cliJavaHome(Path.of("/opt/jdk-17")).build(), credentials,
-            new CredentialGuard(new CredentialVariables("INUBIT", DEV), clock), runner,
+            new CredentialGuard(environmentLabels("INUBIT", DEV), clock), runner,
             new CliOutputClassifier(new SecretScrubber()), tempRoot);
     }
 
@@ -168,6 +168,20 @@ class CliDeployExportsTest {
             .writingExportFile(repository).replying("export_repository");
 
         assertThat(exports().exportRepository("/Root/jdoe/xsd")).isEqualTo(repository);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void theRecordedExportOfANestedFolderReturnsItsArchive() throws IOException {
+        // T002 (feature 008, probe P-2): subfolders come in the same archive
+        byte[] folder = FakeProcessLauncher.fixture("export_repository_folder.zip");
+        cli.expect(Pattern.compile("^export --exportRepositoryPath '/Root/jdoe/xsd' --exportFile"
+                + " '[^']+/repository\\.zip'$"))
+            .writingExportFile(folder).replying("export_repository_folder");
+
+        assertThat(exports().exportRepository("/Root/jdoe/xsd")).isEqualTo(folder);
+        assertThat(ArtifactFixtures.entries(folder)).containsKeys("Root/jdoe/xsd/P8/folder/",
+            "Root/jdoe/xsd/P8/folder/sub/", "Root/jdoe/xsd/P8/folder/sub/included.xsd.dat");
         assertTempRootEmpty();
     }
 

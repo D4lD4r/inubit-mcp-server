@@ -108,7 +108,12 @@ public final class MetaStore {
             return Optional.empty();
         }
         try {
-            return Optional.of(JSON.readValue(Files.readAllBytes(file), Map.class));
+            Map<String, Object> values = JSON.readValue(Files.readAllBytes(file), Map.class);
+            if (values == null) { // the JSON literal null (T020+T021 review)
+                throw new IllegalArgumentException("The record " + path.metaPath()
+                    + " in .meta holds no JSON object");
+            }
+            return Optional.of(values);
         } catch (JacksonException e) {
             throw new IllegalArgumentException("The record " + path.metaPath()
                 + " in .meta is not readable JSON");

@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.cli;
 
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -7,7 +8,6 @@ import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchedProcess;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -247,7 +247,7 @@ class ScriptedProcessLauncherTest {
     }
 
     private static CredentialGuard guard() {
-        return new CredentialGuard(new CredentialVariables("INUBIT", DEV),
+        return new CredentialGuard(environmentLabels("INUBIT", DEV),
             new MutableClock(Instant.parse("2026-10-06T08:00:00Z")));
     }
 }

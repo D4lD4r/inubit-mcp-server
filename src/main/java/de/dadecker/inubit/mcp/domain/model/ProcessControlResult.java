@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.domain.model;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -14,10 +15,13 @@ import java.util.UUID;
  *                    the re-read failed
  * @param message     INUBIT's confirmation text, or the failure (code, message, next step)
  * @param auditId     the id of the execution's audit records (pending and final)
+ * @param warnings    feature 009: the version gate's warnings of the admission, e.g. a StartCLI
+ *                    client whose patch differs from the server's; empty (omitted from the
+ *                    result) if there are none
  */
 public record ProcessControlResult(NodeId node, ProcessAction action, String processId,
     Outcome outcome, ProcessState stateBefore, Optional<String> stateAfter, String message,
-    UUID auditId) {
+    UUID auditId, Optional<List<String>> warnings) {
 
     /** {@code stateAfter} of an instance that is no longer in the Queue Manager. */
     public static final String NOT_IN_QUEUE = "NOT_IN_QUEUE";
@@ -38,5 +42,7 @@ public record ProcessControlResult(NodeId node, ProcessAction action, String pro
         stateAfter = stateAfter == null ? Optional.empty() : stateAfter;
         Objects.requireNonNull(message, "message");
         Objects.requireNonNull(auditId, "auditId");
+        warnings = warnings == null ? Optional.empty()
+            : warnings.filter(list -> !list.isEmpty()).map(List::copyOf);
     }
 }

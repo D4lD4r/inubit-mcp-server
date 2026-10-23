@@ -41,7 +41,8 @@ import org.slf4j.LoggerFactory;
  *       confirmation code ({@code ^[A-Za-z0-9_-]{22}$}) and the reason (≤ 500 chars) →
  *       {@code INVALID_INPUT}.
  *   <li>{@link WriteGuard}: single configured server, production lock, {@code write.enabled},
- *       CLI available.
+ *       the version gate (feature 009; its warnings go into the result's {@code warnings}), CLI
+ *       available.
  *   <li>One action per instance at a time: a second call for the same server and process id
  *       while one runs is {@code PRECONDITION_FAILED}.
  *   <li>The current state is read from the Queue Manager
@@ -131,7 +132,8 @@ public final class ProcessControlService {
 
     /**
      * @param policies the write settings of each configured server (for account and stage of
-     *                 refusals); the same as the guard's
+     *                 refusals, and the account of every record, looked up as it is written);
+     *                 the same as the guard's
      * @param ids      the audit ids
      * @param profile  the profile name every audit record carries (002 research D-7)
      */
@@ -159,7 +161,7 @@ public final class ProcessControlService {
         WritePolicy policy;
         try {
             validate(request);
-            policy = guard.admit(request.node());
+            policy = guard.admit(request.node(), request.action());
         } catch (ToolErrorException e) {
             throw call.refuse(e.error());
         } catch (RuntimeException e) {
@@ -307,7 +309,8 @@ public final class ProcessControlService {
                 request.processId(), node, auditId, message);
         }
         return new Response.Completed(new ProcessControlResult(node, request.action(),
-            request.processId(), outcome, before.state(), stateAfter, message, auditId));
+            request.processId(), outcome, before.state(), stateAfter, message, auditId,
+            Optional.of(call.policy.warnings())));
     }
 
     /**
@@ -469,10 +472,14 @@ public final class ProcessControlService {
         AuditRecord record(UUID auditId, AuditRecord.Step step, Map<String, String> inputs,
             AuditOutcome outcome, Optional<String> reason) {
             Optional<WritePolicy> known = known();
+            // feature 010 (research R-16): the account as of now, not of the admission; an AWS
+            // node's username is known only once the call has fetched it
+            Optional<String> account = known.map(p -> policies.apply(p.node()))
+                .flatMap(WritePolicy::account);
             return new AuditRecord(auditId, clock.instant(), profile,
                 known.map(p -> p.node().value()).orElse(bounded(request.node())), group(),
-                request.action().capability(), step, inputs,
-                known.flatMap(WritePolicy::account), outcome, reason, request.mcpClient());
+                request.action().capability(), step, inputs, account, outcome, reason,
+                request.mcpClient());
         }
 
         /** Audits {@code error} as {@code REFUSED}; discards a presented code. */

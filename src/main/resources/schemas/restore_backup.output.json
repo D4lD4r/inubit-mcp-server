@@ -47,7 +47,7 @@
           "items": {
             "type": "string"
           },
-          "description": "The artifacts that would be re-imported (each gets a new version)"
+          "description": "The artifacts that would be re-imported (each gets a new version): workflows and modules by name, repository files by their full path /Root/<owner>/…"
         },
         "notes": {
           "type": "array",

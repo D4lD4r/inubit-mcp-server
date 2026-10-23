@@ -13,6 +13,8 @@ package de.dadecker.inubit.mcp.domain.model;
  *
  * <p>Feature 005 (research D-15) adds the codes of the deployments along the stage chain:
  * {@link #CHAIN_VIOLATION}, {@link #SOURCE_INCONSISTENT} and {@link #DEPLOY_LOCKED}.
+ *
+ * <p>Feature 008 (research D-14) adds {@link #REPOSITORY_WRITE_DENIED}.
  */
 public enum ErrorCode {
     TARGET_UNKNOWN,
@@ -55,5 +57,10 @@ public enum ErrorCode {
      * process of the profile (feature 005, research D-11).
      */
     DEPLOY_LOCKED,
+    /**
+     * The node's {@code development.repository} is {@code READ_ONLY}; revert the files or ask
+     * for {@code WRITE} (feature 008, research D-14).
+     */
+    REPOSITORY_WRITE_DENIED,
     INTERNAL
 }

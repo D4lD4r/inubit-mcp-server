@@ -299,8 +299,15 @@ class TwoProfilesTest {
             "node", NODE.value(), "processId", PID, "confirmationCode", code)));
 
         assertThat(error.path("code").asString()).isEqualTo("CONFIRMATION_INVALID");
-        assertThat(acme.startCli().launchCount()).isZero();
-        assertThat(globex.startCli().launchCount()).as("no execution").isZero();
+        assertThat(executions(acme.startCli())).isZero();
+        assertThat(executions(globex.startCli())).as("no execution").isZero();
+    }
+
+    /** The StartCLI runs other than the client probe {@code -v} of the version gate (T019). */
+    private static long executions(FakeProcessLauncher startCli) {
+        return startCli.processes().stream()
+            .filter(process -> !process.spec().command().contains("-v"))
+            .count();
     }
 
     @Test

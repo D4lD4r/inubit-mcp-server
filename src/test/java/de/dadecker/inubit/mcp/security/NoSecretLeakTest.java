@@ -23,10 +23,13 @@ import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.config.ParameterType;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
+import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.infra.ScrubbingJsonEncoder;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -39,6 +42,7 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Matcher;
@@ -92,6 +96,7 @@ class NoSecretLeakTest {
     private Level previousLevel;
     private Level previousSdkLevel;
     private TestWiring wiring;
+    private Path cliHome;
     private McpTestClient client;
 
     private List<String> forbidden() {
@@ -122,9 +127,32 @@ class NoSecretLeakTest {
         slow.stubFor(any(anyUrl()).willReturn(RestFixtures.response("healthcheck", "json")
             .withFixedDelay(2_500)));
 
-        Path cliHome = Files.createDirectories(temp.resolve("cli/bin")).getParent();
+        cliHome = Files.createDirectories(temp.resolve("cli/bin")).getParent();
         Files.writeString(cliHome.resolve("bin/startcli.sh"), "#!/bin/sh\n");
-        String yaml = """
+        String yaml = yaml();
+        ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
+            .parse(yaml, temp.resolve("config.yaml")).config();
+        Map<String, String> environment = new LinkedHashMap<>();
+        environment.put("INUBIT_ACME_DEV_USERNAME", USER);
+        environment.put("INUBIT_ACME_DEV_PASSWORD", devSeed);
+        environment.put("INUBIT_ACME_QA_USERNAME", USER);
+        environment.put("INUBIT_ACME_QA_PASSWORD", qaSeed);
+        environment.put("INUBIT_ACME_TEST_USERNAME", USER);
+        environment.put("INUBIT_ACME_TEST_PASSWORD", testSeed);
+        SecretScrubber scrubber = SecretScrubber.global();
+        Map<String, String> parent = new LinkedHashMap<>(environment);
+        parent.put("PATH", "/usr/bin");
+        wiring = TestWiring.of(config, new CredentialResolver(environment, scrubber,
+            config.credentialPrefix())
+                .resolve(config.nodeIds()), scrubber, Files::exists, false, startCli(),
+            parent);
+        client = McpTestClient.start(wiring.toolHandlers(), scrubber);
+        client.initialize();
+    }
+
+    /** The configuration of the four nodes (see the class comment). */
+    private String yaml() {
+        return """
             profile:
               name: acme
             auditDirectory: %1$s
@@ -166,24 +194,6 @@ class NoSecretLeakTest {
                     baseUrl: https://localhost:%6$d
             """.formatted(temp.resolve("audit"), cliHome, TestCertificates.get().trustStore(),
             dev.httpsPort(), integration.httpsPort(), slow.httpsPort());
-        ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
-            .parse(yaml, temp.resolve("config.yaml")).config();
-        Map<String, String> environment = new LinkedHashMap<>();
-        environment.put("INUBIT_ACME_DEV_USERNAME", USER);
-        environment.put("INUBIT_ACME_DEV_PASSWORD", devSeed);
-        environment.put("INUBIT_ACME_QA_USERNAME", USER);
-        environment.put("INUBIT_ACME_QA_PASSWORD", qaSeed);
-        environment.put("INUBIT_ACME_TEST_USERNAME", USER);
-        environment.put("INUBIT_ACME_TEST_PASSWORD", testSeed);
-        SecretScrubber scrubber = SecretScrubber.global();
-        Map<String, String> parent = new LinkedHashMap<>(environment);
-        parent.put("PATH", "/usr/bin");
-        wiring = TestWiring.of(config, new CredentialResolver(environment, scrubber,
-            config.credentialPrefix())
-                .resolve(config.nodeIds()), scrubber, Files::exists, false, startCli(),
-            parent);
-        client = McpTestClient.start(wiring.toolHandlers(), scrubber);
-        client.initialize();
     }
 
     @AfterEach
@@ -435,4 +445,105 @@ class NoSecretLeakTest {
                 .allSatisfy(argument -> assertThat(argument).doesNotContain(secret));
         }
     }
+
+    /** {@code yaml} with the credentials of {@code group} in AWS Parameter Store. */
+    private static String fromParameterStore(String yaml, String group) {
+        String line = "  - name: " + group + "\n";
+        return yaml.replace(line, line
+            + "    credentials:\n"
+            + "      source:\n"
+            + "        type: awsParameterStore\n"
+            + "        region: eu-central-1\n"
+            + "      parameters:\n"
+            + "        username: /test/" + group + "/username\n"
+            + "        password: /test/" + group + "/password\n");
+    }
+
+    /**
+     * Feature 010 (T011, SC-003): the same nodes, with their secrets in a fake Parameter Store
+     * instead of environment variables. {@code dev} and {@code qa} fetch the seeds as passwords
+     * ({@code dev} echoes it, {@code qa} rejects it); the password of {@code test} is a refused
+     * {@code StringList} holding its seed.
+     */
+    @Test
+    void noSecretFromAwsParameterStoreLeavesTheServerThroughAnyChannel() throws IOException {
+        client.close();
+        wiring.close();
+        StoreLocation eu = new StoreLocation("eu-central-1", Optional.empty());
+        FakeParameterStore store = new FakeParameterStore()
+            .put(eu, "/test/dev/username", USER).put(eu, "/test/dev/password", devSeed)
+            .put(eu, "/test/qa/username", USER).put(eu, "/test/qa/password", qaSeed)
+            .put(eu, "/test/test/username", USER)
+            .put(eu, "/test/test/password", testSeed, ParameterType.STRING_LIST);
+        String yaml = yaml();
+        for (String group : List.of("dev", "qa", "test")) {
+            yaml = fromParameterStore(yaml, group);
+        }
+        ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
+            .parse(yaml, temp.resolve("config.yaml")).config();
+        SecretScrubber scrubber = SecretScrubber.global();
+        wiring = TestWiring.of(config, new CredentialResolver(Map.of(), scrubber,
+                config.terminology().effectiveOrDefault(), config.credentialPrefix(),
+                config.secretPlans()).resolve(config.nodeIds()), scrubber, Files::exists, false,
+            startCli(), Map.of("PATH", "/usr/bin"), store);
+        client = McpTestClient.start(wiring.toolHandlers(), scrubber);
+        client.initialize();
+
+        List<JsonNode> results = new ArrayList<>();
+        results.add(call("list_nodes", Map.of()));
+        results.add(call("list_inventory", Map.of("target", "qa", "kind", "MODULE")));
+        results.add(call("get_health", Map.of()));
+        results.add(call("find_processes", Map.of("target", "dev")));
+        results.add(call("find_processes", Map.of("target", "qa")));
+        results.add(call("find_processes", Map.of("target", "test")));
+        results.add(call("query_logs", Map.of("target", "dev/node1", "logType", "systemLog")));
+        results.add(call("query_logs", Map.of("target", "dev/node1", "logType",
+            "connectionLog")));
+        results.add(call("list_inventory", Map.of("target", "dev/node1", "kind", "MODULE")));
+        JsonNode preview = call("restart_process", Map.of("node", "dev/node1",
+            "processId", PID, "reason", "aws leak test"));
+        results.add(preview);
+        results.add(call("restart_process", Map.of("node", "dev/node1", "processId", PID,
+            "confirmationCode", preview.path("structuredContent").path("challenge")
+                .path("confirmationCode").asString())));
+
+        // the secrets were really fetched and used, and the error paths were taken
+        assertThat(store.requests()).extracting(FakeParameterStore.Request::names)
+            .contains(List.of("/test/dev/username", "/test/dev/password"),
+                List.of("/test/qa/username", "/test/qa/password"),
+                List.of("/test/test/username", "/test/test/password"));
+        List<JsonNode> errors = results.stream().flatMap(result -> errors(result).stream())
+            .toList();
+        assertThat(errors).extracting(error -> error.path("code").asString())
+            .contains("AUTH_FAILED", "UNEXPECTED_RESPONSE");
+        assertThat(errors).extracting(error -> error.path("message").asString())
+            .anySatisfy(message -> assertThat(message).contains("/test/test/password",
+                "invalid value"));
+        assertThat(dev.findAll(anyRequestedFor(anyUrl())
+            .withHeader("Authorization", matching("Basic .+")))).isNotEmpty();
+        assertThat(launches).anySatisfy(process -> assertThat(new String(
+            process.stdinBytes(), StandardCharsets.UTF_8)).contains(devSeed));
+
+        String protocol = client.rawOutput();
+        String log = logs.toString(StandardCharsets.UTF_8);
+        String audit = auditText();
+        List<String> arguments = new ArrayList<>();
+        launches.forEach(process -> {
+            arguments.addAll(process.spec().command());
+            arguments.addAll(process.spec().environment().values());
+        });
+        assertThat(log).as("the fetches are logged").contains("secret.fetch");
+        assertThat(audit).as("the write call was audited").contains("CHALLENGE_ISSUED",
+            "FAILED");
+        for (String secret : forbidden()) {
+            assertThat(protocol).as("protocol stdout").doesNotContain(secret);
+            assertThat(log).as("operational log").doesNotContain(secret);
+            assertThat(audit).as("audit files").doesNotContain(secret);
+            assertThat(errors).as("ToolErrors").allSatisfy(error ->
+                assertThat(error.toString()).doesNotContain(secret));
+            assertThat(arguments).as("StartCLI arguments and environment")
+                .allSatisfy(argument -> assertThat(argument).doesNotContain(secret));
+        }
+    }
 }
+

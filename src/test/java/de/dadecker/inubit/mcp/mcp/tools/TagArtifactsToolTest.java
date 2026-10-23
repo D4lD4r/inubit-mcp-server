@@ -14,6 +14,7 @@ import de.dadecker.inubit.mcp.domain.model.VersionEntry;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -80,11 +81,11 @@ class TagArtifactsToolTest {
     private McpTestClient client() {
         DevelopmentPolicy dev = new DevelopmentPolicy(DEV, false, true,
             WritePolicy.Confirmation.CLIENT, Duration.ofMinutes(5), E2ePolicy.FORBIDDEN,
-            Optional.empty());
+            Optional.empty(), false);
         MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
         TagService service = new TagService(new TagService.Dependencies(root, "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV)), Map.of(DEV, dev)::get,
-                node -> { }), node -> port, node -> Optional.of("jdoe"),
+                node -> { }, FakeVersionDetection.pinned81()), node -> port, node -> Optional.of("jdoe"),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),
             new WriteChallengeRegistry(clock), record -> { }, clock, UUID::randomUUID));
         McpTestClient client = McpTestClient.start(List.of(new TagArtifactsTool(service)));

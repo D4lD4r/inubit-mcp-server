@@ -18,6 +18,8 @@
             <withNanoseconds>false</withNanoseconds>
         </encoder>
     </appender>
+    <!-- AWS SDK (feature 010, research R-14): only warnings and errors, never request details -->
+    <logger name="software.amazon.awssdk" level="WARN"/>
     <root level="INFO">
         <appender-ref ref="STDERR"/>
     </root>

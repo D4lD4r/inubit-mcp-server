@@ -78,7 +78,8 @@ public final class GitCli implements VersionHistoryPort {
     private static final Pattern COMMIT = Pattern.compile("^[0-9a-f]{7,40}$");
     private static final Pattern CONTROL = Pattern.compile("\\p{Cntrl}");
     private static final Pattern TRAILER_KEY = Pattern.compile("^[A-Za-z][A-Za-z0-9-]{0,63}$");
-    private static final Pattern TRAILER_VALUE = Pattern.compile("^[^\\p{Cntrl}]{1,200}$");
+    /** Up to 500 characters: a {@code Reason} trailer carries a whole reason (FR-015a). */
+    private static final Pattern TRAILER_VALUE = Pattern.compile("^[^\\p{Cntrl}]{1,500}$");
     /** Field and record separators of the {@code git log} format (unit and record separator). */
     private static final String FIELD = "%x1f";
     private static final String RECORD = "%x1e";

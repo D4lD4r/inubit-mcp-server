@@ -1,6 +1,9 @@
 package de.dadecker.inubit.mcp.domain.port;
 
+import de.dadecker.inubit.mcp.domain.model.CredentialState;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import java.time.Duration;
 import java.util.Optional;
 
 /**
@@ -12,7 +15,7 @@ public interface GatewayFactory {
 
     /**
      * The gateway of {@code server}. A failed version detection does not fail this call: the 8.1
-     * adapters are returned with a warning; that fallback is kept for a short time (60 s in
+     * adapters are returned; that fallback is kept for a short time (60 s in
      * {@code AdapterGatewayFactory}) before the detection is retried, so that rejected
      * credentials are not tried again on every call.
      *
@@ -21,6 +24,19 @@ public interface GatewayFactory {
      *     the server's trust store or certificate pin cannot be used
      */
     Gateway forServer(NodeId server);
+
+    /**
+     * Detects the INUBIT version of {@code server} now (feature 009 research D-5): one
+     * {@code /system/info} request, also when a version is already cached and also within the
+     * 60 s fallback window of {@link #forServer} (that window only holds the adapter selection;
+     * the caller owns the back-off of detections). The outcome is reported to the
+     * {@link VersionObserver}, except for a cancelled (interrupted) call.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException the detection's error (with
+     *     the server id), {@code UNEXPECTED_RESPONSE} for a version without a parsable
+     *     major.minor, or as {@link #forServer}
+     */
+    InubitVersion detect(NodeId server);
 
     /**
      * The monitoring port of {@code server} at once, without waiting for a version detection
@@ -78,6 +94,36 @@ public interface GatewayFactory {
     /** The tag port of {@code server} (feature 004); the default asks the gateway. */
     default TagPort tags(NodeId server) {
         return forServer(server).tags();
+    }
+
+    /**
+     * Whether the credentials of {@code server} are held already, so that taking one of its
+     * ports does not wait for them (feature 010, research R-8): environment credentials always
+     * are, Parameter Store credentials once their first fetch succeeded. Never starts a fetch
+     * and never waits. The default, for a factory whose credentials are all known at start-up,
+     * is {@code true}.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException
+     *     {@code TARGET_UNKNOWN} for a server that is not configured
+     */
+    default boolean credentialsHeld(NodeId server) {
+        return true;
+    }
+
+    /**
+     * Makes the credentials of {@code server} available, waiting at most {@code bound} (feature
+     * 010, research R-9): {@code get_health} asks this first, so that a first fetch from AWS
+     * Parameter Store cannot outlast its time budget. Starts the fetch if none is running, also
+     * for a zero bound; a fetch that outlives {@code bound} is not cancelled ({@code PENDING}),
+     * the next call uses its result. The default, for a factory whose credentials are all known
+     * at start-up, is {@code READY}.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException the classified failure of
+     *     the fetch (also at once within its back-off), or {@code TARGET_UNKNOWN} for a server
+     *     that is not configured
+     */
+    default CredentialState prepareCredentials(NodeId server, Duration bound) {
+        return CredentialState.READY;
     }
 
     /**

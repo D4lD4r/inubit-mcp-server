@@ -14,11 +14,13 @@ import de.dadecker.inubit.mcp.domain.port.TagPort;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
- * The 8.1 adapter set of one server, on the server's REST client (owned and closed by
- * {@link AdapterGatewayFactory}); the user-story phases add their 8.1 port adapters here, built
- * from {@link #client()}.
+ * The gateway of one server, on the server's REST client (owned and closed by
+ * {@link AdapterGatewayFactory}). Its ports are those of the {@link PortSet} that the factory
+ * currently selects for the node's effective version (feature 009 research D-16); in production
+ * that is always the 8.1 port set.
  */
 final class V81Gateway implements Gateway {
 
@@ -27,36 +29,25 @@ final class V81Gateway implements Gateway {
     private final List<String> warnings;
     private final InubitHttpClient client;
     private final MonitoringPort monitoring;
-    private final ProcessQueryPort processes;
-    private final LogPort logs;
-    private final InventoryPort inventory;
-    private final ProcessControlPort processControl;
-    private final ArtifactPort artifacts;
-    private final ImportPort imports;
-    private final TagPort tags;
+    private final Supplier<PortSet> ports;
     private final CredentialGuard guard;
 
     /**
      * @param monitoring the server's monitoring adapter, shared with
      *     {@link AdapterGatewayFactory#monitoring}
-     * @param ports      the server's 8.1 ports, shared with {@link AdapterGatewayFactory}
+     * @param ports      the server's currently selected port set, shared with
+     *     {@link AdapterGatewayFactory}
      * @param guard      the server's credential guard, shared by REST and CLI calls
      */
     V81Gateway(NodeId server, Optional<String> detectedVersion, List<String> warnings,
-        InubitHttpClient client, MonitoringPort monitoring, Ports ports,
+        InubitHttpClient client, MonitoringPort monitoring, Supplier<PortSet> ports,
         CredentialGuard guard) {
         this.server = Objects.requireNonNull(server, "server");
         this.detectedVersion = Objects.requireNonNull(detectedVersion, "detectedVersion");
         this.warnings = List.copyOf(warnings);
         this.client = Objects.requireNonNull(client, "client");
         this.monitoring = Objects.requireNonNull(monitoring, "monitoring");
-        this.processes = Objects.requireNonNull(ports, "ports").processes();
-        this.logs = ports.logs();
-        this.inventory = ports.inventory();
-        this.processControl = ports.processControl();
-        this.artifacts = ports.artifacts();
-        this.imports = ports.imports();
-        this.tags = ports.tags();
+        this.ports = Objects.requireNonNull(ports, "ports");
         this.guard = Objects.requireNonNull(guard, "guard");
     }
 
@@ -87,56 +78,37 @@ final class V81Gateway implements Gateway {
 
     @Override
     public ProcessQueryPort processes() {
-        return processes;
+        return ports.get().processes();
     }
 
     @Override
     public LogPort logs() {
-        return logs;
+        return ports.get().logs();
     }
 
     @Override
     public InventoryPort inventory() {
-        return inventory;
+        return ports.get().inventory();
     }
 
     @Override
     public ProcessControlPort processControl() {
-        return processControl;
+        return ports.get().processControl();
     }
 
     @Override
     public ArtifactPort artifacts() {
-        return artifacts;
+        return ports.get().artifacts();
     }
 
     @Override
     public ImportPort imports() {
-        return imports;
+        return ports.get().imports();
     }
 
     @Override
     public TagPort tags() {
-        return tags;
-    }
-
-    /**
-     * The ports of US2 (REST), US3 (REST and CLI exports), US4 (CLI), feature 003 (CLI
-     * exports) and feature 004 (CLI imports and tags), created once per server
-     * with its client and credential guard.
-     */
-    record Ports(ProcessQueryPort processes, LogPort logs, InventoryPort inventory,
-        ProcessControlPort processControl, ArtifactPort artifacts, ImportPort imports,
-        TagPort tags) {
-        Ports {
-            Objects.requireNonNull(imports, "imports");
-            Objects.requireNonNull(tags, "tags");
-            Objects.requireNonNull(processes, "processes");
-            Objects.requireNonNull(logs, "logs");
-            Objects.requireNonNull(inventory, "inventory");
-            Objects.requireNonNull(processControl, "processControl");
-            Objects.requireNonNull(artifacts, "artifacts");
-        }
+        return ports.get().tags();
     }
 
     /** The credential guard of this server, for its CLI calls (US3/US4). */

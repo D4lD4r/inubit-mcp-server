@@ -8,6 +8,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
@@ -17,11 +18,14 @@ import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.soap.SoapE2eClient;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePreview;
 import de.dadecker.inubit.mcp.domain.model.E2eRun;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
 import de.dadecker.inubit.mcp.domain.model.LogQuery;
 import de.dadecker.inubit.mcp.domain.model.LogType;
@@ -34,9 +38,11 @@ import de.dadecker.inubit.mcp.domain.model.ProcessState;
 import de.dadecker.inubit.mcp.domain.model.Severity;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.IOException;
 import java.net.URI;
@@ -46,6 +52,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -91,6 +98,12 @@ class E2eTestServiceTest {
     private E2ePolicy policy = E2ePolicy.FREE;
     private boolean logsUnavailable;
     private SoapE2eClient client;
+    /** Feature 009: the {@code versionLine} of each node ({@code V8_1} if absent). */
+    private final Map<NodeId, VersionSetting> versionLines = new HashMap<>();
+    private final NodeVersions versions = new NodeVersions(clock,
+        node -> versionLines.getOrDefault(node, VersionSetting.V8_1),
+        node -> Duration.ofMinutes(10));
+    private final FakeVersionDetection detection = new FakeVersionDetection(versions);
 
     @BeforeAll
     static void start() {
@@ -125,7 +138,7 @@ class E2eTestServiceTest {
     private E2eTestService service() {
         DevelopmentPolicy dev = new DevelopmentPolicy(DEV, false, !deploymentTarget,
             WritePolicy.Confirmation.SERVER, Duration.ofMinutes(5), policy,
-            Optional.of(URI.create("https://localhost:" + wireMock.httpsPort())));
+            Optional.of(URI.create("https://localhost:" + wireMock.httpsPort())), false);
         LogPort logs = new LogPort() {
             @Override
             public void validate(LogQuery query) {
@@ -172,7 +185,8 @@ class E2eTestServiceTest {
         return new E2eTestService(new E2eTestService.Dependencies(root,
             root.resolve("backups"), "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV)), Map.of(DEV, dev)::get,
-                node -> { }, group -> deploymentTarget ? Optional.of(
+                node -> { }, gateWithoutClients(versions, detection,
+                    CapabilityMatrix.production()), group -> deploymentTarget ? Optional.of(
                     de.dadecker.inubit.mcp.domain.model.DeployMode.EXECUTE) : Optional.empty(),
                 Duration.ofMinutes(30)), node -> client, node -> logs, node -> processes,
             node -> Duration.ofMinutes(15),
@@ -520,5 +534,56 @@ class E2eTestServiceTest {
 
         assertThat(old).doesNotExist();
         assertThat(recent).exists();
+    }
+
+    // --- feature 009 (T009): the version gate --------------------------------------------------
+
+    @Test
+    void aNodeOnInubit90IsRefusedAfterOnlyTheDetection() {
+        versionLines.put(DEV, VersionSetting.AUTO);
+        detection.answer(DEV, "9.0.7");
+
+        ToolError error = refusal(service(), request());
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(error.message()).isEqualTo("run_e2e_test: INUBIT 9.0.7 on dev/node1 does not"
+            + " support end-to-end test yet; nothing was sent");
+        assertThat(error.node()).contains(DEV);
+        wireMock.verify(0, anyRequestedFor(anyUrl()));
+        assertThat(detection.requests()).containsExactly(DEV);
+        assertThat(audit).singleElement().satisfies(record ->
+            assertThat(record.capability()).isEqualTo("run_e2e_test"));
+    }
+
+    @Test
+    void aNodePinnedToV9xIsRefusedWithoutAnyRequest() {
+        versionLines.put(DEV, VersionSetting.V9_X);
+
+        ToolError error = refusal(service(), request());
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(error.message()).startsWith("run_e2e_test: ");
+        wireMock.verify(0, anyRequestedFor(anyUrl()));
+        assertThat(detection.requests()).isEmpty();
+    }
+
+    @Test
+    void theTestDoesNotUseStartCliSoTheClientIsNotChecked() {
+        // a client that excludes 8.1 would refuse a StartCLI-backed write (FR-011)
+        wireMock.stubFor(post(urlEqualTo(PATH)).willReturn(aResponse().withStatus(200)
+            .withBody("<ok/>")));
+        versionLines.put(DEV, VersionSetting.AUTO);
+        detection.answer(DEV, "8.1.18");
+        versions.clientProbed(DEV, new ClientVersion(version("8.0.9"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.0.9"))));
+
+        E2eRun run = completed(service().run(request()));
+
+        assertThat(run.status()).contains(200);
+        assertThat(run.warnings()).noneMatch(warning -> warning.contains("StartCLI"));
+    }
+
+    private static InubitVersion version(String raw) {
+        return InubitVersion.parse(raw).orElseThrow();
     }
 }

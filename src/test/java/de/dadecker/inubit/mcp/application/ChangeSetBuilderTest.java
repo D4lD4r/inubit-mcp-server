@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
+import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
 import de.dadecker.inubit.mcp.domain.model.ArtifactRef;
 import de.dadecker.inubit.mcp.domain.model.ChangeSet;
@@ -50,7 +51,8 @@ class ChangeSetBuilderTest {
     }
 
     private ChangeSetBuilder builder() {
-        return new ChangeSetBuilder(root, harness.history, new WorkspaceInspector());
+        return new ChangeSetBuilder(root, harness.history, new WorkspaceInspector(),
+            new V81ReleaseArchives());
     }
 
     private static ImportScope group() {
@@ -213,18 +215,6 @@ class ChangeSetBuilderTest {
             .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(
                 e.error().message()).contains("deleting artifacts is not supported",
                     "Module-0001"));
-    }
-
-    @Test
-    void aChangeBelowTheRepositoryIsRefused() throws IOException {
-        write("dev/jdoe/repository/Root/jdoe/xsd/new.xsd", "<xs:schema/>\n");
-        commitLocalChanges();
-
-        assertThatThrownBy(() -> builder().build(group()))
-            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
-                assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT);
-                assertThat(e.error().message()).contains("repository");
-            });
     }
 
     @Test

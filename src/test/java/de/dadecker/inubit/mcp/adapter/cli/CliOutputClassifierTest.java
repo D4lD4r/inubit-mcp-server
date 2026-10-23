@@ -4,11 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.cli.CliOutput.Marker;
 import de.dadecker.inubit.mcp.config.CredentialVariables;
+import de.dadecker.inubit.mcp.config.ParameterNames;
+import de.dadecker.inubit.mcp.config.SecretLabels;
+import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.time.Duration;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -185,14 +189,35 @@ class CliOutputClassifierTest {
     void aLoginFailureOfANodeNamesItsCredentialVariablesUnderTheEffectivePrefix() {
         // 002 research D-6: the next step names the variables the profile actually reads
         CliOutputClassifier forNode = new CliOutputClassifier(scrubber,
-            new CredentialVariables("INUBIT_ACME", NodeId.parse("test/node1")));
+            new SecretLabels.Environment(
+                new CredentialVariables("INUBIT_ACME", NodeId.parse("test/node1"))));
 
         CliOutcome outcome = forNode.classify(fixture("login_failed"));
 
         assertThat(outcome).isInstanceOfSatisfying(CliOutcome.Failure.class, failure -> {
             assertThat(failure.error().code()).isEqualTo(ErrorCode.AUTH_FAILED);
-            assertThat(failure.error().nextStep()).contains("INUBIT_ACME_TEST_NODE1_PASSWORD",
-                "INUBIT_ACME_TEST_PASSWORD", "restart the MCP client");
+            assertThat(failure.error().nextStep()).isEqualTo("Fix INUBIT_ACME_TEST_NODE1_PASSWORD"
+                + " (or INUBIT_ACME_TEST_PASSWORD) and _USERNAME, then restart the MCP client"
+                + " from a shell with the new values");
+        });
+    }
+
+    @Test
+    void aLoginFailureOfAnAwsNodeNamesItsParametersAndNeedsNoRestart() {
+        // feature 010 (T021, research R-15, FR-008)
+        CliOutputClassifier forNode = new CliOutputClassifier(scrubber, new SecretLabels.Aws(
+            NodeId.parse("test/node1"), new StoreLocation("eu-central-1", Optional.empty()),
+            new ParameterNames(Optional.of("/inubit/test/node1/username"),
+                Optional.of("/inubit/test/node1/password"), Optional.empty(), Optional.empty(),
+                Optional.empty())));
+
+        CliOutcome outcome = forNode.classify(fixture("login_failed"));
+
+        assertThat(outcome).isInstanceOfSatisfying(CliOutcome.Failure.class, failure -> {
+            assertThat(failure.error().code()).isEqualTo(ErrorCode.AUTH_FAILED);
+            assertThat(failure.error().nextStep()).isEqualTo("Correct the parameter value(s)"
+                + " /inubit/test/node1/username, /inubit/test/node1/password in Parameter Store"
+                + " (eu-central-1); no restart is needed");
         });
     }
 

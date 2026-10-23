@@ -101,6 +101,9 @@ class RestoreServiceTest {
             + " GRP-01 (1 artifacts) [" + outcome.auditId() + "]");
         assertThat(harness.exports.git("log", "-1",
             "--format=%(trailers:key=Server-State,valueonly)").strip()).isEqualTo("dev");
+        // T051 (FR-015a): the reason of the restore, not that of the restored call
+        assertThat(harness.exports.git("log", "-1", "--format=%B").strip()).endsWith(
+            "]\n\nServer-State: dev\nReason: Undo the move");
         assertThat(outcome.backupRef()).contains(outcome.auditId().toString())
             .isNotEqualTo(Optional.of(ref));
         assertThat(harness.backups.find(outcome.auditId().toString())).isPresent();

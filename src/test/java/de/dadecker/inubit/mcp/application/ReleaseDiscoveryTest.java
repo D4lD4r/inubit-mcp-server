@@ -46,7 +46,7 @@ class ReleaseDiscoveryTest {
     private static DeployGuard.Admitted admitted(String tag) {
         return new DeployGuard.Admitted(new GroupId("int"), new GroupId("dev"),
             DeployMode.EXECUTE, List.of(), DeployHarness.TARGETS, DeployHarness.SOURCES, "jdoe",
-            tag);
+            tag, List.of());
     }
 
     private ToolErrorException failure(String tag) {

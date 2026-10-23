@@ -42,7 +42,10 @@ import java.util.zip.ZipOutputStream;
  * exactly the modules its workflows use and the repository files they reference, module exports,
  * repository exports, the owner-wide release export of a tag — and applies imports as the spike
  * observed (artifacts matched by name, new UIDs, a new version per import, the active-flag
- * option; repository imports relative to {@code /Root/<owner>}).
+ * option; repository imports relative to {@code /Root/<owner>}). Feature 008 (spike section 11):
+ * repository imports keep the sent {@code contentType} and {@code Description}, folder exports
+ * are recursive, and the group export and group tag follow references inside repository files.
+ * T050 (research D-3): the message-type schemas of a module index entry count as references.
  *
  * <p>The single-group {@link FakeInubit} stays the double of the feature-004 tests.
  */
@@ -54,6 +57,10 @@ public final class FakeServer {
     private static final Pattern VERSION = Pattern.compile("@@@Version: (\\d+)@@@");
     private static final Pattern REFERENCE = Pattern.compile(
         "(?:href|schemaLocation)=\"inubitrepository:(/Root/[^\"]+)\"");
+    /** In a repository file: an {@code inubitrepository:} or a relative reference (P-3). */
+    private static final Pattern NESTED_REFERENCE = Pattern.compile(
+        "(?:href|schemaLocation)=\"(?:inubitrepository:(/Root/[^\"]+)|([^\"/:#?][^\":#?]*))\"");
+    private static final String OCTET_STREAM = "application/octet-stream";
     private static final byte[] PROPERTIES = ("#\nsourceVersion=8.1.17\n"
         + "operationId=00000000-0000-0000-0000-000000000105\n").getBytes(StandardCharsets.UTF_8);
 
@@ -65,9 +72,10 @@ public final class FakeServer {
     private record Module(String pluginType, Element entry, byte[] file, int version) {
     }
 
-    /** One version of a repository file. */
+    /** One version of a repository file ({@code description} empty: no element). */
     private record RepositoryVersion(String version, String uuid, String comment,
-        String description, byte[] content, Set<String> tags) {
+        String description, String contentType, boolean anonymousRead, byte[] content,
+        Set<String> tags) {
     }
 
     /** What a tag marks in one diagram group. */
@@ -209,7 +217,8 @@ public final class FakeServer {
 
     /**
      * The export of diagram group {@code group} (head versions): its workflows, the modules they
-     * use, and the repository files those reference; empty if the group does not exist.
+     * use, and the repository files those reference (also as message-type schemas), directly or
+     * through other repository files (P-3); empty if the group does not exist.
      */
     public synchronized Optional<byte[]> exportWorkflowGroup(String group) {
         if (!hasDiagramGroup(group)) {
@@ -217,9 +226,9 @@ public final class FakeServer {
         }
         Map<String, Workflow> workflows = groups.get(group);
         Map<String, Module> used = usedModules(workflows.values());
-        return Optional.of(archive(Map.of(group, workflows), used, references(used.values())
-            .stream().filter(repository::containsKey).collect(TreeMap::new,
-                (map, path) -> map.put(path, head(path)), Map::putAll), null));
+        return Optional.of(archive(Map.of(group, workflows), used, referencedFiles(used.values())
+            .stream().collect(TreeMap::new, (map, path) -> map.put(path, head(path)),
+                Map::putAll), null));
     }
 
     /** The module-only export of {@code name}, empty if missing or of another plugin type. */
@@ -238,8 +247,9 @@ public final class FakeServer {
     }
 
     /**
-     * The repository export of a file or folder (head versions, export shape); empty if the
-     * path does not exist (StartCLI: "Path not found").
+     * The repository export of a file or folder (head versions, export shape): a folder with
+     * every file below it and a directory entry per folder, the files of a folder before its
+     * subfolders (P-2); empty if the path does not exist (StartCLI: "Path not found").
      */
     public synchronized Optional<byte[]> exportRepository(String path) {
         Map<String, RepositoryVersion> files = new TreeMap<>();
@@ -285,24 +295,24 @@ public final class FakeServer {
 
     /**
      * {@code tag --tagMove <tag> --tagWorkflowGroup <group> …}: the tag moves to the current
-     * versions of the group's workflows and modules and of the repository files they reference.
+     * versions of the group's workflows and modules and of the repository files they reference,
+     * directly or through other repository files (P-3).
      */
     public synchronized void tag(String group, String tag) {
         Map<String, Workflow> workflows = new LinkedHashMap<>(groups.getOrDefault(group,
             Map.of()));
         Map<String, Module> used = usedModules(workflows.values());
         Map<String, RepositoryVersion> files = new TreeMap<>();
-        for (String path : references(used.values())) {
+        for (String path : referencedFiles(used.values())) {
             List<RepositoryVersion> versions = repository.get(path);
-            if (versions != null) {
-                RepositoryVersion head = versions.get(versions.size() - 1);
-                Set<String> withTag = new TreeSet<>(head.tags());
-                withTag.add(tag);
-                RepositoryVersion tagged = new RepositoryVersion(head.version(), head.uuid(),
-                    head.comment(), head.description(), head.content(), Set.copyOf(withTag));
-                versions.set(versions.size() - 1, tagged);
-                files.put(path, tagged);
-            }
+            RepositoryVersion head = versions.get(versions.size() - 1);
+            Set<String> withTag = new TreeSet<>(head.tags());
+            withTag.add(tag);
+            RepositoryVersion tagged = new RepositoryVersion(head.version(), head.uuid(),
+                head.comment(), head.description(), head.contentType(), head.anonymousRead(),
+                head.content(), Set.copyOf(withTag));
+            versions.set(versions.size() - 1, tagged);
+            files.put(path, tagged);
         }
         tags.computeIfAbsent(tag, t -> new TreeMap<>()).put(group,
             new Tagged(workflows, used, files));
@@ -380,9 +390,15 @@ public final class FakeServer {
         throw new IllegalStateException("no workflow " + name);
     }
 
-    /** Writes repository file {@code path} as a Workbench user would (next version). */
+    /**
+     * Writes repository file {@code path} as a Workbench user would (next version; the content
+     * type of the previous version, {@code application/octet-stream} for a new file).
+     */
     public synchronized void putRepositoryFile(String path, String content) {
-        store(path, content.getBytes(StandardCharsets.UTF_8), "Fixture file", "Fixture edit");
+        List<RepositoryVersion> versions = repository.get(path);
+        store(path, content.getBytes(StandardCharsets.UTF_8), "Fixture file", versions == null
+            ? OCTET_STREAM : versions.get(versions.size() - 1).contentType(), true,
+            "Fixture edit");
     }
 
     /** The head version of repository file {@code path}, e.g. {@code 1.1}. */
@@ -548,9 +564,13 @@ public final class FakeServer {
 
     /**
      * Applies a repository import into {@code /Root/<owner>} (entries relative to it) as probed
-     * (research D-1): a new file gets version {@code 1.0} and a server {@code uuid}, an existing
-     * one the next version with its {@code uuid}; the archive's {@code versionComment} is
-     * ignored, the stored one grows by {@code DefaultCommitCommentImport@@@}. No protocol.
+     * (research D-1, spike sections 10 and 11): a new file gets version {@code 1.0} and a server
+     * {@code uuid}, an existing one the next version with its {@code uuid}; the archive's
+     * {@code uuid}, {@code version} and {@code versionComment} are ignored, the stored comment
+     * grows by {@code DefaultCommitCommentImport@@@}. The sent {@code contentType} (none:
+     * {@code application/octet-stream}), {@code Description} (empty: none) and
+     * {@code anonymousRead} (none: the previous value, {@code false} for a new file) are stored.
+     * No protocol.
      */
     public synchronized String importRepository(byte[] zip, String owner) {
         repositoryImports.add(zip.clone());
@@ -559,10 +579,18 @@ public final class FakeServer {
             return "JAVA_HOME is set\nPassword: \n1-NOK: Import failed.\n";
         }
         for (var file : RepositoryArchive.readRelative(owner, zip)) {
+            String metadata = new String(file.metadata(), StandardCharsets.UTF_8);
             Matcher description = Pattern.compile("<Description>([^<]*)</Description>")
-                .matcher(new String(file.metadata(), StandardCharsets.UTF_8));
+                .matcher(metadata);
+            Matcher contentType = Pattern.compile("\\scontentType=\"([^\"]*)\"")
+                .matcher(metadata);
+            Matcher anonymousRead = Pattern.compile("\\sanonymousRead=\"([^\"]*)\"")
+                .matcher(metadata);
+            List<RepositoryVersion> versions = repository.get(file.path());
             store(file.path(), file.content(), description.find() ? description.group(1) : "",
-                null);
+                contentType.find() ? contentType.group(1) : OCTET_STREAM, anonymousRead.find()
+                    ? Boolean.parseBoolean(anonymousRead.group(1)) : versions != null
+                    && versions.get(versions.size() - 1).anonymousRead(), null);
         }
         return "JAVA_HOME is set\nPassword: \nCompleted = 0 MB / 0 MB\n"
             + "1-OK: Imported successfully\n";
@@ -686,6 +714,10 @@ public final class FakeServer {
     private static Set<String> references(Iterable<Module> used) {
         Set<String> paths = new TreeSet<>();
         for (Module module : used) {
+            for (String schema : List.of("InputMessageTypeSchema", "OutputMessageTypeSchema")) {
+                module.entry().child(schema).map(Element::text).map(String::strip)
+                    .filter(path -> path.startsWith("/Root/")).ifPresent(paths::add);
+            }
             if (module.file() != null) {
                 Matcher matcher = REFERENCE.matcher(new String(module.file(),
                     StandardCharsets.UTF_8));
@@ -697,13 +729,53 @@ public final class FakeServer {
         return paths;
     }
 
+    /**
+     * The existing repository files the modules reference and, transitively, the files those
+     * reference by {@code inubitrepository:} or relative {@code href}/{@code schemaLocation}
+     * (P-3: INUBIT's group export and group tag follow both); each file is read once.
+     */
+    private Set<String> referencedFiles(Iterable<Module> used) {
+        Set<String> files = new TreeSet<>();
+        List<String> work = new ArrayList<>(references(used));
+        while (!work.isEmpty()) {
+            String path = work.remove(work.size() - 1);
+            if (!repository.containsKey(path) || !files.add(path)) {
+                continue;
+            }
+            Matcher matcher = NESTED_REFERENCE.matcher(new String(head(path).content(),
+                StandardCharsets.UTF_8));
+            while (matcher.find()) {
+                work.add(matcher.group(1) != null ? matcher.group(1)
+                    : resolve(path, matcher.group(2)));
+            }
+        }
+        return files;
+    }
+
+    /** {@code relative} resolved against the folder of repository file {@code file}. */
+    private static String resolve(String file, String relative) {
+        List<String> segments = new ArrayList<>(List.of(file.substring(1,
+            file.lastIndexOf('/')).split("/")));
+        for (String segment : relative.split("/")) {
+            if (segment.equals("..")) {
+                if (!segments.isEmpty()) {
+                    segments.remove(segments.size() - 1);
+                }
+            } else if (!segment.isEmpty() && !segment.equals(".")) {
+                segments.add(segment);
+            }
+        }
+        return "/" + String.join("/", segments);
+    }
+
     private RepositoryVersion head(String path) {
         List<RepositoryVersion> versions = repository.get(path);
         return versions.get(versions.size() - 1);
     }
 
     /** Stores a new version; {@code comment} {@code null}: an import (D-1 comment growth). */
-    private void store(String path, byte[] content, String description, String comment) {
+    private void store(String path, byte[] content, String description, String contentType,
+        boolean anonymousRead, String comment) {
         List<RepositoryVersion> versions = repository.computeIfAbsent(path,
             p -> new ArrayList<>());
         RepositoryVersion head = versions.isEmpty() ? null : versions.get(versions.size() - 1);
@@ -712,25 +784,39 @@ public final class FakeServer {
             .getBytes(StandardCharsets.UTF_8)).toString() : head.uuid();
         String stored = comment != null ? comment : "DefaultCommitCommentImport@@@"
             + (head == null ? "null" : head.comment());
-        versions.add(new RepositoryVersion(version, uuid, stored, description, content.clone(),
-            Set.of()));
+        versions.add(new RepositoryVersion(version, uuid, stored, description, contentType,
+            anonymousRead, content.clone(), Set.of()));
     }
 
+    /**
+     * A {@code Repository.zip} ({@code directory} {@code null}: no directory entries) or a
+     * repository export of {@code directory} ({@code Root/…/}) with a directory entry before the
+     * first file of each folder; the files of a folder come before its subfolders.
+     */
     private static byte[] repositoryZip(String directory, Map<String, RepositoryVersion> files,
         String tag) {
+        List<String> paths = new ArrayList<>(files.keySet());
+        paths.sort(FakeServer::exportOrder);
+        Set<String> folders = new LinkedHashSet<>();
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (ZipOutputStream out = new ZipOutputStream(bytes)) {
-            if (directory != null) {
-                out.putNextEntry(new ZipEntry(directory));
-                out.closeEntry();
-            }
-            for (Map.Entry<String, RepositoryVersion> file : files.entrySet()) {
-                String entry = file.getKey().substring(1);
+            for (String path : paths) {
+                String entry = path.substring(1);
+                if (directory != null) {
+                    for (int at = directory.length() - 1; at >= 0; at = entry.indexOf('/',
+                        at + 1)) {
+                        String folder = entry.substring(0, at + 1);
+                        if (folders.add(folder)) {
+                            out.putNextEntry(new ZipEntry(folder));
+                            out.closeEntry();
+                        }
+                    }
+                }
                 out.putNextEntry(new ZipEntry(entry + ".xml"));
-                out.write(metadata(file.getKey(), file.getValue(), tag));
+                out.write(metadata(path, files.get(path), tag));
                 out.closeEntry();
                 out.putNextEntry(new ZipEntry(entry + ".dat"));
-                out.write(file.getValue().content());
+                out.write(files.get(path).content());
                 out.closeEntry();
             }
             out.setComment(DOCUMENT_VERSION);
@@ -738,6 +824,20 @@ public final class FakeServer {
             throw new UncheckedIOException(e);
         }
         return bytes.toByteArray();
+    }
+
+    /** Folder by folder: the files of a folder before its subfolders, each by name. */
+    private static int exportOrder(String left, String right) {
+        String[] a = left.split("/");
+        String[] b = right.split("/");
+        for (int i = 0; i < Math.min(a.length, b.length); i++) {
+            if (!a[i].equals(b[i])) {
+                boolean aFile = i == a.length - 1;
+                boolean bFile = i == b.length - 1;
+                return aFile != bFile ? (aFile ? -1 : 1) : a[i].compareTo(b[i]);
+            }
+        }
+        return Integer.compare(a.length, b.length);
     }
 
     private static byte[] metadata(String path, RepositoryVersion version, String tag) {
@@ -750,14 +850,16 @@ public final class FakeServer {
         }
         return ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Property name=\""
             + path.substring(path.lastIndexOf('/') + 1) + "\" type=\"RepositoryFile\""
-            + " anonymousRead=\"true\" versionComment=\"" + version.comment() + "\""
+            + " anonymousRead=\"" + version.anonymousRead() + "\" versionComment=\""
+            + version.comment() + "\""
             + " writeable=\"true\" uuid=\"" + version.uuid() + "\" path=\"" + path + "\""
             + " modificator=\"jdoe\" contentSize=\"" + version.content().length + "\""
             + " modified=\"2026-10-07T10:00:00\" contentEncoding=\"UTF-8\""
-            + " contentType=\"application/octet-stream\" systemElement=\"false\""
+            + " contentType=\"" + version.contentType() + "\" systemElement=\"false\""
             + " contentMD5=\"" + md5 + "\"" + (tag != null && version.tags().contains(tag)
                 ? " tagName=\"" + tag + "\"" : "") + " version=\"" + version.version()
-            + "\"><Description>" + version.description() + "</Description></Property>")
+            + "\"" + (version.description().isEmpty() ? "/>" : "><Description>"
+                + version.description() + "</Description></Property>"))
             .getBytes(StandardCharsets.UTF_8);
     }
 

@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.security;
 
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import ch.qos.logback.classic.Level;
@@ -25,7 +26,6 @@ import de.dadecker.inubit.mcp.adapter.git.GitCli;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.WorkspaceService;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -34,6 +34,7 @@ import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.tools.ExportArtifactsTool;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -114,7 +115,7 @@ class SecretLeakTest {
             Optional.empty(), Optional.empty());
         ArtifactPort artifacts = new V81ArtifactAdapter(new CliExportRunner(TestNodeConfig.node()
             .cliHome(cliHome).cliJavaHome(Path.of("/opt/jdk-17")).build(), credentials,
-            new CredentialGuard(new CredentialVariables("INUBIT", DEV),
+            new CredentialGuard(environmentLabels("INUBIT", DEV),
                 new MutableClock(Instant.parse("2026-10-06T08:00:00Z"))),
             new CliRunner(startCli, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
             new CliOutputClassifier(new SecretScrubber())), () -> { });
@@ -123,7 +124,7 @@ class SecretLeakTest {
                 System.getenv().getOrDefault("PATH", "/usr/bin"))),
             new ArchiveCodec(), node -> artifacts, node -> {
                 throw new AssertionError("every module names its plugin type");
-            });
+            }, FakeVersionDetection.pinned81());
         client = McpTestClient.start(List.of(new ExportArtifactsTool(service,
             new TargetResolver(List.of(DEV)), node -> Optional.of("OWNERS"),
             new ResultLimiter(3, ResultLimiter.DEFAULT_MAX_CHARS))));

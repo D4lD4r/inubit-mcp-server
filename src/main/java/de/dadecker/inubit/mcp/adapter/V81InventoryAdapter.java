@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.v81.ModuleIndexParser;
 import de.dadecker.inubit.mcp.adapter.cli.v81.VersionHistoryParser;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
+import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.ResourceKind;
 import de.dadecker.inubit.mcp.adapter.rest.v81.DiagramExportParser;
 import de.dadecker.inubit.mcp.adapter.rest.v81.ModelDetailParser;
 import de.dadecker.inubit.mcp.adapter.rest.v81.ModelListParser;
@@ -28,7 +29,8 @@ import java.util.Objects;
  *       run, unconfirmed credentials are confirmed with {@code GET /ibis/rest/system/info}.
  * </ul>
  *
- * <p>REST failures come from {@link InubitHttpClient} ({@code 404} → {@code NOT_FOUND}, …), CLI
+ * <p>REST failures come from {@link InubitHttpClient} ({@code 404} → {@code NOT_FOUND}, but
+ * {@code UNEXPECTED_RESPONSE} for the diagram list, a fixed endpoint, …), CLI
  * failures from {@link CliExportRunner}; all carry the server id.
  */
 public final class V81InventoryAdapter implements InventoryPort {
@@ -50,7 +52,7 @@ public final class V81InventoryAdapter implements InventoryPort {
 
     @Override
     public List<InventoryItem> listDiagrams(String owner) {
-        byte[] body = client.get(MODELS, Map.of("user", owner)).body();
+        byte[] body = client.get(MODELS, Map.of("user", owner), ResourceKind.ENDPOINT).body();
         return ModelListParser.parse(server, owner, body);
     }
 
@@ -94,7 +96,7 @@ public final class V81InventoryAdapter implements InventoryPort {
      */
     void confirmCredentials() {
         if (!client.credentialGuard().confirmed()) {
-            client.get(SYSTEM_INFO, Map.of(), 403);
+            client.get(SYSTEM_INFO, Map.of(), ResourceKind.ENDPOINT, 403);
         }
     }
 

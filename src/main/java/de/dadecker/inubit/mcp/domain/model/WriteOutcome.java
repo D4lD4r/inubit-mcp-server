@@ -47,17 +47,31 @@ public record WriteOutcome(UUID auditId, Outcome outcome, Optional<Failure> fail
      * ({@code applied}), or not, with the failure of the tag command or its verification. A tag
      * failure never undoes the import.
      *
-     * @param workflows the number of technical workflows whose current version carries the tag
-     * @param modules   the number of modules whose current version carries the tag
+     * @param workflows       the number of technical workflows whose current version carries the
+     *                        tag
+     * @param modules         the number of modules whose current version carries the tag
+     * @param repositoryFiles feature 008 (research D-12): the repository paths an applied tag's
+     *                        import sent, all in the closure of the group's modules, referenced
+     *                        directly or only by another repository file; INUBIT's group tag
+     *                        covers both (probe P-3). Information, not verified; absent without
+     *                        such files
      */
     public record TagResult(String name, boolean applied, int workflows, int modules,
-        Optional<Failure> failure) {
+        Optional<Failure> failure, Optional<List<String>> repositoryFiles) {
         public TagResult {
             Objects.requireNonNull(name, "name");
             failure = failure == null ? Optional.empty() : failure;
+            repositoryFiles = repositoryFiles == null ? Optional.empty()
+                : repositoryFiles.map(List::copyOf);
             if (applied && failure.isPresent()) {
                 throw new IllegalArgumentException("An applied tag has no failure");
             }
+        }
+
+        /** A tag without repository files (deployments, imports of workflows and modules). */
+        public TagResult(String name, boolean applied, int workflows, int modules,
+            Optional<Failure> failure) {
+            this(name, applied, workflows, modules, failure, Optional.empty());
         }
     }
 

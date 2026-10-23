@@ -1,12 +1,12 @@
 package de.dadecker.inubit.mcp.adapter.cli;
 
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
@@ -64,7 +64,7 @@ class CliExportRunnerTest {
 
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-01T08:00:00Z"));
     private final CredentialGuard guard =
-        new CredentialGuard(new CredentialVariables("INUBIT", DEV), clock);
+        new CredentialGuard(environmentLabels("INUBIT", DEV), clock);
     /** What the fake StartCLI saw at launch: the export directory and its permissions. */
     private final List<Set<PosixFilePermission>> launchPermissions = new CopyOnWriteArrayList<>();
 

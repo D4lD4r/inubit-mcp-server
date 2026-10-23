@@ -1,5 +1,8 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
+
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
@@ -14,22 +17,24 @@ import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81TagAdapter;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ConnectorFlags;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
 import de.dadecker.inubit.mcp.domain.model.InventoryKind;
 import de.dadecker.inubit.mcp.domain.model.ModuleRef;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -40,6 +45,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Pattern;
 
@@ -97,6 +103,19 @@ public final class DeployHarness {
     public final Map<NodeId, ScriptedProcessLauncher> cli = new LinkedHashMap<>();
     public final List<AuditRecord> audit = new CopyOnWriteArrayList<>();
     public final MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
+    /** Feature 009: the {@code versionLine} of each node ({@code V8_1} if absent). */
+    public final Map<NodeId, VersionSetting> versionLines = new ConcurrentHashMap<>();
+    /** Feature 009: the version state of the nodes, e.g. to seed a client probe. */
+    public final NodeVersions versions = new NodeVersions(clock,
+        node -> versionLines.getOrDefault(node, VersionSetting.V8_1),
+        node -> Duration.ofMinutes(10));
+    /**
+     * Feature 009: the detections of the gates of {@link #importService()} and
+     * {@link #deployService} (none if pinned).
+     */
+    public final FakeVersionDetection detection = new FakeVersionDetection(versions);
+    /** Feature 009: the capability matrix of the gate of {@link #deployService}. */
+    public CapabilityMatrix matrix = CapabilityMatrix.production();
     public final BackupStore backups;
     public final GitCli history;
     /** Plain git helpers ({@code log}, {@code snapshot}, {@code git}) on {@link #root}. */
@@ -187,7 +206,7 @@ public final class DeployHarness {
     }
 
     private CredentialGuard guard(NodeId node) {
-        return new CredentialGuard(new CredentialVariables("INUBIT", node), clock);
+        return new CredentialGuard(environmentLabels("INUBIT", node), clock);
     }
 
     private CliExportRunner exports(NodeId node) {
@@ -299,8 +318,8 @@ public final class DeployHarness {
             new de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner(releaseRoot),
             group -> Optional.empty(), node -> {
                 throw new AssertionError("no server lookups");
-            }, node -> Optional.empty(), ResultLimiter.withDefaults(), clock)
-            .checkPaths(paths, false);
+            }, node -> Optional.empty(), ResultLimiter.withDefaults(), clock,
+            FakeVersionDetection.pinned81()).checkPaths(paths, false);
     }
 
     /** The release planner on the real 8.1 archive adapters. */
@@ -335,7 +354,9 @@ public final class DeployHarness {
         de.dadecker.inubit.mcp.domain.port.AuditPort serviceAudit) {
         List<NodeId> nodes = new java.util.ArrayList<>(servers.keySet());
         DeployGuard guard = new DeployGuard(chain, new TargetResolver(nodes),
-            group -> Optional.of(OWNER), audit::add, "acme", clock, java.util.UUID::randomUUID);
+            group -> Optional.of(OWNER), audit::add,
+            gateWithoutClients(versions, detection, matrix), "acme", clock,
+            java.util.UUID::randomUUID);
         return new DeployService(new DeployService.Dependencies(root, deployments(), "acme",
             guard, new ReleaseDiscovery(this::artifacts,
                 new de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec(),
@@ -378,10 +399,11 @@ public final class DeployHarness {
                     ? de.dadecker.inubit.mcp.domain.model.WritePolicy.Confirmation.CLIENT
                     : de.dadecker.inubit.mcp.domain.model.WritePolicy.Confirmation.SERVER,
                 Duration.ofMinutes(5), de.dadecker.inubit.mcp.domain.model.E2ePolicy.FORBIDDEN,
-                Optional.empty())));
+                Optional.empty(), false)));
         de.dadecker.inubit.mcp.domain.model.StageChain chain = chain(List.of());
         DevelopmentGuard guard = new DevelopmentGuard(new TargetResolver(
             new java.util.ArrayList<>(servers.keySet())), policies::get, node -> { },
+            gateWithoutClients(versions, detection, CapabilityMatrix.production()),
             group -> chain.link(group).map(
                 de.dadecker.inubit.mcp.domain.model.StageChain.ChainLink::mode),
             Duration.ofMinutes(30));
@@ -391,9 +413,10 @@ public final class DeployHarness {
             policies::get, history, inspector, new ArtifactCheckService(root, inspector,
                 new de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner(root),
                 group -> Optional.empty(), this::inventory, node -> Optional.of(OWNER),
-                ResultLimiter.withDefaults(), clock),
+                ResultLimiter.withDefaults(), clock, FakeVersionDetection.pinned81()),
             new de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec(),
-            new de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives(), this::artifacts,
+            new de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives(),
+            new de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives(), this::artifacts,
             this::imports, this::tags, this::inventory, node -> Optional.of(OWNER),
             node -> new ImportService.Account(OWNER, node.name() + ".example.test"), challenges,
             backups, audit::add, clock, java.util.UUID::randomUUID,

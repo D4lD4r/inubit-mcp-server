@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.domain.model.NodePlan.PlanError;
 import de.dadecker.inubit.mcp.domain.model.NodePlan.PlannedArtifact;
 import de.dadecker.inubit.mcp.domain.model.NodePlan.Warning;
 import de.dadecker.inubit.mcp.domain.model.NodePlan.WarningKind;
+import de.dadecker.inubit.mcp.domain.model.RepositoryPaths;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -396,7 +397,7 @@ public final class ReleasePlanner {
         parts.repository().forEach((path, content) -> {
             if (excluded(admitted.exclude(), StageChain.Exclusion.Kind.REPOSITORY_PATH, path)) {
                 pathExcluded.add(path);
-            } else if (!repositoryPathPassable(path)) {
+            } else if (!RepositoryPaths.passable(path)) {
                 unpassable.add(path);
             } else if (d.releases().keyMaterial(path, content)) {
                 keyMaterial.add(path);
@@ -556,23 +557,6 @@ public final class ReleasePlanner {
         return rules.stream().filter(rule -> rule.kind() == kind).anyMatch(rule ->
             kind == StageChain.Exclusion.Kind.DIAGRAM_GROUP ? rule.pattern().equals(value)
                 : glob(rule.pattern()).matcher(value).matches());
-    }
-
-    /** The StartCLI rule of repository paths ({@code CliCommand.REPOSITORY_PATH}). */
-    private static final Pattern REPOSITORY_PATH =
-        Pattern.compile("^/Root(/[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199})+$");
-
-    /** True if StartCLI can take {@code path} (stage 2 review m2). */
-    static boolean repositoryPathPassable(String path) {
-        if (!REPOSITORY_PATH.matcher(path).matches()) {
-            return false;
-        }
-        for (String segment : path.split("/")) {
-            if (segment.equals(".") || segment.equals("..")) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /** {@code *} any characters within a segment, {@code **} any characters. */

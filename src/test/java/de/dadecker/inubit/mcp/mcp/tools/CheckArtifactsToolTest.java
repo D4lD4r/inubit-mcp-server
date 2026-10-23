@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.WorkspaceLock;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
@@ -60,7 +61,8 @@ class CheckArtifactsToolTest {
             new SaxonXsltRunner(root), group -> Optional.empty(), node -> {
                 throw new AssertionError("no server lookups");
             }, node -> Optional.empty(), new ResultLimiter(maxItems,
-                ResultLimiter.DEFAULT_MAX_CHARS), Clock.fixed(NOW, ZoneOffset.UTC));
+                ResultLimiter.DEFAULT_MAX_CHARS), Clock.fixed(NOW, ZoneOffset.UTC),
+            FakeVersionDetection.pinned81());
         client = McpTestClient.start(List.of(new CheckArtifactsTool(service)));
         client.initialize();
     }

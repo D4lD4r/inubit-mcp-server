@@ -110,6 +110,27 @@ public final class ArchiveReader {
             repository);
     }
 
+    /**
+     * A repository export ({@code export --exportRepositoryPath}, feature 008 research D-10) as
+     * an archive of repository files only, keyed like those of {@code Repository.zip}
+     * ({@code Root/<owner>/…}). The archive is read by {@link RepositoryArchive#read}, which
+     * refuses a duplicate entry; its names follow the rules above.
+     *
+     * @throws ToolErrorException {@code UNEXPECTED_RESPONSE} if it is not a readable repository
+     *     export
+     */
+    public ExportArchive readRepository(byte[] zip) {
+        Map<String, RepositoryFile> repository = new LinkedHashMap<>();
+        for (RepositoryArchive.RepositoryFile file : RepositoryArchive.read(zip)) {
+            String path = file.path().substring(1);
+            checkName(path, "repository export");
+            repository.put(path, new RepositoryFile(path, file.content(),
+                Optional.of(parse(path + ".xml", file.metadata()).root())));
+        }
+        return new ExportArchive(Map.of(), List.of(), List.of(), List.of(), Map.of(),
+            repository);
+    }
+
     // --- ZIP ---------------------------------------------------------------------------------
 
     /** The shared byte budget of one export (outer and nested entries). */

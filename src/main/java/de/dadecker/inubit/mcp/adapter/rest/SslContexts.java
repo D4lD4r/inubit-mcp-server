@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.adapter.rest;
 
 import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig.Tls;
+import de.dadecker.inubit.mcp.config.SecretLabels;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -33,14 +34,14 @@ public final class SslContexts {
     }
 
     /**
-     * @param variables          the node's credential variables, named in errors
-     * @param trustStorePassword the resolved {@code <PREFIX>_…_TRUSTSTORE_PASSWORD}, if any
+     * @param labels             the names of the node's secrets, named in errors
+     * @param trustStorePassword the resolved trust-store password, if any
      * @throws ToolErrorException {@code TLS_ERROR} if the trust store cannot be used
      */
-    public static SSLContext forServer(CredentialVariables variables, Tls tls,
+    public static SSLContext forServer(SecretLabels labels, Tls tls,
         Optional<Secret> trustStorePassword) {
         KeyStore trustStore = tls.trustStore()
-            .map(path -> loadTrustStore(path, trustStorePassword, variables))
+            .map(path -> loadTrustStore(path, trustStorePassword, labels))
             .orElse(null);
         X509ExtendedTrustManager trustManager = new PinningTrustManager(trustManager(trustStore),
             tls.pinnedCertificateSha256(), tls.disableHostnameVerification());
@@ -55,12 +56,12 @@ public final class SslContexts {
 
     /**
      * Loads a PKCS12 trust store; without a password only unencrypted entries are readable.
-     * Errors name the node's trust-store password variables under the profile's effective prefix
-     * (002 review U2, research D-6).
+     * Errors name the source of the node's trust-store password: its variables under the
+     * profile's effective prefix (002 review U2, research D-6) or its Parameter Store name
+     * (feature 010 research R-15).
      */
-    static KeyStore loadTrustStore(Path path, Optional<Secret> password,
-        CredentialVariables nodeVariables) {
-        String variables = nodeVariables.either(CredentialVariables.TRUSTSTORE_PASSWORD);
+    static KeyStore loadTrustStore(Path path, Optional<Secret> password, SecretLabels labels) {
+        String source = labels.label(CredentialVariables.TRUSTSTORE_PASSWORD);
         char[] chars = password.map(secret -> secret.reveal().toCharArray()).orElse(null);
         try (InputStream in = Files.newInputStream(path)) {
             KeyStore store = KeyStore.getInstance("PKCS12");
@@ -68,10 +69,11 @@ public final class SslContexts {
             if (store.size() == 0) {
                 throw tlsError("The trust store " + path + " contains no certificates"
                     + (password.isEmpty() ? " that are readable without a password" : ""),
-                    "The trust store is empty, or its certificates are encrypted and neither "
-                        + variables + " is set",
+                    "The trust store is empty, or its certificates are encrypted and "
+                        + labels.trustStorePasswordMissing(),
                     "Import the INUBIT server certificate into a password-less PKCS12 trust"
-                        + " store, or set " + variables + " (not allowed together with a CLI)");
+                        + " store, or " + labels.supplyTrustStorePassword()
+                        + " (not allowed together with a CLI)");
             }
             return store;
         } catch (NoSuchFileException e) {
@@ -82,7 +84,7 @@ public final class SslContexts {
             throw tlsError("The trust store " + path + " cannot be read ("
                     + e.getClass().getSimpleName() + ")",
                 "The file is not a PKCS12 trust store, or the trust-store password is wrong",
-                "Check tls.trustStore and " + variables);
+                "Check tls.trustStore and " + source);
         } finally {
             if (chars != null) {
                 Arrays.fill(chars, '\0');

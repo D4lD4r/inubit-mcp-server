@@ -74,11 +74,14 @@ public final class BackupStore {
      * @param changeSet     the names of the artifacts the call changes
      * @param created       the names of the artifacts the call creates
      * @param intendedState hash per artifact name of the state the call intends (after it), or
-     *                      that the verification saw for a failed call
+     *                      that the verification saw for a failed call; a repository file under
+     *                      {@code repository:<path>} ({@link #repositoryState})
      * @param outcome       e.g. {@code PENDING}, {@code EXECUTED}, {@code FAILED}
      * @param takenAt       when the backup was taken
      * @param zips          the file names of the raw exports, in export order (set by
      *                      {@link #write})
+     * @param repositoryPaths the repository files the backup holds exports of (deployments;
+     *                      imports since feature 008, research D-8; empty in older manifests)
      */
     public record Manifest(String auditId, NodeId node, String owner, String scope,
         List<String> changeSet, List<String> created, Map<String, String> intendedState,
@@ -171,6 +174,22 @@ public final class BackupStore {
     /** The backup directory. */
     public Path root() {
         return root;
+    }
+
+    /**
+     * The intended-state entries of repository files (feature 008, research D-8): the key
+     * {@code repository:<path>} (the {@code NodePlan.key} form of deployments), the fingerprint
+     * over that key and the file's bytes as they are (byte identity, no XML canonical form).
+     *
+     * @param files full repository path ({@code /Root/<owner>/…}) → content
+     */
+    public static Map<String, String> repositoryState(Map<String, byte[]> files) {
+        Map<String, String> state = new TreeMap<>();
+        files.forEach((path, content) -> {
+            String key = "repository:" + path;
+            state.put(key, ConflictDetector.fingerprint(new TreeMap<>(Map.of(key, content))));
+        });
+        return state;
     }
 
     /**
@@ -414,9 +433,9 @@ public final class BackupStore {
             field(json, "takenAt", string(manifest.takenAt().toString()), false);
             field(json, "outcome", string(manifest.outcome()), false);
             field(json, "kind", string(manifest.kind().name()), false);
+            field(json, "repositoryPaths", list(manifest.repositoryPaths()), false);
             if (manifest.kind() == Manifest.Kind.DEPLOYMENT) {
                 field(json, "groups", list(manifest.groups()), false);
-                field(json, "repositoryPaths", list(manifest.repositoryPaths()), false);
                 field(json, "tag", string(manifest.tag().orElse("")), false);
                 field(json, "source", string(manifest.source().orElse("")), false);
             }
@@ -448,7 +467,8 @@ public final class BackupStore {
                     text(object, "outcome"), Instant.parse(text(object, "takenAt")),
                     texts(object, "zips"), kind,
                     deployment ? texts(object, "groups") : List.of(),
-                    deployment ? texts(object, "repositoryPaths") : List.of(),
+                    deployment || object.containsKey("repositoryPaths")
+                        ? texts(object, "repositoryPaths") : List.of(),
                     deployment ? Optional.of(text(object, "tag")) : Optional.empty(),
                     deployment ? Optional.of(text(object, "source")) : Optional.empty());
             } catch (DateTimeException | ClassCastException | NullPointerException e) {

@@ -2,6 +2,8 @@ package de.dadecker.inubit.mcp.application;
 
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
@@ -9,16 +11,19 @@ import de.dadecker.inubit.mcp.domain.model.Names;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
 import de.dadecker.inubit.mcp.domain.model.Target;
+import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.AuditPort;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -28,7 +33,8 @@ import org.slf4j.LoggerFactory;
 
 /**
  * The first gate of {@code deploy_release} (feature 005, US2, FR-007, FR-008, research D-3):
- * everything that can be decided without contacting INUBIT.
+ * everything that can be decided without contacting INUBIT, then the version check, whose only
+ * requests are the version detections (and StartCLI client probes) of the gate.
  *
  * <ul>
  *   <li>The target is the id of one group ({@code INVALID_INPUT} for a node id or a malformed
@@ -40,6 +46,13 @@ import org.slf4j.LoggerFactory;
  *       value rule; an owner, if given, matches it too; without one the target's
  *       {@code inventory.owner} applies ({@code NOT_CONFIGURED} if none). A confirmation code
  *       has the shape the server issues (22 URL-safe characters).
+ *   <li>Feature 009 (FR-014a, research D-11): every source and target node is judged by the
+ *       {@link VersionGate} as a deployment write over StartCLI and REST (detection, matrix,
+ *       pin contradiction, client check); the deployment is refused as a whole
+ *       ({@code UNSUPPORTED_VERSION}, one message naming the refused nodes first, then every
+ *       node with its version and the cause of each refused node) if the gate refuses a node, a
+ *       node's version is unknown, or the nodes differ in major.minor. The admission warnings
+ *       travel in {@link Admitted}.
  *   <li>Every refusal is audited ({@code REFUSED}, capability {@code deploy_release}, step
  *       {@code PREVIEW} or, with a code, {@code EXECUTE}) before it is thrown; nothing is
  *       launched.
@@ -54,6 +67,8 @@ public final class DeployGuard {
     private static final Pattern CODE = Pattern.compile("^[A-Za-z0-9_-]{22}$");
     private static final int MAX_AUDITED_INPUT = 200;
     private static final Logger LOG = LoggerFactory.getLogger(DeployGuard.class);
+    /** Sources export, targets import and tag through StartCLI; both read through REST. */
+    private static final Set<Channel> CHANNELS = Set.of(Channel.CLI, Channel.REST);
 
     /**
      * A {@code deploy_release} call as received.
@@ -70,10 +85,14 @@ public final class DeployGuard {
         }
     }
 
-    /** An admitted call: the target, its link of the chain, the nodes of both groups. */
+    /**
+     * An admitted call: the target, its link of the chain, the nodes of both groups.
+     *
+     * @param warnings the version gate's admission warnings of the nodes (feature 009)
+     */
     public record Admitted(GroupId target, GroupId source, DeployMode mode,
         List<StageChain.Exclusion> exclude, List<NodeId> targetNodes, List<NodeId> sourceNodes,
-        String owner, String tag) {
+        String owner, String tag, List<String> warnings) {
         public Admitted {
             Objects.requireNonNull(target, "target");
             Objects.requireNonNull(source, "source");
@@ -83,6 +102,7 @@ public final class DeployGuard {
             sourceNodes = List.copyOf(sourceNodes);
             Objects.requireNonNull(owner, "owner");
             Objects.requireNonNull(tag, "tag");
+            warnings = List.copyOf(warnings);
         }
     }
 
@@ -90,6 +110,7 @@ public final class DeployGuard {
     private final TargetResolver nodes;
     private final Function<GroupId, Optional<String>> owners;
     private final AuditPort audit;
+    private final VersionGate gate;
     private final String profile;
     private final Clock clock;
     private final Supplier<UUID> ids;
@@ -99,12 +120,13 @@ public final class DeployGuard {
      * @param profile the profile every audit record carries
      */
     public DeployGuard(StageChain chain, TargetResolver nodes,
-        Function<GroupId, Optional<String>> owners, AuditPort audit, String profile, Clock clock,
-        Supplier<UUID> ids) {
+        Function<GroupId, Optional<String>> owners, AuditPort audit, VersionGate gate,
+        String profile, Clock clock, Supplier<UUID> ids) {
         this.chain = Objects.requireNonNull(chain, "chain");
         this.nodes = Objects.requireNonNull(nodes, "nodes");
         this.owners = Objects.requireNonNull(owners, "owners");
         this.audit = Objects.requireNonNull(audit, "audit");
+        this.gate = Objects.requireNonNull(gate, "gate");
         this.profile = Objects.requireNonNull(profile, "profile");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.ids = Objects.requireNonNull(ids, "ids");
@@ -114,8 +136,9 @@ public final class DeployGuard {
      * Admits {@code request} or refuses it (audited).
      *
      * @throws ToolErrorException {@code INVALID_INPUT}, {@code TARGET_UNKNOWN},
-     *     {@code CHAIN_VIOLATION}, {@code NOT_CONFIGURED}; {@code INTERNAL} if the refusal could
-     *     not be audited
+     *     {@code CHAIN_VIOLATION}, {@code NOT_CONFIGURED}, {@code UNSUPPORTED_VERSION} and the
+     *     errors the version gate passes through (e.g. {@code TLS_ERROR} of a detection);
+     *     {@code INTERNAL} if the refusal could not be audited
      */
     public Admitted admit(Request request) {
         try {
@@ -159,8 +182,86 @@ public final class DeployGuard {
             throw invalid("The owner " + Names.quote(owner) + " cannot be passed to StartCLI",
                 "It must match " + VALUE.pattern());
         }
-        return new Admitted(target, link.source(), link.mode(), link.exclude(),
-            nodes.resolve(target.value()), nodes.resolve(link.source().value()), owner, tag);
+        List<NodeId> targetNodes = nodes.resolve(target.value());
+        List<NodeId> sourceNodes = nodes.resolve(link.source().value());
+        return new Admitted(target, link.source(), link.mode(), link.exclude(), targetNodes,
+            sourceNodes, owner, tag, versions(link.source(), sourceNodes, target, targetNodes));
+    }
+
+    /**
+     * FR-014a: judges every source and target node, then refuses the whole deployment if the
+     * gate refused a node, a node's version is unknown ({@code V9_X} included) or the nodes
+     * differ in major.minor.
+     *
+     * @return the admission warnings of every node
+     */
+    private List<String> versions(GroupId source, List<NodeId> sourceNodes, GroupId target,
+        List<NodeId> targetNodes) {
+        Map<NodeId, VersionGate.Evaluation> evaluations = new LinkedHashMap<>();
+        for (List<NodeId> group : List.of(sourceNodes, targetNodes)) {
+            group.forEach(node -> evaluations.put(node, gate.evaluate(node, Capability.DEPLOYMENT,
+                Capability.Kind.WRITE, CHANNELS)));
+        }
+        List<String> refused = new ArrayList<>();
+        List<String> unknown = new ArrayList<>();
+        Set<String> minors = new LinkedHashSet<>();
+        Set<String> nextSteps = new LinkedHashSet<>();
+        List<String> warnings = new ArrayList<>();
+        evaluations.forEach((node, evaluation) -> {
+            evaluation.refusal().ifPresentOrElse(error -> {
+                refused.add(node.value());
+                nextSteps.add(error.nextStep());
+            }, () -> {
+                if (evaluation.version().isEmpty()) {
+                    unknown.add(node.value());
+                }
+            });
+            evaluation.version().ifPresent(version -> minors.add(version.major() + "."
+                + version.minor()));
+            warnings.addAll(evaluation.warnings());
+        });
+        if (refused.isEmpty() && unknown.isEmpty() && minors.size() <= 1) {
+            return warnings;
+        }
+        Terminology terms = nodes.terms();
+        List<String> problems = new ArrayList<>();
+        if (!refused.isEmpty()) {
+            problems.add("the version check refused " + String.join(", ", refused));
+        }
+        if (!unknown.isEmpty()) {
+            problems.add("the INUBIT version of " + String.join(", ", unknown) + " is unknown");
+        }
+        if (minors.size() > 1) {
+            problems.add(terms.render("the {nodes} run different INUBIT minor versions (")
+                + String.join(", ", minors) + ")");
+        }
+        if (!unknown.isEmpty() || minors.size() > 1) {
+            nextSteps.add(terms.render("Deploy only between {nodes} of the same INUBIT minor"
+                + " version (e.g. 8.1.x to 8.1.y) whose versions are known"));
+        }
+        // first, as the audit keeps only the start of the reason (MAX_AUDITED_INPUT)
+        List<String> refusedNodes = new ArrayList<>(refused);
+        refusedNodes.addAll(unknown);
+        String summary = refusedNodes.isEmpty() ? ""
+            : terms.render("refused {nodes}: ") + String.join(", ", refusedNodes) + "; ";
+        throw new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION, CAPABILITY
+                + ": " + summary + "deployment from " + source + " into " + target + " refused ("
+                + String.join("; ", problems) + "). Sources: " + described(sourceNodes,
+                    evaluations) + ". Targets: " + described(targetNodes, evaluations)
+                + "; nothing was sent",
+            terms.render("deploy_release deploys only between {nodes} whose INUBIT versions are"
+                + " known, supported for deployments and of the same minor version"),
+            String.join("; ", nextSteps)));
+    }
+
+    /** {@code int/node1 INUBIT 9.0.7 (refused: <cause>), int/node2 INUBIT 8.1.17}. */
+    private static String described(List<NodeId> group,
+        Map<NodeId, VersionGate.Evaluation> evaluations) {
+        return String.join(", ", group.stream().map(node -> {
+            VersionGate.Evaluation evaluation = evaluations.get(node);
+            return node + " " + evaluation.versionName() + evaluation.cause()
+                .map(cause -> " (refused: " + cause + ")").orElse("");
+        }).toList());
     }
 
     private GroupId target(String input) {

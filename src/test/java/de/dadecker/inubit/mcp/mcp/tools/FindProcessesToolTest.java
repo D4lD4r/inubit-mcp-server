@@ -1,8 +1,11 @@
 package de.dadecker.inubit.mcp.mcp.tools;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyUrl;
 import static com.github.tomakehurst.wiremock.client.WireMock.containing;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
@@ -13,6 +16,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import java.io.IOException;
+import java.io.InputStream;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -27,7 +33,8 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * T070: {@code find_processes} over MCP with the real adapters against WireMock
- * (contracts/mcp-tools.md §3, quickstart V4).
+ * (contracts/mcp-tools.md §3, quickstart V4). Feature 009 (T012): the version warning of a node
+ * is in its entry.
  */
 @Timeout(60)
 class FindProcessesToolTest {
@@ -115,6 +122,7 @@ class FindProcessesToolTest {
         JsonNode results = result.path("structuredContent").path("results");
         assertThat(results).hasSize(1);
         assertThat(results.get(0).path("node").asString()).isEqualTo("dev/node1");
+        assertThat(results.get(0).has("warnings")).as("INUBIT 8.1: no warnings").isFalse();
         JsonNode page = results.get(0).path("page");
         assertThat(page.path("total").asLong()).isEqualTo(706);
         assertThat(page.path("nextOffset").asInt()).isEqualTo(5);
@@ -152,6 +160,30 @@ class FindProcessesToolTest {
             .isEqualTo("UNREACHABLE");
         assertThat(results.get(1).path("error").path("node").asString())
             .isEqualTo("qa/node2");
+    }
+
+    @Test
+    void onInubit90TheEntryOfTheNodeCarriesTheUnverifiedWarning() throws IOException {
+        fixture.close();
+        fixture = new DiagnosisToolFixture(dev, integration, FindProcessesTool::new,
+            VersionSetting.AUTO);
+        try (InputStream body = getClass().getResourceAsStream(
+            "/fixtures/v9_0/rest/system_info.xml")) {
+            dev.stubFor(get(urlPathEqualTo("/ibis/rest/system/info")).willReturn(aResponse()
+                .withStatus(200).withHeader("Content-Type", "application/xml;charset=UTF-8")
+                .withBody(body.readAllBytes())));
+        }
+
+        JsonNode result = call(Map.of("target", "dev/node1", "limit", 2));
+
+        assertMatchesOutputSchema("find_processes", result);
+        JsonNode entry = result.path("structuredContent").path("results").get(0);
+        assertThat(entry.path("warnings")).extracting(JsonNode::asString).containsExactly(
+            "INUBIT 9.0.7 on dev/node1 is not verified for diagnosis; results may be"
+                + " incomplete");
+        assertThat(entry.path("page").path("items")).hasSize(2);
+        assertThat(dev.findAll(getRequestedFor(urlPathEqualTo("/ibis/rest/system/info"))))
+            .as("one detection request").hasSize(1);
     }
 
     @Test

@@ -11,10 +11,13 @@ import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,15 +28,20 @@ import tools.jackson.databind.JsonNode;
 /**
  * T023: {@code export_artifacts} over MCP (contracts/mcp-tools-delta.md) on a real workspace
  * history with a fake StartCLI.
+ *
+ * <p>T039 (feature 008): {@code repositoryPaths} as the third scope.
  */
 @Timeout(60)
 class ExportArtifactsToolTest {
 
     private static final String DESCRIPTION = "[acme] Export technical workflows (by diagram"
-        + " group) or single modules from one group or node into the local workspace as readable"
-        + " files, record the export in the workspace history and list what changed. Only"
-        + " technical workflows are exported (no system diagrams or other diagram types). Secrets"
-        + " are replaced by placeholders. Read-only for INUBIT.";
+        + " group), single modules, or repository files and folders by their path relative to"
+        + " the owner's repository root, from one group or node into the local workspace as"
+        + " readable files, record the export in the workspace history and list what changed."
+        + " Only technical workflows are exported (no system diagrams or other diagram types)."
+        + " Secrets are replaced by placeholders. Read-only for INUBIT.";
+    private static final String PATH = "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}"
+        + "(/[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199})*$";
     private static final int MAX_ITEMS = 5;
 
     @TempDir
@@ -49,6 +57,7 @@ class ExportArtifactsToolTest {
         harness.artifacts.exports.put("GRP-02", ArtifactFixtures.bytes("grp-b.zip"));
         harness.artifacts.exports.put("Module-0023", ArtifactFixtures.bytes("module-one.zip"));
         harness.pluginTypes.put("Module-0023", "XSLT Converter");
+        harness.artifacts.exports.put("/Root/jdoe/xsd", cliFixture("export_repository_folder.zip"));
         TargetResolver targets = new TargetResolver(List.of(ExportHarness.DEV,
             NodeId.parse("dev/node2"), NodeId.parse("qa/node1")));
         client = McpTestClient.start(List.of(new ExportArtifactsTool(harness.service(), targets,
@@ -60,6 +69,16 @@ class ExportArtifactsToolTest {
     @AfterEach
     void tearDown() {
         client.close();
+    }
+
+    private static byte[] cliFixture(String name) {
+        try (InputStream in = ExportArtifactsToolTest.class.getResourceAsStream(
+            "/fixtures/v8_1/cli/" + name)) {
+            assertThat(in).as(name).isNotNull();
+            return in.readAllBytes();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private JsonNode call(Map<String, Object> arguments) {
@@ -233,6 +252,90 @@ class ExportArtifactsToolTest {
         assertThat(blank.has("structuredContent")).isFalse();
         JsonNode quote = call(Map.of("target", "dev", "diagramGroups", List.of("it's")));
         assertThat(quote.path("isError").asBoolean()).isTrue();
+
+        assertThat(harness.artifacts.calls).isEmpty();
+    }
+
+    @Test
+    void theSchemaTakesRepositoryPathsAsTheThirdScope() {
+        JsonNode schema = client.listTools().path("tools").get(0).path("inputSchema");
+
+        JsonNode paths = schema.path("properties").path("repositoryPaths");
+        assertThat(paths.path("type").asString()).isEqualTo("array");
+        assertThat(paths.path("minItems").asInt()).isEqualTo(1);
+        assertThat(paths.path("maxItems").asInt()).isEqualTo(20);
+        assertThat(paths.path("uniqueItems").asBoolean()).isTrue();
+        assertThat(paths.path("items").path("pattern").asString()).isEqualTo(PATH);
+    }
+
+    @Test
+    void aRepositoryFolderIsExportedBelowRepository() throws IOException {
+        JsonNode result = call(Map.of("target", "dev", "repositoryPaths", List.of("xsd")));
+
+        assertMatchesOutputSchema("export_artifacts", result);
+        JsonNode export = content(result);
+        assertThat(export.path("node").asString()).isEqualTo("dev/node1");
+        assertThat(export.path("owner").asString()).isEqualTo("jdoe");
+        assertThat(export.path("commit").asString()).isNotBlank();
+        // the first export also writes the workspace .gitignore and the .meta mirrors
+        List<String> changes = Files.readAllLines(root.resolve(export.path("fullList")
+            .asString()));
+        assertThat(changes).contains("ADDED dev/jdoe/repository/Root/jdoe/xsd/P8/folder/main.xsd")
+            .allSatisfy(change -> assertThat(change).matches(
+                "ADDED (\\.gitignore|(\\.meta/)?dev/jdoe/repository/Root/jdoe/xsd/.+)"));
+        assertThat(harness.artifacts.calls).containsExactly("repository /Root/jdoe/xsd");
+    }
+
+    @Test
+    void theSchemaRejectsMalformedRepositoryPathsBeforeStartCli() {
+        List<String> tooMany = IntStream.rangeClosed(1, 21).mapToObj(i -> "xsd/f" + i + ".xsd")
+            .toList();
+        for (List<String> paths : List.of(List.<String>of(), tooMany, List.of("xsd", "xsd"),
+            List.of("/xsd"), List.of("xsd/"), List.of("xsd//a.xsd"), List.of("a%2Fb"),
+            List.of("-a.xsd"))) {
+            assertThat(call(Map.of("target", "dev", "repositoryPaths", paths)).path("isError")
+                .asBoolean()).as(paths.toString()).isTrue();
+        }
+
+        assertThat(harness.artifacts.calls).isEmpty();
+    }
+
+    @Test
+    void anOwnerThatIsNoRepositorySegmentIsInvalidInputForRepositoryPaths() {
+        // T052: the schema pattern lets "." and ".." pass as owner; the server refuses them
+        for (String owner : List.of(".", "..")) {
+            JsonNode error = toolError(call(Map.of("target", "dev", "owner", owner,
+                "repositoryPaths", List.of("xsd"))));
+
+            assertThat(error.path("code").asString()).as(owner).isEqualTo("INVALID_INPUT");
+            assertThat(error.path("message").asString()).as(owner).contains("owner " + owner);
+        }
+
+        assertThat(harness.artifacts.calls).isEmpty();
+    }
+
+    @Test
+    void repositoryPathsWithASecondScopeOrOutsideTheOwnersRootAreInvalidInput() {
+        for (Map<String, Object> arguments : List.<Map<String, Object>>of(
+            Map.of("target", "dev", "diagramGroups", List.of("GRP-01"),
+                "repositoryPaths", List.of("xsd")),
+            Map.of("target", "dev", "modules", List.of(Map.of("name", "Module-0023")),
+                "repositoryPaths", List.of("xsd")))) {
+            JsonNode error = toolError(call(arguments));
+
+            assertThat(error.path("code").asString()).as(arguments.toString())
+                .isEqualTo("INVALID_INPUT");
+            assertThat(error.path("message").asString())
+                .isEqualTo("Give exactly one of diagramGroups, modules or repositoryPaths");
+        }
+        // the schema pattern lets "..", "." and "xsd/../x" pass; the server refuses them
+        for (String path : List.of("..", ".", "xsd/../../other")) {
+            JsonNode error = toolError(call(Map.of("target", "dev",
+                "repositoryPaths", List.of(path))));
+
+            assertThat(error.path("code").asString()).as(path).isEqualTo("INVALID_INPUT");
+            assertThat(error.path("message").asString()).as(path).contains("'" + path + "'");
+        }
 
         assertThat(harness.artifacts.calls).isEmpty();
     }

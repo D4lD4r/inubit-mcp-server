@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
+import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
 import de.dadecker.inubit.mcp.domain.model.ChangeSet;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -106,8 +107,8 @@ class ConflictDetectorTest {
         assertThat(text).contains(from);
         Files.writeString(file, text.replace(from, to));
         harness.history.commitAll("local changes: 1 files");
-        return new ChangeSetBuilder(root, harness.history, new WorkspaceInspector())
-            .build(ImportScope.diagramGroup(GROUP, OWNER, "GRP-01"));
+        return new ChangeSetBuilder(root, harness.history, new WorkspaceInspector(),
+            new V81ReleaseArchives()).build(ImportScope.diagramGroup(GROUP, OWNER, "GRP-01"));
     }
 
     private static byte[] serverChanged(String from, String to) {
@@ -188,7 +189,8 @@ class ConflictDetectorTest {
         Files.writeString(root.resolve(workflow("Workflow-0100")), copy);
         harness.history.commitAll("local changes: 1 files");
         ChangeSet changes = new ChangeSetBuilder(root, harness.history,
-            new WorkspaceInspector()).build(ImportScope.diagramGroup(GROUP, OWNER, "GRP-01"));
+            new WorkspaceInspector(), new V81ReleaseArchives())
+            .build(ImportScope.diagramGroup(GROUP, OWNER, "GRP-01"));
         harness.artifacts.exports.put("GRP-01", ExportHarness.rewrite("grp-a.zip",
             "workflow/workflow.xml", xml -> xml.replace(
                 "<WorkflowName>Workflow-0001</WorkflowName>",

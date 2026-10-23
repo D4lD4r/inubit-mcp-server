@@ -7,6 +7,231 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-23
+
+Features 008 (repository files on a development stage), 009 (INUBIT version detection) and 010
+(configurable secret sources). Verified by the offline test suite only: the live checks against a
+real INUBIT node and a real AWS Parameter Store have not been run for this release.
+
+### Added
+
+- Repository files on a development stage (feature 008): schemas, stylesheets, WSDLs and other XML
+  files below `/Root/<owner>/` can be brought from the workspace into a development node, not only
+  read:
+  - Setting `development.repository` (`READ_ONLY` by default, or `WRITE`; defaults, group, node),
+    effective only on a development stage. An explicit `WRITE` on a node that is not a development
+    stage, or on a production group or its nodes, is a startup error; on a non-production group
+    without a development node it is a warning. `--check-config` adds
+    `, repository: write | read-only` to the development part of a node's line, and `list_nodes`
+    reports `repositoryWrite`.
+  - `import_artifacts` takes the new scope `repositoryPaths` (1–50 paths relative to the owner's
+    repository root). A diagram-group or module import also carries the new and changed
+    repository files that the modules reach, also through other repository files; a diagram group
+    with only repository changes is a valid import. Every call that would send a repository file
+    returns a preview with a server code first, also on a node with
+    `development.confirmation: CLIENT`. The preview lists the files in `create`, `modify`,
+    `existing` and `identical`, the workspace artifacts outside the scope that use them
+    (`repositoryReferences`), a diff (`repositoryDiff`) and the shared-use warnings. The
+    repository files are imported before the workflows and modules, verified byte for byte and
+    written back to the workspace; on a failure they are rolled back from the backup first, and a
+    failed repository rollback names the files and points to `restore_backup` or the Workbench
+    (only to the Workbench and the backup's repository exports if the last re-export of the
+    repository files failed).
+    Created files are never removed (`createdNotRemoved`). The result's `tag` lists the imported
+    repository files the group tag covers (`tag.repositoryFiles`); audit records name every file
+    with its operation and hash, never its content.
+  - `export_artifacts` takes the new scope `repositoryPaths` (1–20 files or folders, folders
+    recursively, at most 500 files and 100 MiB); if any path is missing on the node, the whole
+    call is `NOT_FOUND` and nothing is written. Two paths that differ only in letter case are
+    refused with `INVALID_INPUT`.
+  - `restore_backup` also restores the previous content of the repository files the backed-up
+    development call changed, repository files first, with conflict check, verification and
+    rollback, and always with a server code. Files that call created stay
+    (`createdNotRemoved`); a file changed on the node since is a `CONFLICT`. Backups of
+    deployments are restored as before, whatever the switch says.
+  - Error code `REPOSITORY_WRITE_DENIED`: on a node whose `development.repository` is
+    `READ_ONLY`, an import or restore that would create or change a repository file is refused as
+    a whole, naming the paths, before anything is sent.
+
+  See `docs/setup.md` ("Development settings", "Artifact workspace") and `docs/tools.md`
+  ("Repository files (feature 008)", `restore_backup`).
+- INUBIT version detection and version-dependent capabilities (feature 009): every tool needs a
+  capability (`monitoring`, `diagnosis`, `inventory`, `workspace_export`, `development_writes`,
+  `deployment`, `e2e_test`, `process_control`), and the server declares per INUBIT version which
+  of them are supported. INUBIT 8.1.x supports all of them; any version other than 8.1.x (9.0,
+  later or earlier versions), `V9_X` and an unknown version run reads unverified (with a warning)
+  and refuse writes. No 9.0-specific access is part of this version. What changes for existing
+  profiles is listed under "Changed".
+  - `versionLine` also accepts a concrete version such as `"8.1.17"` or `"9.0.7-HF1"` (major,
+    minor and patch; a suffix is kept and ignored for matching; quote it). Any other value is a
+    configuration error that names the key.
+  - StartCLI client check: for each node with a StartCLI installation the server runs
+    `startcli.sh -v` locally (no credentials, no INUBIT contact) in `get_health`, before the first
+    StartCLI-backed call on the node and in `--check-config`, and compares the client version and
+    the INUBIT range it declares with the node's version. A different version gives a warning; a
+    failed or timed-out check is retried at most once per 60 s.
+  - `list_nodes` reports a `version` block per node: the setting, the last known server version
+    with its source and time (or `not_yet_detected` / `unknown` with the reason), the StartCLI
+    client, a support status (`supported`, `partially_supported`, `unsupported`, `unknown`) and
+    the usable and not usable capabilities. It still contacts no node.
+  - `get_health` reports the StartCLI client per node (`client`: version, declared range and
+    comparison with the server version, or `not_available`); a check that fails or does not
+    finish within the health time budget is the new part `client` in `unavailable`.
+  - Optional `warnings` in the results of `find_processes`, `query_logs`, `list_inventory`,
+    `get_inventory_item`, `restart_process` and `kill_process`, and at the top level of the
+    `deploy_release` preview: version and client warnings of the node. They also go into the
+    existing `warnings` of `export_artifacts` and of the `deploy_release` result. A version
+    warning of the `check_artifacts` module lookup becomes the new finding
+    `MODULE_LOOKUP_WARNING`; a refused lookup turns the modules into `MODULE_UNVERIFIED` with the
+    reason.
+  - `--check-config` adds `inubit: <versionLine>` to each node's line and, after a successful
+    client check, `client: <version> (<from>–<to>)` with `client vs pin: …` for a concrete pin or
+    `server version: determined at runtime` otherwise. The existing warning per `V9_X` node now
+    reads "versionLine V9_X: write tools are refused on this node (…); read tools run unverified"
+    (before: "… the 8.1 adapters are used"); new is one warning per failed client check (not an
+    error).
+
+  See `docs/setup.md` ("INUBIT version (`versionLine`)", "StartCLI client check") and
+  `docs/tools.md` ("INUBIT versions and capabilities (feature 009)", `UNSUPPORTED_VERSION`).
+- Configurable secret sources (feature 010): a node's INUBIT credentials come from environment
+  variables (the default, as before) or from AWS Systems Manager Parameter Store. A profile
+  without the new settings behaves as before. No tool, parameter, result field or error code is
+  new. What changes for existing profiles is listed under "Changed".
+  - `credentials.source` at the top level, on a group or on a node (node before group before
+    profile): `type: environment` (optional `prefix`) or `type: awsParameterStore` with `region`
+    and an optional `awsProfile` of the local AWS configuration. `credentials.parameters` on a
+    group or node names the full Parameter Store name per kind (`username`, `password`,
+    `trustStorePassword`, `e2eUsername`, `e2ePassword`); a node's own name wins over its group's,
+    and the group's names apply only to nodes without their own `source`. The profile holds names
+    only, never a value or an AWS key; a value that is not a valid parameter name is refused
+    without being echoed.
+  - The server starts without contacting AWS. A node's username, password and (if named) trust
+    store password are fetched together on the node's first use (one `GetParameters` request with
+    decryption, bounded by 10 s), shared by concurrent calls and kept in memory for the life of
+    the process; its end-to-end credentials on its first `run_e2e_test`. A failed fetch is not
+    repeated for 30 s. AWS access uses the standard AWS credential chain, or the named AWS
+    profile (SSO and assume-role profiles included). Fetched values pass the same checks as
+    environment variables; a `StringList` is refused, a plain `String` is accepted with a
+    warning in the log.
+  - Rotation: when INUBIT rejects the login of a Parameter Store node, its credentials are read
+    once more; changed values are used from the next call on, without a restart, with exactly one
+    further login, otherwise the node pauses for 60 s as before.
+  - A failed fetch is `AUTH_FAILED` (parameter missing or empty, access denied, invalid value,
+    unknown AWS profile, no AWS credentials) or `UNREACHABLE` (store unreachable, throttled or
+    not answering within 10 s), naming node, region, AWS profile, parameter and failure, never a
+    value or AWS's own message (that goes to the scrubbed log; one `secret.fetch` record per
+    fetch). `AUTH_FAILED` after a rejected login names the parameters ("… in Parameter Store
+    (…); no restart is needed"), and `TLS_ERROR` about the trust store password names its
+    parameter.
+  - `get_health` keeps its time budget: a node whose first fetch does not finish within it is
+    reported as `TIMEOUT` "<node>: credentials not yet available (still fetching from AWS
+    Parameter Store); call get_health again shortly", without any request to that node. The
+    per-node deadlines of `find_processes`, `query_logs`, `list_inventory` and
+    `get_inventory_item` are 11 s longer for Parameter Store nodes, so a slow store fails only
+    that node.
+  - The audited `account` of a Parameter Store node is the fetched username (after a rotation the
+    current one), or `(Parameter Store <username parameter>)` on records written before the first
+    fetch.
+  - `--check-config` reads and validates every configured parameter, never printing a value, and,
+    once the profile uses `credentials.source`, shows per node `secrets: environment` or
+    `secrets: awsParameterStore (<region>[, profile <awsProfile>])` with each name and its outcome
+    (`ok`, `not encrypted`, `not found`, `access denied`, `invalid value`, `not checked`).
+
+  See `docs/setup.md` ("4. Credentials: sources", "The `secrets:` part") and `docs/tools.md`
+  ("Credentials from AWS Parameter Store (feature 010)").
+
+### Changed
+
+- Exports write the repository files the exported workflows and modules reach **transitively**:
+  also files that only another repository file includes or imports, and the message-type schemas
+  of the module index (`InputMessageTypeSchema`, `OutputMessageTypeSchema`). An export can
+  therefore write more files than before. A URI in a string literal (e.g. in an `xsl:variable`)
+  no longer counts as a reference. Repository files below another owner's root are no longer
+  written; a warning counts them.
+- `check_artifacts` also checks these references, including inside repository files (and still
+  reports every `inubitrepository:` URI): a missing included schema or stylesheet, or a missing
+  message-type schema, is `REPOSITORY_REF_MISSING`; one in another owner's root is
+  `REPOSITORY_REF_UNVERIFIED`.
+- The workspace history entry that records the verified state after `import_artifacts`,
+  `restore_backup` or `set_active` carries the call's reason as a `Reason: <reason>` trailer next
+  to `Server-State`.
+- Backup manifests of development calls name the repository files the backup holds
+  (`repositoryPaths`) and keep them, and their `kind`, when the call's outcome is recorded.
+  Manifests of earlier versions stay readable.
+- Deliberate behaviour changes of feature 009. Before, every tool ran with the 8.1 adapters and
+  at most a warning, whatever the version; now the error code `UNSUPPORTED_VERSION` (reserved
+  until now) is returned, before anything but the version detection and the local client check
+  is sent, and refusals of write tools are audited:
+  - Write tools (`restart_process`, `kill_process`, the development writes, `run_e2e_test`,
+    `deploy_release`, `restore_backup`) are refused on an unknown version, also after a failed
+    `AUTO` detection, which used to fall back to 8.1 with the warning "INUBIT version could not
+    be detected (…); assuming 8.1". The remedy is to fix the cause or to pin the version the node
+    runs (`V8_1` or a concrete version).
+  - Write tools are refused on `V9_X` nodes and on nodes detected as INUBIT 9.x (or any version
+    other than 8.1), which used to run them with an "unsupported" warning.
+  - A pin that `get_health` contradicts (a different major.minor) refuses writes on that node
+    until a later `get_health` reads a matching version or the server restarts with a corrected
+    pin; a different patch only gives a warning.
+  - StartCLI-backed tools, reads included, are refused on a node whose StartCLI client declares an
+    INUBIT range that excludes the node's major.minor (e.g. an 8.1 client at a 9.0 node);
+    `get_inventory_item` for a diagram then returns its REST data with the version history in
+    `unavailable`.
+  - `deploy_release` checks every source and target node in the preview and again before the
+    execution, and is refused as a whole if any node is refused or unknown or the nodes run
+    different minor versions (8.1.x → 8.1.y is allowed). `restore_backup` of a deployment backup
+    follows the deployment rules.
+  - A write tool is no longer announced when every node that could run it by configuration is
+    pinned to a version that does not support it (e.g. only `V9_X` nodes have `write.enabled`);
+    `deploy_release` (and `restore_backup` for deployment backups) only when a node of a target
+    group may deploy. `AUTO` nodes count as capable.
+- Before a write, the version of an `AUTO` node is detected again (one `/system/info` request)
+  if it is older than `inventory.cacheTtl` or was marked stale. A response the 8.1 adapters did
+  not expect marks it stale.
+- An HTTP 404 from a fixed endpoint (`/system/info`, the diagram list, the log query) is
+  `UNEXPECTED_RESPONSE` ("the node may run another INUBIT version") instead of `NOT_FOUND`; a 404
+  for a requested process or diagram stays `NOT_FOUND`.
+- `list_nodes` reports `versionLine` as the configured string (also a concrete version) instead
+  of an enum value.
+- The version warnings of `get_health` and the read tools read "INUBIT 9.0.7 on <node> is not
+  verified for <capability>; results may be incomplete" and "the INUBIT version of <node> is
+  unknown (<code> at <time>); results are unverified", instead of "… is unsupported in this
+  version; the 8.1 adapters are used" and "… assuming 8.1".
+- Deliberate behaviour changes of feature 010:
+  - A `credentials` section on a group or node, refused before as a credential key, now sets
+    `source` and `parameters`. Inside every `credentials` section only the documented keys are
+    accepted (top level `envPrefix` and `source`; group and node `source` and `parameters`); any
+    other key, an AWS access key included, is a startup error naming its path. The error for a
+    credential key in the file now names both sources ("… set the value in the environment
+    variable (…) or store it in AWS Parameter Store and name it in credentials.parameters").
+  - `--check-config` exits 1 also for a configured Parameter Store parameter that is missing,
+    empty, denied or invalid, and for an unknown AWS profile; missing AWS credentials and an
+    unreachable store are warnings ("resolvability not checked"). It may now access the network,
+    but only to read these parameters (and what the AWS credential chain contacts for a login).
+  - The checks of the environment variables (collisions, variables shared with another profile,
+    `<PREFIX>_*_PASSWORD` variables that match no group or node) consider only nodes that read
+    environment variables. A password variable left over for a node that now reads Parameter
+    Store is therefore warned about as matching no configured group or node.
+  - `find_processes` and `query_logs`: for a Parameter Store node whose credentials are not
+    fetched yet, an `INVALID_INPUT` of the node's adapter checks (an unsupported log filter, an
+    unsendable character) is that node's `error`; before, it failed the whole call. Checks that
+    need no node (time format and range, paging, the `processId` pattern) still fail the whole
+    call.
+  - A Parameter Store node allows up to two failed logins per 60 s (the re-read after a rejection
+    allows one further login with changed values); a node with environment variables keeps one.
+
+### Fixed
+
+- `check_artifacts` decodes percent-escaped repository paths before the existence check, so a
+  reference to e.g. `a%20b.xsd` no longer gives a false `REPOSITORY_REF_MISSING`; its messages
+  show the decoded path.
+
+### Dependencies
+
+- AWS SDK for Java v2 `2.54.3` (Apache-2.0, pinned by its BOM) for Parameter Store: `ssm`, `sso`,
+  `ssooidc`, `sts` and `url-connection-client` as the only HTTP client (the Netty and Apache
+  HTTP clients are excluded), used only in `adapter/aws`; the modules are listed in
+  `THIRD-PARTY-NOTICES.md`. The executable JAR grows from about 14 MB to about 26 MB.
+
 ## [0.5.3] - 2026-10-17
 
 ### Fixed
@@ -281,7 +506,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.0...v0.5.1

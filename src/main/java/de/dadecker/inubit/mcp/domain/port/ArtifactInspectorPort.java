@@ -1,8 +1,11 @@
 package de.dadecker.inubit.mcp.domain.port;
 
+import de.dadecker.inubit.mcp.domain.model.RepositoryReference;
 import de.dadecker.inubit.mcp.domain.model.WorkflowGraph;
+import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Reads workspace files for the structure checks of {@code check_artifacts} (feature 003,
@@ -25,4 +28,26 @@ public interface ArtifactInspectorPort {
      * Empty if all match or the file has none.
      */
     List<String> derivedValueMismatches(Path root, Path file);
+
+    /**
+     * The metadata XML that the {@code .meta} record of the repository file {@code file} holds
+     * (feature 008, research D-4); empty if the record is missing or its metadata is missing or
+     * not readable.
+     */
+    Optional<String> repositoryMetadata(Path root, WorkspacePath file);
+
+    /**
+     * The repository files that the workspace file {@code from} with content {@code content}
+     * references (research D-3), in document order and each once. Empty if the content is not
+     * well-formed XML.
+     */
+    List<RepositoryReference> repositoryReferences(WorkspacePath from, byte[] content);
+
+    /**
+     * The full repository paths ({@code /Root/…}, {@code %XX} decoded) of every
+     * {@code inubitrepository:} URI in {@code text}, wherever it stands, also in a string literal
+     * or a {@code document()} call and in text that is no XML; each once, in order. The wider
+     * coverage of {@code check_artifacts} (research D-3).
+     */
+    List<String> repositoryUris(String text);
 }

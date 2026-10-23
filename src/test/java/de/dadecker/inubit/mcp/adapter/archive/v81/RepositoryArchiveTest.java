@@ -239,6 +239,40 @@ class RepositoryArchiveTest {
         assertThat(RepositoryArchive.MAX_ENTRY_BYTES).isEqualTo(64L << 20);
     }
 
+    /**
+     * An archive with the entry {@code <prefix>a.xsd.dat} twice: ZipOutputStream refuses
+     * duplicates, so a name of the same length is written and patched.
+     */
+    private static byte[] withDuplicateContent(String prefix) {
+        Map<String, byte[]> entries = new java.util.LinkedHashMap<>();
+        entries.put(prefix + "a.xsd.xml", metadata("/Root/jdoe/a.xsd"));
+        entries.put(prefix + "a.xsd.dat", "<first/>".getBytes(StandardCharsets.UTF_8));
+        entries.put(prefix + "X.xsd.dat", "<second/>".getBytes(StandardCharsets.UTF_8));
+        byte[] zip = ArtifactFixtures.zip(entries);
+        byte[] from = (prefix + "X.xsd.dat").getBytes(StandardCharsets.UTF_8);
+        byte[] to = (prefix + "a.xsd.dat").getBytes(StandardCharsets.UTF_8);
+        for (int i = 0; i + from.length <= zip.length; i++) {
+            if (java.util.Arrays.equals(zip, i, i + from.length, from, 0, from.length)) {
+                System.arraycopy(to, 0, zip, i, to.length);
+            }
+        }
+        return zip;
+    }
+
+    @Test
+    void aDuplicateEntryIsRefusedInsteadOfDroppedSilently() {
+        // T052 (T037 review): a later entry must not replace an earlier one unnoticed
+        for (Runnable read : List.<Runnable>of(
+            () -> RepositoryArchive.read(withDuplicateContent("Root/jdoe/")),
+            () -> RepositoryArchive.readRelative("jdoe", withDuplicateContent("")))) {
+            ToolErrorException e = failure(read);
+
+            assertThat(e.error().code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            assertThat(e.error().message()).contains("/Root/jdoe/a.xsd", "twice")
+                .doesNotContain("first", "second");
+        }
+    }
+
     @Test
     void theFileNeverPrintsItsContent() {
         assertThat(file("/Root/jdoe/xsd/a.xsd", "secret-ish content"))

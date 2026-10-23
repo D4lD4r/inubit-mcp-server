@@ -100,6 +100,32 @@ class LiveTargetTest {
     }
 
     @Test
+    void theRepositoryCaseSwitchesOnlyTheLiveNodeToReadOnlyAndOnlyInMemory() throws IOException {
+        // feature 008 (T047, quickstart "Live" step 3): the read-only "copy of the profile"
+        Path file = profileFile("acme");
+        String yaml = Files.readString(file).replace("  - name: test\n", "  - name: test\n"
+            + "    development:\n      enabled: true\n      repository: WRITE\n");
+        Files.writeString(file, yaml);
+        credentials("INUBIT_ACME");
+        env.put("INUBIT_MCP_PROFILE", "acme");
+        env.put("INUBIT_LIVE_DEV_NODE", "test/node1");
+
+        LiveTarget live = LiveTarget.resolveDevelopment(env, home, false);
+
+        assertThat(live.repositoryWrite()).isTrue();
+        assertThat(live.readOnlyRepositoryConfig().effectiveNodes()).satisfiesExactly(
+            node -> {
+                assertThat(node.id()).isEqualTo(NodeId.parse("test/node1"));
+                assertThat(node.development().enabled()).isTrue();
+                assertThat(node.development().repositoryWrite()).isFalse();
+            },
+            node -> assertThat(node).isEqualTo(live.loaded().config().effectiveNodes().get(1)));
+        assertThat(live.repositoryWrite()).as("the target's own configuration is unchanged")
+            .isTrue();
+        assertThat(Files.readString(file)).isEqualTo(yaml);
+    }
+
+    @Test
     void withoutTheDevelopmentNodeVariableTheDevelopmentLiveTestIsSkipped() {
         env.put("INUBIT_LIVE_NODE", "test/node1");
 

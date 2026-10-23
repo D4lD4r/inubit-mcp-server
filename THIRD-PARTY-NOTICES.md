@@ -29,6 +29,37 @@ following libraries (the runtime dependencies of `pom.xml`, as resolved by
 | `ch.qos.logback:logback-core:1.5.38` | dual-licensed: EPL-2.0 **or** LGPL-2.1-only | https://www.eclipse.org/legal/epl-v20.html, https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html |
 | `org.slf4j:slf4j-api:2.0.17` | MIT License | https://opensource.org/license/mit |
 | `net.sf.saxon:Saxon-HE:10.9` | Mozilla Public License 2.0 (MPL-2.0) | https://www.mozilla.org/MPL/2.0/ |
+| `software.amazon.awssdk:annotations:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:auth:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:aws-core:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:aws-json-protocol:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:aws-query-protocol:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:checksums:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:checksums-spi:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:endpoints-spi:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:http-auth:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:http-auth-aws:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:http-auth-aws-eventstream:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:http-auth-spi:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:http-client-spi:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:identity-spi:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:json-utils:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:metrics-spi:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:profiles:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:protocol-core:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:regions:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:retries:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:retries-spi:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:sdk-core:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:ssm:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:sso:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:ssooidc:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:sts:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:third-party-jackson-core:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:url-connection-client:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:utils:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:utils-lite:2.54.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.eventstream:eventstream:1.0.1` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
 
 `jackson-core` itself bundles code of FastDoubleParser (MIT License, with third-party code under
 the Boost Software License 1.0) and Schubfach (MIT License); their license texts are kept in the JAR
@@ -40,13 +71,26 @@ Commons Validator (Apache License 2.0) under `com/networknt/org/apache/commons/v
 `net/sf/saxon/regex/`) and DTD and entity files of the W3C (Copyright W3C; where stated, under the
 W3C Software Notice and License) below `net/sf/saxon/data/w3c/`, as their file headers state.
 
+The AWS SDK for Java 2.0 (`software.amazon.awssdk:*` and `software.amazon.eventstream:eventstream`,
+https://github.com/aws/aws-sdk-java-v2) is used with `url-connection-client` as its only HTTP
+client; `netty-nio-client`, `apache-client` and `apache5-client` are excluded and not bundled.
+`third-party-jackson-core` contains jackson-core 2.21.4 (Apache License 2.0), repackaged under
+`software/amazon/awssdk/thirdparty/jackson/core/`; its FastDoubleParser and Schubfach license files
+are identical to those of `jackson-core` above.
+
 ### License files inside the JAR
 
 - `META-INF/LICENSE` starts with the Apache License 2.0 of this project, followed unchanged by the
-  `META-INF/LICENSE` files of the Jackson libraries (all Apache License 2.0).
+  `META-INF/LICENSE` files of the Jackson libraries, including the repackaged jackson-core of the
+  AWS SDK (all Apache License 2.0).
 - `META-INF/NOTICE` starts with the `NOTICE` of this project, followed unchanged by the
-  `META-INF/NOTICE` files of the Jackson libraries.
+  `META-INF/NOTICE` files of the Jackson libraries, including the repackaged jackson-core of the
+  AWS SDK.
 - `META-INF/LICENSE.txt` is the MIT License of SLF4J (Copyright (c) 2004-2022 QOS.ch Sarl (Switzerland)).
+  The AWS SDK JARs ship a `META-INF/LICENSE.txt` of the same name with the Apache License 2.0 text
+  (the same license text as in `META-INF/LICENSE`); it is not kept as a separate file.
+- `META-INF/NOTICE.txt` is the NOTICE of the AWS SDK for Java 2.0 (identical in every SDK JAR; its
+  text is reproduced below).
 - `META-INF/THIRD-PARTY-NOTICES.md` is this file.
 
 ### MIT License (MCP Java SDK)
@@ -86,6 +130,39 @@ Logback is Copyright (C) 1999-2026, QOS.ch, and is used unmodified. The licensee
 license. Its source code is available at https://github.com/qos-ch/logback and as
 `logback-classic-1.5.38-sources.jar` / `logback-core-1.5.38-sources.jar` on Maven Central
 (https://repo.maven.apache.org/maven2/ch/qos/logback/).
+
+### AWS SDK for Java 2.0 (Apache-2.0)
+
+The AWS SDK for Java 2.0 is used unmodified under the Apache License, Version 2.0. Its NOTICE
+(`META-INF/NOTICE.txt` of every SDK JAR, kept in the executable JAR under the same name) reads:
+
+```text
+AWS SDK for Java 2.0
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+This product includes software developed by
+Amazon Technologies, Inc (http://www.amazon.com/).
+
+**********************
+THIRD PARTY COMPONENTS
+**********************
+This software includes third party software subject to the following copyrights:
+- XML parsing and utility functions from JetS3t - Copyright 2006-2009 James Murty.
+- PKCS#1 PEM encoded private key parsing and utility functions from oauth.googlecode.com - Copyright 1998-2010 AOL Inc.
+- Apache Commons Lang - https://github.com/apache/commons-lang
+- Netty Reactive Streams - https://github.com/playframework/netty-reactive-streams
+- Jackson-core - https://github.com/FasterXML/jackson-core
+- Jackson-dataformat-cbor - https://github.com/FasterXML/jackson-dataformats-binary
+
+The licenses for these third party components are included in LICENSE.txt
+
+- For Apache Commons Lang see also this required NOTICE:
+  Apache Commons Lang
+  Copyright 2001-2020 The Apache Software Foundation
+
+  This product includes software developed at
+  The Apache Software Foundation (https://www.apache.org/).
+```
 
 ### Saxon-HE (MPL-2.0)
 

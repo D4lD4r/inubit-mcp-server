@@ -32,7 +32,8 @@ import org.junit.jupiter.api.io.TempDir;
  * Phase 5 review I1: the real server ({@link Main}) in a child JVM runs a module export through a
  * fake {@code startcli.sh} that forks a long {@code sleep}. When the MCP client closes stdin, or
  * the server gets SIGTERM, no StartCLI process may survive and the export directory must be gone.
- * A stale export directory of a dead server process is swept at startup.
+ * A stale export directory of a dead server process is swept at startup. The fake answers the
+ * client probe {@code -v} of the version gate (feature 009, T019) at once.
  */
 @Timeout(90)
 class ExportShutdownProcessTest {
@@ -145,6 +146,11 @@ class ExportShutdownProcessTest {
         Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
         Files.writeString(script, """
             #!/bin/sh
+            if [ "$1" = "-v" ]; then
+              echo "CLI 8.1.17"
+              echo "Supported inubit Process Engine versions from 4.0.1 to 8.1.17."
+              exit 0
+            fi
             echo $$ > "%1$s/startcli.pid.tmp" && mv "%1$s/startcli.pid.tmp" "%1$s/startcli.pid"
             sleep 300 &
             echo $! > "%1$s/sleep.pid.tmp" && mv "%1$s/sleep.pid.tmp" "%1$s/sleep.pid"

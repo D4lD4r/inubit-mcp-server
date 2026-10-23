@@ -21,6 +21,8 @@ import org.junit.jupiter.api.io.TempDir;
  */
 class DevelopmentWiringTest {
 
+    private static final String NODE1 = "- name: node1\n  baseUrl: https://localhost:1";
+
     @TempDir
     Path temp;
 
@@ -38,6 +40,11 @@ class DevelopmentWiringTest {
     }
 
     private List<String> toolNames(String development, String production) {
+        return toolNames(development, production, NODE1);
+    }
+
+    /** {@code devNodes}: the entries of the dev group's {@code nodes} list. */
+    private List<String> toolNames(String development, String production, String devNodes) {
         String yaml = """
             profile:
               name: acme
@@ -47,8 +54,7 @@ class DevelopmentWiringTest {
               - name: dev
             %s
                 nodes:
-                  - name: node1
-                    baseUrl: https://localhost:1
+            %s
               - name: prod
                 production: true
             %s
@@ -56,7 +62,8 @@ class DevelopmentWiringTest {
                   - name: inubit01
                     baseUrl: https://localhost:2
             """.formatted(temp.resolve("audit"), temp.resolve("workspace"),
-            development.indent(4).stripTrailing(), production.indent(4).stripTrailing());
+            development.indent(4).stripTrailing(), devNodes.indent(6).stripTrailing(),
+            production.indent(4).stripTrailing());
         ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml")).config();
         SecretScrubber scrubber = new SecretScrubber();
@@ -124,5 +131,46 @@ class DevelopmentWiringTest {
         assertThat(toolNames(target + "e2eTests: CONFIRM")).contains("run_e2e_test",
             "deploy_release").doesNotContain("import_artifacts");
         assertThat(toolNames(target + "e2eTests: FORBIDDEN")).doesNotContain("run_e2e_test");
+    }
+
+    // --- feature 009 (T015, FR-007, research D-12): pinned versions without the capability ---
+
+    private static final String DEVELOPMENT = "development:\n  enabled: true\ne2eTests: CONFIRM\n"
+        + "e2e:\n  soap:\n    baseUrl: https://inubit-dev.example.test:8443";
+
+    private static String devNode(String name, String versionLine, int port) {
+        return "- name: " + name + "\n  versionLine: " + versionLine
+            + "\n  baseUrl: https://localhost:" + port;
+    }
+
+    @Test
+    void developmentNodesPinnedToV9xOfferNoDevelopmentTools() {
+        assertThat(toolNames(DEVELOPMENT, "", devNode("node1", "V9_X", 1))).doesNotContain(
+            "import_artifacts", "restore_backup", "set_active", "tag_artifacts", "run_e2e_test");
+    }
+
+    @Test
+    void oneMoreDevelopmentNodeOn81OffersTheDevelopmentTools() {
+        assertThat(toolNames(DEVELOPMENT, "", devNode("node1", "V9_X", 1) + "\n"
+            + devNode("node2", "V8_1", 3))).contains("import_artifacts", "restore_backup",
+            "set_active", "tag_artifacts", "run_e2e_test");
+    }
+
+    @Test
+    void aConcretePinIsJudgedByTheMatrixToo() {
+        assertThat(toolNames(DEVELOPMENT, "", devNode("node1", "\"9.0.7\"", 1)))
+            .doesNotContain("import_artifacts", "run_e2e_test");
+        assertThat(toolNames(DEVELOPMENT, "", devNode("node1", "\"8.1.17\"", 1)))
+            .contains("import_artifacts", "run_e2e_test");
+    }
+
+    @Test
+    void executeTargetsPinnedToV9xOfferNeitherDeployReleaseNorRestoreBackup() {
+        String target = "deploy:\n  from: dev\nwrite:\n  enabled: true\n"
+            + "  productionOptIn: true";
+        assertThat(toolNames("", target + "\nversionLine: V9_X")).doesNotContain(
+            "deploy_release", "restore_backup");
+        assertThat(toolNames("", target + "\nversionLine: V8_1")).contains("deploy_release",
+            "restore_backup");
     }
 }

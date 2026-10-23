@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
-import de.dadecker.inubit.mcp.application.DevelopmentGuard.Capability;
+import de.dadecker.inubit.mcp.application.DevelopmentGuard.Operation;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
@@ -84,7 +84,7 @@ import org.slf4j.LoggerFactory;
 public final class E2eTestService {
 
     private static final Logger LOG = LoggerFactory.getLogger(E2eTestService.class);
-    private static final Capability CAPABILITY = Capability.RUN_E2E_TEST;
+    private static final Operation OPERATION = Operation.RUN_E2E_TEST;
     private static final Pattern NAME = Pattern.compile("^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$");
     private static final Pattern ACTION = Pattern.compile("^[^\"\\p{Cntrl}]{0,500}$");
     private static final Pattern CODE = Pattern.compile("^[A-Za-z0-9_-]{22}$");
@@ -200,7 +200,7 @@ public final class E2eTestService {
         String inputs;
         try {
             validate(request);
-            policy = d.guard().admit(request.node(), CAPABILITY);
+            policy = d.guard().admit(request.node(), OPERATION);
             call.policy = policy;
             payload = envelope(request.envelope());
             call.payloadHash = "sha256:" + sha256(payload);
@@ -216,7 +216,7 @@ public final class E2eTestService {
                 if (request.confirmationCode().isEmpty()) {
                     return challenge(call, policy, endpoint, payload.length, inputs);
                 }
-                d.challenges().redeem(request.confirmationCode().get(), CAPABILITY,
+                d.challenges().redeem(request.confirmationCode().get(), OPERATION,
                     policy.node(), inputs);
             }
         } catch (ToolErrorException e) {
@@ -242,7 +242,7 @@ public final class E2eTestService {
         int payloadBytes, String inputs) {
         E2eRequest request = call.request;
         NodeId node = policy.node();
-        WriteChallengeRegistry.Issued issued = d.challenges().issue(CAPABILITY, node, inputs,
+        WriteChallengeRegistry.Issued issued = d.challenges().issue(OPERATION, node, inputs,
             call.payloadHash, policy.confirmationTtl());
         Map<String, String> audited = call.inputs();
         audited.put(AuditRecord.ISSUED_CONFIRMATION_CODE, issued.code());
@@ -262,7 +262,7 @@ public final class E2eTestService {
     private Response send(Call call, NodeId node, E2ePort port, String endpoint,
         byte[] payload) {
         E2eRequest request = call.request;
-        List<String> warnings = new ArrayList<>();
+        List<String> warnings = new ArrayList<>(call.policy.warnings());
         removeOldResponses(warnings);
         UUID auditId = d.ids().get();
         String testId = d.ids().get().toString();
@@ -608,7 +608,7 @@ public final class E2eTestService {
             Optional<NodeId> node = Optional.ofNullable(policy).map(DevelopmentPolicy::node);
             return new AuditRecord(auditId, d.clock().instant(), d.profile(),
                 node.map(NodeId::value).orElse(bounded(request.node())), group(),
-                CAPABILITY.toolName(), step, inputs, node.map(id -> d.accounts().apply(id)
+                OPERATION.toolName(), step, inputs, node.map(id -> d.accounts().apply(id)
                     .user()), outcome, Optional.of(bounded(reason)), request.mcpClient());
         }
 

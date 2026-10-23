@@ -1,13 +1,17 @@
 package de.dadecker.inubit.mcp.mcp.tools;
 
+import static de.dadecker.inubit.mcp.mcp.tools.DiagnosisToolFixture.assertMatchesOutputSchema;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.application.FakeServer;
 import de.dadecker.inubit.mcp.application.ImportHarness;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
+import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -21,19 +25,28 @@ import tools.jackson.databind.json.JsonMapper;
  * T018 (feature 004, contracts/mcp-tools-delta.md): {@code import_artifacts} over MCP —
  * destructive annotations, the contract description and input schema, the challenge and the
  * result as structured content validated against the output schema, refusals as tool errors.
+ *
+ * <p>T028 (feature 008): {@code repositoryPaths} as the third scope.
  */
 @Timeout(60)
 class ImportArtifactsToolTest {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String DESCRIPTION = "[acme] Import the changed workflows of ONE"
-        + " diagram group (with their changed or new modules), or changed single modules, from"
-        + " the workspace into ONE development node. The server checks the files, refuses on"
-        + " conflicts (changed on the server or open in the Workbench), backs up, imports only"
-        + " what changed, verifies by re-export and rolls back on failure. Secrets are taken"
-        + " from the node. The preview also lists what the node has already: `existing` (new"
-        + " in the workspace, updated as a new version) and `identical` (same content, not"
-        + " sent; the workflows are bound to it as it is).";
+        + " diagram group (with their changed or new modules), or changed single modules, or the"
+        + " new and changed repository files at or below paths relative to the owner's"
+        + " repository root, from the workspace into ONE development node. Repository files"
+        + " that the imported modules reference, also indirectly, go along; sending a"
+        + " repository file always needs a preview with a server code. The server checks the"
+        + " files, refuses on conflicts (changed on the server or open in the Workbench), backs"
+        + " up, imports only what changed, verifies by re-export and rolls back on failure."
+        + " Secrets are taken from the node. The preview also lists what the node has already:"
+        + " `existing` (new in the workspace, updated as a new version) and `identical` (same"
+        + " content, not sent; the workflows are bound to it as it is).";
+
+    /** The repository path pattern of every tool input (contracts/mcp-tools-delta.md). */
+    private static final String PATH = "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}"
+        + "(/[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199})*$";
 
     @TempDir
     Path temp;
@@ -260,5 +273,117 @@ class ImportArtifactsToolTest {
         assertThat(result.path("outcome").asString()).isEqualTo("EXECUTED");
         assertThat(result.path("modified")).extracting(JsonNode::asString)
             .containsExactly("Module-0003");
+    }
+
+    @Test
+    void theSchemaTakesRepositoryPathsAsTheThirdScope() throws IOException {
+        JsonNode schema = tool(client(edited())).path("inputSchema");
+
+        JsonNode paths = schema.path("properties").path("repositoryPaths");
+        assertThat(paths.path("type").asString()).isEqualTo("array");
+        assertThat(paths.path("minItems").asInt()).isEqualTo(1);
+        assertThat(paths.path("maxItems").asInt()).isEqualTo(50);
+        assertThat(paths.path("uniqueItems").asBoolean()).isTrue();
+        assertThat(paths.path("items").path("pattern").asString()).isEqualTo(PATH);
+        assertThat(schema.path("oneOf")).extracting(scope -> scope.path("required").get(0)
+            .asString()).containsExactly("diagramGroup", "modules", "repositoryPaths");
+    }
+
+    @Test
+    void theSchemaRejectsMalformedRepositoryPathsAndASecondScopeBeforeTheTool()
+        throws IOException {
+        ImportHarness harness = edited();
+        McpTestClient client = client(harness);
+
+        for (Map<String, Object> arguments : List.<Map<String, Object>>of(
+            Map.of("node", "dev/node1", "reason", "x", "repositoryPaths", List.of()),
+            Map.of("node", "dev/node1", "reason", "x", "repositoryPaths", List.of("xsd", "xsd")),
+            Map.of("node", "dev/node1", "reason", "x", "repositoryPaths", List.of("/xsd")),
+            Map.of("node", "dev/node1", "reason", "x", "repositoryPaths", List.of("xsd//a.xsd")),
+            Map.of("node", "dev/node1", "reason", "x", "repositoryPaths", List.of("xsd/")),
+            Map.of("node", "dev/node1", "reason", "x", "repositoryPaths", List.of("a%2Fb")),
+            Map.of("node", "dev/node1", "reason", "x", "repositoryPaths", List.of("-a.xsd")),
+            Map.of("node", "dev/node1", "reason", "x", "diagramGroup", "GRP-01",
+                "repositoryPaths", List.of("xsd")),
+            Map.of("node", "dev/node1", "reason", "x", "modules",
+                List.of(Map.of("name", "Module-0001")), "repositoryPaths", List.of("xsd")))) {
+            assertThat(client.callTool("import_artifacts", arguments).path("isError")
+                .asBoolean()).as(arguments.toString()).isTrue();
+        }
+        assertThat(harness.cli.launches()).isEmpty();
+    }
+
+    @Test
+    void aRepositoryPathOutsideTheOwnersRootIsInvalidInputBeforeAnythingIsSent()
+        throws IOException {
+        // the schema pattern lets "..", "." and "xsd/../x" pass; the server refuses them (FR-005)
+        ImportHarness harness = edited();
+        McpTestClient client = client(harness);
+
+        for (String path : List.of("..", ".", "xsd/../../other")) {
+            JsonNode error = toolError(client.callTool("import_artifacts", Map.of("node",
+                "dev/node1", "repositoryPaths", List.of(path), "reason", "Schemas")));
+
+            assertThat(error.path("code").asString()).as(path).isEqualTo("INVALID_INPUT");
+            assertThat(error.path("message").asString()).as(path).contains(path);
+        }
+        assertThat(harness.cli.launches()).isEmpty();
+    }
+
+    @Test
+    void aRepositoryPathsImportWithTagIsInvalidInputBeforeAnythingIsSent() throws IOException {
+        ImportHarness harness = edited();
+        McpTestClient client = client(harness);
+
+        JsonNode error = toolError(client.callTool("import_artifacts", Map.of("node",
+            "dev/node1", "repositoryPaths", List.of("xsd"), "reason", "Schemas", "tag",
+            "REL-1")));
+
+        assertThat(error.path("code").asString()).isEqualTo("INVALID_INPUT");
+        assertThat(error.path("message").asString()).contains("repository paths");
+        assertThat(harness.cli.launches()).isEmpty();
+        assertThat(harness.audit("import_artifacts")).singleElement().satisfies(record ->
+            assertThat(record.inputs()).containsEntry("scope", "repository paths xsd"));
+    }
+
+    @Test
+    void aTagListingTheImportedRepositoryFilesMatchesTheOutputSchema() throws IOException {
+        // T053 (T034-r1): tag.repositoryFiles as serialized over MCP
+        String a = "/Root/jdoe/xsd/a.xsd";
+        String xsd = "/Root/jdoe/xsd";
+        String schema = "<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">\n"
+            + "  <xs:element name=\"a\"/>\n</xs:schema>\n";
+        ImportHarness harness = ImportHarness.grpA(temp);
+        harness.confirmation = WritePolicy.Confirmation.SERVER;
+        String file = harness.repositoryFile("xsd/a.xsd", schema, "application/x-xsd+xml");
+        harness.exports.history.commitAll("export dev/jdoe: repository",
+            Map.of(VersionHistoryPort.SERVER_STATE, ImportHarness.DEV.group().value()));
+        harness.edit(harness.workflow("Workflow-0001"), "xPos=\"120\"", "xPos=\"140\"");
+        FakeServer node = new FakeServer();
+        node.putRepositoryFile(a, schema);
+        harness.edit(harness.moduleDirectory("Module-0003") + "/module.xml", "</Properties>",
+            "<Property name=\"x.a\">inubitrepository:" + a + "</Property></Properties>");
+        harness.edit(file, "</xs:schema>", "  <xs:element name=\"added\"/>\n</xs:schema>");
+        McpTestClient client = client(harness.repositoryWrite(ImportHarness.DEV, true));
+        Map<String, Object> arguments = Map.of("node", "dev/node1", "diagramGroup", "GRP-01",
+            "reason", "Release", "tag", "REL-1");
+        harness.exportGroup().exportRepository(node, xsd);
+        String code = structured(client.callTool("import_artifacts", arguments))
+            .path("challenge").path("confirmationCode").asString();
+        harness.exportGroup().exportRepository(node, xsd).importRepositoryApplied(node)
+            .importApplied().exportRepository(node, xsd).exportGroup().tagMoved("REL-1", false)
+            .historyExport("REL-1");
+        Map<String, Object> confirmed = new HashMap<>(arguments);
+        confirmed.put("confirmationCode", code);
+
+        JsonNode response = client.callTool("import_artifacts", confirmed);
+
+        harness.cli.verifyComplete();
+        assertMatchesOutputSchema("import_artifacts", response);
+        JsonNode result = structured(response).path("result");
+        assertThat(result.path("outcome").asString()).isEqualTo("EXECUTED");
+        assertThat(result.path("tag").path("applied").asBoolean()).isTrue();
+        assertThat(result.path("tag").path("repositoryFiles")).extracting(JsonNode::asString)
+            .containsExactly(a);
     }
 }

@@ -1,9 +1,13 @@
 package de.dadecker.inubit.mcp.adapter;
 
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
+import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
-import de.dadecker.inubit.mcp.config.VersionLine;
+import de.dadecker.inubit.mcp.config.SecretLabels;
+import de.dadecker.inubit.mcp.config.SecretPlan;
+import de.dadecker.inubit.mcp.config.SecretSourceConfig;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -24,7 +28,7 @@ public final class TestNodeConfig {
     private Duration cliTimeout = Duration.ofSeconds(30);
     private Duration cliExportTimeout = Duration.ofSeconds(120);
     private String inventoryOwner = "OWNERS";
-    private VersionLine versionLine = VersionLine.V8_1;
+    private VersionSetting versionLine = VersionSetting.V8_1;
     private boolean production;
     private EffectiveNodeConfig.Write write =
         new EffectiveNodeConfig.Write(false, false, ConfirmationMode.SERVER);
@@ -34,6 +38,11 @@ public final class TestNodeConfig {
     private EffectiveNodeConfig.Development development = EffectiveNodeConfig.NO_DEVELOPMENT;
 
     private TestNodeConfig() {
+    }
+
+    /** The message names of an environment node with credential prefix {@code prefix}. */
+    public static SecretLabels environmentLabels(String prefix, NodeId node) {
+        return new SecretLabels.Environment(new CredentialVariables(prefix, node));
     }
 
     public static TestNodeConfig node() {
@@ -101,7 +110,7 @@ public final class TestNodeConfig {
         return this;
     }
 
-    public TestNodeConfig versionLine(VersionLine value) {
+    public TestNodeConfig versionLine(VersionSetting value) {
         this.versionLine = value;
         return this;
     }
@@ -148,6 +157,9 @@ public final class TestNodeConfig {
             Duration.ofMinutes(60),
             Duration.ofMinutes(5),
             credentialPrefix,
-            development);
+            development,
+            new SecretPlan(id, new SecretSourceConfig.Environment(Optional.empty()),
+                SecretPlan.Origin.DEFAULT,
+                Optional.of(new CredentialVariables(credentialPrefix, id)), Optional.empty()));
     }
 }

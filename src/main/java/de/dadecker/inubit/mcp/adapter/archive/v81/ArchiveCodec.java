@@ -7,9 +7,12 @@ import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import de.dadecker.inubit.mcp.domain.port.ArchiveCodecPort;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
@@ -55,6 +58,69 @@ public final class ArchiveCodec implements ArchiveCodecPort {
         return new Prepared(merged, secrets, warnings,
             List.of(ownerRoot, WorkspacePath.META_DIRECTORY + "/" + ownerRoot),
             Map.copyOf(editMode));
+    }
+
+    /**
+     * Each archive is read ({@link ArchiveReader#readRepository}) and redacted, then all are
+     * rendered together ({@link WorkspaceWriter#renderRepository}). A repository archive has no
+     * secret but withheld key material, so the replaced secrets are the withheld files, each
+     * counted once even if exported paths overlap. The scope holds per archive the longest
+     * common directory of its written files (or the file itself if it is the only one), which
+     * can be narrower than the exported path, and its {@code .meta} mirror.
+     */
+    @Override
+    public PreparedExport prepareRepository(GroupId group, String owner, List<byte[]> archives) {
+        Objects.requireNonNull(group, "group");
+        Objects.requireNonNull(owner, "owner");
+        ArchiveReader reader = new ArchiveReader();
+        SecretRedactor redactor = new SecretRedactor();
+        List<RedactedArchive> exports = new ArrayList<>();
+        Set<String> withheld = new HashSet<>();
+        for (byte[] archive : archives) {
+            RedactedArchive redacted = redactor.redact(reader.readRepository(archive));
+            exports.add(redacted);
+            withheld.addAll(redacted.withheldRepositoryFiles());
+        }
+        Rendered rendered = WorkspaceWriter.renderRepository(exports, group, owner);
+        Set<String> scope = new LinkedHashSet<>();
+        for (RedactedArchive export : exports) {
+            scope.addAll(exportedPath(group, owner, export, rendered.files().keySet()));
+        }
+        return new Prepared(rendered, withheld.size(), rendered.warnings(), List.copyOf(scope),
+            Map.of());
+    }
+
+    /**
+     * The exported path of {@code export} in the workspace and its {@code .meta} mirror: the
+     * longest common path of its files that {@code rendered} holds a {@code .meta} record of
+     * (withheld files included, files of another owner not); none if there is no such file.
+     */
+    private static List<String> exportedPath(GroupId group, String owner, RedactedArchive export,
+        Set<String> rendered) {
+        List<WorkspacePath> files = export.archive().repository().keySet().stream()
+            .map(path -> WorkspacePath.repository(group, owner, path))
+            .filter(path -> rendered.contains(slash(path.metaPath())))
+            .toList();
+        if (files.size() == 1) {
+            return List.of(slash(files.get(0).toRelativePath()),
+                slash(files.get(0).metaPath()));
+        }
+        Path common = null;
+        for (WorkspacePath file : files) {
+            Path path = file.toRelativePath();
+            if (common == null) {
+                common = path.getParent();
+            }
+            while (!path.startsWith(common)) {
+                common = common.getParent();
+            }
+        }
+        return common == null ? List.of()
+            : List.of(slash(common), WorkspacePath.META_DIRECTORY + "/" + slash(common));
+    }
+
+    private static String slash(Path path) {
+        return path.toString().replace('\\', '/');
     }
 
     private record Prepared(Rendered rendered, int secretsReplaced, List<String> warnings,

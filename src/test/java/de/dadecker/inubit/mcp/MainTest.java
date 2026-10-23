@@ -2,11 +2,15 @@ package de.dadecker.inubit.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.config.FailureKind;
+import de.dadecker.inubit.mcp.config.ParameterType;
+import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.infra.BuildInfo;
 import de.dadecker.inubit.mcp.infra.LogLevels;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import de.dadecker.inubit.mcp.mcp.ToolHints;
+import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -23,10 +27,12 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -54,6 +60,10 @@ class MainTest {
     private final ByteArrayOutputStream stdout = new ByteArrayOutputStream();
     private final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
     private final Map<String, String> environment = new HashMap<>();
+    /** The Parameter Store of AWS nodes; no test reaches AWS. */
+    private final FakeParameterStore store = new FakeParameterStore();
+    /** How often the launcher asked for {@link #store}. */
+    private final AtomicInteger storesCreated = new AtomicInteger();
 
     @AfterEach
     void restoreTestLogLevel() {
@@ -69,7 +79,10 @@ class MainTest {
         return new Launcher(new Launcher.Context(Map.copyOf(environment), home, false, in,
             new PrintStream(out, true, StandardCharsets.UTF_8),
             new PrintStream(stderr, true, StandardCharsets.UTF_8), new SecretScrubber(),
-            Files::exists), handlers);
+            Files::exists, () -> {
+                storesCreated.incrementAndGet();
+                return store;
+            }), handlers);
     }
 
     private int run(String... args) {
@@ -124,8 +137,11 @@ class MainTest {
         credentials();
         environment.put("INUBIT_ACME_QA_NODE2_PASSWORD", "other-Secret-99");
         environment.put("INUBIT_ACME_QA_USERNAME", "other-user");
-        Path cliHome = Files.createDirectories(home.resolve("client/bin")).getParent();
-        Files.writeString(cliHome.resolve("bin/startcli.sh"), "#!/bin/sh\n");
+        Path cliHome = fakeStartCli("""
+            echo "$@" > "$(dirname "$0")/arguments"
+            echo "CLI 8.1.17"
+            echo "Supported inubit Process Engine versions from 4.0.1 to 8.1.17."
+            """);
         Path file = config("""
             profile:
               name: acme
@@ -150,14 +166,363 @@ class MainTest {
         assertThat(exit).as(err()).isZero();
         assertThat(out())
             .contains("dev/node1: write enabled (confirmation SERVER), cli: unavailable,"
-                + " username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD")
-            .contains("qa/node2: read-only, cli: available,"
+                + " inubit: AUTO, username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD")
+            .contains("qa/node2: read-only, cli: available, inubit: AUTO,"
+                + " client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime,"
                 + " username ← INUBIT_ACME_QA_USERNAME,"
                 + " password ← INUBIT_ACME_QA_NODE2_PASSWORD")
             .contains("Result: OK")
             .doesNotContain(PASSWORD, USERNAME, "other-Secret-99", "other-user",
                 "inubit.example.test");
         assertThat(err()).doesNotContain(PASSWORD, "other-Secret-99");
+        // feature 009 (FR-011a): the local client probe only, without credentials or server URL
+        assertThat(Files.readString(cliHome.resolve("bin/arguments"))).isEqualTo("-v\n");
+    }
+
+    // --- feature 010 (T006): existing profiles behave as before; AWS nodes are deferred -------
+
+    /**
+     * A profile of today (no {@code credentials.source}) plus {@code credentials} settings, with
+     * an existing workspace so that repeated runs print the same.
+     */
+    private Path profileWithCredentials(String credentials) throws IOException {
+        Files.createDirectories(home.resolve("workspace"));
+        return config("""
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            %sgroups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+              - name: qa
+                nodes:
+                  - name: node2
+                    baseUrl: https://node2.example.test:8443
+            """.formatted(home.resolve("audit"), home.resolve("workspace"), credentials));
+    }
+
+    @Test
+    void checkConfigOutputOfAnExistingProfileIsUnchanged() throws IOException {
+        credentials();
+        environment.put("INUBIT_ACME_QA_NODE2_USERNAME", "qa-user");
+        environment.put("INUBIT_ACME_DEV_NODE9_PASSWORD", "typo-Secret-1");
+        Path file = profileWithCredentials("");
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).isEqualTo(1);
+        assertThat(out()).isEqualTo("""
+            Configuration: %s
+            Profile: acme
+            Terminology: group/groups, node/nodes
+            Credential variables: INUBIT_ACME_<GROUP>[_<NODE>]_USERNAME / _PASSWORD
+            Audit directory: %s
+            Workspace: %s (ok)
+            Group dev:
+              Node dev/node1: read-only, cli: unavailable, inubit: V8_1, \
+            username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD
+            Group qa:
+              Node qa/node2: read-only, cli: unavailable, inubit: AUTO, \
+            username ← INUBIT_ACME_QA_NODE2_USERNAME, password ← (missing)
+            Warnings:
+              - Environment variable INUBIT_ACME_DEV_NODE9_PASSWORD matches no configured group or \
+            node (typo?)
+            Errors:
+              - qa/node2: no password variable set (expected INUBIT_ACME_QA_NODE2_PASSWORD or \
+            INUBIT_ACME_QA_PASSWORD)
+            Result: FAILED (1 error(s))
+            """.formatted(file, home.resolve("audit"), home.resolve("workspace")));
+        assertThat(storesCreated).as("T015: no Parameter Store without an AWS node").hasValue(0);
+    }
+
+    @Test
+    void anExplicitEnvironmentSourceChecksAndStartsLikeAProfileWithoutSource()
+        throws IOException {
+        credentials();
+        environment.put("INUBIT_ACME_QA_USERNAME", "qa-user");
+        environment.put("INUBIT_ACME_QA_PASSWORD", "qa-Password-2");
+        String explicit = """
+            credentials:
+              source:
+                type: environment
+            """;
+        String explicitWithPrefix = """
+            credentials:
+              envPrefix: INUBIT_ACME
+              source:
+                type: environment
+                prefix: INUBIT_ACME
+            """;
+        List<String> variants = List.of("", explicit, explicitWithPrefix);
+        List<String> outputs = new java.util.ArrayList<>();
+        List<String> startups = new java.util.ArrayList<>();
+        for (String credentials : variants) {
+            Path file = profileWithCredentials(credentials);
+            stdout.reset();
+            stderr.reset();
+            assertThat(run("--check-config", "--config", file.toString())).as(out()).isZero();
+            // T008 adds "secrets: environment" to each node line of a profile that uses source
+            outputs.add(out().replace("secrets: environment, ", ""));
+            stdout.reset();
+            assertThat(run("--config", file.toString())).as(err()).isZero();
+            startups.add(err());
+        }
+
+        assertThat(outputs).as("--check-config").containsOnly(outputs.get(0));
+        assertThat(outputs.get(0)).contains("username ← INUBIT_ACME_QA_USERNAME");
+        assertThat(startups).as("startup messages").containsOnly(startups.get(0));
+    }
+
+    @Test
+    void anAwsNodeNeedsNoCredentialVariablesToCheckOrStart() throws IOException {
+        credentials();
+        Path file = config("""
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+              - name: prod
+                credentials:
+                  source:
+                    type: awsParameterStore
+                    region: eu-central-1
+                  parameters:
+                    username: /inubit/prod/username
+                    password: /inubit/prod/password
+                nodes:
+                  - name: node1
+                    baseUrl: https://prod.example.test:8443
+                    versionLine: V8_1
+            """.formatted(home.resolve("audit"), home.resolve("workspace")));
+
+        store.put(EU_CENTRAL, "/inubit/prod/username", "prod-user")
+            .put(EU_CENTRAL, "/inubit/prod/password", "prod-Password-1");
+
+        int check = run("--check-config", "--config", file.toString());
+        String checkOutput = out();
+        stdout.reset();
+        int start = run("--config", file.toString());
+
+        assertThat(check).as(checkOutput).isZero();
+        assertThat(checkOutput).doesNotContain("INUBIT_ACME_PROD", "no username variable",
+            "no password variable");
+        assertThat(start).as(err()).isZero();
+        assertThat(err()).doesNotContain("INUBIT_ACME_PROD", PASSWORD);
+    }
+
+    @Test
+    void theServerStartsWithAnAwsNodeWithoutAwsAccessAndFetchesNothing() throws Exception {
+        store.failCall(new StoreLocation("eu-central-1", Optional.empty()),
+            FailureKind.NO_CREDENTIALS, "no AWS credentials in this test");
+        Path file = config("""
+            profile:
+              name: acme
+            auditDirectory: %s
+            groups:
+              - name: prod
+                credentials:
+                  source:
+                    type: awsParameterStore
+                    region: eu-central-1
+                  parameters:
+                    username: /test/prod/username
+                    password: /test/prod/password
+                nodes:
+                  - name: node1
+                    baseUrl: https://prod.example.test:8443
+                    versionLine: V8_1
+            """.formatted(home.resolve("audit")));
+        PipedInputStream serverIn = new PipedInputStream(1 << 16);
+        PipedOutputStream toServer = new PipedOutputStream(serverIn);
+        LineQueue protocol = new LineQueue();
+        Launcher main = main(serverIn, protocol);
+
+        CompletableFuture<Integer> exit = CompletableFuture.supplyAsync(
+            () -> main.run("--config", file.toString()));
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":"
+            + "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},"
+            + "\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}");
+        protocol.next();
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":"
+            + "{\"name\":\"list_nodes\",\"arguments\":{}}}");
+        JsonNode nodes = protocol.next();
+        toServer.close();
+
+        assertThat(exit.get(20, TimeUnit.SECONDS)).as(err()).isZero();
+        assertThat(nodes.path("result").path("structuredContent").path("groups").path(0)
+            .path("nodes").path(0).path("id").asString()).isEqualTo("prod/node1");
+        assertThat(store.calls()).as("neither the startup nor list_nodes fetches").isZero();
+    }
+
+    // --- feature 010 T015: --check-config reads the AWS parameters (FR-009) --------------------
+
+    private static final StoreLocation EU_CENTRAL =
+        new StoreLocation("eu-central-1", Optional.empty());
+
+    /** dev: environment variables; prod: AWS Parameter Store, optionally with an AWS profile. */
+    private Path awsProfile(String awsProfileLine) throws IOException {
+        return config("""
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+              - name: prod
+                credentials:
+                  source:
+                    type: awsParameterStore
+                    region: eu-central-1
+                    %s
+                  parameters:
+                    username: /inubit/prod/username
+                    password: /inubit/prod/password
+                    trustStorePassword: /inubit/prod/ts-password
+                nodes:
+                  - name: node1
+                    baseUrl: https://prod.example.test:8443
+                    versionLine: V8_1
+            """.formatted(home.resolve("audit"), home.resolve("workspace"), awsProfileLine));
+    }
+
+    @Test
+    void checkConfigReadsTheAwsParametersOnceAndExitsZeroWhenAllAreValid() throws IOException {
+        credentials();
+        store.put(EU_CENTRAL, "/inubit/prod/username", "prod-user")
+            .put(EU_CENTRAL, "/inubit/prod/password", "prod-Password-1")
+            .put(EU_CENTRAL, "/inubit/prod/ts-password", "prod-Ts-Password-2");
+
+        int exit = run("--check-config", "--config", awsProfile("").toString());
+
+        assertThat(exit).as(out()).isZero();
+        assertThat(out()).contains("prod/node1: read-only, cli: unavailable, inubit: V8_1,"
+            + " secrets: awsParameterStore (eu-central-1), username ← /inubit/prod/username ok,"
+            + " password ← /inubit/prod/password ok, trustStorePassword ← /inubit/prod/ts-password"
+            + " ok\n", "Result: OK");
+        assertThat(out() + err()).doesNotContain("prod-user", "prod-Password-1",
+            "prod-Ts-Password-2", PASSWORD);
+        assertThat(storesCreated).hasValue(1);
+        assertThat(store.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void checkConfigExitsOneForAMissingDeniedOrInvalidParameter() throws IOException {
+        credentials();
+        Path file = awsProfile("");
+        List<Runnable> mistakes = List.of(
+            () -> store.put(EU_CENTRAL, "/inubit/prod/username", "prod-user")
+                .put(EU_CENTRAL, "/inubit/prod/password", "prod-Password-1"),
+            () -> store.put(EU_CENTRAL, "/inubit/prod/ts-password", "prod-Ts-Password-2")
+                .fail(EU_CENTRAL, "/inubit/prod/password", FailureKind.ACCESS_DENIED,
+                    "not authorized"),
+            () -> store.put(EU_CENTRAL, "/inubit/prod/password", "x9z"));
+        List<String> expected = List.of("/inubit/prod/ts-password not found",
+            "/inubit/prod/password access denied", "/inubit/prod/password invalid value");
+        for (int i = 0; i < mistakes.size(); i++) {
+            mistakes.get(i).run();
+            stdout.reset();
+
+            int exit = run("--check-config", "--config", file.toString());
+
+            assertThat(exit).as(out()).isEqualTo(1);
+            assertThat(out()).contains(expected.get(i), "Result: FAILED (1 error(s))")
+                .doesNotContain("prod-Password-1", "x9z");
+        }
+    }
+
+    @Test
+    void checkConfigExitsOneForAnUnknownAwsProfile() throws IOException {
+        credentials();
+        store.failCall(new StoreLocation("eu-central-1", Optional.of("missing-profile")),
+            FailureKind.UNKNOWN_PROFILE, "AWS profile 'missing-profile' not found");
+
+        int exit = run("--check-config", "--config",
+            awsProfile("awsProfile: missing-profile").toString());
+
+        assertThat(exit).as(out()).isEqualTo(1);
+        assertThat(out()).contains("secrets: awsParameterStore (eu-central-1, profile"
+            + " missing-profile), username ← /inubit/prod/username not checked",
+            "the AWS profile missing-profile is not defined in the local AWS configuration files");
+    }
+
+    @Test
+    void checkConfigWithoutAwsAccessOrWithStringParametersOnlyWarnsAndExitsZero()
+        throws IOException {
+        credentials();
+        Path file = awsProfile("");
+        store.failCall(EU_CENTRAL, FailureKind.NO_CREDENTIALS, "Unable to load credentials");
+
+        int withoutAccess = run("--check-config", "--config", file.toString());
+        String withoutAccessOutput = out();
+        store.clearCallFailure(EU_CENTRAL)
+            .put(EU_CENTRAL, "/inubit/prod/username", "prod-user", ParameterType.STRING)
+            .put(EU_CENTRAL, "/inubit/prod/password", "prod-Password-1", ParameterType.STRING)
+            .put(EU_CENTRAL, "/inubit/prod/ts-password", "prod-Ts-Password-2");
+        stdout.reset();
+        int unencrypted = run("--check-config", "--config", file.toString());
+
+        assertThat(withoutAccess).as(withoutAccessOutput).isZero();
+        assertThat(withoutAccessOutput).contains("resolvability not checked", "Result: OK")
+            .doesNotContain("Unable to load credentials");
+        assertThat(unencrypted).as(out()).isZero();
+        assertThat(out()).contains("password ← /inubit/prod/password not encrypted",
+            "is not encrypted (type String); store it as SecureString", "Result: OK")
+            .doesNotContain("prod-user", "prod-Password-1");
+    }
+
+    @Test
+    void checkConfigReportsAFailingClientProbeAsAWarning() throws IOException {
+        credentials();
+        Path cliHome = fakeStartCli("""
+            echo "Error: no JDK" >&2
+            exit 1
+            """);
+        Path file = config("""
+            profile:
+              name: acme
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: "8.1.17"
+                    cli:
+                      home: %s
+                      javaHome: %s
+            """.formatted(cliHome, home));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        assertThat(out()).contains("dev/node1: read-only, cli: available, inubit: 8.1.17,"
+                + " username ←")
+            .contains("Warnings:", "  - dev/node1: StartCLI client probe failed: StartCLI did not"
+                + " report its version (exit code 1)")
+            .contains("Result: OK");
+    }
+
+    /** An executable {@code <home>/client/bin/startcli.sh} running {@code body}; the CLI home. */
+    private Path fakeStartCli(String body) throws IOException {
+        Path cliHome = Files.createDirectories(home.resolve("client/bin")).getParent();
+        Path script = cliHome.resolve("bin/startcli.sh");
+        Files.writeString(script, "#!/bin/sh\n" + body);
+        Files.setPosixFilePermissions(script, PosixFilePermissions.fromString("rwx------"));
+        return cliHome;
     }
 
     @Test
@@ -273,7 +638,7 @@ class MainTest {
 
         assertThat(exit).isEqualTo(1);
         assertThat(err()).contains("confirmation CLIENT", "http://",
-            "credentials belong in environment variables", "INUBIT_ACME_PROD_NODE1_USERNAME")
+            "set the value in the environment variable", "INUBIT_ACME_PROD_NODE1_USERNAME")
             .doesNotContain(PASSWORD);
         assertThat(out()).as("nothing on the protocol stdout").isEmpty();
     }
@@ -599,7 +964,9 @@ class MainTest {
         int exit = run("--config", file.toString()); // empty stdin: starts and stops at once
 
         assertThat(exit).as(err()).isZero();
-        assertThat(err()).contains("Warnings:", "V9_X");
+        assertThat(err()).contains("Warnings:", "dev/node1: versionLine V9_X: write tools are"
+            + " refused on this node (INUBIT 9.x is not supported for writes yet); read tools run"
+            + " unverified");
         assertThat(out()).doesNotContain("V9_X");
     }
 

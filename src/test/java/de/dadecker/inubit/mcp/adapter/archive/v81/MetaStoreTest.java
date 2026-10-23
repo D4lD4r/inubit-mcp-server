@@ -75,6 +75,18 @@ class MetaStoreTest {
     }
 
     @Test
+    void aRecordHoldingJsonNullIsRefusedLikeABrokenOne() throws IOException {
+        // T020+T021 review: JSON null must not end as a NullPointerException (INTERNAL)
+        WorkspacePath path = WorkspacePath.module(DEV, "OWNERS", "Assign", "M");
+        Path file = root.resolve(".meta/dev/OWNERS/modules/Assign/M/module.xml.json");
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, "null");
+
+        assertThatIllegalArgumentException().isThrownBy(() -> new MetaStore(root).read(path))
+            .withMessageContaining(".meta");
+    }
+
+    @Test
     void theUidAndTheExportSuffixOfTheCheckinCommentMoveToMeta() {
         WorkflowXml workflow = archive("grp-a.zip").workflowGroups().get(0).workflows().get(1);
 

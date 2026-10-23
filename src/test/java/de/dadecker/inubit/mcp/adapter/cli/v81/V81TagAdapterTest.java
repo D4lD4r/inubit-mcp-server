@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.cli.v81;
 
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
@@ -11,7 +12,6 @@ import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliTagRunner;
 import de.dadecker.inubit.mcp.adapter.cli.ScriptedProcessLauncher;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
@@ -72,7 +72,7 @@ class V81TagAdapterTest {
             Optional.of(new SourcedValue<>("jdoe", "INUBIT_DEV_USERNAME")),
             Optional.of(new SourcedValue<>(Secret.of("tag-adapter-pw"), "INUBIT_DEV_PASSWORD")),
             Optional.empty(), Optional.empty());
-        CredentialGuard guard = new CredentialGuard(new CredentialVariables("INUBIT", DEV),
+        CredentialGuard guard = new CredentialGuard(environmentLabels("INUBIT", DEV),
             new MutableClock(Instant.parse("2026-10-07T08:00:00Z")));
         CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
             new CliResources("acme"));

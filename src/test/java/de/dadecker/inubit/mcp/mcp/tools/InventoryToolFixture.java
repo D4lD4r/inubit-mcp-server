@@ -4,9 +4,11 @@ import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
+import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
@@ -16,17 +18,21 @@ import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.application.FanOut;
 import de.dadecker.inubit.mcp.application.InventoryCache;
 import de.dadecker.inubit.mcp.application.InventoryService;
+import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
+import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
-import de.dadecker.inubit.mcp.config.VersionLine;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.infra.ResultJson;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -45,7 +51,9 @@ import java.util.stream.Stream;
 /**
  * The US3 tools with the production adapters: {@code dev/node1} on an HTTPS WireMock server with
  * a fake StartCLI that writes the recorded export ZIPs, {@code qa/node1} on WireMock without
- * CLI home, {@code qa/node2} unreachable ({@code 127.0.0.1:9}).
+ * CLI home, {@code qa/node2} unreachable ({@code 127.0.0.1:9}). The nodes are pinned to
+ * {@code V8_1} (the version gate of feature 009 admits without a detection request) unless a test
+ * gives {@code dev/node1} another {@code versionLine}.
  */
 final class InventoryToolFixture implements AutoCloseable {
 
@@ -71,6 +79,19 @@ final class InventoryToolFixture implements AutoCloseable {
     InventoryToolFixture(WireMockServer dev, WireMockServer integration,
         Function<InventoryService, ToolHandler> tool, FakeProcessLauncher launcher,
         Duration exportTimeout) {
+        this(dev, integration, tool, launcher, exportTimeout, VersionSetting.V8_1);
+    }
+
+    /** @param devVersionLine the {@code versionLine} of {@code dev/node1} */
+    InventoryToolFixture(WireMockServer dev, WireMockServer integration,
+        Function<InventoryService, ToolHandler> tool, VersionSetting devVersionLine) {
+        this(dev, integration, tool, exportingStartCli(), Duration.ofSeconds(120),
+            devVersionLine);
+    }
+
+    private InventoryToolFixture(WireMockServer dev, WireMockServer integration,
+        Function<InventoryService, ToolHandler> tool, FakeProcessLauncher launcher,
+        Duration exportTimeout, VersionSetting devVersionLine) {
         try {
             cliHome = Files.createTempDirectory("inventory-tool-cli");
             Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
@@ -80,24 +101,31 @@ final class InventoryToolFixture implements AutoCloseable {
         }
         this.launcher = launcher;
         List<EffectiveNodeConfig> servers = List.of(
-            server("dev/node1", "https://localhost:" + dev.httpsPort()).cliHome(cliHome)
+            server("dev/node1", "https://localhost:" + dev.httpsPort())
+                .versionLine(devVersionLine).cliHome(cliHome)
                 .cliJavaHome(Path.of("/opt/jdk-17")).cliExportTimeout(exportTimeout).build(),
             server("qa/node1", "https://localhost:" + integration.httpsPort()).build(),
             server("qa/node2", "https://127.0.0.1:9").build());
         List<NodeId> ids = servers.stream().map(EffectiveNodeConfig::id).toList();
-        gateways = new AdapterGatewayFactory(servers, new CredentialResolver(Map.of(
-            "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
-            "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber, "INUBIT")
-            .resolve(ids), scrubber, Clock.systemUTC(),
-            new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")));
         Map<NodeId, EffectiveNodeConfig> byId = servers.stream().collect(
             Collectors.toMap(EffectiveNodeConfig::id, Function.identity()));
+        NodeVersions versions = new NodeVersions(Clock.systemUTC(),
+            id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
+        gateways = new AdapterGatewayFactory(servers, TestSecrets.environment(new CredentialResolver(Map.of(
+            "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
+            "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber, "INUBIT")
+            .resolve(ids)), scrubber, Clock.systemUTC(),
+            new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
+            versions, PortSetRegistry.v81Default());
         InventoryService inventory = new InventoryService(gateways, new TargetResolver(ids),
             new FanOut(), ResultLimiter.withDefaults(),
             new InventoryCache(Clock.systemUTC(), id -> byId.get(id).inventory().cacheTtl()),
             id -> byId.get(id).inventory().owner(), id -> byId.get(id).timeout(),
-            id -> byId.get(id).cliExportTimeout(), CliRunner.KILL_GRACE.multipliedBy(2),
-            ResultJson::size, Terminology.DEFAULT);
+            id -> byId.get(id).cliExportTimeout(), id -> byId.get(id).cliTimeout(),
+            CliRunner.KILL_GRACE.multipliedBy(2),
+            ResultJson::size, Terminology.DEFAULT,
+            gateWithoutClients(versions, gateways, CapabilityMatrix.production()),
+            SecretTiming.NONE);
         client = McpTestClient.start(List.of(tool.apply(inventory)), scrubber);
         client.initialize();
     }
@@ -105,7 +133,7 @@ final class InventoryToolFixture implements AutoCloseable {
     private static TestNodeConfig server(String id, String baseUrl) {
         return TestNodeConfig.node().id(id).baseUrl(baseUrl)
             .trustStore(TestCertificates.get().trustStore()).timeout(TIMEOUT)
-            .versionLine(VersionLine.AUTO);
+            .versionLine(VersionSetting.V8_1);
     }
 
     /** StartCLI writing the recorded module or history export, depending on the command. */

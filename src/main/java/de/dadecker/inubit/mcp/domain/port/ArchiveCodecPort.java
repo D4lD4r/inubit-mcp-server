@@ -22,6 +22,19 @@ public interface ArchiveCodecPort {
      */
     PreparedExport prepare(GroupId group, String owner, List<byte[]> archives);
 
+    /**
+     * The workspace files of repository exports ({@code archives}, one per exported repository
+     * path, feature 008 research D-10) for {@code owner} on {@code group}: every file of each
+     * export below {@code /Root/<owner>/}, folders recursively, with its {@code .meta} record.
+     * Key material is withheld as in every export (its {@code .meta} record holds a placeholder,
+     * a warning counts it); certificates are written. {@link PreparedExport#scope()} holds, per
+     * export, the narrowest directory (or file) that holds every file written from it, and its
+     * {@code .meta} mirror; it lies within the exported path and can be narrower.
+     * {@link PreparedExport#writeTo} overwrites files there but deletes none. The limits of a
+     * repository export are the caller's.
+     */
+    PreparedExport prepareRepository(GroupId group, String owner, List<byte[]> archives);
+
     /** The redacted, rendered files of one export request, not written yet. */
     interface PreparedExport {
 
@@ -32,7 +45,9 @@ public interface ArchiveCodecPort {
         List<String> warnings();
 
         /**
-         * The workspace-relative directories that contain every file {@link #writeTo} may
+         * The workspace-relative directories (for a repository export, per export the
+         * narrowest directory that holds every written file, or that file if it is the only
+         * one, each with its {@code .meta} mirror) that contain every file {@link #writeTo} may
          * create, change or delete; restoring them undoes a failed write.
          */
         List<String> scope();

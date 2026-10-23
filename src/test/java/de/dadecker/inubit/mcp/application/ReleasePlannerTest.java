@@ -18,6 +18,7 @@ import de.dadecker.inubit.mcp.domain.model.NodePlan;
 import de.dadecker.inubit.mcp.domain.model.NodePlan.PlannedArtifact;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -61,8 +62,8 @@ class ReleasePlannerTest {
             new V81ImportArchives(), (root, paths) -> new ArtifactCheckService(root, inspector,
                 new SaxonXsltRunner(root), group -> Optional.empty(), node -> {
                     throw new AssertionError("no server lookups");
-                }, node -> Optional.empty(), ResultLimiter.withDefaults(), harness.clock)
-                .checkPaths(paths, false),
+                }, node -> Optional.empty(), ResultLimiter.withDefaults(), harness.clock,
+                FakeVersionDetection.pinned81()).checkPaths(paths, false),
             node -> new ImportService.Account("jdoe", "inubit-int.example.test"), harness.root,
             harness.clock));
     }
@@ -70,7 +71,7 @@ class ReleasePlannerTest {
     private static DeployGuard.Admitted admitted(List<StageChain.Exclusion> exclude) {
         return new DeployGuard.Admitted(new GroupId("int"), new GroupId("dev"),
             DeployMode.EXECUTE, exclude, DeployHarness.TARGETS, DeployHarness.SOURCES, "jdoe",
-            TAG);
+            TAG, List.of());
     }
 
     /** Changes the source nodes, tags GRP-01 there and discovers the release. */

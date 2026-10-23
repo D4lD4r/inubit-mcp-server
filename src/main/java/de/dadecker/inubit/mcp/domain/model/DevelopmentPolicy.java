@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.domain.model;
 
 import java.net.URI;
 import java.time.Duration;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -17,10 +18,14 @@ import java.util.Optional;
  * @param confirmationTtl how long a confirmation code is valid
  * @param e2eTests        {@code e2eTests}
  * @param soapBaseUrl     {@code e2e.soap.baseUrl}, if set
+ * @param repositoryWrite the effective {@code development.repository} of feature 008
+ *                        (research D-2): repository files of the node may be written
+ * @param warnings        feature 009 (research D-5): the warnings of the version gate's
+ *                        admission, for the result of the call (empty in the configuration)
  */
 public record DevelopmentPolicy(NodeId node, boolean production, boolean enabled,
     WritePolicy.Confirmation confirmation, Duration confirmationTtl, E2ePolicy e2eTests,
-    Optional<URI> soapBaseUrl) {
+    Optional<URI> soapBaseUrl, boolean repositoryWrite, List<String> warnings) {
 
     public DevelopmentPolicy {
         Objects.requireNonNull(node, "node");
@@ -28,5 +33,14 @@ public record DevelopmentPolicy(NodeId node, boolean production, boolean enabled
         Objects.requireNonNull(confirmationTtl, "confirmationTtl");
         Objects.requireNonNull(e2eTests, "e2eTests");
         soapBaseUrl = soapBaseUrl == null ? Optional.empty() : soapBaseUrl;
+        warnings = List.copyOf(warnings);
+    }
+
+    /** The settings as configured, without warnings. */
+    public DevelopmentPolicy(NodeId node, boolean production, boolean enabled,
+        WritePolicy.Confirmation confirmation, Duration confirmationTtl, E2ePolicy e2eTests,
+        Optional<URI> soapBaseUrl, boolean repositoryWrite) {
+        this(node, production, enabled, confirmation, confirmationTtl, e2eTests, soapBaseUrl,
+            repositoryWrite, List.of());
     }
 }

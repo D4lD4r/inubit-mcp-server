@@ -395,7 +395,7 @@ class GitCliTest {
         git.init();
         for (Map<String, String> trailers : List.of(Map.of("Server-State", "dev\nInjected: x"),
             Map.of("Server State", "dev"), Map.of("Server-State", ""),
-            Map.of("Server-State", "dev\u0000"))) {
+            Map.of("Server-State", "dev\u0000"), Map.of("Reason", "x".repeat(501)))) {
             assertThatIllegalArgumentException().as(trailers.toString())
                 .isThrownBy(() -> git.commitAll("export", trailers));
         }

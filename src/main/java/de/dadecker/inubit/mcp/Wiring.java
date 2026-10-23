@@ -1,12 +1,16 @@
 package de.dadecker.inubit.mcp;
 
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
+import de.dadecker.inubit.mcp.adapter.NodeSecrets;
+import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
+import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.soap.SoapE2eClient;
@@ -28,11 +32,15 @@ import de.dadecker.inubit.mcp.application.ImportService;
 import de.dadecker.inubit.mcp.application.InventoryCache;
 import de.dadecker.inubit.mcp.application.InventoryService;
 import de.dadecker.inubit.mcp.application.NodeDeployer;
+import de.dadecker.inubit.mcp.application.NodeOverview;
+import de.dadecker.inubit.mcp.application.NodeVersions;
+import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.application.PackageWriter;
 import de.dadecker.inubit.mcp.application.ProcessControlService;
 import de.dadecker.inubit.mcp.application.ReleaseDiscovery;
 import de.dadecker.inubit.mcp.application.ReleasePlanner;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
+import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TagService;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.WorkspaceService;
@@ -42,16 +50,23 @@ import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.config.ParameterStore;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.SourcedValue;
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
-import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
+import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
+import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
+import de.dadecker.inubit.mcp.domain.port.E2ePort;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.infra.AuditLog;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
@@ -80,13 +95,17 @@ import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Composition root: builds the shared components from a validated configuration and the tool
@@ -107,12 +126,16 @@ import java.util.function.Predicate;
  * share one
  * challenge registry and the audit log; the import service uses the check service and keeps
  * its backups in
- * {@code ~/.inubit-mcp/<profile>/backups} (created on the first import).
+ * {@code ~/.inubit-mcp/<profile>/backups} (created on the first import). Feature 009 (research
+ * D-12): these conditions ignore nodes pinned to a version on which the tool's capability is
+ * unsupported ({@link #possiblyCapable}); {@code deploy_release} needs such a target node.
  *
  * <p>The JVM shutdown hook that stops StartCLI work is registered as the last step of the
  * constructor, so that a failing constructor leaves no hook behind (US3 re-review N2).
  */
 final class Wiring implements AutoCloseable {
+
+    private static final CapabilityMatrix MATRIX = CapabilityMatrix.production();
 
     private final ProfileInfo profile;
     private final SecretScrubber scrubber;
@@ -122,7 +145,10 @@ final class Wiring implements AutoCloseable {
     private final ResultLimiter limiter;
     private final ClockProvider clock;
     private final AdapterGatewayFactory gateways;
-    private final List<NodeSummary> summaries;
+    /** Feature 009: the StartCLI client probe for {@code get_health} and the version gate. */
+    private final ClientVersionPort clientVersions;
+    /** Feature 009 (research D-9): the {@code list_nodes} view with the version state. */
+    private final NodeOverview overview;
     private final HealthService health;
     private final DiagnosisService diagnosis;
     private final InventoryService inventory;
@@ -152,7 +178,7 @@ final class Wiring implements AutoCloseable {
     Wiring(ProfileConfig config, CredentialResolution credentials, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows) {
         this(config, credentials, scrubber, clock, exists, windows, new SystemProcessLauncher(),
-            System.getenv());
+            System.getenv(), SsmParameterStore::new);
     }
 
     /**
@@ -162,6 +188,17 @@ final class Wiring implements AutoCloseable {
     Wiring(ProfileConfig config, CredentialResolution credentials, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment) {
+        this(config, credentials, scrubber, clock, exists, windows, launcher, environment,
+            SsmParameterStore::new);
+    }
+
+    /**
+     * As above, with the Parameter Store of the AWS nodes (feature 010), created only if a node
+     * reads its secrets from it; nothing is fetched here (FR-006a).
+     */
+    Wiring(ProfileConfig config, CredentialResolution credentials, SecretScrubber scrubber,
+        ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
+        Map<String, String> environment, Supplier<ParameterStore> parameterStore) {
         this.profile = config.profileInfo();
         this.scrubber = scrubber;
         // 002 research D-8: the export directories carry the profile name
@@ -175,56 +212,86 @@ final class Wiring implements AutoCloseable {
         this.limiter = new ResultLimiter(config.resultLimits().maxItems(),
             config.resultLimits().maxChars());
         this.clock = clock;
-        this.gateways = new AdapterGatewayFactory(servers, credentials, scrubber, clock.clock(),
-            new CliRunner(launcher, environment, windows, cliResources));
-        this.summaries = servers.stream().map(server -> server.summary(exists, windows)).toList();
-        Map<NodeId, Duration> timeouts = new HashMap<>();
-        servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
-        this.health = new HealthService(gateways, targets, fanOut, timeouts::get, clock.clock());
-        Map<NodeId, Duration> hangingThresholds = new HashMap<>();
-        servers.forEach(server -> hangingThresholds.put(server.id(), server.hangingThreshold()));
-        this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
-            hangingThresholds::get, clock.clock(), ResultJson::size);
         Map<NodeId, EffectiveNodeConfig> byId = new HashMap<>();
         servers.forEach(server -> byId.put(server.id(), server));
+        // feature 009 (research D-4): the per-node version state, fed by the adapters
+        NodeVersions versions = new NodeVersions(clock.clock(),
+            id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
+        CliRunner cliRunner = new CliRunner(launcher, environment, windows, cliResources);
+        // feature 009 (research D-16): only the 8.1 port set, as default for every version
+        Map<NodeId, NodeSecrets> secrets = secrets(servers, credentials, scrubber, clock,
+            parameterStore);
+        this.gateways = new AdapterGatewayFactory(servers, secrets, scrubber, clock.clock(),
+            cliRunner, versions, PortSetRegistry.v81Default());
+        // feature 009 (research D-7): the StartCLI client probe, on the same runner so that a
+        // shutdown also stops a running probe
+        this.clientVersions = new CliVersionProbe(cliRunner, byId::get);
+        // feature 009 (FR-002): get_health and the gate probe the client of nodes with StartCLI
+        // installed; outside get_health the probe is bounded by the node's cliTimeout
+        Set<NodeId> withClient = servers.stream()
+            .filter(server -> server.cliAvailable(exists, windows))
+            .map(EffectiveNodeConfig::id).collect(Collectors.toUnmodifiableSet());
+        VersionGate versionGate = new VersionGate(versions, gateways, MATRIX, clientVersions,
+            withClient::contains, id -> byId.get(id).cliTimeout(), terms);
+        Map<NodeId, Duration> timeouts = new HashMap<>();
+        servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
+        this.health = new HealthService(gateways, targets, fanOut, timeouts::get, clock.clock(),
+            versionGate, versions, clientVersions, withClient::contains);
+        Map<NodeId, Duration> hangingThresholds = new HashMap<>();
+        servers.forEach(server -> hangingThresholds.put(server.id(), server.hangingThreshold()));
+        // feature 010 (research R-8): a fan-out branch of an AWS node may wait for its fetch
+        SecretTiming secretTiming = new SecretTiming(servers.stream()
+            .filter(server -> server.secretPlan().aws()).map(EffectiveNodeConfig::id)
+            .collect(Collectors.toUnmodifiableSet()), NodeSecrets.STORE_TIMEOUT);
+        this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
+            hangingThresholds::get, clock.clock(), ResultJson::size, versionGate, secretTiming);
         this.inventory = new InventoryService(gateways, targets, fanOut, limiter,
             new InventoryCache(clock.clock(), id -> byId.get(id).inventory().cacheTtl()),
             id -> byId.get(id).inventory().owner(), timeouts::get,
-            id -> byId.get(id).cliExportTimeout(),
-            CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, terms);
-        // a plain HashMap is fine: it is filled here once, never modified afterwards, and safely
-        // published to the request threads through the final fields of this object and the
-        // services; lookups of unknown ids return null, which the guard treats as no write access
-        Map<NodeId, WritePolicy> policies = new HashMap<>();
-        servers.forEach(server -> policies.put(server.id(), policy(server, credentials)));
+            id -> byId.get(id).cliExportTimeout(), id -> byId.get(id).cliTimeout(),
+            CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, terms, versionGate,
+            secretTiming);
+        // feature 010 (research R-16): built per lookup, so that the account of an AWS node is
+        // the username fetched after startup; a lookup never fetches. Unknown ids give null,
+        // which the guard treats as no write access
+        Function<NodeId, WritePolicy> policies = id -> byId.containsKey(id)
+            ? policy(byId.get(id), secrets.get(id)) : null;
         AuditLog audit = new AuditLog(config.auditDirectory(), scrubber);
         this.processControl = new ProcessControlService(
-            new WriteGuard(targets, policies::get, gateways), policies::get, gateways,
-            new ConfirmationRegistry(clock.clock()), audit, clock.clock(), UUID::randomUUID,
-            profile.name());
+            new WriteGuard(targets, policies, gateways, versionGate), policies,
+            gateways, new ConfirmationRegistry(clock.clock()), audit, clock.clock(),
+            UUID::randomUUID, profile.name());
         // feature 003: the workspace history uses the system git (not the StartCLI launcher)
         Path workspace = config.workspace();
         this.exportArtifacts = new ExportArtifactsTool(new WorkspaceService(workspace,
             new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
-            new ArchiveCodec(), gateways::artifacts, gateways::inventory), targets,
+            new ArchiveCodec(), gateways::artifacts, gateways::inventory, versionGate), targets,
             id -> byId.get(id).inventory().owner(), limiter);
         ArtifactCheckService checks = new ArtifactCheckService(workspace,
             new WorkspaceInspector(), new SaxonXsltRunner(workspace), group -> servers.stream()
                 .map(EffectiveNodeConfig::id).filter(id -> id.group().equals(group)).findFirst(),
             gateways::inventory, id -> byId.get(id).inventory().owner(), limiter,
-            clock.clock());
+            clock.clock(), versionGate);
         this.checkArtifacts = new CheckArtifactsTool(checks);
         // feature 004: the development tools (offered only with a development node)
         Map<NodeId, DevelopmentPolicy> development = new HashMap<>();
         servers.forEach(server -> development.put(server.id(), server.developmentPolicy()));
         StageChain chain = config.stageChain();
         this.chain = chain;
+        // feature 009 (FR-004): list_nodes reads the version state, it never contacts a node
+        Map<NodeId, Set<Capability>> allowed = new HashMap<>();
+        servers.forEach(server -> allowed.put(server.id(), allowed(server,
+            withClient.contains(server.id()))));
+        this.overview = new NodeOverview(servers.stream()
+            .map(server -> server.summary(exists, windows)).toList(), versions, MATRIX,
+            allowed::get);
         DevelopmentGuard developmentGuard = new DevelopmentGuard(targets, development::get,
-            node -> gateways.imports(node).checkAvailable(), group -> Optional.ofNullable(
+            node -> gateways.imports(node).checkAvailable(), versionGate,
+            group -> Optional.ofNullable(
                 chain.targets().get(group)).map(StageChain.ChainLink::mode),
             config.defaults().effectiveDeployConfirmationTtl());
         Function<NodeId, ImportService.Account> accounts = id -> new ImportService.Account(
-            policies.get(id).account().orElse("unknown"), byId.get(id).baseUrl().getHost());
+            policies.apply(id).account().orElse("unknown"), byId.get(id).baseUrl().getHost());
         WriteChallengeRegistry challenges = new WriteChallengeRegistry(clock.clock());
         Path backups = BackupStore.defaultRoot(Path.of(System.getProperty("user.home")),
             profile.name());
@@ -233,13 +300,30 @@ final class Wiring implements AutoCloseable {
             id -> byId.get(id).inventory().owner(), accounts, challenges, audit, clock.clock(),
             UUID::randomUUID)));
         CredentialResolver e2eCredentials = new CredentialResolver(environment, scrubber,
-            config.credentialPrefix());
+            config.terminology().effectiveOrDefault(), config.credentialPrefix(),
+            config.secretPlans());
+        Function<NodeId, E2ePort> e2ePorts = id -> {
+            if (!byId.get(id).secretPlan().aws()) {
+                return e2eClients.computeIfAbsent(id, node -> new SoapE2eClient(byId.get(node),
+                    development.get(node).soapBaseUrl().orElseThrow(),
+                    trustStorePassword(credentials, node), e2eCredentials.e2e(node)
+                        .map(e2e -> new SoapE2eClient.BasicAuth(e2e.username().value(),
+                            e2e.password().value()))));
+            }
+            // feature 010 (FR-006a, research R-7): both fetches before computeIfAbsent, so a slow
+            // fetch blocks no other entry and a failed one is not cached as a client
+            NodeSecrets nodeSecrets = secrets.get(id);
+            Optional<de.dadecker.inubit.mcp.infra.Secret> trustStorePassword = nodeSecrets
+                .current(NodeSecrets.STORE_TIMEOUT).trustStorePassword()
+                .map(SourcedValue::value);
+            Optional<SoapE2eClient.BasicAuth> auth = nodeSecrets.e2e(NodeSecrets.STORE_TIMEOUT)
+                .map(e2e -> new SoapE2eClient.BasicAuth(e2e.username().value(),
+                    e2e.password().value()));
+            return e2eClients.computeIfAbsent(id, node -> new SoapE2eClient(byId.get(node),
+                development.get(node).soapBaseUrl().orElseThrow(), trustStorePassword, auth));
+        };
         this.runE2eTest = new RunE2eTestTool(new E2eTestService(new E2eTestService.Dependencies(
-            workspace, backups, profile.name(), developmentGuard, id -> e2eClients.computeIfAbsent(id,
-                node -> new SoapE2eClient(byId.get(node), development.get(node).soapBaseUrl()
-                    .orElseThrow(), trustStorePassword(credentials, node), e2eCredentials
-                    .e2e(node).map(e2e -> new SoapE2eClient.BasicAuth(e2e.username().value(),
-                        e2e.password().value())))),
+            workspace, backups, profile.name(), developmentGuard, e2ePorts,
             gateways::logs, gateways::processes, hangingThresholds::get, accounts, challenges,
             audit, clock.clock(), UUID::randomUUID)));
         // feature 005: deploy_release along the stage chain (offered only with a chain)
@@ -258,7 +342,7 @@ final class Wiring implements AutoCloseable {
                 (releaseRoot, paths) -> new ArtifactCheckService(releaseRoot,
                     new WorkspaceInspector(), new SaxonXsltRunner(releaseRoot), group ->
                         Optional.empty(), gateways::inventory, id -> Optional.empty(), limiter,
-                    clock.clock()).checkPaths(paths, false), accounts, workspace,
+                    clock.clock(), versionGate).checkPaths(paths, false), accounts, workspace,
                 clock.clock()));
             NodeDeployer nodeDeployer = new NodeDeployer(new NodeDeployer.Dependencies(planner,
                 releases, importArchives, codec, gateways::imports, gateways::tags, accounts,
@@ -270,7 +354,7 @@ final class Wiring implements AutoCloseable {
                 deployments, profile.name(), new DeployGuard(chain, targets, group ->
                     servers.stream().filter(server -> server.id().group().equals(group))
                         .findFirst().flatMap(server -> server.inventory().owner()), audit,
-                    profile.name(), clock.clock(), UUID::randomUUID),
+                    versionGate, profile.name(), clock.clock(), UUID::randomUUID),
                 new ReleaseDiscovery(gateways::artifacts, codec, releases, workspace), planner,
                 ledger, challenges, config.defaults().effectiveDeployConfirmationTtl(), audit,
                 clock.clock(), UUID::randomUUID, nodeDeployer, new GitCli(workspace, profile.name(),
@@ -284,7 +368,8 @@ final class Wiring implements AutoCloseable {
                 development::get,
                 new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
                 new WorkspaceInspector(), checks, new ArchiveCodec(), new V81ImportArchives(),
-                gateways::artifacts, gateways::imports, gateways::tags, gateways::inventory,
+                new V81ReleaseArchives(), gateways::artifacts, gateways::imports, gateways::tags,
+                gateways::inventory,
                 id -> byId.get(id).inventory().owner(), accounts, challenges,
                 new BackupStore(backups, clock.clock()),
                 audit, clock.clock(), UUID::randomUUID, deployer));
@@ -296,6 +381,25 @@ final class Wiring implements AutoCloseable {
         Runtime.getRuntime().addShutdownHook(cleanupHook);
     }
 
+    /**
+     * Feature 010 (research R-7): one {@link NodeSecrets} per node; environment nodes hold their
+     * startup credentials, AWS nodes fetch on first use from the one Parameter Store, which is
+     * created only if there is an AWS node.
+     */
+    private static Map<NodeId, NodeSecrets> secrets(List<EffectiveNodeConfig> servers,
+        CredentialResolution credentials, SecretScrubber scrubber, ClockProvider clock,
+        Supplier<ParameterStore> parameterStore) {
+        ParameterStore store = servers.stream().anyMatch(server -> server.secretPlan().aws())
+            ? parameterStore.get() : null;
+        Map<NodeId, NodeSecrets> secrets = new HashMap<>();
+        for (EffectiveNodeConfig server : servers) {
+            secrets.put(server.id(), server.secretPlan().aws()
+                ? NodeSecrets.aws(server.secretPlan(), store, scrubber, clock.clock())
+                : NodeSecrets.environment(credentials.credentials(server.id())));
+        }
+        return secrets;
+    }
+
     /** The resolved trust-store password of {@code node}, if any. */
     private static Optional<de.dadecker.inubit.mcp.infra.Secret> trustStorePassword(
         CredentialResolution credentials, NodeId node) {
@@ -304,13 +408,19 @@ final class Wiring implements AutoCloseable {
             .map(SourcedValue::value);
     }
 
-    /** The write settings of {@code server} with the INUBIT account for the audit. */
-    private static WritePolicy policy(EffectiveNodeConfig server,
-        CredentialResolution credentials) {
-        Optional<String> account = credentials.all().stream()
-            .filter(resolved -> resolved.node().equals(server.id()))
-            .findFirst()
-            .flatMap(resolved -> resolved.username().map(SourcedValue::value));
+    /**
+     * The write settings of {@code server} with the INUBIT account for the audit (research
+     * R-16): the username {@code secrets} hold (an environment node's startup username, an AWS
+     * node's fetched one), else for an AWS node {@code (Parameter Store <username parameter>)};
+     * never fetches.
+     */
+    private static WritePolicy policy(EffectiveNodeConfig server, NodeSecrets secrets) {
+        Optional<String> account = secrets.held()
+            .flatMap(held -> held.username().map(SourcedValue::value));
+        if (account.isEmpty() && server.secretPlan().aws()) {
+            account = Optional.of("(Parameter Store " + server.secretPlan().names().orElseThrow()
+                .username().orElseThrow() + ")");
+        }
         return new WritePolicy(server.id(), server.production(), server.write().enabled(),
             server.write().productionOptIn(),
             server.write().confirmation() == ConfirmationMode.CLIENT
@@ -321,7 +431,7 @@ final class Wiring implements AutoCloseable {
     /** The tools to register. */
     List<ToolHandler> toolHandlers() {
         List<ToolHandler> handlers = new ArrayList<>();
-        handlers.add(new ListNodesTool(profile, summaries));
+        handlers.add(new ListNodesTool(profile, overview::nodes));
         handlers.add(new GetHealthTool(health));
         handlers.add(new FindProcessesTool(diagnosis));
         handlers.add(new QueryLogsTool(diagnosis));
@@ -346,7 +456,9 @@ final class Wiring implements AutoCloseable {
         if (anyE2eNode()) {
             handlers.add(runE2eTest);
         }
-        deployRelease.ifPresent(handlers::add);
+        if (anyDeploymentTargetNode()) {
+            deployRelease.ifPresent(handlers::add);
+        }
         return List.copyOf(handlers);
     }
 
@@ -385,34 +497,99 @@ final class Wiring implements AutoCloseable {
         return clock;
     }
 
-    /** True if at least one node is a development stage (feature 004, FR-001). */
+    /**
+     * True if at least one node is a development stage (feature 004, FR-001) that is not pinned
+     * to a version without development writes ({@link #possiblyCapable}).
+     */
     boolean anyDevelopmentNode() {
-        return servers.stream().anyMatch(server -> server.development().enabled());
+        return servers.stream().anyMatch(server -> server.development().enabled()
+            && possiblyCapable(server, Capability.DEVELOPMENT_WRITE));
     }
 
     /**
      * Feature 005 (T026): true if a group receives deployments in mode {@code EXECUTE}; its
-     * nodes get deployment backups that {@code restore_backup} restores.
+     * nodes get deployment backups that {@code restore_backup} restores. Such a node must also
+     * not be pinned to a version without deployments ({@link #possiblyCapable}).
      */
     boolean anyDeploymentTarget() {
-        return chain.targets().values().stream().anyMatch(link -> link.mode()
-            == de.dadecker.inubit.mcp.domain.model.DeployMode.EXECUTE);
+        return servers.stream().anyMatch(server -> chain.link(server.id().group())
+            .filter(link -> link.mode() == DeployMode.EXECUTE).isPresent()
+            && possiblyCapable(server, Capability.DEPLOYMENT));
+    }
+
+    /** True if a node of a group that receives deployments (in either mode) may deploy. */
+    private boolean anyDeploymentTargetNode() {
+        return servers.stream().anyMatch(server -> chain.link(server.id().group()).isPresent()
+            && possiblyCapable(server, Capability.DEPLOYMENT));
     }
 
     /**
      * True if at least one development node allows end-to-end tests ({@code e2eTests} other
      * than {@code FORBIDDEN}, feature 004, contracts/mcp-tools-delta.md), or a non-production
-     * node of a group that receives deployments (feature 005, T027).
+     * node of a group that receives deployments (feature 005, T027); that node must also not be
+     * pinned to a version without end-to-end tests ({@link #possiblyCapable}).
      */
     boolean anyE2eNode() {
-        return servers.stream().map(EffectiveNodeConfig::developmentPolicy)
-            .anyMatch(policy -> policy.e2eTests() != E2ePolicy.FORBIDDEN && (policy.enabled()
-                || (!policy.production() && chain.link(policy.node().group()).isPresent())));
+        return servers.stream().anyMatch(server -> possiblyCapable(server, Capability.E2E_TEST)
+            && e2eNode(server));
     }
 
-    /** True if at least one server has effective write access (Story 4 / AS 6). */
+    /** True if {@code server} allows end-to-end tests (see {@link #anyE2eNode()}). */
+    private boolean e2eNode(EffectiveNodeConfig server) {
+        DevelopmentPolicy policy = server.developmentPolicy();
+        return policy.e2eTests() != E2ePolicy.FORBIDDEN && (policy.enabled()
+            || (!policy.production() && chain.link(policy.node().group()).isPresent()));
+    }
+
+    /**
+     * Feature 009 (FR-003, FR-004): the capabilities the configuration of {@code server} allows,
+     * before its version is considered: the reads always, the workspace export with a StartCLI
+     * installation, development writes on a development stage, deployments in a group that
+     * receives them, end-to-end tests where allowed, process control with write access.
+     */
+    private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
+        Set<Capability> allowed = EnumSet.of(Capability.MONITORING, Capability.DIAGNOSIS,
+            Capability.INVENTORY);
+        if (withClient) {
+            allowed.add(Capability.WORKSPACE_EXPORT);
+        }
+        if (server.development().enabled() && !server.production()) {
+            allowed.add(Capability.DEVELOPMENT_WRITE);
+        }
+        if (chain.link(server.id().group()).isPresent()) {
+            allowed.add(Capability.DEPLOYMENT);
+        }
+        if (e2eNode(server)) {
+            allowed.add(Capability.E2E_TEST);
+        }
+        if (server.effectiveWriteEnabled()) {
+            allowed.add(Capability.PROCESS_CONTROL);
+        }
+        return allowed;
+    }
+
+    /**
+     * True if at least one server has effective write access (Story 4 / AS 6) and is not pinned
+     * to a version without process control ({@link #possiblyCapable}).
+     */
     boolean anyWriteEnabled() {
-        return servers.stream().anyMatch(EffectiveNodeConfig::effectiveWriteEnabled);
+        return servers.stream().anyMatch(server -> server.effectiveWriteEnabled()
+            && possiblyCapable(server, Capability.PROCESS_CONTROL));
+    }
+
+    /**
+     * Feature 009 (research D-12, FR-007): false only if {@code server} is pinned to a line or
+     * version on which the matrix declares {@code capability} unsupported; an {@code AUTO} node
+     * may turn out to run a capable version.
+     */
+    private static boolean possiblyCapable(EffectiveNodeConfig server, Capability capability) {
+        return switch (server.versionLine()) {
+            case VersionSetting.Auto auto -> true;
+            case VersionSetting.Line line -> MATRIX.stateOfLine(line.major(), line.minor(),
+                capability) != SupportState.UNSUPPORTED;
+            case VersionSetting.Pinned pinned -> MATRIX.state(Optional.of(pinned.version()),
+                capability) != SupportState.UNSUPPORTED;
+        };
     }
 
     /**

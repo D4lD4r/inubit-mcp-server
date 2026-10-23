@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
-import de.dadecker.inubit.mcp.application.DevelopmentGuard.Capability;
+import de.dadecker.inubit.mcp.application.DevelopmentGuard.Operation;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
@@ -71,7 +71,7 @@ import org.slf4j.LoggerFactory;
 public final class TagService {
 
     private static final Logger LOG = LoggerFactory.getLogger(TagService.class);
-    private static final Capability CAPABILITY = Capability.TAG_ARTIFACTS;
+    private static final Operation OPERATION = Operation.TAG_ARTIFACTS;
     /** The names StartCLI quoting can carry (research R-11, {@code CliCommand.VALUE}). */
     private static final Pattern NAME = Pattern.compile("^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$");
     private static final Pattern REASON = Pattern.compile("^[^#@\\p{Cntrl}]{1,500}$");
@@ -157,7 +157,7 @@ public final class TagService {
         Call call = new Call(request);
         try {
             validate(request);
-            DevelopmentPolicy policy = d.guard().admit(request.node(), CAPABILITY);
+            DevelopmentPolicy policy = d.guard().admit(request.node(), OPERATION);
             call.policy = policy;
             NodeId node = policy.node();
             call.owner = request.owner().or(() -> d.defaultOwners().apply(node))
@@ -216,7 +216,7 @@ public final class TagService {
         }
         if (server) {
             String previewed = d.challenges().redeem(request.confirmationCode().get(),
-                CAPABILITY, node, inputs);
+                OPERATION, node, inputs);
             if (!previewed.equals(state)) {
                 throw new ToolErrorException(ToolError.of(ErrorCode.CONFLICT,
                     "The diagram groups changed on " + node + " after the preview (new head"
@@ -232,7 +232,7 @@ public final class TagService {
     private Response challenge(Call call, NodeId node, DevelopmentPolicy policy, String inputs,
         String state, int workflows) {
         TagRequest request = call.request;
-        WriteChallengeRegistry.Issued issued = d.challenges().issue(CAPABILITY, node, inputs,
+        WriteChallengeRegistry.Issued issued = d.challenges().issue(OPERATION, node, inputs,
             state, policy.confirmationTtl());
         Map<String, String> audited = call.inputs();
         audited.put(AuditRecord.ISSUED_CONFIRMATION_CODE, issued.code());
@@ -266,7 +266,7 @@ public final class TagService {
             LOG.info("tag_artifacts on {}: EXECUTED (audit id {})", node, auditId);
             return new Response.Completed(new TagOutcome(auditId, WriteOutcome.Outcome.EXECUTED,
                 Optional.empty(), request.tag(), request.diagramGroups(), result.workflows(),
-                result.modules(), List.of(), List.of()));
+                result.modules(), List.of(), call.policy.warnings()));
         }
         // research D-26: nothing is ever removed (StartCLI removes a tag only owner-wide)
         WriteOutcome.Failure failure = result.failure().orElseThrow();
@@ -274,10 +274,11 @@ public final class TagService {
             failure.code() + " at " + failure.step() + ": " + failure.message(), null);
         LOG.warn("tag_artifacts on {}: FAILED at {} (audit id {})", node, failure.step(),
             auditId);
+        List<String> warnings = new ArrayList<>(call.policy.warnings());
+        warnings.add(DiagramGroupTagger.retry(request.tag(), result));
         return new Response.Completed(new TagOutcome(auditId, WriteOutcome.Outcome.FAILED,
             Optional.of(failure), request.tag(), request.diagramGroups(), result.workflows(),
-            result.modules(), result.reports(), List.of(DiagramGroupTagger.retry(request.tag(),
-                result))));
+            result.modules(), result.reports(), warnings));
     }
 
     private static int head(List<VersionEntry> versions) {
@@ -384,7 +385,7 @@ public final class TagService {
             Optional<NodeId> node = Optional.ofNullable(policy).map(DevelopmentPolicy::node);
             return new AuditRecord(auditId, d.clock().instant(), d.profile(),
                 node.map(NodeId::value).orElse(bounded(request.node())), group(),
-                CAPABILITY.toolName(), step, inputs, node.map(id -> d.accounts().apply(id)
+                OPERATION.toolName(), step, inputs, node.map(id -> d.accounts().apply(id)
                     .user()), outcome, Optional.of(bounded(reason)), request.mcpClient());
         }
 

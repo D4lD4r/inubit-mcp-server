@@ -29,6 +29,12 @@ import java.util.TreeSet;
  *       {@link SecretScrubber}.
  *   <li>A {@code <PREFIX>_*_PASSWORD} variable that belongs to no configured node is a warning.
  *   <li>Messages name the levels with the profile's terminology.
+ *   <li>Feature 010 (research R-6): each node follows its {@link SecretPlan}. An environment node
+ *       reads the plan's variables (its source's {@code prefix} or the profile's); an AWS node is
+ *       not looked up and gets {@link NodeCredentials#deferred(NodeId)} without a missing-variable
+ *       error. A node without a plan reads the variables under the profile's prefix (a profile
+ *       without {@code credentials.source}). The collision check and the unmatched-variable
+ *       warning consider only environment nodes (research R-13).
  * </ul>
  */
 public final class CredentialResolver {
@@ -42,9 +48,11 @@ public final class CredentialResolver {
     private final SecretScrubber scrubber;
     private final Terminology terms;
     private final String prefix;
+    private final Map<NodeId, SecretPlan> plans;
 
     /**
-     * With the default terminology in messages.
+     * With the default terminology in messages; every node reads environment variables (for
+     * profiles without {@code credentials.source}).
      *
      * @param prefix the effective credential prefix ({@link ProfileConfig#credentialPrefix()})
      */
@@ -54,20 +62,42 @@ public final class CredentialResolver {
     }
 
     /**
+     * Every node reads environment variables (for profiles without {@code credentials.source}).
+     *
      * @param terms  the display names of the levels in messages (FR-007)
      * @param prefix the effective credential prefix ({@link ProfileConfig#credentialPrefix()})
      */
     public CredentialResolver(Map<String, String> environment, SecretScrubber scrubber,
         Terminology terms, String prefix) {
+        this(environment, scrubber, terms, prefix, Map.of());
+    }
+
+    /**
+     * @param terms  the display names of the levels in messages (FR-007)
+     * @param prefix the effective credential prefix ({@link ProfileConfig#credentialPrefix()})
+     * @param plans  the secret plan of each node ({@link ProfileConfig#secretPlans()})
+     */
+    public CredentialResolver(Map<String, String> environment, SecretScrubber scrubber,
+        Terminology terms, String prefix, Map<NodeId, SecretPlan> plans) {
         this.environment = Map.copyOf(environment);
         this.scrubber = scrubber;
         this.terms = Objects.requireNonNull(terms, "terms");
         this.prefix = Objects.requireNonNull(prefix, "prefix");
+        this.plans = Map.copyOf(plans);
     }
 
-    /** The variables of {@code node} under this resolver's prefix. */
+    /**
+     * The variables of {@code node}: those of its plan; for an AWS node or a node without a plan
+     * those under this resolver's prefix (like {@link EffectiveNodeConfig#credentialVariables()}).
+     */
     public CredentialVariables variables(NodeId node) {
-        return new CredentialVariables(prefix, node);
+        return Optional.ofNullable(plans.get(node)).flatMap(SecretPlan::variables)
+            .orElseGet(() -> new CredentialVariables(prefix, node));
+    }
+
+    private boolean aws(NodeId node) {
+        SecretPlan plan = plans.get(node);
+        return plan != null && plan.aws();
     }
 
     /**
@@ -84,11 +114,15 @@ public final class CredentialResolver {
 
     /**
      * The end-to-end test credentials of {@code server}: both variables set and a safe username
-     * ({@link #isSafeUsername}), else none. The password is registered with the scrubber.
+     * ({@link CredentialRules#isSafeUsername}), else none. The password is registered with the
+     * scrubber. None for an AWS node: its values are fetched on first use.
      */
     public Optional<E2eCredentials> e2e(NodeId server) {
+        if (aws(server)) {
+            return Optional.empty();
+        }
         Optional<SourcedValue<String>> username = lookup(server, CredentialVariables.E2E_USERNAME)
-            .filter(value -> isSafeUsername(value.value()));
+            .filter(value -> CredentialRules.isSafeUsername(value.value()));
         Optional<SourcedValue<String>> password = lookup(server,
             CredentialVariables.E2E_PASSWORD);
         if (username.isEmpty() || password.isEmpty()) {
@@ -115,16 +149,19 @@ public final class CredentialResolver {
         List<String> errors = new ArrayList<>(collisions(servers));
         List<NodeCredentials> all = new ArrayList<>();
         for (NodeId server : servers) {
+            if (aws(server)) {
+                all.add(NodeCredentials.deferred(server));
+                continue;
+            }
             Optional<SourcedValue<String>> username = lookup(server, USERNAME);
             Optional<SourcedValue<Secret>> password = lookup(server, PASSWORD).map(this::register);
             Optional<SourcedValue<Secret>> trustStorePassword =
                 lookup(server, TRUSTSTORE_PASSWORD).map(this::register);
             if (username.isEmpty()) {
                 errors.add(missing(server, "username", USERNAME));
-            } else if (!isSafeUsername(username.get().value())) {
+            } else if (!CredentialRules.isSafeUsername(username.get().value())) {
                 errors.add(server + ": the username in " + username.get().sourceVariable()
-                    + " must not contain ':' or control characters and must not start with '-'"
-                    + " (it is used in the Basic-auth header and as StartCLI argument)");
+                    + " " + CredentialRules.SAFE_USERNAME_RULE);
             }
             if (password.isEmpty()) {
                 errors.add(missing(server, "password", PASSWORD));
@@ -139,16 +176,10 @@ public final class CredentialResolver {
             unmatchedPasswordVariables(servers, otherProfiles));
     }
 
-    /** No ':' (Basic auth), no control characters, no leading '-' (StartCLI option). */
-    static boolean isSafeUsername(String username) {
-        return !username.startsWith("-") && username.indexOf(':') < 0
-            && username.chars().noneMatch(Character::isISOControl);
-    }
-
     private Optional<SourcedValue<String>> lookup(NodeId server, String kind) {
         for (String variable : variables(server).candidates(kind)) {
             String value = environment.get(variable);
-            if (value != null && !value.isEmpty()) {
+            if (CredentialRules.isSet(value)) {
                 return Optional.of(new SourcedValue<>(value, variable));
             }
         }
@@ -165,7 +196,10 @@ public final class CredentialResolver {
             + names.get(1) + ")";
     }
 
-    /** Groups every derived name of the node credentials by the groups/nodes it is for. */
+    /**
+     * Groups every derived name of the node credentials by the groups/nodes it is for; environment
+     * nodes only (research R-13).
+     */
     private Map<String, Set<String>> owners(List<NodeId> servers) {
         return owners(servers, KINDS);
     }
@@ -173,11 +207,15 @@ public final class CredentialResolver {
     /**
      * Groups every derived name of {@code kinds} by the groups/nodes it is derived for. The
      * end-to-end kinds count as known names (no typo warning) but not for the collision check:
-     * a node named {@code e2e} clashes only where e2e tests are allowed (ConfigValidator).
+     * a node named {@code e2e} clashes only where e2e tests are allowed (ConfigValidator). AWS
+     * nodes derive no names (research R-13): they neither collide nor make a variable known.
      */
     private Map<String, Set<String>> owners(List<NodeId> servers, List<String> kinds) {
         Map<String, Set<String>> owners = new LinkedHashMap<>();
         for (NodeId server : servers) {
+            if (aws(server)) {
+                continue;
+            }
             for (String kind : kinds) {
                 String serverVariable = variables(server).nodeVariable(kind);
                 String stageVariable = variables(server).groupVariable(kind);

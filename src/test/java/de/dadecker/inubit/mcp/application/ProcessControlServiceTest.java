@@ -9,38 +9,51 @@ import de.dadecker.inubit.mcp.application.ProcessControlService.ControlRequest;
 import de.dadecker.inubit.mcp.application.ProcessControlService.Response;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ConfirmationChallenge;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProcessAction;
 import de.dadecker.inubit.mcp.domain.model.ProcessControlResult;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.ProcessState;
+import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy.Confirmation;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.AuditPort;
+import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * T104: the decision flow of {@code restart_process} / {@code kill_process}
  * (contracts/mcp-tools.md §7–8, FR-018 – FR-024, SC-005) with fakes for the ports, the audit log
- * and the clock.
+ * and the clock. Feature 009 (T010, FR-005, FR-011, FR-015): the version gate admits
+ * {@code PROCESS_CONTROL} for writes before the CLI check and the state read.
  */
 class ProcessControlServiceTest {
 
@@ -64,8 +77,28 @@ class ProcessControlServiceTest {
         STAGING, policy(STAGING, false, true, false, Confirmation.CLIENT),
         PROD, policy(PROD, true, true, false, Confirmation.SERVER)));
 
+    /** Feature 009: the {@code versionLine} of each server ({@code V8_1} if absent). */
+    private final Map<NodeId, VersionSetting> versionLines = new HashMap<>();
+    private final NodeVersions versions = new NodeVersions(clock,
+        node -> versionLines.getOrDefault(node, VersionSetting.V8_1),
+        node -> Duration.ofMinutes(10));
+    private final FakeVersionDetection detection = new FakeVersionDetection(versions);
+    /** T019: the nodes with a StartCLI installation (only they are probed) and their probes. */
+    private final Set<NodeId> withClient = new HashSet<>();
+    private final List<NodeId> probes = new CopyOnWriteArrayList<>();
+    private Supplier<ClientVersion> probeOutcome = () -> {
+        throw new AssertionError("no client probe scripted");
+    };
+    private final ClientVersionPort clientProbe = (node, timeout) -> {
+        probes.add(node);
+        return probeOutcome.get();
+    };
+
     private final ProcessControlService service = new ProcessControlService(
-        new WriteGuard(new TargetResolver(SERVERS), policies::get, ports), policies::get, ports,
+        new WriteGuard(new TargetResolver(SERVERS), policies::get, ports,
+            new VersionGate(versions, detection, CapabilityMatrix.production(), clientProbe,
+                withClient::contains, node -> Duration.ofSeconds(30), Terminology.DEFAULT)),
+        policies::get, ports,
         confirmations, audit, clock,
         () -> UUID.fromString(String.format("00000000-0000-0000-0000-%012d",
             ids.incrementAndGet())), "acme");
@@ -648,11 +681,100 @@ class ProcessControlServiceTest {
         ProcessControlResult result = result(kill("staging/inubit01", Optional.empty()));
 
         assertThat(result.outcome()).isEqualTo(ProcessControlResult.Outcome.EXECUTED);
+        assertThat(result.warnings()).isEmpty();
         assertThat(ports.actions()).containsExactly("kill staging/inubit01 " + PID);
         assertThat(audit.records).extracting(AuditRecord::step)
             .containsExactly(AuditRecord.Step.EXECUTE, AuditRecord.Step.EXECUTE);
         assertThat(audit.outcomes()).containsExactly(AuditOutcome.PENDING,
             AuditOutcome.EXECUTED);
+    }
+
+    // --- feature 009: version gate (T010) ----------------------------------------------------
+
+    @ParameterizedTest
+    @EnumSource(ProcessAction.class)
+    void onInubit90BothToolsAreRefusedAfterOnlyTheDetection(ProcessAction action) {
+        versionLines.put(DEV, VersionSetting.AUTO);
+        detection.answer(DEV, "9.0.7");
+
+        ToolError error = errorOf(() -> service.execute(request(action, "dev/node1", PID,
+            Optional.empty())));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(error.node()).contains(DEV);
+        assertThat(error.message()).startsWith(action.capability() + ": ")
+            .contains("INUBIT 9.0.7 on dev/node1").contains("process control")
+            .contains("nothing was sent");
+        assertThat(detection.requests()).containsExactly(DEV);
+        assertThat(ports.calls).as("no CLI check, no state read").isEmpty();
+        assertThat(audit.records).singleElement().satisfies(record -> {
+            assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED);
+            assertThat(record.capability()).isEqualTo(action.capability());
+            assertThat(record.reason()).hasValueSatisfying(reason -> assertThat(reason)
+                .startsWith("UNSUPPORTED_VERSION: " + action.capability() + ": "));
+        });
+    }
+
+    @ParameterizedTest
+    @EnumSource(ProcessAction.class)
+    void aClientPatchMismatchExecutesWithTheWarning(ProcessAction action) {
+        versionLines.put(STAGING, VersionSetting.AUTO);
+        detection.answer(STAGING, "8.1.18");
+        versions.clientProbed(STAGING, new ClientVersion(version("8.1.17"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.1.17"))));
+        ports.reading(rows(errorRow(STAGING)), rows());
+
+        ProcessControlResult result = result(request(action, "staging/inubit01", PID,
+            Optional.empty()));
+
+        assertThat(result.outcome()).isEqualTo(ProcessControlResult.Outcome.EXECUTED);
+        assertThat(result.warnings()).contains(List.of("StartCLI client 8.1.17 on staging/inubit01"
+            + " differs from INUBIT 8.1.18 (mismatch);"
+            + " StartCLI-backed tools still run, but their results may be unreliable"));
+        assertThat(ports.actions()).hasSize(1);
+        assertThat(detection.requests()).containsExactly(STAGING);
+    }
+
+    /**
+     * US2-5 (T019, FR-002): the client probe of an 8.1 node times out, the StartCLI-backed write
+     * runs with a warning naming the failed probe; the next call more than 60 s later probes again.
+     */
+    @Test
+    void aTimedOutClientProbeExecutesWithTheWarningAndIsRetriedAfter60Seconds() {
+        withClient.add(STAGING);
+        probeOutcome = () -> {
+            throw new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT,
+                "StartCLI did not finish within 30 s on staging/inubit01", "c", "s")
+                .withNode(STAGING));
+        };
+        // the state read and the re-read of both calls
+        ports.reading(rows(errorRow(STAGING)), rows(), rows(errorRow(STAGING)), rows());
+
+        ProcessControlResult first = result(restart("staging/inubit01", Optional.empty()));
+
+        assertThat(first.outcome()).isEqualTo(ProcessControlResult.Outcome.EXECUTED);
+        assertThat(first.warnings()).contains(List.of("The StartCLI client probe of"
+            + " staging/inubit01 failed (TIMEOUT at 2026-10-03T08:00:00Z); the INUBIT range of"
+            + " the client cannot be checked, StartCLI results may be unreliable"));
+        assertThat(probes).containsExactly(STAGING);
+
+        clock.advance(Duration.ofSeconds(61));
+        probeOutcome = () -> new ClientVersion(version("8.1.17"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.1.17")));
+
+        ProcessControlResult second = result(restart("staging/inubit01", Optional.empty()));
+
+        assertThat(probes).as("probed again after the 60 s back-off")
+            .containsExactly(STAGING, STAGING);
+        assertThat(second.outcome()).isEqualTo(ProcessControlResult.Outcome.EXECUTED);
+        assertThat(second.warnings()).isEmpty();
+        assertThat(ports.actions()).containsExactly("restart staging/inubit01 " + PID,
+            "restart staging/inubit01 " + PID);
+        assertThat(detection.requests()).as("V8_1 is pinned").isEmpty();
+    }
+
+    private static InubitVersion version(String raw) {
+        return InubitVersion.parse(raw).orElseThrow();
     }
 
     // --- execution failures ------------------------------------------------------------------
