@@ -6,6 +6,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -19,7 +20,6 @@ import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81MaintenanceProbe;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -99,7 +99,7 @@ class V81InventoryAdapterTest {
         credentials = new CredentialResolver(Map.of("INUBIT_DEV_USERNAME", "jdoe",
             "INUBIT_DEV_PASSWORD", PASSWORD), scrubber, "INUBIT").resolve(List.of(DEV)).all()
             .get(0);
-        guard = new CredentialGuard(new CredentialVariables("INUBIT", DEV), clock);
+        guard = new CredentialGuard(environmentLabels("INUBIT", DEV), clock);
         wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO))
             .willReturn(RestFixtures.response("system_info", "xml")));
         probe = new V81MaintenanceProbe(config, Optional.empty(), scrubber);

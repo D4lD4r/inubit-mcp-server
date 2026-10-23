@@ -9,6 +9,7 @@ import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
 import de.dadecker.inubit.mcp.domain.model.CheckFinding;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -104,7 +105,8 @@ class StructureCorpusTest {
             ArtifactCheckService checks = new ArtifactCheckService(root, new WorkspaceInspector(),
                 new SaxonXsltRunner(root), group -> Optional.empty(), node -> {
                     throw new AssertionError("no server lookups");
-                }, node -> Optional.empty(), ResultLimiter.withDefaults(), Clock.systemUTC());
+                }, node -> Optional.empty(), ResultLimiter.withDefaults(), Clock.systemUTC(),
+                FakeVersionDetection.pinned81());
             Map<String, Integer> counts = deliberatelyBroken ? broken : real;
             for (CheckFinding finding : checks.checkPaths(List.of("dev"), false)) {
                 counts.merge(finding.severity() + " " + finding.check() + " " + finding.code(),

@@ -91,6 +91,68 @@ class MainProcessTest {
             .doesNotContain("not json at all");
     }
 
+    @Test
+    void checkConfigOfAnAwsNodeBuildsTheRealParameterStoreWithoutAnyNetworkCall()
+        throws Exception {
+        // feature 010 T015: the real SsmParameterStore through the normal --check-config path.
+        // The child runs Main from the test classpath (java.class.path), not from the shaded
+        // JAR; the shaded JAR itself is not started here.
+        // Instance metadata is disabled and the AWS files are empty, so no credentials resolve
+        // and no request is sent; the child's home is the temporary directory, never ~/.aws.
+        Path awsConfig = Files.createFile(home.resolve("aws-config"));
+        Path awsCredentials = Files.createFile(home.resolve("aws-credentials"));
+        Path config = home.resolve("config.yaml");
+        Files.writeString(config, """
+            profile:
+              name: acme
+            auditDirectory: %s
+            groups:
+              - name: prod
+                credentials:
+                  source:
+                    type: awsParameterStore
+                    region: eu-central-1
+                  parameters:
+                    username: /test/prod/username
+                    password: /test/prod/password
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+            """.formatted(home.resolve("audit")));
+        Path java = Path.of(System.getProperty("java.home"), "bin", "java");
+        ProcessBuilder builder = new ProcessBuilder(java.toString(),
+            "-cp", System.getProperty("java.class.path"),
+            "-Dlogback.configurationFile=logback.xml", "-Duser.home=" + home,
+            // the cleared environment has no locale; without these the summary's "←" is
+            // printed as "?" on hosts whose default console encoding is not UTF-8
+            "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8",
+            Main.class.getName(), "--check-config", "--config", config.toString());
+        Map<String, String> environment = builder.environment();
+        environment.clear();
+        environment.put("AWS_EC2_METADATA_DISABLED", "true");
+        environment.put("AWS_CONFIG_FILE", awsConfig.toString());
+        environment.put("AWS_SHARED_CREDENTIALS_FILE", awsCredentials.toString());
+        Process process = builder.start();
+        child = process;
+        process.getOutputStream().close();
+        CompletableFuture<String> stderr = CompletableFuture.supplyAsync(
+            () -> readAll(process.getErrorStream()));
+        String stdout = readAll(process.getInputStream());
+        boolean exited = process.waitFor(30, TimeUnit.SECONDS);
+
+        assertThat(exited).isTrue();
+        String errors = stderr.get(30, TimeUnit.SECONDS);
+        assertThat(process.exitValue()).as(stdout + errors).isZero();
+        assertThat(stdout).contains("prod/node1: read-only, cli: unavailable, inubit: V8_1,"
+            + " secrets: awsParameterStore (eu-central-1),"
+            + " username ← /test/prod/username not checked,"
+            + " password ← /test/prod/password not checked\n",
+            // the credential failure, not an unreachable store: nothing was sent
+            "resolvability not checked: no AWS credentials could be resolved",
+            "Result: OK");
+    }
+
     private Run runMain(String... jvmOptions) throws Exception {
         return runMainAfter("", jvmOptions);
     }

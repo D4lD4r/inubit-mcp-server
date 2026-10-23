@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.config;
 
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.infra.AuditLog;
 import java.io.IOException;
 import java.net.URI;
@@ -21,6 +22,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
+import java.util.regex.Pattern;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonParser;
 import tools.jackson.core.JsonToken;
@@ -52,7 +55,10 @@ import tools.jackson.dataformat.yaml.YAMLMapper;
  *   <li>Unknown keys are rejected, except top-level keys starting with {@code x-}.
  *   <li>Credential keys ({@link #isCredentialKey}) are stripped and reported in
  *       {@link LoadedConfig#credentialKeys()} for {@link ConfigValidator}; their values are
- *       dropped.
+ *       dropped. Exempt are the {@code credentials} sections at the top, group and node level
+ *       and the parameter kinds inside their {@code parameters} (feature 010, research R-4).
+ *   <li>Inside a {@code credentials} section only known keys are accepted, and every parameter
+ *       name must be valid; errors name the key path, never a value.
  *   <li>{@code ~} at the start of a path means the user's home directory.
  *   <li>Defaults that depend on the profile name: {@code auditDirectory} and {@code workspace}
  *       (feature 003) below {@code ~/.inubit-mcp/<profile.name>}.
@@ -70,8 +76,23 @@ public final class ConfigLoader {
 
     private static final Set<String> CREDENTIAL_KEYS = Set.of("username", "credentials");
 
-    /** The top-level section that names the credential variables ({@code envPrefix}). */
+    /** The section that says where the credentials come from (top, group and node level). */
     private static final String CREDENTIALS_SECTION = "credentials";
+
+    /** Paths of the mappings that may hold a {@code credentials} section: top, group, node. */
+    private static final Pattern SECTION_OWNER =
+        Pattern.compile("(groups\\[\\d+](\\.nodes\\[\\d+])?)?");
+
+    /** Paths of the {@code parameters} mappings inside a {@code credentials} section. */
+    private static final Pattern PARAMETERS_PATH =
+        Pattern.compile("(groups\\[\\d+](\\.nodes\\[\\d+])?\\.)?credentials\\.parameters");
+
+    /** The keys of {@code credentials.parameters} (feature 010, data-model → ParameterNames). */
+    private static final List<String> PARAMETER_KINDS = List.of("username", "password",
+        "trustStorePassword", "e2eUsername", "e2ePassword");
+
+    private static final String ENVIRONMENT = "environment";
+    private static final String AWS_PARAMETER_STORE = "awsParameterStore";
 
     private final Map<String, String> environment;
     private final Path userHome;
@@ -88,7 +109,8 @@ public final class ConfigLoader {
             .disable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
             .addModule(new SimpleModule("inubit-mcp-config")
                 .addDeserializer(Path.class, new HomeExpandingPathDeserializer(userHome))
-                .addDeserializer(Duration.class, new IsoDurationDeserializer()))
+                .addDeserializer(Duration.class, new IsoDurationDeserializer())
+                .addDeserializer(VersionSetting.class, new VersionSettingDeserializer()))
             .build();
     }
 
@@ -306,6 +328,7 @@ public final class ConfigLoader {
         rootObject.properties().removeIf(entry -> entry.getKey().startsWith("x-"));
         // 002 research D-12: before binding, so a 001 file is not refused as "Unknown key"
         Format001Detector.check(rootObject, source);
+        checkCredentialsSections(rootObject, source);
         rejectEmptyListEntries(rootObject, "", source);
         List<String> urlProblems = new ArrayList<>();
         sanitizeUrls(rootObject, source, urlProblems);
@@ -324,8 +347,9 @@ public final class ConfigLoader {
                 + (at.isEmpty() ? " at the top level" : " at " + at) + " in " + source);
         } catch (DatabindException e) {
             // the offending value is never echoed: it could be a URL or text with secrets
-            throw new ConfigException("Invalid value at " + pathOf(e.getPath()) + " in " + source
-                + ": expected " + expected(e));
+            String what = targetType(e) == VersionSetting.class ? "versionLine" : "value";
+            throw new ConfigException("Invalid " + what + " at " + pathOf(e.getPath()) + " in "
+                + source + ": expected " + expected(e));
         } catch (JacksonException e) {
             throw new ConfigException("Invalid configuration in " + source + " ("
                 + e.getClass().getSimpleName() + ")");
@@ -366,14 +390,23 @@ public final class ConfigLoader {
     }
 
     /**
-     * The top-level {@code credentials} mapping configures only the variable names (002
-     * contracts/configuration.md); credential keys inside it are still stripped and reported.
-     * An empty ({@code credentials:}) or {@code null} section is the same as an absent one (002
-     * review G3); a scalar or list value is a credential key.
+     * The {@code credentials} mapping at the top, group and node level (feature 010) configures
+     * only where the credentials come from; credential keys inside it are still stripped and
+     * reported, except the parameter kinds ({@link #isParameterName}). An empty
+     * ({@code credentials:}) or {@code null} section is the same as an absent one (002 review
+     * G3); a scalar or list value is a credential key.
      */
     private static boolean isCredentialsSection(String path, Map.Entry<String, JsonNode> entry) {
-        return path.isEmpty() && entry.getKey().equals(CREDENTIALS_SECTION)
+        return SECTION_OWNER.matcher(path).matches() && entry.getKey().equals(CREDENTIALS_SECTION)
             && (entry.getValue().isObject() || entry.getValue().isNull());
+    }
+
+    /**
+     * A parameter kind inside {@code credentials.parameters}: its value is a Parameter Store
+     * name, which {@link #checkParameters} validates before anything else can see it.
+     */
+    private static boolean isParameterName(String path, String key) {
+        return PARAMETER_KINDS.contains(key) && PARAMETERS_PATH.matcher(path).matches();
     }
 
     static Path expandHome(String path, Path home) {
@@ -396,7 +429,8 @@ public final class ConfigLoader {
             while (entries.hasNext()) {
                 Map.Entry<String, JsonNode> entry = entries.next();
                 String childPath = path.isEmpty() ? entry.getKey() : path + "." + entry.getKey();
-                if (isCredentialKey(entry.getKey()) && !isCredentialsSection(path, entry)) {
+                if (isCredentialKey(entry.getKey()) && !isCredentialsSection(path, entry)
+                    && !isParameterName(path, entry.getKey())) {
                     found.add(childPath);
                     entries.remove();
                 } else {
@@ -406,6 +440,129 @@ public final class ConfigLoader {
         } else if (node != null && node.isArray()) {
             for (int i = 0; i < node.size(); i++) {
                 stripCredentialKeys(node.get(i), path + "[" + i + "]", found);
+            }
+        }
+    }
+
+    /**
+     * The key rules of the {@code credentials} sections (feature 010, research R-4), after the
+     * credential keys are stripped: only {@code envPrefix} and {@code source} at the top level,
+     * only {@code source} and {@code parameters} on groups and nodes, only the keys of its type
+     * inside {@code source} (so AWS access keys are refused, FR-004) and only the parameter kinds
+     * inside {@code parameters}, each with a valid name. Messages name keys and paths, never a
+     * value: a value may be a pasted secret.
+     */
+    private static void checkCredentialsSections(ObjectNode root, Path source) {
+        checkCredentialsSection(root, "", source);
+        JsonNode groups = root.get("groups");
+        if (groups == null || !groups.isArray()) {
+            return;
+        }
+        for (int i = 0; i < groups.size(); i++) {
+            if (!(groups.get(i) instanceof ObjectNode group)) {
+                continue;
+            }
+            String groupPath = "groups[" + i + "]";
+            checkCredentialsSection(group, groupPath, source);
+            JsonNode nodes = group.get("nodes");
+            if (nodes == null || !nodes.isArray()) {
+                continue;
+            }
+            for (int j = 0; j < nodes.size(); j++) {
+                if (nodes.get(j) instanceof ObjectNode node) {
+                    checkCredentialsSection(node, groupPath + ".nodes[" + j + "]", source);
+                }
+            }
+        }
+    }
+
+    private static void checkCredentialsSection(ObjectNode owner, String ownerPath,
+        Path source) {
+        if (!(owner.get(CREDENTIALS_SECTION) instanceof ObjectNode section)) {
+            return; // absent or null; any other value was stripped as a credential key
+        }
+        boolean topLevel = ownerPath.isEmpty();
+        String path = topLevel ? CREDENTIALS_SECTION : ownerPath + "." + CREDENTIALS_SECTION;
+        if (topLevel) {
+            rejectUnknownKeys(section, path, List.of("envPrefix", "source"),
+                "allowed: envPrefix, source; parameters only on groups and nodes", source);
+        } else {
+            rejectUnknownKeys(section, path, List.of("source", "parameters"),
+                "allowed: source, parameters; envPrefix only at the top level", source);
+        }
+        checkSource(section.get("source"), path + ".source", source);
+        JsonNode parameters = section.get("parameters");
+        if (parameters instanceof ObjectNode parameterNames) {
+            checkParameters(parameterNames, path + ".parameters", source);
+        } else if (parameters != null && !parameters.isNull()) {
+            throw new ConfigException("Invalid value at " + path + ".parameters in " + source
+                + ": expected a mapping");
+        }
+    }
+
+    private static void checkSource(JsonNode node, String path, Path source) {
+        if (node == null || node.isNull()) {
+            return;
+        }
+        String types = "one of " + ENVIRONMENT + ", " + AWS_PARAMETER_STORE;
+        if (!(node instanceof ObjectNode sourceNode)) {
+            throw new ConfigException("Invalid value at " + path + " in " + source
+                + ": expected a mapping with type " + types);
+        }
+        JsonNode type = sourceNode.get("type");
+        if (type == null || type.isNull()) {
+            throw new ConfigException(path + ".type is missing in " + source + ": expected "
+                + types);
+        }
+        String typeName = type.isString() ? type.asString() : "";
+        if (typeName.equals(ENVIRONMENT)) {
+            rejectUnknownKeys(sourceNode, path, List.of("type", "prefix"),
+                "allowed for type " + ENVIRONMENT + ": type, prefix", source);
+            checkText(sourceNode, path, "prefix", ProfileInfo::isValidPrefix,
+                ProfileInfo.PREFIX_PATTERN.pattern(), source);
+        } else if (typeName.equals(AWS_PARAMETER_STORE)) {
+            rejectUnknownKeys(sourceNode, path, List.of("type", "region", "awsProfile"),
+                "allowed for type " + AWS_PARAMETER_STORE + ": type, region, awsProfile", source);
+            if (!sourceNode.hasNonNull("region")) {
+                throw new ConfigException(path + ".region is missing in " + source
+                    + ": required for type " + AWS_PARAMETER_STORE);
+            }
+            checkText(sourceNode, path, "region", SecretSourceConfig::isValidRegion,
+                SecretSourceConfig.REGION_PATTERN.pattern(), source);
+            checkText(sourceNode, path, "awsProfile", SecretSourceConfig::isValidAwsProfile,
+                SecretSourceConfig.AWS_PROFILE_PATTERN.pattern(), source);
+        } else {
+            throw new ConfigException("Invalid value at " + path + ".type in " + source
+                + ": expected " + types);
+        }
+    }
+
+    /** An optional text value at {@code path.key}; absent and {@code null} are accepted. */
+    private static void checkText(ObjectNode node, String path, String key,
+        Predicate<String> valid, String rule, Path source) {
+        JsonNode value = node.get(key);
+        if (value != null && !value.isNull()
+            && !(value.isString() && valid.test(value.asString()))) {
+            throw new ConfigException("Invalid value at " + path + "." + key + " in " + source
+                + ": expected " + rule);
+        }
+    }
+
+    private static void checkParameters(ObjectNode parameters, String path, Path source) {
+        rejectUnknownKeys(parameters, path, PARAMETER_KINDS,
+            "allowed: " + String.join(", ", PARAMETER_KINDS), source);
+        for (String kind : PARAMETER_KINDS) {
+            checkText(parameters, path, kind, ParameterNames::isValidName,
+                ParameterNames.NAME_RULE, source);
+        }
+    }
+
+    private static void rejectUnknownKeys(ObjectNode node, String path, List<String> allowed,
+        String hint, Path source) {
+        for (Map.Entry<String, JsonNode> entry : node.properties()) {
+            if (!allowed.contains(entry.getKey())) {
+                throw new ConfigException("Unknown key '" + entry.getKey() + "' at " + path
+                    + " in " + source + " (" + hint + ")");
             }
         }
     }
@@ -518,15 +675,20 @@ public final class ConfigLoader {
         return name != null && name.isString() ? name.asString() : fallback;
     }
 
+    private static Class<?> targetType(DatabindException e) {
+        return e instanceof MismatchedInputException mismatch ? mismatch.getTargetType() : null;
+    }
+
     private static String expected(DatabindException e) {
-        Class<?> type = e instanceof MismatchedInputException mismatch
-            ? mismatch.getTargetType()
-            : null;
+        Class<?> type = targetType(e);
         if (type == null) {
             return "a different value";
         }
         if (type == Duration.class) {
             return "an ISO-8601 duration such as PT5S";
+        }
+        if (type == VersionSetting.class) {
+            return "AUTO, V8_1, V9_X or a full version such as \"8.1.17\"";
         }
         if (type.isEnum()) {
             return "one of " + String.join(", ", Arrays.stream(type.getEnumConstants())
@@ -590,6 +752,26 @@ public final class ConfigLoader {
             }
             throw MismatchedInputException.from(parser, Duration.class,
                 "expected an ISO-8601 duration");
+        }
+    }
+
+    /**
+     * {@code versionLine} (feature 009, research D-2): only strings, see
+     * {@link VersionSetting#parse}; a YAML number such as {@code 8.1} is refused.
+     */
+    private static final class VersionSettingDeserializer
+        extends ValueDeserializer<VersionSetting> {
+
+        @Override
+        public VersionSetting deserialize(JsonParser parser, DeserializationContext context) {
+            if (parser.currentToken() == JsonToken.VALUE_STRING) {
+                Optional<VersionSetting> setting = VersionSetting.parse(parser.getString().strip());
+                if (setting.isPresent()) {
+                    return setting.get();
+                }
+            }
+            throw MismatchedInputException.from(parser, VersionSetting.class,
+                "expected a versionLine");
         }
     }
 

@@ -211,12 +211,12 @@ class ImportRecoveryTest {
     private void exportGroupAndModuleAgain() {
         harness.exports.artifacts.exports.put("GRP-01", harness.inubit.exportWorkflowGroup());
         harness.exports.service().export(new WorkspaceService.ExportRequest(ImportHarness.DEV,
-            "jdoe", List.of("GRP-01"), List.of()));
+            "jdoe", List.of("GRP-01"), List.of(), List.of()));
         harness.exports.artifacts.exports.put(MODULE, harness.inubit.exportModule(XSLT,
             MODULE));
         harness.exports.service().export(new WorkspaceService.ExportRequest(ImportHarness.DEV,
             "jdoe", List.of(), List.of(new WorkspaceService.ModuleRef(MODULE,
-                Optional.of(XSLT)))));
+                Optional.of(XSLT))), List.of()));
     }
 
     @Test

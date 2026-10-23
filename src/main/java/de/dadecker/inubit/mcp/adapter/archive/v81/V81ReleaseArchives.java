@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Attribute;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Node;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.RepositoryUpload;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ReleaseArchivePort;
@@ -11,6 +12,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -45,6 +47,11 @@ import java.util.zip.ZipOutputStream;
  *       form with the flag, for fingerprints.
  *   <li>{@link #layoutOnly} is {@link LayoutDiff} on the reviewed forms.
  *   <li>{@link #keyMaterial} is {@link RepositoryArchive#isKeyMaterial}.
+ *   <li>{@link #repositoryArchiveFromFiles} builds the import archive of workspace files with
+ *       {@link RepositoryArchive#build}; an upload without metadata gets
+ *       {@link RepositoryMetadata#forNewFile} (feature 008, research D-7).
+ *   <li>{@link #repositoryMetaRecords} renders each file's metadata into the {@code .meta}
+ *       record an export writes ({@link MetaStore}, normalized XML; feature 008, research D-8).
  * </ul>
  */
 public final class V81ReleaseArchives implements ReleaseArchivePort {
@@ -166,13 +173,33 @@ public final class V81ReleaseArchives implements ReleaseArchivePort {
 
     @Override
     public Map<String, byte[]> repositoryFiles(byte[] archive) {
-        Map<String, byte[]> entries = entries(archive);
-        byte[] repository = entries.containsKey("Repository.zip") ? entries.get("Repository.zip")
-            : archive;
         Map<String, byte[]> files = new java.util.TreeMap<>();
-        RepositoryArchive.read(repository).forEach(file -> files.put(file.path(),
-            file.content()));
+        repositoryEntries(archive).forEach(file -> files.put(file.path(), file.content()));
         return files;
+    }
+
+    @Override
+    public Map<String, String> repositoryMetadata(byte[] archive) {
+        Map<String, String> metadata = new java.util.TreeMap<>();
+        repositoryEntries(archive).forEach(file -> metadata.put(file.path(),
+            new String(file.metadata(), StandardCharsets.UTF_8)));
+        return metadata;
+    }
+
+    @Override
+    public Map<String, byte[]> repositoryMetaRecords(byte[] archive) {
+        Map<String, byte[]> records = new java.util.TreeMap<>();
+        repositoryEntries(archive).forEach(file -> records.put(file.path(), MetaStore.serialize(
+            Map.of("metadata", new String(XmlNormalizer.normalize(XmlTree.parse(file.metadata())
+                .root()), StandardCharsets.UTF_8)))));
+        return records;
+    }
+
+    /** The repository files of a repository export or of an export's {@code Repository.zip}. */
+    private static List<RepositoryArchive.RepositoryFile> repositoryEntries(byte[] archive) {
+        Map<String, byte[]> entries = entries(archive);
+        return RepositoryArchive.read(entries.containsKey("Repository.zip")
+            ? entries.get("Repository.zip") : archive);
     }
 
     @Override
@@ -203,6 +230,18 @@ public final class V81ReleaseArchives implements ReleaseArchivePort {
             chosen.add(file);
         }
         return RepositoryArchive.build(owner, chosen);
+    }
+
+    @Override
+    public byte[] repositoryArchiveFromFiles(String owner, List<RepositoryUpload> uploads) {
+        List<RepositoryArchive.RepositoryFile> files = new ArrayList<>();
+        for (RepositoryUpload upload : uploads) {
+            String metadata = upload.metadata()
+                .orElseGet(() -> RepositoryMetadata.forNewFile(upload.path()));
+            files.add(new RepositoryArchive.RepositoryFile(upload.path(),
+                metadata.getBytes(StandardCharsets.UTF_8), upload.content()));
+        }
+        return RepositoryArchive.build(owner, files);
     }
 
     // --- helpers -------------------------------------------------------------------------------

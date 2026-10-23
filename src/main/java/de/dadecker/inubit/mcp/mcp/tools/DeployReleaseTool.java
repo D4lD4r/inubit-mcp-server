@@ -102,6 +102,9 @@ public final class DeployReleaseTool implements ToolHandler {
         preview.confirmationCode().ifPresent(code -> out.put("confirmationCode", code));
         preview.expiresAt().ifPresent(at -> out.put("expiresAt", at.toString()));
         out.put("message", preview.instruction());
+        if (!preview.warnings().isEmpty()) {
+            bounded(out, "warnings", preview.warnings(), text -> text);
+        }
         return out;
     }
 

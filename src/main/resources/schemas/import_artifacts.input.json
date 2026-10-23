@@ -52,6 +52,17 @@
         "additionalProperties": false
       }
     },
+    "repositoryPaths": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "uniqueItems": true,
+      "description": "Instead of diagramGroup or modules: import the new and changed repository files at or below these paths, relative to the owner's repository root (e.g. schemas/order.xsd for /Root/<owner>/schemas/order.xsd; a folder covers every file below it); no tag",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}(/[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199})*$"
+      }
+    },
     "reason": {
       "type": "string",
       "minLength": 1,
@@ -69,7 +80,7 @@
       "minLength": 1,
       "maxLength": 200,
       "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
-      "description": "Only with diagramGroup (INUBIT tags whole diagram groups; with modules the call is refused): set this tag on the diagram group after the verified import, as tag_artifacts does; an existing tag name is reused"
+      "description": "Only with diagramGroup (INUBIT tags whole diagram groups; with modules or repositoryPaths the call is refused): set this tag on the diagram group after the verified import, as tag_artifacts does; an existing tag name is reused"
     }
   },
   "additionalProperties": false,
@@ -82,6 +93,11 @@
     {
       "required": [
         "modules"
+      ]
+    },
+    {
+      "required": [
+        "repositoryPaths"
       ]
     }
   ]

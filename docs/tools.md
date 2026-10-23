@@ -10,7 +10,15 @@ tools of feature 003
 [contracts/mcp-tools-delta.md](../specs/003-artifact-workspace/contracts/mcp-tools-delta.md),
 the five development tools of feature 004
 [their delta](../specs/004-development-stage/contracts/mcp-tools-delta.md), `deploy_release` of
-feature 005 [its delta](../specs/005-stage-chain-deployment/contracts/mcp-tools-delta.md).
+feature 005 [its delta](../specs/005-stage-chain-deployment/contracts/mcp-tools-delta.md), the
+repository files of feature 008
+[its delta](../specs/008-repo-file-editing/contracts/mcp-tools-delta.md), the version-dependent
+capabilities of feature 009
+[its delta](../specs/009-inubit-version-detection/contracts/mcp-tools-delta.md), the credentials
+from AWS Parameter Store of feature 010
+[its delta](../specs/010-secret-sources/contracts/mcp-tools-delta.md) (no new tool, parameter,
+field or error code; see
+[Credentials from AWS Parameter Store](#credentials-from-aws-parameter-store-feature-010)).
 All sixteen tools are described here; each section quotes the description the server announces in
 `tools/list` for a profile `acme` without description and with the default terminology
 (Group/Node).
@@ -57,9 +65,9 @@ General rules:
 | [`get_inventory_item`](#get_inventory_item) | one diagram or module: versions, tags, active flag, modules used | read-only, idempotent, open world | yes (REST + StartCLI export with history) |
 | [`restart_process`](#restart_process--kill_process) | restart ONE process instance in ERROR on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `processErrorStart`) |
 | [`kill_process`](#restart_process--kill_process) | delete ONE process instance on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `kill`) |
-| [`export_artifacts`](#export_artifacts) | export technical workflows or modules into the local workspace and its history | read-only for INUBIT, non-idempotent (records a history entry), open world | yes (StartCLI `export`, read-only) |
+| [`export_artifacts`](#export_artifacts) | export technical workflows, modules or repository files into the local workspace and its history | read-only for INUBIT, non-idempotent (records a history entry), open world | yes (StartCLI `export`, read-only) |
 | [`check_artifacts`](#check_artifacts) | check workspace files offline: structure, a stylesheet run, XML/XSD | read-only, idempotent, open world | only to look up modules missing in the workspace (module list) |
-| [`import_artifacts`](#import_artifacts) | import the changed workflows of ONE diagram group (with their changed or new modules), or changed modules, into ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
+| [`import_artifacts`](#import_artifacts) | import the changed workflows of ONE diagram group (with their changed or new modules), changed modules, or new and changed repository files, into ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`restore_backup`](#restore_backup) | re-import the backup of an earlier development call or of a deployment on one node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`set_active`](#set_active) | activate or deactivate ONE workflow on ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`tag_artifacts`](#tag_artifacts) | tag the head versions of whole diagram groups (and their modules) | **destructive**, non-idempotent, open world | yes (StartCLI history `export` and `tag`) |
@@ -82,6 +90,118 @@ exceptions of feature 005: `restore_backup` of a deployment backup on the node i
 (its group receives deployments in mode `EXECUTE`; `restore_backup` is then offered even without
 a development node), and `run_e2e_test` on a non-production node whose group receives
 deployments, as its `e2eTests` allows.
+
+Feature 009 adds one condition to every write tool: it is also not offered when every node that
+could run it by configuration is pinned to a version that does not support it (see
+[tool announcement](#tool-announcement)).
+
+## INUBIT versions and capabilities (feature 009)
+
+Each tool needs one **capability** from INUBIT. The server declares per INUBIT version which
+capabilities it supports, checks the node's version (and, for StartCLI, the local client) before
+a call, and refuses or warns. How a node's version is configured, detected and pinned is in
+[setup.md, INUBIT version](setup.md#inubit-version-versionline); the StartCLI client check in
+[setup.md, StartCLI client check](setup.md#startcli-client-check).
+
+| Tool | Capability (name in `list_nodes`) | Kind | Channels | INUBIT 8.1.x | INUBIT 9.0.x, any other version, an unknown version, `V9_X` |
+|---|---|---|---|---|---|
+| `list_nodes` | – | read | none | runs | runs (no INUBIT contact) |
+| `get_health` | `monitoring` | read | REST | supported | runs with a warning; never refused |
+| `find_processes`, `query_logs` | `diagnosis` | read | REST | supported | runs with a warning |
+| `list_inventory` `DIAGRAM` | `inventory` | read | REST | supported | runs with a warning |
+| `list_inventory` `MODULE`, `get_inventory_item` (diagram details via REST; the module list and every version history via StartCLI) | `inventory` | read | REST + StartCLI | supported | the REST part runs with a warning; the StartCLI part also needs the client check |
+| `export_artifacts` | `workspace_export` | read on INUBIT | StartCLI | supported | runs with a warning if the client check passes (refused on 9.0 with an 8.1 client) |
+| `check_artifacts` | – (its optional module lookup: `inventory` over StartCLI) | read | none, optional module lookup | runs | runs; the module lookup as `inventory` |
+| `import_artifacts`, `restore_backup` of a development backup, `set_active`, `tag_artifacts` | `development_writes` | write | StartCLI + REST | supported | refused |
+| `restore_backup` of a deployment backup, `deploy_release` | `deployment` | write | StartCLI + REST | supported | refused; `deploy_release` also only within one minor version |
+| `run_e2e_test` | `e2e_test` | write | SOAP + REST | supported | refused |
+| `restart_process`, `kill_process` | `process_control` | write | REST + StartCLI | supported | refused |
+
+A deployment backup restored on a node that is also a development stage is checked as
+`development_writes`; both capabilities have the same states in this version. Refusal and
+warning texts name the capability in words: `monitoring`, `diagnosis`, `inventory`,
+`workspace export`, `development writes`, `deployment`, `end-to-end test`, `process control`.
+
+**The version a call is judged on.** For a pinned node (`V8_1`, `V9_X`, a concrete version) the
+pin, unless `get_health` has read another version since (then that one, see
+[setup.md](setup.md#inubit-version-versionline)); `V9_X` gives no minor version. For an `AUTO`
+node the version detected by the server or read by `get_health`, whichever is newer:
+
+- a read on an `AUTO` node whose version is not known yet sends one `/system/info` request first;
+- a write on an `AUTO` node detects again (one request) if the known version is missing, marked
+  stale or older than the node's `inventory.cacheTtl` (default 10 minutes); nothing else is sent
+  before the check passes;
+- a failed detection is not repeated within 60 s (account-lockout protection);
+- `get_health` reads `/system/info` anyway and never sends an extra request; its reading counts as
+  the node's current version, for pinned nodes too;
+- an `UNEXPECTED_RESPONSE` from the node (also HTTP 406, or a 404 from a fixed endpoint such as
+  `/system/info`) marks the known version stale. The public healthcheck
+  (`/ibis/rest/healthcheck`) is not such an endpoint: any answer there means "reachable", so a
+  404 from it marks nothing stale.
+
+**Reads** run on a version without a verified capability (INUBIT 9.0, a later version, `V9_X`,
+an unknown version) with the 8.1 adapters and a warning in the result's `warnings`. **Writes**
+run only on a known version that supports their capability; they are refused with
+[`UNSUPPORTED_VERSION`](#unsupported_version) on any version other than 8.1 (9.0, a later
+version, `V9_X`), on an unknown version (also after a failed detection or a failed re-detection
+before the write) and while a pin is contradicted by `get_health`. A tool that targets a group
+judges each node on its own: a refused node gets its `error`, the other nodes are still reported
+(`deploy_release` excepted).
+Every version refusal is logged on stderr; refusals of write tools are audited as `REFUSED`.
+
+**StartCLI client check** (only for calls that use StartCLI): the client is probed once per node
+(see [setup.md](setup.md#startcli-client-check)) and compared with the version above. A server
+major.minor outside the client's declared range refuses the StartCLI part with
+`UNSUPPORTED_VERSION`; a client version that differs from the server's (`mismatch`: major, minor
+or patch differ), a failed or timed-out probe, a client without a declared range or an unknown
+server version give a warning. REST- and SOAP-only calls are not affected.
+
+**Warnings** (strings in `warnings`; examples):
+
+| Case | Text | In |
+|---|---|---|
+| unverified version | `INUBIT 9.0.7 on dev/node1 is not verified for diagnosis; results may be incomplete` (`INUBIT 9.x (versionLine V9_X) on …` for a `V9_X` node) | read tools, `get_health` |
+| unknown version | `the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T09:12:03Z); results are unverified` (`(not yet detected)` if no detection was attempted) | read tools, `get_health` |
+| client and server differ (major, minor or patch) | `StartCLI client 8.1.17 on dev/node1 differs from INUBIT 8.1.18 (mismatch); StartCLI-backed tools still run, but their results may be unreliable` | StartCLI-backed tools, `get_health`, `list_nodes` |
+| server outside the client's range | `StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7; StartCLI-backed tools are refused on next/node1 (UNSUPPORTED_VERSION) until a StartCLI client that supports INUBIT 9.0 is installed` | `get_health`, `list_nodes` (the tools themselves refuse) |
+| client probe failed | `The StartCLI client probe of dev/node1 failed (TIMEOUT at 2026-10-18T09:12:03Z); the INUBIT range of the client cannot be checked, StartCLI results may be unreliable` | StartCLI-backed tools |
+| no declared range | `StartCLI client 8.1.17 of dev/node1 declares no supported INUBIT range; StartCLI results may be unreliable` | StartCLI-backed tools |
+| range not checkable, server version unknown | `The StartCLI client range of dev/node1 cannot be checked: the INUBIT version of dev/node1 is unknown (…); StartCLI results may be unreliable` | StartCLI-backed reads |
+| pin contradicted | `versionLine V8_1 of qa/node1 contradicts INUBIT 9.0.7 read by get_health; writes on qa/node1 are refused until get_health reads a matching version or versionLine is corrected and the server restarted` (in `list_nodes`: `… observed by get_health at <time>; writes on …`) | `get_health`, `list_nodes` |
+| pin differs in the patch only | `INUBIT 8.1.18 on dev/node2 differs from its versionLine 8.1.17 in the patch only; writes stay allowed, but correct versionLine of dev/node2` | `get_health` |
+
+### `UNSUPPORTED_VERSION`
+
+A call (for the inventory tools: its StartCLI part) is refused before any request other than the
+version detection and the local client probe. The `message` starts with the tool name and ends
+with `; nothing was sent`; `node` names the node (not for `deploy_release`, which names its nodes
+in the message):
+
+```json
+{"code": "UNSUPPORTED_VERSION",
+ "message": "import_artifacts: INUBIT 9.0.7 on next/node1 does not support development writes yet; nothing was sent",
+ "likelyCause": "The node runs a version for which no verified write access exists",
+ "nextStep": "Use another node whose INUBIT version supports development writes (list_nodes shows the usable capabilities per node), or wait for a version of this server that supports that INUBIT version",
+ "node": "next/node1"}
+```
+
+| Cause | `message` after `<tool>: ` (example) | `nextStep` |
+|---|---|---|
+| the version does not support the capability (9.0, `V9_X`, a version outside 8.1) | `INUBIT 9.x (versionLine V9_X) on next/node1 does not support process control yet; nothing was sent` | as in the example above |
+| the version is unknown (failed `AUTO` detection or re-detection) | `Development writes refused: the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T09:12:03Z); nothing was sent` | `Fix the cause of the failed version detection and retry in a minute, or set versionLine of dev/node1 to the version the node actually runs and restart the server` |
+| the pin is contradicted by `get_health` | `versionLine V8_1 of qa/node1 contradicts INUBIT 9.0.7 observed by get_health at 2026-10-18T09:12:03Z; development writes refused; nothing was sent` | `Correct versionLine of qa/node1 (get_health observed INUBIT 9.0.7) and restart the server` |
+| the client's range excludes the server | `StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7; workspace export via StartCLI refused; nothing was sent` | `Install a StartCLI client on the host of this server that supports INUBIT 9.0` |
+| `deploy_release`: a node refused or unknown, or different minor versions | `refused nodes: …` and every source and target node with its version (see [`deploy_release`](#deploy_release)) | the next steps of the refused nodes; only when the nodes run different minor versions, also `Deploy only between nodes of the same INUBIT minor version (e.g. 8.1.x to 8.1.y) whose versions are known` |
+
+The next step never suggests pinning a version the node is not known to run.
+
+### Tool announcement
+
+The tool list is decided at startup, as before (no list-changed notification). A write tool is
+additionally not offered when every node that could run it by configuration is pinned (a version
+line or a concrete version) to a version that does not support its capability, e.g. a profile
+whose only development nodes are `V9_X`. `AUTO` nodes count as possibly capable; a later
+detection does not change the list, it leads to refusals.
 
 ## Common shapes: Page and ToolError
 
@@ -114,10 +234,10 @@ other nodes are still reported.
 | `code` | Meaning |
 |---|---|
 | `TARGET_UNKNOWN` | the group or node id is not configured; the message lists the configured ids |
-| `UNREACHABLE` | connection refused, DNS or VPN problem, or HTTP 503 outside maintenance mode |
+| `UNREACHABLE` | connection refused, DNS or VPN problem, or HTTP 503 outside maintenance mode; or AWS Parameter Store could not be reached for the node's credentials ([feature 010](#credentials-from-aws-parameter-store-feature-010)) |
 | `TIMEOUT` | no answer within `timeout` (REST), `cliTimeout` or `cliExportTimeout` (StartCLI); `nextStep` names the setting |
 | `TLS_ERROR` | certificate not trusted, pin mismatch or host name mismatch |
-| `AUTH_FAILED` | INUBIT rejected the credentials (HTTP 401, StartCLI login failure), a recent rejection is not retried (account-lockout protection), or no credentials are set |
+| `AUTH_FAILED` | INUBIT rejected the credentials (HTTP 401, StartCLI login failure), a recent rejection is not retried (account-lockout protection), no credentials are set, or they could not be fetched from AWS Parameter Store (parameter missing, access denied, invalid value, AWS login; [feature 010](#credentials-from-aws-parameter-store-feature-010)) |
 | `FORBIDDEN` | HTTP 403: the account lacks the INUBIT permission or license |
 | `MAINTENANCE_MODE` | HTTP 503 while the server is in maintenance mode |
 | `NOT_FOUND` | the name, id or process instance does not exist (for `get_inventory_item` with `similarNames`) |
@@ -126,7 +246,8 @@ other nodes are still reported.
 | `UNEXPECTED_RESPONSE` | INUBIT or StartCLI answered in an unexpected way (status, format); see `excerpt` |
 | `WRITE_DISABLED` | only `restart_process` / `kill_process`: `write.enabled` is not `true` for the node (see their refusal table) |
 | `PRODUCTION_PROTECTED`, `CONFIRMATION_INVALID`, `PRECONDITION_FAILED` | refusals of `restart_process` / `kill_process` (see their refusal table), of the development tools and of `deploy_release`; `PRECONDITION_FAILED` also when the workspace is busy (another workspace operation is running) or not usable |
-| `CONFIRMATION_REQUIRED`, `UNSUPPORTED_VERSION` | reserved in the catalogue, not returned by this version: the first write call returns a `challenge`, and 9.x servers run with the 8.1 adapters and a warning |
+| `CONFIRMATION_REQUIRED` | reserved in the catalogue, not returned by this version: the first write call returns a `challenge` |
+| `UNSUPPORTED_VERSION` | the node's INUBIT version, a contradicted pin or the local StartCLI client does not allow the call (feature 009); nothing but the version detection was sent; see [its variants](#unsupported_version) |
 | `NOT_CONFIGURED` | a setting the tool needs is not configured for this node, e.g. `inventory.owner` for `list_inventory` / `get_inventory_item`; `nextStep` names the setting ("set inventory.owner for <group>/<node> or in defaults") |
 | `NOT_DEVELOPMENT` | a development tool was called for a node that is not a development stage (for `run_e2e_test`: nor a non-production node of a deployment target; a production node is always refused) |
 | `CONFLICT` | the artifacts changed on the server since the export (or since the referenced call), or a workflow is open in Workbench edit mode; nothing was sent, the difference is in `.reports/conflict-<auditId>.diff` |
@@ -136,17 +257,95 @@ other nodes are still reported.
 | `CHAIN_VIOLATION` | a deployment into a group that does not receive deployments from the requested source (no `deploy` record, feature 005) |
 | `SOURCE_INCONSISTENT` | the nodes of a deployment's source group do not hold the same release (feature 005) |
 | `DEPLOY_LOCKED` | another deployment into the same target group is running (feature 005) |
+| `REPOSITORY_WRITE_DENIED` | `import_artifacts` or `restore_backup` would create or change a repository file on a node whose `development.repository` is `READ_ONLY` (feature 008); the whole call is refused, nothing was sent, the message names the paths. `nextStep`: revert the files in the workspace (`git restore`) or ask the administrator to set `WRITE` on that development node; for `restore_backup`: ask for `WRITE` and restore again, or restore in the Workbench |
 | `INTERNAL` | an unexpected error inside the MCP server, the server is shutting down, or an audit record could not be written |
+
+## Credentials from AWS Parameter Store (feature 010)
+
+A node reads its INUBIT credentials either from environment variables (the default, read at
+startup) or from AWS Systems Manager Parameter Store; the profile chooses per profile, group or
+node ([setup.md](setup.md#4-credentials-sources)). The tools are the same for both sources: no
+tool takes or returns a secret, and no result field says where a node's secrets come from
+(`--check-config` shows it, [setup.md](setup.md#the-secrets-part)). `list_nodes` never fetches
+secrets. For a node with Parameter Store ("AWS node" below):
+
+- **First use.** Username, password and (if named) trust store password are fetched together the
+  first time a call needs the node, and kept for the life of the server process. Nothing is sent
+  to INUBIT before they are there. Calls on the same node share one fetch; nodes do not wait for
+  each other. A fetch is bounded by 10 s. The end-to-end credentials are fetched separately, on
+  the node's first `run_e2e_test`.
+- **Errors.** A failed fetch fails the call (or that node's entry of a group target) before
+  anything is sent to INUBIT. The message names the node, the region, the AWS profile (if set),
+  the parameter and the failure, never a value and never AWS's own message (that goes to the
+  log, scrubbed). It starts with `<node>: INUBIT credentials from AWS Parameter Store (<region>[,
+  profile <p>]) are unavailable: ` (for the end-to-end credentials `<node>: end-to-end test
+  credentials from AWS Parameter Store …`), followed by:
+
+  | Failure | `code` | message ends with | `nextStep` |
+  |---|---|---|---|
+  | parameter missing | `AUTH_FAILED` | `not found for /inubit/prod/node1/password` | `Create the parameter /inubit/prod/node1/password in Parameter Store (eu-west-1, profile prod-account) or correct credentials.parameters.password` |
+  | empty value | `AUTH_FAILED` | `not found for /inubit/prod/node1/password (the value is empty)` | as above |
+  | access denied (no `ssm:GetParameters` or `kms:Decrypt`) | `AUTH_FAILED` | `access denied for /inubit/prod/username; access denied for /inubit/prod/node1/password` (every name of the refused request) | `Grant ssm:GetParameters on /inubit/prod/username and kms:Decrypt on its KMS key to the AWS identity in use; …` (one per name) |
+  | invalid value | `AUTH_FAILED` | `invalid value for /inubit/prod/username (the username must not contain ':' or control characters and must not start with '-' (it is used in the Basic-auth header and as StartCLI argument))`; for a password `(the password is shorter than 4 characters; …)`, for a `StringList` `(a StringList is not accepted; store it as SecureString)` | `Correct the value of /inubit/prod/username in Parameter Store (as SecureString; the value is never shown); no restart is needed` |
+  | unknown AWS profile (`awsProfile` not defined in the local AWS configuration files) | `AUTH_FAILED` | `the AWS profile prod-account is unknown` | `Configure the AWS profile prod-account in the AWS configuration files and log in to it` |
+  | no AWS credentials (not logged in, login expired) | `AUTH_FAILED` | `no AWS credentials` | `Log in to the AWS profile prod-account (for example aws sso login --profile prod-account) or configure its credentials`; without `awsProfile`: `Configure AWS credentials for the default credential chain or log in (for example aws sso login)` |
+  | store unreachable, throttled, no answer within 10 s | `UNREACHABLE` | `Parameter Store unreachable` | `Check network access to ssm.eu-west-1.amazonaws.com; the fetch is retried after 30 s` |
+
+  Several failing parameters are listed in one message, separated by `; `. For 30 s after a
+  failed fetch, calls on the node get the same error at once, without a new fetch; the first
+  call after that fetches again, so a corrected parameter or permission needs no restart. A
+  call whose wait for a fetch ends before the fetch does gets `TIMEOUT` (`<node>: the INUBIT
+  credentials from AWS Parameter Store (…) are not yet available (still fetching)`, next step
+  "Retry shortly; the fetch continues and the next call uses its result"); the fetch continues.
+- **Group targets.** `find_processes`, `query_logs`, `list_inventory` and `get_inventory_item`
+  query the nodes of a group in parallel, each within its own deadline. Each node's branch
+  fetches that node's secrets itself, and the deadline of an AWS node's branch is 11 s longer
+  (the 10 s fetch plus 1 s), also when its secrets are held already. A slow or failing store
+  therefore gives that node's `error` or partial result, never a `TIMEOUT` of the whole call.
+  `find_processes` and `query_logs` check their filters for a not-yet-fetched AWS node at the
+  start of its own branch: an `INVALID_INPUT` of these node checks (see
+  [`query_logs`](#query_logs)) is then that node's `error`, while the checks that need no node
+  (time format and range, paging, `processId` pattern) still fail the whole call before any
+  server is contacted.
+- **`get_health`** keeps its time budget: see [its section](#get_health) ("Credentials from AWS
+  Parameter Store").
+- **Rejected credentials.** When INUBIT rejects the login of an AWS node (HTTP 401, StartCLI
+  login failure), the call fails with `AUTH_FAILED` as with environment variables; its next step,
+  and that of the following 60-s pause, names the parameters: "Correct the parameter value(s)
+  /inubit/prod/username, /inubit/prod/node1/password in Parameter Store (eu-west-1, profile
+  prod-account); no restart is needed". Before the call returns, the server reads the node's
+  credentials once more (up to 10 s, on that call). If username or password changed, the new
+  values are used from the next call on, with exactly one further login attempt; if that one is
+  rejected too, the node is paused for 60 s without another re-read. Unchanged values (or a
+  failed re-read) pause the node for 60 s at once. At most two failed logins per AWS node per
+  60 s (one for an environment node). A call that started with the old values and would log in
+  again after they were replaced is refused without contacting INUBIT: `AUTH_FAILED` "INUBIT
+  login to prod/node1: not attempted with the previous username and password; they were
+  replaced by new values from AWS Parameter Store after a rejected login", next step "Retry the
+  call; it uses the new values". A rejected end-to-end login never re-reads. Details:
+  [setup.md](setup.md#rotation-re-read-after-a-rejected-login).
+- **Trust store.** A `TLS_ERROR` about the trust store password names its parameter instead of
+  the variables, e.g. "Check tls.trustStore and Parameter Store /inubit/prod/truststore-password
+  (eu-west-1, profile prod-account)".
+- **Audit.** The `account` of the audit records (and the user in the INUBIT check-in comments of
+  the development tools and deployments) of an AWS node is the username fetched from Parameter
+  Store, after a rotation the current one. Before the node's first fetch it is
+  `(Parameter Store <username parameter>)`, e.g. `(Parameter Store /inubit/prod/username)`; that
+  appears only on records written before anything was sent to the node, such as a refusal.
 
 ## `list_nodes`
 
 > [acme] List the configured INUBIT groups and their nodes (ids `<group>/<node>`, e.g.
-> `test/node1`), with production classification and whether write actions are enabled. Call this
-> first to learn valid `target` and `node` values.
+> `test/node1`), with production classification, whether write actions are enabled, and per node
+> the INUBIT version and StartCLI client as last known, the support status and the usable
+> capabilities. No node is contacted: for a version `not_yet_detected` call `get_health`. Call
+> this first to learn valid `target` and `node` values.
 
-Lists the configured groups and their nodes, with production classification and whether write
-actions are enabled. The assistant calls it first to learn valid
-`target` and `node` values.
+Lists the configured groups and their nodes, with production classification, whether write
+actions are enabled and what the server knows about each node's INUBIT version (feature 009).
+The assistant calls it first to learn valid `target` and `node` values. It contacts no node and
+runs no StartCLI: the version block shows what earlier calls (`get_health`, a detection before a
+tool call, the client probe) recorded.
 
 **Input** (`list_nodes.input.json`): none — `{}`; any property is rejected.
 
@@ -159,7 +358,10 @@ is never part of the result.
 ```json
 {"profile":{"name":"acme","description":"ACME test"},
  "terminology":{"group":{"singular":"Umgebung","plural":"Umgebungen"},"node":{"singular":"Knoten","plural":"Knoten"}},
- "groups":[{"name":"test","production":false,"nodes":[{"id":"test/node1","group":"test","node":"node1","production":false,"writeEnabled":false,"developmentEnabled":true,"confirmationMode":"SERVER","versionLine":"AUTO","cliAvailable":true}]}]}
+ "groups":[{"name":"test","production":false,"nodes":[{"id":"test/node1","group":"test","node":"node1","production":false,"writeEnabled":false,"developmentEnabled":true,"confirmationMode":"SERVER","repositoryWrite":false,"versionLine":"AUTO","cliAvailable":true,
+   "version":{"setting":"AUTO","server":{"version":"8.1.17","source":"detected","at":"2026-10-18T09:12:03Z"},
+    "client":{"version":"8.1.17","supportedFrom":"4.0.1","supportedTo":"8.1.17","comparison":"match"},
+    "status":"supported","capabilities":{"usable":["monitoring","diagnosis","inventory","workspace_export","development_writes"],"notUsable":[]}}}]}]}
 ```
 
 | `NodeSummary` field | Meaning |
@@ -170,11 +372,41 @@ is never part of the result.
 | `writeEnabled` | restart and kill allowed: `write.enabled && (!production \|\| write.productionOptIn)`; does **not** govern the development tools |
 | `developmentEnabled` | a development stage: `development.enabled && !production`; `import_artifacts`, `restore_backup`, `set_active` and `tag_artifacts` work on this node |
 | `confirmationMode` | `SERVER` (two-step confirmation by the MCP server) or `CLIENT` |
-| `versionLine` | as configured: `AUTO`, `V8_1` or `V9_X` |
+| `repositoryWrite` | `import_artifacts` and `restore_backup` may create and change repository files on this node (feature 008): `development.repository` resolves to `WRITE` and the node is a development stage (`developmentEnabled`); `false` by default (see [setup.md](setup.md#development-settings)) |
+| `versionLine` | as configured: `AUTO`, `V8_1`, `V9_X` or a concrete version such as `8.1.17` (a string; see [setup.md](setup.md#inubit-version-versionline)) |
 | `cliAvailable` | a CLI home is configured and its `bin/startcli.sh` (`.bat` on Windows) exists |
+| `version` | the version block below (feature 009) |
 
-**Example prompt** (quickstart V1): "Which INUBIT systems do you know?" → the groups with their
-nodes, e.g. `test/node1`, `test/node2`, `prod/node1`.
+| `version` field | Meaning |
+|---|---|
+| `setting` | the configured `versionLine` |
+| `server` | `{version, source, at?}` with `source` `detected` (an `AUTO` node, detected before a tool call), `observed` (read by `get_health`, also on a pinned node) or `pinned` (the pin, without `at`; `8.1` for `V8_1`, `9.x` for `V9_X`); or only `{"state": "not_yet_detected"}` (call `get_health`), or `{"state": "unknown", "reason": "<error code>", "at": …}` after a failed detection. Times are ISO-8601 to the second |
+| `client` | the StartCLI client as in `get_health`: `{version, supportedFrom?, supportedTo?, comparison}` with `comparison` `match`, `mismatch` or `not_comparable` (the server version is unknown or has no patch, e.g. `V8_1`); or only `state`: `not_available` (no StartCLI installation), `not_yet_detected` (not probed yet; after a timed-out probe with `reason` `TIMEOUT` and `at`) or `unknown` (the probe failed: error code in `reason`, `at`) |
+| `status` | `supported` (every capability the configuration allows is supported), `partially_supported` (some are usable, others are unverified or not usable), `unsupported` (none is usable) or `unknown` (an `AUTO` node whose version is not yet detected or unknown) |
+| `capabilities` | `usable`: the capabilities whose tools run on the node now (supported, or unverified for reads, and not refused by the client), out of those its configuration allows (the reads always; `workspace_export` with a StartCLI installation; `development_writes` on a development stage; `deployment` in a group that receives deployments; `e2e_test` where `e2eTests` allows it; `process_control` with write access). `notUsable`: `[{capability, reason}]` with the reason the call would be refused; `inventory (StartCLI parts)` when `inventory` runs for its REST part but the client refuses its StartCLI parts (module list, version histories) |
+| `warnings` | only when non-empty: a pin contradicted by `get_health`, a client that differs from the server or excludes it (see [the warnings](#inubit-versions-and-capabilities-feature-009)) |
+
+A node detected as INUBIT 9.0.7 with an 8.1.17 client:
+
+```json
+{"setting":"AUTO","server":{"version":"9.0.7","source":"detected","at":"2026-10-18T09:12:03Z"},
+ "client":{"version":"8.1.17","supportedFrom":"4.0.1","supportedTo":"8.1.17","comparison":"mismatch"},
+ "status":"partially_supported",
+ "capabilities":{"usable":["monitoring","diagnosis","inventory"],
+  "notUsable":[{"capability":"inventory (StartCLI parts)","reason":"StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7"},
+   {"capability":"workspace_export","reason":"StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7"},
+   {"capability":"development_writes","reason":"INUBIT 9.0.7 on next/node1 does not support development writes yet"}]},
+ "warnings":["StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7; StartCLI-backed tools are refused on next/node1 (UNSUPPORTED_VERSION) until a StartCLI client that supports INUBIT 9.0 is installed"]}
+```
+
+A capability that is not usable because the version is unknown names the cause and the next step,
+e.g. `the INUBIT version of dev/node1 is unknown (not yet detected); call get_health to detect
+it`.
+
+**Example prompts**: "Which INUBIT systems do you know?" (quickstart V1) → the groups with their
+nodes, e.g. `test/node1`, `test/node2`, `prod/node1`. "Which INUBIT versions run where, and what
+can I do on next/node1?" → `list_nodes`, then `get_health` for nodes whose version is
+`not_yet_detected`.
 
 ## `get_health`
 
@@ -200,34 +432,53 @@ itself fails only for an invalid or unknown `target`.
 |---|---|
 | `node`, `group` | the node id and its group |
 | `checkedAt` | ISO-8601; the timestamp of the INUBIT healthcheck (server clock), or the MCP server's clock if INUBIT gave none |
-| `reachable` | `/healthcheck` gave any HTTP answer |
+| `reachable` | `/healthcheck` gave any HTTP answer; `false` also when the node's credentials could not be prepared (feature 010) |
 | `status` | `OK`, `ERROR` or `UNKNOWN` (from `/healthcheck`) |
 | `ready`, `readyMessage` | `/ready`: HTTP 200 = ready, 503 = not ready, with INUBIT's message |
 | `maintenanceMode` | from `/healthcheck`; when on, `warnings` says that the server is not processing normally |
-| `version` | e.g. `8.1.17`, from `/system/info` |
+| `version` | e.g. `8.1.17`, from `/system/info`; recorded as the node's current version (for an `AUTO` node it replaces the detected one, for a pinned node it is checked against the pin) |
 | `systemInfo` | only with `includeSystemInfo: true`: `version`, `jdk`, `os`, `maxHeap`, `tracingEnabled`, `schedulerThreads`, `raw` (the other name/value pairs, at most 50, values cut to 200 chars) |
 | `load` | from `/metrics`: `usedMemoryMb`, `freeMemoryMb`, `maxMemoryMb`, `memoryUsedPercent`, `threadsInUse`, `licensedThreads`, `maxThreads`, `blockingQueueEntries`, `maxBlockingQueueSize`, `blockingQueuePercent` (percentages derived, one decimal) |
-| `unavailable` | parts that could not be obtained: `{part, reason, likelyCause?, nextStep?}` with `part` one of `status`, `ready`, `version`, `systemInfo`, `load`; `reason` starts with a code, e.g. `METRICS_NOT_LICENSED: GET /ibis/rest/metrics answered HTTP 403`, `AUTH_FAILED: …`, `TIMEOUT: …`; `likelyCause` and `nextStep` as in a `ToolError` |
-| `error` | only when `reachable: false`: `UNREACHABLE` (connection refused, DNS, VPN), `TIMEOUT`, `TLS_ERROR` (certificate, pin, host name), … with `likelyCause` and `nextStep` |
-| `warnings` | e.g. maintenance mode, "INUBIT version could not be detected (AUTH_FAILED); assuming 8.1", an unsupported version line |
+| `client` | the local StartCLI client (feature 009): `{version, supportedFrom?, supportedTo?, comparison}` — the client version, the INUBIT range it declares (absent if it prints none) and `comparison` with the node's version: `match`, `mismatch` (major, minor or patch differ) or `not_comparable` (a version is unknown or has no patch); or `{"state": "not_available"}` for a node without a StartCLI installation. Absent when the probe failed (then the part `client` is in `unavailable`) |
+| `unavailable` | parts that could not be obtained: `{part, reason, likelyCause?, nextStep?}` with `part` one of `status`, `ready`, `version`, `systemInfo`, `load`, `client`; `reason` starts with a code, e.g. `METRICS_NOT_LICENSED: GET /ibis/rest/metrics answered HTTP 403`, `AUTH_FAILED: …`, `TIMEOUT: …`; `likelyCause` and `nextStep` as in a `ToolError` |
+| `error` | only when `reachable: false`: `UNREACHABLE` (connection refused, DNS, VPN), `TIMEOUT`, `TLS_ERROR` (certificate, pin, host name), `AUTH_FAILED` (the node's credentials could not be prepared, feature 010), … with `likelyCause` and `nextStep` |
+| `warnings` | e.g. maintenance mode; "INUBIT 9.0.7 on dev/node1 is not verified for monitoring; results may be incomplete"; "the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T09:12:03Z); results are unverified"; a pin that this reading contradicts or differs from in the patch; a client that differs from the node's version or excludes it (texts in [the warnings table](#inubit-versions-and-capabilities-feature-009)) |
 
 How the report is built (research R-10):
 
 - `/healthcheck` and `/ready` (both without credentials) start at once and never wait for a
   version detection; the healthcheck alone decides `reachable`. `/system/info` (with
-  credentials) runs in parallel; for `versionLine: AUTO` its answer is also the version
-  detection. `/metrics?format=json` runs in parallel too once the credentials have been
-  accepted, otherwise right after `/system/info`. All nodes are checked in parallel. The whole
-  call returns within the largest server `timeout` + 1 s, even if a server hangs (a hanging part
-  is reported as `TIMEOUT`).
+  credentials) runs in parallel; the version it returns is recorded for every node, pinned ones
+  too (feature 009): for `versionLine: AUTO` it is the version detection, for a pinned node a
+  different major.minor is a contradiction (writes refused, warned) until a later reading matches.
+  `get_health` itself is never refused for a version. `/metrics?format=json` runs in parallel too
+  once the credentials have been accepted, otherwise right after `/system/info`. All nodes are
+  checked in parallel. The whole call returns within the largest server `timeout` + 1 s, even if
+  a server hangs (a hanging part is reported as `TIMEOUT`).
 - **Account-lockout protection**: when INUBIT rejects a server's credentials (HTTP 401, or a
   StartCLI login failure), every authenticated call to that server fails for 60 s with
-  `AUTH_FAILED` "authentication failed recently; not retried for N s to avoid account lockout",
-  without contacting INUBIT. At most one failed login per server per 60 s; reachability,
-  readiness and maintenance mode are still reported. Both the first `AUTH_FAILED` (HTTP 401)
-  and the cached one name the concrete variables of the server, e.g. "Fix
-  `INUBIT_DEV_NODE1_PASSWORD` (or `INUBIT_DEV_PASSWORD`) and `_USERNAME`, then restart Claude
-  Code". The guard is shared by all tools of a server (REST and StartCLI).
+  `AUTH_FAILED` "INUBIT login to dev/node1: authentication failed recently; not retried for N s
+  to avoid account lockout", without contacting INUBIT. At most one failed login per server per
+  60 s; reachability, readiness and maintenance mode are still reported. Both the first
+  `AUTH_FAILED` (HTTP 401) and the cached one name the concrete variables of the server, e.g.
+  "Fix INUBIT_ACME_DEV_NODE1_PASSWORD (or INUBIT_ACME_DEV_PASSWORD) and _USERNAME, then restart
+  the MCP client from a shell with the new values". The guard is shared by all tools of a server
+  (REST and StartCLI). A node with AWS Parameter Store re-reads its parameters once after a
+  rejection instead of pausing at once (at most two failed logins per 60 s), and the next step
+  names the parameters ("… in Parameter Store (…); no restart is needed"; see
+  [Credentials from AWS Parameter Store](#credentials-from-aws-parameter-store-feature-010)).
+- **Credentials from AWS Parameter Store** (feature 010): before anything else, `get_health`
+  makes sure that the credentials of a node with Parameter Store are there, and waits for a
+  first fetch at most for what is left of the node's budget. If they are not there in time, the
+  node's report is `reachable: false` with `error` `TIMEOUT` "prod/node1: credentials not yet
+  available (still fetching from AWS Parameter Store); call get_health again shortly" (next
+  step "Call get_health again shortly; the fetch continues and the next call uses its result"),
+  still within the budget; nothing is sent to that node in this report, not even `/healthcheck`
+  (its connection is built once the secrets are there, because the trust store password may
+  come from Parameter Store too). A failed fetch gives `reachable: false` with the fetch's error
+  (`AUTH_FAILED` or `UNREACHABLE`, see
+  [the table](#credentials-from-aws-parameter-store-feature-010)); within 30 s after it the same
+  error comes at once. The other nodes are reported normally.
 - **First call after start (trade-off)**: until INUBIT has accepted a server's credentials once,
   its authenticated calls run one after the other, so `/metrics` starts only when
   `/system/info` has answered. On a very slow server the first `get_health` can therefore report
@@ -240,6 +491,13 @@ How the report is built (research R-10):
 - Any failure of a part is reported in `unavailable` while the rest is still returned (FR-008).
   Wrong credentials therefore show up as `AUTH_FAILED` for `version` and `load`, while
   reachability, readiness and maintenance mode are still reported.
+- **StartCLI client** (feature 009, [setup.md](setup.md#startcli-client-check)): on a node with a
+  StartCLI installation whose client is not known yet, `startcli.sh -v` runs locally in parallel
+  with the REST calls and within the same budget. A probe that does not finish in time is the
+  part `client` with `reason` `TIMEOUT: not yet detected (timeout); the StartCLI client of
+  <node> did not report its version within <timeout>`; a failed probe is retried at most once per
+  60 s (meanwhile the part names the failure and when it is retried). A known client is kept until
+  the server stops.
 - A `/metrics` failure other than 401, 503, timeout or unreachable (e.g. 402/403/404/500 or a
   body without the JSON figures) is reported as `METRICS_NOT_LICENSED`: the metrics depend on an
   INUBIT license entry.
@@ -278,10 +536,12 @@ the REST Queue Manager view `POST /ibis/rest/log/queueLog` (research R-8; the sa
 | `offset` | integer 0–9999 | 0 | paging; `offset + limit` ≤ 10,000 |
 | `limit` | integer 1–100 | 50 | page size (capped by `resultLimits.maxItems`) |
 
-**Output**: `{ "results": [ { "node", "page"?: Page<ProcessInstance>, "error"?: ToolError } ] }`
-— one entry per resolved server in configuration order; a server that fails (e.g.
-`UNREACHABLE`, `AUTH_FAILED`) has only `error`, the others are still reported. Items are sorted
-by `since`, newest first.
+**Output**: `{ "results": [ { "node", "page"?: Page<ProcessInstance>, "warnings"?: string[],
+"error"?: ToolError } ] }` — one entry per resolved server in configuration order; a server that
+fails (e.g. `UNREACHABLE`, `AUTH_FAILED`) has only `error`, the others are still reported. Items
+are sorted by `since`, newest first. `warnings` (feature 009, only when non-empty) carries the
+node's version warning, e.g. on INUBIT 9.0 or an unknown version (see
+[INUBIT versions](#inubit-versions-and-capabilities-feature-009)).
 
 | `ProcessInstance` field | Meaning |
 |---|---|
@@ -358,7 +618,8 @@ HTTP 400; spike S-5). Workflow executions are recorded in `systemLog` — use th
 | `text` | string ≤ 200 | — | `LIKE` on the log type's text field, see "Text" |
 | `offset`, `limit` | integers | 0, 50 | as for `find_processes` (`offset` 0–9999, `limit` 1–100, `offset + limit` ≤ 10,000) |
 
-**Output**: `{ "results": [ { "node", "page"?: Page<LogEntry>, "error"?: ToolError } ] }`.
+**Output**: `{ "results": [ { "node", "page"?: Page<LogEntry>, "warnings"?: string[], "error"?:
+ToolError } ] }`; `warnings` as for `find_processes`.
 
 | `LogEntry` field | Meaning |
 |---|---|
@@ -413,6 +674,13 @@ for `workflow`, `tag` and `processId` of both tools.
 
 Validation errors that do not depend on a server (schema bounds, time format, an unsupported
 filter, an unsendable character) fail the whole call with `INVALID_INPUT` and carry no `node`.
+Exception (feature 010): for a node with AWS Parameter Store whose credentials are not fetched
+yet, the checks of the node's adapter (an unsupported filter, an unsendable character) run at
+the start of that node's branch, so such an `INVALID_INPUT` is that node's `error` (with `node`)
+and the other nodes are still queried; the same holds for `find_processes` (`workflow`, `tag`).
+Time format, time range, `offset + limit` and the `processId` pattern are checked before any
+node and still fail the whole call
+([Credentials from AWS Parameter Store](#credentials-from-aws-parameter-store-feature-010)).
 Times must fit INUBIT's epoch milliseconds (e.g. `+999999999-12-31T23:59:59Z` or
 `P106751991167300D` are `INVALID_INPUT`).
 
@@ -479,6 +747,15 @@ Times must fit INUBIT's epoch milliseconds (e.g. `+999999999-12-31T23:59:59Z` or
   diagram group are cached per server for `inventory.cacheTtl` (default 10 minutes). Every result carries `collectedAt`, the time the
   (oldest) cached data was collected; pass `refresh: true` to collect it again. Concurrent
   requests for the same data share one export.
+- **INUBIT version and StartCLI client** (feature 009, see
+  [INUBIT versions](#inubit-versions-and-capabilities-feature-009)): on INUBIT 9.0, a later or an
+  unknown version both tools run with a warning in the node's `warnings`. When the node's local
+  StartCLI client does not support its INUBIT version (e.g. an 8.1 client at a 9.0 node), the
+  StartCLI parts are refused with `UNSUPPORTED_VERSION`: `list_inventory` `MODULE` and
+  `get_inventory_item` `MODULE` give that node's `error` (the module list is a StartCLI export);
+  `get_inventory_item` `DIAGRAM` returns the REST data and reports the `versions` in
+  `unavailable` with reason `UNSUPPORTED_VERSION: …`; `list_inventory` `DIAGRAM` is REST only and
+  unaffected. The first call on an `AUTO` node detects its version (one extra request).
 - **No "active version"**: INUBIT 8.1 exposes no marker for an active version. The tools show
   the version history (number, check-in user and time, comments, tags) and the `active` flag of
   the diagram or module, and never infer an active version. Tags are the *current* assignment:
@@ -506,7 +783,9 @@ or all nodes of a group, filtered by name, type or INUBIT diagram/module group, 
 | `refresh` | boolean | `false` | bypass the cache |
 
 **Output**: `{ "results": [ { "node", "collectedAt"?, "usageComplete"?, "page"?:
-Page<InventoryItem>, "error"?: ToolError } ] }`, one entry per server in config order.
+Page<InventoryItem>, "warnings"?: string[], "error"?: ToolError } ] }`, one entry per server in
+config order; `warnings` (only when non-empty) as for `find_processes`, for modules also the
+StartCLI client warnings.
 `collectedAt` (ISO-8601) is present together with `page` (for modules: the older of the module
 list and the usage index); `usageComplete` only for `kind: MODULE` — whether every technical
 workflow of the owner could be read for the usage; a failed server has only `error`.
@@ -547,8 +826,8 @@ that a group target compares them field by field.
 **Input** (`get_inventory_item.input.json`): `target` (required), `kind` (`DIAGRAM` or `MODULE`,
 required), `name` (exact, case-sensitive, 1–200 chars, required), `refresh` (default `false`).
 
-**Output**: `{ "results": [ { "node", "collectedAt"?, "item"?: InventoryDetail, "error"?:
-ToolError } ] }`.
+**Output**: `{ "results": [ { "node", "collectedAt"?, "item"?: InventoryDetail, "warnings"?:
+string[], "error"?: ToolError } ] }`; `warnings` as for `list_inventory`.
 
 | `InventoryDetail` field | Diagram | Module |
 |---|---|---|
@@ -581,6 +860,9 @@ ToolError } ] }`.
   | `list_inventory` `MODULE` | export + `cliExportTimeout` (usage index) + 3 t |
   | `get_inventory_item` `DIAGRAM` | export + 5 t |
   | `get_inventory_item` `MODULE` | 2 × export + `cliExportTimeout` (usage index) + 4 t |
+
+  On a node with AWS Parameter Store each deadline is 11 s longer, for the first fetch of its
+  credentials (feature 010).
 - Bounds: texts are cut to 200 chars; if the detail exceeds the server's share of
   `resultLimits.maxChars`, the list of `workflows` is cut to a quarter of it first
   (`workflowCount` stays), then the oldest versions are dropped (`truncated: true`).
@@ -634,6 +916,7 @@ exist. Both tools are annotated `destructiveHint: true`, `idempotentHint: false`
 | `stateAfter` | re-read after the action: `ERROR`, `ACTIVE`, `WAITING`, `QUEUED`, `OTHER`, or `NOT_IN_QUEUE` if the instance left the Queue Manager; absent if the re-read failed |
 | `message` | INUBIT's confirmation text, or the failure (`CODE: message`, likely cause, next step, excerpt) |
 | `auditId` | id of the execution's audit records |
+| `warnings` | only when non-empty (feature 009): warnings of the version check, e.g. a StartCLI client whose version differs from the node's INUBIT version (major, minor or patch) |
 
 **Decision flow** (every step that ends the flow writes an audit record):
 
@@ -644,6 +927,10 @@ exist. Both tools are annotated `destructiveHint: true`, `idempotentHint: false`
    `write.enabled` says**; also a production server with `write.confirmation: CLIENT` (normally
    already a startup error).
 3. `write.enabled: false` (the default) → `WRITE_DISABLED`; `nextStep` says how to enable it.
+   Then the version check (feature 009, capability `process_control`): an `AUTO` node's version
+   may be detected first (one request); a version other than 8.1, an unknown version, a
+   contradicted pin or a StartCLI client whose range excludes the node's version →
+   `UNSUPPORTED_VERSION` (see [the variants](#unsupported_version)), before the state read.
 4. No usable StartCLI (no `cliHome`, no JDK, Windows) → `CLI_UNAVAILABLE`; no credentials →
    `AUTH_FAILED`.
 5. The current state is read from the Queue Manager (REST `queueLog`, `workflowId EQUAL
@@ -678,6 +965,7 @@ preview and confirmation is reported (`NOT_FOUND` / `PRECONDITION_FAILED`) and n
 | `TARGET_UNKNOWN` | the server is not configured |
 | `PRODUCTION_PROTECTED` | production group without `write.productionOptIn`, or with `write.confirmation: CLIENT` |
 | `WRITE_DISABLED` | `write.enabled` is not `true` for the server |
+| `UNSUPPORTED_VERSION` | the node's INUBIT version does not allow process control (not 8.1, unknown, pin contradicted by `get_health`), or its StartCLI client does not support that version |
 | `CLI_UNAVAILABLE` | StartCLI cannot be used for the server |
 | `NOT_FOUND` | the instance is not (or no longer) in the Queue Manager |
 | `PRECONDITION_FAILED` | restart of an instance that is not in `ERROR`; the instance changed since the preview; the same instance is being changed by another call; too many pending confirmations |
@@ -708,14 +996,16 @@ one profile. Paths in results are workspace-relative with `/`. Fields without a 
 
 ## `export_artifacts`
 
-> [acme] Export technical workflows (by diagram group) or single modules from one group or node
-> into the local workspace as readable files, record the export in the workspace history and list
-> what changed. Only technical workflows are exported (no system diagrams or other diagram types).
+> [acme] Export technical workflows (by diagram group), single modules, or repository files and
+> folders by their path relative to the owner's repository root, from one group or node into the
+> local workspace as readable files, record the export in the workspace history and list what
+> changed. Only technical workflows are exported (no system diagrams or other diagram types).
 > Secrets are replaced by placeholders. Read-only for INUBIT.
 
 Runs one StartCLI `export` per diagram group or module (`--exportWorkflowType 'technical'`
-always), reads, redacts and splits the archive **in memory**, then writes the files of the
-exported diagram groups and modules and records one history entry. Before the export, uncommitted
+always) or per repository path, reads, redacts and splits the archive **in memory**, then writes
+the files of the exported diagram groups, modules or repository paths and records one history
+entry. Before the export, uncommitted
 changes in the workspace are recorded as their own entry `local changes: <n> files`, so nothing
 of yours is lost. Every secret (passwords, encrypted values, keystores, key material, saved test
 messages, `xslt.sourceVariables`) is replaced by `${secret:<property path>}`; key material in a
@@ -729,7 +1019,8 @@ repository file is not written at all. The history is never pushed anywhere.
 | `owner` | INUBIT user or user group; default `inventory.owner` of the node |
 | `diagramGroups` | 1–20 diagram group names (letters, digits, `_ . -` and spaces) |
 | `modules` | 1–50 `{name, pluginType?}`; without `pluginType` it is looked up in the module list |
-| — | exactly one of `diagramGroups` / `modules` |
+| `repositoryPaths` | 1–20 unique repository files or folders, relative to the owner's repository root (e.g. `schemas/order.xsd` for `/Root/<owner>/schemas/order.xsd`, or `stylesheets/common`); segments of letters, digits, `_ . -` and spaces, no leading `/`, no empty, `.` or `..` segment, no `%`, not the root itself; folders are exported recursively (feature 008) |
+| — | exactly one of `diagramGroups` / `modules` / `repositoryPaths` |
 
 **Output** (`export_artifacts.output.json`):
 
@@ -743,22 +1034,48 @@ repository file is not written at all. The history is never pushed anywhere.
 | `changes` | `[{path, kind}]`, at most `resultLimits.maxItems` |
 | `truncated`, `fullList` | `fullList` (`.reports/export-<commit>.txt`, all changes) only when `truncated` |
 | `secretsReplaced` | number of values replaced by placeholders (count only) |
-| `warnings` | e.g. a workflow in edit mode (`CheckoutUser`), used modules of another owner that were not exported, repository files with key material that were not written, values with a secret-like name that were kept |
+| `warnings` | e.g. a workflow in edit mode (`CheckoutUser`), used modules of another owner that were not exported, repository files with key material that were not written, values with a secret-like name that were kept; the version warnings of the node (feature 009: INUBIT 9.0 or an unknown version, a StartCLI client mismatch) |
 
 Directory layout: `<group>/<owner>/workflows/<diagram group>/<workflow>.xml`,
 `<group>/<owner>/modules/<plugin type>/<module>/{module.xml, index.xml, <property>.<ext>}`,
 `<group>/<owner>/repository/<repository path>`, volatile values (UIDs, export suffix of check-in
 comments, archive context) under `.meta/`. Files of artifacts no longer exported are removed.
 
-**Errors**: `TARGET_UNKNOWN`; `INVALID_INPUT` (neither/both of `diagramGroups`/`modules`, a blank
-or unsupported name, two artifacts whose paths differ only in case); `NOT_CONFIGURED` (no owner);
-`CLI_UNAVAILABLE`, `AUTH_FAILED`, `TIMEOUT` (names `cliExportTimeout`); `NOT_FOUND` (diagram group
-or module does not exist for the owner); `UNEXPECTED_RESPONSE` (the archive cannot be processed —
-the workspace is unchanged); `PRECONDITION_FAILED` (workspace busy or not usable; a failed write
-is undone from the history); `INTERNAL`.
+**Repository files** (feature 008):
 
-**Example prompt**: "Export diagram group GRP-01 of dev" → `export_artifacts(target: "dev",
-diagramGroups: ["GRP-01"])`.
+- A diagram-group or module export writes the repository files of the export that the exported
+  workflows and modules reach, **transitively**: also files that only another repository file
+  includes or imports, and the message-type schemas of the module index (a behaviour change: an
+  export can write more files than before; the references followed are listed in
+  [setup.md](setup.md#artifact-workspace)).
+- A `repositoryPaths` export runs one StartCLI repository export per path. It writes at most
+  **500 files and 100 MiB**; a larger scope is refused with `INVALID_INPUT` before anything is
+  written, naming the count and the size. If any path does not exist on the node, the whole call
+  is `NOT_FOUND` naming every missing path, and nothing is written. Key material is withheld as
+  in every export (a certificate is written; `import_artifacts` refuses it). The export overwrites
+  the files of its paths and deletes none; other workspace files stay as they are. The history
+  entry `export <node>: repository <paths> (<n> files)` (trailer `Server-State: <group>`) is the
+  base of a later import of these files; `changes` lists the workspace paths below
+  `repository/`.
+- Repository paths that differ only in letter case would overwrite each other on a
+  case-insensitive file system: every export that writes them refuses them with `INVALID_INPUT`,
+  naming both.
+- Exporting never needs `development.repository`.
+
+**Errors**: `TARGET_UNKNOWN`; `INVALID_INPUT` ("Give exactly one of diagramGroups, modules or
+repositoryPaths", a blank or unsupported name or repository path, a repository path given twice,
+an owner that is no repository root (e.g. `.` or `..`) with `repositoryPaths`, two artifacts or
+repository paths whose paths differ only in case, a repository export over 500 files or 100 MiB);
+`NOT_CONFIGURED` (no owner); `UNSUPPORTED_VERSION` (the node's StartCLI client does not support
+its INUBIT version, e.g. an 8.1 client at a 9.0 node; feature 009); `CLI_UNAVAILABLE`,
+`AUTH_FAILED`, `TIMEOUT` (names `cliExportTimeout`); `NOT_FOUND` (diagram group or module does
+not exist for the owner; repository paths missing on the node, all named); `UNEXPECTED_RESPONSE`
+(the archive cannot be processed — the workspace is unchanged); `PRECONDITION_FAILED` (workspace
+busy or not usable; a failed write is undone from the history); `INTERNAL`.
+
+**Example prompts**: "Export diagram group GRP-01 of dev" → `export_artifacts(target: "dev",
+diagramGroups: ["GRP-01"])`; "Export the schema folder of dev" → `export_artifacts(target: "dev",
+repositoryPaths: ["schemas"])`.
 
 ## `check_artifacts`
 
@@ -767,8 +1084,12 @@ diagramGroups: ["GRP-01"])`.
 > input file, or validate XML against a schema. Never changes INUBIT; writes only test outputs.
 
 Works offline on the workspace; only module names missing in the workspace are looked up in the
-module list of the group's first node. Writes only below `.tests/` (stylesheet outputs) and
-`.reports/` (full finding lists).
+module list of the group's first node. That lookup is checked like an `inventory` read over
+StartCLI (feature 009): a refusal (e.g. a StartCLI client that does not support the node's INUBIT
+version) skips the lookup and turns each such module into `MODULE_UNVERIFIED` with the reason; a
+version warning (unverified or unknown INUBIT version, client mismatch) becomes one
+`MODULE_LOOKUP_WARNING`. The first lookup on an `AUTO` node may detect its version (one
+request). Writes only below `.tests/` (stylesheet outputs) and `.reports/` (full finding lists).
 
 **Input** (`check_artifacts.input.json`):
 
@@ -796,8 +1117,9 @@ findings), `findings` (most severe first, at most `resultLimits.maxItems`, each
 | `DEMUX_KEY_STALE` | WARNING | a Demultiplexer key or `DefaultOutput` names a node that no longer exists in the workflow, or an old name of a renamed node that also has a key under its current name (leftovers the Workbench keeps; INUBIT ignores them) |
 | `PARENT_REF_MISSING` | ERROR | `ParentModule` or `EndLoopId` names a node that does not exist (`Connection@scopeChildId` names internal ids of a scope and is not checked) |
 | `MODULE_MISSING` | ERROR | a module is neither in the workspace (any owner of the group) nor in the module list of the artifact's owner or of `inventory.owner` |
-| `MODULE_UNVERIFIED` | WARNING | not in the workspace, and the module list could not be read or `verifyOnServer` is `false` |
-| `REPOSITORY_REF_MISSING` | ERROR | an `inubitrepository:` reference is not in the workspace repository |
+| `MODULE_UNVERIFIED` | WARNING | not in the workspace, and the module list could not be read, the version check refused the lookup (e.g. a StartCLI client that does not support the node's INUBIT version; the reason is in the message) or `verifyOnServer` is `false` |
+| `MODULE_LOOKUP_WARNING` | WARNING | the module lookup on a node ran with a version warning (unverified INUBIT version, StartCLI client mismatch); once per node and check |
+| `REPOSITORY_REF_MISSING` | ERROR | a referenced repository file is not in the workspace repository: an `inubitrepository:` reference; in a repository file, also a relative `xsl:import`/`xsl:include` or `xs:import`/`xs:include`/`xs:redefine`; a message-type schema named in a module index entry or module file (`InputMessageTypeSchema`, `OutputMessageTypeSchema`) |
 | `REPOSITORY_REF_UNVERIFIED` | WARNING | the reference lies in another owner's repository (`Root/<owner>/…`), which an export does not include |
 | `VARIABLE_UNRESOLVED` | WARNING | a variable reference names no declared variable (names starting with `IS` are taken as INUBIT system variables) |
 | `DERIVED_VALUE_MISMATCH` | WARNING | `<property>MD5` of an embedded document or `contentMD5`/`contentSize` of a repository file no longer matches the content (a rebuild recomputes them) |
@@ -841,7 +1163,11 @@ every write; each step that refuses sends nothing to INUBIT:
 1. the node must be a **development stage** (`NOT_DEVELOPMENT` otherwise, never production);
    the inputs are checked (names StartCLI quoting can carry, a `reason` of 1–500 characters
    without `#`, `@` or control characters — it becomes the person-written segment of the
-   check-in comment);
+   check-in comment); the node's INUBIT version must support the tool's capability
+   (`development_writes`, for `run_e2e_test` `e2e_test`; feature 009): an `AUTO` node's version
+   may be detected first (one request), anything but a known 8.1 version, a contradicted pin, or a
+   StartCLI client whose range excludes the node's version is `UNSUPPORTED_VERSION`
+   ([variants](#unsupported_version)); version warnings go into the result's `warnings`;
 2. the workspace lock (one workspace operation at a time; `tag_artifacts` and `run_e2e_test`
    do not touch the workspace and take no lock); uncommitted edits are recorded as
    `local changes` first;
@@ -868,23 +1194,38 @@ every write; each step that refuses sends nothing to INUBIT:
    every sent artifact must equal the intended state, with exactly the reason in its check-in
    comment;
 10. success: only the changed files and their `.meta/` records are replaced by the verified
-    server state and committed with a `Server-State` trailer; failure: **rollback**.
+    server state and committed as one history entry
+    `<import|restore|activate|deactivate> <node>: … [<auditId>]` with the trailers
+    `Server-State: <group>` and `Reason: <reason>` (the call's reason; git drops spaces at its
+    start and end, the audit keeps the exact reason; feature 008, FR-015a — exports and
+    `local changes` entries carry no `Reason`); failure: **rollback**.
 
 **Failure model.** Refusals before anything is sent are tool errors (`isError: true`):
 `NOT_DEVELOPMENT`, `INVALID_INPUT`, `PRECONDITION_FAILED`, `CONFLICT`, `SECRET_UNRESOLVED`,
-`CONFIRMATION_INVALID`, `CLI_UNAVAILABLE`, `AUTH_FAILED`, `NOT_FOUND`. Once anything may have been
-sent the call returns a **result** with `outcome: FAILED`, a `failure` `{code: IMPORT_FAILED |
-VERIFY_MISMATCH, step: import | protocol | verify | commit | tag, message}` and the `rollback`
-state. An unexpected internal error after sending is reported the same way (`IMPORT_FAILED` at
-the step reached).
+`CONFIRMATION_INVALID`, `CLI_UNAVAILABLE`, `AUTH_FAILED`, `NOT_FOUND`, `REPOSITORY_WRITE_DENIED`,
+`UNSUPPORTED_VERSION`.
+Once anything may have been sent the call returns a **result** with `outcome: FAILED`, a
+`failure` `{code: IMPORT_FAILED | VERIFY_MISMATCH, step: import | protocol | verify | commit |
+tag, message}` and the `rollback` state. An unexpected internal error after sending is reported
+the same way (`IMPORT_FAILED` at the step reached).
 
 **Rollback semantics.** After any failure the scope is exported again; if a modified artifact
 changed, the backup is re-imported (with the target's current secrets) and verified:
 `rollback` is `NOT_NEEDED`, `SUCCEEDED` or `FAILED` (then the message names the kept backup —
-restore it with `restore_backup` or in the Workbench). Nothing in this feature deletes anything:
-**created artifacts are not removed**, so artifacts a failed call created are listed in
-`createdNotRemoved` — delete them in the Workbench if needed. A StartCLI timeout is decided by the
-re-export: if it shows the intended state, the call succeeded.
+restore it with `restore_backup` or in the Workbench). With repository files (feature 008) the
+**repository files are rolled back first**, then the artifacts: the sent files the node held
+before and whose content changed are re-imported from the call's backup and verified by
+re-export, content only (each gets a new version on the node). A repository rollback that leaves
+a file changed is `rollback: FAILED`; the message names the files and points to `restore_backup`
+or to a re-import in the Workbench from the repository exports of the backup. If the last re-export
+of the repository files failed, the state the call left is not recorded for those files and
+`restore_backup` refuses the backup (`PRECONDITION_FAILED`), so the message then points only to the
+Workbench, also for the workflows and modules. Nothing in this
+feature deletes anything: **created artifacts are not removed**, so artifacts and repository files
+a failed call created are listed in `createdNotRemoved` — delete them in the Workbench if needed.
+A StartCLI timeout of the artifact import is decided by the re-export: if it shows the intended
+state, the call succeeded. A timeout of the repository import is not: see
+[repository files](#repository-files-feature-008).
 
 **Order of connections (0.5.1).** INUBIT writes the outgoing connections of a workflow module in
 a non-deterministic order. Conflict checks, verification, rollback checks and every fingerprint
@@ -913,31 +1254,35 @@ absent):
 | `failure` | `{code, step, message}` on failure |
 | `commit` | the history entry of the verified state |
 | `backupRef` | the backup of the state before the call (input of `restore_backup`) |
-| `created`, `modified`, `notImported` | artifact names; workspace files changed outside the scope |
+| `created`, `modified`, `notImported` | artifact names and full repository paths (`/Root/<owner>/…`); workspace files changed outside the scope |
 | `rollback` | `NOT_NEEDED`, `SUCCEEDED`, `FAILED` (failures only) |
-| `createdNotRemoved` | artifacts created (by this or the restored call) and not removed |
+| `createdNotRemoved` | artifacts and repository files created (by this or the restored call) and not removed |
+| `identical` | only `import_artifacts`: artifacts and repository files not sent because the node has them with the workspace's content |
 | `reports`, `warnings` | workspace-relative report files (`.reports/verify-<auditId>.diff`, …); notes |
-| `tag` | only for `import_artifacts` with a `tag`: `{name, applied, workflows, modules, failure}` |
+| `tag` | only for `import_artifacts` with a `tag`: `{name, applied, workflows, modules, failure}`, and `repositoryFiles` (see [repository files](#repository-files-feature-008)) |
 
 ## `import_artifacts`
 
 > [acme] Import the changed workflows of ONE diagram group (with their changed or new modules),
-> or changed single modules, from the workspace into ONE development node. The server checks the
-> files, refuses on conflicts (changed on the server or open in the Workbench), backs up,
-> imports only what changed, verifies by re-export and rolls back on failure. Secrets are taken
-> from the node. The preview also lists what the node has already: `existing` (new in the
-> workspace, updated as a new version) and `identical` (same content, not sent; the workflows
-> are bound to it as it is).
+> or changed single modules, or the new and changed repository files at or below paths relative
+> to the owner's repository root, from the workspace into ONE development node. Repository files
+> that the imported modules reference, also indirectly, go along; sending a repository file
+> always needs a preview with a server code. The server checks the files, refuses on conflicts
+> (changed on the server or open in the Workbench), backs up, imports only what changed,
+> verifies by re-export and rolls back on failure. Secrets are taken from the node. The preview
+> also lists what the node has already: `existing` (new in the workspace, updated as a new
+> version) and `identical` (same content, not sent; the workflows are bound to it as it is).
 
 **Input**: `node` (one node id), `owner` (default `inventory.owner`), exactly one of
-`diagramGroup` or `modules` (1–50 `{name, pluginType?}`), `reason`, `confirmationCode`, and
-optionally `tag` (only with `diagramGroup`).
+`diagramGroup`, `modules` (1–50 `{name, pluginType?}`) or `repositoryPaths` (1–50 unique paths
+relative to the owner's repository root, e.g. `schemas/order.xsd`), `reason`, `confirmationCode`,
+and optionally `tag` (only with `diagramGroup`).
 
 - Changed workflows of the diagram group go with their **changed or new** modules; unchanged
   referenced modules are not sent (every import creates a new version). A module import sends
   module-only archives. Changes outside the scope stay and are listed in `notImported`.
 - Refused with `INVALID_INPUT`: a deleted workflow or module file ("deleting artifacts is not
-  supported"), any change below `repository/`, a new workflow whose file does not say
+  supported"), a new workflow whose file does not say
   `IsActive` `false` (INUBIT creates it inactive; switch it on with `set_active`), a workflow file
   that names another owner in `UserOrUserGroupName`. `PRECONDITION_FAILED`: a referenced module
   that is neither sent nor on the node (INUBIT would break the diagram group), a new name the
@@ -966,7 +1311,8 @@ optionally `tag` (only with `diagramGroup`).
   exactly as `tag_artifacts` does it (one `tag --tagMove` for the group, verified by the group's
   history export; an existing tag name is reused) — in the same call and under the same audit id
   (audit inputs `tag`, `tagApplied`). INUBIT tags only whole diagram groups, so a module import
-  with `tag` is refused (`INVALID_INPUT`) before anything is sent. The result carries `tag`
+  with `tag` is refused (`INVALID_INPUT`) before anything is sent, as is one with
+  `repositoryPaths`. The result carries `tag`
   `{name, applied, workflows, modules, failure}`. A tag failure after a successful import keeps
   `outcome: EXECUTED` — the import is not undone — with `applied: false`, the `failure`
   (`IMPORT_FAILED` at `tag` or `VERIFY_MISMATCH` at `verify`) and a warning to retry with
@@ -976,8 +1322,147 @@ optionally `tag` (only with `diagramGroup`).
   workspace, on the node already: updated as a new version), `identical` (new in the workspace,
   identical on the node, or an unchanged referenced module outside the group's export: not
   sent, the workflows are bound to it), `notImported`, `checkWarnings`, `tag` (if requested),
-  `confirmationCode`, `expiresAt`, `message`. The result carries `identical` as well and notes
+  `confirmationCode`, `expiresAt`, `message`; with repository files also `repositoryReferences`,
+  `repositoryDiff` and `warnings` (see below). The result carries `identical` as well and notes
   `existing` and `identical` in `warnings`.
+
+### Repository files (feature 008)
+
+Repository files (schemas, stylesheets, WSDLs, … below `/Root/<owner>/`) are written only on a
+node whose `development.repository` is `WRITE` (`list_nodes` field `repositoryWrite`; default
+`READ_ONLY`, see [setup.md](setup.md#development-settings)); reading them is always allowed.
+`repositoryPaths` are relative to the owner's repository root (`schemas/order.xsd` stands for
+`/Root/<owner>/schemas/order.xsd`; a leading `/`, an empty, `.` or `..` segment, `%` or the root
+itself is `INVALID_INPUT`). Inputs, previews and results name repository files by their **full**
+path `/Root/<owner>/…`; an artifact name never starts with `/`.
+
+**Which repository files a call includes:**
+
+| Scope | Included repository files |
+|---|---|
+| `repositoryPaths` | the new and changed files at or below the given paths |
+| `diagramGroup` | the new and changed files in the transitive closure of every module that the group's workspace workflows use, changed or not |
+| `modules` | the new and changed files in the transitive closure of the given modules |
+
+The closure follows the structural references an export follows
+([setup.md](setup.md#artifact-workspace)): `inubitrepository:` URIs in workflows, `module.xml` and
+documents that are no stylesheet or schema, the message-type schemas of the module index, and in
+stylesheets and schemas `xsl:import`/`xsl:include`/`xs:import`/`xs:include`/`xs:redefine` (in
+repository files also relative ones), through whole chains, each file once. A reference into
+another owner's root (`/Root/<other>/…`) is not followed; a warning names it. Other changed
+repository files are listed in `notImported`. A diagram group whose only changes are repository
+files is a valid import (with a `tag`, the group is tagged as usual). Repository files and the
+workflows and modules of a call are one unit for the switch check, the confirmation, the backup,
+the verification and the rollback: a referenced repository file is never moved to `notImported`
+to import the rest without it.
+
+**On the node**, each call reads one repository export per distinct parent folder of the files
+(a file directly below `/Root/<owner>/` is exported on its own, and so is each file of a folder
+whose export exceeds the read limits) and compares byte for byte (only content counts; version,
+version comment, date and description are never compared):
+
+- new in the workspace and absent on the node → `create`; the content type comes from the
+  extension: `.xsd` → `application/x-xsd+xml`, `.xsl` and `.xslt` → `application/xslt+xml`,
+  `.wsdl` → `application/wsdl+xml`, `.xml` → `application/xml`, the description stays empty;
+- new in the workspace and identical on the node → `identical`, not sent (every import creates a
+  new version);
+- new in the workspace with other content on the node → `modify` and `existing`; it keeps the
+  node's content type and description, whatever its extension;
+- changed since its base (the last export or development call on that node in the workspace
+  history) → `modify` if the node still holds the base content, otherwise `CONFLICT`. A changed
+  file keeps the metadata of its `.meta` record.
+
+**Refusals** (nothing is sent; every refusal is audited):
+
+| Code | When | Contacts the node? |
+|---|---|---|
+| `INVALID_INPUT` | a deleted repository file in scope ("deleting repository files is not supported"; a deletion out of scope is listed in `notImported`); a changed file below another owner's root in the owner's workspace repository (`repository/Root/<other>/…`), whatever the scope; key material (keystore, private key, certificate); `${secret:` in the content; a file over 10 MiB; more than 50 changed files with a base, or more than 200 new and changed files, in scope; a path StartCLI cannot take; `tag` with `repositoryPaths` | no |
+| `INVALID_INPUT` | more than 50 files to send (`create` + `modify`; `identical` files do not count); a file to be **created** whose extension is not one of `.xsd .xsl .xslt .wsdl .xml` (a file the node already holds is not refused for its extension) | only to read |
+| `PRECONDITION_FAILED` | a changed file with a base whose `.meta` record is missing or unreadable ("export the path first"); a file without any base counts as new | no |
+| `REPOSITORY_WRITE_DENIED` | the node's `development.repository` is `READ_ONLY` and a file would be created or modified; the whole call is refused (also its workflows and modules) and the paths are named | only to read; a file changed since its base is refused before any read. A call whose repository files are all `identical` is not refused |
+| `CONFLICT` | the node's content differs from the base of a changed file; differences in `.reports/conflict-<auditId>.diff` | only to read |
+
+**Server code, always.** Every call that would send a repository file (`create` or `modify`)
+first returns a preview with a server-issued `confirmationCode`, also on a node with
+`development.confirmation: CLIENT`; the whole call, workflows and modules included, then runs only
+with that code. The code is bound to the repository files and their content in the workspace and
+on the node. A call whose repository files are all `identical` sends none and keeps the node's
+`development.confirmation`.
+
+**Preview.** `create`, `modify`, `existing` and `identical` carry the repository paths
+(`notImported` the workspace files), and:
+
+- `repositoryReferences` `[{path, artifacts, truncated}]`: per file to send that is used outside
+  the scope (a file without such a user is not listed), up to 20 workspace artifacts **outside
+  the scope** (of every owner of the group in the workspace) that use it —
+  workflows as `<workflow> (<diagram group>)`, modules as `<module> (<plugin type> module)`,
+  repository files by their full path, another owner's with `, owner <name>`; `truncated` if
+  there are more. The full list is `.reports/repository-references-<auditId>.txt`, named in
+  `warnings`;
+- `repositoryDiff`: `.reports/repository-<auditId>.diff`, the line differences between the node
+  and the workspace of every file in `modify` (`existing` ones included, which have no base; key
+  material is only named);
+- `warnings`: the shared use (see below), every reference outside the owner's repository root that
+  was not followed (at most 20, then how many more), and, if a file the node holds is to be
+  changed, that artifacts on the node which the workspace does not hold cannot be listed. A
+  successful result repeats the last two.
+
+```json
+{"challenge": {"node": "dev/node1", "scope": "diagram group GRP-01", "baseCommit": "…",
+  "create": ["/Root/jdoe/schemas/invoice.xsd"],
+  "modify": ["Workflow-0001", "Mapping-0002", "/Root/jdoe/schemas/order.xsd"],
+  "existing": [], "identical": [], "notImported": ["dev/jdoe/repository/Root/jdoe/stylesheets/other.xsl"],
+  "checkWarnings": 0,
+  "repositoryReferences": [{"path": "/Root/jdoe/schemas/order.xsd", "artifacts": ["Mapping-0007 (GRP-02)"], "truncated": false}],
+  "repositoryDiff": ".reports/repository-<auditId>.diff",
+  "warnings": ["Workspace artifacts outside the scope … use repository files of this import, …", "…"],
+  "confirmationCode": "…", "expiresAt": "…", "message": "…"}}
+```
+
+**Execution** (the call with the code), in this order:
+
+1. the backup: the raw export of the scope plus the node's repository folder exports of the read,
+   with a manifest naming the repository files; then the `PENDING` audit record;
+2. **one** StartCLI repository import of all files to send into `/Root/<owner>` — before the
+   workflows and modules, so that they bind to the new content;
+3. the import of the workflows and modules, if there are any;
+4. verification: workflows and modules as before (with the reason); the repository folders are
+   exported again and every sent file must equal its workspace content byte for byte. Neither the
+   metadata (every import makes a new version) nor the reason (INUBIT ignores the version
+   comment of repository imports) is compared on repository files;
+5. write-back: only the sent files and their `.meta` records are rewritten from the re-export
+   (other files of the folders are not touched), in the one history entry of the call with its
+   `Server-State` and `Reason` trailers — the reason of a repository change lives in the workspace
+   history and the audit, not on the node; then the tag, if requested.
+
+A confirmed import of 20 files in 3 folders thus runs 3 repository exports to read the node again,
+1 repository import and 3 repository exports to verify (a diagram group adds its artifact exports,
+import and tag).
+
+**Failure.** After any failure from the repository import on, the repository files are rolled back
+first, then the artifacts ([rollback semantics](#development-on-a-development-stage-feature-004));
+files the call created stay and are listed in `createdNotRemoved`. A **timeout of the repository
+import** is `IMPORT_FAILED` at step `import` ("may have been applied"): nothing more is sent (no
+workflows or modules on top of an unknown repository state), the node is read again and every
+file whose content differs from before the call is rolled back. Unlike a timed-out artifact
+import, the call never ends `EXECUTED`.
+
+**Tag.** With a `tag`, the result's `tag` carries `repositoryFiles` if the tag was applied and the
+import sent repository files: their full paths, all in the closure of the group's modules
+(referenced by a module directly or only by another repository file), which INUBIT's group tag
+covers. This is information, not verified: the tag verification checks workflows and modules as
+before.
+
+**Audit.** Once the change set is built, every audit record of the call (refused, previewed,
+executed or failed) names each of its repository files as `repository.<n>` =
+`<create|modify|existing|identical> /Root/<owner>/<path> sha256:<16 hex>`; content is never
+recorded.
+
+**Shared-use risk.** Repository files are shared: a changed schema or stylesheet changes for every
+workflow and module on the node that uses it, in any diagram group and of any owner, not only for
+the scope of the import. The preview names the users the workspace holds (`repositoryReferences`
+and the report); users on the node that the workspace does not hold cannot be listed, and the
+warning says so. Export those users, or check them in the Workbench, before approving.
 
 **Example prompt**: "Import the layout change of GRP-01 to dev with reason 'layout'" →
 `import_artifacts(node: "dev/node1", diagramGroup: "GRP-01", reason: "layout")` returns the
@@ -1012,9 +1497,32 @@ REL-2026-10-07" adds `tag: "REL-2026-10-07"`.
   conflict check compares with the state the deployment left (`CONFLICT` for a change since, or
   edit mode). What the deployment created stays (`createdNotRemoved`); the workspace is not
   changed (the next export records the state). The ledger records the restored state, so the
-  next preview does not report this restore as `OUTSIDE_CHAIN`.
-- **Preview** (`challenge`): `scope`, `modify`, `notes`, `confirmationCode`, `expiresAt`,
-  `message`.
+  next preview does not report this restore as `OUTSIDE_CHAIN`. Its version check follows the
+  deployment rules (feature 009): the node must run a version that supports deployments
+  (`UNSUPPORTED_VERSION` otherwise).
+- **Preview** (`challenge`): `scope`, `modify` (repository files by their full path
+  `/Root/<owner>/…`), `notes`, `confirmationCode`, `expiresAt`, `message`.
+- **Repository files** (feature 008) of a development call's backup: the restore also re-imports
+  the previous content (and metadata) of the repository files that call changed and that existed
+  before it, from the backup's repository exports — first, then the workflows and modules, as an
+  import does:
+  - the node's `development.repository` must be `WRITE`: on a node that is `READ_ONLY` now, the
+    **whole** restore is refused with `REPOSITORY_WRITE_DENIED` before anything is read, naming
+    the paths (next step: ask the administrator for `WRITE` and restore again, or restore the
+    state in the Workbench);
+  - it always needs a preview with a server code, also on a node with
+    `development.confirmation: CLIENT`;
+  - the conflict check reads the node per folder: a file changed again since the state the call
+    left, or no longer on the node, is `CONFLICT` and nothing is sent;
+  - every re-imported file is verified byte for byte by re-export (each gets a new version), the
+    files are written back to the workspace, and a failure rolls them back from the restore's own
+    backup;
+  - files the call created stay (an import cannot delete them) and are listed in
+    `createdNotRemoved`;
+  - the audit records name each file as `repository.<n>` with the hash of the content restored.
+
+  A deployment backup is not affected: it is restored as above whatever
+  `development.repository` says.
 
 **Example prompt**: "Undo that import" → `restore_backup(node: "dev/node1", backupRef: "…",
 reason: "undo layout")`.
@@ -1093,8 +1601,19 @@ Every history export appends to the check-in comments of the exported workflows 
 - The envelope must be a regular file inside the workspace (real path; not below `.git`,
   `.meta`, `.reports`); an envelope with a `Password` element holding a value other than a
   `${secret:…}` placeholder is refused. The endpoint path must stay below the base address (no
-  scheme, host, `..`, query). Optional basic authentication comes only from the variables
-  `<PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME` / `_E2E_PASSWORD`; redirects are never followed.
+  scheme, host, `..`, query). Optional basic authentication comes only from the node's secret
+  source: the variables `<PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME` / `_E2E_PASSWORD`, or for a node
+  with AWS Parameter Store the parameters `credentials.parameters.e2eUsername` / `e2ePassword`;
+  redirects are never followed.
+- **Parameter Store** (feature 010): on the first `run_e2e_test` of such a node, before the
+  preview or the send, the node's INUBIT credentials are fetched first if they are not held yet
+  (they include the trust store password), then the end-to-end credentials in a separate fetch;
+  both are then kept. A failed fetch
+  refuses the call (audited, nothing sent) with the error of
+  [Credentials from AWS Parameter Store](#credentials-from-aws-parameter-store-feature-010),
+  naming the parameters that failed, e.g. `AUTH_FAILED` "dev/node1: end-to-end test credentials
+  from AWS Parameter Store (eu-central-1) are unavailable: not found for
+  /inubit/dev/e2e-password". A rejected end-to-end login never re-reads the parameters.
 - The envelope is sent unchanged with `Content-Type: text/xml; charset=utf-8`, `SOAPAction` and
   a unique test id in the header `X-Inubit-Mcp-Test-Id`. The response goes to
   `.tests/e2e/<auditId>.response.xml` (files older than 30 days are removed); `excerpt` (at most
@@ -1107,7 +1626,9 @@ Every history export appends to the check-in comments of the exported workflows 
 - **Result**: `auditId`, `testId`, `endpoint`, `status`, `durationMs`, `timedOut`,
   `responseFile`, `excerpt`, `correlation`, `processes`, `errors`, `logEntries` (at most 20 each),
   `truncated`, `warnings`. Errors: `NOT_DEVELOPMENT`, `E2E_FORBIDDEN`, `TARGET_UNKNOWN`,
-  `INVALID_INPUT`, `CONFIRMATION_INVALID`, `UNREACHABLE`, `TLS_ERROR`.
+  `INVALID_INPUT`, `CONFIRMATION_INVALID`, `UNSUPPORTED_VERSION` (not 8.1, unknown, pin
+  contradicted; SOAP only, so no StartCLI client check), `UNREACHABLE`, `TLS_ERROR`; for a node
+  with AWS Parameter Store also `AUTH_FAILED` or `UNREACHABLE` of a failed fetch.
   The audit records only the payload hash, never the envelope.
 
 **Example prompt**: "Send samples/order.xml to /ibis/ws/Service-01 on dev" →
@@ -1141,6 +1662,33 @@ diagrams are never read and never deployed. Repository files that the release's 
 reference (`inubitrepository:`) belong to it; key material (keys, certificates) and files
 outside `/Root/<owner>/` are never deployed.
 
+**INUBIT versions** (feature 009). In the preview and again before the execution, every source
+and every target node is checked like a write (capability `deployment`, StartCLI + REST): an
+`AUTO` node's version is detected first if it is missing, stale or older than
+`inventory.cacheTtl` (one request per node), then the version, a contradicted pin and the
+StartCLI client are checked. The deployment is refused **as a whole** with one
+`UNSUPPORTED_VERSION` before anything else is sent if that check refuses any node (a version other
+than 8.1, `V9_X` included; an unknown version; a contradicted pin; a client range that excludes
+the version) or the nodes run different minor versions (8.1.17 → 8.1.18 is allowed). The message
+names the refused nodes first, then every source and target node with its version and, per
+refused node, its cause; the refusal is audited:
+
+```text
+deploy_release: refused nodes: int/node1, int/node3; deployment from dev into int refused (the
+version check refused int/node1, int/node3; the nodes run different INUBIT minor versions (8.1,
+9.0)). Sources: dev/node1 INUBIT 8.1.17, dev/node2 INUBIT 8.1.17. Targets: int/node1 INUBIT 9.0.7
+(refused: INUBIT 9.0.7 on int/node1 does not support deployment yet), int/node2 INUBIT 8.1.17,
+int/node3 INUBIT 9.x (versionLine V9_X) (refused: INUBIT 9.x (versionLine V9_X) on int/node3 does
+not support deployment yet); nothing was sent
+```
+
+`likelyCause`: "deploy_release deploys only between nodes whose INUBIT versions are known,
+supported for deployments and of the same minor version"; `nextStep`: the next steps of the nodes
+the check refused and, only when the nodes run different minor versions, also "Deploy only
+between nodes of the same INUBIT minor version (e.g. 8.1.x to 8.1.y) whose versions are known".
+Version warnings of the nodes (e.g. a client mismatch, a failed client probe) are in the
+challenge's top-level `warnings` and in the result's `warnings`.
+
 **Preview** (`challenge`, the call without `confirmationCode`; nothing is sent to the target):
 every target node is read (exports only) and compared with the release. Per node: `counts` of
 `new`, `changed`, `layoutOnly` (only positions and labels differ), `unchanged`, `excluded`
@@ -1166,7 +1714,9 @@ entry `<workflow> (<diagram group>): tagged version <n>, head <m>` per workflow 
 version is older than the head on the source), `nodes` (one plan per target node with the fields
 above and its own `executable`), `notes` (facts for the reader, e.g. that system diagrams are
 never read), `executable` (true only if every node plan is executable), `confirmationCode` and
-`expiresAt` (only if `executable` is true) and `message` (what to do next). `diagramGroups`,
+`expiresAt` (only if `executable` is true), `message` (what to do next) and `warnings` (only when
+non-empty: the version warnings of the source and target nodes as strings, unlike the per-plan
+`warnings` above, which are objects with a kind). `diagramGroups`,
 `olderThanHead` and the lists of a plan are bounded by `resultLimits.maxItems` (`<list>Truncated`
 names how many were left out).
 
@@ -1235,7 +1785,8 @@ source, tag, diagram groups, node states, backup references and artifact names; 
 secret values. A second deployment into the same group meanwhile is refused (`DEPLOY_LOCKED`),
 a call while another workspace operation runs with `PRECONDITION_FAILED`. Other refusals:
 `INVALID_INPUT` (a node id as `target`, a tag with a wildcard, a malformed code), `TARGET_UNKNOWN`,
-`NOT_CONFIGURED` (no owner), `CONFIRMATION_INVALID`.
+`NOT_CONFIGURED` (no owner), `CONFIRMATION_INVALID`, `UNSUPPORTED_VERSION` (see INUBIT versions
+above).
 
 | Code | Likely cause | Next step |
 |---|---|---|

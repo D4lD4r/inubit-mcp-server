@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.adapter.rest.v81;
 
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
+import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.ResourceKind;
 import de.dadecker.inubit.mcp.adapter.rest.RestResponse;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
@@ -99,7 +100,8 @@ public final class V81MonitoringAdapter implements MonitoringPort {
     public SystemInfo systemInfo() {
         SystemInfo info;
         try {
-            RestResponse response = withServer(() -> client.get(SYSTEM_INFO_PATH, Map.of()));
+            RestResponse response = withServer(() ->
+                client.get(SYSTEM_INFO_PATH, Map.of(), ResourceKind.ENDPOINT));
             info = SystemInfoXmlParser.parse(server, response.body());
         } catch (ToolErrorException e) {
             listener.failed(e.error());

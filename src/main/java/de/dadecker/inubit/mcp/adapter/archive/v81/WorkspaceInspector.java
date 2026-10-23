@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Attribute;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Node;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Text;
+import de.dadecker.inubit.mcp.domain.model.RepositoryReference;
 import de.dadecker.inubit.mcp.domain.model.WorkflowGraph;
 import de.dadecker.inubit.mcp.domain.model.WorkflowGraph.Edge;
 import de.dadecker.inubit.mcp.domain.model.WorkflowGraph.Reference;
@@ -23,8 +24,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * The 8.1 {@link ArtifactInspectorPort} (research D-13) on the normalized workspace files.
@@ -36,15 +35,14 @@ import java.util.regex.Pattern;
  *       {@code EndLoopId}/{@code scopeChildId} element or attribute of the node.
  *   <li>Variables are the {@code Variable@name} declarations; references every attribute named
  *       {@code variable} (assignments {@code from}/{@code to}, conditions).
- *   <li>Repository references are the paths after {@code inubitrepository:} in any text or
- *       attribute value (also inside escaped inline stylesheets).
+ *   <li>Repository references are the paths of every {@code inubitrepository:} URI in any text
+ *       or attribute value (also inside escaped inline stylesheets), as
+ *       {@link RepositoryReferences#uriPaths} gives them: full repository paths, {@code %XX}
+ *       decoded.
  * </ul>
  */
 public final class WorkspaceInspector implements ArtifactInspectorPort {
 
-    /** {@code inubitrepository:/Root/…} up to a quote, bracket, ampersand or white space. */
-    static final Pattern REPOSITORY_REFERENCE =
-        Pattern.compile("inubitrepository:/+([^\"'<>&\\s]+)");
     /**
      * Elements and attributes that name another node. {@code Connection@scopeChildId} is not one:
      * real exports name internal ids of a scope there, which are no nodes of the workflow.
@@ -97,9 +95,8 @@ public final class WorkspaceInspector implements ArtifactInspectorPort {
 
     private static void repositoryReferences(String text, String location,
         List<Reference> references) {
-        Matcher matcher = REPOSITORY_REFERENCE.matcher(text);
-        while (matcher.find()) {
-            references.add(new Reference(matcher.group(1), location));
+        for (String path : RepositoryReferences.uriPaths(text)) {
+            references.add(new Reference(path, location));
         }
     }
 
@@ -153,6 +150,16 @@ public final class WorkspaceInspector implements ArtifactInspectorPort {
     }
 
     @Override
+    public List<RepositoryReference> repositoryReferences(WorkspacePath from, byte[] content) {
+        return RepositoryReferences.scan(from, content);
+    }
+
+    @Override
+    public List<String> repositoryUris(String text) {
+        return RepositoryReferences.uriPaths(text);
+    }
+
+    @Override
     public List<String> derivedValueMismatches(Path root, Path file) {
         if (file.getFileName().toString().equals("module.xml")) {
             return moduleMismatches(file);
@@ -181,6 +188,20 @@ public final class WorkspaceInspector implements ArtifactInspectorPort {
             .filter(size -> !size.strip().equals(String.valueOf(content.length)))
             .ifPresent(size -> mismatches.add("contentSize"));
         return mismatches;
+    }
+
+    @Override
+    public Optional<String> repositoryMetadata(Path root, WorkspacePath file) {
+        try {
+            Optional<String> metadata = new MetaStore(root).read(file)
+                .map(values -> values.get("metadata"))
+                .filter(String.class::isInstance).map(String.class::cast);
+            metadata.ifPresent(xml -> XmlTree.parse(xml.getBytes(
+                java.nio.charset.StandardCharsets.UTF_8)));
+            return metadata;
+        } catch (IllegalArgumentException e) {
+            return Optional.empty(); // not readable JSON or not well-formed XML
+        }
     }
 
     /** {@code <property>MD5} of each embedded document ({@code @file:} reference). */

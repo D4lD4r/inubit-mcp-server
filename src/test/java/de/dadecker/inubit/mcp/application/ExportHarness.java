@@ -1,11 +1,13 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ConnectorFlags;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
@@ -13,14 +15,19 @@ import de.dadecker.inubit.mcp.domain.model.InventoryKind;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.ArchiveCodecPort;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
+import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,6 +35,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
@@ -47,6 +55,15 @@ public final class ExportHarness {
     public final FakeArtifacts artifacts = new FakeArtifacts();
     public final Map<String, String> pluginTypes = new LinkedHashMap<>();
     public final GitCli history;
+    /** Feature 009: the {@code versionLine} of each node ({@code V8_1} if absent). */
+    public final Map<NodeId, VersionSetting> versionLines = new ConcurrentHashMap<>();
+    /** Feature 009: the version state of the nodes, e.g. to seed a client probe. */
+    public final NodeVersions versions = new NodeVersions(
+        new MutableClock(Instant.parse("2026-10-18T08:00:00Z")),
+        node -> versionLines.getOrDefault(node, VersionSetting.V8_1),
+        node -> Duration.ofMinutes(10));
+    /** Feature 009: the detections of the gate (none for pinned nodes). */
+    public final FakeVersionDetection detection = new FakeVersionDetection(versions);
 
     public ExportHarness(Path root) {
         this.root = root;
@@ -63,16 +80,24 @@ public final class ExportHarness {
         return new WorkspaceService(root, history, codec, node -> {
             assertThat(node).isEqualTo(DEV);
             return artifacts;
-        }, node -> inventory());
+        }, node -> inventory(), gateWithoutClients(versions, detection,
+            CapabilityMatrix.production()));
     }
 
     static WorkspaceService.ExportRequest diagramGroups(String owner, String... names) {
-        return new WorkspaceService.ExportRequest(DEV, owner, List.of(names), List.of());
+        return new WorkspaceService.ExportRequest(DEV, owner, List.of(names), List.of(),
+            List.of());
     }
 
     static WorkspaceService.ExportRequest modules(String owner,
         WorkspaceService.ModuleRef... modules) {
-        return new WorkspaceService.ExportRequest(DEV, owner, List.of(), List.of(modules));
+        return new WorkspaceService.ExportRequest(DEV, owner, List.of(), List.of(modules),
+            List.of());
+    }
+
+    static WorkspaceService.ExportRequest repositoryPaths(String owner, String... paths) {
+        return new WorkspaceService.ExportRequest(DEV, owner, List.of(), List.of(),
+            List.of(paths));
     }
 
     private InventoryPort inventory() {

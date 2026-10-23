@@ -1,30 +1,23 @@
 package de.dadecker.inubit.mcp.adapter;
 
-import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
-import de.dadecker.inubit.mcp.adapter.cli.CliImportRunner;
-import de.dadecker.inubit.mcp.adapter.cli.CliTagRunner;
-import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
-import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
-import de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter;
-import de.dadecker.inubit.mcp.adapter.cli.v81.V81TagAdapter;
-import de.dadecker.inubit.mcp.adapter.cli.v81.V81ProcessControlAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
-import de.dadecker.inubit.mcp.adapter.rest.v81.V81LogAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81MaintenanceProbe;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81MonitoringAdapter;
-import de.dadecker.inubit.mcp.adapter.rest.v81.V81ProcessQueryAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81VersionDetector;
-import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
-import de.dadecker.inubit.mcp.config.VersionLine;
+import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.Names;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionRange;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
@@ -35,6 +28,7 @@ import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.time.Clock;
 import java.time.Duration;
@@ -53,70 +47,102 @@ import org.slf4j.LoggerFactory;
  * Selects the adapter set of each server by its {@code versionLine} (Constitution V, FR-029).
  *
  * <ul>
- *   <li>{@code V8_1}: the 8.1 adapters.
+ *   <li>A configured {@code versionLine} ({@code V8_1}, {@code V9_X} or a pinned version): the
+ *       8.1 adapters, the only ones that exist in this version.
  *   <li>{@code AUTO}: resolved lazily on the first {@link #forServer} call via
  *       {@code /system/info} and cached per server. If the detection fails, the call still
- *       returns the 8.1 adapters with the warning "INUBIT version could not be detected
- *       (&lt;code&gt;); assuming 8.1". That fallback is cached for {@link #FAILED_DETECTION_TTL}
+ *       returns the 8.1 adapters. That fallback is cached for {@link #FAILED_DETECTION_TTL}
  *       (60 s): within the window the detection is not retried, so that rejected credentials
  *       ({@code AUTH_FAILED}, {@code FORBIDDEN}) do not cause one extra failed login per call
  *       (account lockout). The first call after the window detects again; a successful
  *       detection replaces the fallback for good.
- *   <li>{@code V9_X}, or a detected version other than 8.1: the 8.1 adapters plus the warning
- *       "unsupported" (only the 8.1 adapters exist in this version).
  * </ul>
+ *
+ * <p>The gateways carry no version warnings (feature 009): what a version means for a tool call
+ * is decided by the version gate from the outcomes reported to the {@link VersionObserver}.
  *
  * <p>Each server gets one {@link InubitHttpClient}, created lazily with the version line's
  * maintenance probe (8.1: {@link V81MaintenanceProbe}; never {@code MaintenanceProbe.NONE}), so
  * that HTTP 503 during maintenance is reported as {@code MAINTENANCE_MODE}.
  *
- * <p>Extension point: the user-story phases construct their 8.1 port adapters from the server's
- * client once (with the client, see {@code ensureClient}) and expose them through
- * {@link V81Gateway}. The monitoring (US1), process and log ports (US2) and the inventory port
- * (US3) and the process control port (US4) are also handed out without waiting for a version
- * detection ({@link #monitoring}, {@link #processes}, {@link #logs}, {@link #inventory},
- * {@link #processControl}), because only the 8.1 adapters exist. The inventory's StartCLI exports
- * and the restart/kill calls run with the factory's {@link CliRunner} and the server's
- * {@link CredentialGuard}, shared with its REST client.
+ * <p>Port-set selection (feature 009 research D-16): the {@link PortSet} of a server is built by
+ * the {@link PortSetRegistry} factory for the node's effective version, read from the
+ * {@link VersionObserver} whenever ports are requested ({@link #processes}, {@link #logs},
+ * {@link #inventory}, {@link #processControl}, {@link #artifacts}, {@link #imports},
+ * {@link #tags} and the gateway's port methods). The selection itself never detects: the version
+ * gate detects before it admits a call, so the ports requested after the admission belong to the
+ * detected version. The port set is built once per selected range and rebuilt when the effective
+ * version moves to another range (e.g. after a re-detection). The monitoring port (US1) is not
+ * part of the port set and is handed out without waiting for a detection. The StartCLI-backed
+ * ports run with the factory's {@link CliRunner} and the server's {@link CredentialGuard}, shared
+ * with its REST client. Production registers only the 8.1 port set, as default for every version
+ * ({@link PortSetRegistry#v81Default()}).
+ *
+ * <p>Version reporting (feature 009 research D-4, D-10): every {@code AUTO} detection of a slot
+ * (through {@link #forServer} or the monitoring's {@code /system/info}) and every
+ * {@link #detect} report their outcome to the {@link VersionObserver}; a cancelled call is not
+ * reported. Every port handed out is wrapped by {@link StaleReportingPorts}, which reports
+ * {@code UNEXPECTED_RESPONSE} failures as stale.
+ *
+ * <p>Credentials (feature 010, research R-7, FR-006a): each server's {@link NodeSecrets} holds
+ * its startup credentials (environment variables) or fetches them from AWS Parameter Store on
+ * first use. Every call that builds or uses the client ({@link #forServer}, {@link #detect},
+ * {@link #monitoring} and the port methods) first waits for them with
+ * {@link NodeSecrets#current} for at most {@link #SECRETS_WAIT}, holding no lock of the slot, so
+ * an interrupted caller returns at once even while another caller's fetch is pending; a failed
+ * fetch fails the call before anything is sent to INUBIT. The client is built with the
+ * credentials, because the trust store password is part of its TLS context. Construction,
+ * {@link #credentialsHeld} and {@link #knownGateway} never start a fetch;
+ * {@link #prepareCredentials} starts or joins it and waits at most its bound (research R-9).
  */
 public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(AdapterGatewayFactory.class);
-    private static final String V81_PREFIX = "8.1";
 
     private final Map<NodeId, Slot> slots = new LinkedHashMap<>();
     private final SecretScrubber scrubber;
     private final Clock clock;
     private final CliRunner cliRunner;
+    private final VersionObserver versions;
+    private final PortSetRegistry portSets;
 
     /** How long the 8.1 fallback of a failed {@code AUTO} detection is used before a retry. */
     public static final Duration FAILED_DETECTION_TTL = Duration.ofSeconds(60);
 
+    /** How long a call waits for the secrets of its server (research R-7). */
+    private static final Duration SECRETS_WAIT = NodeSecrets.STORE_TIMEOUT;
+
     /**
      * @param servers     the validated servers, in config order
-     * @param credentials their resolved credentials
+     * @param secrets     the credentials of each server
      * @param clock       decides when a failed detection is retried
      * @param cliRunner   the StartCLI runner of the CLI-backed ports (US3 exports)
+     * @param versions    receives the detections, failed detections and stale triggers, and
+     *     answers the effective version that selects the port set
+     * @param portSets    the port-set factory of each version range, plus the default
      */
     public AdapterGatewayFactory(List<EffectiveNodeConfig> servers,
-        CredentialResolution credentials, SecretScrubber scrubber, Clock clock,
-        CliRunner cliRunner) {
+        Map<NodeId, NodeSecrets> secrets, SecretScrubber scrubber, Clock clock,
+        CliRunner cliRunner, VersionObserver versions, PortSetRegistry portSets) {
         this.cliRunner = Objects.requireNonNull(cliRunner, "cliRunner");
+        this.versions = Objects.requireNonNull(versions, "versions");
+        this.portSets = Objects.requireNonNull(portSets, "portSets");
         this.scrubber = Objects.requireNonNull(scrubber, "scrubber");
         this.clock = Objects.requireNonNull(clock, "clock");
         for (EffectiveNodeConfig server : servers) {
-            NodeCredentials serverCredentials = credentials.all().stream()
-                .filter(c -> c.node().equals(server.id()))
-                .findFirst()
-                .orElseGet(() -> new NodeCredentials(server.id(), Optional.empty(),
-                    Optional.empty(), Optional.empty(), Optional.empty()));
-            slots.put(server.id(), new Slot(server, serverCredentials));
+            slots.put(server.id(), new Slot(server, Objects.requireNonNull(
+                secrets.get(server.id()), () -> "No secrets for " + server.id())));
         }
     }
 
     @Override
     public Gateway forServer(NodeId server) {
         return slot(server).gateway();
+    }
+
+    @Override
+    public InubitVersion detect(NodeId server) {
+        return slot(server).detectNow();
     }
 
     private Slot slot(NodeId server) {
@@ -137,25 +163,21 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
         return slot(server).monitoring();
     }
 
-    /** Without waiting for a version detection: only the 8.1 adapters exist (US2). */
     @Override
     public ProcessQueryPort processes(NodeId server) {
         return slot(server).ports().processes();
     }
 
-    /** Without waiting for a version detection: only the 8.1 adapters exist (US2). */
     @Override
     public LogPort logs(NodeId server) {
         return slot(server).ports().logs();
     }
 
-    /** Without waiting for a version detection: only the 8.1 adapters exist (US3). */
     @Override
     public InventoryPort inventory(NodeId server) {
         return slot(server).ports().inventory();
     }
 
-    /** Without waiting for a version detection: only the 8.1 adapters exist (feature 003). */
     @Override
     public ArtifactPort artifacts(NodeId server) {
         return slot(server).ports().artifacts();
@@ -171,10 +193,33 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
         return slot(server).ports().tags();
     }
 
-    /** Without waiting for a version detection: only the 8.1 adapters exist (US4). */
     @Override
     public ProcessControlPort processControl(NodeId server) {
         return slot(server).ports().processControl();
+    }
+
+    @Override
+    public boolean credentialsHeld(NodeId server) {
+        return slot(server).secrets.held().isPresent();
+    }
+
+    /**
+     * {@link NodeSecrets#current} within {@code bound}: its {@code TIMEOUT} (the fetch outlived
+     * the bound and continues) is {@code PENDING}; a failed fetch is {@code AUTH_FAILED} or
+     * {@code UNREACHABLE} and is thrown, as is the {@code TIMEOUT} of an interrupted caller.
+     */
+    @Override
+    public CredentialState prepareCredentials(NodeId server, Duration bound) {
+        Slot slot = slot(server);
+        try {
+            slot.secrets.current(bound);
+            return CredentialState.READY;
+        } catch (ToolErrorException e) {
+            if (e.error().code() == ErrorCode.TIMEOUT && !Thread.currentThread().isInterrupted()) {
+                return CredentialState.PENDING;
+            }
+            throw e;
+        }
     }
 
     @Override
@@ -188,122 +233,234 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
     }
 
     /**
-     * The lazily created client, monitoring adapter and credential guard of one server, and its
-     * cached gateway. Two {@link ReentrantLock}s (not {@code synchronized}, so that waiting
-     * virtual threads do not pin their carrier): {@code clientLock} for the quick creation of
-     * the client, {@code lock} for the gateway state, held during a blocking detection. The
-     * monitoring port never waits for {@code lock}.
+     * The lazily created client, monitoring adapter and credential guard of one server, its
+     * selected port set and its cached gateway. Two {@link ReentrantLock}s (not
+     * {@code synchronized}, so that waiting virtual threads do not pin their carrier):
+     * {@code clientLock} for the quick creation of the client and the port set, {@code lock} for
+     * the gateway state, held during a blocking detection. Neither the monitoring port nor the
+     * port set waits for {@code lock}. The wait for the secrets happens before either lock is
+     * taken ({@link #awaitCredentials()}).
+     *
+     * <p>Rotation (feature 010, research R-10): an AWS node's guard re-reads the secrets after a
+     * rejected login, without touching the slot. When {@link NodeSecrets#held()} answers other
+     * credentials than the client was built with, the next call builds a new client and
+     * monitoring adapter and drops the port set; the gateway, built for the old client, is no
+     * longer {@link #valid}. The old client is closed in the background; the guard refuses
+     * attempts with its credentials ({@link CredentialGuard#bind}).
      */
     private final class Slot implements V81MonitoringAdapter.SystemInfoListener {
 
+        /** A client with the credentials it was built with and what belongs to it. */
+        private record Client(NodeCredentials credentials, CredentialGuard guard,
+            V81MaintenanceProbe probe, InubitHttpClient http, MonitoringPort monitoring) {
+
+            void close() {
+                http.close();
+                probe.close();
+            }
+        }
+
         private final EffectiveNodeConfig server;
-        private final NodeCredentials credentials;
+        private final NodeSecrets secrets;
         private final CredentialGuard guard;
+        private final StaleReportingPorts stale;
         private final ReentrantLock clientLock = new ReentrantLock();
         private final ReentrantLock lock = new ReentrantLock();
-        private V81MaintenanceProbe probe;
-        private InubitHttpClient client;
-        private V81MonitoringAdapter monitoring;
-        private V81Gateway.Ports ports;
+        /** Guarded by {@code clientLock}. */
+        private Client client;
+        private PortSet ports;
+        /** The registry range {@link #ports} was built for; empty for the default. */
+        private Optional<VersionRange> portsRange;
+        /** Guarded by {@code lock}. */
         private V81Gateway gateway;
+        /** The client {@link #gateway} was built with. */
+        private Client gatewayClient;
         /** Set while {@link #gateway} is the fallback of a failed detection. */
         private Instant fallbackUntil;
 
-        Slot(EffectiveNodeConfig server, NodeCredentials credentials) {
+        Slot(EffectiveNodeConfig server, NodeSecrets secrets) {
             this.server = server;
-            this.credentials = credentials;
-            this.guard = new CredentialGuard(server.credentialVariables(), clock);
+            this.secrets = secrets;
+            this.guard = secrets.rereadable()
+                ? new CredentialGuard(server.secretLabels(), clock, secrets)
+                : new CredentialGuard(server.secretLabels(), clock);
+            this.stale = new StaleReportingPorts(server.id(), versions);
+        }
+
+        /**
+         * Waits (interruptibly) for a pending fetch of the server's credentials. Called before
+         * {@code lock} or {@code clientLock} is taken; afterwards {@link NodeSecrets#held()} is
+         * present for good.
+         *
+         * @throws ToolErrorException the fetch failure, or {@code TIMEOUT} if the wait ends
+         */
+        private void awaitCredentials() {
+            secrets.current(SECRETS_WAIT);
         }
 
         Gateway gateway() {
+            awaitCredentials();
             lock.lock();
             try {
-                if (valid()) {
+                Client current = ensureClient();
+                if (valid(current)) {
                     return gateway;
                 }
-                ensureClient();
-                return switch (server.versionLine()) {
-                    case V8_1, V9_X -> configured();
-                    case AUTO -> detect();
-                };
+                return auto() ? detect(current) : cache(current, Optional.empty());
             } finally {
                 lock.unlock();
             }
         }
 
         MonitoringPort monitoring() {
-            ensureClient();
-            return monitoring;
+            awaitCredentials();
+            return ensureClient().monitoring();
         }
 
-        V81Gateway.Ports ports() {
-            ensureClient();
-            return ports;
+        /**
+         * The port set for the node's current effective version, built on the first request and
+         * rebuilt when the version has moved to another registry range or the client was
+         * replaced; no network access.
+         */
+        PortSet ports() {
+            awaitCredentials();
+            PortSetRegistry.Selection selection =
+                portSets.select(versions.effectiveVersion(server.id()));
+            clientLock.lock();
+            try {
+                Client current = ensureClient();
+                if (ports == null || !selection.range().equals(portsRange)) {
+                    ports = stale.ports(selection.factory().create(new PortSetRegistry
+                        .NodeResources(server, current.credentials(), current.guard(),
+                            current.http(), cliRunner, scrubber)));
+                    portsRange = selection.range();
+                }
+                return ports;
+            } finally {
+                clientLock.unlock();
+            }
         }
 
         Optional<Gateway> knownGateway() {
-            if (!lock.tryLock()) {
-                return Optional.empty(); // a detection is running
+            if (secrets.held().isEmpty() || !lock.tryLock()) {
+                return Optional.empty(); // secrets not fetched yet, or a detection is running
             }
             try {
-                if (valid()) {
+                if (gateway == null && auto()) {
+                    return Optional.empty(); // needs a detection
+                }
+                Client current = ensureClient();
+                if (valid(current)) {
                     return Optional.of(gateway);
                 }
-                if (server.versionLine() == VersionLine.AUTO) {
-                    return Optional.empty();
-                }
-                ensureClient();
-                return Optional.of(configured());
+                return auto() ? Optional.empty() : Optional.of(cache(current, Optional.empty()));
             } finally {
                 lock.unlock();
             }
         }
 
-        private boolean valid() {
-            return gateway != null
+        private boolean auto() {
+            return server.versionLine() instanceof VersionSetting.Auto;
+        }
+
+        /** A gateway of {@code current}, outside the window of a failed detection. */
+        private boolean valid(Client current) {
+            return gateway != null && gatewayClient == current
                 && (fallbackUntil == null || clock.instant().isBefore(fallbackUntil));
         }
 
-        private Gateway configured() {
-            return server.versionLine() == VersionLine.V9_X
-                ? cache(Optional.empty(), List.of("versionLine V9_X is unsupported in this"
-                    + " version; the 8.1 adapters are used"))
-                : cache(Optional.empty(), List.of());
+        /**
+         * Detects the version; a real failure gives the 8.1 gateway, cached for
+         * {@link #FAILED_DETECTION_TTL}. A cancelled (interrupted) detection is neither cached
+         * nor reported.
+         */
+        private Gateway detect(Client current) {
+            String version;
+            try {
+                version = V81VersionDetector.detect(server.id(), current.http());
+            } catch (ToolErrorException e) {
+                if (Thread.currentThread().isInterrupted()) {
+                    return new V81Gateway(server.id(), Optional.empty(), List.of(),
+                        current.http(), current.monitoring(), this::ports, current.guard());
+                }
+                report(e.error().code());
+                return fallback(current, e.error().code());
+            }
+            report(version);
+            return detected(current, version);
         }
 
         /**
-         * Detects the version; a real failure gives an 8.1 gateway with a warning, cached for
-         * {@link #FAILED_DETECTION_TTL}. A cancelled (interrupted) detection is not cached.
+         * {@link GatewayFactory#detect}: one detection regardless of the cached gateway or the
+         * fallback window. For {@code AUTO} the result also updates the adapter selection: a
+         * success replaces the gateway, a failure installs the fallback only if no valid gateway
+         * is cached (a known version is kept).
          */
-        private Gateway detect() {
-            String version;
+        InubitVersion detectNow() {
+            awaitCredentials();
+            lock.lock();
             try {
-                version = V81VersionDetector.detect(server.id(), client);
-            } catch (ToolErrorException e) {
-                if (Thread.currentThread().isInterrupted()) {
-                    return new V81Gateway(server.id(), Optional.empty(),
-                        List.of(fallbackWarning(e.error().code())), client, monitoring, ports,
-                        guard);
+                Client current = ensureClient();
+                String version;
+                try {
+                    version = V81VersionDetector.detect(server.id(), current.http());
+                } catch (ToolErrorException e) {
+                    if (!Thread.currentThread().isInterrupted()) {
+                        report(e.error().code());
+                        if (auto() && !valid(current)) {
+                            fallback(current, e.error().code());
+                        }
+                    }
+                    throw e;
                 }
-                return fallback(e.error().code());
+                Optional<InubitVersion> parsed = report(version);
+                if (auto()) {
+                    detected(current, version);
+                }
+                return parsed.orElseThrow(() -> new ToolErrorException(ToolError.of(
+                    ErrorCode.UNEXPECTED_RESPONSE,
+                    "The INUBIT version " + Names.quote(version) + " of " + server.id()
+                        + " has no major.minor",
+                    "The system information has an unexpected format",
+                    "Check the INUBIT server, or run get_health").withNode(server.id())));
+            } finally {
+                lock.unlock();
             }
-            return detected(version);
         }
 
-        /** The health call's {@code /system/info} completes an {@code AUTO} detection. */
+        /** Reports a detected version; one without major.minor is a failed detection. */
+        private Optional<InubitVersion> report(String version) {
+            Optional<InubitVersion> parsed = InubitVersion.parse(version);
+            parsed.ifPresentOrElse(v -> versions.detected(server.id(), v),
+                () -> report(ErrorCode.UNEXPECTED_RESPONSE));
+            return parsed;
+        }
+
+        private void report(ErrorCode failure) {
+            versions.detectionFailed(server.id(), failure);
+        }
+
+        /**
+         * The health call's {@code /system/info} completes an {@code AUTO} detection (and reports
+         * it); once detected, later health calls are observations, reported by the health
+         * service, not here.
+         */
         @Override
         public void succeeded(SystemInfo info) {
-            if (server.versionLine() != VersionLine.AUTO || !lock.tryLock()) {
+            if (!auto() || !lock.tryLock()) {
                 return;
             }
             try {
-                if (gateway != null && fallbackUntil == null) {
+                Client current = builtClient();
+                if (current == null || (valid(current) && fallbackUntil == null)) {
                     return; // already detected
                 }
                 if (info.version().isPresent()) {
-                    detected(info.version().get());
-                } else if (!valid()) {
-                    fallback(ErrorCode.UNEXPECTED_RESPONSE);
+                    report(info.version().get());
+                    detected(current, info.version().get());
+                } else if (!valid(current)) {
+                    report(ErrorCode.UNEXPECTED_RESPONSE);
+                    fallback(current, ErrorCode.UNEXPECTED_RESPONSE);
                 }
             } finally {
                 lock.unlock();
@@ -313,87 +470,83 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
         /** A real failure of the health call's {@code /system/info} is a failed detection. */
         @Override
         public void failed(ToolError error) {
-            if (server.versionLine() != VersionLine.AUTO
-                || Thread.currentThread().isInterrupted() || !lock.tryLock()) {
+            if (!auto() || Thread.currentThread().isInterrupted() || !lock.tryLock()) {
                 return;
             }
             try {
-                if (!valid()) {
-                    fallback(error.code());
+                Client current = builtClient();
+                if (current != null && !valid(current)) {
+                    report(error.code());
+                    fallback(current, error.code());
                 }
             } finally {
                 lock.unlock();
             }
         }
 
-        private Gateway detected(String version) {
-            List<String> warnings = isV81(version) ? List.of()
-                : List.of("INUBIT " + version + " is unsupported in this version; the 8.1"
-                    + " adapters are used");
-            return cache(Optional.of(version), warnings);
+        private Gateway detected(Client current, String version) {
+            return cache(current, Optional.of(version));
         }
 
-        private Gateway fallback(ErrorCode code) {
-            String warning = fallbackWarning(code);
-            LOG.warn("{}: {}", server.id(), warning);
-            gateway = new V81Gateway(server.id(), Optional.empty(), List.of(warning), client,
-                monitoring, ports, guard);
+        private Gateway fallback(Client current, ErrorCode code) {
+            LOG.warn("{}: INUBIT version could not be detected ({})", server.id(), code);
+            cache(current, Optional.empty());
             fallbackUntil = clock.instant().plus(FAILED_DETECTION_TTL);
             return gateway;
         }
 
-        private static String fallbackWarning(ErrorCode code) {
-            return "INUBIT version could not be detected (" + code + "); assuming 8.1";
-        }
-
-        private Gateway cache(Optional<String> detected, List<String> warnings) {
-            warnings.forEach(warning -> LOG.warn("{}: {}", server.id(), warning));
-            gateway = new V81Gateway(server.id(), detected, warnings, client, monitoring, ports,
-                guard);
+        private Gateway cache(Client current, Optional<String> detected) {
+            gateway = new V81Gateway(server.id(), detected, List.of(), current.http(),
+                current.monitoring(), this::ports, current.guard());
+            gatewayClient = current;
             fallbackUntil = null;
             return gateway;
         }
 
+        /** The client built last, without building one; {@code null} if there is none. */
+        private Client builtClient() {
+            clientLock.lock();
+            try {
+                return client;
+            } finally {
+                clientLock.unlock();
+            }
+        }
+
         /**
-         * Creates the client (with the 8.1 maintenance probe and the server's credential guard)
-         * the monitoring adapter and the ports once; no network access.
+         * The client for the credentials held now: created once (with them, the 8.1 maintenance
+         * probe and the server's credential guard bound to them) together with the monitoring
+         * adapter, wrapped by {@link StaleReportingPorts}; replaced, together with the port set,
+         * when other credentials are held (research R-10); no network access. Call after
+         * {@link #awaitCredentials()}.
          *
          * @throws ToolErrorException {@code TLS_ERROR} if the trust store or pin is unusable;
          *     not cached, so a fixed trust store is picked up on the next call
          */
-        private void ensureClient() {
+        private Client ensureClient() {
             clientLock.lock();
             try {
+                NodeCredentials current = secrets.held().orElseThrow();
+                if (client != null && client.credentials() == current) {
+                    return client;
+                }
                 if (client != null) {
-                    return;
+                    // a caller may still wait for a response of the old client
+                    Thread.ofVirtual().name("client-close-" + server.id().value())
+                        .start(client::close);
+                    client = null;
+                    ports = null;
+                    portsRange = null;
                 }
                 V81MaintenanceProbe newProbe = new V81MaintenanceProbe(server,
-                    credentials.trustStorePassword().map(SourcedValue::value), scrubber);
+                    current.trustStorePassword().map(SourcedValue::value), scrubber);
                 try {
-                    client = InubitHttpClient.create(server, credentials, newProbe, scrubber,
-                        guard);
-                    probe = newProbe;
-                    monitoring = new V81MonitoringAdapter(server.id(), client, this);
-                    V81InventoryAdapter inventory = new V81InventoryAdapter(server.id(), client,
-                        new CliExportRunner(server, credentials, guard, cliRunner,
-                            new CliOutputClassifier(scrubber, server.credentialVariables())));
-                    ports = new V81Gateway.Ports(
-                        new V81ProcessQueryAdapter(server.id(), client),
-                        new V81LogAdapter(server.id(), client),
-                        inventory,
-                        new V81ProcessControlAdapter(server, credentials, guard, cliRunner,
-                            new CliOutputClassifier(scrubber, server.credentialVariables())),
-                        new V81ArtifactAdapter(new CliExportRunner(server, credentials, guard,
-                            cliRunner, new CliOutputClassifier(scrubber,
-                                server.credentialVariables())), inventory::confirmCredentials),
-                        new V81ImportAdapter(new CliImportRunner(server, credentials, guard,
-                            cliRunner, new CliOutputClassifier(scrubber,
-                                server.credentialVariables())), inventory::confirmCredentials),
-                        new V81TagAdapter(server.id(), new CliExportRunner(server, credentials,
-                            guard, cliRunner, new CliOutputClassifier(scrubber,
-                                server.credentialVariables())), new CliTagRunner(server,
-                            credentials, guard, cliRunner, new CliOutputClassifier(scrubber,
-                                server.credentialVariables())), inventory::confirmCredentials));
+                    CredentialGuard bound = guard.bind(current);
+                    InubitHttpClient http = InubitHttpClient.create(server, current, newProbe,
+                        scrubber, bound);
+                    client = new Client(current, bound, newProbe, http, stale.monitoring(
+                        new V81MonitoringAdapter(server.id(), http, this)));
+                    return client;
                 } catch (RuntimeException e) {
                     newProbe.close();
                     throw e;
@@ -408,25 +561,18 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
             clientLock.lock();
             try {
                 gateway = null;
+                gatewayClient = null;
                 fallbackUntil = null;
-                monitoring = null;
                 ports = null;
+                portsRange = null;
                 if (client != null) {
                     client.close();
                     client = null;
-                }
-                if (probe != null) {
-                    probe.close();
-                    probe = null;
                 }
             } finally {
                 clientLock.unlock();
                 lock.unlock();
             }
         }
-    }
-
-    private static boolean isV81(String version) {
-        return version.equals(V81_PREFIX) || version.startsWith(V81_PREFIX + ".");
     }
 }

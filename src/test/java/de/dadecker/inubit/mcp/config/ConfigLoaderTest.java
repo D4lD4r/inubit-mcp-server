@@ -6,8 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import java.io.IOException;
 import java.net.URI;
@@ -18,6 +20,8 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalInt;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -377,7 +381,7 @@ class ConfigLoaderTest {
             assertThat(server.write().enabled()).isFalse();
             assertThat(server.write().productionOptIn()).isFalse();
             assertThat(server.write().confirmation()).isEqualTo(ConfirmationMode.SERVER);
-            assertThat(server.versionLine()).isEqualTo(VersionLine.AUTO);
+            assertThat(server.versionLine()).isEqualTo(VersionSetting.AUTO);
             assertThat(server.production()).isFalse();
             assertThat(server.allowInsecureHttp()).isFalse();
             assertThat(server.tls().trustStore()).isEmpty();
@@ -415,7 +419,7 @@ class ConfigLoaderTest {
             assertThat(server.confirmationTtl()).isEqualTo(Duration.parse("PT7M"));
             assertThat(server.inventory().owner()).contains("STAGEOWNER");
             assertThat(server.inventory().cacheTtl()).isEqualTo(Duration.parse("PT11M"));
-            assertThat(server.versionLine()).isEqualTo(VersionLine.V8_1);
+            assertThat(server.versionLine()).isEqualTo(VersionSetting.V8_1);
             assertThat(server.write().enabled()).isTrue();
             assertThat(server.write().confirmation()).isEqualTo(ConfirmationMode.SERVER);
             assertThat(server.tls().trustStore())
@@ -435,7 +439,7 @@ class ConfigLoaderTest {
             assertThat(server.confirmationTtl()).isEqualTo(Duration.parse("PT8M"));
             assertThat(server.inventory().owner()).contains("SRVOWNER");
             assertThat(server.inventory().cacheTtl()).isEqualTo(Duration.parse("PT13M"));
-            assertThat(server.versionLine()).isEqualTo(VersionLine.V9_X);
+            assertThat(server.versionLine()).isEqualTo(VersionSetting.V9_X);
             assertThat(server.write().enabled()).isFalse();
             assertThat(server.write().confirmation()).isEqualTo(ConfirmationMode.CLIENT);
             // trustStore comes from the stage, the other TLS fields from the server
@@ -554,7 +558,7 @@ class ConfigLoaderTest {
                 "groups[0].nodes[0].username", "groups[0].nodes[0].password",
                 "groups[0].nodes[0].tls.trustStorePassword");
             assertThat(loaded.toString()).doesNotContain("do-not-put-me-here", "jdoe",
-                "in-an-x-block", "also-not-here", "top-level-user");
+                "in-an-x-block", "also-not-here", "top-level-user", "group-level-secret");
             assertThat(loaded.config().effectiveNodes()).hasSize(1);
         }
 
@@ -754,12 +758,13 @@ class ConfigLoaderTest {
         void effectiveConfigRejectsUrlsWithUserInfo() {
             NodeConfig entry = new NodeConfig("node1",
                 java.util.Optional.of(URI.create("https://u:secretpw@h.example.test")), false, null,
-                null, null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null);
             GroupConfig stage = new GroupConfig("dev", false, List.of(entry), null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null);
 
             assertThatThrownBy(() -> EffectiveNodeConfig.resolve(Defaults.EMPTY, stage, entry,
-                "INUBIT_ACME"))
+                "INUBIT_ACME", SecretPlan.resolve(CredentialsConfig.EMPTY, "INUBIT_ACME", stage,
+                    entry)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageNotContaining("secretpw");
         }
@@ -770,12 +775,13 @@ class ConfigLoaderTest {
         void effectiveConfigRejectsUrlsWithAnyAtSign(String url) {
             NodeConfig entry = new NodeConfig("node1",
                 java.util.Optional.of(URI.create(url)), false, null,
-                null, null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null);
             GroupConfig stage = new GroupConfig("dev", false, List.of(entry), null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null);
 
             assertThatThrownBy(() -> EffectiveNodeConfig.resolve(Defaults.EMPTY, stage, entry,
-                "INUBIT_ACME"))
+                "INUBIT_ACME", SecretPlan.resolve(CredentialsConfig.EMPTY, "INUBIT_ACME", stage,
+                    entry)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageNotContaining("secretpw");
         }
@@ -851,6 +857,96 @@ class ConfigLoaderTest {
             assertThatThrownBy(() -> loader().loadFile(missing))
                 .isInstanceOf(ConfigException.class)
                 .hasMessageContaining(missing.toString());
+        }
+    }
+
+    /**
+     * Feature 009 (T005, research D-2, contracts/configuration-delta.md): {@code versionLine}
+     * accepts {@code AUTO}, {@code V8_1}, {@code V9_X} or a full version as a string.
+     */
+    @Nested
+    class VersionLineValues {
+
+        private static final String EXPECTED =
+            "expected AUTO, V8_1, V9_X or a full version such as \"8.1.17\"";
+
+        private VersionSetting nodeSetting(String value) {
+            String yaml = MINIMAL.replace("baseUrl:",
+                "versionLine: " + value + "\n        baseUrl:");
+            return server(loader().parse(yaml, home.resolve("v.yaml")), "dev/node1")
+                .versionLine();
+        }
+
+        @Test
+        void theThreeKeywordsKeepTheirSpelling() {
+            assertThat(nodeSetting("AUTO")).isEqualTo(VersionSetting.AUTO)
+                .isInstanceOf(VersionSetting.Auto.class);
+            assertThat(nodeSetting("V8_1")).isEqualTo(new VersionSetting.Line(8,
+                OptionalInt.of(1)));
+            assertThat(nodeSetting("V9_X")).isEqualTo(new VersionSetting.Line(9,
+                OptionalInt.empty()));
+            assertThat(List.of(nodeSetting("AUTO"), nodeSetting("V8_1"), nodeSetting("V9_X"))
+                .stream().map(VersionSetting::text)).containsExactly("AUTO", "V8_1", "V9_X");
+        }
+
+        @Test
+        void aFullVersionIsAPin() {
+            VersionSetting pinned = nodeSetting("\"8.1.17\"");
+
+            assertThat(pinned).isInstanceOf(VersionSetting.Pinned.class);
+            InubitVersion version = ((VersionSetting.Pinned) pinned).version();
+            assertThat(version.major()).isEqualTo(8);
+            assertThat(version.minor()).isEqualTo(1);
+            assertThat(version.patch()).hasValue(17);
+            assertThat(pinned.text()).isEqualTo("8.1.17");
+            assertThat(nodeSetting("8.1.17").text()).as("unquoted, YAML reads it as text")
+                .isEqualTo("8.1.17");
+        }
+
+        @Test
+        void aPinKeepsItsSuffix() {
+            VersionSetting pinned = nodeSetting("\"9.0.7-HF1\"");
+
+            assertThat(pinned).isInstanceOf(VersionSetting.Pinned.class);
+            assertThat(((VersionSetting.Pinned) pinned).version().patch()).hasValue(7);
+            assertThat(pinned.text()).isEqualTo("9.0.7-HF1");
+        }
+
+        @Test
+        void surroundingBlanksAreIgnored() {
+            assertThat(nodeSetting("\" V8_1 \"").text()).isEqualTo("V8_1");
+            assertThat(nodeSetting("\" 8.1.17 \"").text()).isEqualTo("8.1.17");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"8.1", "\"8.1\"", "\"V10\"", "auto", "\"\"", "17", "true",
+            "\"x8.1.17\""})
+        void anythingElseIsRefusedWithoutEcho(String value) {
+            String yaml = MINIMAL.replace("baseUrl:",
+                "versionLine: " + value + "\n        baseUrl:");
+
+            assertThatThrownBy(() -> loader().parse(yaml, home.resolve("v.yaml")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageStartingWith("Invalid versionLine at groups[0].nodes[0].versionLine")
+                .hasMessageEndingWith(EXPECTED)
+                .hasMessageNotContaining("V10");
+        }
+
+        @Test
+        void aGroupValueIsCheckedToo() {
+            String yaml = MINIMAL.replace("    nodes:", "    versionLine: 9.0\n    nodes:");
+
+            assertThatThrownBy(() -> loader().parse(yaml, home.resolve("v.yaml")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Invalid versionLine at groups[0].versionLine in ")
+                .hasMessageEndingWith(EXPECTED);
+        }
+
+        @Test
+        void otherInvalidValuesKeepTheGenericMessage() {
+            assertThatThrownBy(() -> loader().parse(MINIMAL + "logLevel: VERBOSE\n",
+                home.resolve("bad.yaml")))
+                .hasMessageStartingWith("Invalid value at logLevel");
         }
     }
 
@@ -1025,6 +1121,60 @@ class ConfigLoaderTest {
                 .hasMessageContaining("FREE, CONFIRM, FORBIDDEN");
         }
 
+        /** Feature 008 (T009, research D-1, D-2). */
+        @Test
+        void theRepositorySwitchIsReadOnEveryLevelAndResolvedNodeFirst() {
+            LoadedConfig loaded = parse("""
+                profile:
+                  name: acme
+                defaults:
+                  development:
+                    repository: WRITE
+                groups:
+                  - name: dev
+                    development:
+                      enabled: true
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-dev.example.test:8443
+                      - name: node2
+                        baseUrl: https://inubit-dev-2.example.test:8443
+                        development:
+                          repository: READ_ONLY
+                  - name: test
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-test.example.test:8443
+                """);
+
+            assertThat(loaded.config().defaults().development().repository())
+                .contains(RepositoryMode.WRITE);
+            assertThat(loaded.config().groups().get(0).nodes().get(1).development().repository())
+                .contains(RepositoryMode.READ_ONLY);
+            assertThat(server(loaded, "dev/node1").development().repositoryWrite()).isTrue();
+            assertThat(server(loaded, "dev/node2").development().repositoryWrite()).isFalse();
+            assertThat(server(loaded, "test/node1").development().repositoryWrite()).isFalse();
+            assertThat(server(loaded, "dev/node1").developmentPolicy().repositoryWrite()).isTrue();
+        }
+
+        @Test
+        void withoutTheRepositorySwitchADevelopmentNodeIsReadOnly() {
+            EffectiveNodeConfig server = server(parse(LAYERED), "dev/node1");
+
+            assertThat(server.development().enabled()).isTrue();
+            assertThat(server.development().repositoryWrite()).isFalse();
+            assertThat(server.developmentPolicy().repositoryWrite()).isFalse();
+        }
+
+        @Test
+        void anUnknownRepositoryModeIsALoaderErrorListingTheValues() {
+            assertThatThrownBy(() -> parse(MINIMAL.replace("    nodes:",
+                "    development:\n      repository: read-write\n    nodes:")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("development.repository")
+                .hasMessageContaining("READ_ONLY, WRITE");
+        }
+
         @Test
         void userInfoInTheSoapBaseUrlIsDroppedAndReportedWithoutTheValue() {
             LoadedConfig loaded = parse(MINIMAL.replace("    nodes:",
@@ -1112,5 +1262,263 @@ class ConfigLoaderTest {
                 .hasMessageContaining("Unknown key 'source'");
         }
     }
-}
 
+    /** Feature 010 (T003, research R-4): the {@code credentials} section at three levels. */
+    @Nested
+    class CredentialsSections {
+
+        private static final String PASTED = "pasted-secret-value-1";
+
+        private LoadedConfig parse(String yaml) {
+            return loader().parse(yaml, home.resolve("c.yaml"));
+        }
+
+        /** {@code MINIMAL} with {@code groupLines} and {@code nodeLines} (unindented) inserted. */
+        private String withCredentials(String groupLines, String nodeLines) {
+            return MINIMAL
+                .replace("    nodes:\n", indent(groupLines, 4) + "    nodes:\n")
+                .replace("        baseUrl: https://inubit.example.test:8443\n",
+                    "        baseUrl: https://inubit.example.test:8443\n"
+                        + indent(nodeLines, 8));
+        }
+
+        private static String indent(String lines, int spaces) {
+            return lines.isEmpty() ? "" : lines.indent(spaces);
+        }
+
+        private void assertRefused(String yaml, String... expected) {
+            assertThatThrownBy(() -> parse(yaml))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("c.yaml")
+                .hasMessageContainingAll(expected)
+                .hasMessageNotContaining(PASTED);
+        }
+
+        @Test
+        void sourcesAndParameterNamesAreLoadedAtAllLevels() {
+            String yaml = """
+                profile:
+                  name: acme
+                credentials:
+                  envPrefix: INUBIT_ACME
+                  source:
+                    type: environment
+                    prefix: INUBIT_ACME
+                groups:
+                  - name: prod
+                    credentials:
+                      source:
+                        type: awsParameterStore
+                        region: eu-central-1
+                        awsProfile: test-profile
+                      parameters:
+                        username: /inubit/prod/username
+                        password: /inubit/prod/password
+                        trustStorePassword: /inubit/prod/ts-pass
+                        e2eUsername: /inubit/prod/e2e-user
+                        e2ePassword: /inubit/prod/e2e-pass
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit.example.test:8443
+                        credentials:
+                          parameters:
+                            password: /inubit/prod/node1/password
+                      - name: node2
+                        baseUrl: https://inubit.example.test:8444
+                        credentials:
+                          source: { type: environment }
+                """;
+
+            LoadedConfig loaded = parse(yaml);
+            ProfileConfig config = loaded.config();
+            GroupConfig group = config.groups().get(0);
+
+            assertThat(loaded.credentialKeys()).isEmpty();
+            assertThat(config.credentials().envPrefix()).contains("INUBIT_ACME");
+            assertThat(config.credentials().source()).contains(
+                new SecretSourceConfig.Environment(Optional.of("INUBIT_ACME")));
+            assertThat(config.credentials().parameters()).isEmpty();
+            assertThat(group.credentials().source()).contains(
+                new SecretSourceConfig.AwsParameterStore("eu-central-1",
+                    Optional.of("test-profile")));
+            assertThat(group.credentials().parameters()).contains(new ParameterNames(
+                Optional.of("/inubit/prod/username"), Optional.of("/inubit/prod/password"),
+                Optional.of("/inubit/prod/ts-pass"), Optional.of("/inubit/prod/e2e-user"),
+                Optional.of("/inubit/prod/e2e-pass")));
+            assertThat(group.credentials().envPrefix()).isEmpty();
+            NodeConfig node1 = group.nodes().get(0);
+            assertThat(node1.credentials().source()).isEmpty();
+            assertThat(node1.credentials().parameters()).contains(new ParameterNames(
+                Optional.empty(), Optional.of("/inubit/prod/node1/password"), Optional.empty(),
+                Optional.empty(), Optional.empty()));
+            assertThat(group.nodes().get(1).credentials().source())
+                .contains(new SecretSourceConfig.Environment(Optional.empty()));
+        }
+
+        @Test
+        void withoutCredentialsSectionsGroupsAndNodesHaveEmptyOnes() {
+            ProfileConfig config = parse(MINIMAL).config();
+
+            assertThat(config.credentials()).isEqualTo(CredentialsConfig.EMPTY);
+            assertThat(config.groups().get(0).credentials()).isEqualTo(CredentialsConfig.EMPTY);
+            assertThat(config.groups().get(0).nodes().get(0).credentials())
+                .isEqualTo(CredentialsConfig.EMPTY);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"credentials:\n", "credentials: null\n", "credentials: {}\n",
+            "credentials:\n  source:\n  parameters:\n"})
+        void anEmptyOrNullSectionOnAGroupOrNodeIsTreatedAsAbsent(String section) {
+            LoadedConfig loaded = parse(withCredentials(section, section));
+
+            assertThat(loaded.credentialKeys()).isEmpty();
+            GroupConfig group = loaded.config().groups().get(0);
+            assertThat(group.credentials()).isEqualTo(CredentialsConfig.EMPTY);
+            assertThat(group.nodes().get(0).credentials()).isEqualTo(CredentialsConfig.EMPTY);
+        }
+
+        @Test
+        void aScalarCredentialsValueOnAGroupOrNodeIsStillACredentialKey() {
+            LoadedConfig loaded = parse(withCredentials("credentials: " + PASTED + "\n",
+                "credentials: [" + PASTED + "]\n"));
+
+            assertThat(loaded.credentialKeys()).containsExactly("groups[0].credentials",
+                "groups[0].nodes[0].credentials");
+            assertThat(loaded.toString()).doesNotContain(PASTED);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"pasted-secret-value-1", "\"pasted-secret-value-1\"",
+            "/inubit/pasted-secret-value-1:3", "\"/inubit//pasted-secret-value-1\"",
+            "/inubit/pasted-secret-value-1/",
+            "arn:aws:ssm:eu-central-1:000000000000:parameter/pasted-secret-value-1"})
+        void aPastedPasswordOrAnInvalidNameIsRefusedWithoutEchoingIt(String value) {
+            String yaml = withCredentials("", "credentials:\n  parameters:\n    password: "
+                + value + "\n");
+
+            assertRefused(yaml, "groups[0].nodes[0].credentials.parameters.password",
+                ParameterNames.NAME_RULE);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"12345", "true", "[a, b]", "{ name: x }"})
+        void aParameterNameMustBeText(String value) {
+            String yaml = withCredentials("credentials:\n  parameters:\n    username: "
+                + value + "\n", "");
+
+            assertRefused(yaml, "groups[0].credentials.parameters.username");
+        }
+
+        @Test
+        void envPrefixOnAGroupOrNodeIsRefused() {
+            assertRefused(withCredentials("credentials:\n  envPrefix: INUBIT_X\n", ""),
+                "Unknown key 'envPrefix'", "groups[0].credentials", "top level");
+            assertRefused(withCredentials("", "credentials:\n  envPrefix: INUBIT_X\n"),
+                "Unknown key 'envPrefix'", "groups[0].nodes[0].credentials", "top level");
+        }
+
+        @Test
+        void parametersAtTheTopLevelAreRefused() {
+            assertRefused(MINIMAL + "credentials:\n  parameters:\n    password: /a/b\n",
+                "Unknown key 'parameters'", "at credentials", "groups and nodes");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"accessKeyId", "secretAccessKey", "sessionToken", "user"})
+        void anUnknownKeyInsideCredentialsIsRefusedWithoutItsValue(String key) {
+            assertRefused(withCredentials("credentials:\n  " + key + ": " + PASTED + "\n", ""),
+                "Unknown key '" + key + "'", "groups[0].credentials");
+            assertRefused(MINIMAL + "credentials:\n  " + key + ": " + PASTED + "\n",
+                "Unknown key '" + key + "'", "at credentials");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"accessKeyId", "secretAccessKey", "sessionToken", "roleArn"})
+        void awsKeysInsideSourceAreRefusedWithoutTheirValues(String key) {
+            String source = "credentials:\n  source:\n    type: awsParameterStore\n"
+                + "    region: eu-central-1\n    " + key + ": " + PASTED + "\n";
+
+            assertRefused(withCredentials("", source), "Unknown key '" + key + "'",
+                "groups[0].nodes[0].credentials.source", "region, awsProfile");
+            assertRefused(MINIMAL + source, "Unknown key '" + key + "'",
+                "at credentials.source");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"accessKeyId", "secretAccessKey", "region", "prefix"})
+        void anUnknownKeyInsideParametersIsRefusedWithoutItsValue(String key) {
+            assertRefused(withCredentials("credentials:\n  parameters:\n    " + key + ": "
+                + PASTED + "\n", ""), "Unknown key '" + key + "'",
+                "groups[0].credentials.parameters");
+        }
+
+        @Test
+        void sourceKeysDependOnTheType() {
+            assertRefused(withCredentials("credentials:\n  source:\n    type: environment\n"
+                + "    region: eu-central-1\n", ""), "Unknown key 'region'",
+                "groups[0].credentials.source", "type, prefix");
+            assertRefused(withCredentials("credentials:\n  source:\n"
+                + "    type: awsParameterStore\n    region: eu-central-1\n"
+                + "    prefix: INUBIT_X\n", ""), "Unknown key 'prefix'",
+                "groups[0].credentials.source");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"source: {}", "source: { prefix: INUBIT_X }",
+            "source: { type: pasted-secret-value-1 }", "source: { type: [a] }",
+            "source: pasted-secret-value-1"})
+        void aMissingOrUnknownSourceTypeIsRefused(String source) {
+            assertRefused(withCredentials("credentials:\n  " + source + "\n", ""),
+                "groups[0].credentials.source");
+        }
+
+        @Test
+        void theRegionIsRequired() {
+            assertRefused(withCredentials("credentials:\n  source:\n"
+                + "    type: awsParameterStore\n", ""),
+                "groups[0].credentials.source.region", "awsParameterStore");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"region: pasted-secret-value-1", "region: EU-CENTRAL-1",
+            "awsProfile: \"pasted secret value 1\"", "awsProfile: [a]"})
+        void anInvalidLocationIsRefusedNamingTheKeyPath(String line) {
+            String key = line.substring(0, line.indexOf(':'));
+            String yaml = withCredentials("", "credentials:\n  source:\n"
+                + "    type: awsParameterStore\n"
+                + (key.equals("region") ? "" : "    region: eu-central-1\n")
+                + "    " + line + "\n");
+
+            assertRefused(yaml, "groups[0].nodes[0].credentials.source." + key);
+        }
+
+        @Test
+        void anInvalidEnvironmentPrefixIsRefusedNamingTheKeyPath() {
+            assertRefused(withCredentials("credentials:\n  source:\n    type: environment\n"
+                + "    prefix: pasted-secret-value-1\n", ""),
+                "groups[0].credentials.source.prefix", ProfileInfo.PREFIX_PATTERN.pattern());
+        }
+
+        @Test
+        void passwordKeysOutsideTheParameterKindsAreStillStrippedAndReported() {
+            LoadedConfig loaded = parse(withCredentials("""
+                credentials:
+                  source:
+                    type: awsParameterStore
+                    region: eu-central-1
+                    password: pasted-secret-value-1
+                  parameters:
+                    username: /inubit/dev/username
+                    adminPassword: pasted-secret-value-1
+                """, "credentials:\n  username: pasted-secret-value-1\n"));
+
+            assertThat(loaded.credentialKeys()).containsExactlyInAnyOrder(
+                "groups[0].credentials.source.password",
+                "groups[0].credentials.parameters.adminPassword",
+                "groups[0].nodes[0].credentials.username");
+            assertThat(loaded.toString()).doesNotContain(PASTED);
+            assertThat(loaded.config().groups().get(0).credentials().parameters()
+                .orElseThrow().username()).contains("/inubit/dev/username");
+        }
+    }
+}

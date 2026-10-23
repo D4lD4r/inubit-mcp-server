@@ -124,7 +124,7 @@ class SystemProcessLauncherTest {
         try {
             assertThatThrownBy(() -> runner.run(server, "jdoe", Secret.of("pw"),
                 CliCommand.kill("1"), Duration.ofSeconds(2),
-                new CredentialGuard(server.credentialVariables(), Clock.systemUTC())))
+                new CredentialGuard(server.secretLabels(), Clock.systemUTC())))
                 .isInstanceOfSatisfying(ToolErrorException.class,
                     e -> assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT));
 

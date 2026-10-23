@@ -26,13 +26,16 @@
         "version": { "type": "string" },
         "systemInfo": { "$ref": "#/$defs/SystemInfo" },
         "load": { "$ref": "#/$defs/LoadFigures" },
+        "client": { "$ref": "#/$defs/Client" },
         "unavailable": {
           "type": "array",
           "items": {
             "type": "object",
             "required": ["part", "reason"],
             "properties": {
-              "part": { "enum": ["status", "ready", "version", "systemInfo", "load"] },
+              "part": {
+                "enum": ["status", "ready", "version", "systemInfo", "load", "client"]
+              },
               "reason": { "type": "string", "description": "CODE: message" },
               "likelyCause": { "type": "string" },
               "nextStep": { "type": "string" }
@@ -43,6 +46,19 @@
         "error": { "$ref": "#/$defs/ToolError" },
         "warnings": { "type": "array", "items": { "type": "string" } }
       },
+      "additionalProperties": false
+    },
+    "Client": {
+      "type": "object",
+      "description": "The StartCLI client of the {node}: its version, the declared INUBIT range and the comparison with the INUBIT version, or `state` `not_available` without a StartCLI installation",
+      "properties": {
+        "version": { "type": "string" },
+        "supportedFrom": { "type": "string" },
+        "supportedTo": { "type": "string" },
+        "comparison": { "enum": ["match", "mismatch", "not_comparable"] },
+        "state": { "enum": ["not_available"] }
+      },
+      "oneOf": [{ "required": ["version", "comparison"] }, { "required": ["state"] }],
       "additionalProperties": false
     },
     "SystemInfo": {

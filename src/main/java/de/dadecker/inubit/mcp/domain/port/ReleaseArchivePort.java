@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.domain.port;
 
+import de.dadecker.inubit.mcp.domain.model.RepositoryUpload;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -124,6 +125,21 @@ public interface ReleaseArchivePort {
     Map<String, byte[]> repositoryFiles(byte[] archive);
 
     /**
+     * Repository path ({@code /Root/…}) → metadata XML (the {@code <Property
+     * type="RepositoryFile">} element as exported) of the repository files of an archive read
+     * like {@link #repositoryFiles} (feature 008, research D-7: an EXISTING file is sent with the
+     * node's metadata).
+     */
+    Map<String, String> repositoryMetadata(byte[] archive);
+
+    /**
+     * Repository path ({@code /Root/…}) → the workspace {@code .meta} record of the repository
+     * files of an archive read like {@link #repositoryFiles}, as an export writes it (feature 008,
+     * research D-8 step 5: the write-back after a verified repository import).
+     */
+    Map<String, byte[]> repositoryMetaRecords(byte[] archive);
+
+    /**
      * True if {@code archive} is a repository export ({@code export --exportRepositoryPath}),
      * false for a diagram group, module or release export (they carry a
      * {@code Repository.zip}).
@@ -142,5 +158,19 @@ public interface ReleaseArchivePort {
      */
     byte[] repositoryArchive(List<byte[]> archives, String owner,
         java.util.Collection<String> paths);
+
+    /**
+     * The archive of a repository import into {@code /Root/<owner>} of workspace files (feature
+     * 008, research D-7, D-8), shaped like {@link #repositoryArchive}. An upload with metadata
+     * keeps it except {@code contentSize} and {@code contentMD5} (of the content written); one
+     * without gets the synthesized metadata of a new file, with the content type from the
+     * extension.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException {@code INVALID_INPUT} for no
+     *     upload, a path outside the owner's root, a duplicate, metadata of another path or a
+     *     new file whose extension has no known content type; {@code PRECONDITION_FAILED} for key
+     *     material ({@link #keyMaterial})
+     */
+    byte[] repositoryArchiveFromFiles(String owner, List<RepositoryUpload> uploads);
 }
 

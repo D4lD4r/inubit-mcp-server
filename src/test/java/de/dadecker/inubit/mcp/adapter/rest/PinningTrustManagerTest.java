@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig.Tls;
+import de.dadecker.inubit.mcp.config.SecretLabels;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -32,8 +33,8 @@ import org.junit.jupiter.api.Timeout;
 class PinningTrustManagerTest {
 
     private static final TestCertificates CERTS = TestCertificates.get();
-    private static final CredentialVariables VARIABLES =
-        new CredentialVariables("INUBIT", NodeId.parse("test/node1"));
+    private static final SecretLabels LABELS = new SecretLabels.Environment(
+        new CredentialVariables("INUBIT", NodeId.parse("test/node1")));
 
     private static Tls tls(boolean disableHostnameVerification, String pin) {
         return new Tls(Optional.of(CERTS.trustStore()), disableHostnameVerification,
@@ -41,7 +42,7 @@ class PinningTrustManagerTest {
     }
 
     private static SSLContext context(boolean disableHostnameVerification, String pin) {
-        return SslContexts.forServer(VARIABLES, tls(disableHostnameVerification, pin),
+        return SslContexts.forServer(LABELS, tls(disableHostnameVerification, pin),
             Optional.empty());
     }
 
@@ -187,7 +188,7 @@ class PinningTrustManagerTest {
     void acceptedIssuersComeFromTheTrustStore() {
         X509ExtendedTrustManager manager = new PinningTrustManager(
             SslContexts.trustManager(SslContexts.loadTrustStore(CERTS.trustStore(),
-                Optional.empty(), VARIABLES)), Optional.empty(), false);
+                Optional.empty(), LABELS)), Optional.empty(), false);
 
         assertThat(manager.getAcceptedIssuers())
             .containsExactlyInAnyOrder(CERTS.localhostCertificate(), CERTS.selfsignedCertificate());

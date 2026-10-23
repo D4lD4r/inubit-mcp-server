@@ -38,7 +38,8 @@
               "type": "object",
               "description": "NodeSummary (data-model.md); never URLs, usernames or credentials",
               "required": ["id", "group", "node", "production", "writeEnabled",
-                "developmentEnabled", "confirmationMode", "versionLine", "cliAvailable"],
+                "developmentEnabled", "confirmationMode", "repositoryWrite", "versionLine",
+                "cliAvailable", "version"],
               "properties": {
                 "id": { "type": "string", "description": "{Node} id `<{group}>/<{node}>`, e.g. test/node1" },
                 "group": { "type": "string" },
@@ -53,11 +54,19 @@
                   "description": "Development tools allowed: `development.enabled && !production`; import_artifacts, restore_backup, set_active and tag_artifacts work on this {node}"
                 },
                 "confirmationMode": { "enum": ["SERVER", "CLIENT"] },
-                "versionLine": { "enum": ["AUTO", "V8_1", "V9_X"] },
+                "repositoryWrite": {
+                  "type": "boolean",
+                  "description": "Repository file tools may write: `development.repository` resolves to WRITE on a development {node}"
+                },
+                "versionLine": {
+                  "type": "string",
+                  "description": "As configured: AUTO, V8_1, V9_X or a full version such as 8.1.17"
+                },
                 "cliAvailable": {
                   "type": "boolean",
                   "description": "CLI home configured and startcli script found"
-                }
+                },
+                "version": { "$ref": "#/$defs/Version" }
               },
               "additionalProperties": false
             }
@@ -69,6 +78,95 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "Version": {
+      "type": "object",
+      "description": "What this MCP server last learned about the INUBIT version and the StartCLI client of the {node} (from get_health and earlier tool calls; list_nodes contacts no {node}), the support status and the capabilities whose tools run on the {node}",
+      "required": ["setting", "server", "client", "status", "capabilities"],
+      "properties": {
+        "setting": {
+          "type": "string",
+          "description": "The configured versionLine: AUTO, V8_1, V9_X or a full version such as 8.1.17"
+        },
+        "server": {
+          "type": "object",
+          "description": "The INUBIT version with its source and time, or `state` `not_yet_detected` (call get_health) or `unknown` with the error code of the last failed detection in `reason` and its time in `at`",
+          "properties": {
+            "version": { "type": "string" },
+            "source": { "enum": ["detected", "observed", "pinned"] },
+            "state": { "enum": ["not_yet_detected", "unknown"] },
+            "reason": { "type": "string" },
+            "at": { "type": "string", "format": "date-time" }
+          },
+          "oneOf": [
+            { "required": ["version", "source"] },
+            { "required": ["state"] }
+          ],
+          "additionalProperties": false
+        },
+        "client": {
+          "type": "object",
+          "description": "The StartCLI client of the {node} as in get_health: its version, the declared INUBIT range and the comparison with the INUBIT version, or `state`: `not_available` (no StartCLI installation), `not_yet_detected` (not probed yet, or the probe timed out: `reason` TIMEOUT) or `unknown` (the probe failed: error code in `reason`)",
+          "properties": {
+            "version": { "type": "string" },
+            "supportedFrom": { "type": "string" },
+            "supportedTo": { "type": "string" },
+            "comparison": { "enum": ["match", "mismatch", "not_comparable"] },
+            "state": { "enum": ["not_available", "not_yet_detected", "unknown"] },
+            "reason": { "type": "string" },
+            "at": { "type": "string", "format": "date-time" }
+          },
+          "oneOf": [
+            { "required": ["version", "comparison"] },
+            { "required": ["state"] }
+          ],
+          "additionalProperties": false
+        },
+        "status": {
+          "enum": ["supported", "partially_supported", "unsupported", "unknown"],
+          "description": "supported: every capability the configuration allows is supported; partially_supported: some are usable, others unverified or not usable; unsupported: none is usable; unknown: the INUBIT version is not yet detected or unknown"
+        },
+        "capabilities": {
+          "type": "object",
+          "description": "The capabilities the configuration of the {node} allows, split by whether their tools run on the {node} now (supported, or unverified for reads, and not refused by the StartCLI client)",
+          "required": ["usable", "notUsable"],
+          "properties": {
+            "usable": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/CapabilityName" }
+            },
+            "notUsable": {
+              "type": "array",
+              "description": "`inventory (StartCLI parts)`: inventory is usable for its REST part, but its StartCLI parts (modules, history) are refused",
+              "items": {
+                "type": "object",
+                "required": ["capability", "reason"],
+                "properties": {
+                  "capability": {
+                    "anyOf": [
+                      { "$ref": "#/$defs/CapabilityName" },
+                      { "const": "inventory (StartCLI parts)" }
+                    ]
+                  },
+                  "reason": { "type": "string" }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "E.g. a versionLine contradicted by get_health, or a StartCLI client that differs from the INUBIT version"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CapabilityName": {
+      "enum": ["monitoring", "diagnosis", "inventory", "workspace_export", "development_writes",
+        "deployment", "e2e_test", "process_control"]
+    },
     "Level": {
       "type": "object",
       "required": ["singular", "plural"],

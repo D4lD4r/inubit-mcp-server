@@ -104,6 +104,17 @@
         },
         "message": {
           "type": "string"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Present only when non-empty: warnings about the INUBIT version or the StartCLI client of a source or target {node}, e.g. a StartCLI client whose version differs from the INUBIT version"
+        },
+        "warningsTruncated": {
+          "type": "integer",
+          "minimum": 1
         }
       },
       "additionalProperties": false

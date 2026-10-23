@@ -12,7 +12,10 @@ import java.util.stream.Collectors;
 /**
  * {@code find_processes} (contracts/mcp-tools.md §3, US2): one page of process instances per
  * resolved server, newest first; a server that fails gets only its {@code error}. Only an
- * invalid or unknown target and semantically invalid input fail the whole call.
+ * invalid or unknown target and semantically invalid input fail the whole call, except that the
+ * port's check of a server whose credentials are not fetched yet runs in that server's own branch,
+ * so its {@code INVALID_INPUT} becomes that server's {@code error} (feature 010, research R-8
+ * addendum).
  */
 public final class FindProcessesTool implements ToolHandler {
 

@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,12 +69,17 @@ public record ProfileConfig(
 
     /**
      * Every credential variable name this profile derives: per node, the node-specific and the
-     * group-wide name of each kind, under {@link #credentialPrefix()} (002 US2 review P1).
+     * group-wide name of each kind (002 US2 review P1), under the prefix of the node's
+     * {@link SecretPlan}. Only nodes whose effective source is environment variables derive names
+     * (feature 010, research R-13); a profile whose nodes are all AWS derives none.
      */
     public Set<String> credentialVariableNames() {
         Set<String> names = new TreeSet<>();
-        for (NodeId node : nodeIds()) {
-            CredentialVariables variables = new CredentialVariables(credentialPrefix(), node);
+        for (SecretPlan plan : secretPlans().values()) {
+            if (plan.variables().isEmpty()) {
+                continue;
+            }
+            CredentialVariables variables = plan.variables().get();
             for (String kind : CredentialVariables.KINDS) {
                 names.addAll(variables.candidates(kind));
             }
@@ -159,6 +165,27 @@ public record ProfileConfig(
         return List.copyOf(ids);
     }
 
+    /**
+     * The secret plan of every server with valid stage and server names (feature 010, research
+     * R-6), in config order.
+     */
+    public Map<NodeId, SecretPlan> secretPlans() {
+        Map<NodeId, SecretPlan> plans = new LinkedHashMap<>();
+        for (GroupConfig group : groups) {
+            for (NodeConfig node : group.nodes()) {
+                if (GroupId.isValidName(group.name()) && GroupId.isValidName(node.name())) {
+                    SecretPlan plan = secretPlan(group, node);
+                    plans.put(plan.node(), plan);
+                }
+            }
+        }
+        return Collections.unmodifiableMap(plans);
+    }
+
+    private SecretPlan secretPlan(GroupConfig group, NodeConfig node) {
+        return SecretPlan.resolve(credentials, credentialPrefix(), group, node);
+    }
+
     private List<EffectiveNodeConfig> nodes(boolean strict) {
         List<EffectiveNodeConfig> result = new ArrayList<>();
         for (GroupConfig group : groups) {
@@ -167,7 +194,7 @@ public record ProfileConfig(
                     && GroupId.isValidName(node.name()) && node.baseUrl().isPresent();
                 if (strict || resolvable) {
                     result.add(EffectiveNodeConfig.resolve(defaults, group, node,
-                        credentialPrefix()));
+                        credentialPrefix(), secretPlan(group, node)));
                 }
             }
         }

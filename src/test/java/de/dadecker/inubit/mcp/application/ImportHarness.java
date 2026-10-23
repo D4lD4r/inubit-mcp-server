@@ -1,32 +1,39 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
+import de.dadecker.inubit.mcp.adapter.archive.v81.MetaStore;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives;
+import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
+import de.dadecker.inubit.mcp.adapter.archive.v81.XmlNormalizer;
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliImportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.ScriptedProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter;
 import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ConnectorFlags;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
 import de.dadecker.inubit.mcp.domain.model.InventoryKind;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
@@ -34,6 +41,7 @@ import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -43,10 +51,13 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 
@@ -79,6 +90,18 @@ public final class ImportHarness {
     public final String owner;
     public final String diagramGroup;
     public WritePolicy.Confirmation confirmation = WritePolicy.Confirmation.CLIENT;
+    /** Feature 009: the {@code versionLine} of each node ({@code V8_1} if absent). */
+    public final Map<NodeId, VersionSetting> versionLines = new ConcurrentHashMap<>();
+    /** Feature 009: the version state of the nodes, e.g. to seed a client probe. */
+    public final NodeVersions versions = new NodeVersions(clock,
+        node -> versionLines.getOrDefault(node, VersionSetting.V8_1),
+        node -> Duration.ofMinutes(10));
+    /** Feature 009: the detections of the gate (none for pinned nodes). */
+    public final FakeVersionDetection detection = new FakeVersionDetection(versions);
+    /** Feature 009: the capability matrix of the version gate of {@link #service()}. */
+    public CapabilityMatrix matrix = CapabilityMatrix.production();
+    /** The nodes whose effective {@code development.repository} is {@code WRITE} (feature 008). */
+    private final Set<NodeId> repositoryWrite = new HashSet<>();
     /** Wraps the archive port (e.g. to inject an unexpected failure). */
     /** Replaces the scripted tag port when set (e.g. to make resolving it fail). */
     public java.util.function.Function<NodeId, de.dadecker.inubit.mcp.domain.port.TagPort>
@@ -116,11 +139,12 @@ public final class ImportHarness {
         if (module == null) {
             exports.artifacts.exports.put(diagramGroup, fixture);
             exports.service().export(new WorkspaceService.ExportRequest(DEV, owner,
-                List.of(diagramGroup), List.of()));
+                List.of(diagramGroup), List.of(), List.of()));
         } else {
             exports.artifacts.exports.put(module, fixture);
             exports.service().export(new WorkspaceService.ExportRequest(DEV, owner, List.of(),
-                List.of(new WorkspaceService.ModuleRef(module, Optional.of(pluginType)))));
+                List.of(new WorkspaceService.ModuleRef(module, Optional.of(pluginType))),
+                List.of()));
         }
         this.inubit = new FakeInubit(fixture);
         this.backups = new BackupStore(temp.resolve("backups"), clock);
@@ -145,7 +169,7 @@ public final class ImportHarness {
     }
 
     public ImportService service() {
-        CredentialGuard guard = new CredentialGuard(new CredentialVariables("INUBIT", DEV),
+        CredentialGuard guard = new CredentialGuard(environmentLabels("INUBIT", DEV),
             clock);
         CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
             new CliResources("acme"));
@@ -160,24 +184,53 @@ public final class ImportHarness {
                 new de.dadecker.inubit.mcp.adapter.cli.CliTagRunner(server, credentials, guard,
                     runner, classifier), () -> { });
         DevelopmentPolicy policy = new DevelopmentPolicy(DEV, false, true, confirmation,
-            Duration.ofMinutes(5), E2ePolicy.FORBIDDEN, Optional.empty());
+            Duration.ofMinutes(5), E2ePolicy.FORBIDDEN, Optional.empty(),
+            repositoryWrite.contains(DEV));
         DevelopmentPolicy test = new DevelopmentPolicy(TEST, false, false,
             WritePolicy.Confirmation.SERVER, Duration.ofMinutes(5), E2ePolicy.FORBIDDEN,
-            Optional.empty());
+            Optional.empty(), repositoryWrite.contains(TEST));
         Map<NodeId, DevelopmentPolicy> policies = Map.of(DEV, policy, TEST, test);
         WorkspaceInspector inspector = new WorkspaceInspector();
         return new ImportService(new ImportService.Dependencies(root, "acme",
             new DevelopmentGuard(new TargetResolver(List.of(DEV, TEST)), policies::get,
-                node -> imports.checkAvailable()),
+                node -> imports.checkAvailable(), gateWithoutClients(versions, detection,
+                    matrix)),
             policies::get, exports.history, inspector,
             new ArtifactCheckService(root, inspector, new SaxonXsltRunner(root),
                 group -> Optional.of(DEV), node -> inventory(), node -> Optional.of(owner),
-                ResultLimiter.withDefaults(), clock),
-            new ArchiveCodec(), archives.apply(new V81ImportArchives()), node -> artifacts,
+                ResultLimiter.withDefaults(), clock, FakeVersionDetection.pinned81()),
+            new ArchiveCodec(), archives.apply(new V81ImportArchives()),
+            new V81ReleaseArchives(), node -> artifacts,
             node -> imports, node -> tagPorts != null ? tagPorts.apply(node) : tags,
             node -> inventory(), node -> Optional.of(owner),
             node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),
             new WriteChallengeRegistry(clock), backups, audit::add, clock, this::nextId));
+    }
+
+    /**
+     * The 8.1 artifact port of {@link #DEV} on {@link #cli}, built like the one of
+     * {@link #service()} (feature 008: {@link RepositoryStep} tests).
+     */
+    public ArtifactPort artifacts() {
+        CredentialGuard guard = new CredentialGuard(environmentLabels("INUBIT", DEV),
+            clock);
+        CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
+            new CliResources("acme"));
+        return new V81ArtifactAdapter(new CliExportRunner(server, credentials, guard, runner,
+            new CliOutputClassifier(new SecretScrubber())), () -> { });
+    }
+
+    /**
+     * Sets the effective {@code development.repository} of {@code node} (feature 008) for the
+     * services created afterwards; every node starts read-only.
+     */
+    public ImportHarness repositoryWrite(NodeId node, boolean write) {
+        if (write) {
+            repositoryWrite.add(node);
+        } else {
+            repositoryWrite.remove(node);
+        }
+        return this;
     }
 
     private UUID nextId() {
@@ -324,6 +377,39 @@ public final class ImportHarness {
         return this;
     }
 
+    /**
+     * The next StartCLI call is the repository export of {@code path} from {@code node} (feature
+     * 008); a path the node does not have fails like the recorded {@code Path not found}.
+     */
+    public ImportHarness exportRepository(FakeServer node, String path) {
+        cli.expect("export --exportRepositoryPath '" + path + "'").answering(spec -> {
+            Optional<byte[]> zip = node.exportRepository(path);
+            if (zip.isEmpty()) {
+                return new ScriptedProcessLauncher.Reply(
+                    FakeProcessLauncher.fixtureText("export_repository_not_found.stdout"),
+                    FakeProcessLauncher.fixtureText("export_repository_not_found.stderr")
+                        .replace("//ibis:Root/jdoe/xsd/no-such-dir", "//ibis:"
+                            + path.substring(1)), 1);
+            }
+            write(ScriptedProcessLauncher.exportFile(spec), zip.get());
+            return new ScriptedProcessLauncher.Reply(DeployHarness.REPOSITORY_OK, "", 0);
+        });
+        return this;
+    }
+
+    /**
+     * The next StartCLI call is a repository import into {@code /Root/<owner>} that {@code node}
+     * applies (feature 008).
+     */
+    public ImportHarness importRepositoryApplied(FakeServer node) {
+        cli.expect(java.util.regex.Pattern.compile("^import --importFile '[^']+'"
+                + " --importRepositoryPath '/Root/" + owner + "'$"))
+            .capturingImportFile()
+            .replyingWith(spec -> node.importRepository(read(
+                ScriptedProcessLauncher.importFile(spec)), owner));
+        return this;
+    }
+
     /** The next StartCLI call is an import that INUBIT refuses ({@code 1-NOK}). */
     public ImportHarness importRefused() {
         cli.expect("import ").replying("import_nok");
@@ -389,6 +475,30 @@ public final class ImportHarness {
         }
     }
 
+    /**
+     * Writes repository file {@code /Root/<owner>/<path>} into the workspace as an export would
+     * (feature 008): {@code content} at {@code <group>/<owner>/repository/Root/<owner>/<path>}
+     * and its {@code .meta} record with metadata of type {@code contentType}, version
+     * {@code 1.0}. Nothing is committed.
+     *
+     * @return the workspace path of the file
+     */
+    public String repositoryFile(String path, String content, String contentType) {
+        String repositoryPath = "/Root/" + owner + "/" + path;
+        WorkspacePath file = WorkspacePath.repository(DEV.group(), owner, repositoryPath);
+        String metadata = "<Property name=\"" + path.substring(path.lastIndexOf('/') + 1)
+            + "\" type=\"RepositoryFile\" anonymousRead=\"true\" uuid=\"" + UUID.nameUUIDFromBytes(
+                repositoryPath.getBytes(StandardCharsets.UTF_8)) + "\" path=\"" + repositoryPath
+            + "\" contentType=\"" + contentType + "\" version=\"1.0\"><Description>Workspace"
+            + " file</Description></Property>";
+        String relative = file.toRelativePath().toString().replace('\\', '/');
+        write(relative, content);
+        write(root.resolve(file.metaPath()), MetaStore.serialize(Map.of("metadata", new String(
+            XmlNormalizer.normalize(metadata.getBytes(StandardCharsets.UTF_8)),
+            StandardCharsets.UTF_8))));
+        return relative;
+    }
+
     /** A request for the diagram group. */
     public ImportService.ImportRequest group(String reason) {
         return new ImportService.ImportRequest(DEV.value(), Optional.empty(),
@@ -399,8 +509,15 @@ public final class ImportHarness {
     public static ImportService.ImportRequest confirmed(ImportService.ImportRequest request,
         String code) {
         return new ImportService.ImportRequest(request.node(), request.owner(),
-            request.diagramGroup(), request.modules(), request.reason(), Optional.of(code),
-            request.mcpClient(), request.tag());
+            request.diagramGroup(), request.modules(), request.repositoryPaths(),
+            request.reason(), Optional.of(code), request.mcpClient(), request.tag());
+    }
+
+    /** A request for the repository paths {@code paths} of the owner (feature 008, T028). */
+    public ImportService.ImportRequest repositoryPaths(String reason, String... paths) {
+        return new ImportService.ImportRequest(DEV.value(), Optional.empty(), Optional.empty(),
+            List.of(), List.of(paths), reason, Optional.empty(), Optional.empty(),
+            Optional.empty());
     }
 
     /** The request for the diagram group with a tag (T030). */

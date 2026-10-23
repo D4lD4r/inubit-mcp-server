@@ -21,7 +21,11 @@
                               "name": { "type": "string", "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$" },
                               "pluginType": { "type": "string", "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$" }
                             },
-                            "additionalProperties": false } }
+                            "additionalProperties": false } },
+    "repositoryPaths": { "type": "array",
+                         "description": "Repository files and folders, relative to the owner's repository root (e.g. schemas/order.xsd for /Root/<owner>/schemas/order.xsd; a folder is exported with every file below it)",
+                         "minItems": 1, "maxItems": 20, "uniqueItems": true,
+                         "items": { "type": "string", "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}(/[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199})*$" } }
   },
   "additionalProperties": false
 }

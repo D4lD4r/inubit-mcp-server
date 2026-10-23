@@ -1,16 +1,21 @@
 package de.dadecker.inubit.mcp.config;
 
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Optional;
 
-/** One INUBIT server as written in the YAML; empty values are inherited from its stage. */
+/**
+ * One INUBIT server as written in the YAML; empty values are inherited from its stage.
+ *
+ * @param credentials feature 010: the node's secret source and Parameter Store names
+ */
 public record NodeConfig(
     String name,
     Optional<URI> baseUrl,
     boolean allowInsecureHttp,
-    Optional<VersionLine> versionLine,
+    Optional<VersionSetting> versionLine,
     WriteConfig write,
     TlsConfig tls,
     CliConfig cli,
@@ -22,7 +27,8 @@ public record NodeConfig(
     Optional<Duration> confirmationTtl,
     DevelopmentConfig development,
     Optional<E2ePolicy> e2eTests,
-    E2eConfig e2e) {
+    E2eConfig e2e,
+    CredentialsConfig credentials) {
 
     public NodeConfig {
         name = Optionals.orDefault(name, "");
@@ -40,5 +46,6 @@ public record NodeConfig(
         development = Optionals.orDefault(development, DevelopmentConfig.EMPTY);
         e2eTests = Optionals.orEmpty(e2eTests);
         e2e = Optionals.orDefault(e2e, E2eConfig.EMPTY);
+        credentials = Optionals.orDefault(credentials, CredentialsConfig.EMPTY);
     }
 }

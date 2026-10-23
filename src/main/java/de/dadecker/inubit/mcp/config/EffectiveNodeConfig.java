@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import java.net.URI;
 import java.nio.file.Path;
@@ -19,13 +20,14 @@ import java.util.function.Predicate;
  * @param credentialPrefix the profile's effective credential prefix (002 research D-6), so that
  *     every message about this node's credentials names its own variables
  *     ({@link #credentialVariables()})
+ * @param secretPlan where this node's credentials come from (feature 010, research R-6)
  */
 public record EffectiveNodeConfig(
     NodeId id,
     boolean production,
     URI baseUrl,
     boolean allowInsecureHttp,
-    VersionLine versionLine,
+    VersionSetting versionLine,
     Write write,
     Tls tls,
     Cli cli,
@@ -36,7 +38,8 @@ public record EffectiveNodeConfig(
     Duration hangingThreshold,
     Duration confirmationTtl,
     String credentialPrefix,
-    Development development) {
+    Development development,
+    SecretPlan secretPlan) {
 
     /** Path of the StartCLI SOAP endpoint relative to the base URL (8.1). */
     public static final String DEFAULT_CLI_PATH = "/ibis/servlet/IBISSoapServlet";
@@ -59,6 +62,11 @@ public record EffectiveNodeConfig(
         Objects.requireNonNull(confirmationTtl, "confirmationTtl");
         Objects.requireNonNull(credentialPrefix, "credentialPrefix");
         Objects.requireNonNull(development, "development");
+        Objects.requireNonNull(secretPlan, "secretPlan");
+        if (!secretPlan.node().equals(id)) {
+            throw new IllegalArgumentException("The secret plan of " + secretPlan.node()
+                + " does not belong to " + id);
+        }
     }
 
     public record Write(boolean enabled, boolean productionOptIn, ConfirmationMode confirmation) {
@@ -111,9 +119,12 @@ public record EffectiveNodeConfig(
      * @param confirmation {@code development.confirmation} (built-in {@code SERVER})
      * @param e2eTests     {@code e2eTests} (built-in {@code FORBIDDEN})
      * @param soapBaseUrl  {@code e2e.soap.baseUrl}, if set
+     * @param repositoryWrite the effective {@code development.repository} of feature 008
+     *     (research D-2): {@code true} only if it resolves to {@code WRITE} and the node is a
+     *     development stage ({@code enabled} and not {@code production})
      */
     public record Development(boolean enabled, ConfirmationMode confirmation,
-        E2ePolicy e2eTests, Optional<URI> soapBaseUrl) {
+        E2ePolicy e2eTests, Optional<URI> soapBaseUrl, boolean repositoryWrite) {
         public Development {
             Objects.requireNonNull(confirmation, "confirmation");
             Objects.requireNonNull(e2eTests, "e2eTests");
@@ -124,25 +135,34 @@ public record EffectiveNodeConfig(
     /** No development settings: the built-in defaults. */
     public static final Development NO_DEVELOPMENT = new Development(
         Defaults.BUILTIN_DEVELOPMENT_ENABLED, Defaults.BUILTIN_DEVELOPMENT_CONFIRMATION,
-        Defaults.BUILTIN_E2E_TESTS, Optional.empty());
+        Defaults.BUILTIN_E2E_TESTS, Optional.empty(), false);
 
     /** The development settings as the guard and the writing services see them. */
     public DevelopmentPolicy developmentPolicy() {
         return new DevelopmentPolicy(id, production, development.enabled(),
             WritePolicy.Confirmation.valueOf(development.confirmation().name()), confirmationTtl,
-            development.e2eTests(), development.soapBaseUrl());
+            development.e2eTests(), development.soapBaseUrl(), development.repositoryWrite());
     }
 
     /** The same settings with another REST {@code timeout} (e.g. for short probes). */
     public EffectiveNodeConfig withTimeout(Duration newTimeout) {
         return new EffectiveNodeConfig(id, production, baseUrl, allowInsecureHttp, versionLine,
             write, tls, cli, inventory, newTimeout, cliTimeout, cliExportTimeout, hangingThreshold,
-            confirmationTtl, credentialPrefix, development);
+            confirmationTtl, credentialPrefix, development, secretPlan);
     }
 
-    /** The credential environment variables of this node. */
+    /**
+     * The credential environment variables of this node: those of its plan; for an AWS node
+     * (no variables) those under the profile's prefix, as before feature 010.
+     */
     public CredentialVariables credentialVariables() {
-        return new CredentialVariables(credentialPrefix, id);
+        return secretPlan.variables()
+            .orElseGet(() -> new CredentialVariables(credentialPrefix, id));
+    }
+
+    /** The names of this node's secrets in messages, per its source (research R-15). */
+    public SecretLabels secretLabels() {
+        return SecretLabels.of(secretPlan);
     }
 
     /** Write access after the production lock: {@code enabled && (!production || optIn)}. */
@@ -166,7 +186,8 @@ public record EffectiveNodeConfig(
     public NodeSummary summary(Predicate<Path> exists, boolean windows) {
         return new NodeSummary(id, id.group(), id.name(), production, effectiveWriteEnabled(),
             development.enabled() && !production, write.confirmation().name(),
-            versionLine.name(), cliAvailable(exists, windows));
+            development.repositoryWrite(), versionLine.text(), cliAvailable(exists, windows),
+            Optional.empty());
     }
 
     /** StartCLI below the CLI home: {@code bin/startcli.sh}, {@code .bat} on Windows. */
@@ -179,9 +200,10 @@ public record EffectiveNodeConfig(
      * Resolves one server; see {@link ProfileConfig#effectiveNodes()} for the preconditions.
      *
      * @param credentialPrefix {@link ProfileConfig#credentialPrefix()}
+     * @param secretPlan the node's entry of {@link ProfileConfig#secretPlans()}
      */
     static EffectiveNodeConfig resolve(Defaults defaults, GroupConfig group,
-        NodeConfig node, String credentialPrefix) {
+        NodeConfig node, String credentialPrefix, SecretPlan secretPlan) {
         NodeId id = NodeId.of(group.name(), node.name());
         URI baseUrl = Urls.withoutTrailingSlash(node.baseUrl().orElseThrow(
             () -> new IllegalArgumentException("baseUrl missing for " + id)));
@@ -207,6 +229,12 @@ public record EffectiveNodeConfig(
                 .or(defaults.inventory()::owner),
             node.inventory().cacheTtl().or(group.inventory()::cacheTtl)
                 .or(defaults.inventory()::cacheTtl).orElse(Defaults.BUILTIN_INVENTORY_CACHE_TTL));
+        boolean developmentEnabled = node.development().enabled()
+            .or(group.development()::enabled).or(defaults.development()::enabled)
+            .orElse(Defaults.BUILTIN_DEVELOPMENT_ENABLED);
+        RepositoryMode repository = node.development().repository()
+            .or(group.development()::repository).or(defaults.development()::repository)
+            .orElse(Defaults.BUILTIN_DEVELOPMENT_REPOSITORY);
         return new EffectiveNodeConfig(
             id,
             group.production(),
@@ -229,15 +257,16 @@ public record EffectiveNodeConfig(
                 .orElse(Defaults.BUILTIN_CONFIRMATION_TTL),
             credentialPrefix,
             new Development(
-                node.development().enabled().or(group.development()::enabled)
-                    .or(defaults.development()::enabled)
-                    .orElse(Defaults.BUILTIN_DEVELOPMENT_ENABLED),
+                developmentEnabled,
                 node.development().confirmation().or(group.development()::confirmation)
                     .or(defaults.development()::confirmation)
                     .orElse(Defaults.BUILTIN_DEVELOPMENT_CONFIRMATION),
                 node.e2eTests().or(group::e2eTests).or(defaults::e2eTests)
                     .orElse(Defaults.BUILTIN_E2E_TESTS),
                 node.e2e().soap().baseUrl().or(group.e2e().soap()::baseUrl)
-                    .map(Urls::withoutTrailingSlash)));
+                    .map(Urls::withoutTrailingSlash),
+                repository == RepositoryMode.WRITE && developmentEnabled
+                    && !group.production()),
+            secretPlan);
     }
 }

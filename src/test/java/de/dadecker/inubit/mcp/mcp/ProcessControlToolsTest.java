@@ -11,6 +11,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import de.dadecker.inubit.mcp.TestWiring;
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
+import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
@@ -25,13 +26,16 @@ import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
-import de.dadecker.inubit.mcp.config.VersionLine;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.infra.AuditLog;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
+import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -107,6 +111,11 @@ class ProcessControlToolsTest {
     // --- registration (Story 4 / AS 6) ---------------------------------------------------------
 
     private List<String> toolNames(boolean devWriteEnabled) {
+        return toolNames(devWriteEnabled, "- name: node1\n  baseUrl: https://localhost:1");
+    }
+
+    /** {@code devNodes}: the entries of the dev group's {@code nodes} list. */
+    private List<String> toolNames(boolean devWriteEnabled, String devNodes) {
         String yaml = """
             profile:
               name: acme
@@ -116,8 +125,7 @@ class ProcessControlToolsTest {
                 write:
                   enabled: %s
                 nodes:
-                  - name: node1
-                    baseUrl: https://localhost:1
+            %s
               - name: prod
                 production: true
                 write:
@@ -125,7 +133,8 @@ class ProcessControlToolsTest {
                 nodes:
                   - name: inubit01
                     baseUrl: https://localhost:2
-            """.formatted(temp.resolve("audit"), devWriteEnabled);
+            """.formatted(temp.resolve("audit"), devWriteEnabled,
+            devNodes.indent(6).stripTrailing());
         ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml")).config();
         SecretScrubber scrubber = new SecretScrubber();
@@ -157,6 +166,15 @@ class ProcessControlToolsTest {
     }
 
     @Test
+    void writeToolsAreNotOfferedIfEveryWriteNodeIsPinnedToAVersionWithoutProcessControl() {
+        // feature 009 (T015, FR-007, research D-12): V9_X is unsupported for PROCESS_CONTROL
+        String v9 = "- name: node1\n  versionLine: V9_X\n  baseUrl: https://localhost:1";
+        assertThat(toolNames(true, v9)).doesNotContain("restart_process", "kill_process");
+        assertThat(toolNames(true, v9 + "\n- name: node2\n  versionLine: V8_1\n"
+            + "  baseUrl: https://localhost:3")).contains("restart_process", "kill_process");
+    }
+
+    @Test
     void noAuditFileIsWrittenWithoutAWriteCall() {
         toolNames(true);
 
@@ -172,15 +190,16 @@ class ProcessControlToolsTest {
         Files.writeString(cliHome.resolve("bin/startcli.sh"), "#!/bin/sh\n");
         EffectiveNodeConfig server = TestNodeConfig.node().id("dev/node1")
             .baseUrl("https://localhost:" + dev.httpsPort())
-            .trustStore(TestCertificates.get().trustStore()).versionLine(VersionLine.V8_1)
+            .trustStore(TestCertificates.get().trustStore()).versionLine(VersionSetting.V8_1)
             .cliHome(cliHome).cliJavaHome(Path.of("/opt/jdk-17"))
             .write(true, false, confirmation).build();
         SecretScrubber scrubber = new SecretScrubber();
         List<NodeId> ids = List.of(server.id());
         AdapterGatewayFactory gateways = new AdapterGatewayFactory(List.of(server),
-            new CredentialResolver(Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD",
-                PASSWORD), scrubber, "INUBIT").resolve(ids), scrubber, Clock.systemUTC(),
-            new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")));
+            TestSecrets.environment(new CredentialResolver(Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD",
+                PASSWORD), scrubber, "INUBIT").resolve(ids)), scrubber, Clock.systemUTC(),
+            new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
+            new RecordingVersionObserver(), PortSetRegistry.v81Default());
         closeables.add(gateways);
         Map<NodeId, WritePolicy> policies = Map.of(server.id(), new WritePolicy(server.id(),
             false, true, false, confirmation == ConfirmationMode.SERVER
@@ -188,7 +207,8 @@ class ProcessControlToolsTest {
             Duration.ofMinutes(5), Optional.of("jdoe")));
         Function<NodeId, WritePolicy> policyOf = policies::get;
         ProcessControlService service = new ProcessControlService(
-            new WriteGuard(new TargetResolver(ids), policyOf, gateways), policyOf, gateways,
+            new WriteGuard(new TargetResolver(ids), policyOf, gateways,
+                FakeVersionDetection.pinned81()), policyOf, gateways,
             new ConfirmationRegistry(Clock.systemUTC()),
             new AuditLog(temp.resolve("audit"), scrubber), Clock.systemUTC(), UUID::randomUUID,
             "acme");

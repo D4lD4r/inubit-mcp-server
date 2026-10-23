@@ -735,7 +735,7 @@ public final class NodeDeployer {
         DeployGuard.Admitted admitted = new DeployGuard.Admitted(group, new GroupId(
             manifest.source().orElse(group.value())),
             de.dadecker.inubit.mcp.domain.model.DeployMode.EXECUTE, List.of(), List.of(node),
-            List.of(), owner, tag);
+            List.of(), owner, tag, List.of());
         List<byte[]> artifactExports = new ArrayList<>();
         List<byte[]> repositoryExports = new ArrayList<>();
         exports.forEach(zip -> (d.releases().repositoryExport(zip) ? repositoryExports

@@ -1,20 +1,29 @@
 package de.dadecker.inubit.mcp.application;
 
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
-import de.dadecker.inubit.mcp.application.DevelopmentGuard.Capability;
+import de.dadecker.inubit.mcp.application.DevelopmentGuard.Operation;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy.Confirmation;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
+import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -34,6 +43,13 @@ class DevelopmentGuardTest {
     private static final NodeId PROD = NodeId.parse("prod/node1");
 
     private final List<String> cliChecks = new CopyOnWriteArrayList<>();
+    /** Feature 009: the {@code versionLine} of each node ({@code V8_1} if absent). */
+    private final Map<NodeId, VersionSetting> versionLines = new HashMap<>();
+    private final NodeVersions versions = new NodeVersions(
+        new MutableClock(Instant.parse("2026-10-18T08:00:00Z")),
+        node -> versionLines.getOrDefault(node, VersionSetting.V8_1),
+        node -> Duration.ofMinutes(10));
+    private final FakeVersionDetection detection = new FakeVersionDetection(versions);
     private ToolErrorException cliUnavailable;
     private Map<NodeId, DevelopmentPolicy> policies = Map.of(
         DEV, policy(DEV, false, true, E2ePolicy.FORBIDDEN),
@@ -44,7 +60,7 @@ class DevelopmentGuardTest {
         E2ePolicy e2e) {
         return new DevelopmentPolicy(node, production, enabled, Confirmation.SERVER,
             Duration.ofMinutes(5), e2e, e2e == E2ePolicy.FORBIDDEN ? Optional.empty()
-                : Optional.of(URI.create("https://inubit-dev.example.test:8443")));
+                : Optional.of(URI.create("https://inubit-dev.example.test:8443")), false);
     }
 
     /** Feature 005: test receives deployments from dev, prod packages from test. */
@@ -59,20 +75,21 @@ class DevelopmentGuardTest {
                 if (cliUnavailable != null) {
                     throw cliUnavailable;
                 }
-            }, group -> Optional.ofNullable(deployModes.get(group)), DEPLOY_TTL);
+            }, gateWithoutClients(versions, detection, CapabilityMatrix.production()),
+            group -> Optional.ofNullable(deployModes.get(group)), DEPLOY_TTL);
     }
 
-    private ToolError refusal(String node, Capability capability) {
+    private ToolError refusal(String node, Operation operation) {
         ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
-            () -> guard().admit(node, capability));
+            () -> guard().admit(node, operation));
         assertThat(exception).as("expected a refusal for " + node).isNotNull();
         return exception.error();
     }
 
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = "RUN_E2E_TEST", mode = EnumSource.Mode.EXCLUDE)
-    void aDevelopmentNodeIsAdmittedForTheWritingToolsAfterTheCliCheck(Capability capability) {
-        DevelopmentPolicy admitted = guard().admit("dev/node1", capability);
+    @EnumSource(value = Operation.class, names = "RUN_E2E_TEST", mode = EnumSource.Mode.EXCLUDE)
+    void aDevelopmentNodeIsAdmittedForTheWritingToolsAfterTheCliCheck(Operation operation) {
+        DevelopmentPolicy admitted = guard().admit("dev/node1", operation);
 
         assertThat(admitted.node()).isEqualTo(DEV);
         assertThat(admitted.enabled()).isTrue();
@@ -80,15 +97,15 @@ class DevelopmentGuardTest {
     }
 
     @Test
-    void theCapabilitiesAreTheToolNames() {
-        assertThat(List.of(Capability.values()).stream().map(Capability::toolName))
+    void theOperationsAreTheToolNames() {
+        assertThat(List.of(Operation.values()).stream().map(Operation::toolName))
             .containsExactly("import_artifacts", "restore_backup", "set_active",
                 "tag_artifacts", "run_e2e_test");
     }
 
     @Test
     void aGroupIdIsInvalidInput() {
-        ToolError error = refusal("dev", Capability.IMPORT_ARTIFACTS);
+        ToolError error = refusal("dev", Operation.IMPORT_ARTIFACTS);
 
         assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
         assertThat(error.message()).contains("exactly one node");
@@ -97,7 +114,7 @@ class DevelopmentGuardTest {
 
     @Test
     void anUnknownNodeIsTargetUnknown() {
-        ToolError error = refusal("dev/node9", Capability.IMPORT_ARTIFACTS);
+        ToolError error = refusal("dev/node9", Operation.IMPORT_ARTIFACTS);
 
         assertThat(error.code()).isEqualTo(ErrorCode.TARGET_UNKNOWN);
         assertThat(cliChecks).isEmpty();
@@ -105,7 +122,7 @@ class DevelopmentGuardTest {
 
     @Test
     void aNodeThatIsNoDevelopmentStageIsNotDevelopment() {
-        ToolError error = refusal("test/node1", Capability.TAG_ARTIFACTS);
+        ToolError error = refusal("test/node1", Operation.TAG_ARTIFACTS);
 
         assertThat(error.code()).isEqualTo(ErrorCode.NOT_DEVELOPMENT);
         assertThat(error.node()).contains(TEST);
@@ -117,7 +134,7 @@ class DevelopmentGuardTest {
     @Test
     void aProductionNodeWithoutDevelopmentIsNotDevelopmentWithItsOwnNextStep() {
         // review M1: never advise development.enabled for a production node
-        ToolError error = refusal("prod/node1", Capability.IMPORT_ARTIFACTS);
+        ToolError error = refusal("prod/node1", Operation.IMPORT_ARTIFACTS);
 
         assertThat(error.code()).isEqualTo(ErrorCode.NOT_DEVELOPMENT);
         assertThat(error.likelyCause()).contains("production");
@@ -129,7 +146,7 @@ class DevelopmentGuardTest {
     void aNodeWithoutPolicyIsNeverAdmitted() {
         policies = Map.of();
 
-        assertThat(refusal("dev/node1", Capability.IMPORT_ARTIFACTS).code())
+        assertThat(refusal("dev/node1", Operation.IMPORT_ARTIFACTS).code())
             .isEqualTo(ErrorCode.NOT_DEVELOPMENT);
         assertThat(cliChecks).isEmpty();
     }
@@ -139,10 +156,10 @@ class DevelopmentGuardTest {
         // ConfigValidator rejects this at startup; the guard refuses it anyway
         policies = Map.of(PROD, policy(PROD, true, true, E2ePolicy.FREE));
 
-        for (Capability capability : Capability.values()) {
-            ToolError error = refusal("prod/node1", capability);
+        for (Operation operation : Operation.values()) {
+            ToolError error = refusal("prod/node1", operation);
 
-            assertThat(error.code()).as(capability.toolName())
+            assertThat(error.code()).as(operation.toolName())
                 .isEqualTo(ErrorCode.PRODUCTION_PROTECTED);
             assertThat(error.node()).contains(PROD);
             assertThat(error.likelyCause()).contains("production");
@@ -156,7 +173,7 @@ class DevelopmentGuardTest {
             "No CLI home is configured for dev/node1", "cliHome is not set", "Set cliHome")
             .withNode(DEV));
 
-        ToolError error = refusal("dev/node1", Capability.IMPORT_ARTIFACTS);
+        ToolError error = refusal("dev/node1", Operation.IMPORT_ARTIFACTS);
 
         assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
         assertThat(error.node()).contains(DEV);
@@ -164,7 +181,7 @@ class DevelopmentGuardTest {
 
     @Test
     void endToEndTestsAreForbiddenByDefault() {
-        ToolError error = refusal("dev/node1", Capability.RUN_E2E_TEST);
+        ToolError error = refusal("dev/node1", Operation.RUN_E2E_TEST);
 
         assertThat(error.code()).isEqualTo(ErrorCode.E2E_FORBIDDEN);
         assertThat(error.node()).contains(DEV);
@@ -177,7 +194,7 @@ class DevelopmentGuardTest {
     void endToEndTestsAreAdmittedWhereAllowedWithoutACliCheck(E2ePolicy e2e) {
         policies = Map.of(DEV, policy(DEV, false, true, e2e));
 
-        DevelopmentPolicy admitted = guard().admit("dev/node1", Capability.RUN_E2E_TEST);
+        DevelopmentPolicy admitted = guard().admit("dev/node1", Operation.RUN_E2E_TEST);
 
         assertThat(admitted.e2eTests()).isEqualTo(e2e);
         assertThat(cliChecks).isEmpty();
@@ -188,7 +205,7 @@ class DevelopmentGuardTest {
         policies = Map.of(TEST, policy(TEST, false, false, E2ePolicy.FREE));
         deployModes = Map.of(); // and test receives no deployments
 
-        assertThat(refusal("test/node1", Capability.RUN_E2E_TEST).code())
+        assertThat(refusal("test/node1", Operation.RUN_E2E_TEST).code())
             .isEqualTo(ErrorCode.NOT_DEVELOPMENT);
     }
 
@@ -207,7 +224,7 @@ class DevelopmentGuardTest {
     @Test
     void aDeploymentRestoreIsAlwaysConfirmedOnTheServer() {
         policies = Map.of(TEST, new DevelopmentPolicy(TEST, false, true, Confirmation.CLIENT,
-            Duration.ofMinutes(5), E2ePolicy.FORBIDDEN, Optional.empty()));
+            Duration.ofMinutes(5), E2ePolicy.FORBIDDEN, Optional.empty(), false));
 
         assertThat(guard().admitDeploymentRestore("test/node1").confirmation())
             .isEqualTo(Confirmation.SERVER);
@@ -223,8 +240,25 @@ class DevelopmentGuardTest {
             assertThat(e.error().code()).as(node).isEqualTo(ErrorCode.NOT_DEVELOPMENT);
             assertThat(e.error().message()).as(node).contains("restore_backup");
         }
-        assertThat(refusal("test", Capability.RESTORE_BACKUP).code())
+        assertThat(refusal("test", Operation.RESTORE_BACKUP).code())
             .isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(cliChecks).isEmpty();
+    }
+
+    // --- feature 008, T013: a write of repository files is always confirmed on the server ------
+
+    @ParameterizedTest
+    @EnumSource(Confirmation.class)
+    void aRepositoryWriteIsAlwaysConfirmedOnTheServerAndKeepsTheRest(Confirmation configured) {
+        DevelopmentPolicy policy = new DevelopmentPolicy(DEV, false, true, configured,
+            Duration.ofMinutes(7), E2ePolicy.CONFIRM,
+            Optional.of(URI.create("https://inubit-dev.example.test:8443")), true);
+
+        DevelopmentPolicy write = guard().forRepositoryWrite(policy);
+
+        assertThat(write).isEqualTo(new DevelopmentPolicy(DEV, false, true, Confirmation.SERVER,
+            Duration.ofMinutes(7), E2ePolicy.CONFIRM,
+            Optional.of(URI.create("https://inubit-dev.example.test:8443")), true));
         assertThat(cliChecks).isEmpty();
     }
 
@@ -235,7 +269,7 @@ class DevelopmentGuardTest {
     void endToEndTestsRunOnANodeOfAGroupThatReceivesDeployments(E2ePolicy e2e) {
         policies = Map.of(TEST, policy(TEST, false, false, e2e));
 
-        DevelopmentPolicy admitted = guard().admit("test/node1", Capability.RUN_E2E_TEST);
+        DevelopmentPolicy admitted = guard().admit("test/node1", Operation.RUN_E2E_TEST);
 
         assertThat(admitted.node()).isEqualTo(TEST);
         assertThat(admitted.e2eTests()).isEqualTo(e2e);
@@ -246,16 +280,16 @@ class DevelopmentGuardTest {
     void onATargetNodeOnlyTheEndToEndTestIsAdmitted() {
         policies = Map.of(TEST, policy(TEST, false, false, E2ePolicy.FREE));
 
-        for (Capability capability : List.of(Capability.IMPORT_ARTIFACTS,
-            Capability.SET_ACTIVE, Capability.TAG_ARTIFACTS, Capability.RESTORE_BACKUP)) {
-            assertThat(refusal("test/node1", capability).code()).as(capability.toolName())
+        for (Operation operation : List.of(Operation.IMPORT_ARTIFACTS,
+            Operation.SET_ACTIVE, Operation.TAG_ARTIFACTS, Operation.RESTORE_BACKUP)) {
+            assertThat(refusal("test/node1", operation).code()).as(operation.toolName())
                 .isEqualTo(ErrorCode.NOT_DEVELOPMENT);
         }
     }
 
     @Test
     void endToEndTestsOnATargetNodeFollowItsE2eTestsSetting() {
-        assertThat(refusal("test/node1", Capability.RUN_E2E_TEST).code())
+        assertThat(refusal("test/node1", Operation.RUN_E2E_TEST).code())
             .isEqualTo(ErrorCode.E2E_FORBIDDEN);
     }
 
@@ -265,7 +299,72 @@ class DevelopmentGuardTest {
         policies = Map.of(PROD, policy(PROD, true, false, E2ePolicy.FREE));
         deployModes = Map.of(PROD.group(), DeployMode.EXECUTE);
 
-        assertThat(refusal("prod/node1", Capability.RUN_E2E_TEST).code())
+        assertThat(refusal("prod/node1", Operation.RUN_E2E_TEST).code())
             .isEqualTo(ErrorCode.NOT_DEVELOPMENT);
+    }
+
+    // --- feature 009, T009: the version gate after the configuration checks ------------------
+
+    @Test
+    void theConfigurationIsCheckedBeforeTheVersionIsDetected() {
+        versionLines.put(TEST, VersionSetting.AUTO);
+        versionLines.put(PROD, VersionSetting.AUTO);
+
+        assertThat(refusal("test/node1", Operation.IMPORT_ARTIFACTS).code())
+            .isEqualTo(ErrorCode.NOT_DEVELOPMENT);
+        assertThat(refusal("prod/node1", Operation.RUN_E2E_TEST).code())
+            .isEqualTo(ErrorCode.NOT_DEVELOPMENT);
+        assertThat(detection.requests()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @EnumSource(Operation.class)
+    void anUnsupportedVersionIsRefusedBeforeTheCliCheckNamingTheTool(Operation operation) {
+        versionLines.put(DEV, VersionSetting.V9_X);
+        policies = Map.of(DEV, policy(DEV, false, true, E2ePolicy.FREE));
+
+        ToolError error = refusal("dev/node1", operation);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(error.message()).startsWith(operation.toolName() + ": INUBIT 9.x (versionLine"
+            + " V9_X) on dev/node1 does not support " + (operation == Operation.RUN_E2E_TEST
+                ? "end-to-end test" : "development writes"));
+        assertThat(error.node()).contains(DEV);
+        assertThat(cliChecks).isEmpty();
+    }
+
+    @Test
+    void theAdmissionWarningsTravelInThePolicyAndSurviveARepositoryWrite() {
+        versionLines.put(DEV, VersionSetting.AUTO);
+        detection.answer(DEV, "8.1.18");
+        versions.clientProbed(DEV, new ClientVersion(version("8.1.17"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.1.17"))));
+        String mismatch = "StartCLI client 8.1.17 on dev/node1"
+            + " differs from INUBIT 8.1.18 (mismatch);"
+            + " StartCLI-backed tools still run, but their results may be unreliable";
+
+        DevelopmentPolicy admitted = guard().admit("dev/node1", Operation.IMPORT_ARTIFACTS);
+
+        assertThat(admitted.warnings()).containsExactly(mismatch);
+        assertThat(guard().forRepositoryWrite(admitted).warnings()).containsExactly(mismatch);
+        assertThat(guard().forDeploymentRestore(admitted).warnings()).containsExactly(mismatch);
+        assertThat(cliChecks).containsExactly("check dev/node1");
+    }
+
+    @Test
+    void theEndToEndTestIsNoStartCliCallSoAnExcludingClientDoesNotMatter() {
+        versionLines.put(DEV, VersionSetting.AUTO);
+        detection.answer(DEV, "8.1.18");
+        versions.clientProbed(DEV, new ClientVersion(version("8.0.9"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.0.9"))));
+        policies = Map.of(DEV, policy(DEV, false, true, E2ePolicy.FREE));
+
+        assertThat(guard().admit("dev/node1", Operation.RUN_E2E_TEST).warnings()).isEmpty();
+        assertThat(refusal("dev/node1", Operation.IMPORT_ARTIFACTS).message())
+            .startsWith("import_artifacts: StartCLI client 8.0.9 of dev/node1 supports INUBIT");
+    }
+
+    private static InubitVersion version(String raw) {
+        return InubitVersion.parse(raw).orElseThrow();
     }
 }

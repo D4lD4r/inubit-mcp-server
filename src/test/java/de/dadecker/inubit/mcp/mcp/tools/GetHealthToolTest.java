@@ -2,10 +2,13 @@ package de.dadecker.inubit.mcp.mcp.tools;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
+import de.dadecker.inubit.mcp.adapter.NodeSecrets;
+import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
@@ -14,20 +17,35 @@ import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.application.FanOut;
 import de.dadecker.inubit.mcp.application.HealthService;
+import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
-import de.dadecker.inubit.mcp.config.VersionLine;
+import de.dadecker.inubit.mcp.config.ParameterNames;
+import de.dadecker.inubit.mcp.config.SecretPlan;
+import de.dadecker.inubit.mcp.config.SecretSourceConfig;
+import de.dadecker.inubit.mcp.config.StoreLocation;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
+import de.dadecker.inubit.mcp.testing.FakeParameterStore;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
@@ -59,6 +77,11 @@ class GetHealthToolTest {
     private static WireMockServer other;
 
     private SecretScrubber scrubber;
+    /** Feature 009: nodes with a StartCLI installation (none by default) and their probe. */
+    private Set<NodeId> withClient = Set.of();
+    private ClientVersionPort probe = (node, timeout) -> {
+        throw new AssertionError("no node has a StartCLI installation");
+    };
     private AdapterGatewayFactory gateways;
     private McpTestClient client;
 
@@ -91,33 +114,51 @@ class GetHealthToolTest {
         stub(integration, "/ibis/rest/metrics", "metrics_unlicensed", "json");
 
         start(List.of(
-            server("dev/node1", "https://localhost:" + dev.httpsPort(), VersionLine.AUTO),
+            server("dev/node1", "https://localhost:" + dev.httpsPort(), VersionSetting.AUTO),
             server("qa/node1", "https://localhost:" + integration.httpsPort(),
-                VersionLine.V8_1),
+                VersionSetting.V8_1),
             server("qa/node2", "https://localhost:" + integration.httpsPort(),
-                VersionLine.V8_1),
-            server("staging/bogus", "https://127.0.0.1:9", VersionLine.V8_1)));
+                VersionSetting.V8_1),
+            server("staging/bogus", "https://127.0.0.1:9", VersionSetting.V8_1)));
     }
 
     private void start(List<EffectiveNodeConfig> servers) {
+        start(servers, scrubber -> Map.of());
+    }
+
+    /**
+     * @param awsSecrets the {@link NodeSecrets} of the nodes whose credentials come from AWS
+     *     Parameter Store (feature 010), built with the scrubber of this start
+     */
+    private void start(List<EffectiveNodeConfig> servers,
+        Function<SecretScrubber, Map<NodeId, NodeSecrets>> awsSecrets) {
         if (client != null) {
             client.close();
             gateways.close();
         }
         List<NodeId> ids = servers.stream().map(EffectiveNodeConfig::id).toList();
         scrubber = new SecretScrubber();
-        gateways = new AdapterGatewayFactory(servers, new CredentialResolver(Map.of(
-            "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
-            "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD,
-            "INUBIT_STAGING_USERNAME", "jdoe", "INUBIT_STAGING_PASSWORD", PASSWORD), scrubber,
-            "INUBIT")
-            .resolve(ids), scrubber, Clock.systemUTC(),
+        Map<NodeId, EffectiveNodeConfig> byId = servers.stream().collect(Collectors.toMap(
+            EffectiveNodeConfig::id, Function.identity()));
+        NodeVersions versions = new NodeVersions(Clock.systemUTC(),
+            id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
+        Map<NodeId, NodeSecrets> secrets = new HashMap<>(TestSecrets.environment(
+            new CredentialResolver(Map.of(
+                "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
+                "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD,
+                "INUBIT_STAGING_USERNAME", "jdoe", "INUBIT_STAGING_PASSWORD", PASSWORD), scrubber,
+                "INUBIT")
+            .resolve(ids)));
+        secrets.putAll(awsSecrets.apply(scrubber));
+        gateways = new AdapterGatewayFactory(servers, secrets, scrubber, Clock.systemUTC(),
             new CliRunner(new SystemProcessLauncher(), Map.of(), false,
-                new CliResources("acme")));
+                new CliResources("acme")), versions, PortSetRegistry.v81Default());
         Map<NodeId, Duration> timeouts = servers.stream().collect(Collectors.toMap(
             EffectiveNodeConfig::id, EffectiveNodeConfig::timeout));
         HealthService health = new HealthService(gateways, new TargetResolver(ids),
-            new FanOut(), timeouts::get, Clock.systemUTC());
+            new FanOut(), timeouts::get, Clock.systemUTC(),
+            gateWithoutClients(versions, gateways, CapabilityMatrix.production()), versions, probe,
+            withClient::contains);
         client = McpTestClient.start(List.of(new GetHealthTool(health)), scrubber);
         client.initialize();
     }
@@ -129,7 +170,7 @@ class GetHealthToolTest {
         client = null;
     }
 
-    private static EffectiveNodeConfig server(String id, String baseUrl, VersionLine line) {
+    private static EffectiveNodeConfig server(String id, String baseUrl, VersionSetting line) {
         return TestNodeConfig.node().id(id).baseUrl(baseUrl)
             .trustStore(TestCertificates.get().trustStore()).timeout(TIMEOUT).versionLine(line)
             .build();
@@ -261,7 +302,7 @@ class GetHealthToolTest {
         stub(other, "/ibis/rest/system/info", "system_info", "xml", delay);
         stub(other, "/ibis/rest/metrics", "metrics", "json", 0);
         start(List.of(server("staging/slow", "https://localhost:" + other.httpsPort(),
-            VersionLine.AUTO)));
+            VersionSetting.AUTO)));
 
         long start = System.nanoTime();
         JsonNode result = call(Map.of());
@@ -273,7 +314,7 @@ class GetHealthToolTest {
         assertThat(report.path("ready").asBoolean()).isTrue();
         assertThat(report.path("version").asString()).isEqualTo("8.1.17");
         assertThat(report.has("load")).as(report.toString()).isTrue();
-        assertThat(report.path("warnings").toString()).doesNotContain("could not be detected");
+        assertThat(report.path("warnings")).as("no version warning on 8.1.17").isEmpty();
         assertThat(other.findAll(com.github.tomakehurst.wiremock.client.WireMock
             .getRequestedFor(urlPathEqualTo("/ibis/rest/system/info"))))
             .as("the health call's /system/info is the detection").hasSize(1);
@@ -289,8 +330,8 @@ class GetHealthToolTest {
                     .withFixedDelay(hang).withBody("{}")));
         }
         start(List.of(
-            server("dev/node1", "https://localhost:" + dev.httpsPort(), VersionLine.AUTO),
-            server("staging/hang", "https://localhost:" + other.httpsPort(), VersionLine.AUTO)));
+            server("dev/node1", "https://localhost:" + dev.httpsPort(), VersionSetting.AUTO),
+            server("staging/hang", "https://localhost:" + other.httpsPort(), VersionSetting.AUTO)));
 
         long start = System.nanoTime();
         JsonNode result = call(Map.of());
@@ -306,6 +347,122 @@ class GetHealthToolTest {
         assertThat(hanging.path("error").path("code").asString()).isEqualTo("TIMEOUT");
     }
 
+    // --- feature 010 T014: an AWS node's first fetch within the health budget (R-9) ---------
+
+    @Test
+    void anAwsNodeWhoseFirstFetchOutlivesTheBudgetIsATimeoutUntilTheFetchHasEnded() throws InterruptedException {
+        stub(other, "/ibis/rest/healthcheck", "healthcheck", "json");
+        stub(other, "/ibis/rest/ready", "ready", "json");
+        stub(other, "/ibis/rest/system/info", "system_info", "xml");
+        stub(other, "/ibis/rest/metrics", "metrics", "json");
+        NodeId aws = NodeId.parse("staging/aws");
+        StoreLocation location = new StoreLocation("eu-central-1", Optional.empty());
+        // the store answers after timeout + 1 s, within its own 10 s bound
+        FakeParameterStore store = new FakeParameterStore()
+            .put(location, "/test/staging/aws/username", "jdoe")
+            .put(location, "/test/staging/aws/password", PASSWORD)
+            .delay(location, TIMEOUT.plusSeconds(1));
+        start(List.of(
+            server("dev/node1", "https://localhost:" + dev.httpsPort(), VersionSetting.AUTO),
+            server(aws.value(), "https://localhost:" + other.httpsPort(), VersionSetting.V8_1)),
+            scrubber -> Map.of(aws, NodeSecrets.aws(new SecretPlan(aws,
+                new SecretSourceConfig.AwsParameterStore(location.region(),
+                    location.awsProfile()), SecretPlan.Origin.NODE, Optional.empty(),
+                Optional.of(new ParameterNames(Optional.of("/test/staging/aws/username"),
+                    Optional.of("/test/staging/aws/password"), Optional.empty(),
+                    Optional.empty(), Optional.empty()))), store, scrubber,
+                Clock.systemUTC())));
+
+        long start = System.nanoTime();
+        JsonNode first = call(Map.of());
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+        assertThat(elapsed).as("SC-002").isLessThan(TIMEOUT.plusSeconds(1));
+        assertMatchesOutputSchema(first);
+        assertThat(byServer(first).get("dev/node1").path("reachable").asBoolean()).isTrue();
+        JsonNode pending = byServer(first).get("staging/aws");
+        assertThat(pending.path("reachable").asBoolean(true)).isFalse();
+        assertThat(pending.path("error").path("code").asString()).isEqualTo("TIMEOUT");
+        assertThat(pending.path("error").path("message").asString()).isEqualTo("staging/aws:"
+            + " credentials not yet available (still fetching from AWS Parameter Store); call"
+            + " get_health again shortly");
+        assertThat(pending.path("error").path("node").asString()).isEqualTo("staging/aws");
+        assertThat(other.getAllServeEvents()).as("nothing is sent to that node").isEmpty();
+
+        long fetchDeadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (!gateways.credentialsHeld(aws) && System.nanoTime() < fetchDeadline) {
+            Thread.sleep(20);
+        }
+        assertThat(gateways.credentialsHeld(aws)).as("the fetch continued").isTrue();
+        JsonNode next = call(Map.of());
+
+        assertMatchesOutputSchema(next);
+        JsonNode report = byServer(next).get("staging/aws");
+        assertThat(report.path("reachable").asBoolean()).as(report.toString()).isTrue();
+        assertThat(report.path("version").asString()).isEqualTo("8.1.17");
+        assertThat(report.has("error")).isFalse();
+        assertThat(store.calls()).as("one fetch").isEqualTo(1);
+        assertThat(next.toString()).doesNotContain(PASSWORD);
+    }
+
+    // --- feature 009: the StartCLI client probe (FR-002) -------------------------------------
+
+    @Test
+    void aHangingClientProbeIsNotYetDetectedWithinTimeoutPlusOneSecond() {
+        CountDownLatch never = new CountDownLatch(1);
+        withClient = Set.of(NodeId.parse("dev/node1"));
+        probe = (node, timeout) -> {
+            try {
+                never.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            throw new AssertionError("interrupted");
+        };
+        start(List.of(
+            server("dev/node1", "https://localhost:" + dev.httpsPort(), VersionSetting.AUTO),
+            server("qa/node1", "https://localhost:" + integration.httpsPort(),
+                VersionSetting.V8_1)));
+
+        long start = System.nanoTime();
+        JsonNode result = call(Map.of());
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+        assertThat(elapsed).as("SC-002 with a hanging probe").isLessThan(TIMEOUT.plusSeconds(1));
+        assertMatchesOutputSchema(result);
+        JsonNode reports = result.path("structuredContent").path("reports");
+        JsonNode probed = reports.path(0);
+        assertThat(probed.path("version").asString()).isEqualTo("8.1.17");
+        assertThat(probed.has("load")).isTrue();
+        assertThat(probed.has("client")).isFalse();
+        assertThat(probed.path("unavailable")).singleElement().satisfies(part -> {
+            assertThat(part.path("part").asString()).isEqualTo("client");
+            assertThat(part.path("reason").asString())
+                .startsWith("TIMEOUT: not yet detected (timeout)");
+        });
+        assertThat(reports.path(1).path("client").path("state").asString())
+            .isEqualTo("not_available");
+    }
+
+    @Test
+    void aProbedClientIsReportedWithItsRangeAndComparison() {
+        withClient = Set.of(NodeId.parse("dev/node1"));
+        probe = (node, timeout) -> new ClientVersion(InubitVersion.parse("8.1.17").orElseThrow(),
+            InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17"));
+        start(List.of(
+            server("dev/node1", "https://localhost:" + dev.httpsPort(), VersionSetting.AUTO)));
+
+        JsonNode result = call(Map.of());
+
+        assertMatchesOutputSchema(result);
+        JsonNode report = result.path("structuredContent").path("reports").path(0);
+        assertThat(report.path("client")).isEqualTo(JSON.readTree("{\"version\":\"8.1.17\","
+            + "\"supportedFrom\":\"4.0.1\",\"supportedTo\":\"8.1.17\","
+            + "\"comparison\":\"match\"}"));
+        assertThat(report.path("unavailable")).isEmpty();
+        assertThat(report.path("warnings")).isEmpty();
+    }
+
     @Test
     void wrongCredentialsCostOneFailedLoginAcrossCalls() {
         stub(other, "/ibis/rest/healthcheck", "healthcheck", "json");
@@ -316,7 +473,7 @@ class GetHealthToolTest {
                     .withHeader("Content-Type", "text/html").withBody("<html>401</html>")));
         }
         start(List.of(server("staging/locked", "https://localhost:" + other.httpsPort(),
-            VersionLine.AUTO)));
+            VersionSetting.AUTO)));
 
         JsonNode first = call(Map.of()).path("structuredContent").path("reports").path(0);
         JsonNode second = call(Map.of()).path("structuredContent").path("reports").path(0);
@@ -327,8 +484,10 @@ class GetHealthToolTest {
             assertThat(report.path("ready").asBoolean()).isTrue();
             assertThat(report.path("unavailable")).extracting(part -> part.path("reason")
                 .asString().substring(0, 12)).containsOnly("AUTH_FAILED:");
-            assertThat(report.path("warnings").toString())
-                .contains("could not be detected (AUTH_FAILED)");
+            assertThat(report.path("warnings")).hasSize(1);
+            assertThat(report.path("warnings").path(0).asString())
+                .matches("the INUBIT version of staging/locked is unknown \\(AUTH_FAILED at"
+                    + " \\S+\\); results are unverified");
         }
         assertThat(second.path("unavailable").path(0).path("reason").asString())
             .contains("avoid account lockout");

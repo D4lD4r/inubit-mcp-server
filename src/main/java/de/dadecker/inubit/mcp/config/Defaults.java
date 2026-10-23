@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.config;
 
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
@@ -32,9 +33,11 @@ public record Defaults(
     public static final boolean BUILTIN_WRITE_ENABLED = false;
     public static final boolean BUILTIN_PRODUCTION_OPT_IN = false;
     public static final ConfirmationMode BUILTIN_CONFIRMATION = ConfirmationMode.SERVER;
-    public static final VersionLine BUILTIN_VERSION_LINE = VersionLine.AUTO;
+    public static final VersionSetting BUILTIN_VERSION_LINE = VersionSetting.AUTO;
     public static final boolean BUILTIN_DEVELOPMENT_ENABLED = false;
     public static final ConfirmationMode BUILTIN_DEVELOPMENT_CONFIRMATION = ConfirmationMode.SERVER;
+    /** Feature 008 (research D-1): repository files are not written unless switched on. */
+    public static final RepositoryMode BUILTIN_DEVELOPMENT_REPOSITORY = RepositoryMode.READ_ONLY;
     public static final E2ePolicy BUILTIN_E2E_TESTS = E2ePolicy.FORBIDDEN;
     /** Feature 005 (research D-2): lifetime of a deployment's confirmation code. */
     public static final Duration BUILTIN_DEPLOY_CONFIRMATION_TTL = Duration.ofMinutes(30);

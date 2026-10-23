@@ -51,6 +51,22 @@
         "notImported": { "type": "array", "items": { "type": "string" }, "description": "Changed workspace files outside the scope" },
         "checkWarnings": { "type": "integer", "minimum": 0 },
         "tag": { "type": "string", "description": "The tag set on the diagram group after the verified import" },
+        "repositoryReferences": {
+          "type": "array",
+          "description": "With repository files to send: per file, the workspace artifacts outside the scope, of every owner of the group, that use it (only files with any); artifacts on the {node} that the workspace does not hold cannot be listed",
+          "items": {
+            "type": "object",
+            "required": ["path", "artifacts", "truncated"],
+            "properties": {
+              "path": { "type": "string", "description": "The full repository path /Root/<owner>/…" },
+              "artifacts": { "type": "array", "maxItems": 20, "items": { "type": "string" }, "description": "Workflows as '<workflow> (<diagram group>)', modules as '<module> (<plugin type> module)', repository files by their full path; another owner's artifact with ', owner <name>' (e.g. 'Mapping-0007 (GRP-02, owner bob)', '/Root/bob/y.xsd (owner bob)')" },
+              "truncated": { "type": "boolean", "description": "More than 20; the full list is in the report named in warnings" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "repositoryDiff": { "type": "string", "description": "Workspace-relative report of the line differences between the {node} and the workspace of every repository file in modify" },
+        "warnings": { "type": "array", "items": { "type": "string" }, "description": "References that were not followed (outside the owner's repository root) and shared use of the repository files to send" },
         "confirmationCode": { "type": "string", "pattern": "^[A-Za-z0-9_-]{22}$" },
         "expiresAt": { "type": "string", "description": "ISO-8601 UTC" },
         "message": { "type": "string", "description": "What to do next" }
@@ -101,6 +117,7 @@
             "applied": { "type": "boolean" },
             "workflows": { "type": "integer", "minimum": 0, "description": "Technical workflows whose current version carries the tag" },
             "modules": { "type": "integer", "minimum": 0, "description": "Modules whose current version carries the tag" },
+            "repositoryFiles": { "type": "array", "items": { "type": "string" }, "description": "Only if the tag was applied and the import sent repository files: their full paths, all in the closure of the group's modules (referenced by a module directly or only by another repository file), which INUBIT's group tag covers; information, not verified" },
             "failure": {
               "type": "object",
               "required": ["code", "step", "message"],

@@ -94,6 +94,9 @@ class SetActiveTest {
             + " Workflow-0001 of diagram group GRP-01 (1 artifacts) [" + outcome.auditId() + "]");
         assertThat(harness.exports.git("log", "-1",
             "--format=%(trailers:key=Server-State,valueonly)").strip()).isEqualTo("dev");
+        // T051 (FR-015a)
+        assertThat(harness.exports.git("log", "-1", "--format=%B").strip()).endsWith(
+            "]\n\nServer-State: dev\nReason: Switch it");
         assertThat(harness.audit("set_active")).extracting(r -> r.outcome())
             .containsExactly(AuditOutcome.PENDING, AuditOutcome.EXECUTED);
         assertThat(harness.audit("set_active").get(1).inputs())
@@ -303,7 +306,7 @@ class SetActiveTest {
             "workflow/workflow.xml"), StandardCharsets.UTF_8)).getBytes(StandardCharsets.UTF_8));
         harness.exports.artifacts.exports.put("GRP-01", ArtifactFixtures.zip(entries));
         harness.exports.service().export(new WorkspaceService.ExportRequest(ImportHarness.DEV,
-            "jdoe", List.of("GRP-01"), List.of()));
+            "jdoe", List.of("GRP-01"), List.of(), List.of()));
         harness.exportGroup().importApplied(ACTIVE).exportGroup();
 
         WriteOutcome outcome = completed(harness.service().setActive(request("Workflow-0001",

@@ -9,8 +9,8 @@ import java.util.Set;
 /**
  * The structure of one workflow file that the checks of {@code check_artifacts} need (research
  * D-13): its nodes with their ids, edges, properties and parent references, the declared
- * variables, every variable reference and every {@code inubitrepository:} reference (the
- * repository path, e.g. {@code Root/OWNERS/xsl/common.xsl}). Built by an
+ * variables, every variable reference and every {@code inubitrepository:} reference (the full
+ * repository path, {@code %XX} decoded, e.g. {@code /Root/OWNERS/xsl/common.xsl}). Built by an
  * {@link de.dadecker.inubit.mcp.domain.port.ArtifactInspectorPort}; locations are element paths
  * such as {@code WorkflowModule[ModuleId=5]/Connection}.
  */

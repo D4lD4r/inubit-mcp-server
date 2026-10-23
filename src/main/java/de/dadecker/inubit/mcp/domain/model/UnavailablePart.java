@@ -21,7 +21,10 @@ public record UnavailablePart(String part, String reason, Optional<String> likel
     public static final String VERSION = "version";
     public static final String SYSTEM_INFO = "systemInfo";
     public static final String LOAD = "load";
-    public static final Set<String> PARTS = Set.of(STATUS, READY, VERSION, SYSTEM_INFO, LOAD);
+    /** The StartCLI client probe (feature 009, FR-002). */
+    public static final String CLIENT = "client";
+    public static final Set<String> PARTS = Set.of(STATUS, READY, VERSION, SYSTEM_INFO, LOAD,
+        CLIENT);
 
     /** Reason code of a {@code /metrics} failure that indicates a missing license (R-10). */
     public static final String METRICS_NOT_LICENSED = "METRICS_NOT_LICENSED";

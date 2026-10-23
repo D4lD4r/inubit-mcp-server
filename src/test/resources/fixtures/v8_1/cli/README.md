@@ -115,8 +115,52 @@ ignore `Repository.zip`. An owner-wide tag export with no tagged diagram group w
 the client knows the message `2-NOK: No workflow group containing workflows for export found.`,
 and the server treats that message and an archive without workflows alike as `NOT_FOUND`.
 
-## Repository import progress text on the same line
+## Repository files on the development stage (feature 008)
+
+The cases of feature 008 (research D-7, D-8, D-15; tasks T001, T002). The probes of 2026-10-13 ran
+in the personal test repository area of a development stage; their raw outputs stay private
+(`~/.inubit-mcp/<profile>/spike/p8`, never committed). Unlike the feature-005 cases these are
+**recorded**: the archives are the probes' repository exports, neutralized by a local one-off
+script (not committed):
+
+- the owner in every path and the `modificator` → `jdoe`; the personal test folder → `xsd`, so the
+  exported folder is `/Root/jdoe/xsd`; the probes' own subfolder `P8` is kept;
+- the `uuid`s INUBIT assigned → `00000000-0000-0000-0000-000000000201` to `…0215`, the same file
+  keeping the same value in all three archives; the all-zero `uuid` of `probe.xsl` (sent that way
+  by a feature-005 probe and kept by INUBIT) is kept;
+- the `Description` text of `probe.xsd` and `probe.xsl` → `Repository probe`.
+
+Kept as recorded: the entry names below the exported folder and their order, the directory entries
+(also for a folder that holds only subfolders, such as `P8/`), the entry timestamps, the `5.3`
+archive comment, every other metadata attribute and value (`version`, `versionComment`,
+`modified`, `contentType`, `anonymousRead`, …), the file contents (the probes' own synthetic
+documents, so `contentSize` and `contentMD5` still match the `.dat` entries), and the `.stdout`,
+`.stderr` and `.exit` files byte for byte. The archives are written again with deflated entries and
+data descriptors, as INUBIT writes them.
+
+The probe order behind the cases: W1 imports one new file per extension into `P8/types` with a
+`contentType` each, R3 exports that folder; W3 imports a folder archive (directory entries
+`xsd/`, `xsd/P8/`, `xsd/P8/folder/`, `xsd/P8/folder/sub/`; the new `P8/folder/main.xsd` and
+`P8/folder/sub/included.xsd`; `probe.xsd` changed from `probe4` to `probe8`), R5 exports
+`/Root/jdoe/xsd`; W4 imports two new stylesheets into `P8/nested` and changes `probe.xsl`, W6
+restores `probe.xsd` and `probe.xsl` to their content before W3, R9 exports `/Root/jdoe/xsd`
+again.
 
 | Case | What it is |
 |---|---|
-| `import_repository_new_files.{stdout,stderr,exit}` | Recorded (neutralized owner `jdoe`): `import --importFile '<zip>' --importRepositoryPath '/Root/jdoe'` of a folder archive. No protocol; the progress text `Completed = 0 MB / 0 MB ` is printed twice, each time after a `\r` and without a line break, so `1-OK: Imported successfully` follows the second one **on the same line**, exit 0. The synthetic `import_repository_ok` puts them on lines of their own |
+| `export_repository_folder.zip` | R9, `export --exportRepositoryPath '/Root/jdoe/xsd' --exportFile '<zip>'` after all probe imports: 16 files, `probe.xsd` and `probe.xsl` in the folder itself and the others in nested folders (`P8/types`, `P8/untyped`, `P8/folder`, `P8/folder/sub`, `P8/nested`). `P8/folder/main.xsd` includes `sub/included.xsd` relatively (`<xs:include schemaLocation="sub/included.xsd"/>`); `included.xsd` has LF line ends and no trailing newline, as sent. New files: `version="1.0"`, `anonymousRead="false"`, `versionComment="DefaultCommitCommentImport@@@null"`, a `uuid` assigned by INUBIT (neutralized), no `Description`. `probe.xsd` (`1.6`) and `probe.xsl` (`1.3`) are back at their earlier content, one version and one `DefaultCommitCommentImport@@@` more per import |
+| `export_repository_folder.{stdout,stderr,exit}` | `1-OK: Repository path exported successfully.`, exit 0 |
+| `import_repository_new_files.{stdout,stderr,exit}` | W3, `import --importFile '<zip>' --importRepositoryPath '/Root/jdoe'` of the folder archive: no protocol; the progress text `Completed = 0 MB / 0 MB ` is printed twice, each time after a `\r` and without a line break, so `1-OK: Imported successfully` follows the second one **on the same line**, exit 0. The synthetic `import_repository_ok` puts them on lines of their own |
+| `export_repository_after_import.zip` | R5, the export of `/Root/jdoe/xsd` right after W3: `P8/folder/main.xsd` and `P8/folder/sub/included.xsd` byte-identical to what W3 sent, in `version="1.0"`; `probe.xsd` with W3's content in `1.5` (the archive's `version` was ignored); `probe.xsl`, untouched, still `1.1` with its entry timestamp of 2026-10-07; `P8/types` and `P8/untyped` from W1 and W2; no `P8/nested` yet |
+| `export_repository_types.zip` | R3, `export --exportRepositoryPath '/Root/jdoe/xsd/P8/types'`: one file per extension (`.wsdl`, `.xml`, `.xsd`, `.xsl`, `.xslt`) with the `contentType` the import sent, stored unchanged (`application/wsdl+xml`, `application/xml`, `application/x-xsd+xml`, `application/xslt+xml` for `.xsl` and `.xslt`). The `.xslt` and `.wsdl` values are the probe's choice; INUBIT's own default for them was not observed. Without a `contentType` (W2, `P8/untyped` in the other two archives) INUBIT stores `application/octet-stream` |
+
+## Client version (`startcli.sh -v`, feature 009)
+
+The variants of the recorded `version` case for feature 009 (research D-15; tasks T001). Both are
+**synthetic**, derived from `version.*` by a text change; no StartCLI was run for them.
+
+| Case | Kind | What it is |
+|---|---|---|
+| `version` | recorded | the 8.1.17 client: preamble, `CLI 8.1.17`, copyright and URL lines, `Supported inubit Process Engine versions from 4.0.1 to 8.1.17.`, exit 0 |
+| `version_no_range` | **synthetic** | `version` without the `Supported …` line: `CLI 8.1.17` is the only version line, so the client reports no supported range; stderr and exit 0 unchanged |
+| `../../v9_0/cli/version` | **synthetic** | a 9.0 client: `version` with `CLI 9.0.7` and `Supported inubit Process Engine versions from 9.0.0 to 9.0.7.`; stderr and exit 0 unchanged. Kept with the other 9.0 fixtures, see `../../v9_0/README.md` |

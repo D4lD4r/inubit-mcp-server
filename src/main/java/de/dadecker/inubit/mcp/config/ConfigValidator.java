@@ -5,6 +5,7 @@ import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.net.URI;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -23,6 +24,7 @@ import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * Checks a loaded configuration and its resolved credentials at startup (contracts/configuration.md
@@ -39,9 +41,6 @@ public final class ConfigValidator {
     /** Same rule as {@code CliCommand.VALUE} (research R-11): no leading '-', no quotes. */
     static final Pattern CLI_VALUE_PATTERN =
         Pattern.compile("^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$");
-
-    /** Passwords shorter than this are a configuration error (Phase 3 review m4). */
-    static final int MIN_SCRUBBED_LENGTH = 4;
 
     /** Upper bound of {@code confirmationTtl} (Phase 6 review W5). */
     static final Duration MAX_CONFIRMATION_TTL = Duration.ofHours(1);
@@ -117,9 +116,11 @@ public final class ConfigValidator {
         Findings findings = new Findings(terms);
         for (String key : loaded.credentialKeys()) {
             // 002 research D-6: the variables under the profile's effective prefix
+            // feature 010 (T003): the next step names both sources
             findings.termError("Credential key '%s' is not allowed in the configuration file;"
-                + " credentials belong in environment variables (%s_%s_USERNAME /"
-                + " _PASSWORD)", key, config.credentialPrefix(), variablePart(terms));
+                + " set the value in the environment variable (%s_%s_USERNAME / _PASSWORD) or"
+                + " store it in AWS Parameter Store and name it in credentials.parameters", key,
+                config.credentialPrefix(), variablePart(terms));
         }
         loaded.urlProblems().forEach(findings::error);
         checkProfile(config, findings);
@@ -130,8 +131,11 @@ public final class ConfigValidator {
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
             checkServer(server, credentials, findings);
             checkDevelopment(server, findings);
+            checkParameterNames(server, findings);
         }
+        checkIgnoredParameterNames(config, findings);
         checkOneDevelopmentNodePerGroup(config, findings);
+        checkRepositorySwitch(config, findings);
         checkE2eNodeNames(config, findings);
         checkChain(config, findings);
         boolean cliConfigured = config.resolvableNodes().stream()
@@ -176,9 +180,11 @@ public final class ConfigValidator {
      *       (e.g. {@code INUBIT_ACME} + group {@code 2-test} and {@code INUBIT_ACME_2} + group
      *       {@code test}) or by an equal prefix with equal group names (002 US2 review P1,
      *       re-review N1): two customers would read the same variable. Only names are printed;
+     *       only environment nodes derive names ({@link ProfileConfig#credentialVariableNames()},
+     *       research R-13), so two profiles may read the same Parameter Store names;
      *   <li>one <b>warning</b> per file that has the same profile name (a copy, which may start;
      *       shared variable names are listed in the warning then), the same effective credential
-     *       prefix or the same audit directory.
+     *       prefix (if both profiles have environment nodes) or the same audit directory.
      * </ul>
      *
      * A profile name read from another file is printed only if valid (review P3a).
@@ -192,7 +198,8 @@ public final class ConfigValidator {
             String otherFile = "The profile file " + other.source() + " (profile "
                 + (otherName.equals(ProfileInfo.INVALID_NAME) ? otherName : "'" + otherName + "'")
                 + ")";
-            Set<String> sharedVariables = new TreeSet<>(otherConfig.credentialVariableNames());
+            Set<String> otherVariables = otherConfig.credentialVariableNames();
+            Set<String> sharedVariables = new TreeSet<>(otherVariables);
             sharedVariables.retainAll(ownVariables);
             String name = config.profile().name();
             boolean copy = !name.isEmpty() && name.equals(otherConfig.profile().name());
@@ -209,7 +216,9 @@ public final class ConfigValidator {
                 shared.add("the profile name " + shown
                     + " (profile names must be unique per workstation)");
             }
-            if (config.credentialPrefix().equals(otherConfig.credentialPrefix())) {
+            // T007 review r1: a profile without environment nodes reads no variables
+            if (config.credentialPrefix().equals(otherConfig.credentialPrefix())
+                && !ownVariables.isEmpty() && !otherVariables.isEmpty()) {
                 shared.add("the credential variable prefix " + config.credentialPrefix()
                     + " (both read the same variables)");
             }
@@ -368,6 +377,15 @@ public final class ConfigValidator {
             .filter(prefix -> !ProfileInfo.isValidPrefix(prefix))
             .ifPresent(prefix -> findings.error("Invalid credentials.envPrefix: expected "
                 + ProfileInfo.PREFIX_PATTERN.pattern()));
+        // feature 010 (US1-3): envPrefix is the default of every environment source without one
+        Optional<String> envPrefix = config.credentials().envPrefix();
+        if (config.credentials().source().orElse(null)
+            instanceof SecretSourceConfig.Environment environment
+            && environment.prefix().isPresent() && envPrefix.isPresent()
+            && !environment.prefix().equals(envPrefix)) {
+            findings.error("credentials.source.prefix and credentials.envPrefix differ; set only"
+                + " one of them or make them equal");
+        }
     }
 
     private static void checkTerminology(TerminologyConfig terminology, Findings findings) {
@@ -499,9 +517,10 @@ public final class ConfigValidator {
         if (server.cliConfigured()) {
             checkCli(server, findings);
         }
-        if (server.versionLine() == VersionLine.V9_X) {
-            findings.warning(id + ": versionLine V9_X is unsupported in this version; the 8.1"
-                + " adapters are used");
+        if (server.versionLine().equals(VersionSetting.V9_X)) {
+            // feature 009 (research D-13)
+            findings.termWarning("%s: versionLine V9_X: write tools are refused on this {node}"
+                + " (INUBIT 9.x is not supported for writes yet); read tools run unverified", id);
         }
         server.inventory().owner()
             .filter(owner -> !CLI_VALUE_PATTERN.matcher(owner).matches())
@@ -550,7 +569,8 @@ public final class ConfigValidator {
                 findings.error(id + ": e2e.soap.baseUrl must be an absolute https:// URL"
                     + " (http:// is accepted with a warning)");
             } else if (scheme.equals("http")) {
-                List<String> credentials = e2eCredentialVariables(server);
+                List<String> credentials = new ArrayList<>(e2eCredentialVariables(server));
+                credentials.addAll(e2eParameterNames(server));
                 if (e2eTests != E2ePolicy.FORBIDDEN && !credentials.isEmpty()) {
                     findings.error(id + ": e2e.soap.baseUrl uses http:// while the e2e basic"
                         + " authentication is set (" + String.join(", ", credentials) + "); the"
@@ -563,13 +583,18 @@ public final class ConfigValidator {
         });
     }
 
-    /** The set e2e basic-authentication variables of {@code server} (names only). */
+    /**
+     * The set e2e basic-authentication variables of {@code server} (names only); none for an AWS
+     * node, which reads no variables (research R-6, R-13).
+     */
     private List<String> e2eCredentialVariables(EffectiveNodeConfig server) {
         List<String> set = new ArrayList<>();
+        if (server.secretPlan().aws()) {
+            return set;
+        }
         for (String kind : CredentialVariables.E2E_KINDS) {
             for (String variable : server.credentialVariables().candidates(kind)) {
-                String value = environment.get(variable);
-                if (value != null && !value.isEmpty()) {
+                if (CredentialRules.isSet(environment.get(variable))) {
                     set.add(variable);
                 }
             }
@@ -577,14 +602,98 @@ public final class ConfigValidator {
         return set;
     }
 
+    /** Feature 010 (research R-6): the configured e2e Parameter Store names of an AWS node. */
+    private static List<String> e2eParameterNames(EffectiveNodeConfig server) {
+        return server.secretPlan().names()
+            .map(names -> Stream.of(names.e2eUsername(), names.e2ePassword())
+                .flatMap(Optional::stream).toList())
+            .orElse(List.of());
+    }
+
+    /**
+     * The Parameter Store names of an AWS node (feature 010, research R-6,
+     * contracts/configuration-delta.md): {@code username} and {@code password} are required, the
+     * e2e names come in pairs, and a {@code trustStorePassword} name follows the rules of the
+     * trust store password variable ({@link #checkCredentials}).
+     */
+    private static void checkParameterNames(EffectiveNodeConfig server, Findings findings) {
+        SecretPlan plan = server.secretPlan();
+        if (plan.names().isEmpty()) {
+            return;
+        }
+        ParameterNames names = plan.names().get();
+        String id = server.id().value();
+        String where = plan.origin() == SecretPlan.Origin.NODE
+            ? "on the {node}; the names of its {group} do not apply because the {node} declares"
+                + " its own credentials.source"
+            : "on the {node} or its {group}";
+        if (names.username().isEmpty()) {
+            findings.termError("%s: no Parameter Store name for the username (set"
+                + " credentials.parameters.username " + where + ")", id);
+        }
+        if (names.password().isEmpty()) {
+            findings.termError("%s: no Parameter Store name for the password (set"
+                + " credentials.parameters.password " + where + ")", id);
+        }
+        if (names.e2eUsername().isPresent() != names.e2ePassword().isPresent()) {
+            String missing = names.e2eUsername().isPresent() ? "e2ePassword" : "e2eUsername";
+            findings.error(id + ": credentials.parameters." + missing + " is missing; the"
+                + " end-to-end credentials need both e2eUsername and e2ePassword");
+        }
+        names.trustStorePassword().ifPresent(name -> {
+            if (server.cliConfigured()) {
+                findings.termError("%s: credentials.parameters.trustStorePassword (%s) is set,"
+                    + " but this {node} has a CLI configured and needs a password-less trust"
+                    + " store (StartCLI could only receive the password as a process argument)",
+                    id, name);
+            }
+            if (server.tls().trustStore().isEmpty()) {
+                findings.warning(id + ": credentials.parameters.trustStorePassword (" + name
+                    + ") is set, but no tls.trustStore is configured; the parameter is ignored");
+            }
+        });
+    }
+
+    /**
+     * Feature 010 (research R-6): {@code credentials.parameters} on a group or node whose
+     * effective source is environment variables is ignored, with a warning.
+     */
+    private static void checkIgnoredParameterNames(ProfileConfig config, Findings findings) {
+        for (GroupConfig group : config.groups()) {
+            boolean environment = SecretPlan.groupSource(config.credentials(), group)
+                instanceof SecretSourceConfig.Environment;
+            if (environment && group.credentials().parameters().isPresent()) {
+                findings.termWarning("{Group} '%s': credentials.parameters is ignored; the"
+                    + " secrets of this {group} come from environment variables", group.name());
+            }
+            if (!GroupId.isValidName(group.name())) {
+                continue;
+            }
+            for (NodeConfig node : group.nodes()) {
+                if (!GroupId.isValidName(node.name())
+                    || node.credentials().parameters().isEmpty()) {
+                    continue;
+                }
+                SecretPlan plan = SecretPlan.resolve(config.credentials(),
+                    config.credentialPrefix(), group, node);
+                if (!plan.aws()) {
+                    findings.termWarning("%s: credentials.parameters is ignored; the secrets of"
+                        + " this {node} come from environment variables", plan.node().value());
+                }
+            }
+        }
+    }
+
     /**
      * Review m-d: in a {@code group} where any node allows end-to-end tests, a node named
-     * {@code e2e} would read {@code <PREFIX>_<GROUP>_E2E_USERNAME} as its own username.
+     * {@code e2e} would read {@code <PREFIX>_<GROUP>_E2E_USERNAME} as its own username. Only
+     * environment nodes read these variables (research R-6, R-13), so AWS nodes are left out.
      */
     private static void checkE2eNodeNames(ProfileConfig config, Findings findings) {
         Map<String, List<EffectiveNodeConfig>> byGroup = new TreeMap<>();
-        config.resolvableNodes().forEach(server -> byGroup.computeIfAbsent(
-            server.id().group().value(), group -> new ArrayList<>()).add(server));
+        config.resolvableNodes().stream().filter(server -> !server.secretPlan().aws())
+            .forEach(server -> byGroup.computeIfAbsent(server.id().group().value(),
+                group -> new ArrayList<>()).add(server));
         byGroup.values().forEach(nodes -> {
             boolean e2e = nodes.stream().anyMatch(server -> server.development().e2eTests()
                 != E2ePolicy.FORBIDDEN);
@@ -719,6 +828,48 @@ public final class ConfigValidator {
         });
     }
 
+    /**
+     * Feature 008 (research D-2, contracts/configuration-delta.md): only where
+     * {@code development.repository: WRITE} is set explicitly, so on the raw records. An error on
+     * a production group or any of its nodes and on a node without the effective
+     * {@code development.enabled: true}; a warning on a non-production group without such a
+     * node. A {@code WRITE} inherited from {@code defaults} or the group is never a finding.
+     */
+    private static void checkRepositorySwitch(ProfileConfig config, Findings findings) {
+        Defaults defaults = config.defaults();
+        for (GroupConfig group : config.groups()) {
+            if (group.production()) {
+                if (isWrite(group.development())) {
+                    findings.termError("{Group} '%s': development.repository: WRITE is not"
+                        + " allowed in production {groups}", group.name());
+                }
+                group.nodes().stream().filter(node -> isWrite(node.development()))
+                    .forEach(node -> findings.termError("%s/%s: development.repository: WRITE"
+                        + " is not allowed in production {groups}", group.name(), node.name()));
+                continue;
+            }
+            boolean anyDevelopmentNode = false;
+            for (NodeConfig node : group.nodes()) {
+                boolean developmentEnabled = node.development().enabled()
+                    .or(group.development()::enabled).or(defaults.development()::enabled)
+                    .orElse(Defaults.BUILTIN_DEVELOPMENT_ENABLED);
+                anyDevelopmentNode |= developmentEnabled;
+                if (!developmentEnabled && isWrite(node.development())) {
+                    findings.termError("%s/%s: development.repository: WRITE needs"
+                        + " development.enabled: true on the {node}", group.name(), node.name());
+                }
+            }
+            if (!anyDevelopmentNode && isWrite(group.development())) {
+                findings.termWarning("{Group} '%s': development.repository: WRITE has no effect;"
+                    + " the {group} has no {node} with development.enabled: true", group.name());
+            }
+        }
+    }
+
+    private static boolean isWrite(DevelopmentConfig development) {
+        return development.repository().equals(Optional.of(RepositoryMode.WRITE));
+    }
+
     private static void checkBaseUrl(EffectiveNodeConfig server, Findings findings) {
         String id = server.id().value();
         URI url = server.baseUrl();
@@ -770,11 +921,9 @@ public final class ConfigValidator {
             }
         });
         credentials.password()
-            .filter(password -> password.value().reveal().length() < MIN_SCRUBBED_LENGTH)
+            .filter(password -> !CredentialRules.isScrubbable(password.value().reveal()))
             .ifPresent(password -> findings.error(id + ": the password from "
-                + password.sourceVariable() + " is shorter than " + MIN_SCRUBBED_LENGTH
-                + " characters; such a short value cannot be scrubbed reliably from logs and"
-                + " results without masking unrelated text"));
+                + password.sourceVariable() + " " + CredentialRules.SHORT_PASSWORD_RULE));
     }
 
     private void checkTls(EffectiveNodeConfig server, Findings findings) {

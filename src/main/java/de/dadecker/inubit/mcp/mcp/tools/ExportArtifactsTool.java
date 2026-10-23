@@ -24,20 +24,21 @@ import java.util.function.Function;
 
 /**
  * {@code export_artifacts} (contracts/mcp-tools-delta.md, US1): exports technical workflows by
- * diagram group, or single modules, from one server into the workspace and records the export
- * in the workspace history ({@link WorkspaceService#export}). A group target uses its first
- * server in config order, which the result names. Read-only for INUBIT, but not idempotent: each
- * call that changes files records a history entry. The change list is bounded by
- * {@code resultLimits.maxItems}; when longer, the full list goes to
+ * diagram group, single modules, or repository paths (feature 008, US3) from one server into the
+ * workspace and records the export in the workspace history ({@link WorkspaceService#export}). A
+ * group target uses its first server in config order, which the result names. Read-only for
+ * INUBIT, but not idempotent: each call that changes files records a history entry. The change
+ * list is bounded by {@code resultLimits.maxItems}; when longer, the full list goes to
  * {@code .reports/export-<commit>.txt} (research D-10).
  */
 public final class ExportArtifactsTool implements ToolHandler {
 
-    static final String DESCRIPTION = "Export technical workflows (by diagram group) or single"
-        + " modules from one {group} or {node} into the local workspace as readable files, record"
-        + " the export in the workspace history and list what changed. Only technical workflows"
-        + " are exported (no system diagrams or other diagram types). Secrets are replaced by"
-        + " placeholders. Read-only for INUBIT.";
+    static final String DESCRIPTION = "Export technical workflows (by diagram group), single"
+        + " modules, or repository files and folders by their path relative to the owner's"
+        + " repository root, from one {group} or {node} into the local workspace as readable"
+        + " files, record the export in the workspace history and list what changed. Only"
+        + " technical workflows are exported (no system diagrams or other diagram types). Secrets"
+        + " are replaced by placeholders. Read-only for INUBIT.";
 
     private final WorkspaceService workspace;
     private final TargetResolver targets;
@@ -95,7 +96,7 @@ public final class ExportArtifactsTool implements ToolHandler {
             }
         }
         ExportResult result = workspace.export(new ExportRequest(node, owner,
-            args.strings("diagramGroups"), modules));
+            args.strings("diagramGroups"), modules, args.strings("repositoryPaths")));
         return Result.of(result, limiter.maxItems(), workspace::writeReport);
     }
 

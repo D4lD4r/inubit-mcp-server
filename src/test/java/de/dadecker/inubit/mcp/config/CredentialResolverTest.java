@@ -1,15 +1,19 @@
 package de.dadecker.inubit.mcp.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -408,5 +412,235 @@ class CredentialResolverTest {
         env.put("INUBIT_DEV_PASSWORD", "pw-value");
 
         assertThat(resolve(DEV).errors()).isEmpty();
+    }
+
+    // --- feature 010 (T006, research R-6): the secret plan of each node -----------------------
+
+    private static final NodeId ACME_DEV = NodeId.parse("dev/node1");
+    private static final NodeId ACME_QA = NodeId.parse("qa/node1");
+
+    /** Profile {@code acme} ({@code top} settings) with groups dev and qa, one node each. */
+    private static ProfileConfig acme(String top, String dev) {
+        Path home = Path.of("/home/test");
+        return new ConfigLoader(Map.of(), home, false).parse("profile:\n  name: acme\n" + top
+            + """
+            groups:
+              - name: dev
+            """ + dev.indent(4) + """
+                nodes:
+                  - name: node1
+                    baseUrl: https://node1.dev.example.test:8443
+              - name: qa
+                nodes:
+                  - name: node1
+                    baseUrl: https://node1.qa.example.test:8443
+            """, home.resolve("acme.yaml")).config();
+    }
+
+    private CredentialResolution resolveWithPlans(ProfileConfig config) {
+        return new CredentialResolver(env, scrubber, Terminology.DEFAULT,
+            config.credentialPrefix(), config.secretPlans()).resolve(config.nodeIds());
+    }
+
+    @Test
+    void anExplicitEnvironmentSourceWithoutPrefixResolvesLikeAProfileWithoutSource() {
+        env.put("INUBIT_ACME_DEV_USERNAME", "dev-user");
+        env.put("INUBIT_ACME_DEV_NODE1_PASSWORD", "dev-node-pw");
+        env.put("INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD", "dev-ts-pw");
+        env.put("INUBIT_ACME_QA_USERNAME", "qa-user");
+        env.put("INUBIT_ACME_DEV_TYPO_PASSWORD", "typo-pw");
+
+        CredentialResolution today = resolveWithPlans(acme("", ""));
+        CredentialResolution explicit = resolveWithPlans(
+            acme("credentials:\n  source:\n    type: environment\n", ""));
+
+        assertThat(explicit).isEqualTo(today);
+        assertThat(today.credentials(ACME_DEV).complete()).isTrue();
+        assertThat(today.errors()).singleElement().asString()
+            .contains("qa/node1", "INUBIT_ACME_QA_NODE1_PASSWORD", "INUBIT_ACME_QA_PASSWORD");
+        assertThat(today.warnings()).singleElement().asString()
+            .contains("INUBIT_ACME_DEV_TYPO_PASSWORD");
+    }
+
+    @Test
+    void anExplicitEnvironmentSourceWithPrefixResolvesLikeTheSameEnvPrefix() {
+        env.put("INUBIT_LEGACY_DEV_USERNAME", "dev-user");
+        env.put("INUBIT_LEGACY_DEV_PASSWORD", "dev-pw");
+        env.put("INUBIT_ACME_QA_USERNAME", "not-this-prefix");
+        env.put("INUBIT_ACME_QA_PASSWORD", "not-this-prefix-pw");
+
+        CredentialResolution today = resolveWithPlans(
+            acme("credentials:\n  envPrefix: INUBIT_LEGACY\n", ""));
+        CredentialResolution explicit = resolveWithPlans(acme("""
+            credentials:
+              envPrefix: INUBIT_LEGACY
+              source:
+                type: environment
+                prefix: INUBIT_LEGACY
+            """, ""));
+
+        assertThat(explicit).isEqualTo(today);
+        assertThat(today.credentials(ACME_DEV).password().orElseThrow().sourceVariable())
+            .isEqualTo("INUBIT_LEGACY_DEV_PASSWORD");
+        assertThat(today.credentials(ACME_QA).complete()).isFalse();
+        assertThat(String.join("\n", today.errors())).contains("INUBIT_LEGACY_QA_PASSWORD")
+            .doesNotContain("INUBIT_ACME_QA");
+    }
+
+    @Test
+    void aGroupWithItsOwnEnvironmentPrefixIsResolvedWithThePlansVariables() {
+        env.put("INUBIT_OWN_DEV_USERNAME", "own-user");
+        env.put("INUBIT_OWN_DEV_NODE1_PASSWORD", "own-pw");
+        env.put("INUBIT_OWN_DEV_NODE1_E2E_USERNAME", "own-e2e-user");
+        env.put("INUBIT_OWN_DEV_E2E_PASSWORD", "own-e2e-pw");
+        env.put("INUBIT_ACME_DEV_USERNAME", "profile-prefix-user");
+        env.put("INUBIT_ACME_DEV_PASSWORD", "profile-prefix-pw");
+        ProfileConfig config = acme("", """
+            credentials:
+              source:
+                type: environment
+                prefix: INUBIT_OWN
+            """);
+        CredentialResolver resolver = new CredentialResolver(env, scrubber, Terminology.DEFAULT,
+            config.credentialPrefix(), config.secretPlans());
+
+        CredentialResolution resolution = resolver.resolve(config.nodeIds());
+
+        NodeCredentials dev = resolution.credentials(ACME_DEV);
+        assertThat(dev.username())
+            .contains(new SourcedValue<>("own-user", "INUBIT_OWN_DEV_USERNAME"));
+        assertThat(dev.password()).contains(
+            new SourcedValue<>(Secret.of("own-pw"), "INUBIT_OWN_DEV_NODE1_PASSWORD"));
+        assertThat(resolver.variables(ACME_DEV))
+            .isEqualTo(config.effectiveNodes().get(0).credentialVariables());
+        assertThat(resolver.e2e(ACME_DEV)).hasValueSatisfying(e2e -> {
+            assertThat(e2e.username().sourceVariable())
+                .isEqualTo("INUBIT_OWN_DEV_NODE1_E2E_USERNAME");
+            assertThat(e2e.password().sourceVariable()).isEqualTo("INUBIT_OWN_DEV_E2E_PASSWORD");
+        });
+        // qa keeps the profile prefix and names its own variables
+        assertThat(String.join("\n", resolution.errors()))
+            .contains("qa/node1", "INUBIT_ACME_QA_NODE1_USERNAME", "INUBIT_ACME_QA_USERNAME")
+            .doesNotContain("dev/node1", "INUBIT_OWN_QA");
+    }
+
+    @Test
+    void anAwsNodeIsDeferredWithoutMissingVariableErrorsOrEnvironmentLookups() {
+        // variables that would match the node under the profile prefix are not read
+        env.put("INUBIT_ACME_DEV_USERNAME", "env-user");
+        env.put("INUBIT_ACME_DEV_PASSWORD", "env-pw");
+        env.put("INUBIT_ACME_DEV_E2E_USERNAME", "env-e2e-user");
+        env.put("INUBIT_ACME_DEV_E2E_PASSWORD", "env-e2e-pw");
+        ProfileConfig config = acme("", """
+            credentials:
+              source:
+                type: awsParameterStore
+                region: eu-central-1
+              parameters:
+                username: /inubit/dev/username
+                password: /inubit/dev/password
+            """);
+        CredentialResolver resolver = new CredentialResolver(env, scrubber, Terminology.DEFAULT,
+            config.credentialPrefix(), config.secretPlans());
+
+        CredentialResolution resolution = resolver.resolve(config.nodeIds());
+
+        NodeCredentials dev = resolution.credentials(ACME_DEV);
+        assertThat(dev).isEqualTo(NodeCredentials.deferred(ACME_DEV));
+        assertThat(dev.deferred()).isTrue();
+        assertThat(dev.complete()).isFalse();
+        assertThat(dev.username()).isEmpty();
+        assertThat(dev.password()).isEmpty();
+        assertThat(dev.trustStorePassword()).isEmpty();
+        assertThat(dev.basicAuthToken()).isEmpty();
+        assertThat(resolver.e2e(ACME_DEV)).isEmpty();
+        assertThat(scrubber.scrub("env-pw env-e2e-pw")).isEqualTo("env-pw env-e2e-pw");
+        // only the environment node qa/node1 misses its variables
+        assertThat(resolution.errors()).hasSize(2).allSatisfy(error -> assertThat(error)
+            .startsWith("qa/node1: ").doesNotContain("dev/node1", "INUBIT_ACME_DEV"));
+        assertThat(resolution.credentials(ACME_QA).deferred()).isFalse();
+    }
+
+    @Test
+    void deferredCredentialsHoldNoValues() {
+        SourcedValue<String> username = new SourcedValue<>("u", "INUBIT_DEV_USERNAME");
+
+        assertThat(NodeCredentials.deferred(DEV).node()).isEqualTo(DEV);
+        assertThat(new NodeCredentials(DEV, Optional.empty(), Optional.empty(), Optional.empty(),
+            Optional.empty()).deferred()).isFalse();
+        assertThatIllegalArgumentException().isThrownBy(() ->
+            new NodeCredentials(DEV, Optional.of(username), Optional.empty(), Optional.empty(),
+                Optional.empty(), true));
+    }
+
+    // --- T007 (research R-13): the environment checks consider only environment nodes ----------
+
+    /** Profile {@code acme} with the groups {@code a-b} (node c) and {@code a} (node b-c). */
+    private static ProfileConfig collidingNames(String groupA) {
+        Path home = Path.of("/home/test");
+        return new ConfigLoader(Map.of(), home, false).parse("""
+            profile:
+              name: acme
+            groups:
+              - name: a-b
+                nodes:
+                  - name: c
+                    baseUrl: https://c.example.test:8443
+              - name: a
+            """ + groupA.indent(4) + """
+                nodes:
+                  - name: b-c
+                    baseUrl: https://b-c.example.test:8443
+            """, home.resolve("acme.yaml")).config();
+    }
+
+    @Test
+    void namesAnAwsNodeWouldDeriveCollideWithNoEnvironmentNode() {
+        env.put("INUBIT_ACME_A_B_C_USERNAME", "u");
+        env.put("INUBIT_ACME_A_B_C_PASSWORD", "p-secret");
+        ProfileConfig bothEnvironment = collidingNames("");
+        ProfileConfig groupAws = collidingNames("""
+            credentials:
+              source:
+                type: awsParameterStore
+                region: eu-central-1
+              parameters:
+                username: /inubit/a/username
+                password: /inubit/a/password
+            """);
+
+        assertThat(resolveWithPlans(bothEnvironment).errors()).singleElement().asString()
+            .contains("collide", "a-b/c", "a/b-c", "INUBIT_ACME_A_B_C_USERNAME");
+        CredentialResolution mixed = resolveWithPlans(groupAws);
+        assertThat(mixed.errors()).isEmpty();
+        assertThat(mixed.credentials(NodeId.parse("a-b/c")).complete()).isTrue();
+    }
+
+    @Test
+    void theVariablesOfAnAwsNodeAreUnmatched() {
+        // dev/node1 reads Parameter Store, so INUBIT_ACME_DEV_… belongs to no environment node
+        env.put("INUBIT_ACME_DEV_PASSWORD", "leftover-pw");
+        env.put("INUBIT_ACME_DEV_E2E_PASSWORD", "leftover-e2e-pw");
+        env.put("INUBIT_ACME_QA_USERNAME", "qa-user");
+        env.put("INUBIT_ACME_QA_PASSWORD", "qa-pw");
+        env.put("INUBIT_ACME_QA_E2E_PASSWORD", "qa-e2e-pw");
+        ProfileConfig config = acme("", """
+            credentials:
+              source:
+                type: awsParameterStore
+                region: eu-central-1
+              parameters:
+                username: /inubit/dev/username
+                password: /inubit/dev/password
+            """);
+
+        CredentialResolution resolution = resolveWithPlans(config);
+
+        assertThat(resolution.errors()).isEmpty();
+        assertThat(resolution.warnings()).hasSize(2)
+            .anySatisfy(warning -> assertThat(warning).contains("INUBIT_ACME_DEV_PASSWORD"))
+            .anySatisfy(warning -> assertThat(warning).contains("INUBIT_ACME_DEV_E2E_PASSWORD"))
+            .allSatisfy(warning -> assertThat(warning).doesNotContain("INUBIT_ACME_QA",
+                "leftover-pw"));
     }
 }

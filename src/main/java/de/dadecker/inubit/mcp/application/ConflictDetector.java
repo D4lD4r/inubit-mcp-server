@@ -91,7 +91,8 @@ public final class ConflictDetector {
      *                      {@code EXISTING} or, with the same content, identical (not sent)
      * @param rawExports    the raw (unredacted) exports, in memory only
      * @param fingerprint   {@code sha256:<hex>} over the rendered artifact files of the scope,
-     *                      in the form the detector fingerprints them in
+     *                      in the form the detector fingerprints them in; with repository files
+     *                      joined with their node state ({@link #withRepository})
      * @param targetModules the module names of the owner on the target
      * @param rendered      the rendered (redacted) files of the export, {@code .meta/} included
      */
@@ -109,6 +110,24 @@ public final class ConflictDetector {
         @Override
         public String toString() {
             return "Result[" + rawExports.size() + " exports, " + fingerprint + "]";
+        }
+
+        /**
+         * This result with the repository files of the change set as {@link RepositoryStep}
+         * read them from the node (feature 008, research D-5 step 3): its classified change set,
+         * and its repository fingerprint joined into {@link #fingerprint()}, so that the
+         * confirmation code is bound to the node's repository content as well.
+         */
+        Result withRepository(RepositoryStep.NodeState repository) {
+            byte[] joined = (fingerprint + "\n" + repository.fingerprint())
+                .getBytes(StandardCharsets.UTF_8);
+            try {
+                return new Result(repository.changes(), rawExports, "sha256:" + HexFormat.of()
+                    .formatHex(MessageDigest.getInstance("SHA-256").digest(joined)),
+                    targetModules, rendered);
+            } catch (NoSuchAlgorithmException e) {
+                throw new IllegalStateException(e);
+            }
         }
     }
 
@@ -195,7 +214,9 @@ public final class ConflictDetector {
         List<ChangedArtifact> identical = new ArrayList<>();
         StringBuilder diff = new StringBuilder();
         Set<String> covered = new TreeSet<>();
-        for (ChangedArtifact artifact : changes.artifacts()) {
+        // repository files are compared by RepositoryStep (feature 008), see Result#withRepository
+        for (ChangedArtifact artifact : Stream.concat(changes.workflows().stream(),
+            changes.modules().stream()).toList()) {
             String key = key(artifact.paths().get(0));
             covered.add(key);
             List<String> serverPaths = paths(server, key);
@@ -301,7 +322,7 @@ public final class ConflictDetector {
                 && path.kind() != WorkspacePath.Kind.REPOSITORY)
             .forEach(path -> targetModules.add(path.segments().get(1)));
         ChangeSet compared = new ChangeSet(scope, changes.baseCommit(), workflows, modules,
-            changes.notImported(), identical, changes.referenced());
+            changes.repository(), changes.notImported(), identical, changes.referenced());
         return new Result(compared, raw, fingerprint(server, fingerprinted), targetModules,
             rendered);
     }
@@ -441,11 +462,26 @@ public final class ConflictDetector {
     }
 
     private String report(UUID auditId, String diff) {
-        String name = "conflict-" + auditId + ".diff";
+        return report(root, auditId, diff);
+    }
+
+    /**
+     * Writes {@code diff} to {@code .reports/conflict-<auditId>.diff} below {@code root} and
+     * returns that path (also for the repository conflicts of {@link RepositoryStep}).
+     */
+    static String report(Path root, UUID auditId, String diff) {
+        return report(root, "conflict-" + auditId + ".diff", diff);
+    }
+
+    /**
+     * Writes {@code text} to {@code .reports/<name>} below {@code root} and returns that path
+     * (feature 008: the preview reports of {@link RepositoryStep}).
+     */
+    static String report(Path root, String name, String text) {
         Path file = root.resolve(REPORTS).resolve(name);
         try {
             Files.createDirectories(file.getParent());
-            Files.writeString(file, diff, StandardCharsets.UTF_8);
+            Files.writeString(file, text, StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

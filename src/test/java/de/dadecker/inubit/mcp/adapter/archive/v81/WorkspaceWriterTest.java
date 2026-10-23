@@ -18,7 +18,10 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/** T017 (research D-2 – D-6, FR-012 – FR-017): the workspace files of an export. */
+/**
+ * T017 (research D-2 – D-6, FR-012 – FR-017): the workspace files of an export; feature 008 T018:
+ * the repository files are the reference closure (research D-3).
+ */
 class WorkspaceWriterTest {
 
     private static final GroupId DEV = new GroupId("dev");
@@ -94,14 +97,146 @@ class WorkspaceWriterTest {
         assertThat(text(rendered, ".meta/dev/OWNERS/repository/Root/OWNERS/xsd/msg.xsd.json"))
             .contains("contentMD5");
 
+        assertThat(repositoryFiles(WorkspaceWriter.render(redacted(ArtifactFixtures.zip(
+            grpBWithoutRepositoryReferences())), DEV, "OWNERS"))).isEmpty();
+    }
+
+    // --- feature 008 T018: the repository files are the reference closure (research D-3) ----
+
+    /** {@code grp-b.zip} entries without the module references to the repository. */
+    private static Map<String, byte[]> grpBWithoutRepositoryReferences() {
         Map<String, byte[]> entries = new LinkedHashMap<>(ArtifactFixtures.entries("grp-b.zip"));
         for (String module : List.of("module/module-0027.xml", "module/module-0018.xml")) {
-            entries.put(module, new String(entries.get(module), StandardCharsets.UTF_8)
-                .replace("inubitrepository:/Root/OWNERS/", "urn:none:")
-                .getBytes(StandardCharsets.UTF_8));
+            replace(entries, module, "inubitrepository:/Root/OWNERS/", "urn:none:");
         }
-        assertThat(WorkspaceWriter.render(redacted(ArtifactFixtures.zip(entries)), DEV,
-            "OWNERS").files().keySet()).noneMatch(p -> p.contains("/repository/"));
+        return entries;
+    }
+
+    private static void replace(Map<String, byte[]> entries, String entry, String target,
+        String replacement) {
+        String before = new String(entries.get(entry), StandardCharsets.UTF_8);
+        String after = before.replace(target, replacement);
+        assertThat(after).as(entry).isNotEqualTo(before);
+        entries.put(entry, after.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** Puts {@code files} (entry name to text) into the nested {@code Repository.zip}. */
+    private static void putRepositoryFiles(Map<String, byte[]> entries,
+        Map<String, String> files) {
+        Map<String, byte[]> repository = new LinkedHashMap<>(
+            ArtifactFixtures.entries(entries.get("Repository.zip")));
+        files.forEach((name, text) -> repository.put(name, text.getBytes(StandardCharsets.UTF_8)));
+        entries.put("Repository.zip", ArtifactFixtures.zip(repository));
+    }
+
+    private static String schema(String body) {
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<xs:schema"
+            + " xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">" + body + "</xs:schema>\n";
+    }
+
+    private static List<String> repositoryFiles(Rendered rendered) {
+        return rendered.files().keySet().stream().filter(p -> p.contains("/repository/"))
+            .toList();
+    }
+
+    @Test
+    void aSchemaReachedOnlyThroughOtherSchemasIsWritten() {
+        // INUBIT's group export carries it in Repository.zip (P-3); an unreferenced file is not
+        Map<String, byte[]> entries = new LinkedHashMap<>(ArtifactFixtures.entries("grp-b.zip"));
+        putRepositoryFiles(entries, Map.of(
+            "Root/OWNERS/xsd/core.xsd.dat", schema("<xs:include schemaLocation=\"common.xsd\"/>"),
+            "Root/OWNERS/xsd/common.xsd.dat",
+            schema("<xs:import schemaLocation=\"../shared/types%20v1.xsd\"/>"),
+            "Root/OWNERS/shared/types v1.xsd.dat", schema(""),
+            "Root/OWNERS/shared/unused.xsd.dat", schema("")));
+
+        Rendered rendered = WorkspaceWriter.render(redacted(ArtifactFixtures.zip(entries)), DEV,
+            "OWNERS");
+
+        assertThat(repositoryFiles(rendered)).contains(
+            "dev/OWNERS/repository/Root/OWNERS/xsd/common.xsd",
+            ".meta/dev/OWNERS/repository/Root/OWNERS/xsd/common.xsd.json",
+            "dev/OWNERS/repository/Root/OWNERS/shared/types v1.xsd",
+            ".meta/dev/OWNERS/repository/Root/OWNERS/shared/types v1.xsd.json")
+            .noneMatch(p -> p.contains("unused.xsd"));
+        assertThat(text(rendered, "dev/OWNERS/repository/Root/OWNERS/xsd/common.xsd"))
+            .contains("types%20v1.xsd");
+    }
+
+    @Test
+    void aSchemaNamedOnlyAsAMessageTypeInTheModuleIndexIsWritten() {
+        // T050 (research D-3): INUBIT's group export carries such a schema in Repository.zip
+        Map<String, byte[]> entries = grpBWithoutRepositoryReferences();
+        replace(entries, "module/module.xml", "<ModuleName>Module-0024</ModuleName>",
+            "<ModuleName>Module-0024</ModuleName>"
+                + "<OutputMessageTypeSchema>/Root/OWNERS/xsd/msg.xsd</OutputMessageTypeSchema>");
+        putRepositoryFiles(entries, Map.of(
+            "Root/OWNERS/xsd/msg.xsd.dat", schema("<xs:include schemaLocation=\"core.xsd\"/>")));
+
+        Rendered rendered = WorkspaceWriter.render(redacted(ArtifactFixtures.zip(entries)), DEV,
+            "OWNERS");
+
+        assertThat(rendered.files().keySet()).anyMatch(p -> p.endsWith("/Module-0024/index.xml")
+            && text(rendered, p).contains("/Root/OWNERS/xsd/msg.xsd"));
+        assertThat(repositoryFiles(rendered)).containsExactlyInAnyOrder(
+            "dev/OWNERS/repository/Root/OWNERS/xsd/msg.xsd",
+            ".meta/dev/OWNERS/repository/Root/OWNERS/xsd/msg.xsd.json",
+            "dev/OWNERS/repository/Root/OWNERS/xsd/core.xsd",
+            ".meta/dev/OWNERS/repository/Root/OWNERS/xsd/core.xsd.json");
+    }
+
+    @Test
+    void aRepositoryUriInAStringLiteralDoesNotForceAFile() {
+        // spike section 10: only structural references count, no longer any substring
+        Map<String, byte[]> entries = grpBWithoutRepositoryReferences();
+        replace(entries, "module/module-0010.xml", "XSL/Transform\" version=\"1.0\">",
+            "XSL/Transform\" version=\"1.0\">&lt;xsl:variable name=\"lookup\""
+                + " select=\"'inubitrepository:/Root/OWNERS/xsd/msg.xsd'\"/>");
+        replace(entries, "workflow/workflow.xml", "</WorkflowName>",
+            "</WorkflowName><Note>/Root/OWNERS/xsd/core.xsd</Note>");
+
+        Rendered rendered = WorkspaceWriter.render(redacted(ArtifactFixtures.zip(entries)), DEV,
+            "OWNERS");
+
+        assertThat(rendered.files().keySet()).anyMatch(p -> p.endsWith("Module-0010/"
+            + "xslt.stylesheet.xsl") && text(rendered, p).contains("inubitrepository:"));
+        assertThat(rendered.files().keySet()).anyMatch(p -> p.contains("/workflows/")
+            && text(rendered, p).contains("<Note>/Root/OWNERS/xsd/core.xsd</Note>"));
+        assertThat(repositoryFiles(rendered)).isEmpty();
+    }
+
+    @Test
+    void repositoryPathsThatDifferOnlyInCaseAreRefused() {
+        Map<String, byte[]> entries = new LinkedHashMap<>(ArtifactFixtures.entries("grp-b.zip"));
+        putRepositoryFiles(entries, Map.of("Root/OWNERS/xsd/MSG.xsd.dat", schema("")));
+        replace(entries, "module/module-0027.xml", "<Property name=\"old.uri.import.1\">"
+            + "inubitrepository:/Root/OWNERS/xsd/msg.xsd", "<Property name=\"old.uri.import.1\">"
+            + "inubitrepository:/Root/OWNERS/xsd/MSG.xsd");
+
+        assertThatThrownBy(() -> WorkspaceWriter.render(redacted(ArtifactFixtures.zip(entries)),
+            DEV, "OWNERS")).isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT);
+                assertThat(e.error().message()).contains("Root/OWNERS/xsd/msg.xsd",
+                    "Root/OWNERS/xsd/MSG.xsd");
+            });
+    }
+
+    @Test
+    void aRepositoryFileOfAnotherOwnerIsNotWrittenButReported() {
+        // FR-020: nothing below another owner's root; the export holds only the owner's files
+        Map<String, byte[]> entries = new LinkedHashMap<>(ArtifactFixtures.entries("grp-b.zip"));
+        putRepositoryFiles(entries, Map.of(
+            "Root/OWNERS/xsd/msg.xsd.dat",
+            schema("<xs:import schemaLocation=\"inubitrepository:/Root/OTHER/xsd/x.xsd\"/>"),
+            "Root/OTHER/xsd/x.xsd.dat", schema("")));
+
+        Rendered rendered = WorkspaceWriter.render(redacted(ArtifactFixtures.zip(entries)), DEV,
+            "OWNERS");
+
+        assertThat(repositoryFiles(rendered)).contains(
+            "dev/OWNERS/repository/Root/OWNERS/xsd/msg.xsd").noneMatch(p -> p.contains("OTHER"));
+        assertThat(rendered.warnings()).contains("1 repository file(s) of another owner are part"
+            + " of the export and were not written");
     }
 
     @Test

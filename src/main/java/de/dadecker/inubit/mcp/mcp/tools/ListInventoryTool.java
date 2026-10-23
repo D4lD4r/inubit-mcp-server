@@ -66,12 +66,20 @@ public final class ListInventoryTool implements ToolHandler {
         return Result.of(inventory.list(request));
     }
 
-    /** {@code {results: [{node, collectedAt?, usageComplete?, page?, error?}]}}. */
+    /** {@code {results: [{node, collectedAt?, usageComplete?, page?, warnings?, error?}]}}. */
     record Result(List<Entry> results) {
 
+        /**
+         * @param warnings feature 009: the version warnings of the node; omitted if there are
+         *                 none
+         */
         record Entry(NodeId node, Optional<Instant> collectedAt,
             Optional<Boolean> usageComplete, Optional<Page<InventoryItem>> page,
-            Optional<ToolError> error) {
+            Optional<List<String>> warnings, Optional<ToolError> error) {
+
+            Entry {
+                warnings = warnings.filter(list -> !list.isEmpty()).map(List::copyOf);
+            }
         }
 
         static Result of(List<NodeResult<Listing>> results) {
@@ -79,7 +87,8 @@ public final class ListInventoryTool implements ToolHandler {
                 .map(result -> new Entry(result.node(),
                     result.payload().map(Listing::collectedAt),
                     result.payload().flatMap(Listing::usageComplete),
-                    result.payload().map(Listing::page), result.error()))
+                    result.payload().map(Listing::page),
+                    result.payload().map(Listing::warnings), result.error()))
                 .toList());
         }
     }

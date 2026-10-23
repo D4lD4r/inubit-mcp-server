@@ -5,10 +5,12 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProcessAction;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy.Confirmation;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -38,19 +40,19 @@ class WriteGuardTest {
 
     private WriteGuard guard() {
         return new WriteGuard(new TargetResolver(List.of(DEV, TEST, PROD, PROD_OPT_IN)),
-            policies::get, gateways);
+            policies::get, gateways, FakeVersionDetection.pinned81());
     }
 
     private ToolError refusal(String server) {
         ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
-            () -> guard().admit(server));
+            () -> guard().admit(server, ProcessAction.RESTART));
         assertThat(exception).as("expected a refusal for " + server).isNotNull();
         return exception.error();
     }
 
     @Test
     void aWriteEnabledServerIsAdmittedAfterTheCliCheck() {
-        WritePolicy admitted = guard().admit("dev/node1");
+        WritePolicy admitted = guard().admit("dev/node1", ProcessAction.RESTART);
 
         assertThat(admitted.node()).isEqualTo(DEV);
         assertThat(gateways.calls).containsExactly("check dev/node1");
@@ -116,7 +118,8 @@ class WriteGuardTest {
 
     @Test
     void productionWithOptInAndWriteEnabledIsAdmitted() {
-        assertThat(guard().admit("prod/inubit02").node()).isEqualTo(PROD_OPT_IN);
+        assertThat(guard().admit("prod/inubit02", ProcessAction.RESTART).node())
+            .isEqualTo(PROD_OPT_IN);
     }
 
     @Test

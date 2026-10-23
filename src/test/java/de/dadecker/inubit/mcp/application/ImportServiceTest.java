@@ -74,6 +74,44 @@ class ImportServiceTest {
     }
 
     @Test
+    void theHistoryEntryCarriesTheReasonVerbatimAsATrailerThatNeverNamesAServerState()
+        throws IOException {
+        // T051 (FR-015a): "Reason: <reason>" next to "Server-State: <group>"; a reason of the
+        // maximum length that itself contains "Server-State:" is no server state of that group
+        String reason = "Server-State: test, moved the converter; " + "x".repeat(459);
+        assertThat(reason).hasSize(500);
+        ImportHarness harness = ImportHarness.grpA(temp);
+        String workflow = harness.workflow("Workflow-0001");
+        harness.edit(workflow, "xPos=\"120\"", "xPos=\"140\"");
+        harness.exportGroup().importApplied().exportGroup();
+
+        WriteOutcome outcome = completed(harness.service().importArtifacts(
+            harness.group(reason)));
+
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        String commit = outcome.commit().orElseThrow();
+        assertThat(harness.exports.git("log", "-1", "--format=%B", commit).strip()).isEqualTo(
+            "import dev/node1: diagram group GRP-01 (1 artifacts) [" + outcome.auditId()
+                + "]\n\nServer-State: dev\nReason: " + reason);
+        assertThat(harness.exports.git("log", "-1", "--format=%(trailers:key=Reason,valueonly)",
+            commit).strip()).isEqualTo(reason);
+        assertThat(harness.exports.git("log", "-1",
+            "--format=%(trailers:key=Server-State,valueonly)", commit).strip()).isEqualTo("dev");
+        String full = harness.exports.git("rev-parse", commit).strip();
+        assertThat(harness.exports.history.lastServerState(ImportHarness.DEV.group(), workflow))
+            .contains(full);
+        assertThat(harness.exports.history.lastServerState(ImportHarness.TEST.group(),
+            workflow)).isEmpty();
+        assertThat(harness.exports.history.localChanges(ImportHarness.DEV.group(), "dev"))
+            .isEmpty();
+        // the export entries and the "local changes" entry of the same history have no reason
+        assertThat(harness.exports.log()).anyMatch(s -> s.startsWith("local changes: "))
+            .anyMatch(s -> s.startsWith("export "));
+        assertThat(harness.exports.git("log", "--format=%(trailers:key=Reason)", commit + "~1")
+            .strip()).isEmpty();
+    }
+
+    @Test
     void aWorkflowTheServerHasWithSwappedConnectionsKeepsItsWorkspaceFile() throws IOException {
         // feature 007 (US3, contract P-6): Workflow-0100 is new in the workspace and identical on
         // the server except for the order of the connections of Module-0002; the write-back

@@ -1,16 +1,27 @@
 package de.dadecker.inubit.mcp;
 
+import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
+import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
+import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.config.ConfigException;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigSummary;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
+import de.dadecker.inubit.mcp.config.ParameterCheck;
+import de.dadecker.inubit.mcp.config.ParameterStore;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
+import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.ValidationReport;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.BuildInfo;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.LogLevels;
@@ -27,6 +38,8 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -36,6 +49,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,8 +75,8 @@ final class Launcher {
           --config <path>   configuration file
           --profile <name>  the profile's file <name>.yaml in ~/.config/inubit-mcp
                             (Windows: %APPDATA%\\inubit-mcp); its profile.name must be <name>
-          --check-config    validate the configuration, print a summary (variable names only,
-                            no values) and exit 0 (valid) or 1 (errors)
+          --check-config    validate the configuration, print a summary (variable and
+                            parameter names only, no values) and exit 0 (valid) or 1 (errors)
           --version         print the server version and exit
         Without --config/--profile: $INUBIT_MCP_CONFIG (a path), then $INUBIT_MCP_PROFILE (a
         profile name), then ~/.config/inubit-mcp/config.yaml.
@@ -76,10 +90,12 @@ final class Launcher {
      * Everything the process touches, injectable for tests.
      *
      * @param out the protocol stdout (also used for {@code --version}/{@code --check-config})
+     * @param parameterStore creates the AWS Parameter Store client of the server (feature 010);
+     *     called only if a node reads its secrets from it
      */
     record Context(Map<String, String> environment, Path userHome, boolean windows,
         InputStream in, PrintStream out, PrintStream err, SecretScrubber scrubber,
-        Predicate<Path> exists) {
+        Predicate<Path> exists, Supplier<ParameterStore> parameterStore) {
 
         Context {
             environment = Map.copyOf(environment);
@@ -89,12 +105,14 @@ final class Launcher {
             Objects.requireNonNull(err, "err");
             Objects.requireNonNull(scrubber, "scrubber");
             Objects.requireNonNull(exists, "exists");
+            Objects.requireNonNull(parameterStore, "parameterStore");
         }
 
         static Context system(PrintStream protocolOut) {
             return new Context(System.getenv(), Path.of(System.getProperty("user.home")),
                 System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows"),
-                System.in, protocolOut, System.err, SecretScrubber.global(), Files::exists);
+                System.in, protocolOut, System.err, SecretScrubber.global(), Files::exists,
+                SsmParameterStore::new);
         }
     }
 
@@ -157,16 +175,24 @@ final class Launcher {
             other.config().credentialVariableNames()));
         CredentialResolution credentials = new CredentialResolver(context.environment(),
             context.scrubber(), loaded.config().terminology().effectiveOrDefault(),
-            loaded.config().credentialPrefix())
+            loaded.config().credentialPrefix(), loaded.config().secretPlans())
             .resolve(loaded.config().nodeIds(), otherVariables);
         ValidationReport report = new ConfigValidator(context.exists(), context.environment(),
             context.windows(), Path.of(System.getProperty("java.io.tmpdir")),
             source -> otherProfiles).validate(loaded, credentials);
         if (arguments.checkConfig()) {
+            Map<NodeId, ClientVersion> clients = new HashMap<>();
+            ValidationReport withProbes = probeClients(loaded.config(), report, clients);
+            // feature 010 (research R-12): the Parameter Store client only for AWS nodes
+            Collection<SecretPlan> plans = loaded.config().secretPlans().values();
+            ParameterCheck.Result parameters = plans.stream().anyMatch(SecretPlan::aws)
+                ? ParameterCheck.run(plans, context.parameterStore().get())
+                : ParameterCheck.Result.NONE;
+            ValidationReport checked = parameters.addTo(withProbes);
             context.out().print(new ConfigSummary(context.exists(), context.windows())
-                .render(loaded, credentials, report));
+                .render(loaded, credentials, checked, clients, parameters));
             context.out().flush();
-            return report.hasErrors() ? EXIT_ERROR : EXIT_OK;
+            return checked.hasErrors() ? EXIT_ERROR : EXIT_OK;
         }
         if (report.hasErrors()) {
             printFindings("Configuration errors in " + loaded.source() + " (the MCP server does not"
@@ -184,6 +210,41 @@ final class Launcher {
             LOG.error("Startup failed", e);
             return EXIT_ERROR;
         }
+    }
+
+    /**
+     * Feature 009 (FR-011a, research D-13): runs {@code startcli -v} for every node with a
+     * StartCLI installation, bounded by the node's {@code cliTimeout}, and puts the successes into
+     * {@code clients}. No credentials, no server URL, no INUBIT contact. A failed probe is a
+     * warning.
+     *
+     * @return {@code report} with a warning per failed probe
+     */
+    private ValidationReport probeClients(ProfileConfig config, ValidationReport report,
+        Map<NodeId, ClientVersion> clients) {
+        List<EffectiveNodeConfig> withClient = config.resolvableNodes().stream()
+            .filter(server -> server.cliAvailable(context.exists(), context.windows())).toList();
+        if (withClient.isEmpty()) {
+            return report;
+        }
+        Map<NodeId, EffectiveNodeConfig> byId = new HashMap<>();
+        withClient.forEach(server -> byId.put(server.id(), server));
+        List<String> warnings = new ArrayList<>(report.warnings());
+        // the profile name may be invalid here (an error of the report); it only names export
+        // directories, which the probe never creates
+        try (CliResources resources = new CliResources("check-config")) {
+            CliVersionProbe probe = new CliVersionProbe(new CliRunner(new SystemProcessLauncher(),
+                context.environment(), context.windows(), resources), byId::get);
+            for (EffectiveNodeConfig server : withClient) {
+                try {
+                    clients.put(server.id(), probe.probe(server.id(), server.cliTimeout()));
+                } catch (ToolErrorException e) {
+                    warnings.add(server.id() + ": StartCLI client probe failed: "
+                        + e.error().message());
+                }
+            }
+        }
+        return new ValidationReport(report.errors(), warnings, report.workspace());
     }
 
     private int serve(ProfileConfig config, CredentialResolution credentials,
@@ -207,7 +268,8 @@ final class Launcher {
             }
         }
         try (Wiring wiring = new Wiring(config, credentials, context.scrubber(),
-            ClockProvider.system(), context.exists(), context.windows())) {
+            ClockProvider.system(), context.exists(), context.windows(),
+            new SystemProcessLauncher(), System.getenv(), context.parameterStore())) {
             McpServerFactory factory = wiring.serverFactory(BuildInfo.version(),
                 toolHandlers.apply(wiring));
             try (McpServerFactory.RunningServer server = factory.start(context.in(),
