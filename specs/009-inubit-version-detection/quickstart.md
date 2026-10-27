@@ -66,4 +66,23 @@ optional live check was not run (it needs the person's approval; live use is pau
   `NodeVersionsTest` 21, `DevelopmentWiringTest` 10, `CapabilityExtensionTest` 5,
   `CliVersionProbeTest` 13, `ArtifactCheckServiceTest` 31, `InubitHttpClientTest` 37. No scenario
   is without automated coverage; SC-003 is covered by the full suite being green.
-- Live (optional) `get_health` / `list_nodes` against a real node: not run.
+- Live (optional) `get_health` / `list_nodes` against a real node: not run at the time; done later,
+  see the live check record below.
+
+## Live check record
+
+**2026-10-27, release 0.6.0: read-only live check on one development node of a real INUBIT
+installation, with the organisation's approval (read-only, that stage only).** No other stage was
+contacted and nothing was written.
+
+- `list_nodes` before any other call: the node's `version` block showed server and client
+  `not_yet_detected`, status `unknown`, `development_writes` listed as not usable with the reason
+  that the version is not yet detected. No server was contacted.
+- `get_health` with the node's stage as `target`: `status: OK`, `ready: true`, no maintenance mode,
+  `version: 8.1.17`, `client` 8.1.17 with the declared range 4.0.1–8.1.17 and `comparison: match`,
+  no `warnings`, no `unavailable` part.
+- `list_nodes` afterwards: server 8.1.17 with source `observed`, client as above, status
+  `supported`, every capability the node's configuration allows usable. Nodes of the other stages
+  stayed `not_yet_detected`, which confirms that `list_nodes` never contacts a node.
+- Not checked live: refusals on a 9.x node (no such node available) and write paths (outside the
+  approval). Both are covered by the offline tests above.
