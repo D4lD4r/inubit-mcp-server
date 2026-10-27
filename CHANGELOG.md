@@ -7,6 +7,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-27
+
+Dependency update. Since 0.6.0 the INUBIT version detection (feature 009) has been checked live,
+read-only, against one development node of a real INUBIT installation (see the "Live check
+record" in `specs/009-inubit-version-detection/quickstart.md`). The write steps of feature 008 and
+the AWS Parameter Store of feature 010 have still not been checked live.
+
+### Changed
+
+- MCP Java SDK 2.0.1 → 2.1.0 (`mcp`, `mcp-core`, `mcp-json-jackson3`). For this server's STDIO
+  transport the relevant change is that sending a message is now thread-safe. No change to tools,
+  configuration or output.
+
 ## [0.6.0] - 2026-10-23
 
 Features 008 (repository files on a development stage), 009 (INUBIT version detection) and 010
@@ -506,7 +519,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.1...v0.5.2
