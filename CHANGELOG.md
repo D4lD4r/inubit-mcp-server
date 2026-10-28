@@ -7,6 +7,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Jackson 3 (`jackson-core`, `jackson-databind`, `jackson-dataformat-yaml`) 3.1.7 → 3.1.8.
+- AWS SDK for Java v2 2.54.3 → 2.57.3. The SDK now brings its own
+  `software.amazon.awssdk:eventstream` in place of `software.amazon.eventstream:eventstream` 1.0.1;
+  its repackaged jackson-core is 2.21.8. `THIRD-PARTY-NOTICES.md` is updated.
+- Build: maven-surefire-plugin 3.6.0 → 3.6.1.
+
 ## [0.6.1] - 2026-10-27
 
 Dependency update. Since 0.6.0 the INUBIT version detection (feature 009) has been checked live,
