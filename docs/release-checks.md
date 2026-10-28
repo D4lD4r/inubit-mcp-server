@@ -212,6 +212,8 @@ index still holds the old content.
 
 1. Set the release version in `pom.xml` (no `-SNAPSHOT`) and add its section
    `## [<version>] - <date>` to `CHANGELOG.md`; the release notes are taken from that section.
+   Update the version examples as well: `VERSION=` in the installation steps of `README.md` and
+   `serverJar` in `docs/setup.md` (section 5, "Certificate changes").
 2. Run `mvn -q clean verify`, then the guard test of section 1 again without `clean`
    (`mvn -q -Dtest=NoCustomerIdentifiersTest test`, so it also scans the JAR in `target/`; it must
    run, not be skipped), commit, and push the commit to `main` (the CI workflow runs only on `main`;
