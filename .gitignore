@@ -26,10 +26,15 @@ __pycache__/
 
 # Spec Kit: Das Gerüst unter .specify/ (Skripte, Templates, Workflows, Manifeste, Erweiterungen) ist
 # generiert und wird von `specify integration upgrade claude` gepflegt (nächtliche Routine
-# nightly-tooling-update-check). Im Repo bleibt nur die Verfassung. Nach einem frischen Klon einmal:
+# nightly-tooling-update-check). Im Repo bleibt nur die Verfassung.
+# Fehlt das Gerüst (frischer Klon, oder Git hat es beim Wechsel von einem Commit gelöscht, in dem es
+# noch versioniert war, also vor 32d6c06), einmal:
 #   specify init --here --force --integration claude --script sh --non-interactive --ignore-agent-tools
-#   (danach .claude/skills/speckit-<Kern-Skills> wieder löschen; sie liegen global in ~/.claude/skills)
-#   Erweiterungen dieses Projekts danach wieder hinzufügen: specify extension add git; 
+#   specify extension add git
+#   git restore .claude/skills    (die Erweiterung schreibt die versionierten speckit-git-* Skills neu)
+#   dann die neuen .claude/skills/speckit-<Kern-Skills> löschen; sie liegen global in ~/.claude/skills
+# Die Verfassung bleibt dabei unverändert (geprüft mit Spec Kit 1.2.4). Bleiben Skripte oder Templates
+# auf altem Stand, hilft `specify integration upgrade claude --force`.
 /.specify/*
 !/.specify/memory/
 /.specify/memory/*
