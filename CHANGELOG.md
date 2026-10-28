@@ -7,6 +7,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-28
+
+Dependency update; no change to tools, configuration or output. Live checks are unchanged since
+0.6.1: the INUBIT version detection (feature 009) has been checked read-only against one
+development node of a real INUBIT installation; the write steps of feature 008 and the AWS
+Parameter Store of feature 010 have not been checked live.
+
 ### Changed
 
 - Jackson 3 (`jackson-core`, `jackson-databind`, `jackson-dataformat-yaml`) 3.1.7 → 3.1.8.
@@ -527,7 +534,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.2...v0.5.3
