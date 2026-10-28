@@ -144,7 +144,7 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
    `~/.local/lib`:
 
    ```bash
-   VERSION=0.4.0
+   VERSION=0.6.2
    shasum -a 256 -c "inubit-mcp-server-$VERSION.jar.sha256"   # Linux: sha256sum -c …
    mkdir -p ~/.local/lib && mv "inubit-mcp-server-$VERSION.jar" ~/.local/lib/
    ```
@@ -189,6 +189,11 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
    `~/.zshrc`; for them, load the credentials from the macOS Keychain with a start script
    ([details](docs/setup.md#claude-desktop-and-other-gui-clients-macos)).
 
+   Instead of variables, a profile, group or node can read its credentials from AWS Systems
+   Manager Parameter Store (`credentials.source`,
+   [details](docs/setup.md#aws-systems-manager-parameter-store)); it then needs a valid AWS login
+   instead of the variables.
+
 5. **Check the configuration** (prints variable names, never values; exit code 0 means OK):
 
    ```bash
@@ -202,10 +207,11 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
      java -jar "$HOME/.local/lib/inubit-mcp-server-$VERSION.jar" --profile acme
    ```
 
-7. **Restart Claude Code from a shell that has the variables.** The server inherits the environment
-   of Claude Code and reads it once at startup; `/mcp` → reconnect is not enough after changing a
-   variable. `/mcp` then shows `inubit-acme` with its tools; try "Which INUBIT systems do you
-   know?" or "Is dev up?".
+7. **Restart Claude Code from a shell that has the variables** (for Parameter Store: a valid AWS
+   login, see [AWS credentials](docs/setup.md#aws-credentials-and-aws-profiles)). The server
+   inherits the environment of Claude Code and reads it once at startup; `/mcp` → reconnect is not
+   enough after changing a variable. `/mcp` then shows `inubit-acme` with its tools; try "Which
+   INUBIT systems do you know?" or "Is dev up?".
 
 Several profiles: one YAML file and one registration (`inubit-acme`, `inubit-globex`, …) each; see
 [docs/setup.md](docs/setup.md#several-profiles-side-by-side).
