@@ -812,6 +812,15 @@ class MainTest {
     }
 
     @Test
+    void theUsageNamesCredentialStoreEntriesAndParameters() {
+        // feature 011 (T022): no credential variables any more
+        run("--unknown");
+
+        assertThat(err()).contains("Usage:", "credential store entry and parameter names only")
+            .doesNotContain("variable and");
+    }
+
+    @Test
     void profileWithoutAValidNameIsAUsageErrorThatDoesNotEchoTheValue() {
         assertThat(run("--profile")).isEqualTo(2);
         assertThat(run("--profile", "--check-config")).isEqualTo(2);

@@ -76,8 +76,9 @@ final class Launcher {
           --config <path>   configuration file
           --profile <name>  the profile's file <name>.yaml in ~/.config/inubit-mcp
                             (Windows: %APPDATA%\\inubit-mcp); its profile.name must be <name>
-          --check-config    validate the configuration, print a summary (variable and
-                            parameter names only, no values) and exit 0 (valid) or 1 (errors)
+          --check-config    validate the configuration, read the credentials, print a summary
+                            (credential store entry and parameter names only, no values) and
+                            exit 0 (valid) or 1 (errors)
           --version         print the server version and exit
         Without --config/--profile: $INUBIT_MCP_CONFIG (a path), then $INUBIT_MCP_PROFILE (a
         profile name), then ~/.config/inubit-mcp/config.yaml.

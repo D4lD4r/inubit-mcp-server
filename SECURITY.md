@@ -27,9 +27,9 @@ Reports are especially welcome for:
 
 - **Credential handling**: credentials leaking into tool results, error messages, logs, audit
   records, process arguments or files; credentials read from anywhere other than the source the
-  profile configures for the node (its environment variables, or the AWS Systems Manager Parameter
-  Store parameters it names); the login back-off (`AUTH_FAILED`: at most one failed login per node
-  per 60 s, two with Parameter Store) being bypassed.
+  profile configures for the node (the credential store entries it derives, or the AWS Systems
+  Manager Parameter Store parameters it names) — in particular from environment variables; the
+  login back-off (`AUTH_FAILED`: at most two failed logins per node per 60 s) being bypassed.
 - **Write tools** (`restart_process`, `kill_process`): acting without effective write access, on a
   production group without `write.productionOptIn`, on more than one process instance, without or
   with a reused, foreign or stale confirmation code, or without an audit record.

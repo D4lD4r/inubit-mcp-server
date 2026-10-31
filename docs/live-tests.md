@@ -43,11 +43,10 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 mvn verify -Plive
   the customer. The file must validate without errors, exactly as with
   `java -jar … --profile <name> --check-config` (including the comparison with the other profile
   files in the default configuration directory).
-- Credentials come from the profile's usual `<PREFIX>_<GROUP>[_<NODE>]_USERNAME` / `_PASSWORD`
-  environment variables (setup.md, section 4); they are never passed on the command line. If
-  your current shell does not have them, run the command through an interactive shell that
-  loads your profile, e.g.
-  `zsh -ic 'cd /path/to/inubit-mcp-server && INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 mvn -q verify -Plive'`.
+- Credentials are read exactly as the server reads them (feature 011): from the credential store
+  of this system (the profile's entries, setup.md section 4) or from AWS Parameter Store for
+  nodes with that source (log in to AWS first). They are never passed on the command line or as
+  environment variables. On macOS the first read may show a Keychain access dialog.
 - The selection logic itself (old variable refused, node parsed, location order, production
   refusal) is covered offline by `live/LiveTargetTest`, which runs in the default build.
 
@@ -223,6 +222,61 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEPLOY_TARGET=int INUBIT_LIVE_DEPLOY_DIAGRAM
   records), `tag_artifacts`, `restore_backup`.
 - The temporary workspace is removed; the reports below it go with it.
 
+## Credential store live check (feature 011)
+
+`CredentialStoreLiveTest` reads entries of the fictitious profile `livetest` from the real
+credential store of the machine it runs on (macOS Keychain, Windows Credential Manager, Linux
+Secret Service), through the adapter the server uses. It never contacts INUBIT and never prints a
+value; it prints only what kind of answer each entry gave. It runs only with the profile
+`live-store` **and** `INUBIT_LIVE_STORE=1` (it is excluded from the default build and from
+`-Plive`).
+
+1. Create two entries with a test username and a test password that contains `ä€` (to cover the
+   encoding); the commands prompt for the value (setup.md section 4):
+
+   ```bash
+   # macOS
+   security add-generic-password -U -s inubit-mcp -a INUBIT_LIVETEST_DEV_USERNAME -w
+   security add-generic-password -U -s inubit-mcp -a INUBIT_LIVETEST_DEV_PASSWORD -w
+   ```
+
+   ```bat
+   :: Windows
+   cmdkey /generic:inubit-mcp:INUBIT_LIVETEST_DEV_USERNAME /user:INUBIT_LIVETEST_DEV_USERNAME /pass
+   cmdkey /generic:inubit-mcp:INUBIT_LIVETEST_DEV_PASSWORD /user:INUBIT_LIVETEST_DEV_PASSWORD /pass
+   ```
+
+   ```bash
+   # Linux
+   secret-tool store --label='inubit-mcp INUBIT_LIVETEST_DEV_USERNAME' service inubit-mcp account INUBIT_LIVETEST_DEV_USERNAME
+   secret-tool store --label='inubit-mcp INUBIT_LIVETEST_DEV_PASSWORD' service inubit-mcp account INUBIT_LIVETEST_DEV_PASSWORD
+   ```
+
+   The entry `INUBIT_LIVETEST_DEV_NODE9_PASSWORD` must not exist.
+2. Run, with the username and the SHA-256 of the password's UTF-8 bytes as the expectation (the
+   password itself is never passed):
+
+   ```bash
+   INUBIT_LIVE_STORE=1 INUBIT_LIVE_STORE_USERNAME='<test username>' \
+     INUBIT_LIVE_STORE_PASSWORD_SHA256="$(printf '%s' '<test password>' | shasum -a 256 | cut -d' ' -f1)" \
+     mvn -q verify -Plive-store
+   ```
+
+   (Type the password into a file or use your shell's history settings if it must not appear in
+   the history.) The test checks that both entries are found, the username matches, the password's
+   hash matches and contains a non-ASCII character, and that the missing entry is "not found".
+   On macOS answer the access dialog with "Allow".
+3. **Access denied (manual):** on macOS repeat step 2 and choose "Deny" in the dialog: the test
+   fails with `failed (ACCESS_DENIED)` for that entry. On Linux lock the keyring and dismiss the
+   unlock prompt; record what the line shows (it may be "not found", see setup.md section 4).
+   The Windows Credential Manager has no such step.
+4. Record the outcome per system (counts and answer kinds only) in
+   `specs/011-os-credential-stores/quickstart.md`, then delete the two entries.
+
+The selection of the stores by the live tests is covered offline by `live/LiveTargetTest`
+(`theWiringReadsEachNodeFromItsOwnSourceLikeTheServer`); the opt-in gate by
+`live/CredentialStoreLiveOptInTest`.
+
 ## Manual write checks (approval only)
 
 There is **no automated live test for `restart_process` / `kill_process`**: every state-changing
@@ -237,7 +291,8 @@ Procedure (001-T115, only on a development node, only with approval for each act
 1. The user names a process instance in `ERROR` on that node that may be restarted, and one that
    may be killed.
 2. Temporarily set `write.enabled: true` for that group (e.g. `dev`) in the profile file
-   `~/.config/inubit-mcp/<profile>.yaml` (confirmation stays `SERVER`) and restart Claude Code.
+   `~/.config/inubit-mcp/<profile>.yaml` (confirmation stays `SERVER`) and reconnect the server
+   (`/mcp`).
 3. Run the 001 quickstart V9–V12 with the MCP tools: preview, then — after approval — the call with the
    code; reuse of a code and a restart of an instance not in `ERROR` must be refused.
 4. Check the audit file `~/.inubit-mcp/<profile>/audit/audit-YYYY-MM.jsonl`: `CHALLENGE_ISSUED`,

@@ -90,7 +90,8 @@
 
         <!-- Test selection: "live" tests run only in the profile "live" -->
         <surefire.groups></surefire.groups>
-        <surefire.excludedGroups>live</surefire.excludedGroups>
+        <!-- feature 011 (T019): the credential store live check has its own tag -->
+        <surefire.excludedGroups>live,live-store</surefire.excludedGroups>
     </properties>
 
     <dependencyManagement>
@@ -460,7 +461,16 @@
             <id>live</id>
             <properties>
                 <surefire.groups>live</surefire.groups>
-                <surefire.excludedGroups></surefire.excludedGroups>
+                <surefire.excludedGroups>live-store</surefire.excludedGroups>
+            </properties>
+        </profile>
+        <profile>
+            <!-- mvn verify -Plive-store : runs only @Tag("live-store") tests, the read check of the
+                 credential store of this system (feature 011, T019); also needs INUBIT_LIVE_STORE=1 -->
+            <id>live-store</id>
+            <properties>
+                <surefire.groups>live-store</surefire.groups>
+                <surefire.excludedGroups>live</surefire.excludedGroups>
             </properties>
         </profile>
     </profiles>

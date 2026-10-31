@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 
 import de.dadecker.inubit.mcp.TestWiring;
+import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.os.CredentialStores;
 import de.dadecker.inubit.mcp.config.ConfigException;
@@ -15,6 +16,7 @@ import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.GroupConfig;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.NodeConfig;
+import de.dadecker.inubit.mcp.config.ParameterStore;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.RepositoryMode;
 import de.dadecker.inubit.mcp.config.ValidationReport;
@@ -27,6 +29,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Assumptions;
 
 /**
@@ -196,7 +199,18 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
 
     /** The production wiring for the real configuration. */
     TestWiring wiring() {
-        return TestWiring.of(loaded.config(), store(), scrubber, Files::exists, windows);
+        return wiring(loaded.config(), store(), SsmParameterStore::new);
+    }
+
+    /**
+     * The production wiring of {@code config} with the given stores (feature 011, research R-14):
+     * the live tests pass the credential store of this system and the AWS Parameter Store client,
+     * exactly as the server does; {@link LiveTargetTest} passes doubles.
+     */
+    TestWiring wiring(ProfileConfig config, CredentialStore credentialStore,
+        Supplier<ParameterStore> parameterStore) {
+        return TestWiring.withParameterStoreSupplier(config, credentialStore, scrubber,
+            Files::exists, windows, new SystemProcessLauncher(), System.getenv(), parameterStore);
     }
 
     /**
@@ -254,10 +268,10 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
     }
 
     private TestWiring wiring(ProfileConfig config, Path workspace) {
-        return TestWiring.of(new ProfileConfig(config.profile(), config.terminology(),
+        return wiring(new ProfileConfig(config.profile(), config.terminology(),
             config.credentials(), config.groups(), config.defaults(), config.auditDirectory(),
-            config.logLevel(), config.resultLimits(), workspace), store(), scrubber,
-            Files::exists, windows);
+            config.logLevel(), config.resultLimits(), workspace), store(),
+            SsmParameterStore::new);
     }
 
     /** The credential store of this system, as the server picks it (Launcher). */

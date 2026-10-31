@@ -74,18 +74,18 @@ development stages and the stage chain: [docs/setup.md](docs/setup.md).
 - **Audit.** Every write call that reaches the server (refused, previewed, executed or failed) is
   appended to an owner-only JSON Lines audit log per profile; if the record cannot be written, the
   action is not executed.
-- **Credential guard.** After a rejected login the server does not retry that node's credentials
-  for 60 s, so an assistant cannot lock the INUBIT account out: at most one failed login per node
-  per 60 s with environment variables, at most two with AWS Parameter Store (after a rejection
-  the server re-reads the parameters once and allows one login with changed values, so a rotated
-  password needs no restart). Passwords and tokens are scrubbed from every result, error message
+- **Credential guard.** After a rejected login the server re-reads that node's credentials once
+  and allows one login with changed values, then does not retry them for 60 s, so an assistant
+  cannot lock the INUBIT account out: at most two failed logins per node per 60 s, and a changed
+  password needs no restart. Passwords and tokens are scrubbed from every result, error message
   and log line.
-- **Secrets only from environment variables or AWS Parameter Store.** Each node reads its
-  credentials from environment variables (the default) or from AWS Systems Manager Parameter
-  Store ([details](docs/setup.md#4-credentials-sources)), never from the profile or the
-  conversation: the YAML file names variables or parameters only (a credential value there is a
-  startup error), no tool takes or returns a secret, and no AWS access key is configured.
-  StartCLI receives the password on stdin, never as a process argument.
+- **Secrets only from the credential store or AWS Parameter Store.** Each node reads its
+  credentials on first use from the credential store of the system (macOS Keychain, Windows
+  Credential Manager, Linux Secret Service; the default) or from AWS Systems Manager Parameter
+  Store ([details](docs/setup.md#4-credentials-sources)), never from environment variables, the
+  profile or the conversation: the YAML file names entries or parameters only (a credential value
+  there is a startup error), no tool takes or returns a secret, and no AWS access key is
+  configured. StartCLI receives the password on stdin, never as a process argument.
 - **Local artifact history, never pushed.** `export_artifacts` writes only to the local workspace
   and its local git history; secrets are replaced before anything is written, and nothing is ever
   sent anywhere. `check_artifacts` runs stylesheets without access to the server's environment,
@@ -175,26 +175,28 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
    end-to-end tests, the workspace, TLS trust store and certificate pin are described in
    [docs/setup.md](docs/setup.md#3-configuration-file).
 
-4. **Set the credential variables** in your shell profile (e.g. `~/.zshrc`). By default their
-   names are `INUBIT_<PROFILE>_<GROUP>[_<NODE>]_USERNAME` / `_PASSWORD`
-   ([details](docs/setup.md#4-credentials-environment-variables)):
+4. **Store the credentials** in the credential store of your system: one entry per value, service
+   `inubit-mcp`, account `INUBIT_<PROFILE>_<GROUP>[_<NODE>]_USERNAME` / `_PASSWORD`
+   ([details](docs/setup.md#4-credentials-credential-store)). The commands prompt for the value:
 
    ```bash
-   export INUBIT_ACME_DEV_USERNAME='jdoe'
-   export INUBIT_ACME_DEV_PASSWORD='…'
+   # macOS (Keychain)
+   security add-generic-password -U -s inubit-mcp -a INUBIT_ACME_DEV_USERNAME -w
+   security add-generic-password -U -s inubit-mcp -a INUBIT_ACME_DEV_PASSWORD -w
    ```
 
+   On Windows use `cmdkey /generic:inubit-mcp:<ACCOUNT> /user:<ACCOUNT> /pass`, on Linux
+   `secret-tool store --label='inubit-mcp <ACCOUNT>' service inubit-mcp account <ACCOUNT>`.
    Do not pass credentials with `claude mcp add -e …`: that stores them in plain text in the client
-   configuration. The Claude desktop app and other clients started from the Dock do not read
-   `~/.zshrc`; for them, load the credentials from the macOS Keychain with a start script
-   ([details](docs/setup.md#claude-desktop-and-other-gui-clients-macos)).
+   configuration, and the server does not read environment variables (since 0.7.0; upgrading:
+   [migration-environment-variables.md](docs/migration-environment-variables.md)).
 
-   Instead of variables, a profile, group or node can read its credentials from AWS Systems
-   Manager Parameter Store (`credentials.source`,
-   [details](docs/setup.md#aws-systems-manager-parameter-store)); it then needs a valid AWS login
-   instead of the variables.
+   Instead, a profile, group or node can read its credentials from AWS Systems Manager Parameter
+   Store (`credentials.source`, [details](docs/setup.md#aws-systems-manager-parameter-store)); it
+   then needs a valid AWS login.
 
-5. **Check the configuration** (prints variable names, never values; exit code 0 means OK):
+5. **Check the configuration** (reads the entries, prints their names, never values; exit code 0
+   means OK; on macOS the Keychain may ask once per entry whether `security` may read it):
 
    ```bash
    java -jar ~/.local/lib/inubit-mcp-server-$VERSION.jar --profile acme --check-config
@@ -207,11 +209,11 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
      java -jar "$HOME/.local/lib/inubit-mcp-server-$VERSION.jar" --profile acme
    ```
 
-7. **Restart Claude Code from a shell that has the variables** (for Parameter Store: a valid AWS
-   login, see [AWS credentials](docs/setup.md#aws-credentials-and-aws-profiles)). The server
-   inherits the environment of Claude Code and reads it once at startup; `/mcp` → reconnect is not
-   enough after changing a variable. `/mcp` then shows `inubit-acme` with its tools; try "Which
-   INUBIT systems do you know?" or "Is dev up?".
+7. **Start Claude Code** (or the Claude desktop app; the same registration works for both, from
+   any shell; for Parameter Store log in to AWS first, see
+   [AWS credentials](docs/setup.md#aws-credentials-and-aws-profiles)). `/mcp` shows
+   `inubit-acme` with its tools; try "Which INUBIT systems do you know?" or "Is dev up?". A changed
+   password only needs a changed entry, no restart.
 
 Several profiles: one YAML file and one registration (`inubit-acme`, `inubit-globex`, …) each; see
 [docs/setup.md](docs/setup.md#several-profiles-side-by-side).

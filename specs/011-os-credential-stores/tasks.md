@@ -230,12 +230,22 @@ step and removes the environment path. US4 (`--check-config`), US5 (rotation, me
 
 ## Phase 8: User Story 6 — live tests (Priority: P3)
 
-- [ ] T018 [US6] `LiveTarget` hands the real store (`CredentialStores.forOs`) and `SsmParameterStore`
+- [X] T018 [US6] `LiveTarget` hands the real store (`CredentialStores.forOs`) and `SsmParameterStore`
   to `TestWiring` (R-14); `LiveTargetTest` checks the wiring for both sources (Q20).
-- [ ] T019 [US6] `test/live/CredentialStoreLiveTest.java`, Maven profile `live-store`, enabled only
+  Done: `LiveTarget.wiring(config, credentialStore, parameterStoreSupplier)` (production: the real
+  store and `SsmParameterStore::new`), new `TestWiring.withParameterStoreSupplier`;
+  `LiveTargetTest.theWiringReadsEachNodeFromItsOwnSourceLikeTheServer` (doubles, nothing read when
+  wiring).
+- [X] T019 [US6] `test/live/CredentialStoreLiveTest.java`, Maven profile `live-store`, enabled only
   with `INUBIT_LIVE_STORE=1` (FR-017): expects the documented entries of the fictitious profile
   `livetest`, checks found (value with `ä€`), not found, and records exit codes / texts for R-3 and
   R-5; skipped in the default build (assert in `LiveTestsAreOptInTest` or equivalent).
+  Done: tag `live-store`, excluded from the default build and from `-Plive`;
+  expectation via `INUBIT_LIVE_STORE_USERNAME` and `INUBIT_LIVE_STORE_PASSWORD_SHA256` (no value
+  printed); `CredentialStoreLiveOptInTest` in the default build. Deviation: exit codes and tool
+  texts are not visible through the port; the test prints the answer kinds (`found`,
+  `not found`, `failed (<kind>)`) only. Recording exit codes needs a manual `security` /
+  `secret-tool` run in T020.
 
 ---
 
@@ -246,23 +256,29 @@ step and removes the environment path. US4 (`--check-config`), US5 (rotation, me
   available, Windows and Linux, plus the manual access-denied steps; record per system the outcome
   and the observed exit codes / texts in `quickstart.md`; adjust R-3/R-5 mappings if they differ (with
   tests).
-- [ ] T021 [P] `docs/setup.md` section 4 rewritten (R-16): one general part (sources, first use,
+- [X] T021 [P] `docs/setup.md` section 4 rewritten (R-16): one general part (sources, first use,
   checking, changing a credential without restart), "Credential store" (entry identity per system;
   create/change/delete commands without the value on a command line; what an access permission
   grants; duplicates; Linux prerequisites `secret-tool` and a Secret Service; the Linux "unlock
   prompt dismissed" caveat if T020 confirms it), Parameter Store unchanged; section 6
   (`--check-config`) and section 7 (registration without a start script). Every quoted value checked
   against the code.
-- [ ] T022 [P] `docs/migration-environment-variables.md` (new): from shell exports (per system),
+- [X] T022 [P] `docs/migration-environment-variables.md` (new): from shell exports (per system),
   from the macOS start script (register the JAR directly, entries stay, one dialog per entry at most),
   changed e2e behaviour, `envPrefix` → `prefix`, leftover-variable warning; note in
   `docs/migration-001-to-002.md`; `Format001Detector` hint uses `credentials.prefix`; `Launcher`
   `--help` text. Tests first for the code parts: `Format001DetectorTest`, `LauncherTest` (help text).
-- [ ] T023 [P] `docs/tools.md` (errors and next steps from contracts/mcp-tools-delta.md, `get_health`
+- [X] T023 [P] `docs/tools.md` (errors and next steps from contracts/mcp-tools-delta.md, `get_health`
   pending text, fan-out deadlines), `docs/live-tests.md` (entries for `livetest`, both sources),
   `README.md` (installation steps 4 and 7 without variables, safety summary), `SECURITY.md` (sources),
   `CHANGELOG.md` `[0.7.0]` with a prominent breaking-change note and the systems the live check ran on.
   Every quoted value checked against the code.
+  Done (T021–T023): setup.md section 4 rewritten (general rules, credential store, Parameter Store
+  kept), the start-script how-to moved into the migration guide, sections 3, 6, 7 follow; new
+  `docs/migration-environment-variables.md`; `--help` names entries (test
+  `MainTest.theUsageNamesCredentialStoreEntriesAndParameters`); tools.md has a feature 011
+  section; live-tests.md the `live-store` check; CHANGELOG `[Unreleased]` is written as 0.7.0 with
+  a Breaking section and says the live check is still open (T020 updates it).
 - [ ] T024 Validate per quickstart.md: `mvn -q -o clean verify`; `mvn -q -o
   -Dtest=NoCustomerIdentifiersTest test` with the local lists (it must run, not skip); search that
   `System.getenv` appears only where R-10 allows; record the outcome (counts only) in `quickstart.md`.

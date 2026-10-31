@@ -6,6 +6,12 @@ Feature 002 makes the server customer-agnostic: one configuration file describes
 at startup; this guide turns it into a profile that behaves exactly as before: the same nodes,
 the same credential variables, and, if you like, the same words in every message.
 
+> **Since 0.7.0** the credential names of this guide are no longer environment variables but
+> entries of the credential store of your system (service `inubit-mcp`, account = the name shown
+> here); the names and the prefix rules are unchanged. Create the entries as
+> [migration-environment-variables.md](migration-environment-variables.md) describes instead of
+> exporting variables.
+
 The example uses the fictitious profile `acme` with the groups `dev` and `qa` and the nodes
 `node1` and `node2`; all hosts are `*.example.test`. Replace them with your own names. The
 complete configuration reference is [setup.md](setup.md).
@@ -160,8 +166,9 @@ claude mcp add --scope user inubit-acme -- java -jar /absolute/path/to/inubit-mc
   --profile acme
 ```
 
-Use the scope and name of your old registration in `remove` (`claude mcp list` shows them). Restart
-Claude Code from a shell that has the credential variables ([setup.md](setup.md), section 7).
+Use the scope and name of your old registration in `remove` (`claude mcp list` shows them), then
+restart the server (`/mcp` → reconnect) to load the new registration ([setup.md](setup.md),
+section 7).
 
 ### 9. Update prompts and scripts
 
@@ -267,14 +274,15 @@ groups:                            # was: stages
         baseUrl: https://inubit-qa-2.example.test:8443
 ```
 
-With the unchanged variables
+With the unchanged names as credential store entries (since 0.7.0; macOS shown, the value is
+prompted)
 
 ```bash
-export INUBIT_DEV_USERNAME='jdoe'
-export INUBIT_DEV_PASSWORD='…'
-export INUBIT_QA_USERNAME='jdoe'
-export INUBIT_QA_PASSWORD='…'
-export INUBIT_QA_NODE2_PASSWORD='…'   # node-specific: wins for qa/node2
+security add-generic-password -U -s inubit-mcp -a INUBIT_DEV_USERNAME -w
+security add-generic-password -U -s inubit-mcp -a INUBIT_DEV_PASSWORD -w
+security add-generic-password -U -s inubit-mcp -a INUBIT_QA_USERNAME -w
+security add-generic-password -U -s inubit-mcp -a INUBIT_QA_PASSWORD -w
+security add-generic-password -U -s inubit-mcp -a INUBIT_QA_NODE2_PASSWORD -w   # node-specific: wins for qa/node2
 ```
 
 `--profile acme --check-config` lists the same three nodes with the same variables as feature

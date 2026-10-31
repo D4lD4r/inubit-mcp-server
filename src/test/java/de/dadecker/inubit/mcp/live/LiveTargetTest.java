@@ -3,12 +3,19 @@ package de.dadecker.inubit.mcp.live;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import de.dadecker.inubit.mcp.TestWiring;
+import de.dadecker.inubit.mcp.config.StoreLocation;
+import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
+import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.opentest4j.TestAbortedException;
@@ -294,5 +301,57 @@ class LiveTargetTest {
 
         assertThat(LiveTarget.resolveDeployment(env, home, false).node())
             .isEqualTo(NodeId.parse("int/node1"));
+    }
+
+    // --- feature 011 T018 (research R-14, quickstart Q20) ---
+
+    private static final String TWO_SOURCES_YAML = """
+        profile:
+          name: acme
+        groups:
+          - name: test
+            nodes:
+              - name: node1
+                baseUrl: https://acme-test-1.example.test:8443
+          - name: qa
+            credentials:
+              source: { type: awsParameterStore, region: eu-central-1 }
+              parameters:
+                username: /inubit/qa/username
+                password: /inubit/qa/password
+            nodes:
+              - name: node1
+                baseUrl: https://acme-qa-1.example.test:8443
+        """;
+
+    @Test
+    void theWiringReadsEachNodeFromItsOwnSourceLikeTheServer() throws IOException {
+        Path file = home.resolve(".config/inubit-mcp/acme.yaml");
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, TWO_SOURCES_YAML);
+        env.put("INUBIT_MCP_PROFILE", "acme");
+        env.put("INUBIT_LIVE_NODE", "test/node1");
+        LiveTarget live = resolve();
+        FakeCredentialStore store = new FakeCredentialStore()
+            .put("INUBIT_ACME_TEST_USERNAME", "live-user").put("INUBIT_ACME_TEST_PASSWORD",
+                "live-test-Pw-4711");
+        StoreLocation eu = new StoreLocation("eu-central-1", Optional.empty());
+        FakeParameterStore parameters = new FakeParameterStore()
+            .put(eu, "/inubit/qa/username", "qa-user").put(eu, "/inubit/qa/password",
+                "qa-test-Pw-4712");
+
+        try (TestWiring wiring = live.wiring(live.loaded().config(), store, () -> parameters)) {
+            assertThat(store.reads()).as("nothing is read when wiring").isEmpty();
+            assertThat(wiring.gateways().prepareCredentials(NodeId.parse("test/node1"),
+                Duration.ofSeconds(5))).isEqualTo(CredentialState.READY);
+            assertThat(wiring.gateways().prepareCredentials(NodeId.parse("qa/node1"),
+                Duration.ofSeconds(5))).isEqualTo(CredentialState.READY);
+        }
+
+        assertThat(store.reads()).extracting(FakeCredentialStore.Read::account)
+            .contains("INUBIT_ACME_TEST_USERNAME").noneMatch(account -> account.contains("QA"));
+        assertThat(parameters.requests()).singleElement().satisfies(request ->
+            assertThat(request.names()).containsExactly("/inubit/qa/username",
+                "/inubit/qa/password"));
     }
 }
