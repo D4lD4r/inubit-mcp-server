@@ -65,7 +65,7 @@ feature.
 
 ### Session 2026-10-31 (spec review r1)
 
-Decisions taken on the review findings (to be confirmed by the product owner):
+Decisions taken on the review findings, confirmed by the product owner on 2026-10-31:
 
 - Windows identity: a generic credential with the target name `inubit-mcp:<ACCOUNT>`; its user-name
   field is ignored. Linux: the attributes `service` = `inubit-mcp` and `account` = `<ACCOUNT>`.
@@ -78,6 +78,7 @@ Decisions taken on the review findings (to be confirmed by the product owner):
   read of a node.
 - One opt-in live check per operating system is a deliverable; the release needs it executed on
   macOS at least.
+- The removal is released as 0.7.0 (breaking change).
 
 ## User Scenarios & Testing *(mandatory)*
 
