@@ -57,23 +57,24 @@ public record ProfileConfig(
     }
 
     /**
-     * The effective prefix of the credential variables (002 research D-6):
-     * {@code credentials.envPrefix}, or {@code INUBIT_} plus the normalized profile name. Not
+     * The effective prefix of the credential entry names (002 research D-6, feature 011 R-6):
+     * {@code credentials.prefix}, else {@code credentials.envPrefix}, else {@code INUBIT_} plus the
+     * normalized profile name. Not
      * validated, so that the configuration check can name the variables even of a file with
      * errors; {@link ConfigValidator} reports an invalid prefix or profile name.
      */
     public String credentialPrefix() {
-        return credentials.envPrefix()
+        return credentials.profilePrefix()
             .orElseGet(() -> ProfileInfo.defaultCredentialPrefix(profile.name()));
     }
 
     /**
-     * Every credential variable name this profile derives: per node, the node-specific and the
+     * Every credential store entry name this profile derives: per node, the node-specific and the
      * group-wide name of each kind (002 US2 review P1), under the prefix of the node's
-     * {@link SecretPlan}. Only nodes whose effective source is environment variables derive names
-     * (feature 010, research R-13); a profile whose nodes are all AWS derives none.
+     * {@link SecretPlan}. Only nodes whose effective source is the credential store derive names
+     * (feature 010 research R-13, feature 011 R-6); a profile whose nodes are all AWS derives none.
      */
-    public Set<String> credentialVariableNames() {
+    public Set<String> credentialEntryNames() {
         Set<String> names = new TreeSet<>();
         for (SecretPlan plan : secretPlans().values()) {
             if (plan.entries().isEmpty()) {
@@ -86,6 +87,28 @@ public record ProfileConfig(
             // feature 004 (review m-g): the optional e2e basic authentication
             for (String kind : CredentialNames.E2E_KINDS) {
                 names.addAll(variables.candidates(kind));
+            }
+        }
+        return names;
+    }
+
+    /**
+     * Every name an earlier version read as a credential variable for this profile (feature 011,
+     * FR-003): every kind (including the trust store password and the end-to-end kinds) of every
+     * node, also of AWS nodes, node-specific and group-wide, under the prefix the node uses (or
+     * would use) as a credential store node — its own source's {@code prefix}, else
+     * {@link #credentialPrefix()}.
+     */
+    public Set<String> credentialNameSet() {
+        Set<String> names = new TreeSet<>();
+        for (SecretPlan plan : secretPlans().values()) {
+            CredentialNames entries = plan.entries()
+                .orElseGet(() -> new CredentialNames(credentialPrefix(), plan.node()));
+            for (String kind : CredentialNames.KINDS) {
+                names.addAll(entries.candidates(kind));
+            }
+            for (String kind : CredentialNames.E2E_KINDS) {
+                names.addAll(entries.candidates(kind));
             }
         }
         return names;

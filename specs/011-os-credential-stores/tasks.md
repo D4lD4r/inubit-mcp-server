@@ -120,16 +120,18 @@ step and removes the environment path. US4 (`--check-config`), US5 (rotation, me
   with the removal message of contracts/configuration-delta.md (path, replacement, guide); unknown
   types list both. Tests first: `ConfigLoaderTest` (Q10), `SecretPlanTest` (default source is the
   credential store, overrides replace the whole source), existing naming tests renamed.
-- [ ] T009 [US3] Prefix keys (FR-005, R-6): `CredentialsConfig.prefix`; `ProfileConfig.credentialPrefix()`
+- [X] T009 [US3] Prefix keys (FR-005, R-6): `CredentialsConfig.prefix`; `ProfileConfig.credentialPrefix()`
   = `prefix`, else `envPrefix` (deprecation warning), else the default; `prefix` ≠ `envPrefix` →
   error; top-level `source.prefix` keeps 010's rule against the profile-wide prefix; overrides without
   their own `prefix` use `credentialPrefix()`. Tests first: `ProfileConfigTest`, `ConfigValidatorTest`
   (Q12).
-- [ ] T010 [US3] Name checks and leftover variables (FR-003, FR-005, R-10): the collision checks
-  (other profile: error; same `profile.name`: warning; intra-profile: error; `e2e` node: error) on the
+- [X] T010 [US3] Name checks and leftover variables (FR-003, FR-005, R-10): the collision checks
+  (other profile: error; same `profile.name`: warning; `e2e` node: error) on the
   `CredentialNames` of credential store nodes in `ConfigValidator`; `ProfileConfig.credentialNameSet()`
   (every kind of every node, under the prefix it would use as a credential store node);
-  `main/config/LeftoverVariables.java` (one warning, names only); the "(typo?)" warning deleted;
+  `main/config/LeftoverVariables.java` (one warning, names only; wired in T014). The intra-profile
+  collision check and the removal of the "(typo?)" warning move to T014, together with
+  `CredentialResolver`;
   `ConfigValidator` texts that name environment variables now name entries and `credentials.prefix`.
   Tests first: `LeftoverVariablesTest` (Q11; AWS nodes included, other profiles' names excluded),
   collision cases in `ConfigValidatorTest` (Q13).
@@ -138,12 +140,12 @@ step and removes the environment path. US4 (`--check-config`), US5 (rotation, me
 
 ## Phase 4: Lazy credentials for every node — the breaking step (US1, US2, US3)
 
-- [ ] T011 [US1] `SecretReader` split (R-7): extract the source-neutral cell logic of `NodeSecrets`
+- [X] T011 [US1] `SecretReader` split (R-7): extract the source-neutral cell logic of `NodeSecrets`
   (single flight, 30 s back-off, settle grace, `CredentialRules`, scrubber registration,
   `secret.fetch` record) from a `ParameterReader` holding today's Parameter Store code and texts;
   `NodeSecrets.timeout()` per source. No behaviour change: all existing `NodeSecretsTest` cases stay
   green unchanged, plus a test that the Parameter Store texts are byte-for-byte the same.
-- [ ] T012 [US1] `EntryReader` and `NodeSecrets.credentialStore(EffectiveNodeConfig, CredentialStore,
+- [X] T012 [US1] `EntryReader` and `NodeSecrets.credentialStore(EffectiveNodeConfig, CredentialStore,
   SecretScrubber, Clock)` (R-7, R-11): main read per kind with node-to-group fallback by value (no
   fallback after `Failed` or an invalid value); trust store password only with `tls.trustStore`;
   trust store password with CLI → `AUTH_FAILED`; e2e cell always present, `Optional<E2eCredentials>`,

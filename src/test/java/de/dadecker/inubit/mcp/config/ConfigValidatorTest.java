@@ -162,8 +162,8 @@ class ConfigValidatorTest {
 
             assertThat(report.errors()).hasSize(3);
             assertThat(report.errors()).anySatisfy(e -> assertThat(e)
-                .contains("groups[0].nodes[0].password", "set the value in the environment variable",
-                    "or store it in AWS Parameter Store and name it in credentials.parameters"));
+                .contains("groups[0].nodes[0].password", "store the value in the credential store",
+                    "or in AWS Parameter Store and name it in credentials.parameters"));
             // 002: the top-level credentials section is allowed, a password inside it is not
             assertThat(report.errors()).anySatisfy(e -> assertThat(e)
                 .contains("credentials.password"));
@@ -176,7 +176,7 @@ class ConfigValidatorTest {
             // 002 research D-6: the hint names the variables this profile reads
             ValidationReport defaultPrefix = validate(server("password: in-the-file\n"));
             ValidationReport explicitPrefix = validate(server("password: in-the-file\n")
-                + "credentials:\n  envPrefix: INUBIT_TEAM\n");
+                + "credentials:\n  prefix: INUBIT_TEAM\n");
 
             assertThat(defaultPrefix.errors()).singleElement().asString()
                 .contains("INUBIT_ACME_<GROUP>[_<NODE>]_USERNAME");
@@ -943,7 +943,7 @@ class ConfigValidatorTest {
             assertThat(report.warnings()).singleElement().asString()
                 .contains(globex.toString(), "'globex'", "audit directory",
                     home.resolve("shared-audit").toString())
-                .doesNotContain("profile name", "prefix");
+                .doesNotContain("profile name", "entry prefix");
         }
 
         @Test
@@ -951,12 +951,12 @@ class ConfigValidatorTest {
             // acme's default prefix INUBIT_ACME, configured explicitly by the other profile
             Path acme = profileFile("acme.yaml", "acme", "");
             Path globex = profileFile("globex.yaml", "globex",
-                "credentials:\n  envPrefix: INUBIT_ACME\n");
+                "credentials:\n  prefix: INUBIT_ACME\n");
 
             ValidationReport report = validateFile(acme);
 
             assertThat(report.warnings()).singleElement().asString()
-                .contains(globex.toString(), "'globex'", "credential variable prefix INUBIT_ACME")
+                .contains(globex.toString(), "'globex'", "credential entry prefix INUBIT_ACME")
                 .doesNotContain("profile name", "audit directory");
             // both configure test/node1, so they also derive the same names (review P1)
             assertThat(report.errors()).singleElement().asString()
@@ -968,7 +968,7 @@ class ConfigValidatorTest {
             // T007 (research R-13, spec edge case "two profiles read the same parameter")
             String aws = """
                 credentials:
-                  envPrefix: INUBIT_SHARED
+                  prefix: INUBIT_SHARED
                 groups:
                   - name: test
                     credentials:
@@ -991,14 +991,14 @@ class ConfigValidatorTest {
             assertThat(validateFile(globex).errors()).isEmpty();
             // an environment profile with the same names next to them shares nothing either
             Path initech = profileFile("initech.yaml", "initech",
-                "credentials:\n  envPrefix: INUBIT_SHARED\n");
+                "credentials:\n  prefix: INUBIT_SHARED\n");
             assertThat(validateFile(initech).errors()).isEmpty();
             assertThat(validateFile(acme).errors()).isEmpty();
             // T007 review r1: the same prefix is no shared variable unless both read variables
             assertThat(validateFile(acme).warnings()).as("acme and globex: AWS only")
-                .noneMatch(warning -> warning.contains("credential variable prefix"));
+                .noneMatch(warning -> warning.contains("credential entry prefix"));
             assertThat(validateFile(initech).warnings()).as("initech next to AWS-only profiles")
-                .noneMatch(warning -> warning.contains("credential variable prefix"));
+                .noneMatch(warning -> warning.contains("credential entry prefix"));
         }
 
         // --- T035 (feature 003, FR-003): no shared workspace ----------------------------------
@@ -1068,7 +1068,7 @@ class ConfigValidatorTest {
 
             assertThat(report.warnings()).singleElement().asString()
                 .contains(copy.toString(), "profile name 'acme'", "unique",
-                    "credential variable prefix INUBIT_ACME", "audit directory", "workspace");
+                    "credential entry prefix INUBIT_ACME", "audit directory", "workspace");
             // re-review N1: a copy of the same profile may start (spec edge case)
             assertThat(report.errors()).isEmpty();
         }
@@ -1081,7 +1081,7 @@ class ConfigValidatorTest {
                 profile:
                   name: acme
                 credentials:
-                  envPrefix: INUBIT_ACME_2
+                  prefix: INUBIT_ACME_2
                 groups:
                   - name: test
                     nodes:
@@ -1101,16 +1101,16 @@ class ConfigValidatorTest {
             throws IOException {
             // re-review N1 (b): different customers sharing INUBIT_DEV_*
             Path acme = profileFile("acme.yaml", "acme",
-                "credentials:\n  envPrefix: INUBIT\n");
+                "credentials:\n  prefix: INUBIT\n");
             Path globex = profileFile("globex.yaml", "globex",
-                "credentials:\n  envPrefix: INUBIT\n");
+                "credentials:\n  prefix: INUBIT\n");
 
             ValidationReport report = validateFile(acme);
 
             assertThat(report.errors()).singleElement().asString()
                 .contains(globex.toString(), "'globex'", "INUBIT_TEST_USERNAME");
             assertThat(report.warnings()).singleElement().asString()
-                .contains("credential variable prefix INUBIT");
+                .contains("credential entry prefix INUBIT");
         }
 
         @Test
@@ -1120,20 +1120,20 @@ class ConfigValidatorTest {
                 profile:
                   name: acme
                 credentials:
-                  envPrefix: INUBIT_TEAM
+                  prefix: INUBIT_TEAM
                 groups:
                   - name: dev
                     nodes:
                       - name: node1
                         baseUrl: https://node1.example.test:8443
                 """);
-            profileFile("globex.yaml", "globex", "credentials:\n  envPrefix: INUBIT_TEAM\n");
+            profileFile("globex.yaml", "globex", "credentials:\n  prefix: INUBIT_TEAM\n");
 
             ValidationReport report = validateFile(acme);
 
             assertThat(report.errors()).isEmpty();
             assertThat(report.warnings()).singleElement().asString()
-                .contains("credential variable prefix INUBIT_TEAM")
+                .contains("credential entry prefix INUBIT_TEAM")
                 .doesNotContain("INUBIT_TEAM_DEV", "INUBIT_TEAM_TEST");
         }
 
@@ -1215,7 +1215,7 @@ class ConfigValidatorTest {
                 profile:
                   name: legacy
                 credentials:
-                  envPrefix: INUBIT
+                  prefix: INUBIT
                 groups:
                   - name: acme-test
                     nodes:
@@ -1234,12 +1234,12 @@ class ConfigValidatorTest {
         void anInvalidProfileNameOfAnotherFileIsNeverPrinted() throws IOException {
             Path acme = profileFile("acme.yaml", "acme", "");
             profileFile("odd.yaml", "\"x\\e[31mred\\u0007\"",
-                "credentials:\n  envPrefix: INUBIT_ACME\n");
+                "credentials:\n  prefix: INUBIT_ACME\n");
 
             ValidationReport report = validateFile(acme);
 
             assertThat(String.join("\n", report.warnings()) + String.join("\n", report.errors()))
-                .contains("(invalid profile.name)", "credential variable prefix INUBIT_ACME")
+                .contains("(invalid profile.name)", "credential entry prefix INUBIT_ACME")
                 .doesNotContain("\u001b", "\u0007", "[31m");
         }
     }
@@ -1471,7 +1471,7 @@ class ConfigValidatorTest {
             ProfileConfig config = new ConfigLoader(Map.of(), HOME, false).parse(profile("", ""),
                 HOME.resolve("config.yaml")).config();
 
-            assertThat(config.credentialVariableNames()).contains("INUBIT_ACME_DEV_E2E_USERNAME",
+            assertThat(config.credentialEntryNames()).contains("INUBIT_ACME_DEV_E2E_USERNAME",
                 "INUBIT_ACME_DEV_E2E_PASSWORD", "INUBIT_ACME_DEV_NODE1_E2E_PASSWORD");
         }
 
@@ -2121,7 +2121,7 @@ class ConfigValidatorTest {
             assertThat(report.errors()).isEmpty();
             assertThat(report.warnings()).singleElement().asString()
                 .contains("Group 'dev'", "credentials.parameters", "ignored",
-                    "environment variables");
+                    "credential store");
             assertThat(implicit.warnings()).singleElement().asString()
                 .contains("Group 'dev'", "credentials.parameters", "ignored");
         }
@@ -2136,7 +2136,7 @@ class ConfigValidatorTest {
             assertThat(report.errors()).isEmpty();
             assertThat(report.warnings()).singleElement().asString()
                 .contains("dev/node1", "credentials.parameters", "ignored",
-                    "environment variables");
+                    "credential store");
         }
 
         @Test
@@ -2246,8 +2246,8 @@ class ConfigValidatorTest {
                         baseUrl: https://inubit-qa.example.test:8443
                 """);
 
-            assertThat(allAws.credentialVariableNames()).isEmpty();
-            assertThat(mixed.credentialVariableNames())
+            assertThat(allAws.credentialEntryNames()).isEmpty();
+            assertThat(mixed.credentialEntryNames())
                 .contains("INUBIT_OWN_DEV_NODE1_PASSWORD", "INUBIT_OWN_DEV_E2E_USERNAME",
                     "INUBIT_ACME_QA_NODE1_PASSWORD", "INUBIT_ACME_QA_E2E_PASSWORD")
                 .noneMatch(name -> name.startsWith("INUBIT_ACME_DEV"));

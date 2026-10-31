@@ -252,7 +252,7 @@ class MainTest {
             """;
         String explicitWithPrefix = """
             credentials:
-              envPrefix: INUBIT_ACME
+              prefix: INUBIT_ACME
               source:
                 type: credentialStore
                 prefix: INUBIT_ACME
@@ -638,7 +638,7 @@ class MainTest {
 
         assertThat(exit).isEqualTo(1);
         assertThat(err()).contains("confirmation CLIENT", "http://",
-            "set the value in the environment variable", "INUBIT_ACME_PROD_NODE1_USERNAME")
+            "store the value in the credential store", "INUBIT_ACME_PROD_NODE1_USERNAME")
             .doesNotContain(PASSWORD);
         assertThat(out()).as("nothing on the protocol stdout").isEmpty();
     }
@@ -736,7 +736,7 @@ class MainTest {
 
         assertThat(exit).isEqualTo(1);
         assertThat(out()).contains("Errors:", globex.toString(), "INUBIT_ACME_DEV_USERNAME",
-            "Warnings:", "credential variable prefix INUBIT_ACME")
+            "Warnings:", "credential entry prefix INUBIT_ACME")
             .doesNotContain(PASSWORD, USERNAME);
     }
 

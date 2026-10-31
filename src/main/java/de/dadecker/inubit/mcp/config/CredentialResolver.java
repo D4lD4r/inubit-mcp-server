@@ -101,18 +101,6 @@ public final class CredentialResolver {
     }
 
     /**
-     * The optional basic authentication of the SOAP end-to-end tests of a node (feature 004,
-     * research D-25 H8): {@code <PREFIX>_<GROUP>[_<NODE>]_E2E_USERNAME} and
-     * {@code …_E2E_PASSWORD}, node-specific before group-wide, like the node credentials.
-     */
-    public record E2eCredentials(SourcedValue<String> username, SourcedValue<Secret> password) {
-        public E2eCredentials {
-            Objects.requireNonNull(username, "username");
-            Objects.requireNonNull(password, "password");
-        }
-    }
-
-    /**
      * The end-to-end test credentials of {@code server}: both variables set and a safe username
      * ({@link CredentialRules#isSafeUsername}), else none. The password is registered with the
      * scrubber. None for an AWS node: its values are fetched on first use.

@@ -8,7 +8,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.config.E2eCredentials;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.Fetched;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
@@ -658,8 +658,8 @@ class NodeSecretsTest {
         assertThat(store.requests()).singleElement().satisfies(request ->
             assertThat(request.names()).containsExactly(USERNAME, PASSWORD));
 
-        CredentialResolver.E2eCredentials first = secrets.e2e(LONG).orElseThrow();
-        CredentialResolver.E2eCredentials second = secrets.e2e(LONG).orElseThrow();
+        E2eCredentials first = secrets.e2e(LONG).orElseThrow();
+        E2eCredentials second = secrets.e2e(LONG).orElseThrow();
 
         assertThat(second).isSameAs(first);
         assertThat(store.requests()).hasSize(2).last().isEqualTo(new FakeParameterStore.Request(
@@ -711,13 +711,13 @@ class NodeSecretsTest {
         putValidE2e();
         store.delay(EU, Duration.ofMillis(500));
         NodeSecrets secrets = secretsWithE2e(NodeSecrets.STORE_TIMEOUT);
-        List<Future<Optional<CredentialResolver.E2eCredentials>>> results = new ArrayList<>();
+        List<Future<Optional<E2eCredentials>>> results = new ArrayList<>();
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             for (int i = 0; i < 8; i++) {
                 results.add(executor.submit(() -> secrets.e2e(LONG)));
             }
-            CredentialResolver.E2eCredentials first = results.get(0).get().orElseThrow();
-            for (Future<Optional<CredentialResolver.E2eCredentials>> result : results) {
+            E2eCredentials first = results.get(0).get().orElseThrow();
+            for (Future<Optional<E2eCredentials>> result : results) {
                 assertThat(result.get()).containsSame(first);
             }
         }

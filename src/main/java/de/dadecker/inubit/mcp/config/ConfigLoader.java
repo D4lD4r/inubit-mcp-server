@@ -448,7 +448,8 @@ public final class ConfigLoader {
 
     /**
      * The key rules of the {@code credentials} sections (feature 010, research R-4), after the
-     * credential keys are stripped: only {@code envPrefix} and {@code source} at the top level,
+     * credential keys are stripped: only {@code prefix}, {@code envPrefix} and {@code source} at
+     * the top level,
      * only {@code source} and {@code parameters} on groups and nodes, only the keys of its type
      * inside {@code source} (so AWS access keys are refused, FR-004) and only the parameter kinds
      * inside {@code parameters}, each with a valid name. Messages name keys and paths, never a
@@ -486,11 +487,11 @@ public final class ConfigLoader {
         boolean topLevel = ownerPath.isEmpty();
         String path = topLevel ? CREDENTIALS_SECTION : ownerPath + "." + CREDENTIALS_SECTION;
         if (topLevel) {
-            rejectUnknownKeys(section, path, List.of("envPrefix", "source"),
-                "allowed: envPrefix, source; parameters only on groups and nodes", source);
+            rejectUnknownKeys(section, path, List.of("prefix", "envPrefix", "source"),
+                "allowed: prefix, envPrefix, source; parameters only on groups and nodes", source);
         } else {
             rejectUnknownKeys(section, path, List.of("source", "parameters"),
-                "allowed: source, parameters; envPrefix only at the top level", source);
+                "allowed: source, parameters; prefix and envPrefix only at the top level", source);
         }
         checkSource(section.get("source"), path + ".source", source);
         JsonNode parameters = section.get("parameters");

@@ -172,7 +172,7 @@ final class Launcher {
         List<LoadedConfig> otherProfiles = loader.otherProfiles(loaded.source());
         Set<String> otherVariables = new HashSet<>();
         otherProfiles.forEach(other -> otherVariables.addAll(
-            other.config().credentialVariableNames()));
+            other.config().credentialEntryNames()));
         CredentialResolution credentials = new CredentialResolver(context.environment(),
             context.scrubber(), loaded.config().terminology().effectiveOrDefault(),
             loaded.config().credentialPrefix(), loaded.config().secretPlans())

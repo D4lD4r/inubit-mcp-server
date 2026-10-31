@@ -115,12 +115,12 @@ public final class ConfigValidator {
         Terminology terms = config.terminology().effectiveOrDefault();
         Findings findings = new Findings(terms);
         for (String key : loaded.credentialKeys()) {
-            // 002 research D-6: the variables under the profile's effective prefix
-            // feature 010 (T003): the next step names both sources
+            // 002 research D-6: the entries under the profile's effective prefix
+            // feature 011 (research R-10): the next step names both sources
             findings.termError("Credential key '%s' is not allowed in the configuration file;"
-                + " set the value in the environment variable (%s_%s_USERNAME / _PASSWORD) or"
-                + " store it in AWS Parameter Store and name it in credentials.parameters", key,
-                config.credentialPrefix(), variablePart(terms));
+                + " store the value in the credential store (service inubit-mcp, account"
+                + " %s_%s_USERNAME / _PASSWORD) or in AWS Parameter Store and name it in"
+                + " credentials.parameters", key, config.credentialPrefix(), variablePart(terms));
         }
         loaded.urlProblems().forEach(findings::error);
         checkProfile(config, findings);
@@ -180,7 +180,7 @@ public final class ConfigValidator {
      *       (e.g. {@code INUBIT_ACME} + group {@code 2-test} and {@code INUBIT_ACME_2} + group
      *       {@code test}) or by an equal prefix with equal group names (002 US2 review P1,
      *       re-review N1): two customers would read the same variable. Only names are printed;
-     *       only environment nodes derive names ({@link ProfileConfig#credentialVariableNames()},
+     *       only environment nodes derive names ({@link ProfileConfig#credentialEntryNames()},
      *       research R-13), so two profiles may read the same Parameter Store names;
      *   <li>one <b>warning</b> per file that has the same profile name (a copy, which may start;
      *       shared variable names are listed in the warning then), the same effective credential
@@ -191,22 +191,22 @@ public final class ConfigValidator {
      */
     private void checkOtherProfiles(LoadedConfig loaded, Findings findings) {
         ProfileConfig config = loaded.config();
-        Set<String> ownVariables = config.credentialVariableNames();
+        Set<String> ownVariables = config.credentialEntryNames();
         for (LoadedConfig other : otherProfiles.apply(loaded.source())) {
             ProfileConfig otherConfig = other.config();
             String otherName = ProfileInfo.displayName(otherConfig.profile().name());
             String otherFile = "The profile file " + other.source() + " (profile "
                 + (otherName.equals(ProfileInfo.INVALID_NAME) ? otherName : "'" + otherName + "'")
                 + ")";
-            Set<String> otherVariables = otherConfig.credentialVariableNames();
+            Set<String> otherVariables = otherConfig.credentialEntryNames();
             Set<String> sharedVariables = new TreeSet<>(otherVariables);
             sharedVariables.retainAll(ownVariables);
             String name = config.profile().name();
             boolean copy = !name.isEmpty() && name.equals(otherConfig.profile().name());
             if (!sharedVariables.isEmpty() && !copy) {
-                findings.error(otherFile + " derives the same credential variable names as this"
-                    + " profile, so both would read them: " + String.join(", ", sharedVariables)
-                    + ". Set another credentials.envPrefix for one of them or rename the"
+                findings.error(otherFile + " derives the same credential store entry names as"
+                    + " this profile, so both would read them: " + String.join(", ", sharedVariables)
+                    + ". Set another credentials.prefix for one of them or rename the"
                     + " group or node");
             }
             List<String> shared = new ArrayList<>();
@@ -216,16 +216,16 @@ public final class ConfigValidator {
                 shared.add("the profile name " + shown
                     + " (profile names must be unique per workstation)");
             }
-            // T007 review r1: a profile without environment nodes reads no variables
+            // T007 review r1: a profile without credential store nodes reads no entries
             if (config.credentialPrefix().equals(otherConfig.credentialPrefix())
                 && !ownVariables.isEmpty() && !otherVariables.isEmpty()) {
-                shared.add("the credential variable prefix " + config.credentialPrefix()
-                    + " (both read the same variables)");
+                shared.add("the credential entry prefix " + config.credentialPrefix()
+                    + " (both read the same entries)");
             }
             if (copy && !sharedVariables.isEmpty()
                 && !config.credentialPrefix().equals(otherConfig.credentialPrefix())) {
-                shared.add("the credential variable names " + String.join(", ", sharedVariables)
-                    + " (both read them)");
+                shared.add("the credential store entry names " + String.join(", ",
+                    sharedVariables) + " (both read them)");
             }
             // feature 003 FR-003: two profiles never share a workspace; a copy of the same
             // profile (same name) may start and shares it by design (002 re-review N1)
@@ -255,7 +255,7 @@ public final class ConfigValidator {
             }
             if (!shared.isEmpty()) {
                 findings.warning(otherFile + " has " + joined(shared) + "; profiles that run side"
-                    + " by side need their own (credentials.envPrefix, auditDirectory)");
+                    + " by side need their own (credentials.prefix, auditDirectory)");
             }
         }
     }
@@ -373,18 +373,34 @@ public final class ConfigValidator {
             .filter(description -> !ProfileInfo.isValidDescription(description))
             .ifPresent(description -> findings.error(ProfileInfo.DESCRIPTION_RULE));
         checkTerminology(config.terminology(), findings);
-        config.credentials().envPrefix()
+        CredentialsConfig credentials = config.credentials();
+        credentials.prefix()
+            .filter(prefix -> !ProfileInfo.isValidPrefix(prefix))
+            .ifPresent(prefix -> findings.error("Invalid credentials.prefix: expected "
+                + ProfileInfo.PREFIX_PATTERN.pattern()));
+        credentials.envPrefix()
             .filter(prefix -> !ProfileInfo.isValidPrefix(prefix))
             .ifPresent(prefix -> findings.error("Invalid credentials.envPrefix: expected "
                 + ProfileInfo.PREFIX_PATTERN.pattern()));
-        // feature 010 (US1-3): envPrefix is the default of every environment source without one
-        Optional<String> envPrefix = config.credentials().envPrefix();
-        if (config.credentials().source().orElse(null)
-            instanceof SecretSourceConfig.SystemStore environment
-            && environment.prefix().isPresent() && envPrefix.isPresent()
-            && !environment.prefix().equals(envPrefix)) {
-            findings.error("credentials.source.prefix and credentials.envPrefix differ; set only"
-                + " one of them or make them equal");
+        // feature 011 (FR-005, research R-6): envPrefix is the deprecated name of prefix
+        if (credentials.envPrefix().isPresent()) {
+            if (credentials.prefix().isPresent()
+                && !credentials.prefix().equals(credentials.envPrefix())) {
+                findings.error("credentials.prefix and credentials.envPrefix differ; keep only"
+                    + " credentials.prefix");
+            } else {
+                findings.warning("credentials.envPrefix is deprecated; rename it to"
+                    + " credentials.prefix");
+            }
+        }
+        // feature 010 (US1-3): the profile-wide prefix is the default of every source without one
+        Optional<String> profilePrefix = credentials.profilePrefix();
+        if (credentials.source().orElse(null)
+            instanceof SecretSourceConfig.SystemStore store
+            && store.prefix().isPresent() && profilePrefix.isPresent()
+            && !store.prefix().equals(profilePrefix)) {
+            findings.error("credentials.source.prefix and " + credentials.profilePrefixKey()
+                + " differ; set only one of them or make them equal");
         }
     }
 
@@ -674,7 +690,7 @@ public final class ConfigValidator {
 
     /**
      * Feature 010 (research R-6): {@code credentials.parameters} on a group or node whose
-     * effective source is environment variables is ignored, with a warning.
+     * effective source is the credential store is ignored, with a warning.
      */
     private static void checkIgnoredParameterNames(ProfileConfig config, Findings findings) {
         for (GroupConfig group : config.groups()) {
@@ -682,7 +698,7 @@ public final class ConfigValidator {
                 instanceof SecretSourceConfig.SystemStore;
             if (environment && group.credentials().parameters().isPresent()) {
                 findings.termWarning("{Group} '%s': credentials.parameters is ignored; the"
-                    + " secrets of this {group} come from environment variables", group.name());
+                    + " secrets of this {group} come from the credential store", group.name());
             }
             if (!GroupId.isValidName(group.name())) {
                 continue;
@@ -696,7 +712,7 @@ public final class ConfigValidator {
                     config.credentialPrefix(), group, node);
                 if (!plan.aws()) {
                     findings.termWarning("%s: credentials.parameters is ignored; the secrets of"
-                        + " this {node} come from environment variables", plan.node().value());
+                        + " this {node} come from the credential store", plan.node().value());
                 }
             }
         }
@@ -717,8 +733,8 @@ public final class ConfigValidator {
                 != E2ePolicy.FORBIDDEN);
             nodes.stream().filter(server -> e2e && server.id().name().equalsIgnoreCase("e2e"))
                 .forEach(server -> findings.termError("%s: the {node} name '%s' clashes with the"
-                    + " e2e basic-authentication variables of its {group} (%s is its username"
-                    + " variable as well); rename the {node} or set e2eTests: FORBIDDEN for the"
+                    + " e2e basic-authentication entries of its {group} (%s is its username"
+                    + " entry as well); rename the {node} or set e2eTests: FORBIDDEN for the"
                     + " {group}", server.id().value(), server.id().name(),
                     server.credentialNames().groupName(CredentialNames.E2E_USERNAME)));
         });

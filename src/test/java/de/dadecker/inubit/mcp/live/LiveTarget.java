@@ -114,7 +114,7 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
         List<LoadedConfig> otherProfiles = loader.otherProfiles(loaded.source());
         Set<String> otherVariables = new HashSet<>();
         otherProfiles.forEach(other -> otherVariables.addAll(
-            other.config().credentialVariableNames()));
+            other.config().credentialEntryNames()));
         SecretScrubber scrubber = new SecretScrubber();
         CredentialResolution credentials = new CredentialResolver(environment, scrubber,
             loaded.config().terminology().effectiveOrDefault(),
