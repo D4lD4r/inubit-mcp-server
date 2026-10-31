@@ -279,7 +279,7 @@ step and removes the environment path. US4 (`--check-config`), US5 (rotation, me
   `MainTest.theUsageNamesCredentialStoreEntriesAndParameters`); tools.md has a feature 011
   section; live-tests.md the `live-store` check; CHANGELOG `[Unreleased]` is written as 0.7.0 with
   a Breaking section and says the live check is still open (T020 updates it).
-- [ ] T024 Validate per quickstart.md: `mvn -q -o clean verify`; `mvn -q -o
+- [X] T024 Validate per quickstart.md: `mvn -q -o clean verify`; `mvn -q -o
   -Dtest=NoCustomerIdentifiersTest test` with the local lists (it must run, not skip); search that
   `System.getenv` appears only where R-10 allows; record the outcome (counts only) in `quickstart.md`.
 

@@ -4,7 +4,7 @@ Feature 002 makes the server customer-agnostic: one configuration file describes
 (a customer or project), and the two levels "stage" and "server" are now called **groups** and
 **nodes** in the YAML keys and the tool contracts. A configuration file of feature 001 is refused
 at startup; this guide turns it into a profile that behaves exactly as before: the same nodes,
-the same credential variables, and, if you like, the same words in every message.
+the same credential names, and, if you like, the same words in every message.
 
 > **Since 0.7.0** the credential names of this guide are no longer environment variables but
 > entries of the credential store of your system (service `inubit-mcp`, account = the name shown
@@ -26,7 +26,7 @@ Configuration file /Users/jdoe/.config/inubit-mcp/config.yaml uses the format of
   - stages (top level): rename to groups
   - servers (at stages[0].servers, stages[1].servers): rename to nodes
   - profile (missing): add a profile block at the top, profile: {name: <name>}, the name matching ^[a-z0-9][a-z0-9-]{0,31}$, except audit
-To keep the credential variables of feature 001 (INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD), add credentials.prefix: INUBIT; without it the variables start with INUBIT_<PROFILE>.
+To keep the credential names of feature 001 (INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD, now credential store entries), add credentials.prefix: INUBIT; without it the names start with INUBIT_<PROFILE>.
 Audit records of feature 001 stay in their directory (default ~/.inubit-mcp/audit); new records go to ~/.inubit-mcp/<profile.name>/audit unless auditDirectory is set.
 Step-by-step guide: docs/migration-001-to-002.md
 ```
@@ -110,21 +110,21 @@ the server upper-cases the first letter only at the start of a sentence or in a 
 terminology is display text only: YAML keys, tool names and the input and result fields stay
 `groups`/`nodes`, `group`/`node` (step 9).
 
-### 6. Keep the credential variables
+### 6. Keep the credential names
 
 Feature 001 read `INUBIT_<STAGE>[_<SERVER>]_USERNAME` / `_PASSWORD` (and `_TRUSTSTORE_PASSWORD`).
 Feature 002 reads `<PREFIX>_<GROUP>[_<NODE>]_…`, where the prefix defaults to `INUBIT_` plus the
-profile name (`INUBIT_ACME`). To keep your exported variables unchanged, set the prefix
-explicitly:
+profile name (`INUBIT_ACME`); since 0.7.0 these names are credential store entries. To keep the
+names unchanged, set the prefix explicitly:
 
 ```yaml
 credentials:
   prefix: INUBIT
 ```
 
-The rule "node-specific variable before group-wide variable" is unchanged. Alternatively, rename
-your variables to the default prefix (`INUBIT_DEV_USERNAME` → `INUBIT_ACME_DEV_USERNAME`) and
-omit `credentials`; this is the better choice as soon as you add a second profile (step 10).
+The rule "node-specific name before group-wide name" is unchanged. Alternatively, create the
+entries under the default prefix (`INUBIT_DEV_USERNAME` → `INUBIT_ACME_DEV_USERNAME`) and omit
+`credentials`; this is the better choice as soon as you add a second profile (step 10).
 
 ### 7. Audit directory and inventory owner
 
@@ -154,7 +154,7 @@ omit `credentials`; this is the better choice as soon as you add a second profil
 java -jar /absolute/path/to/inubit-mcp-server-<version>.jar --profile acme --check-config
 ```
 
-It must end with `Result: OK` and list the same nodes and the same variable names as before
+It must end with `Result: OK` and list the same nodes and the same credential names as before
 (with `prefix: INUBIT`: `Credential store entries: service inubit-mcp, account
 INUBIT_<STAGE>[_<SERVER>]_<KIND>`; since 0.7.0 the names are credential store entries, see
 [migration-environment-variables.md](migration-environment-variables.md)).
@@ -167,8 +167,8 @@ claude mcp add --scope user inubit-acme -- java -jar /absolute/path/to/inubit-mc
 ```
 
 Use the scope and name of your old registration in `remove` (`claude mcp list` shows them), then
-restart the server (`/mcp` → reconnect) to load the new registration ([setup.md](setup.md),
-section 7).
+start a new Claude Code session to load the new registration (`/mcp` → reconnect may keep the old
+server list; [setup.md](setup.md), section 7).
 
 ### 9. Update prompts and scripts
 
@@ -200,10 +200,10 @@ A prompt such as "list the servers" still works; a script that calls `list_serve
 A profile with `prefix: INUBIT` reads `INUBIT_<GROUP>…`, which other profiles can derive as
 well: the profile `acme` (default prefix `INUBIT_ACME`) with the group `test` reads
 `INUBIT_ACME_TEST_USERNAME`, and so does a profile with `prefix: INUBIT` and the group
-`acme-test`. When two profile files in `~/.config/inubit-mcp` derive the same variable name, the
+`acme-test`. When two profile files in `~/.config/inubit-mcp` derive the same entry name, the
 server refuses to start (`--check-config` exits 1) and names the other file and the shared
-variable names. To resolve it, give the migrated profile its own prefix: remove
-`credentials.prefix` (or set another one) and rename its exported variables accordingly
+entry names. To resolve it, give the migrated profile its own prefix: remove
+`credentials.prefix` (or set another one) and create its entries under the new names
 (`INUBIT_DEV_USERNAME` → `INUBIT_ACME_DEV_USERNAME`), or rename the conflicting group. Use
 `prefix: INUBIT` for at most one profile.
 

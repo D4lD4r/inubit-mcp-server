@@ -12,7 +12,9 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -33,7 +35,8 @@ import org.junit.jupiter.api.Timeout;
  * (docs/live-tests.md); the Windows Credential Manager has none.
  */
 @Tag("live-store")
-@Timeout(180)
+// three reads of at most 60 s each, plus the store's own start-up
+@Timeout(240)
 class CredentialStoreLiveTest {
 
     static final String ENABLE = "INUBIT_LIVE_STORE";
@@ -55,8 +58,11 @@ class CredentialStoreLiveTest {
     void readsThePersonCreatedEntriesOfThisSystem() {
         Map<String, String> environment = System.getenv();
         requireEnabled(environment);
-        assertThat(environment).as("the expectation (docs/live-tests.md)")
-            .containsKeys(EXPECTED_USERNAME, EXPECTED_PASSWORD_SHA256);
+        // names only: a failure must never print the environment (it may hold tokens)
+        List<String> missingNames = Stream.of(EXPECTED_USERNAME, EXPECTED_PASSWORD_SHA256)
+            .filter(name -> environment.get(name) == null).toList();
+        assertThat(missingNames).as("expectation variables not set (docs/live-tests.md)")
+            .isEmpty();
         CredentialStore store = CredentialStores.forOs(System.getProperty("os.name"),
             new SystemProcessLauncher(), environment, Path.of(System.getProperty("user.home")));
 
@@ -69,13 +75,17 @@ class CredentialStoreLiveTest {
             + USERNAME_ENTRY + " " + kind(username) + ", " + PASSWORD_ENTRY + " "
             + kind(password) + ", " + MISSING_ENTRY + " " + kind(missing));
         assertThat(username).as(USERNAME_ENTRY).isInstanceOfSatisfying(Lookup.Found.class,
-            found -> assertThat(found.value().reveal()).as("the username")
-                .isEqualTo(environment.get(EXPECTED_USERNAME)));
+            // compared without printing either value on a mismatch
+            found -> assertThat(found.value().reveal().equals(environment.get(EXPECTED_USERNAME)))
+                .as("the username read equals " + EXPECTED_USERNAME).isTrue());
         assertThat(password).as(PASSWORD_ENTRY).isInstanceOfSatisfying(Lookup.Found.class,
             found -> {
                 String value = found.value().reveal();
-                assertThat(sha256(value)).as("SHA-256 of the password read")
-                    .isEqualToIgnoringCase(environment.get(EXPECTED_PASSWORD_SHA256).strip());
+                // the hash of the value read is not printed either
+                assertThat(sha256(value).equalsIgnoreCase(
+                    environment.get(EXPECTED_PASSWORD_SHA256).strip()))
+                    .as("SHA-256 of the password read equals " + EXPECTED_PASSWORD_SHA256)
+                    .isTrue();
                 assertThat(value.chars().anyMatch(c -> c > 127))
                     .as("the password contains a non-ASCII character (encoding case)").isTrue();
             });

@@ -134,6 +134,10 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
   tools are not supported on Windows in this version.
 - Only for the artifact workspace (`export_artifacts`, the development tools and
   `deploy_release`): **git 2.32** or newer on `PATH`.
+- For the credentials: the credential store of the system — the macOS Keychain and the Windows
+  Credential Manager are built in; on Linux `secret-tool` (package `libsecret-tools` or
+  `libsecret`) and a running Secret Service (e.g. GNOME Keyring) in the desktop session.
+  Otherwise, AWS Parameter Store ([details](docs/setup.md#4-credentials-sources)).
 
 ## Installation in Claude Code
 
@@ -144,7 +148,7 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
    `~/.local/lib`:
 
    ```bash
-   VERSION=0.6.2
+   VERSION=<version>   # 0.7.0 or later reads the credential store; earlier releases read variables
    shasum -a 256 -c "inubit-mcp-server-$VERSION.jar.sha256"   # Linux: sha256sum -c …
    mkdir -p ~/.local/lib && mv "inubit-mcp-server-$VERSION.jar" ~/.local/lib/
    ```
@@ -152,8 +156,9 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
    Release JARs also carry a build provenance attestation, which the GitHub CLI can check:
    `gh attestation verify ~/.local/lib/inubit-mcp-server-$VERSION.jar --repo D4lD4r/inubit-mcp-server`.
 
-3. **Create the profile** `~/.config/inubit-mcp/<profile>.yaml`. Minimal read-only example for a
-   profile `acme` with one non-production node:
+3. **Create the profile** `~/.config/inubit-mcp/<profile>.yaml` (Windows:
+   `%APPDATA%\inubit-mcp\<profile>.yaml`). Minimal read-only example for a profile `acme` with one
+   non-production node:
 
    ```bash
    mkdir -p ~/.config/inubit-mcp && chmod 700 ~/.config/inubit-mcp
@@ -202,15 +207,19 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
    java -jar ~/.local/lib/inubit-mcp-server-$VERSION.jar --profile acme --check-config
    ```
 
-6. **Register** the server with Claude Code (once per profile):
+6. **Register** the server with Claude Code (once per profile), with the absolute path of `java`:
+   a client started from the Dock, Finder or Start menu does not see your shell's `PATH` (on macOS
+   e.g. `$(/usr/libexec/java_home -v 21)/bin/java`):
 
    ```bash
    claude mcp add --scope user inubit-acme -- \
-     java -jar "$HOME/.local/lib/inubit-mcp-server-$VERSION.jar" --profile acme
+     "$(/usr/libexec/java_home -v 21)/bin/java" -jar "$HOME/.local/lib/inubit-mcp-server-$VERSION.jar" --profile acme
    ```
 
-7. **Start Claude Code** (or the Claude desktop app; the same registration works for both, from
-   any shell; for Parameter Store log in to AWS first, see
+   No environment variable and no start script are needed, so the same command works for a client
+   started from a terminal or from the Dock.
+
+7. **Start Claude Code** (for Parameter Store log in to AWS first, see
    [AWS credentials](docs/setup.md#aws-credentials-and-aws-profiles)). `/mcp` shows
    `inubit-acme` with its tools; try "Which INUBIT systems do you know?" or "Is dev up?". A changed
    password only needs a changed entry, no restart.

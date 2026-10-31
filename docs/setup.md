@@ -850,7 +850,8 @@ line break is added or kept). A value that cannot be decoded is an invalid value
 - **Linux, not yet confirmed:** an unlock prompt that is dismissed probably looks like "not found"
   to the server; the live check (docs/live-tests.md) will confirm it.
 - **Duplicates:** if two entries match, the system's default search decides, as the system tools
-  do. Find them with `security dump-keychain | grep inubit-mcp` (macOS, attributes only),
+  do. Find them with `security dump-keychain | grep -B4 -A1 '"svce"<blob>="inubit-mcp"'`
+  (macOS; prints each item's keychain and account attributes, no values),
   `cmdkey /list:inubit-mcp:*` (Windows) or `secret-tool search --all service inubit-mcp`
   (Linux; prints the values, run it only where nobody watches).
 
@@ -1465,15 +1466,19 @@ Build the JAR (section 2) or download a released one ([README](../README.md#inst
 then register it once (user scope, available in every project):
 
 ```bash
-claude mcp add --scope user inubit-acme -- java -jar /absolute/path/to/target/inubit-mcp-server-<version>.jar \
-  --profile acme
+claude mcp add --scope user inubit-acme -- /absolute/path/to/java -jar \
+  /absolute/path/to/target/inubit-mcp-server-<version>.jar --profile acme
 ```
+
+Use the absolute path of `java` (on macOS e.g. `$(/usr/libexec/java_home -v 21)/bin/java`, or
+`/opt/homebrew/opt/openjdk/bin/java`): a client started from the Dock, Finder or Start menu does
+not see your shell's `PATH`, and on macOS `/usr/bin/java` is only a stub without a registered JDK.
 
 `--profile acme` reads `~/.config/inubit-mcp/acme.yaml`; `--config <path>` works for a file
 elsewhere. Without either, the server reads `~/.config/inubit-mcp/config.yaml`. Do not add
 `-e …` (see the warning in section 4): the server reads the credentials from the credential store
-or Parameter Store, not from the environment. The same registration works for Claude Code started
-from any shell and for the Claude desktop app; no start script is needed.
+or Parameter Store, not from the environment. With the absolute path of `java`, the registration
+works for a client started from a terminal or from the Dock; no start script is needed.
 
 1. Create the credential store entries (section 4) and run `--check-config` once. For a profile
    whose nodes read Parameter Store, log in to AWS (e.g. `aws sso login --profile prod-account`,

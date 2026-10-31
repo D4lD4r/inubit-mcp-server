@@ -50,3 +50,35 @@ one online dependency resolution.
 | 25 | FR-013: `secret.fetch` record | `source=credentialStore`, `store`, `entries`, `durationMs`, `outcome`, `changed` on re-read; INFO/WARN; none within back-off; never a value | `NodeSecretsCredentialStoreTest` (log capture) |
 | 26 | R-17: audit account before first read | "(credential store <account>)", then the read username | `WiringAuditTest` |
 | 27 | R-13: `--check-config` reads each account once | a group entry shared by N nodes read once | `EntryCheckTest` |
+
+## Validation record
+
+2026-10-31, task T024 (offline, in a Linux container running as root, `LC_ALL=C.UTF-8`):
+
+- `mvn -B -o clean verify`: 3574 tests, 3 failures, 0 errors, 5 skipped. The three failures are
+  environment-only and fail on the base of this feature as well:
+  `ConfigValidatorTest.aWorkspaceThatIsNotWritableIsUnusable` and
+  `CliResourcesTest.theSweepLeavesDirectoriesOfOtherOwnersAlone` (root ignores file permissions
+  and ownership), `InubitHttpClientTest.unknownHostIsUnreachable` (the proxy of the container
+  resolves every host name). Without `LC_ALL=C.UTF-8` the git and deployment tests fail on file
+  names with umlauts (POSIX locale of the container).
+- `mvn -o -Dtest=NoCustomerIdentifiersTest test`: 20 tests, 1 skipped — the private identifier
+  lists are not present here. **To do by the person with the lists:** run it locally (it must
+  run, not skip).
+- `System.getenv` in `src/main/java` (6 hits), each allowed by research R-10:
+  - `ConfigLoader` (system loader): `INUBIT_MCP_CONFIG`, `INUBIT_MCP_PROFILE`, `APPDATA` (where
+    the configuration file is);
+  - `ConfigValidator` (system validator): the `JAVA_HOME` fallback of StartCLI and the names of
+    leftover credential variables (`LeftoverVariables`, set or not, never the value);
+  - `Launcher.Context.system` (2 hits): the context's environment (as above) and the environment
+    the credential store adapters copy their allowlists from (`HOME`, `USER`, `LANG`; for
+    `secret-tool` also the session bus and display variables and `PATH`);
+  - `Launcher.serve` and `Wiring` (default constructor): the environment the StartCLI and git
+    child processes copy their allowlists from (no `INUBIT_*` variable is passed on); the AWS SDK
+    reads its own variables itself.
+  No code path reads an INUBIT credential value from the environment
+  (`NoEnvironmentCredentialsTest`).
+- **Pending: T020** — the opt-in live checks against the real credential store
+  (`INUBIT_LIVE_STORE=1 mvn -q verify -Plive-store`, docs/live-tests.md) on macOS (required before
+  the release) and, where available, Windows and Linux, plus the manual access-denied steps and the
+  recording of the exit codes and texts of `security` / `secret-tool` (research R-3, R-5).

@@ -231,7 +231,7 @@ other nodes are still reported.
 | `code` | one of the codes below |
 | `message` | what failed |
 | `likelyCause` | the most likely cause |
-| `nextStep` | what to do, e.g. which variable or setting to fix |
+| `nextStep` | what to do, e.g. which credential store entry, parameter or setting to fix |
 | `node` | the node id, when the error belongs to one node |
 | `excerpt` | at most 500 chars of the unexpected INUBIT or StartCLI output, scrubbed of secrets |
 

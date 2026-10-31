@@ -56,13 +56,6 @@ class LiveTargetTest {
         return Files.writeString(file, PROFILE_YAML.formatted(name));
     }
 
-    private void credentials(String prefix) {
-        env.put(prefix + "_TEST_USERNAME", "live-user");
-        env.put(prefix + "_TEST_PASSWORD", "live-test-Pw-4711");
-        env.put(prefix + "_PROD_USERNAME", "live-user");
-        env.put(prefix + "_PROD_PASSWORD", "live-test-Pw-4711");
-    }
-
     @Test
     void theOldServerVariableIsRefusedWithAHintToTheNodeVariable() {
         env.put("INUBIT_LIVE_SERVER", "test/node1");
@@ -77,7 +70,6 @@ class LiveTargetTest {
     @Test
     void theOldServerVariableIsRefusedEvenNextToTheNodeVariable() throws IOException {
         profileFile("acme");
-        credentials("INUBIT_ACME");
         env.put("INUBIT_MCP_PROFILE", "acme");
         env.put("INUBIT_LIVE_NODE", "test/node1");
         env.put("INUBIT_LIVE_SERVER", "test/node1");
@@ -92,7 +84,6 @@ class LiveTargetTest {
     void theDevelopmentLiveTestAcceptsOnlyADevelopmentNode() throws IOException {
         // feature 004 (T026, research D-23): never a node that is no development stage
         Path file = profileFile("acme");
-        credentials("INUBIT_ACME");
         env.put("INUBIT_MCP_PROFILE", "acme");
         env.put("INUBIT_LIVE_DEV_NODE", "test/node1");
 
@@ -113,7 +104,6 @@ class LiveTargetTest {
         String yaml = Files.readString(file).replace("  - name: test\n", "  - name: test\n"
             + "    development:\n      enabled: true\n      repository: WRITE\n");
         Files.writeString(file, yaml);
-        credentials("INUBIT_ACME");
         env.put("INUBIT_MCP_PROFILE", "acme");
         env.put("INUBIT_LIVE_DEV_NODE", "test/node1");
 
@@ -159,7 +149,6 @@ class LiveTargetTest {
     void theNodeVariableIsParsedAndTheProfileVariableSelectsTheConfiguration() throws IOException {
         profileFile("acme");
         Path globex = profileFile("globex");
-        credentials("INUBIT_GLOBEX");
         env.put("INUBIT_MCP_PROFILE", "globex");
         env.put("INUBIT_LIVE_NODE", " test/node1 ");
 
@@ -174,7 +163,6 @@ class LiveTargetTest {
     void resolvingTheTargetCreatesNoWorkspaceOfTheProfile() throws IOException {
         // review M11: live tests must not create the person's real workspace as a side effect
         profileFile("globex");
-        credentials("INUBIT_GLOBEX");
         env.put("INUBIT_MCP_PROFILE", "globex");
         env.put("INUBIT_LIVE_NODE", "test/node1");
 
@@ -187,7 +175,6 @@ class LiveTargetTest {
     void theConfigVariableComesBeforeTheProfileVariable() throws IOException {
         Path acme = profileFile("acme");
         profileFile("globex");
-        credentials("INUBIT_ACME");
         env.put("INUBIT_MCP_CONFIG", acme.toString());
         env.put("INUBIT_MCP_PROFILE", "globex");
         env.put("INUBIT_LIVE_NODE", "test/node1");
@@ -200,7 +187,6 @@ class LiveTargetTest {
         Path file = home.resolve(".config/inubit-mcp/config.yaml");
         Files.createDirectories(file.getParent());
         Files.writeString(file, PROFILE_YAML.formatted("acme"));
-        credentials("INUBIT_ACME");
         env.put("INUBIT_LIVE_NODE", "test/node1");
 
         assertThat(resolve().loaded().source()).isEqualTo(file);
@@ -209,7 +195,6 @@ class LiveTargetTest {
     @Test
     void aProductionNodeIsRefusedBeforeAnythingIsContacted() throws IOException {
         profileFile("acme");
-        credentials("INUBIT_ACME");
         env.put("INUBIT_MCP_PROFILE", "acme");
         env.put("INUBIT_LIVE_NODE", "prod/node1");
 
@@ -222,7 +207,6 @@ class LiveTargetTest {
     @Test
     void anUnknownNodeIsReported() throws IOException {
         profileFile("acme");
-        credentials("INUBIT_ACME");
         env.put("INUBIT_MCP_PROFILE", "acme");
         env.put("INUBIT_LIVE_NODE", "qa/node1");
 

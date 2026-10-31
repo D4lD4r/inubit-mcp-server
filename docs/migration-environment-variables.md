@@ -67,8 +67,19 @@ secret-tool store --label='inubit-mcp INUBIT_ACME_DEV_USERNAME' service inubit-m
 secret-tool store --label='inubit-mcp INUBIT_ACME_DEV_PASSWORD' service inubit-mcp account INUBIT_ACME_DEV_PASSWORD
 ```
 
-Then run `--check-config` (it warns about variables that are still set) and start the client as
-usual; it no longer needs to be started from a particular shell.
+On Windows, credential variables set as user environment variables (System Properties →
+Environment Variables) are removed there or with PowerShell, one per name:
+
+```powershell
+[Environment]::SetEnvironmentVariable('INUBIT_ACME_DEV_PASSWORD', $null, 'User')
+```
+
+Then run `--check-config` and start the client as usual; it no longer needs to be started from a
+particular shell. The warning "Environment variables are no longer read …" names every variable
+that is still set in the environment the server got. It disappears once the MCP client itself runs
+without them: after removing the lines, open a new shell (or log in again, for Windows user
+variables and GUI clients) and start the client from there; the next server start no longer
+warns. The values are never read, so the warning is harmless until then.
 
 Where no credential store is available (a container, CI, a headless Linux server), move the
 group to Parameter Store instead ([setup.md](setup.md#aws-systems-manager-parameter-store)).

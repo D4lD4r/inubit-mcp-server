@@ -58,7 +58,8 @@ public final class ConfigValidator {
 
     /**
      * @param exists      file-system check, injectable for tests
-     * @param environment the process environment (for the {@code JAVA_HOME} fallback)
+     * @param environment the process environment (for the {@code JAVA_HOME} fallback and the
+     *     names of leftover credential variables; no credential value is read from it)
      * @param windows     whether the server runs on Windows, where CLI tools are unsupported
      */
     public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,

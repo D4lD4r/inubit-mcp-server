@@ -4,7 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.opentest4j.TestAbortedException;
@@ -34,5 +39,17 @@ class CredentialStoreLiveOptInTest {
     void theCheckHasItsOwnTag() {
         assertThat(CredentialStoreLiveTest.class.getAnnotation(Tag.class).value())
             .isEqualTo("live-store");
+    }
+
+    @Test
+    void theDefaultBuildAndTheLiveProfileExcludeTheTag() throws IOException {
+        String pom = Files.readString(Path.of("pom.xml"));
+        Matcher excluded = Pattern.compile(
+            "<surefire\\.excludedGroups>([^<]*)</surefire\\.excludedGroups>").matcher(pom);
+        // the first occurrence is the default build's property, the next the live profile's
+        assertThat(excluded.find()).isTrue();
+        assertThat(excluded.group(1).split(",")).contains("live", "live-store");
+        assertThat(excluded.find()).isTrue();
+        assertThat(excluded.group(1).split(",")).contains("live-store");
     }
 }

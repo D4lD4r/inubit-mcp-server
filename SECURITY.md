@@ -2,10 +2,9 @@
 
 ## Supported versions
 
-| Version | Supported |
-|---|---|
-| 0.4.x | yes |
-| older | no |
+Security fixes go into the latest release only (see the
+[releases](https://github.com/D4lD4r/inubit-mcp-server/releases)); older versions are not
+supported.
 
 ## Reporting a vulnerability
 
