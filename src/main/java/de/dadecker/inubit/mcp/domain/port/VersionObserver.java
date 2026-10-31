@@ -16,7 +16,15 @@ public interface VersionObserver {
     void detected(NodeId node, InubitVersion version);
 
     /** A detection on {@code node} failed with {@code code}; a cancelled call is not reported. */
-    void detectionFailed(NodeId node, ErrorCode code);
+    default void detectionFailed(NodeId node, ErrorCode code) {
+        detectionFailed(node, code, false);
+    }
+
+    /**
+     * As {@link #detectionFailed(NodeId, ErrorCode)}; {@code endpointMissing} if the detection
+     * request was answered with HTTP 404 (feature 011 FR-003).
+     */
+    void detectionFailed(NodeId node, ErrorCode code, boolean endpointMissing);
 
     /** {@code get_health} read {@code version} from {@code node}. */
     void observed(NodeId node, InubitVersion version);

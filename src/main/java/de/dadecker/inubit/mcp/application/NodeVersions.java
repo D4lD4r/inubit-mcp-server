@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
+import de.dadecker.inubit.mcp.domain.model.NodeVersionState.DetectionFailure;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import java.time.Clock;
@@ -80,11 +81,11 @@ public final class NodeVersions implements VersionObserver {
         update(node, state -> state.withDetected(version, clock.instant()));
     }
 
-    /** A failed detection. */
+    /** A failed detection; {@code endpointMissing} after an HTTP 404 (feature 011 FR-003). */
     @Override
-    public void detectionFailed(NodeId node, ErrorCode code) {
-        Objects.requireNonNull(code, "code");
-        update(node, state -> state.withDetectionFailure(code, clock.instant()));
+    public void detectionFailed(NodeId node, ErrorCode code, boolean endpointMissing) {
+        DetectionFailure failure = new DetectionFailure(code, endpointMissing);
+        update(node, state -> state.withDetectionFailure(failure, clock.instant()));
     }
 
     /** The version {@code get_health} read from the node. */

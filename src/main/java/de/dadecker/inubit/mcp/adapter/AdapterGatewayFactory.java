@@ -383,7 +383,7 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                     return new V81Gateway(server.id(), Optional.empty(), List.of(),
                         current.http(), current.monitoring(), this::ports, current.guard());
                 }
-                report(e.error().code());
+                report(e);
                 return fallback(current, e.error().code());
             }
             report(version);
@@ -406,7 +406,7 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                     version = V81VersionDetector.detect(server.id(), current.http());
                 } catch (ToolErrorException e) {
                     if (!Thread.currentThread().isInterrupted()) {
-                        report(e.error().code());
+                        report(e);
                         if (auto() && !valid(current)) {
                             fallback(current, e.error().code());
                         }
@@ -440,6 +440,12 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
             versions.detectionFailed(server.id(), failure);
         }
 
+        /** A failed detection request; an HTTP 404 is reported as a missing endpoint. */
+        private void report(ToolErrorException failure) {
+            versions.detectionFailed(server.id(), failure.error().code(),
+                failure instanceof InubitHttpClient.EndpointMissing);
+        }
+
         /**
          * The health call's {@code /system/info} completes an {@code AUTO} detection (and reports
          * it); once detected, later health calls are observations, reported by the health
@@ -469,15 +475,15 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
 
         /** A real failure of the health call's {@code /system/info} is a failed detection. */
         @Override
-        public void failed(ToolError error) {
+        public void failed(ToolErrorException failure) {
             if (!auto() || Thread.currentThread().isInterrupted() || !lock.tryLock()) {
                 return;
             }
             try {
                 Client current = builtClient();
                 if (current != null && !valid(current)) {
-                    report(error.code());
-                    fallback(current, error.code());
+                    report(failure);
+                    fallback(current, failure.error().code());
                 }
             } finally {
                 lock.unlock();

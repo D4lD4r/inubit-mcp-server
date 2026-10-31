@@ -252,6 +252,37 @@ class VersionGateTest {
             .isEqualTo(1);
     }
 
+    /** Feature 011 T011 (FR-003): the 6.1 hint follows only a detection answered with 404. */
+    @Test
+    void theUnknownVersionHintsAtV61OnlyAfterADetectionAnsweredWith404() {
+        detection.failEndpointMissing(detectionError(ErrorCode.UNEXPECTED_RESPONSE));
+
+        Admission afterNotFound = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ,
+            REST);
+        ToolError write = refusal(() -> gate().admit(AUTO, Capability.DEVELOPMENT_WRITE,
+            Kind.WRITE, CLI_REST));
+
+        assertThat(afterNotFound.warnings()).containsExactly("the INUBIT version of dev/node1"
+            + " is unknown (UNEXPECTED_RESPONSE at 2026-10-18T08:00:00Z); if dev/node1 runs"
+            + " INUBIT 6.1, pin V6_1; results are unverified");
+        assertThat(write.message()).contains("the INUBIT version of dev/node1 is unknown"
+            + " (UNEXPECTED_RESPONSE at 2026-10-18T08:00:00Z); if dev/node1 runs INUBIT 6.1,"
+            + " pin V6_1");
+        assertThat(versions.state(AUTO).effectiveVersion()).as("AUTO never selects 6.1")
+            .isEmpty();
+
+        clock.advance(Duration.ofSeconds(60));
+        detection.fail(detectionError(ErrorCode.UNEXPECTED_RESPONSE));
+
+        Admission afterOtherFailure = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS,
+            Kind.READ, REST);
+
+        assertThat(afterOtherFailure.warnings()).containsExactly("the INUBIT version of"
+            + " dev/node1 is unknown (UNEXPECTED_RESPONSE at 2026-10-18T08:01:00Z); results are"
+            + " unverified");
+        assertThat(detection.calls).isEqualTo(2);
+    }
+
     @Test
     void aPinContradictedByGetHealthRefusesWrites() {
         versions.observed(PINNED, version("8.2.0"));
@@ -1036,6 +1067,14 @@ class VersionGateTest {
         void fail(ToolErrorException error) {
             outcome = () -> {
                 versions.detectionFailed(AUTO, error.error().code());
+                throw error;
+            };
+        }
+
+        /** As {@link #fail}, for a detection request answered with HTTP 404 (FR-003). */
+        void failEndpointMissing(ToolErrorException error) {
+            outcome = () -> {
+                versions.detectionFailed(AUTO, error.error().code(), true);
                 throw error;
             };
         }

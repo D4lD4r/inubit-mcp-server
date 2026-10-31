@@ -256,7 +256,7 @@ the repository, never committed). Facts about this code base were verified in th
     with HTTP 404 is `UNEXPECTED_RESPONSE` like other causes (`InubitHttpClient.java:85-94`,
     `V81VersionDetector.java:28-35`). The detector marks the 404 case
     (`DetectionFailure(code, endpointMissing)`), `NodeVersions` keeps the flag, and
-    `VersionGate.unknown()` (`:405`) appends "if this node runs INUBIT 6.1, pin V6_1" only then
+    `VersionGate.unknown()` (`:405`) appends "if <node id> runs INUBIT 6.1, pin V6_1" only then
     (FR-003).
 - **Rationale**: FR-003, FR-006, FR-006a, FR-007.
 

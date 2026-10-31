@@ -141,7 +141,7 @@ contact, with node, version, capability and next step.
   gives `MODULE_UNVERIFIED` findings carrying the gate's refusal text (from T008; no version text
   in `ArtifactCheckService`, FR-016); offline checks still run; also while the 6.1 pin is
   contradicted. Test first: `ArtifactCheckServiceTest`.
-- [ ] T011 [P] [US3] `AUTO` 404 hint (FR-003, research D-11): `V81VersionDetector` reports a
+- [X] T011 [P] [US3] `AUTO` 404 hint (FR-003, research D-11): `V81VersionDetector` reports a
   detection answered with HTTP 404 as `endpointMissing`; `NodeVersions`/`NodeVersionState` keep the
   flag; `VersionGate.unknown()` (`:405`) appends `; if this node runs INUBIT 6.1, pin V6_1` only
   then. Tests first: `V81VersionDetectorTest` (404 vs. 401 vs. 500), `VersionGateTest` (hint only

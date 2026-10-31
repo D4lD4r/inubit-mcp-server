@@ -176,7 +176,8 @@ public final class NodeOverview {
             return NodeSummary.Server.known(line.major() + ".x", "pinned", Optional.empty());
         }
         return state.detectionFailure()
-            .map(failure -> NodeSummary.Server.unknown(failure.value().name(), at(failure)))
+            .map(failure -> NodeSummary.Server.unknown(failure.value().code().name(),
+                at(failure)))
             .orElse(NodeSummary.Server.NOT_YET_DETECTED);
     }
 

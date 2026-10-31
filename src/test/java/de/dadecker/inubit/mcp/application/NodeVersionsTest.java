@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
+import de.dadecker.inubit.mcp.domain.model.NodeVersionState.DetectionFailure;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState.Timed;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
@@ -148,7 +149,7 @@ class NodeVersionsTest {
 
         NodeVersionState afterFailure = versions.state(AUTO);
         assertThat(afterFailure.detectionFailure())
-            .contains(new Timed<>(ErrorCode.UNREACHABLE, failedAt));
+            .contains(new Timed<>(new DetectionFailure(ErrorCode.UNREACHABLE, false), failedAt));
         assertThat(versions.writableVersion(AUTO)).as("unknown for writes").isEmpty();
         assertThat(afterFailure.effectiveVersion()).as("reads").contains(V_8_1_17);
         assertThat(versions.needsDetection(AUTO, Kind.WRITE)).as("60 s back-off").isFalse();
@@ -204,6 +205,28 @@ class NodeVersionsTest {
         assertThat(state.stale()).isFalse();
         assertThat(state.detectionFailure()).isEmpty();
         assertThat(versions.writableVersion(AUTO)).contains(V_8_1_17);
+    }
+
+    /** Feature 011 T011: a detection answered with HTTP 404 keeps that flag (FR-003). */
+    @Test
+    void aFailedDetectionKeepsWhetherTheEndpointWasMissingUntilADetectionSucceeds() {
+        versions.detectionFailed(AUTO, ErrorCode.UNEXPECTED_RESPONSE, true);
+
+        assertThat(versions.state(AUTO).detectionFailure()).contains(new Timed<>(
+            new DetectionFailure(ErrorCode.UNEXPECTED_RESPONSE, true), T0));
+
+        clock.advance(Duration.ofSeconds(60));
+        versions.detectionFailed(AUTO, ErrorCode.UNEXPECTED_RESPONSE);
+
+        assertThat(versions.state(AUTO).detectionFailure()).as("another cause replaces it")
+            .contains(new Timed<>(new DetectionFailure(ErrorCode.UNEXPECTED_RESPONSE, false),
+                clock.instant()));
+
+        clock.advance(Duration.ofSeconds(60));
+        versions.detectionFailed(AUTO, ErrorCode.UNEXPECTED_RESPONSE, true);
+        versions.detected(AUTO, V_8_1_17);
+
+        assertThat(versions.state(AUTO).detectionFailure()).isEmpty();
     }
 
     @Test

@@ -26,7 +26,7 @@ import java.util.OptionalInt;
 public record NodeVersionState(
     VersionSetting setting,
     Optional<Timed<InubitVersion>> detected,
-    Optional<Timed<ErrorCode>> detectionFailure,
+    Optional<Timed<DetectionFailure>> detectionFailure,
     Optional<Timed<InubitVersion>> observed,
     boolean stale,
     boolean pinContradiction,
@@ -41,6 +41,16 @@ public record NodeVersionState(
         public Timed {
             Objects.requireNonNull(value, "value");
             Objects.requireNonNull(at, "at");
+        }
+    }
+
+    /**
+     * A failed detection: its error code, and whether the detection request was answered with
+     * HTTP 404 ({@code endpointMissing}, as by a typical INUBIT 6.1 server; feature 011 FR-003).
+     */
+    public record DetectionFailure(ErrorCode code, boolean endpointMissing) {
+        public DetectionFailure {
+            Objects.requireNonNull(code, "code");
         }
     }
 
@@ -66,8 +76,8 @@ public record NodeVersionState(
     }
 
     /** A failed detection; the last detected version stays for reads. */
-    public NodeVersionState withDetectionFailure(ErrorCode code, Instant at) {
-        return new NodeVersionState(setting, detected, Optional.of(new Timed<>(code, at)),
+    public NodeVersionState withDetectionFailure(DetectionFailure failure, Instant at) {
+        return new NodeVersionState(setting, detected, Optional.of(new Timed<>(failure, at)),
             observed, stale, pinContradiction, client, clientFailure);
     }
 
@@ -177,7 +187,7 @@ public record NodeVersionState(
         return stale || now.isAfter(version.at().plus(bound));
     }
 
-    private static boolean inBackOff(Optional<Timed<ErrorCode>> failure, Instant now) {
+    private static boolean inBackOff(Optional<? extends Timed<?>> failure, Instant now) {
         return failure.isPresent() && now.isBefore(failure.get().at().plus(RETRY_AFTER));
     }
 

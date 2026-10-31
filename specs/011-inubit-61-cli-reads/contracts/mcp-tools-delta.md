@@ -12,8 +12,11 @@ unchanged. Output changes are additive except the capability names (deliberate, 
 - Tool announcement: `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item` and
   `export_artifacts` are not announced when no configured node may run them (e.g. a profile of
   6.1 nodes only); `list_nodes`, `get_health` and `check_artifacts` stay always announced.
-- `AUTO` node whose detection request is answered with HTTP 404: the unknown-version warning ends
-  with `; if this node runs INUBIT 6.1, pin V6_1`.
+- `AUTO` node whose detection request is answered with HTTP 404: the unknown-version text gets
+  `; if <node id> runs INUBIT 6.1, pin V6_1` right after the failure in parentheses, before any
+  suffix of the message, e.g. `the INUBIT version of dev/node1 is unknown (UNEXPECTED_RESPONSE at
+  2026-10-18T08:00:00Z); if dev/node1 runs INUBIT 6.1, pin V6_1; results are unverified`. The node
+  id stands for "this node" so the text needs no level word of the profile's terminology.
 
 ## `get_health` on a 6.1 node
 

@@ -196,8 +196,8 @@ with `UNSUPPORTED_VERSION` for the unsupported ones, with no StartCLI, TLS or RE
    node, **Then** it is refused with `UNSUPPORTED_VERSION` naming both versions; `get_health`,
    `list_nodes` and the offline checks of `check_artifacts` still run.
 7. **Given** a node on `AUTO` whose `system/info` request is answered with HTTP 404, **When** a
-   read runs, **Then** the existing "unknown version" warning adds "if this node runs INUBIT 6.1,
-   pin `V6_1`"; for any other detection failure the warning is unchanged.
+   read runs, **Then** the existing "unknown version" warning adds "if <node id> runs INUBIT 6.1,
+   pin `V6_1`" (e.g. "if legacy/node1 runs INUBIT 6.1, pin `V6_1`"); for any other detection failure the warning is unchanged.
 8. **Given** a 6.1 node, **When** `check_artifacts` runs with module lookup, **Then** the offline
    checks run and the result carries the notice that the lookup was skipped; no StartCLI, TLS or
    REST contact.
@@ -340,8 +340,8 @@ limits.
   part and a suffix are kept for display and ignored for matching and for the patch warning). `AUTO` MUST stay REST-based (feature 009). `--check-config` and `list_nodes`
   MUST accept and show `V6_1` like the other line values.
 - **FR-003**: For a node on `AUTO` whose detection request is answered with HTTP 404, the
-  existing "unknown version" warning MUST add the conditional hint "if this node runs INUBIT 6.1,
-  pin `V6_1`". For every other detection failure the warning stays unchanged. This amends feature
+  existing "unknown version" warning MUST add the conditional hint "if <node id> runs INUBIT 6.1,
+  pin `V6_1`", naming the node by its id. For every other detection failure the warning stays unchanged. This amends feature
   009 FR-005 (which forbids suggesting a pin the node is not known to run) by this one
   conditional hint.
 - **FR-004**: The capability matrix of feature 009 MUST declare INUBIT 6.1 with the states of the

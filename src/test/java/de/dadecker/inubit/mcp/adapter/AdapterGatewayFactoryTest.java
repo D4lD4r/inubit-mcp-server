@@ -301,6 +301,49 @@ class AdapterGatewayFactoryTest {
         }
     }
 
+    /** Feature 011 T011 (FR-003): both detection paths report a 404 as a missing endpoint. */
+    @Test
+    void aDetectionAnswered404IsReportedWithTheEndpointMissing() {
+        systemInfo(404, "<html>Not Found</html>");
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            assertThat(factory.forServer(DEV).adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
+            assertThat(codeOf(() -> factory.detect(DEV)))
+                .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+
+            assertThat(versions.events()).containsExactly(
+                "detectionFailed dev/node1 UNEXPECTED_RESPONSE endpointMissing",
+                "detectionFailed dev/node1 UNEXPECTED_RESPONSE endpointMissing");
+        }
+    }
+
+    /**
+     * Feature 011 T011 (FR-003): the health call's {@code /system/info} reports a 404 as a
+     * missing endpoint too, so get_health after the detection keeps the flag.
+     */
+    @Test
+    void aSystemInfoOfTheMonitoringAnswered404IsReportedWithTheEndpointMissing() {
+        systemInfo(404, "<html>Not Found</html>");
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            assertThat(codeOf(() -> factory.detect(DEV)))
+                .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            clock.advance(AdapterGatewayFactory.FAILED_DETECTION_TTL);
+
+            assertThatThrownBy(factory.monitoring(DEV)::systemInfo)
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+                    assertThat(e.error().message()).isEqualTo("INUBIT endpoint not found for GET"
+                        + " /ibis/rest/system/info (HTTP 404); the node may run another INUBIT"
+                        + " version");
+                });
+
+            // the stale report of an endpoint 404 (feature 009 D-10) keeps the failure
+            assertThat(versions.events()).containsExactly(
+                "detectionFailed dev/node1 UNEXPECTED_RESPONSE endpointMissing",
+                "detectionFailed dev/node1 UNEXPECTED_RESPONSE endpointMissing",
+                "stale dev/node1");
+        }
+    }
+
     @Test
     void anUnreachableServerIsAlsoNotProbedAgainWithinTheWindow() {
         wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO)).willReturn(aResponse()

@@ -398,6 +398,26 @@ class InubitHttpClientTest {
         assertThat(post.message()).contains("POST /ibis/rest/log/queueLog");
     }
 
+    /** Feature 011 T011 (FR-003): only a 404 of an endpoint request is a missing endpoint. */
+    @Test
+    void onlyNotFoundOfAnEndpointRequestIsMarkedAsAMissingEndpoint() {
+        stubStatus(404, "text/html", "<html>not found</html>");
+
+        assertThatThrownBy(() -> client().get("/ibis/rest/system/info", Map.of(),
+            InubitHttpClient.ResourceKind.ENDPOINT))
+            .isInstanceOf(InubitHttpClient.EndpointMissing.class);
+        assertThatThrownBy(() -> client().get("/ibis/rest/model/modelByName/x", Map.of(),
+            InubitHttpClient.ResourceKind.RESOURCE))
+            .isNotInstanceOf(InubitHttpClient.EndpointMissing.class);
+
+        stubStatus(500, "text/html", "<html>boom</html>");
+
+        assertThatThrownBy(() -> client().get("/ibis/rest/system/info", Map.of(),
+            InubitHttpClient.ResourceKind.ENDPOINT))
+            .isInstanceOf(ToolErrorException.class)
+            .isNotInstanceOf(InubitHttpClient.EndpointMissing.class);
+    }
+
     @Test
     void anAcceptedNotFoundOfAnEndpointRequestIsReturned() {
         stubStatus(404, "text/html", "<html>not found</html>");

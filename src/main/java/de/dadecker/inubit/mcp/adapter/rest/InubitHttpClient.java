@@ -93,6 +93,20 @@ public final class InubitHttpClient implements AutoCloseable {
         ENDPOINT
     }
 
+    /**
+     * The {@code UNEXPECTED_RESPONSE} of an HTTP 404 on a {@link ResourceKind#ENDPOINT} request.
+     * On the version detection's {@code /system/info} it gives the INUBIT 6.1 hint (feature 011
+     * FR-003, research D-11).
+     */
+    public static final class EndpointMissing extends ToolErrorException {
+
+        private static final long serialVersionUID = 1L;
+
+        EndpointMissing(ToolError error) {
+            super(error);
+        }
+    }
+
     /** Username (not secret, FR-025) and password of the INUBIT account. */
     public record Credentials(String username, Secret password) {
         public Credentials {
@@ -321,7 +335,9 @@ public final class InubitHttpClient implements AutoCloseable {
             || Arrays.stream(acceptedStatuses).anyMatch(accepted -> accepted == status)) {
             return result;
         }
-        throw new ToolErrorException(statusError(method, path, kind, result));
+        ToolError error = statusError(method, path, kind, result);
+        throw status == 404 && kind == ResourceKind.ENDPOINT ? new EndpointMissing(error)
+            : new ToolErrorException(error);
     }
 
     private static String basicAuth(Credentials credentials) {

@@ -24,8 +24,8 @@ public final class V81VersionDetector {
     }
 
     /**
-     * @throws ToolErrorException the client's error, or {@code UNEXPECTED_RESPONSE} if the
-     *     response has no version
+     * @throws ToolErrorException the client's error ({@link InubitHttpClient.EndpointMissing}
+     *     for an HTTP 404), or {@code UNEXPECTED_RESPONSE} if the response has no version
      */
     public static String detect(NodeId server, InubitHttpClient client) {
         Objects.requireNonNull(server, "server");

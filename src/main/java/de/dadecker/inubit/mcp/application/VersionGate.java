@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
+import de.dadecker.inubit.mcp.domain.model.NodeVersionState.DetectionFailure;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState.Timed;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
@@ -510,10 +511,18 @@ public final class VersionGate {
         return line.major() + ".x";
     }
 
-    /** "the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T08:00:00Z)". */
+    /**
+     * "the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T08:00:00Z)"; after a
+     * detection answered with HTTP 404 followed by "; if dev/node1 runs INUBIT 6.1, pin V6_1"
+     * (feature 011 FR-003).
+     */
     static String unknown(NodeId node, NodeVersionState state) {
+        Optional<Timed<DetectionFailure>> failure = state.detectionFailure();
+        String hint = failure.filter(f -> f.value().endpointMissing()).isPresent()
+            ? "; if " + node + " runs INUBIT 6.1, pin V6_1" : "";
         return "the INUBIT version of " + node + " is unknown ("
-            + state.detectionFailure().map(VersionGate::timed).orElse("not yet detected") + ")";
+            + failure.map(f -> f.value().code() + " at " + time(f)).orElse("not yet detected")
+            + ")" + hint;
     }
 
     private static String timed(Timed<ErrorCode> failure) {
