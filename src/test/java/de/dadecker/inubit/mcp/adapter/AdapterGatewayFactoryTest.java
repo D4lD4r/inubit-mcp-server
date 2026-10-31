@@ -19,6 +19,7 @@ import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.application.NodeVersions;
+import de.dadecker.inubit.mcp.config.CredentialNames;
 import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.FailureKind;
@@ -44,6 +45,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
@@ -549,6 +551,28 @@ class AdapterGatewayFactoryTest {
                 .isEqualTo(CredentialState.READY);
         }
         assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void aSingleNodeCallWaitsForTheCredentialStoreLongerThanTheParameterStoreTimeout() {
+        // feature 011 (T013, research R-7, quickstart Q22): the wait is the node's store timeout
+        // (60 s, an access dialog may be open), not the 10 s of Parameter Store
+        EffectiveNodeConfig dev = server(DEV, VersionSetting.V8_1);
+        FakeCredentialStore store = TestSecrets.store(Map.of("INUBIT_DEV_USERNAME", "jdoe",
+            "INUBIT_DEV_PASSWORD", "gateway-test-pw"));
+        store.delay(dev.credentialNames().nodeName(CredentialNames.USERNAME),
+            NodeSecrets.STORE_TIMEOUT.plusSeconds(1));
+        try (AdapterGatewayFactory factory = new AdapterGatewayFactory(List.of(dev),
+            Map.of(DEV, NodeSecrets.credentialStore(dev, store, scrubber, clock)), scrubber,
+            clock, new CliRunner(new SystemProcessLauncher(), Map.of(), false,
+                new CliResources("acme")), versions, PortSetRegistry.v81Default())) {
+
+            assertThat(factory.logs(DEV)).isNotNull();
+
+            assertThat(factory.credentialsHeld(DEV)).isTrue();
+            assertThat(store.reads().get(0).timeout())
+                .isGreaterThan(NodeSecrets.STORE_TIMEOUT.multipliedBy(5));
+        }
     }
 
     @Test

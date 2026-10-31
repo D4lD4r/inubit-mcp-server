@@ -683,6 +683,10 @@ class ConfigLoaderTest {
                 .contains("dev/node1", "baseUrl", "user info"));
             assertThat(loaded.urlProblems()).anySatisfy(p -> assertThat(p)
                 .contains("groups[0] 'dev'", "cli.url", "user info"));
+            // feature 011 (review T013-T014 r1): the advice names the two sources
+            assertThat(loaded.urlProblems()).allSatisfy(p -> assertThat(p)
+                .contains("credential store", "AWS Parameter Store")
+                .doesNotContain("environment variables"));
             GroupConfig stage = loaded.config().groups().get(0);
             assertThat(stage.cli().url()).isEmpty();
             assertThat(stage.nodes().get(0).baseUrl()).isEmpty();

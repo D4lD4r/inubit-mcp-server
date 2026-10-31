@@ -62,7 +62,7 @@ public final class CredentialGuard {
     private final NodeId server;
     private final SecretLabels labels;
     private final Clock clock;
-    /** Empty without re-read (environment nodes): the behaviour of feature 009. */
+    /** Empty without re-read (unauthenticated clients): the behaviour of feature 009. */
     private final Optional<Rereadable> secrets;
     /** The guard holding the state; {@code this} unless this is a {@link #bind bound} view. */
     private final CredentialGuard root;

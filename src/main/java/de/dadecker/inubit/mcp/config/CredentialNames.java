@@ -6,16 +6,16 @@ import java.util.Locale;
 import java.util.Objects;
 
 /**
- * The credential environment variables of one node (002 research D-6,
- * contracts/configuration.md → Credential environment variables):
+ * The credential store entry names of one node (feature 011, research R-6; until 0.7.0 the names
+ * of its credential environment variables, 002 research D-6):
  * {@code <PREFIX>_<GROUP>_<NODE>_<KIND>} (node-specific) and {@code <PREFIX>_<GROUP>_<KIND>}
  * (group-wide), with {@code KIND} one of {@link #USERNAME}, {@link #PASSWORD},
  * {@link #TRUSTSTORE_PASSWORD}. Group and node names are upper-cased and every character other
  * than {@code A-Z0-9} becomes {@code _}.
  *
- * @param prefix the profile's effective prefix ({@code credentials.envPrefix}, or
- *     {@code INUBIT_<PROFILE>}); not validated here, so that messages can name the variables
- *     even of a configuration with errors
+ * @param prefix the effective prefix ({@code prefix} of the node's source, else
+ *     {@code credentials.prefix}, else {@code INUBIT_<PROFILE>}); not validated here, so that
+ *     messages can name the entries even of a configuration with errors
  */
 public record CredentialNames(String prefix, NodeId node) {
 

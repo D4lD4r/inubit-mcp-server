@@ -237,14 +237,21 @@ final class Wiring implements AutoCloseable {
             withClient::contains, id -> byId.get(id).cliTimeout(), terms);
         Map<NodeId, Duration> timeouts = new HashMap<>();
         servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
+        // feature 011 (research R-8): get_health names the credential store a read waits for
+        Map<NodeId, String> stores = new HashMap<>();
+        servers.stream().filter(server -> !server.secretPlan().aws())
+            .forEach(server -> stores.put(server.id(), credentialStore.kind().displayName()));
         this.health = new HealthService(gateways, targets, fanOut, timeouts::get, clock.clock(),
-            versionGate, versions, clientVersions, withClient::contains);
+            versionGate, versions, clientVersions, withClient::contains,
+            id -> Optional.ofNullable(stores.get(id)));
         Map<NodeId, Duration> hangingThresholds = new HashMap<>();
         servers.forEach(server -> hangingThresholds.put(server.id(), server.hangingThreshold()));
-        // feature 010 (research R-8): a fan-out branch of an AWS node may wait for its fetch
-        SecretTiming secretTiming = new SecretTiming(servers.stream()
-            .filter(server -> server.secretPlan().aws()).map(EffectiveNodeConfig::id)
-            .collect(Collectors.toUnmodifiableSet()), NodeSecrets.STORE_TIMEOUT);
+        // feature 010/011 (research R-8, FR-008): a fan-out branch waits for its node's first
+        // read as long as its store may take, but only while the credentials are not held
+        Map<NodeId, Duration> fetchWaits = new HashMap<>();
+        secrets.forEach((id, nodeSecrets) -> fetchWaits.put(id, nodeSecrets.timeout()));
+        SecretTiming secretTiming = new SecretTiming(fetchWaits,
+            id -> secrets.get(id).held().isPresent(), stores);
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
             hangingThresholds::get, clock.clock(), ResultJson::size, versionGate, secretTiming);
         this.inventory = new InventoryService(gateways, targets, fanOut, limiter,
@@ -304,12 +311,15 @@ final class Wiring implements AutoCloseable {
         Function<NodeId, E2ePort> e2ePorts = id -> {
             // feature 010 (FR-006a, research R-7): both reads before computeIfAbsent, so a slow
             // read blocks no other entry and a failed one is not cached as a client; feature 011
-            // (research R-7): each waits as long as the node's store may take
+            // (research R-7, review T013-T014 r1): together they wait at most as long as the
+            // node's store may take for one read, not twice that
             NodeSecrets nodeSecrets = secrets.get(id);
+            long waitEnd = System.nanoTime() + nodeSecrets.timeout().toNanos();
             Optional<de.dadecker.inubit.mcp.infra.Secret> trustStorePassword = nodeSecrets
                 .current(nodeSecrets.timeout()).trustStorePassword()
                 .map(SourcedValue::value);
-            Optional<SoapE2eClient.BasicAuth> auth = nodeSecrets.e2e(nodeSecrets.timeout())
+            Optional<SoapE2eClient.BasicAuth> auth = nodeSecrets.e2e(Duration.ofNanos(
+                    Math.max(waitEnd - System.nanoTime(), 0)))
                 .map(e2e -> new SoapE2eClient.BasicAuth(e2e.username().value(),
                     e2e.password().value()));
             return e2eClients.computeIfAbsent(id, node -> new SoapE2eClient(byId.get(node),

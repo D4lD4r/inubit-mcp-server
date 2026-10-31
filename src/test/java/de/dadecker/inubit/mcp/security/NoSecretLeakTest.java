@@ -22,12 +22,14 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
+import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.ParameterType;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.infra.ScrubbingJsonEncoder;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.ByteArrayOutputStream;
@@ -541,5 +543,52 @@ class NoSecretLeakTest {
                 .allSatisfy(argument -> assertThat(argument).doesNotContain(secret));
         }
     }
-}
 
+    /**
+     * Feature 011 (Q19, review T013-T014 r1): the failure paths of the credential store. dev reads
+     * its seed as password (registered with the scrubber), qa's store refuses the read with a
+     * detail that mentions dev's seed, and test's username entry is refused (a ':' in it) and
+     * holds test's seed. No seed leaves the server.
+     */
+    @Test
+    void noSecretFromTheCredentialStoreLeavesTheServerOnItsFailurePaths() throws IOException {
+        client.close();
+        wiring.close();
+        FakeCredentialStore store = new FakeCredentialStore()
+            .put("INUBIT_ACME_DEV_USERNAME", USER).put("INUBIT_ACME_DEV_PASSWORD", devSeed)
+            .fail("INUBIT_ACME_QA_NODE1_USERNAME", FailureKind.ACCESS_DENIED,
+                "exit 51: stderr mentions " + devSeed)
+            .put("INUBIT_ACME_TEST_USERNAME", USER + ":" + testSeed)
+            .put("INUBIT_ACME_TEST_PASSWORD", "other-Password-9");
+        ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
+            .parse(yaml(), temp.resolve("config.yaml")).config();
+        SecretScrubber scrubber = SecretScrubber.global();
+        wiring = TestWiring.of(config, store, scrubber, Files::exists, false, startCli(),
+            Map.of("PATH", "/usr/bin"));
+        client = McpTestClient.start(wiring.toolHandlers(), scrubber);
+        client.initialize();
+
+        List<JsonNode> results = new ArrayList<>();
+        results.add(call("find_processes", Map.of("target", "dev")));
+        results.add(call("find_processes", Map.of("target", "qa/node1")));
+        results.add(call("find_processes", Map.of("target", "test")));
+        results.add(call("get_health", Map.of()));
+
+        List<JsonNode> errors = results.stream().flatMap(result -> errors(result).stream())
+            .toList();
+        assertThat(errors).extracting(error -> error.path("message").asString())
+            .anySatisfy(message -> assertThat(message).contains("access denied"))
+            .anySatisfy(message -> assertThat(message).contains("INUBIT_ACME_TEST_USERNAME",
+                "invalid value"));
+        String protocol = client.rawOutput();
+        String log = logs.toString(StandardCharsets.UTF_8);
+        assertThat(log).as("the failed read is logged").contains("secret.fetch",
+            "stderr mentions");
+        for (String secret : List.of(devSeed, testSeed)) {
+            assertThat(protocol).as("protocol stdout").doesNotContain(secret);
+            assertThat(log).as("operational log").doesNotContain(secret);
+            assertThat(errors).as("ToolErrors").allSatisfy(error ->
+                assertThat(error.toString()).doesNotContain(secret));
+        }
+    }
+}

@@ -93,8 +93,8 @@ import java.util.stream.Stream;
  *       detects is only known inside the call (first use, a stale version, the end of the
  *       back-off); a call with a StartCLI part (module lists, all details) adds the gate's
  *       client probe ({@code cliTimeout} plus the time to stop StartCLI, FR-002), always, for
- *       the same reason; a node whose secrets come from AWS Parameter Store adds the
- *       {@link SecretTiming} allowance for their first fetch, always (feature 010); plus
+ *       the same reason; a node whose credentials are not held yet adds the
+ *       {@link SecretTiming} allowance for their first read (feature 010, 011); plus
  *       {@link #FAN_OUT_GRACE}.
  * </ul>
  */
@@ -236,8 +236,10 @@ public final class InventoryService {
                 "Use offset >= 0 and limit between 1 and 100"));
         }
         ResultLimiter shared = limiter.share(servers.size());
-        return fanOut.run(servers, server -> listDeadline(request.kind(), server),
-            server -> listing(server, request, shared));
+        Set<NodeId> pending = secretTiming.pending(servers);
+        return secretTiming.explainTimeouts(fanOut.run(servers,
+            server -> listDeadline(request.kind(), server),
+            server -> listing(server, request, shared)), pending);
     }
 
     /**
@@ -254,9 +256,10 @@ public final class InventoryService {
                 "Pass the exact name, e.g. from list_inventory"));
         }
         int budget = limiter.share(servers.size()).maxChars();
-        List<NodeResult<NodeResult<Lookup>>> nested = fanOut.run(servers,
-            server -> itemDeadline(request.kind(), server),
-            server -> lookup(server, request, budget));
+        Set<NodeId> pending = secretTiming.pending(servers);
+        List<NodeResult<NodeResult<Lookup>>> nested = secretTiming.explainTimeouts(fanOut.run(
+            servers, server -> itemDeadline(request.kind(), server),
+            server -> lookup(server, request, budget)), pending);
         return nested.stream()
             .map(result -> result.payload().orElseGet(() ->
                 NodeResult.failure(result.node(), result.error().orElseThrow())))
@@ -269,7 +272,7 @@ public final class InventoryService {
      * exportStopGrace}), the usage index ({@code cliExportTimeout}) and {@code 4 × timeout}
      * (guard wait, detection, the login before the export, the diagram list); plus
      * {@link #FAN_OUT_GRACE} (review I4, T126; the detection and the probe: feature 009); plus
-     * the fetch allowance of an AWS node (feature 010).
+     * the read allowance of a node whose credentials are not held yet (feature 010, 011).
      */
     Duration listDeadline(InventoryKind kind, NodeId server) {
         Duration timeout = timeouts.apply(server);
@@ -287,8 +290,8 @@ public final class InventoryService {
      * index, history), the usage index ({@code cliExportTimeout}) and {@code 5 × timeout}
      * (guard wait, detection, login, diagram list, login); plus grace. A stopped export or probe
      * thus ends before the deadline and becomes a partial result, not a {@code TIMEOUT}. The
-     * detection and the probe: feature 009; plus the fetch allowance of an AWS node (feature
-     * 010).
+     * detection and the probe: feature 009; plus the read allowance of a node whose credentials
+     * are not held yet (feature 010, 011).
      */
     Duration itemDeadline(InventoryKind kind, NodeId server) {
         Duration timeout = timeouts.apply(server);

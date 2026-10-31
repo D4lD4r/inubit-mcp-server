@@ -216,6 +216,46 @@ class ConfigValidatorTest {
         }
 
         @Test
+        void aNodeEntryCollidingWithAnotherGroupsGroupWideEntryIsAnError() {
+            // review T013-T014 r1 (from CredentialResolverTest): node a/b and group a-b
+            ValidationReport report = validate("""
+                profile:
+                  name: acme
+                groups:
+                  - name: a-b
+                    nodes:
+                      - name: x
+                        baseUrl: https://one.example.test
+                  - name: a
+                    nodes:
+                      - name: b
+                        baseUrl: https://two.example.test
+                """);
+
+            assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
+                .contains("Credential store entry names collide", "INUBIT_ACME_A_B_USERNAME",
+                    "group a-b", "node a/b"));
+        }
+
+        @Test
+        void aNodeNamedTruststoreCollidesWithTheGroupsTrustStorePasswordEntry() {
+            // review T013-T014 r1 (from CredentialResolverTest): <GROUP>_TRUSTSTORE_PASSWORD
+            ValidationReport report = validate("""
+                profile:
+                  name: acme
+                groups:
+                  - name: dev
+                    nodes:
+                      - name: truststore
+                        baseUrl: https://one.example.test
+                """);
+
+            assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
+                .contains("Credential store entry names collide",
+                    "INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD"));
+        }
+
+        @Test
         void duplicateStageName() {
             ValidationReport report = validate("""
                 profile:

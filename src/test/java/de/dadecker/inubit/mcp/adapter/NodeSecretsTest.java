@@ -290,7 +290,9 @@ class NodeSecretsTest {
             "Parameter Store unreachable");
         assertThat(store.requests()).singleElement()
             .satisfies(request -> assertThat(request.timeout()).isEqualTo(timeout));
-        assertThat(appender.list).singleElement().satisfies(event -> {
+        // the fetch count is pinned by store.requests(); the log may also hold a record of an
+        // earlier test's background fetch that ended late, so it is not counted here
+        assertThat(appender.list).anySatisfy(event -> {
             assertThat(event.getLevel()).isEqualTo(Level.WARN);
             assertThat(fields(event)).containsEntry("outcome", "UNREACHABLE");
         });

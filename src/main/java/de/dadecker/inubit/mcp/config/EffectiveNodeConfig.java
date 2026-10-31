@@ -152,8 +152,8 @@ public record EffectiveNodeConfig(
     }
 
     /**
-     * The credential environment variables of this node: those of its plan; for an AWS node
-     * (no variables) those under the profile's prefix, as before feature 010.
+     * The credential store entry names of this node: those of its plan; for an AWS node (which
+     * reads no entries) those under the profile's prefix.
      */
     public CredentialNames credentialNames() {
         return secretPlan.entries()

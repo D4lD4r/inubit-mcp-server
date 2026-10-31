@@ -174,10 +174,14 @@ step and removes the environment path. US4 (`--check-config`), US5 (rotation, me
 
 ## Phase 5: Time budgets (US1, US2)
 
-- [ ] T015 `SecretTiming(Map<NodeId, Duration> fetchWait, Predicate<NodeId> held)`: allowance only
-  while the node's credentials are not held, for both sources (FR-008); `HealthService` gets a
-  `Function<NodeId, String>` with the pending text per node from `Wiring` (Parameter Store text
-  unchanged). Tests first: `SecretTimingTest`, `InventoryServiceTest` (Q9; Q23 re-read inside a
+- [X] T015 `SecretTiming(Map<NodeId, Duration> fetchWait, Predicate<NodeId> held, Map<NodeId,
+  String> stores)`: allowance only while the node's credentials are not held, for both sources
+  (FR-008); a branch that times out while its credential store read is pending says that the read
+  may wait for an access dialog; `HealthService` gets a `Function<NodeId, Optional<String>>` with the
+  credential store of each node from `Wiring` (Parameter Store text unchanged). Done together with
+  the fixes of review T013-T014 r1 (credential-free `GatewayFactory.queryRules` for the diagnosis
+  input checks, Q22 tests, SC-002 for trust store / e2e / StartCLI stdin). Tests first:
+  `SecretTimingTest`, `InventoryServiceTest`, `DiagnosisServiceTest` (Q9; Q23 re-read inside a
   fan-out → branch `TIMEOUT`, next call uses the result), `HealthServiceTest`.
 
 ---
@@ -268,7 +272,7 @@ Phase 9:  T021 setup.md | T022 migration guide | T023 tools/README/SECURITY/CHAN
 
 - **MVP**: Phases 1–4. After Phase 4 every node reads the credential store (or Parameter Store) on
   first use and no environment variable is read; this is the breaking change and must not be released
-  without Phases 6, 7 and 9 (messages, `--check-config`, docs and migration guide).
+  without Phases 5, 6, 7 and 9 (time budgets, messages, `--check-config`, docs and migration guide).
 - Then time budgets, rotation and messages, `--check-config`, live tests, docs.
 - Run each task through the implementer → reviewer loop; every commit stays green because each task
   carries its own tests.

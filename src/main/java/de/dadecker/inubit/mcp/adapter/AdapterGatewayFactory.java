@@ -28,6 +28,7 @@ import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.domain.port.QueryRules;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.time.Clock;
@@ -194,6 +195,16 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
     @Override
     public ProcessControlPort processControl(NodeId server) {
         return slot(server).ports().processControl();
+    }
+
+    /**
+     * The query checks of the port set the node's current effective version selects; builds no
+     * client and reads no credentials (feature 011, review T013-T014 r1).
+     */
+    @Override
+    public QueryRules queryRules(NodeId server) {
+        slot(server);
+        return portSets.select(versions.effectiveVersion(server)).rules();
     }
 
     @Override

@@ -10,6 +10,7 @@ import de.dadecker.inubit.mcp.infra.LogLevels;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import de.dadecker.inubit.mcp.mcp.ToolHints;
+import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.ByteArrayInputStream;
@@ -34,6 +35,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -67,6 +69,8 @@ class MainTest {
     private final FakeParameterStore store = new FakeParameterStore();
     /** How often the launcher asked for {@link #store}. */
     private final AtomicInteger storesCreated = new AtomicInteger();
+    /** The credential store the launcher created last (feature 011). */
+    private final AtomicReference<FakeCredentialStore> credentialStore = new AtomicReference<>();
 
     @AfterEach
     void restoreTestLogLevel() {
@@ -85,7 +89,11 @@ class MainTest {
             Files::exists, () -> {
                 storesCreated.incrementAndGet();
                 return store;
-            }, () -> TestSecrets.store(entries)), handlers);
+            }, () -> {
+                FakeCredentialStore created = TestSecrets.store(entries);
+                credentialStore.set(created);
+                return created;
+            }), handlers);
     }
 
     private int run(String... args) {
@@ -248,7 +256,7 @@ class MainTest {
     }
 
     @Test
-    void anExplicitEnvironmentSourceChecksAndStartsLikeAProfileWithoutSource()
+    void anExplicitCredentialStoreSourceChecksAndStartsLikeAProfileWithoutSource()
         throws IOException {
         credentials();
         entries.put("INUBIT_ACME_QA_USERNAME", "qa-user");
@@ -372,6 +380,44 @@ class MainTest {
         assertThat(nodes.path("result").path("structuredContent").path("groups").path(0)
             .path("nodes").path(0).path("id").asString()).isEqualTo("prod/node1");
         assertThat(store.calls()).as("neither the startup nor list_nodes fetches").isZero();
+    }
+
+    @Test
+    void theServerStartsWithoutReadingTheCredentialStore() throws Exception {
+        // feature 011 (FR-006, review T013-T014 r1): nothing is read at startup or for list_nodes
+        entries.put("INUBIT_ACME_DEV_USERNAME", "jdoe");
+        entries.put("INUBIT_ACME_DEV_PASSWORD", "dev-Password-1");
+        Path file = config("""
+            profile:
+              name: acme
+            auditDirectory: %s
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://dev.example.test:8443
+                    versionLine: V8_1
+            """.formatted(home.resolve("audit")));
+        PipedInputStream serverIn = new PipedInputStream(1 << 16);
+        PipedOutputStream toServer = new PipedOutputStream(serverIn);
+        LineQueue protocol = new LineQueue();
+        Launcher main = main(serverIn, protocol);
+
+        CompletableFuture<Integer> exit = CompletableFuture.supplyAsync(
+            () -> main.run("--config", file.toString()));
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":"
+            + "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},"
+            + "\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}");
+        protocol.next();
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":"
+            + "{\"name\":\"list_nodes\",\"arguments\":{}}}");
+        protocol.next();
+        toServer.close();
+
+        assertThat(exit.get(20, TimeUnit.SECONDS)).as(err()).isZero();
+        assertThat(credentialStore.get()).as("the store was built").isNotNull();
+        assertThat(credentialStore.get().reads()).isEmpty();
     }
 
     // --- feature 010 T015: --check-config reads the AWS parameters (FR-009) --------------------

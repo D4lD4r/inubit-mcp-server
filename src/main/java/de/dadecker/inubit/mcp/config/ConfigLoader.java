@@ -385,7 +385,10 @@ public final class ConfigLoader {
         return userHome.resolve(".inubit-mcp").resolve(directory).resolve("workspace");
     }
 
-    /** True for keys that must never appear in the YAML: credentials come from the environment. */
+    /**
+     * True for keys that must never appear in the YAML: credentials come from the credential store
+     * or AWS Parameter Store.
+     */
     static boolean isCredentialKey(String key) {
         String lower = key.toLowerCase(Locale.ROOT);
         return CREDENTIAL_KEYS.contains(lower) || lower.contains("password");
@@ -663,7 +666,8 @@ public final class ConfigLoader {
             // parse as a host plus fragment or path and keep the credentials. The value is dropped
             // as a whole, so no part of it can ever be printed.
             problems.add(label + ": " + displayKey + " must not contain user info ('@'); the value"
-                + " was ignored. Credentials belong in environment variables");
+                + " was ignored. Credentials belong in the credential store or in AWS Parameter"
+                + " Store");
             parent.remove(key);
             return;
         }

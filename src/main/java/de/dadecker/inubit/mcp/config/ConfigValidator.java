@@ -178,15 +178,15 @@ public final class ConfigValidator {
      *
      * <ul>
      *   <li>an <b>error</b> if a file of <em>another</em> profile (another profile name) derives
-     *       a credential variable name that this profile derives as well, by nested prefixes
+     *       a credential store entry name that this profile derives as well, by nested prefixes
      *       (e.g. {@code INUBIT_ACME} + group {@code 2-test} and {@code INUBIT_ACME_2} + group
      *       {@code test}) or by an equal prefix with equal group names (002 US2 review P1,
-     *       re-review N1): two customers would read the same variable. Only names are printed;
-     *       only environment nodes derive names ({@link ProfileConfig#credentialEntryNames()},
+     *       re-review N1): two customers would read the same entry. Only names are printed; only
+     *       credential store nodes derive names ({@link ProfileConfig#credentialEntryNames()},
      *       research R-13), so two profiles may read the same Parameter Store names;
      *   <li>one <b>warning</b> per file that has the same profile name (a copy, which may start;
-     *       shared variable names are listed in the warning then), the same effective credential
-     *       prefix (if both profiles have environment nodes) or the same audit directory.
+     *       shared entry names are listed in the warning then), the same effective credential
+     *       prefix (if both profiles have credential store nodes) or the same audit directory.
      * </ul>
      *
      * A profile name read from another file is printed only if valid (review P3a).
@@ -712,8 +712,9 @@ public final class ConfigValidator {
 
     /**
      * Review m-d: in a {@code group} where any node allows end-to-end tests, a node named
-     * {@code e2e} would read {@code <PREFIX>_<GROUP>_E2E_USERNAME} as its own username. Only
-     * environment nodes read these variables (research R-6, R-13), so AWS nodes are left out.
+     * {@code e2e} would read the entry {@code <PREFIX>_<GROUP>_E2E_USERNAME} as its own username.
+     * Only credential store nodes read these entries (research R-6, R-13), so AWS nodes are left
+     * out.
      */
     private static void checkE2eNodeNames(ProfileConfig config, Findings findings) {
         Map<String, List<EffectiveNodeConfig>> byGroup = new TreeMap<>();

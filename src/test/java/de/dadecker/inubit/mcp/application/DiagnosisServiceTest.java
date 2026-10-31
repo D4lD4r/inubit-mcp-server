@@ -33,6 +33,7 @@ import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.domain.port.QueryRules;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.time.Duration;
@@ -156,6 +157,22 @@ class DiagnosisServiceTest {
             @Override
             public Optional<Gateway> knownGateway(NodeId server) {
                 return Optional.empty();
+            }
+
+            @Override
+            public QueryRules queryRules(NodeId server) {
+                // feature 011 (review T013-T014 r1): credential-free, never acquires the port
+                return new QueryRules() {
+                    @Override
+                    public void validate(LogQuery query) {
+                        DiagnosisServiceTest.this.logs(server).validate(query);
+                    }
+
+                    @Override
+                    public void validate(ProcessQuery query) {
+                        DiagnosisServiceTest.this.processes(server).validate(query);
+                    }
+                };
             }
         };
         return new DiagnosisService(gateways, new TargetResolver(SERVERS), new FanOut(),
@@ -522,7 +539,7 @@ class DiagnosisServiceTest {
     @Test
     void theFanOutDeadlineOfAnAwsNodeAddsTheFetchAllowance() {
         // feature 010 (T013, research R-8): always for an AWS node, never for the others
-        secretTiming = new SecretTiming(Set.of(QA1), Duration.ofSeconds(10));
+        secretTiming = new SecretTiming(Map.of(QA1, Duration.ofSeconds(10)), node -> false);
         DiagnosisService service = service();
         Duration base = TIMEOUT.multipliedBy(3).plus(DiagnosisService.FAN_OUT_GRACE);
 
@@ -531,11 +548,58 @@ class DiagnosisServiceTest {
     }
 
     @Test
+    void aReReadInsideAFanOutEndsThatBranchInATimeoutAndTheNextCallUsesItsResult() {
+        // feature 011 (T015, research R-8, quickstart Q23): the node's credentials are held, so
+        // its branch gets no allowance; a rejected login starts a re-read that outlasts the
+        // 1.9 s deadline. The branch reports TIMEOUT, the other node is unaffected, and once the
+        // re-read has finished the next call works
+        secretTiming = new SecretTiming(Map.of(QA1, Duration.ofSeconds(60)), node -> true,
+            Map.of(QA1, "macOS Keychain"));
+        CountDownLatch reread = new CountDownLatch(1);
+        processes(QA1).answer = query -> {
+            try {
+                if (!reread.await(3, TimeUnit.SECONDS)) {
+                    Thread.sleep(Duration.ofMillis(10));
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return page(List.of(), query.offset(), query.limit(), 0, false);
+        };
+        DiagnosisService service = service();
+
+        List<NodeResult<NodePage<ProcessInstance>>> first = service.findProcesses(
+            processRequest("qa"));
+        reread.countDown();
+        List<NodeResult<NodePage<ProcessInstance>>> second = service.findProcesses(
+            processRequest("qa"));
+
+        assertThat(first.get(0).error()).hasValueSatisfying(error ->
+            assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT));
+        assertThat(first.get(1).isSuccess()).isTrue();
+        assertThat(second).allSatisfy(result -> assertThat(result.isSuccess()).isTrue());
+    }
+
+    @Test
+    void theFetchAllowanceEndsOnceTheCredentialsAreHeld() {
+        // feature 011 (T015, FR-008): deadlines are as before feature 010 once a node's
+        // credentials are held, for every source
+        Set<NodeId> held = ConcurrentHashMap.newKeySet();
+        secretTiming = new SecretTiming(Map.of(QA1, Duration.ofSeconds(60)), held::contains);
+        DiagnosisService service = service();
+        Duration base = TIMEOUT.multipliedBy(3).plus(DiagnosisService.FAN_OUT_GRACE);
+
+        assertThat(service.deadline(QA1)).isEqualTo(base.plusSeconds(61));
+        held.add(QA1);
+        assertThat(service.deadline(QA1)).isEqualTo(base);
+    }
+
+    @Test
     void aSlowFirstFetchDelaysNoOtherNodeAndGivesThatNodesErrorNotAFanOutTimeout() {
         // feature 010 (T013, research R-8): acquiring the port of qa/node1 waits for its first
         // fetch. The fetch ends only after qa/node2 was queried (no node waits for another), and
         // 3 s later still, longer than the 1.9 s deadline without the allowance; then it fails
-        secretTiming = new SecretTiming(Set.of(QA1), Duration.ofSeconds(10));
+        secretTiming = new SecretTiming(Map.of(QA1, Duration.ofSeconds(10)), node -> false);
         pendingSecrets.add(QA1);
         CountDownLatch otherQueried = new CountDownLatch(1);
         Set<Thread> fetchThreads = ConcurrentHashMap.newKeySet();
@@ -569,7 +633,6 @@ class DiagnosisServiceTest {
         assertThat(results.get(0).error()).hasValueSatisfying(error ->
             assertThat(error.code()).isEqualTo(ErrorCode.UNREACHABLE));
         assertThat(results.get(1).isSuccess()).isTrue();
-        assertThat(processes(QA1).validated()).isEmpty();
     }
 
     @Test
@@ -593,30 +656,24 @@ class DiagnosisServiceTest {
     }
 
     @Test
-    void aNodeWithoutHeldSecretsIsValidatedInItsOwnBranchAfterItsFetch() {
-        // feature 010 (T013): its INVALID_INPUT becomes that node's error only
+    void aNodeWithoutHeldSecretsIsValidatedUpFrontWithoutReadingThem() {
+        // feature 011 (review T013-T014 r1): the input check needs no credentials, so a bad
+        // filter is one tool error before any read (no access dialog for a refused request)
         pendingSecrets.add(QA1);
-        Set<Thread> fetchThreads = ConcurrentHashMap.newKeySet();
-        fetch = node -> {
-            fetchThreads.add(Thread.currentThread());
-            pendingSecrets.remove(node);
-        };
+        AtomicInteger fetches = new AtomicInteger();
+        fetch = node -> fetches.incrementAndGet();
         logs(QA1).validator = query -> {
             throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT, "bad filter",
                 "cause", "next"));
         };
-        Thread caller = Thread.currentThread();
 
-        List<NodeResult<NodePage<LogEntry>>> results = service().queryLogs(logRequest("qa",
-            LogType.SYSTEM_LOG));
+        ToolError error = errorOf(() -> service().queryLogs(logRequest("qa",
+            LogType.SYSTEM_LOG)));
 
-        assertThat(fetchThreads).singleElement().isNotEqualTo(caller);
-        assertThat(results.get(0).error()).hasValueSatisfying(error -> {
-            assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
-            assertThat(error.node()).contains(QA1);
-        });
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(fetches).hasValue(0);
         assertThat(logs(QA1).queries()).isEmpty();
-        assertThat(results.get(1).isSuccess()).isTrue();
+        assertThat(logs(QA2).queries()).isEmpty();
     }
 
     @Test

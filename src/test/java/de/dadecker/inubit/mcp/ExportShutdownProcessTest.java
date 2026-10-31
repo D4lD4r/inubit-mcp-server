@@ -1,7 +1,11 @@
 package de.dadecker.inubit.mcp;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.options;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -18,13 +22,11 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -35,13 +37,18 @@ import org.junit.jupiter.api.io.TempDir;
  * fake {@code startcli.sh} that forks a long {@code sleep}. When the MCP client closes stdin, or
  * the server gets SIGTERM, no StartCLI process may survive and the export directory must be gone.
  * A stale export directory of a dead server process is swept at startup. The fake answers the
- * client probe {@code -v} of the version gate (feature 009, T019) at once.
+ * client probe {@code -v} of the version gate (feature 009, T019) at once. Feature 011: the node
+ * reads its credentials from AWS Parameter Store, answered by a local stub of the SSM protocol
+ * ({@code AWS_ENDPOINT_URL_SSM}), so that the test needs no credential store of the system and
+ * runs the same on every machine.
  */
 @Timeout(90)
 class ExportShutdownProcessTest {
 
     private static final String PASSWORD = "export-shutdown-Pw-4711";
     private static WireMockServer wireMock;
+    /** A plain-HTTP stub of AWS Systems Manager ({@code AmazonSSM.GetParameters}). */
+    private static WireMockServer ssm;
 
     @TempDir
     Path home;
@@ -51,11 +58,23 @@ class ExportShutdownProcessTest {
         wireMock = TestCertificates.httpsWireMock(TestCertificates.get().localhostKeyStore());
         wireMock.stubFor(get(urlPathEqualTo("/ibis/rest/system/info"))
             .willReturn(RestFixtures.response("system_info", "xml")));
+        ssm = new WireMockServer(options().dynamicPort());
+        ssm.start();
+        ssm.stubFor(post(urlPathEqualTo("/"))
+            .withHeader("X-Amz-Target", equalTo("AmazonSSM.GetParameters"))
+            .willReturn(aResponse().withStatus(200)
+                .withHeader("Content-Type", "application/x-amz-json-1.1").withBody("""
+                    {"Parameters":[
+                      {"Name":"/test/dev/username","Type":"SecureString",
+                       "Value":"export-test-user"},
+                      {"Name":"/test/dev/password","Type":"SecureString","Value":"%s"}],
+                     "InvalidParameters":[]}""".formatted(PASSWORD))));
     }
 
     @AfterAll
     static void stop() {
         wireMock.stop();
+        ssm.stop();
     }
 
     @Test
@@ -74,29 +93,6 @@ class ExportShutdownProcessTest {
         assertThat(stale).as("swept at startup").doesNotExist();
         assertThat(legacy).as("001 name, swept at startup").doesNotExist();
         assertThat(otherProfile).as("another profile's").exists();
-    }
-
-    /**
-     * A {@code secret-tool} that answers {@code lookup service inubit-mcp account <name>} with
-     * the test credentials (feature 011). Used only where the server finds it on {@code PATH}:
-     * on Linux without a real one in {@code /usr/bin} or {@code /usr/local/bin}.
-     */
-    private Path fakeSecretTool() throws IOException {
-        Assumptions.assumeTrue(System.getProperty("os.name", "").toLowerCase(Locale.ROOT)
-                .startsWith("linux") && !Files.exists(Path.of("/usr/bin/secret-tool"))
-                && !Files.exists(Path.of("/usr/local/bin/secret-tool")),
-            "needs Linux without an installed secret-tool (a fake one is put on PATH)");
-        Path tools = Files.createDirectories(home.resolve("tools"));
-        Path tool = Files.writeString(tools.resolve("secret-tool"), """
-            #!/bin/sh
-            case "$5" in
-              INUBIT_ACME_DEV_USERNAME) printf '%%s' 'export-test-user' ;;
-              INUBIT_ACME_DEV_PASSWORD) printf '%%s' '%s' ;;
-              *) exit 1 ;;
-            esac
-            """.formatted(PASSWORD));
-        tool.toFile().setExecutable(true);
-        return tools;
     }
 
     /** {@code inubit-mcp-export-<middle>-1} with a file, in the server's temp directory. */
@@ -195,6 +191,13 @@ class ExportShutdownProcessTest {
                 owner: INTEGRATION
             groups:
               - name: dev
+                credentials:
+                  source:
+                    type: awsParameterStore
+                    region: eu-central-1
+                  parameters:
+                    username: /test/dev/username
+                    password: /test/dev/password
                 nodes:
                   - name: node1
                     baseUrl: https://localhost:%d
@@ -211,9 +214,11 @@ class ExportShutdownProcessTest {
         ProcessBuilder builder = new ProcessBuilder(command);
         Map<String, String> environment = builder.environment();
         environment.clear();
-        // feature 011: the server reads the credential store of the system; on Linux a fake
-        // secret-tool on PATH stands in for the Secret Service
-        environment.put("PATH", fakeSecretTool() + ":/usr/bin:/bin");
+        environment.put("PATH", "/usr/bin:/bin");
+        // feature 011: the credentials come from the SSM stub, with static test AWS credentials
+        environment.put("AWS_ENDPOINT_URL_SSM", "http://localhost:" + ssm.port());
+        environment.put("AWS_ACCESS_KEY_ID", "AKIDEXAMPLE");
+        environment.put("AWS_SECRET_ACCESS_KEY", "test-aws-secret");
         // stderr to a file: it stays readable whatever happens to the pipes
         Path stderr = home.resolve("server-stderr.log");
         builder.redirectError(stderr.toFile());
@@ -233,6 +238,8 @@ class ExportShutdownProcessTest {
             Thread.sleep(50);
         }
         assertThat(cliHome.resolve("sleep.pid")).as("the fake export runs").exists();
+        assertThat(ssm.getAllServeEvents()).as("the credentials came from the SSM stub")
+            .isNotEmpty();
         try (Stream<Path> files = Files.list(tmp)) {
             // 002 research D-8: inubit-mcp-export-<profile>-<pid>-<random>
             assertThat(files.filter(path -> path.getFileName().toString()
