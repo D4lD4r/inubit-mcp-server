@@ -22,7 +22,6 @@ import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TargetResolver;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -111,10 +110,10 @@ final class InventoryToolFixture implements AutoCloseable {
             Collectors.toMap(EffectiveNodeConfig::id, Function.identity()));
         NodeVersions versions = new NodeVersions(Clock.systemUTC(),
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
-        gateways = new AdapterGatewayFactory(servers, TestSecrets.environment(new CredentialResolver(Map.of(
+        gateways = new AdapterGatewayFactory(servers, TestSecrets.credentialStore(servers, Map.of(
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
-            "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber, "INUBIT")
-            .resolve(ids)), scrubber, Clock.systemUTC(),
+            "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber), scrubber,
+            Clock.systemUTC(),
             new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
             versions, PortSetRegistry.v81Default());
         InventoryService inventory = new InventoryService(gateways, new TargetResolver(ids),

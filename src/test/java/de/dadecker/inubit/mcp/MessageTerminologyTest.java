@@ -4,8 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.config.ConfigLoader;
-import de.dadecker.inubit.mcp.config.CredentialResolution;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -13,7 +12,9 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -120,9 +121,7 @@ class MessageTerminologyTest {
         if (wiring == null) {
             LoadedConfig loaded = load();
             SecretScrubber scrubber = new SecretScrubber();
-            CredentialResolution credentials = new CredentialResolver(env, scrubber,
-                loaded.config().credentialPrefix())
-                .resolve(loaded.config().nodeIds());
+            CredentialStore credentials = TestSecrets.store(env);
             wiring = new Wiring(loaded.config(), credentials, scrubber, ClockProvider.system(),
                 path -> true, false);
         }
@@ -235,7 +234,7 @@ class MessageTerminologyTest {
     }
 
     @Test
-    void missingCredentialsNameNoLevelAndAskToRestartTheMcpClient() {
+    void missingCredentialsNameNoLevelAndAskToCreateTheEntry() {
         env.remove("INUBIT_ACME_DEV_USERNAME");
         env.remove("INUBIT_ACME_DEV_PASSWORD");
 
@@ -244,15 +243,14 @@ class MessageTerminologyTest {
 
         assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
         assertThat(error.message()).contains("dev/node1");
-        assertThat(error.nextStep()).contains("restart the MCP client")
-            .doesNotContain("Claude Code");
+        // feature 011 (FR-010): the next step names the credential store entry, no restart
+        assertThat(error.nextStep()).contains("Create the entry INUBIT_ACME_DEV_NODE1_USERNAME")
+            .doesNotContain("Claude Code", "restart the MCP client");
         assertOnlyCustomTerms(error);
     }
 
     @Test
     void theConfigurationCheckNamesTheConfiguredLevels() throws IOException {
-        env.remove("INUBIT_ACME_PROD_USERNAME");
-        env.put("INUBIT_ACME_QA_PASSWORD", "stray-value");
         Path file = cliHome.resolve("acme.yaml");
         Files.writeString(file, """
             profile:
@@ -294,7 +292,7 @@ class MessageTerminologyTest {
         Launcher.Context context = new Launcher.Context(env, Path.of("/home/test"), false,
             InputStream.nullInputStream(), new PrintStream(out, true, StandardCharsets.UTF_8),
             new PrintStream(err, true, StandardCharsets.UTF_8), new SecretScrubber(),
-            path -> true, FakeParameterStore::new);
+            path -> true, FakeParameterStore::new, FakeCredentialStore::new);
 
         int exit = new Launcher(context).run("--config", file.toString(), "--check-config");
 
@@ -309,7 +307,6 @@ class MessageTerminologyTest {
             "not allowed in production Umgebungen",
             "would be used by Knoten a-b/c and Knoten a/b-c; rename one of the Umgebungen or"
                 + " Knoten",
-            "INUBIT_ACME_QA_PASSWORD matches no configured Umgebung or Knoten",
             "Umgebung 'prod': cli.url is set for 3 Knoten",
             "No inventory.owner is set (in defaults, for any Umgebung or for any Knoten)");
         assertThat(summary).doesNotContain("umgebung", "knoten");

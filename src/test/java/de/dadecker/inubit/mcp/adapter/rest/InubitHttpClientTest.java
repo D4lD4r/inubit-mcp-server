@@ -11,7 +11,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
-import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -228,7 +228,7 @@ class InubitHttpClientTest {
     @Test
     void aRejectedLoginBlocksAuthenticatedCallsForSixtySecondsWithoutNetwork() {
         stubStatus(401, "text/html", "<html>HTTP Status 401</html>");
-        CredentialGuard guard = new CredentialGuard(environmentLabels("INUBIT", ID), clock);
+        CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", ID), clock);
         InubitHttpClient client = guardedClient(guard);
 
         assertThat(errorOf(() -> client.get("/ibis/rest/system/info", Map.of())).code())
@@ -256,7 +256,7 @@ class InubitHttpClientTest {
         wireMock.stubFor(any(anyUrl()).willReturn(aResponse().withStatus(401)
             .withFixedDelay(300).withBody("no")));
         InubitHttpClient client =
-            guardedClient(new CredentialGuard(environmentLabels("INUBIT", ID), clock));
+            guardedClient(new CredentialGuard(storeLabels("INUBIT", ID), clock));
         List<java.util.concurrent.Future<ErrorCode>> calls = new ArrayList<>();
         try (java.util.concurrent.ExecutorService executor =
             java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
@@ -274,13 +274,13 @@ class InubitHttpClientTest {
 
     @Test
     void successAndForbiddenConfirmTheCredentials() {
-        CredentialGuard guard = new CredentialGuard(environmentLabels("INUBIT", ID), clock);
+        CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", ID), clock);
         InubitHttpClient client = guardedClient(guard);
         stubStatus(403, "text/html", "forbidden");
         errorOf(() -> client.get("/ibis/rest/metrics", Map.of()));
         assertThat(guard.confirmed()).as("403: authenticated, but not allowed").isTrue();
 
-        CredentialGuard other = new CredentialGuard(environmentLabels("INUBIT", ID), clock);
+        CredentialGuard other = new CredentialGuard(storeLabels("INUBIT", ID), clock);
         stubStatus(200, "application/json", "{}");
         guardedClient(other).get("/ibis/rest/metrics", Map.of());
         assertThat(other.confirmed()).isTrue();
@@ -288,7 +288,7 @@ class InubitHttpClientTest {
 
     @Test
     void otherFailuresNeitherConfirmNorBlock() {
-        CredentialGuard guard = new CredentialGuard(environmentLabels("INUBIT", ID), clock);
+        CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", ID), clock);
         InubitHttpClient client = guardedClient(guard);
         stubStatus(500, "text/html", "boom");
 
@@ -348,8 +348,9 @@ class InubitHttpClientTest {
         assertThat(error.excerpt()).isEmpty();
         assertThat(error.toString()).doesNotContain("Tomcat page");
         // Phase 3 re-review N5: the concrete variables of this server, like the guard's message
+        // feature 011 (T016): the credential store entries, no restart needed
         assertThat(error.nextStep()).contains("INUBIT_DEV_NODE1_PASSWORD",
-            "INUBIT_DEV_PASSWORD", "_USERNAME", "restart the MCP client");
+            "INUBIT_DEV_PASSWORD", "INUBIT_DEV_NODE1_USERNAME", "no restart is needed");
         assertThat(error.nextStep()).doesNotContain("<STAGE>", "<SERVER>");
     }
 

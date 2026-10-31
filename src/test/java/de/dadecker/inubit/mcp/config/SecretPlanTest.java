@@ -63,25 +63,25 @@ class SecretPlanTest {
 
         assertThat(plans).containsOnlyKeys(NODE1, NODE2);
         SecretPlan plan = plans.get(NODE1);
-        assertThat(plan.source()).isEqualTo(new SecretSourceConfig.Environment(Optional.empty()));
+        assertThat(plan.source()).isEqualTo(new SecretSourceConfig.SystemStore(Optional.empty()));
         assertThat(plan.origin()).isEqualTo(SecretPlan.Origin.DEFAULT);
         assertThat(plan.aws()).isFalse();
-        assertThat(plan.variables()).contains(new CredentialVariables("INUBIT_ACME", NODE1));
+        assertThat(plan.entries()).contains(new CredentialNames("INUBIT_ACME", NODE1));
         assertThat(plan.names()).isEmpty();
     }
 
     @Test
     void theEnvironmentPrefixIsTheSourcePrefixElseEnvPrefixElseTheDefault() {
         String envPrefix = "credentials:\n  envPrefix: INUBIT_LEGACY\n";
-        String groupSource = "credentials:\n  source:\n    type: environment\n";
-        String nodeSource = "credentials:\n  source:\n    type: environment\n"
+        String groupSource = "credentials:\n  source:\n    type: credentialStore\n";
+        String nodeSource = "credentials:\n  source:\n    type: credentialStore\n"
             + "    prefix: INUBIT_OWN\n";
 
         Map<NodeId, SecretPlan> plans = plans(profile(envPrefix, groupSource, nodeSource));
 
-        assertThat(plans.get(NODE1).variables().orElseThrow().prefix()).isEqualTo("INUBIT_OWN");
+        assertThat(plans.get(NODE1).entries().orElseThrow().prefix()).isEqualTo("INUBIT_OWN");
         assertThat(plans.get(NODE1).origin()).isEqualTo(SecretPlan.Origin.NODE);
-        assertThat(plans.get(NODE2).variables().orElseThrow().prefix())
+        assertThat(plans.get(NODE2).entries().orElseThrow().prefix())
             .isEqualTo("INUBIT_LEGACY");
         assertThat(plans.get(NODE2).origin()).isEqualTo(SecretPlan.Origin.GROUP);
     }
@@ -97,7 +97,7 @@ class SecretPlanTest {
             new SecretSourceConfig.AwsParameterStore("eu-central-1", Optional.empty()));
         assertThat(plan.origin()).isEqualTo(SecretPlan.Origin.PROFILE);
         assertThat(plan.aws()).isTrue();
-        assertThat(plan.variables()).isEmpty();
+        assertThat(plan.entries()).isEmpty();
         assertThat(plan.names().orElseThrow().username()).contains("/inubit/node1/username");
     }
 
@@ -164,13 +164,13 @@ class SecretPlanTest {
 
     @Test
     void anEnvironmentOverrideInAnAwsGroupHasVariablesAndNoNames() {
-        String nodeSource = "credentials:\n  source:\n    type: environment\n"
+        String nodeSource = "credentials:\n  source:\n    type: credentialStore\n"
             + "  parameters:\n    password: /inubit/node1/password\n";
 
         SecretPlan plan = plans(profile("", AWS_GROUP, nodeSource)).get(NODE1);
 
         assertThat(plan.aws()).isFalse();
-        assertThat(plan.variables()).contains(new CredentialVariables("INUBIT_ACME", NODE1));
+        assertThat(plan.entries()).contains(new CredentialNames("INUBIT_ACME", NODE1));
         assertThat(plan.names()).isEmpty();
     }
 
@@ -189,7 +189,7 @@ class SecretPlanTest {
 
     @Test
     void theEffectiveNodeCarriesItsPlanAndItsVariables() {
-        String nodeSource = "credentials:\n  source:\n    type: environment\n"
+        String nodeSource = "credentials:\n  source:\n    type: credentialStore\n"
             + "    prefix: INUBIT_OWN\n";
         ProfileConfig config = new ConfigLoader(Map.of(), HOME, false)
             .parse(profile("", "", nodeSource), HOME.resolve("acme.yaml")).config();
@@ -197,10 +197,10 @@ class SecretPlanTest {
         EffectiveNodeConfig node1 = config.effectiveNodes().get(0);
 
         assertThat(node1.secretPlan()).isEqualTo(config.secretPlans().get(NODE1));
-        assertThat(node1.credentialVariables()).isEqualTo(
-            new CredentialVariables("INUBIT_OWN", NODE1));
-        assertThat(config.effectiveNodes().get(1).credentialVariables()).isEqualTo(
-            new CredentialVariables("INUBIT_ACME", NODE2));
+        assertThat(node1.credentialNames()).isEqualTo(
+            new CredentialNames("INUBIT_OWN", NODE1));
+        assertThat(config.effectiveNodes().get(1).credentialNames()).isEqualTo(
+            new CredentialNames("INUBIT_ACME", NODE2));
     }
 
     @Test
@@ -208,17 +208,17 @@ class SecretPlanTest {
         ProfileConfig config = new ConfigLoader(Map.of(), HOME, false)
             .parse(profile("", AWS_GROUP, ""), HOME.resolve("acme.yaml")).config();
 
-        assertThat(config.effectiveNodes().get(0).credentialVariables()).isEqualTo(
-            new CredentialVariables("INUBIT_ACME", NODE1));
+        assertThat(config.effectiveNodes().get(0).credentialNames()).isEqualTo(
+            new CredentialNames("INUBIT_ACME", NODE1));
     }
 
     @Test
     void aPlanMatchesItsSource() {
-        SecretSourceConfig environment = new SecretSourceConfig.Environment(Optional.empty());
+        SecretSourceConfig environment = new SecretSourceConfig.SystemStore(Optional.empty());
         SecretSourceConfig aws =
             new SecretSourceConfig.AwsParameterStore("eu-central-1", Optional.empty());
-        Optional<CredentialVariables> variables =
-            Optional.of(new CredentialVariables("INUBIT", NODE1));
+        Optional<CredentialNames> variables =
+            Optional.of(new CredentialNames("INUBIT", NODE1));
 
         assertThatIllegalArgumentException().isThrownBy(() -> new SecretPlan(NODE1, environment,
             SecretPlan.Origin.DEFAULT, Optional.empty(), Optional.of(ParameterNames.EMPTY)));

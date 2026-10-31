@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -57,7 +58,8 @@ public final class ConfigValidator {
 
     /**
      * @param exists      file-system check, injectable for tests
-     * @param environment the process environment (for the {@code JAVA_HOME} fallback)
+     * @param environment the process environment (for the {@code JAVA_HOME} fallback and the
+     *     names of leftover credential variables; no credential value is read from it)
      * @param windows     whether the server runs on Windows, where CLI tools are unsupported
      */
     public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
@@ -110,17 +112,17 @@ public final class ConfigValidator {
      * Checks {@code loaded}; the messages use the profile's terminology (FR-007), or the default
      * names while the terminology itself is invalid.
      */
-    public ValidationReport validate(LoadedConfig loaded, CredentialResolution credentials) {
+    public ValidationReport validate(LoadedConfig loaded) {
         ProfileConfig config = loaded.config();
         Terminology terms = config.terminology().effectiveOrDefault();
         Findings findings = new Findings(terms);
         for (String key : loaded.credentialKeys()) {
-            // 002 research D-6: the variables under the profile's effective prefix
-            // feature 010 (T003): the next step names both sources
+            // 002 research D-6: the entries under the profile's effective prefix
+            // feature 011 (research R-10): the next step names both sources
             findings.termError("Credential key '%s' is not allowed in the configuration file;"
-                + " set the value in the environment variable (%s_%s_USERNAME / _PASSWORD) or"
-                + " store it in AWS Parameter Store and name it in credentials.parameters", key,
-                config.credentialPrefix(), variablePart(terms));
+                + " store the value in the credential store (service inubit-mcp, account"
+                + " %s_%s_USERNAME / _PASSWORD) or in AWS Parameter Store and name it in"
+                + " credentials.parameters", key, config.credentialPrefix(), variablePart(terms));
         }
         loaded.urlProblems().forEach(findings::error);
         checkProfile(config, findings);
@@ -129,7 +131,7 @@ public final class ConfigValidator {
         checkResultLimits(config.resultLimits(), findings);
         checkDeployConfirmationTtl(config.defaults(), findings);
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
-            checkServer(server, credentials, findings);
+            checkServer(server, findings);
             checkDevelopment(server, findings);
             checkParameterNames(server, findings);
         }
@@ -165,8 +167,9 @@ public final class ConfigValidator {
             }
         }
         checkOtherProfiles(loaded, findings);
-        findings.errors.addAll(credentials.errors());
-        findings.warnings.addAll(credentials.warnings());
+        checkEntryNameCollisions(config, findings);
+        // feature 011 (FR-003): variables that earlier versions read are reported, names only
+        LeftoverVariables.warning(environment, config).ifPresent(findings::warning);
         return new ValidationReport(findings.errors, findings.warnings, workspace);
     }
 
@@ -176,37 +179,37 @@ public final class ConfigValidator {
      *
      * <ul>
      *   <li>an <b>error</b> if a file of <em>another</em> profile (another profile name) derives
-     *       a credential variable name that this profile derives as well, by nested prefixes
+     *       a credential store entry name that this profile derives as well, by nested prefixes
      *       (e.g. {@code INUBIT_ACME} + group {@code 2-test} and {@code INUBIT_ACME_2} + group
      *       {@code test}) or by an equal prefix with equal group names (002 US2 review P1,
-     *       re-review N1): two customers would read the same variable. Only names are printed;
-     *       only environment nodes derive names ({@link ProfileConfig#credentialVariableNames()},
+     *       re-review N1): two customers would read the same entry. Only names are printed; only
+     *       credential store nodes derive names ({@link ProfileConfig#credentialEntryNames()},
      *       research R-13), so two profiles may read the same Parameter Store names;
      *   <li>one <b>warning</b> per file that has the same profile name (a copy, which may start;
-     *       shared variable names are listed in the warning then), the same effective credential
-     *       prefix (if both profiles have environment nodes) or the same audit directory.
+     *       shared entry names are listed in the warning then), the same effective credential
+     *       prefix (if both profiles have credential store nodes) or the same audit directory.
      * </ul>
      *
      * A profile name read from another file is printed only if valid (review P3a).
      */
     private void checkOtherProfiles(LoadedConfig loaded, Findings findings) {
         ProfileConfig config = loaded.config();
-        Set<String> ownVariables = config.credentialVariableNames();
+        Set<String> ownVariables = config.credentialEntryNames();
         for (LoadedConfig other : otherProfiles.apply(loaded.source())) {
             ProfileConfig otherConfig = other.config();
             String otherName = ProfileInfo.displayName(otherConfig.profile().name());
             String otherFile = "The profile file " + other.source() + " (profile "
                 + (otherName.equals(ProfileInfo.INVALID_NAME) ? otherName : "'" + otherName + "'")
                 + ")";
-            Set<String> otherVariables = otherConfig.credentialVariableNames();
+            Set<String> otherVariables = otherConfig.credentialEntryNames();
             Set<String> sharedVariables = new TreeSet<>(otherVariables);
             sharedVariables.retainAll(ownVariables);
             String name = config.profile().name();
             boolean copy = !name.isEmpty() && name.equals(otherConfig.profile().name());
             if (!sharedVariables.isEmpty() && !copy) {
-                findings.error(otherFile + " derives the same credential variable names as this"
-                    + " profile, so both would read them: " + String.join(", ", sharedVariables)
-                    + ". Set another credentials.envPrefix for one of them or rename the"
+                findings.error(otherFile + " derives the same credential store entry names as"
+                    + " this profile, so both would read them: " + String.join(", ", sharedVariables)
+                    + ". Set another credentials.prefix for one of them or rename the"
                     + " group or node");
             }
             List<String> shared = new ArrayList<>();
@@ -216,16 +219,16 @@ public final class ConfigValidator {
                 shared.add("the profile name " + shown
                     + " (profile names must be unique per workstation)");
             }
-            // T007 review r1: a profile without environment nodes reads no variables
+            // T007 review r1: a profile without credential store nodes reads no entries
             if (config.credentialPrefix().equals(otherConfig.credentialPrefix())
                 && !ownVariables.isEmpty() && !otherVariables.isEmpty()) {
-                shared.add("the credential variable prefix " + config.credentialPrefix()
-                    + " (both read the same variables)");
+                shared.add("the credential entry prefix " + config.credentialPrefix()
+                    + " (both read the same entries)");
             }
             if (copy && !sharedVariables.isEmpty()
                 && !config.credentialPrefix().equals(otherConfig.credentialPrefix())) {
-                shared.add("the credential variable names " + String.join(", ", sharedVariables)
-                    + " (both read them)");
+                shared.add("the credential store entry names " + String.join(", ",
+                    sharedVariables) + " (both read them)");
             }
             // feature 003 FR-003: two profiles never share a workspace; a copy of the same
             // profile (same name) may start and shares it by design (002 re-review N1)
@@ -255,7 +258,7 @@ public final class ConfigValidator {
             }
             if (!shared.isEmpty()) {
                 findings.warning(otherFile + " has " + joined(shared) + "; profiles that run side"
-                    + " by side need their own (credentials.envPrefix, auditDirectory)");
+                    + " by side need their own (credentials.prefix, auditDirectory)");
             }
         }
     }
@@ -373,18 +376,34 @@ public final class ConfigValidator {
             .filter(description -> !ProfileInfo.isValidDescription(description))
             .ifPresent(description -> findings.error(ProfileInfo.DESCRIPTION_RULE));
         checkTerminology(config.terminology(), findings);
-        config.credentials().envPrefix()
+        CredentialsConfig credentials = config.credentials();
+        credentials.prefix()
+            .filter(prefix -> !ProfileInfo.isValidPrefix(prefix))
+            .ifPresent(prefix -> findings.error("Invalid credentials.prefix: expected "
+                + ProfileInfo.PREFIX_PATTERN.pattern()));
+        credentials.envPrefix()
             .filter(prefix -> !ProfileInfo.isValidPrefix(prefix))
             .ifPresent(prefix -> findings.error("Invalid credentials.envPrefix: expected "
                 + ProfileInfo.PREFIX_PATTERN.pattern()));
-        // feature 010 (US1-3): envPrefix is the default of every environment source without one
-        Optional<String> envPrefix = config.credentials().envPrefix();
-        if (config.credentials().source().orElse(null)
-            instanceof SecretSourceConfig.Environment environment
-            && environment.prefix().isPresent() && envPrefix.isPresent()
-            && !environment.prefix().equals(envPrefix)) {
-            findings.error("credentials.source.prefix and credentials.envPrefix differ; set only"
-                + " one of them or make them equal");
+        // feature 011 (FR-005, research R-6): envPrefix is the deprecated name of prefix
+        if (credentials.envPrefix().isPresent()) {
+            if (credentials.prefix().isPresent()
+                && !credentials.prefix().equals(credentials.envPrefix())) {
+                findings.error("credentials.prefix and credentials.envPrefix differ; keep only"
+                    + " credentials.prefix");
+            } else {
+                findings.warning("credentials.envPrefix is deprecated; rename it to"
+                    + " credentials.prefix");
+            }
+        }
+        // feature 010 (US1-3): the profile-wide prefix is the default of every source without one
+        Optional<String> profilePrefix = credentials.profilePrefix();
+        if (credentials.source().orElse(null)
+            instanceof SecretSourceConfig.SystemStore store
+            && store.prefix().isPresent() && profilePrefix.isPresent()
+            && !store.prefix().equals(profilePrefix)) {
+            findings.error("credentials.source.prefix and " + credentials.profilePrefixKey()
+                + " differ; set only one of them or make them equal");
         }
     }
 
@@ -501,8 +520,7 @@ public final class ConfigValidator {
         }
     }
 
-    private void checkServer(EffectiveNodeConfig server, CredentialResolution credentials,
-        Findings findings) {
+    private void checkServer(EffectiveNodeConfig server, Findings findings) {
         String id = server.id().value();
         checkBaseUrl(server, findings);
         if (server.production() && server.write().confirmation() == ConfirmationMode.CLIENT) {
@@ -511,9 +529,6 @@ public final class ConfigValidator {
         }
         checkCliUrl(server, findings);
         checkTls(server, findings);
-        credentials.all().stream()
-            .filter(c -> c.node().equals(server.id()))
-            .forEach(c -> checkCredentials(server, c, findings));
         if (server.cliConfigured()) {
             checkCli(server, findings);
         }
@@ -569,8 +584,8 @@ public final class ConfigValidator {
                 findings.error(id + ": e2e.soap.baseUrl must be an absolute https:// URL"
                     + " (http:// is accepted with a warning)");
             } else if (scheme.equals("http")) {
-                List<String> credentials = new ArrayList<>(e2eCredentialVariables(server));
-                credentials.addAll(e2eParameterNames(server));
+                // feature 011 (research R-11): credential store entries are checked when read
+                List<String> credentials = e2eParameterNames(server);
                 if (e2eTests != E2ePolicy.FORBIDDEN && !credentials.isEmpty()) {
                     findings.error(id + ": e2e.soap.baseUrl uses http:// while the e2e basic"
                         + " authentication is set (" + String.join(", ", credentials) + "); the"
@@ -581,25 +596,6 @@ public final class ConfigValidator {
                 }
             }
         });
-    }
-
-    /**
-     * The set e2e basic-authentication variables of {@code server} (names only); none for an AWS
-     * node, which reads no variables (research R-6, R-13).
-     */
-    private List<String> e2eCredentialVariables(EffectiveNodeConfig server) {
-        List<String> set = new ArrayList<>();
-        if (server.secretPlan().aws()) {
-            return set;
-        }
-        for (String kind : CredentialVariables.E2E_KINDS) {
-            for (String variable : server.credentialVariables().candidates(kind)) {
-                if (CredentialRules.isSet(environment.get(variable))) {
-                    set.add(variable);
-                }
-            }
-        }
-        return set;
     }
 
     /** Feature 010 (research R-6): the configured e2e Parameter Store names of an AWS node. */
@@ -656,15 +652,15 @@ public final class ConfigValidator {
 
     /**
      * Feature 010 (research R-6): {@code credentials.parameters} on a group or node whose
-     * effective source is environment variables is ignored, with a warning.
+     * effective source is the credential store is ignored, with a warning.
      */
     private static void checkIgnoredParameterNames(ProfileConfig config, Findings findings) {
         for (GroupConfig group : config.groups()) {
             boolean environment = SecretPlan.groupSource(config.credentials(), group)
-                instanceof SecretSourceConfig.Environment;
+                instanceof SecretSourceConfig.SystemStore;
             if (environment && group.credentials().parameters().isPresent()) {
                 findings.termWarning("{Group} '%s': credentials.parameters is ignored; the"
-                    + " secrets of this {group} come from environment variables", group.name());
+                    + " secrets of this {group} come from the credential store", group.name());
             }
             if (!GroupId.isValidName(group.name())) {
                 continue;
@@ -678,16 +674,48 @@ public final class ConfigValidator {
                     config.credentialPrefix(), group, node);
                 if (!plan.aws()) {
                     findings.termWarning("%s: credentials.parameters is ignored; the secrets of"
-                        + " this {node} come from environment variables", plan.node().value());
+                        + " this {node} come from the credential store", plan.node().value());
                 }
             }
         }
     }
 
     /**
+     * Feature 011 (research R-10; from {@code CredentialResolver}, 002 research D-6): two groups or
+     * nodes of this profile must not derive the same credential store entry name, or both would
+     * read it. Only credential store nodes derive names (AWS nodes read named parameters).
+     */
+    private static void checkEntryNameCollisions(ProfileConfig config, Findings findings) {
+        Terminology terms = config.terminology().effectiveOrDefault();
+        Map<String, Set<String>> owners = new LinkedHashMap<>();
+        for (EffectiveNodeConfig server : config.resolvableNodes()) {
+            if (server.secretPlan().aws()) {
+                continue;
+            }
+            CredentialNames names = server.credentialNames();
+            for (String kind : CredentialNames.KINDS) {
+                owners.computeIfAbsent(names.nodeName(kind), k -> new TreeSet<>())
+                    .add(terms.render("{node} ") + server.id());
+                owners.computeIfAbsent(names.groupName(kind), k -> new TreeSet<>())
+                    .add(terms.render("{group} ") + server.id().group());
+            }
+        }
+        Map<Set<String>, List<String>> byOwners = new LinkedHashMap<>();
+        owners.forEach((name, users) -> {
+            if (users.size() > 1) {
+                byOwners.computeIfAbsent(users, k -> new ArrayList<>()).add(name);
+            }
+        });
+        byOwners.forEach((users, names) -> findings.error("Credential store entry names collide: "
+            + String.join(", ", names) + " would be used by " + String.join(" and ", users)
+            + terms.render("; rename one of the {groups} or {nodes}")));
+    }
+
+    /**
      * Review m-d: in a {@code group} where any node allows end-to-end tests, a node named
-     * {@code e2e} would read {@code <PREFIX>_<GROUP>_E2E_USERNAME} as its own username. Only
-     * environment nodes read these variables (research R-6, R-13), so AWS nodes are left out.
+     * {@code e2e} would read the entry {@code <PREFIX>_<GROUP>_E2E_USERNAME} as its own username.
+     * Only credential store nodes read these entries (research R-6, R-13), so AWS nodes are left
+     * out.
      */
     private static void checkE2eNodeNames(ProfileConfig config, Findings findings) {
         Map<String, List<EffectiveNodeConfig>> byGroup = new TreeMap<>();
@@ -699,10 +727,10 @@ public final class ConfigValidator {
                 != E2ePolicy.FORBIDDEN);
             nodes.stream().filter(server -> e2e && server.id().name().equalsIgnoreCase("e2e"))
                 .forEach(server -> findings.termError("%s: the {node} name '%s' clashes with the"
-                    + " e2e basic-authentication variables of its {group} (%s is its username"
-                    + " variable as well); rename the {node} or set e2eTests: FORBIDDEN for the"
+                    + " e2e basic-authentication entries of its {group} (%s is its username"
+                    + " entry as well); rename the {node} or set e2eTests: FORBIDDEN for the"
                     + " {group}", server.id().value(), server.id().name(),
-                    server.credentialVariables().groupVariable(CredentialVariables.E2E_USERNAME)));
+                    server.credentialNames().groupName(CredentialNames.E2E_USERNAME)));
         });
     }
 
@@ -904,26 +932,6 @@ public final class ConfigValidator {
             findings.warning(id + ": cli.url uses http:// (allowInsecureHttp: true); the CLI"
                 + " password is sent unencrypted");
         }
-    }
-
-    private static void checkCredentials(EffectiveNodeConfig server,
-        NodeCredentials credentials, Findings findings) {
-        String id = server.id().value();
-        credentials.trustStorePassword().ifPresent(password -> {
-            if (server.cliConfigured()) {
-                findings.termError("%s: %s is set, but this {node} has a CLI configured and needs"
-                    + " a password-less trust store (StartCLI could only receive the password as"
-                    + " a process argument)", id, password.sourceVariable());
-            }
-            if (server.tls().trustStore().isEmpty()) {
-                findings.warning(id + ": " + password.sourceVariable() + " is set, but no"
-                    + " tls.trustStore is configured; the variable is ignored");
-            }
-        });
-        credentials.password()
-            .filter(password -> !CredentialRules.isScrubbable(password.value().reveal()))
-            .ifPresent(password -> findings.error(id + ": the password from "
-                + password.sourceVariable() + " " + CredentialRules.SHORT_PASSWORD_RULE));
     }
 
     private void checkTls(EffectiveNodeConfig server, Findings findings) {

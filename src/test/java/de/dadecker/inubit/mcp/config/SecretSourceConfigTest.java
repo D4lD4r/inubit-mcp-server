@@ -14,15 +14,15 @@ class SecretSourceConfigTest {
 
     @Test
     void anEnvironmentSourceNeedsNoPrefix() {
-        assertThat(new SecretSourceConfig.Environment(Optional.empty()).prefix()).isEmpty();
-        assertThat(new SecretSourceConfig.Environment(null).prefix()).isEmpty();
+        assertThat(new SecretSourceConfig.SystemStore(Optional.empty()).prefix()).isEmpty();
+        assertThat(new SecretSourceConfig.SystemStore(null).prefix()).isEmpty();
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"A", "INUBIT_ACME", "X1_2",
         "A123456789012345678901234567890123456789012345678901234567890123"})
     void acceptsPrefixesOfTheEnvPrefixPattern(String prefix) {
-        assertThat(new SecretSourceConfig.Environment(Optional.of(prefix)).prefix())
+        assertThat(new SecretSourceConfig.SystemStore(Optional.of(prefix)).prefix())
             .contains(prefix);
     }
 
@@ -30,7 +30,7 @@ class SecretSourceConfigTest {
     @ValueSource(strings = {"", "inubit", "1ABC", "_ABC", "AB-C", "AB C",
         "A1234567890123456789012345678901234567890123456789012345678901234"})
     void refusesPrefixesOutsideTheEnvPrefixPattern(String prefix) {
-        assertThatThrownBy(() -> new SecretSourceConfig.Environment(Optional.of(prefix)))
+        assertThatThrownBy(() -> new SecretSourceConfig.SystemStore(Optional.of(prefix)))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("prefix");
     }
@@ -102,7 +102,7 @@ class SecretSourceConfigTest {
         assertThatThrownBy(() -> new SecretSourceConfig.AwsParameterStore("test-password-1",
             Optional.empty()))
             .hasMessageNotContaining("test-password-1");
-        assertThatThrownBy(() -> new SecretSourceConfig.Environment(Optional.of("test-pw-1")))
+        assertThatThrownBy(() -> new SecretSourceConfig.SystemStore(Optional.of("test-pw-1")))
             .hasMessageNotContaining("test-pw-1");
     }
 

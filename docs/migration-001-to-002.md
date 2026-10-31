@@ -4,7 +4,13 @@ Feature 002 makes the server customer-agnostic: one configuration file describes
 (a customer or project), and the two levels "stage" and "server" are now called **groups** and
 **nodes** in the YAML keys and the tool contracts. A configuration file of feature 001 is refused
 at startup; this guide turns it into a profile that behaves exactly as before: the same nodes,
-the same credential variables, and, if you like, the same words in every message.
+the same credential names, and, if you like, the same words in every message.
+
+> **Since 0.7.0** the credential names of this guide are no longer environment variables but
+> entries of the credential store of your system (service `inubit-mcp`, account = the name shown
+> here); the names and the prefix rules are unchanged. Create the entries as
+> [migration-environment-variables.md](migration-environment-variables.md) describes instead of
+> exporting variables.
 
 The example uses the fictitious profile `acme` with the groups `dev` and `qa` and the nodes
 `node1` and `node2`; all hosts are `*.example.test`. Replace them with your own names. The
@@ -20,7 +26,7 @@ Configuration file /Users/jdoe/.config/inubit-mcp/config.yaml uses the format of
   - stages (top level): rename to groups
   - servers (at stages[0].servers, stages[1].servers): rename to nodes
   - profile (missing): add a profile block at the top, profile: {name: <name>}, the name matching ^[a-z0-9][a-z0-9-]{0,31}$, except audit
-To keep the credential variables of feature 001 (INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD), add credentials.envPrefix: INUBIT; without it the variables start with INUBIT_<PROFILE>.
+To keep the credential names of feature 001 (INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD, now credential store entries), add credentials.prefix: INUBIT; without it the names start with INUBIT_<PROFILE>.
 Audit records of feature 001 stay in their directory (default ~/.inubit-mcp/audit); new records go to ~/.inubit-mcp/<profile.name>/audit unless auditDirectory is set.
 Step-by-step guide: docs/migration-001-to-002.md
 ```
@@ -35,7 +41,7 @@ same way; the message names each old key and where it is.
 | — | `profile.name` (required) | `^[a-z0-9][a-z0-9-]{0,31}$`; `audit` is reserved |
 | — | `profile.description` (optional) | one line, at most 200 characters; shown to the assistant |
 | — | `terminology` (optional) | the words used in messages and descriptions; default `group`/`groups`, `node`/`nodes` |
-| — | `credentials.envPrefix` (optional) | default `INUBIT_<PROFILE>`; `INUBIT` keeps the 001 variables |
+| — | `credentials.prefix` (optional) | default `INUBIT_<PROFILE>`; `INUBIT` keeps the 001 variables |
 | `stages` | `groups` | same content (`name`, `production`, `write`, `tls`, `cli`, timeouts, `inventory`, …) |
 | `stages[].servers` | `groups[].nodes` | same content (`name`, `baseUrl`, overrides) |
 | `auditDirectory` (default `~/.inubit-mcp/audit`) | `auditDirectory` (default `~/.inubit-mcp/<profile.name>/audit`) | see step 6 |
@@ -104,21 +110,21 @@ the server upper-cases the first letter only at the start of a sentence or in a 
 terminology is display text only: YAML keys, tool names and the input and result fields stay
 `groups`/`nodes`, `group`/`node` (step 9).
 
-### 6. Keep the credential variables
+### 6. Keep the credential names
 
 Feature 001 read `INUBIT_<STAGE>[_<SERVER>]_USERNAME` / `_PASSWORD` (and `_TRUSTSTORE_PASSWORD`).
 Feature 002 reads `<PREFIX>_<GROUP>[_<NODE>]_…`, where the prefix defaults to `INUBIT_` plus the
-profile name (`INUBIT_ACME`). To keep your exported variables unchanged, set the prefix
-explicitly:
+profile name (`INUBIT_ACME`); since 0.7.0 these names are credential store entries. To keep the
+names unchanged, set the prefix explicitly:
 
 ```yaml
 credentials:
-  envPrefix: INUBIT
+  prefix: INUBIT
 ```
 
-The rule "node-specific variable before group-wide variable" is unchanged. Alternatively, rename
-your variables to the default prefix (`INUBIT_DEV_USERNAME` → `INUBIT_ACME_DEV_USERNAME`) and
-omit `credentials`; this is the better choice as soon as you add a second profile (step 10).
+The rule "node-specific name before group-wide name" is unchanged. Alternatively, create the
+entries under the default prefix (`INUBIT_DEV_USERNAME` → `INUBIT_ACME_DEV_USERNAME`) and omit
+`credentials`; this is the better choice as soon as you add a second profile (step 10).
 
 ### 7. Audit directory and inventory owner
 
@@ -148,8 +154,10 @@ omit `credentials`; this is the better choice as soon as you add a second profil
 java -jar /absolute/path/to/inubit-mcp-server-<version>.jar --profile acme --check-config
 ```
 
-It must end with `Result: OK` and list the same nodes and the same variable names as before
-(with `envPrefix: INUBIT`: `Credential variables: INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD`).
+It must end with `Result: OK` and list the same nodes and the same credential names as before
+(with `prefix: INUBIT`: `Credential store entries: service inubit-mcp, account
+INUBIT_<STAGE>[_<SERVER>]_<KIND>`; since 0.7.0 the names are credential store entries, see
+[migration-environment-variables.md](migration-environment-variables.md)).
 Then replace the registration of feature 001 by one per profile:
 
 ```bash
@@ -158,8 +166,9 @@ claude mcp add --scope user inubit-acme -- java -jar /absolute/path/to/inubit-mc
   --profile acme
 ```
 
-Use the scope and name of your old registration in `remove` (`claude mcp list` shows them). Restart
-Claude Code from a shell that has the credential variables ([setup.md](setup.md), section 7).
+Use the scope and name of your old registration in `remove` (`claude mcp list` shows them), then
+start a new Claude Code session to load the new registration (`/mcp` → reconnect may keep the old
+server list; [setup.md](setup.md), section 7).
 
 ### 9. Update prompts and scripts
 
@@ -188,15 +197,15 @@ A prompt such as "list the servers" still works; a script that calls `list_serve
 
 ### 10. Adding more profiles later
 
-A profile with `envPrefix: INUBIT` reads `INUBIT_<GROUP>…`, which other profiles can derive as
+A profile with `prefix: INUBIT` reads `INUBIT_<GROUP>…`, which other profiles can derive as
 well: the profile `acme` (default prefix `INUBIT_ACME`) with the group `test` reads
-`INUBIT_ACME_TEST_USERNAME`, and so does a profile with `envPrefix: INUBIT` and the group
-`acme-test`. When two profile files in `~/.config/inubit-mcp` derive the same variable name, the
+`INUBIT_ACME_TEST_USERNAME`, and so does a profile with `prefix: INUBIT` and the group
+`acme-test`. When two profile files in `~/.config/inubit-mcp` derive the same entry name, the
 server refuses to start (`--check-config` exits 1) and names the other file and the shared
-variable names. To resolve it, give the migrated profile its own prefix: remove
-`credentials.envPrefix` (or set another one) and rename its exported variables accordingly
+entry names. To resolve it, give the migrated profile its own prefix: remove
+`credentials.prefix` (or set another one) and create its entries under the new names
 (`INUBIT_DEV_USERNAME` → `INUBIT_ACME_DEV_USERNAME`), or rename the conflicting group. Use
-`envPrefix: INUBIT` for at most one profile.
+`prefix: INUBIT` for at most one profile.
 
 ## Before and after
 
@@ -239,7 +248,7 @@ terminology:                       # new, optional: keeps the wording of feature
   node:  { singular: server, plural: servers }
 
 credentials:                       # new, optional: keeps the variables INUBIT_<STAGE>[_<SERVER>]_*
-  envPrefix: INUBIT
+  prefix: INUBIT
 
 logLevel: INFO
 # auditDirectory removed: new audit records go to ~/.inubit-mcp/acme/audit
@@ -265,14 +274,15 @@ groups:                            # was: stages
         baseUrl: https://inubit-qa-2.example.test:8443
 ```
 
-With the unchanged variables
+With the unchanged names as credential store entries (since 0.7.0; macOS shown, the value is
+prompted)
 
 ```bash
-export INUBIT_DEV_USERNAME='jdoe'
-export INUBIT_DEV_PASSWORD='…'
-export INUBIT_QA_USERNAME='jdoe'
-export INUBIT_QA_PASSWORD='…'
-export INUBIT_QA_NODE2_PASSWORD='…'   # node-specific: wins for qa/node2
+security add-generic-password -U -s inubit-mcp -a INUBIT_DEV_USERNAME -w
+security add-generic-password -U -s inubit-mcp -a INUBIT_DEV_PASSWORD -w
+security add-generic-password -U -s inubit-mcp -a INUBIT_QA_USERNAME -w
+security add-generic-password -U -s inubit-mcp -a INUBIT_QA_PASSWORD -w
+security add-generic-password -U -s inubit-mcp -a INUBIT_QA_NODE2_PASSWORD -w   # node-specific: wins for qa/node2
 ```
 
 `--profile acme --check-config` lists the same three nodes with the same variables as feature
@@ -282,14 +292,14 @@ export INUBIT_QA_NODE2_PASSWORD='…'   # node-specific: wins for qa/node2
 Configuration: /Users/jdoe/.config/inubit-mcp/acme.yaml
 Profile: acme (ACME – INUBIT integration platform)
 Terminology: stage/stages, server/servers
-Credential variables: INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD
+Credential store entries: service inubit-mcp, account INUBIT_<STAGE>[_<SERVER>]_<KIND> (macOS Keychain)
 Audit directory: /Users/jdoe/.inubit-mcp/acme/audit
 Workspace: /Users/jdoe/.inubit-mcp/acme/workspace (ok)
 Stage dev:
-  Server dev/node1: write enabled (confirmation CLIENT), cli: unavailable, inubit: AUTO, username ← INUBIT_DEV_USERNAME, password ← INUBIT_DEV_PASSWORD
+  Server dev/node1: write enabled (confirmation CLIENT), cli: unavailable, inubit: AUTO, secrets: credentialStore (macOS Keychain), username ← INUBIT_DEV_USERNAME ok, password ← INUBIT_DEV_PASSWORD ok
 Stage qa:
-  Server qa/node1: read-only, cli: unavailable, inubit: AUTO, username ← INUBIT_QA_USERNAME, password ← INUBIT_QA_PASSWORD
-  Server qa/node2: read-only, cli: unavailable, inubit: AUTO, username ← INUBIT_QA_USERNAME, password ← INUBIT_QA_NODE2_PASSWORD
+  Server qa/node1: read-only, cli: unavailable, inubit: AUTO, secrets: credentialStore (macOS Keychain), username ← INUBIT_QA_USERNAME ok, password ← INUBIT_QA_PASSWORD ok
+  Server qa/node2: read-only, cli: unavailable, inubit: AUTO, secrets: credentialStore (macOS Keychain), username ← INUBIT_QA_USERNAME ok, password ← INUBIT_QA_NODE2_PASSWORD ok
 Result: OK
 ```
 

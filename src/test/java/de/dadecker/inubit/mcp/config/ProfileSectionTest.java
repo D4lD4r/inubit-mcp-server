@@ -43,14 +43,8 @@ class ProfileSectionTest {
 
     private static ValidationReport validate(String yaml) {
         LoadedConfig loaded = load(yaml);
-        Map<String, String> env = new HashMap<>();
-        env.put(loaded.config().credentialPrefix() + "_DEV_USERNAME", "user");
-        env.put(loaded.config().credentialPrefix() + "_DEV_PASSWORD", "secret-value");
-        CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
-            loaded.config().credentialPrefix())
-            .resolve(loaded.config().nodeIds());
-        return new ConfigValidator(path -> true, env, false, Path.of("/var/tmp"),
-            source -> List.of(), NO_DISK).validate(loaded, credentials);
+        return new ConfigValidator(path -> true, Map.of(), false, Path.of("/var/tmp"),
+            source -> List.of(), NO_DISK).validate(loaded);
     }
 
     @Nested
@@ -177,11 +171,11 @@ class ProfileSectionTest {
         @Test
         void aTopLevelEnvironmentSourceIsLoaded() {
             ProfileConfig config = load("profile:\n  name: acme\ncredentials:\n"
-                + "  envPrefix: INUBIT\n  source:\n    type: environment\n"
+                + "  envPrefix: INUBIT\n  source:\n    type: credentialStore\n"
                 + "    prefix: INUBIT\n" + GROUPS).config();
 
             assertThat(config.credentials().source())
-                .contains(new SecretSourceConfig.Environment(Optional.of("INUBIT")));
+                .contains(new SecretSourceConfig.SystemStore(Optional.of("INUBIT")));
             assertThat(config.credentials().envPrefix()).contains("INUBIT");
         }
 
@@ -214,7 +208,7 @@ class ProfileSectionTest {
             assertThatThrownBy(() -> load("profile:\n  name: acme\ncredentials:\n  source:\n"
                 + "    " + line + "\n" + GROUPS)).isInstanceOf(ConfigException.class)
                 .hasMessageContaining("credentials.source.type")
-                .hasMessageContaining("environment, awsParameterStore");
+                .hasMessageContaining("credentialStore, awsParameterStore");
         }
 
         @Test
@@ -241,7 +235,7 @@ class ProfileSectionTest {
                   group: { singular: Umgebung, plural: Umgebungen }
                   node: { singular: Knoten, plural: Knoten-Liste }
                 credentials:
-                  envPrefix: INUBIT
+                  prefix: INUBIT
                 """ + GROUPS);
 
             assertThat(report.errors()).isEmpty();
@@ -445,6 +439,53 @@ class ProfileSectionTest {
             String yaml = "profile:\n  name: acme\ncredentials:\n  envPrefix: " + prefix + "\n";
 
             assertThat(validate(yaml + GROUPS).errors()).isEmpty();
+        }
+
+        @Test
+        void credentialsPrefixIsTheProfileWidePrefix() {
+            // feature 011 (FR-005, research R-6)
+            String yaml = "profile:\n  name: acme\ncredentials:\n  prefix: INUBIT_X\n" + GROUPS;
+
+            assertThat(load(yaml).config().credentialPrefix()).isEqualTo("INUBIT_X");
+            assertThat(validate(yaml).errors()).isEmpty();
+            assertThat(validate(yaml).warnings()).isEmpty();
+        }
+
+        @Test
+        void envPrefixStillAppliesWithADeprecationWarning() {
+            String yaml = "profile:\n  name: acme\ncredentials:\n  envPrefix: INUBIT_X\n" + GROUPS;
+
+            assertThat(load(yaml).config().credentialPrefix()).isEqualTo("INUBIT_X");
+            assertThat(validate(yaml).errors()).isEmpty();
+            assertThat(validate(yaml).warnings()).singleElement().asString()
+                .contains("credentials.envPrefix is deprecated", "credentials.prefix");
+        }
+
+        @Test
+        void differentPrefixAndEnvPrefixAreAnError() {
+            String yaml = "profile:\n  name: acme\ncredentials:\n  prefix: INUBIT_X\n"
+                + "  envPrefix: INUBIT_Y\n" + GROUPS;
+
+            assertThat(validate(yaml).errors()).singleElement().asString()
+                .contains("credentials.prefix", "credentials.envPrefix", "differ");
+            assertThat(validate(yaml.replace("INUBIT_Y", "INUBIT_X")).errors()).isEmpty();
+        }
+
+        @Test
+        void anInvalidPrefixIsAnError() {
+            String yaml = "profile:\n  name: acme\ncredentials:\n  prefix: lower\n";
+
+            assertThat(validate(yaml + GROUPS).errors()).singleElement().asString()
+                .contains("credentials.prefix", ProfileInfo.PREFIX_PATTERN.pattern());
+        }
+
+        @Test
+        void aTopLevelSourcePrefixMustEqualTheProfileWidePrefix() {
+            String yaml = "profile:\n  name: acme\ncredentials:\n  prefix: INUBIT_X\n"
+                + "  source:\n    type: credentialStore\n    prefix: INUBIT_Y\n" + GROUPS;
+
+            assertThat(validate(yaml).errors()).singleElement().asString()
+                .contains("credentials.source.prefix", "credentials.prefix", "differ");
         }
 
         @Test

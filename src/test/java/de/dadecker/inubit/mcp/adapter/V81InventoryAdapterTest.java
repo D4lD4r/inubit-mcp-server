@@ -6,7 +6,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
-import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -19,7 +19,6 @@ import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81MaintenanceProbe;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -34,10 +33,12 @@ import de.dadecker.inubit.mcp.domain.port.InventoryPort.VersionHistory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -96,10 +97,10 @@ class V81InventoryAdapterTest {
         config = TestNodeConfig.node().baseUrl("https://localhost:" + wireMock.httpsPort())
             .trustStore(TestCertificates.get().trustStore()).cliHome(cliHome)
             .cliJavaHome(Path.of("/opt/jdk-17")).build();
-        credentials = new CredentialResolver(Map.of("INUBIT_DEV_USERNAME", "jdoe",
-            "INUBIT_DEV_PASSWORD", PASSWORD), scrubber, "INUBIT").resolve(List.of(DEV)).all()
-            .get(0);
-        guard = new CredentialGuard(environmentLabels("INUBIT", DEV), clock);
+        credentials = TestSecrets.credentialStore(List.of(config), Map.of(
+            "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD), scrubber)
+            .get(DEV).current(Duration.ofSeconds(5));
+        guard = new CredentialGuard(storeLabels("INUBIT", DEV), clock);
         wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO))
             .willReturn(RestFixtures.response("system_info", "xml")));
         probe = new V81MaintenanceProbe(config, Optional.empty(), scrubber);

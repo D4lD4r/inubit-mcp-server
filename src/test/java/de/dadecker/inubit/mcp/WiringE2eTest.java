@@ -8,18 +8,20 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
+import de.dadecker.inubit.mcp.adapter.NodeSecrets;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -88,6 +90,12 @@ class WiringE2eTest {
 
     /** {@code credentials}: the dev group's {@code credentials} section, or empty. */
     private void startServer(String credentials, Map<String, String> environment) {
+        startServer(credentials, TestSecrets.store(environment), environment);
+    }
+
+    /** As above, with the credential store and the environment kept apart (feature 011). */
+    private void startServer(String credentials, FakeCredentialStore credentialStore,
+        Map<String, String> environment) {
         String yaml = """
             profile:
               name: acme
@@ -113,9 +121,7 @@ class WiringE2eTest {
             TestCertificates.get().protectedTrustStore());
         ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml")).config();
-        wiring = new Wiring(config, new CredentialResolver(environment, scrubber,
-                config.terminology().effectiveOrDefault(), config.credentialPrefix(),
-                config.secretPlans()).resolve(config.nodeIds()), scrubber,
+        wiring = new Wiring(config, credentialStore, scrubber,
             new ClockProvider(clock), path -> false, false, new SystemProcessLauncher(),
             environment, () -> store);
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
@@ -234,19 +240,49 @@ class WiringE2eTest {
         assertSucceeded(client.callTool("run_e2e_test", RUN));
     }
 
-    @Test
-    void anEnvironmentNodeKeepsItsVariablesAndNeverTouchesTheStore() {
-        startServer("", Map.of(
+    private static FakeCredentialStore credentialStoreEntries() {
+        return TestSecrets.store(Map.of(
             "INUBIT_ACME_DEV_USERNAME", "test-user",
             "INUBIT_ACME_DEV_PASSWORD", "test-password",
             "INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD", TestCertificates.PASSWORD,
-            "INUBIT_ACME_DEV_E2E_USERNAME", "test-env-e2e-user",
-            "INUBIT_ACME_DEV_E2E_PASSWORD", "test-env-e2e-password"));
+            "INUBIT_ACME_DEV_E2E_USERNAME", "test-store-e2e-user",
+            "INUBIT_ACME_DEV_E2E_PASSWORD", "test-store-e2e-password"));
+    }
+
+    private static List<String> accounts(FakeCredentialStore credentialStore) {
+        return credentialStore.reads().stream().map(FakeCredentialStore.Read::account).toList();
+    }
+
+    @Test
+    void aCredentialStoreNodeReadsItsEndToEndEntriesOnlyWhenATestRuns() {
+        // feature 011 (review T013-T014 r1): store and environment kept apart
+        FakeCredentialStore credentialStore = credentialStoreEntries();
+        startServer("", credentialStore, Map.of("PATH", "/usr/bin"));
+
+        client.callTool("list_nodes", Map.of());
+        assertThat(credentialStore.reads()).as("nothing at startup or for list_nodes").isEmpty();
+        client.callTool("query_logs", Map.of("target", "dev/node1", "logType", "systemLog"));
+        assertThat(accounts(credentialStore)).as("another tool reads no end-to-end entry")
+            .noneMatch(account -> account.contains("E2E"));
 
         assertSucceeded(client.callTool("run_e2e_test", RUN));
 
-        assertThat(store.calls()).isZero();
+        assertThat(accounts(credentialStore)).contains("INUBIT_ACME_DEV_E2E_USERNAME",
+            "INUBIT_ACME_DEV_E2E_PASSWORD");
+        assertThat(store.calls()).as("no Parameter Store").isZero();
         inubit.verify(1, postRequestedFor(urlPathEqualTo(SERVICE)).withHeader("Authorization",
-            equalTo(basic("test-env-e2e-user", "test-env-e2e-password"))));
+            equalTo(basic("test-store-e2e-user", "test-store-e2e-password"))));
+    }
+
+    @Test
+    void anEndToEndTestWaitsForTheCredentialStoreLongerThanTheParameterStoreTimeout() {
+        // feature 011 (T013, research R-7, quickstart Q22): the e2e path waits the node's store
+        // timeout (60 s), not the 10 s of Parameter Store
+        FakeCredentialStore credentialStore = credentialStoreEntries();
+        credentialStore.delay("INUBIT_ACME_DEV_NODE1_E2E_USERNAME",
+            NodeSecrets.STORE_TIMEOUT.plusSeconds(1));
+        startServer("", credentialStore, Map.of("PATH", "/usr/bin"));
+
+        assertSucceeded(client.callTool("run_e2e_test", RUN, Duration.ofSeconds(40)));
     }
 }

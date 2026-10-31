@@ -62,7 +62,7 @@ public final class CredentialGuard {
     private final NodeId server;
     private final SecretLabels labels;
     private final Clock clock;
-    /** Empty without re-read (environment nodes): the behaviour of feature 009. */
+    /** Empty without re-read (unauthenticated clients): the behaviour of feature 009. */
     private final Optional<Rereadable> secrets;
     /** The guard holding the state; {@code this} unless this is a {@link #bind bound} view. */
     private final CredentialGuard root;
@@ -205,9 +205,9 @@ public final class CredentialGuard {
         }
         throw new ToolErrorException(ToolError.of(ErrorCode.AUTH_FAILED,
             "INUBIT login to " + server + ": not attempted with the previous username and"
-                + " password; they were replaced by new values from AWS Parameter Store after a"
-                + " rejected login",
-            "The credentials changed in AWS Parameter Store during this call",
+                + " password; they were replaced by new values from " + labels.source()
+                + " after a rejected login",
+            "The credentials changed in " + labels.source() + " during this call",
             "Retry the call; it uses the new values")
             .withNode(server));
     }

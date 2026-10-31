@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.cli;
 
-import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -71,7 +71,7 @@ class CliDeployExportsTest {
             Optional.empty(), Optional.empty());
         return new CliExportRunner(TestNodeConfig.node().id(DEV.value()).cliHome(cliHome)
             .cliJavaHome(Path.of("/opt/jdk-17")).build(), credentials,
-            new CredentialGuard(environmentLabels("INUBIT", DEV), clock), runner,
+            new CredentialGuard(storeLabels("INUBIT", DEV), clock), runner,
             new CliOutputClassifier(new SecretScrubber()), tempRoot);
     }
 

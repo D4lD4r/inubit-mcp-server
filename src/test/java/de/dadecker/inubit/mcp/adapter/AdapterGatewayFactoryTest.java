@@ -18,9 +18,10 @@ import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
+import de.dadecker.inubit.mcp.adapter.rest.v81.V81QueryRules;
 import de.dadecker.inubit.mcp.application.NodeVersions;
-import de.dadecker.inubit.mcp.config.CredentialResolution;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.config.CredentialNames;
+import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.ParameterNames;
@@ -30,7 +31,10 @@ import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.LogQuery;
+import de.dadecker.inubit.mcp.domain.model.LogType;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
@@ -45,6 +49,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
@@ -62,6 +67,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -144,10 +150,9 @@ class AdapterGatewayFactoryTest {
         for (EffectiveNodeConfig server : servers) {
             ids.add(server.id());
         }
-        CredentialResolution credentials = new CredentialResolver(
-            Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", "gateway-test-pw"),
-            scrubber, "INUBIT").resolve(ids);
-        return new AdapterGatewayFactory(List.of(servers), TestSecrets.environment(credentials),
+        return new AdapterGatewayFactory(List.of(servers), TestSecrets.credentialStore(
+            List.of(servers), Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD",
+                "gateway-test-pw"), scrubber),
             scrubber, clock,
             new CliRunner(new SystemProcessLauncher(), Map.of(), false, new CliResources("acme")),
             observer, portSets);
@@ -440,11 +445,9 @@ class AdapterGatewayFactoryTest {
             .cliJavaHome(Path.of("/opt/jdk-17")).build();
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("login_failed");
         systemInfo(200, fixture("system_info.xml")); // the login before the export (review I3)
-        CredentialResolution credentials = new CredentialResolver(
-            Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", "gateway-test-pw"),
-            scrubber, "INUBIT").resolve(List.of(DEV));
         try (AdapterGatewayFactory factory = new AdapterGatewayFactory(List.of(config),
-            TestSecrets.environment(credentials), scrubber, clock,
+            TestSecrets.credentialStore(List.of(config), Map.of("INUBIT_DEV_USERNAME", "jdoe",
+                "INUBIT_DEV_PASSWORD", "gateway-test-pw"), scrubber), scrubber, clock,
             new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
             versions, PortSetRegistry.v81Default())) {
 
@@ -528,6 +531,10 @@ class AdapterGatewayFactoryTest {
     void configuredLinesAreKnownWithoutCallingTheServer() {
         try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1),
             server(ENT2, VersionSetting.V9_X))) {
+            // feature 011: credentials are read on first use (from the store, not the server)
+            assertThat(factory.knownGateway(DEV)).isEmpty();
+            factory.prepareCredentials(DEV, Duration.ofSeconds(5));
+            factory.prepareCredentials(ENT2, Duration.ofSeconds(5));
             assertThat(factory.knownGateway(DEV)).get()
                 .extracting(Gateway::warnings).asList().isEmpty();
             assertThat(factory.knownGateway(ENT2).orElseThrow().warnings())
@@ -537,14 +544,71 @@ class AdapterGatewayFactoryTest {
     }
 
     @Test
-    void theCredentialsOfAnEnvironmentNodeAreHeldFromTheStart() {
+    void theCredentialsOfACredentialStoreNodeAreReadOnFirstUse() {
+        // feature 011 (FR-006): nothing is read when the factory is built
         try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
+            assertThat(factory.credentialsHeld(DEV)).isFalse();
+            assertThat(factory.prepareCredentials(DEV, Duration.ofSeconds(5)))
+                .isEqualTo(CredentialState.READY);
             assertThat(factory.credentialsHeld(DEV)).isTrue();
-            // T014: get_health finds them ready without waiting, even with a zero bound
+            // T014: once held, get_health finds them ready without waiting, even with a zero bound
             assertThat(factory.prepareCredentials(DEV, Duration.ZERO))
                 .isEqualTo(CredentialState.READY);
         }
         assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void aSingleNodeCallWaitsForTheCredentialStoreLongerThanTheParameterStoreTimeout() {
+        // feature 011 (T013, research R-7, quickstart Q22): the wait is the node's store timeout
+        // (60 s, an access dialog may be open), not the 10 s of Parameter Store
+        EffectiveNodeConfig dev = server(DEV, VersionSetting.V8_1);
+        FakeCredentialStore store = TestSecrets.store(Map.of("INUBIT_DEV_USERNAME", "jdoe",
+            "INUBIT_DEV_PASSWORD", "gateway-test-pw"));
+        store.delay(dev.credentialNames().nodeName(CredentialNames.USERNAME),
+            NodeSecrets.STORE_TIMEOUT.plusSeconds(1));
+        try (AdapterGatewayFactory factory = new AdapterGatewayFactory(List.of(dev),
+            Map.of(DEV, NodeSecrets.credentialStore(dev, store, scrubber, clock)), scrubber,
+            clock, new CliRunner(new SystemProcessLauncher(), Map.of(), false,
+                new CliResources("acme")), versions, PortSetRegistry.v81Default())) {
+
+            assertThat(factory.logs(DEV)).isNotNull();
+
+            assertThat(factory.credentialsHeld(DEV)).isTrue();
+            assertThat(store.reads().get(0).timeout())
+                .isGreaterThan(NodeSecrets.STORE_TIMEOUT.multipliedBy(5));
+        }
+    }
+
+    @Test
+    void theQueryRulesNeedNoCredentials() {
+        // feature 011 (review T013-T015 r2): a refused request reads no credential store entry
+        EffectiveNodeConfig dev = server(DEV, VersionSetting.V8_1);
+        FakeCredentialStore store = TestSecrets.store(Map.of("INUBIT_DEV_USERNAME", "jdoe",
+            "INUBIT_DEV_PASSWORD", "gateway-test-pw"));
+        try (AdapterGatewayFactory factory = new AdapterGatewayFactory(List.of(dev),
+            Map.of(DEV, NodeSecrets.credentialStore(dev, store, scrubber, clock)), scrubber,
+            clock, new CliRunner(new SystemProcessLauncher(), Map.of(), false,
+                new CliResources("acme")), versions, PortSetRegistry.v81Default())) {
+            LogQuery workflowOnTheAuditLog = new LogQuery(LogType.AUDIT_LOG, Optional.empty(),
+                Optional.empty(), Optional.of("Workflow-0001"), Optional.empty(), Set.of(),
+                Optional.empty(), 0, 10);
+            ProcessQuery tooDeep = new ProcessQuery(Set.of(), false, Duration.ofMinutes(5),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), 9_995, 10,
+                Instant.parse("2026-10-31T08:00:00Z"));
+
+            assertThatThrownBy(() -> factory.queryRules(DEV).validate(workflowOnTheAuditLog))
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(e.error().code())
+                    .isEqualTo(ErrorCode.INVALID_INPUT));
+            assertThatThrownBy(() -> factory.queryRules(DEV).validate(tooDeep))
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(e.error().code())
+                    .isEqualTo(ErrorCode.INVALID_INPUT));
+            assertThat(store.reads()).isEmpty();
+            assertThat(factory.credentialsHeld(DEV)).isFalse();
+            assertThatThrownBy(() -> factory.queryRules(NodeId.parse("dev/unknown")))
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(e.error().code())
+                    .isEqualTo(ErrorCode.TARGET_UNKNOWN));
+        }
     }
 
     @Test
@@ -865,7 +929,7 @@ class AdapterGatewayFactoryTest {
         EffectiveNodeConfig on90 = server(ENT2, VersionSetting.parse("9.0.7").orElseThrow());
         EffectiveNodeConfig unknown = server(ENT3, VersionSetting.AUTO);
         PortSetRegistry portSets = new PortSetRegistry(fakePortSet("default"))
-            .register(V7_9, fakePortSet("7.9"));
+            .register(V7_9, fakePortSet("7.9"), V81QueryRules.INSTANCE);
         try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(on81, on90, unknown),
             on81, on90, unknown)) {
             assertThat(portSetOf(factory.logs(DEV))).isEqualTo("default");
@@ -902,7 +966,7 @@ class AdapterGatewayFactoryTest {
         systemInfo(200, systemInfoWithVersion("7.9.3"));
         EffectiveNodeConfig node = server(DEV, VersionSetting.AUTO);
         PortSetRegistry portSets = new PortSetRegistry(fakePortSet("default"))
-            .register(V7_9, fakePortSet("7.9"));
+            .register(V7_9, fakePortSet("7.9"), V81QueryRules.INSTANCE);
         try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(node), node)) {
             assertThat(portSetOf(factory.logs(DEV))).as("before the detection").isEqualTo("default");
 
@@ -923,7 +987,8 @@ class AdapterGatewayFactoryTest {
         systemInfo(200, systemInfoWithVersion("7.9.3"));
         EffectiveNodeConfig node = server(DEV, VersionSetting.AUTO);
         PortSetRegistry portSets = new PortSetRegistry(fakePortSet("default"))
-            .register(V7_9, fakePortSet("7.9")).register(V9_0, fakePortSet("9.0"));
+            .register(V7_9, fakePortSet("7.9"), V81QueryRules.INSTANCE)
+            .register(V9_0, fakePortSet("9.0"), V81QueryRules.INSTANCE);
         try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(node), node)) {
             factory.detect(DEV);
             LogPort on79 = factory.logs(DEV);
@@ -949,10 +1014,34 @@ class AdapterGatewayFactoryTest {
     }
 
     @Test
+    void theQueryRulesOfARegisteredRangeAreTheOnesRegisteredWithIt() {
+        // review T013-T015 r2: the rules are explicit per port set
+        EffectiveNodeConfig on79 = server(DEV, VersionSetting.parse("7.9.3").orElseThrow());
+        EffectiveNodeConfig on81 = server(ENT2, VersionSetting.parse("8.1.17").orElseThrow());
+        de.dadecker.inubit.mcp.domain.port.QueryRules rules79 =
+            new de.dadecker.inubit.mcp.domain.port.QueryRules() {
+                @Override
+                public void validate(LogQuery query) {
+                }
+
+                @Override
+                public void validate(ProcessQuery query) {
+                }
+            };
+        PortSetRegistry portSets = PortSetRegistry.v81Default().register(V7_9,
+            fakePortSet("7.9"), rules79);
+        try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(on79, on81), on79,
+            on81)) {
+            assertThat(factory.queryRules(DEV)).isSameAs(rules79);
+            assertThat(factory.queryRules(ENT2)).isSameAs(V81QueryRules.INSTANCE);
+        }
+    }
+
+    @Test
     void theSelectedPortSetIsStillWrappedByTheStaleTrigger() {
         EffectiveNodeConfig node = server(DEV, VersionSetting.parse("7.9.3").orElseThrow());
         PortSetRegistry portSets = PortSetRegistry.v81Default().register(V7_9,
-            fakePortSet("7.9"));
+            fakePortSet("7.9"), V81QueryRules.INSTANCE);
         try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(node), node)) {
             assertThat(factory.logs(DEV)).isInstanceOf(StaleReportingPorts.Logs.class);
             assertThat(portSetOf(factory.logs(DEV))).isEqualTo("7.9");

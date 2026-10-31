@@ -5,18 +5,20 @@ import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.os.CredentialStores;
 import de.dadecker.inubit.mcp.config.ConfigException;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigSummary;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
-import de.dadecker.inubit.mcp.config.CredentialResolution;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.config.EntryCheck;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.ParameterCheck;
 import de.dadecker.inubit.mcp.config.ParameterStore;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.SecretPlan;
+import de.dadecker.inubit.mcp.config.StoreKind;
 import de.dadecker.inubit.mcp.config.ValidationReport;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -40,7 +42,6 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -56,10 +57,10 @@ import org.slf4j.LoggerFactory;
 /**
  * The command line behind {@link Main} (contracts/configuration.md → Command-line arguments).
  *
- * <p>Order: arguments, config file, credentials from the environment, validation (all errors on
- * stderr, exit 1), log level, audit directory (owner-only), wiring, MCP server. The server runs
- * until stdin is closed. {@link Main} has already set the locale and installed the stdout guard
- * before this class (and with it Logback) is initialized.
+ * <p>Order: arguments, config file, validation (all errors on stderr, exit 1), log level, audit
+ * directory (owner-only), wiring, MCP server. The server runs until stdin is closed.
+ * {@link Main} has already set the locale and installed the stdout guard before this class (and
+ * with it Logback) is initialized.
  *
  * <p>Exit codes: 0 success, 1 configuration or startup error, 2 usage error.
  */
@@ -75,8 +76,9 @@ final class Launcher {
           --config <path>   configuration file
           --profile <name>  the profile's file <name>.yaml in ~/.config/inubit-mcp
                             (Windows: %APPDATA%\\inubit-mcp); its profile.name must be <name>
-          --check-config    validate the configuration, print a summary (variable and
-                            parameter names only, no values) and exit 0 (valid) or 1 (errors)
+          --check-config    validate the configuration, read the credentials, print a summary
+                            (credential store entry and parameter names only, no values) and
+                            exit 0 (valid) or 1 (errors)
           --version         print the server version and exit
         Without --config/--profile: $INUBIT_MCP_CONFIG (a path), then $INUBIT_MCP_PROFILE (a
         profile name), then ~/.config/inubit-mcp/config.yaml.
@@ -92,10 +94,13 @@ final class Launcher {
      * @param out the protocol stdout (also used for {@code --version}/{@code --check-config})
      * @param parameterStore creates the AWS Parameter Store client of the server (feature 010);
      *     called only if a node reads its secrets from it
+     * @param credentialStore creates the credential store of the running system (feature 011);
+     *     building it reads nothing
      */
     record Context(Map<String, String> environment, Path userHome, boolean windows,
         InputStream in, PrintStream out, PrintStream err, SecretScrubber scrubber,
-        Predicate<Path> exists, Supplier<ParameterStore> parameterStore) {
+        Predicate<Path> exists, Supplier<ParameterStore> parameterStore,
+        Supplier<CredentialStore> credentialStore) {
 
         Context {
             environment = Map.copyOf(environment);
@@ -106,13 +111,17 @@ final class Launcher {
             Objects.requireNonNull(scrubber, "scrubber");
             Objects.requireNonNull(exists, "exists");
             Objects.requireNonNull(parameterStore, "parameterStore");
+            Objects.requireNonNull(credentialStore, "credentialStore");
         }
 
         static Context system(PrintStream protocolOut) {
-            return new Context(System.getenv(), Path.of(System.getProperty("user.home")),
+            Path home = Path.of(System.getProperty("user.home"));
+            return new Context(System.getenv(), home,
                 System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows"),
                 System.in, protocolOut, System.err, SecretScrubber.global(), Files::exists,
-                SsmParameterStore::new);
+                SsmParameterStore::new, () -> CredentialStores.forOs(
+                    System.getProperty("os.name"), new SystemProcessLauncher(), System.getenv(),
+                    home));
         }
     }
 
@@ -167,19 +176,13 @@ final class Launcher {
             context.err().println(e.getMessage());
             return EXIT_ERROR;
         }
-        // 002 T031 and US2 review P1/P2: the other profile files of the default directory, read
-        // once; their variables are no "unmatched" variables of this profile
+        // 002 T031: the other profile files of the default directory, read once
         List<LoadedConfig> otherProfiles = loader.otherProfiles(loaded.source());
-        Set<String> otherVariables = new HashSet<>();
-        otherProfiles.forEach(other -> otherVariables.addAll(
-            other.config().credentialVariableNames()));
-        CredentialResolution credentials = new CredentialResolver(context.environment(),
-            context.scrubber(), loaded.config().terminology().effectiveOrDefault(),
-            loaded.config().credentialPrefix(), loaded.config().secretPlans())
-            .resolve(loaded.config().nodeIds(), otherVariables);
+        // feature 011 (research R-10): no credential is resolved at startup; every node reads its
+        // credentials on first use
         ValidationReport report = new ConfigValidator(context.exists(), context.environment(),
             context.windows(), Path.of(System.getProperty("java.io.tmpdir")),
-            source -> otherProfiles).validate(loaded, credentials);
+            source -> otherProfiles).validate(loaded);
         if (arguments.checkConfig()) {
             Map<NodeId, ClientVersion> clients = new HashMap<>();
             ValidationReport withProbes = probeClients(loaded.config(), report, clients);
@@ -188,9 +191,14 @@ final class Launcher {
             ParameterCheck.Result parameters = plans.stream().anyMatch(SecretPlan::aws)
                 ? ParameterCheck.run(plans, context.parameterStore().get())
                 : ParameterCheck.Result.NONE;
-            ValidationReport checked = parameters.addTo(withProbes);
+            // feature 011 (research R-13): the credential store only for credential store nodes
+            List<EffectiveNodeConfig> nodes = loaded.config().resolvableNodes();
+            EntryCheck.Result entries = plans.stream().anyMatch(plan -> !plan.aws())
+                ? EntryCheck.run(nodes, context.credentialStore().get())
+                : EntryCheck.Result.none(StoreKind.forOs(System.getProperty("os.name")));
+            ValidationReport checked = entries.addTo(parameters.addTo(withProbes));
             context.out().print(new ConfigSummary(context.exists(), context.windows())
-                .render(loaded, credentials, checked, clients, parameters));
+                .render(loaded, checked, clients, parameters, entries));
             context.out().flush();
             return checked.hasErrors() ? EXIT_ERROR : EXIT_OK;
         }
@@ -203,7 +211,7 @@ final class Launcher {
         }
         printFindings("Warnings:", report.warnings());
         try {
-            return serve(loaded.config(), credentials, report.warnings());
+            return serve(loaded.config(), report.warnings());
         } catch (RuntimeException e) {
             context.err().println(oneLine("Startup failed: " + e.getClass().getSimpleName()
                 + ": " + e.getMessage()));
@@ -247,8 +255,7 @@ final class Launcher {
         return new ValidationReport(report.errors(), warnings, report.workspace());
     }
 
-    private int serve(ProfileConfig config, CredentialResolution credentials,
-        List<String> warnings) {
+    private int serve(ProfileConfig config, List<String> warnings) {
         LogLevels.apply(config.logLevel().name());
         warnings.forEach(warning -> LOG.warn("Configuration: {}", warning));
         try {
@@ -267,7 +274,7 @@ final class Launcher {
                     swept, swept == 1 ? "y" : "ies");
             }
         }
-        try (Wiring wiring = new Wiring(config, credentials, context.scrubber(),
+        try (Wiring wiring = new Wiring(config, context.credentialStore().get(), context.scrubber(),
             ClockProvider.system(), context.exists(), context.windows(),
             new SystemProcessLauncher(), System.getenv(), context.parameterStore())) {
             McpServerFactory factory = wiring.serverFactory(BuildInfo.version(),

@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.adapter;
 
-import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -42,7 +42,7 @@ class CredentialGuardTest {
 
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-01T08:00:00Z"));
     private final CredentialGuard guard =
-        new CredentialGuard(environmentLabels("INUBIT_ACME", DEV), clock);
+        new CredentialGuard(storeLabels("INUBIT_ACME", DEV), clock);
 
     private void reject() {
         try (CredentialGuard.Permit permit = guard.acquire()) {
@@ -62,11 +62,12 @@ class CredentialGuardTest {
                 assertThat(e.error().message()).contains("dev/node1",
                     "authentication failed recently", "not retried for 42 s",
                     "avoid account lockout");
-                // 002 research D-6: the variables under the profile's effective prefix;
-                // unchanged by feature 010 for environment nodes
-                assertThat(e.error().nextStep()).isEqualTo("Fix INUBIT_ACME_DEV_NODE1_PASSWORD"
-                    + " (or INUBIT_ACME_DEV_PASSWORD) and _USERNAME, then restart the MCP client"
-                    + " from a shell with the new values");
+                // 002 research D-6: the entries under the profile's effective prefix; feature
+                // 011 (T016, US5-2): the entries to correct, no restart
+                assertThat(e.error().nextStep()).isEqualTo("Correct the credential store entries"
+                    + " INUBIT_ACME_DEV_NODE1_USERNAME (or INUBIT_ACME_DEV_USERNAME) and"
+                    + " INUBIT_ACME_DEV_NODE1_PASSWORD (or INUBIT_ACME_DEV_PASSWORD) (service"
+                    + " inubit-mcp) in the macOS Keychain; no restart is needed");
             });
 
         clock.advance(Duration.ofSeconds(41));
@@ -383,5 +384,44 @@ class CredentialGuardTest {
         try (CredentialGuard.Permit permit = client().acquire()) {
             assertThat(permit).as("the grace attempt is still allowed").isNotNull();
         }
+    }
+
+    // --- feature 011 (T016, US5): the same re-read rules for a credential store node ---
+
+    private final FakeSecrets storeSecrets = new FakeSecrets();
+    private final CredentialGuard storeGuard =
+        new CredentialGuard(storeLabels("INUBIT_ACME", DEV), clock, storeSecrets);
+
+    @Test
+    void aCredentialStoreNodeGetsOneGraceAttemptAfterAChangedEntry() {
+        storeSecrets.next = Reread.CHANGED;
+        CredentialGuard old = storeGuard.bind(storeSecrets.held);
+
+        reject(old);
+
+        assertThat(storeSecrets.rereads).hasValue(1);
+        assertThatThrownBy(old::acquire).isInstanceOfSatisfying(ToolErrorException.class,
+            e -> assertThat(e.error().message()).contains("replaced by new values from the"
+                + " macOS Keychain"));
+        CredentialGuard rotated = storeGuard.bind(storeSecrets.held);
+        reject(rotated);
+        assertThat(storeSecrets.rereads).as("no re-read for the grace attempt").hasValue(1);
+        assertPaused(rotated, "60 s");
+    }
+
+    @Test
+    void anUnchangedCredentialStoreEntryPausesAndNamesTheEntriesWithoutRestart() {
+        storeSecrets.next = Reread.UNCHANGED;
+        CredentialGuard client = storeGuard.bind(storeSecrets.held);
+
+        reject(client);
+
+        assertThatThrownBy(client::acquire).isInstanceOfSatisfying(ToolErrorException.class,
+            e -> {
+                assertThat(e.error().message()).contains("not retried for 60 s");
+                assertThat(e.error().nextStep()).contains("INUBIT_ACME_DEV_NODE1_PASSWORD",
+                    "macOS Keychain", "no restart is needed");
+            });
+        assertThat(storeSecrets.rereads).hasValue(1);
     }
 }

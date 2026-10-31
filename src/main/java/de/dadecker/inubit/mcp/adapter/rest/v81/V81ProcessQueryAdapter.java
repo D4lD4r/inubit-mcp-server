@@ -83,9 +83,7 @@ public final class V81ProcessQueryAdapter implements ProcessQueryPort {
     /** Server-independent: the error carries no server id (review D8). */
     @Override
     public void validate(ProcessQuery query) {
-        LogRequestBuilder.checkWindow(query.offset(), query.limit());
-        query.workflow().ifPresent(value -> LogRequestBuilder.checkSendable("workflow", value));
-        query.tag().ifPresent(value -> LogRequestBuilder.checkSendable("tag", value));
+        V81QueryRules.INSTANCE.validate(query);
     }
 
     @Override

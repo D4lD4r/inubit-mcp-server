@@ -7,7 +7,7 @@ terminology:                       # new, optional: keeps the wording of feature
   node:  { singular: server, plural: servers }
 
 credentials:                       # new, optional: keeps the variables INUBIT_<STAGE>[_<SERVER>]_*
-  envPrefix: INUBIT
+  prefix: INUBIT
 
 logLevel: INFO
 # auditDirectory removed: new audit records go to ~/.inubit-mcp/acme/audit
