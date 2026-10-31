@@ -77,6 +77,16 @@ locally outside the repository, and the project's 8.1/9.0 research notes
   `log diagnosis` (`query_logs`) for every version; the changed `list_nodes` output on 8.1 is a
   deliberate change, noted in the changelog.
 
+### Session 2026-10-31 (planning)
+
+- Q: How is a password-protected trust store handled? → A: By the existing rule, unchanged: a
+  trust-store password on a node with a configured StartCLI is a configuration error (found in
+  the code during planning; stricter than the per-node refusal drafted before).
+- Q: What does `list_nodes` call the split capabilities? → A: `process_diagnosis` and
+  `log_diagnosis` (the snake_case convention of `list_nodes`); messages say "process diagnosis"
+  and "log diagnosis".
+- Q: Is a raw node value `__NotAssigned__` kept? → A: No; `inubitNode` is absent, no extra field.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Check health and version of a 6.1 node (Priority: P1)
@@ -252,10 +262,10 @@ limits.
 4. **Given** the same node with a client that has no such option, **When** a StartCLI-backed tool
    runs, **Then** it fails with `TLS_ERROR` naming the missing client option, no StartCLI process
    is started, and `--check-config` warns about it.
-5. **Given** a 6.1 node with a password-protected trust store and a client that can receive the
-   trust store only through its runtime settings, **When** a StartCLI-backed tool runs, **Then** it
-   is refused with the next step "use a password-less trust store", and the trust-store password
-   appears in no argument or environment variable.
+5. **Given** a 6.1 node with a trust-store password and a configured StartCLI, **When** the
+   configuration is loaded or `--check-config` runs, **Then** it is reported as a configuration
+   error as today (StartCLI needs a password-less trust store); the password never reaches the
+   client.
 6. **Given** a 6.1 node whose StartCLI URL is overridden to another host or port than `baseUrl`,
    **When** a StartCLI-backed tool runs, **Then** the server's TLS check targets the StartCLI URL's
    host and port.
@@ -281,7 +291,7 @@ limits.
 - StartCLI output in German or English (dates, state names, labels) is parsed; output in any other
   language or an unknown format is `UNEXPECTED_RESPONSE`, never an empty result (FR-017).
 - A `ps` row without module: the module is omitted from that instance. A node column
-  `__NotAssigned__`: `inubitNode` is absent and the raw value is kept in `rawNode`. A raw state the
+  `__NotAssigned__`: `inubitNode` is absent (the value carries no node). A raw state the
   server does not know: `state` is `OTHER` and `rawState` is kept, as on 8.1.
 - The `ps` date turns out not to be the time of entering the state (FR-010): hanging and time in
   state are not computed, and the hanging filter and time range are refused.
@@ -429,9 +439,8 @@ limits.
   node's trust store, by its own option where it has one, otherwise by the trust-store settings of
   its Java runtime. Rules for what reaches the client:
   - A trust-store password MUST NOT appear in any argument or environment variable of the client
-    process. If the node's client can only receive the trust store through its runtime's settings,
-    a password-protected trust store MUST be refused for that node, with the next step "use a
-    password-less trust store".
+    process. The existing rule applies unchanged: a trust-store password on a node with a
+    configured StartCLI is a configuration error (StartCLI needs a password-less trust store).
   - Host-name verification of the client MAY be skipped only through the client's own option and
     only under the feature 006 rule (`disableHostnameVerification` with a pin). If the node's
     client has no such option, a 6.1 node with `disableHostnameVerification: true` MUST be refused
@@ -441,8 +450,8 @@ limits.
     contact); if it cannot be determined, the option counts as absent (fail closed). A trust-store
     format the client's runtime cannot read (e.g. PKCS12 on Java 7) MUST be refused for that node
     with a next step naming a readable format.
-  - These refusals use `TLS_ERROR` and happen before the TLS handshake of FR-012 and before any
-    StartCLI run.
+  - These refusals (missing host-name option, unreadable trust-store format) use `TLS_ERROR` and
+    happen before the TLS handshake of FR-012 and before any StartCLI run.
   - `--check-config` MUST report each of these cases, including an option that could not be
     determined, as a warning naming the node and the cause; the server still starts and the node's
     StartCLI-backed tools answer with the refusal.
