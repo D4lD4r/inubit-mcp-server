@@ -67,17 +67,31 @@ class CapabilityMatrixTest {
     @Test
     void readAndWriteCapabilitiesFollowTheToolClassification() {
         assertThat(Capability.values()).filteredOn(c -> c.kind() == Kind.READ)
-            .containsExactly(Capability.MONITORING, Capability.DIAGNOSIS, Capability.INVENTORY,
-                Capability.WORKSPACE_EXPORT);
+            .containsExactly(Capability.MONITORING, Capability.PROCESS_DIAGNOSIS,
+                Capability.LOG_DIAGNOSIS, Capability.INVENTORY, Capability.WORKSPACE_EXPORT);
         assertThat(Capability.values()).filteredOn(c -> c.kind() == Kind.WRITE)
             .containsExactly(Capability.DEVELOPMENT_WRITE, Capability.DEPLOYMENT,
                 Capability.E2E_TEST, Capability.PROCESS_CONTROL);
     }
 
+    /** Feature 011 (FR-004): both halves of the former "diagnosis" keep its state. */
+    @ParameterizedTest
+    @EnumSource(value = Capability.class, names = {"PROCESS_DIAGNOSIS", "LOG_DIAGNOSIS"})
+    void bothDiagnosisCapabilitiesKeepTheFormerDiagnosisState(Capability capability) {
+        assertThat(production.state(version("8.1.17"), capability))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.state(version("9.0.7"), capability))
+            .isEqualTo(SupportState.UNVERIFIED);
+        assertThat(production.state(Optional.empty(), capability))
+            .isEqualTo(SupportState.UNVERIFIED);
+    }
+
     @Test
     void channelsFollowTheToolClassification() {
         assertThat(Capability.MONITORING.channels()).containsExactlyInAnyOrder(Channel.REST);
-        assertThat(Capability.DIAGNOSIS.channels()).containsExactlyInAnyOrder(Channel.REST);
+        assertThat(Capability.PROCESS_DIAGNOSIS.channels())
+            .containsExactlyInAnyOrder(Channel.REST);
+        assertThat(Capability.LOG_DIAGNOSIS.channels()).containsExactlyInAnyOrder(Channel.REST);
         assertThat(Capability.INVENTORY.channels())
             .containsExactlyInAnyOrder(Channel.REST, Channel.CLI);
         assertThat(Capability.WORKSPACE_EXPORT.channels()).containsExactlyInAnyOrder(Channel.CLI);

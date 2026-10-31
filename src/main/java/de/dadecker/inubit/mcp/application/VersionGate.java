@@ -423,7 +423,8 @@ public final class VersionGate {
     static String label(Capability capability) {
         return switch (capability) {
             case MONITORING -> "monitoring";
-            case DIAGNOSIS -> "diagnosis";
+            case PROCESS_DIAGNOSIS -> "process diagnosis";
+            case LOG_DIAGNOSIS -> "log diagnosis";
             case INVENTORY -> "inventory";
             case WORKSPACE_EXPORT -> "workspace export";
             case DEVELOPMENT_WRITE -> "development writes";

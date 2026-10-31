@@ -58,8 +58,10 @@ import org.junit.jupiter.api.Timeout;
 /**
  * T069: the use cases behind {@code find_processes} and {@code query_logs} with fake ports and a
  * fixed clock (FR-009 – FR-013, research R-8, R-9). Feature 009 (T012, FR-006, FR-009): the
- * version gate admits {@code DIAGNOSIS} per node before its REST query; its warnings go into that
- * node's result, a refusal becomes that node's error.
+ * version gate admits the tool's capability per node before its REST query; its warnings go into
+ * that node's result, a refusal becomes that node's error. Feature 011 (FR-004): that capability
+ * is {@code PROCESS_DIAGNOSIS} for {@code find_processes} and {@code LOG_DIAGNOSIS} for
+ * {@code query_logs}.
  */
 @Timeout(30)
 class DiagnosisServiceTest {
@@ -656,11 +658,11 @@ class DiagnosisServiceTest {
         NodePage<LogEntry> logPage = service.queryLogs(logRequest("dev/node1",
             LogType.SYSTEM_LOG)).get(0).payload().orElseThrow();
 
-        String warning = "INUBIT 9.0.7 on dev/node1 is not verified for diagnosis; results may"
-            + " be incomplete";
-        assertThat(processPage.warnings()).containsExactly(warning);
+        assertThat(processPage.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not"
+            + " verified for process diagnosis; results may be incomplete");
         assertThat(processPage.page().items()).hasSize(1);
-        assertThat(logPage.warnings()).containsExactly(warning);
+        assertThat(logPage.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not"
+            + " verified for log diagnosis; results may be incomplete");
         assertThat(logPage.page().items()).hasSize(1);
         assertThat(detection.requests()).as("the second call uses the cached version")
             .containsExactly(DEV);
@@ -708,18 +710,46 @@ class DiagnosisServiceTest {
             assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
             assertThat(error.node()).contains(QA2);
             assertThat(error.message()).isEqualTo("find_processes: INUBIT 9.0.7 on qa/node2"
-                + " does not support diagnosis yet; nothing was sent");
+                + " does not support process diagnosis yet; nothing was sent");
         });
         assertThat(logResults.get(1).error()).hasValueSatisfying(error -> assertThat(
-            error.message()).startsWith("query_logs: INUBIT 9.0.7 on qa/node2"));
+            error.message()).isEqualTo("query_logs: INUBIT 9.0.7 on qa/node2 does not support"
+                + " log diagnosis yet; nothing was sent"));
         assertThat(processes(QA2).queries()).isEmpty();
         assertThat(logs(QA2).queries()).isEmpty();
     }
 
-    /** A test-only matrix: diagnosis on 8.1 only, unsupported everywhere else. */
+    @Test
+    void eachToolIsAdmittedForItsOwnDiagnosisCapability() {
+        // feature 011 (FR-004): find_processes needs PROCESS_DIAGNOSIS, query_logs LOG_DIAGNOSIS
+        matrix = new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+            new VersionRange(8, 1, 8, 1),
+            Map.of(Capability.PROCESS_DIAGNOSIS, SupportState.SUPPORTED))), Map.of());
+        versionLines.put(DEV, VersionSetting.AUTO);
+        detection.answer(DEV, "8.1.17");
+        processes(DEV).answer = query -> page(List.of(), 0, 50, 0, false);
+        DiagnosisService service = service();
+
+        NodeResult<NodePage<ProcessInstance>> processResult = service.findProcesses(
+            processRequest("dev/node1")).get(0);
+        NodeResult<NodePage<LogEntry>> logResult = service.queryLogs(logRequest("dev/node1",
+            LogType.SYSTEM_LOG)).get(0);
+
+        assertThat(processResult.payload()).hasValueSatisfying(
+            page -> assertThat(page.warnings()).isEmpty());
+        assertThat(logResult.error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+            assertThat(error.message()).isEqualTo("query_logs: INUBIT 8.1.17 on dev/node1"
+                + " does not support log diagnosis yet; nothing was sent");
+        });
+        assertThat(logs(DEV).queries()).isEmpty();
+    }
+
+    /** A test-only matrix: both diagnosis capabilities on 8.1 only, unsupported elsewhere. */
     private static CapabilityMatrix diagnosisOnlyOn81() {
         Map<Capability, SupportState> supported = new EnumMap<>(Capability.class);
-        supported.put(Capability.DIAGNOSIS, SupportState.SUPPORTED);
+        supported.put(Capability.PROCESS_DIAGNOSIS, SupportState.SUPPORTED);
+        supported.put(Capability.LOG_DIAGNOSIS, SupportState.SUPPORTED);
         return new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
             new VersionRange(8, 1, 8, 1), supported)), Map.of());
     }

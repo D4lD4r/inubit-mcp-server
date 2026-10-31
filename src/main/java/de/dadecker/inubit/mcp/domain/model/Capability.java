@@ -9,7 +9,10 @@ import java.util.Set;
  */
 public enum Capability {
     MONITORING(Kind.READ, Set.of(Channel.REST)),
-    DIAGNOSIS(Kind.READ, Set.of(Channel.REST)),
+    /** {@code find_processes}. */
+    PROCESS_DIAGNOSIS(Kind.READ, Set.of(Channel.REST)),
+    /** {@code query_logs}. */
+    LOG_DIAGNOSIS(Kind.READ, Set.of(Channel.REST)),
     /** Diagrams via REST; modules and the history via StartCLI. */
     INVENTORY(Kind.READ, Set.of(Channel.REST, Channel.CLI)),
     WORKSPACE_EXPORT(Kind.READ, Set.of(Channel.CLI)),

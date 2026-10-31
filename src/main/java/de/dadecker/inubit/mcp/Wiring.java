@@ -548,8 +548,8 @@ final class Wiring implements AutoCloseable {
      * receives them, end-to-end tests where allowed, process control with write access.
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
-        Set<Capability> allowed = EnumSet.of(Capability.MONITORING, Capability.DIAGNOSIS,
-            Capability.INVENTORY);
+        Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
+            Capability.PROCESS_DIAGNOSIS, Capability.LOG_DIAGNOSIS, Capability.INVENTORY);
         if (withClient) {
             allowed.add(Capability.WORKSPACE_EXPORT);
         }

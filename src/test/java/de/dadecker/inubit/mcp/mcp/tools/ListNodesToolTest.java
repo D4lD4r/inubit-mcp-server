@@ -287,11 +287,12 @@ class ListNodesToolTest {
     // --- 009-T020: the version block (FR-004, research D-9) --------------------------------
 
     private static final Set<Capability> READS =
-        EnumSet.of(Capability.MONITORING, Capability.DIAGNOSIS, Capability.INVENTORY);
+        EnumSet.of(Capability.MONITORING, Capability.PROCESS_DIAGNOSIS,
+            Capability.LOG_DIAGNOSIS, Capability.INVENTORY);
     /** dev/node1: a development stage with write access and StartCLI. */
     private static final Set<Capability> DEVELOPMENT = EnumSet.of(Capability.MONITORING,
-        Capability.DIAGNOSIS, Capability.INVENTORY, Capability.WORKSPACE_EXPORT,
-        Capability.DEVELOPMENT_WRITE, Capability.PROCESS_CONTROL);
+        Capability.PROCESS_DIAGNOSIS, Capability.LOG_DIAGNOSIS, Capability.INVENTORY,
+        Capability.WORKSPACE_EXPORT, Capability.DEVELOPMENT_WRITE, Capability.PROCESS_CONTROL);
     private static final Instant NOW = Instant.parse("2026-10-18T09:12:03Z");
     private static final NodeId DEV1 = NodeId.parse("dev/node1");
     private static final NodeId DEV2 = NodeId.parse("dev/node2");
@@ -454,7 +455,8 @@ class ListNodesToolTest {
             .isEqualTo("not_yet_detected");
         assertThat(version.path("status").asString()).isEqualTo("unknown");
         assertThat(usable(version)).as("reads run and detect first")
-            .containsExactly("monitoring", "diagnosis", "inventory", "workspace_export");
+            .containsExactly("monitoring", "process_diagnosis", "log_diagnosis", "inventory",
+                "workspace_export");
         assertThat(notUsable(version)).containsExactly("development_writes", "process_control");
         assertThat(reason(version, "development_writes"))
             .contains("INUBIT version of dev/node1 is unknown (not yet detected)", "get_health");
@@ -480,8 +482,9 @@ class ListNodesToolTest {
         assertThat(version.path("client").path("supportedTo").asString()).isEqualTo("8.1.17");
         assertThat(version.path("client").path("comparison").asString()).isEqualTo("match");
         assertThat(version.path("status").asString()).isEqualTo("supported");
-        assertThat(usable(version)).containsExactly("monitoring", "diagnosis", "inventory",
-            "workspace_export", "development_writes", "process_control");
+        assertThat(usable(version)).containsExactly("monitoring", "process_diagnosis",
+            "log_diagnosis", "inventory", "workspace_export", "development_writes",
+            "process_control");
         assertThat(notUsable(version)).isEmpty();
         assertThat(version.has("warnings")).isFalse();
     }
@@ -508,7 +511,8 @@ class ListNodesToolTest {
         assertThat(version.path("server").path("version").asString()).isEqualTo("9.0.7");
         assertThat(version.path("client").path("comparison").asString()).isEqualTo("mismatch");
         assertThat(version.path("status").asString()).isEqualTo("partially_supported");
-        assertThat(usable(version)).containsExactly("monitoring", "diagnosis", "inventory");
+        assertThat(usable(version)).containsExactly("monitoring", "process_diagnosis",
+            "log_diagnosis", "inventory");
         assertThat(notUsable(version)).containsExactly("inventory (StartCLI parts)",
             "workspace_export", "development_writes", "process_control");
         String excluded = "StartCLI client 8.1.17 of dev/node1 supports INUBIT 4.0.1 to 8.1.17,"
@@ -534,7 +538,8 @@ class ListNodesToolTest {
         assertThat(version.path("server").path("reason").asString()).isEqualTo("FORBIDDEN");
         assertThat(version.path("server").path("at").asString()).isEqualTo(NOW.toString());
         assertThat(version.path("status").asString()).isEqualTo("unknown");
-        assertThat(usable(version)).containsExactly("monitoring", "diagnosis", "inventory");
+        assertThat(usable(version)).containsExactly("monitoring", "process_diagnosis",
+            "log_diagnosis", "inventory");
     }
 
     @Test
@@ -643,7 +648,8 @@ class ListNodesToolTest {
         assertThat(version.path("client").path("comparison").asString())
             .isEqualTo("not_comparable");
         assertThat(version.path("status").asString()).isEqualTo("partially_supported");
-        assertThat(usable(version)).containsExactly("monitoring", "diagnosis", "inventory");
+        assertThat(usable(version)).containsExactly("monitoring", "process_diagnosis",
+            "log_diagnosis", "inventory");
         assertThat(notUsable(version)).containsExactly("inventory (StartCLI parts)",
             "workspace_export", "development_writes", "process_control");
         String excluded = "StartCLI client 8.1.17 of qa/node3 supports INUBIT 4.0.1 to 8.1.17,"
@@ -725,16 +731,16 @@ class ListNodesToolTest {
                 .isEqualTo("not_yet_detected");
             assertThat(dev.path("client").path("state").asString())
                 .isEqualTo("not_yet_detected");
-            assertThat(usable(dev)).containsExactly("monitoring", "diagnosis", "inventory",
-                "workspace_export");
+            assertThat(usable(dev)).containsExactly("monitoring", "process_diagnosis",
+                "log_diagnosis", "inventory", "workspace_export");
             assertThat(notUsable(dev)).as("no write access: no process control")
                 .containsExactly("development_writes");
             JsonNode test = groups.path(1).path("nodes").path(0).path("version");
             assertThat(test.path("server").path("source").asString()).isEqualTo("pinned");
             assertThat(test.path("client").path("state").asString()).isEqualTo("not_available");
             assertThat(test.path("status").asString()).isEqualTo("supported");
-            assertThat(usable(test)).containsExactly("monitoring", "diagnosis", "inventory",
-                "deployment");
+            assertThat(usable(test)).containsExactly("monitoring", "process_diagnosis",
+                "log_diagnosis", "inventory", "deployment");
         }
     }
 }

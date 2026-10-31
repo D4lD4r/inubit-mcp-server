@@ -58,7 +58,7 @@ import java.util.regex.Pattern;
  *       (feature 009) and the query. A node whose secrets come from AWS Parameter Store adds
  *       the {@link SecretTiming} allowance for their first fetch (feature 010).
  *   <li>Feature 009 (research D-5, D-6, FR-006, FR-009): before its query, each server's call
- *       asks the {@link VersionGate} for {@code DIAGNOSIS} ({@code READ}, {@code {REST}}), which
+ *       asks the {@link VersionGate} for its capability ({@code READ}, {@code {REST}}), which
  *       detects the version of an {@code AUTO} node on first use; its warnings go into that
  *       server's {@link NodePage}, a refusal ({@code UNSUPPORTED_VERSION}) becomes that server's
  *       {@code error} and leaves the other servers' results untouched.
@@ -192,7 +192,7 @@ public final class DiagnosisService {
             if (unchecked.contains(server)) {
                 gateways.processes(server).validate(queryOf.apply(server));
             }
-            List<String> warnings = admit("find_processes", server);
+            List<String> warnings = admit("find_processes", Capability.PROCESS_DIAGNOSIS, server);
             ProcessQuery query = queryOf.apply(server);
             Duration threshold = query.hangingThreshold();
             if (query.matchesNothing()) {
@@ -235,7 +235,7 @@ public final class DiagnosisService {
             if (unchecked.contains(server)) {
                 gateways.logs(server).validate(query);
             }
-            List<String> warnings = admit("query_logs", server);
+            List<String> warnings = admit("query_logs", Capability.LOG_DIAGNOSIS, server);
             Page<LogEntry> page = gateways.logs(server).query(query);
             List<LogEntry> items = new ArrayList<>(page.items());
             items.sort(Comparator.comparing(
@@ -248,9 +248,13 @@ public final class DiagnosisService {
         });
     }
 
-    /** The version gate's warnings for a diagnosis read on {@code server} (REST only). */
-    private List<String> admit(String tool, NodeId server) {
-        return gate.admit(tool, server, Capability.DIAGNOSIS, Capability.Kind.READ,
+    /**
+     * The version gate's warnings for a diagnosis read on {@code server} (REST only):
+     * {@code PROCESS_DIAGNOSIS} for {@code find_processes}, {@code LOG_DIAGNOSIS} for
+     * {@code query_logs} (feature 011, FR-004).
+     */
+    private List<String> admit(String tool, Capability capability, NodeId server) {
+        return gate.admit(tool, server, capability, Capability.Kind.READ,
             Set.of(Channel.REST)).warnings();
     }
 

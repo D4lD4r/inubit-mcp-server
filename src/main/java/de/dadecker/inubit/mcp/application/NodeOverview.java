@@ -214,7 +214,8 @@ public final class NodeOverview {
     private static String name(Capability capability) {
         return switch (capability) {
             case MONITORING -> "monitoring";
-            case DIAGNOSIS -> "diagnosis";
+            case PROCESS_DIAGNOSIS -> "process_diagnosis";
+            case LOG_DIAGNOSIS -> "log_diagnosis";
             case INVENTORY -> "inventory";
             case WORKSPACE_EXPORT -> "workspace_export";
             case DEVELOPMENT_WRITE -> "development_writes";

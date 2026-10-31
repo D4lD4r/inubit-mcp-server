@@ -166,10 +166,14 @@ class VersionGateTest {
     void aReadOn90IsAdmittedWithTheUnverifiedWarning() {
         detection.answer("9.0.7");
 
-        Admission admission = gate().admit(AUTO, Capability.DIAGNOSIS, Kind.READ, REST);
+        Admission processes = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+        Admission logs = gate().admit(AUTO, Capability.LOG_DIAGNOSIS, Kind.READ, REST);
 
-        assertThat(admission.warnings()).containsExactly(
-            "INUBIT 9.0.7 on dev/node1 is not verified for diagnosis; results may be incomplete");
+        // feature 011 (FR-004): the former "diagnosis" is named per tool
+        assertThat(processes.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not"
+            + " verified for process diagnosis; results may be incomplete");
+        assertThat(logs.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not verified"
+            + " for log diagnosis; results may be incomplete");
     }
 
     @Test
@@ -196,15 +200,15 @@ class VersionGateTest {
 
         ToolError error = refusal(() -> gate().admit("import_artifacts", AUTO,
             Capability.DEVELOPMENT_WRITE, Kind.WRITE, CLI_REST));
-        Admission read = gate().admit("find_processes", AUTO, Capability.DIAGNOSIS, Kind.READ,
-            REST);
+        Admission read = gate().admit("find_processes", AUTO, Capability.PROCESS_DIAGNOSIS,
+            Kind.READ, REST);
 
         assertThat(error.message()).isEqualTo("import_artifacts: INUBIT 9.0.7 on dev/node1 does"
             + " not support development writes yet; nothing was sent");
         assertThat(error.node()).contains(AUTO);
         assertThat(error.nextStep()).startsWith("Use another node");
-        assertThat(read.warnings()).containsExactly(
-            "INUBIT 9.0.7 on dev/node1 is not verified for diagnosis; results may be incomplete");
+        assertThat(read.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not verified"
+            + " for process diagnosis; results may be incomplete");
     }
 
     @Test
@@ -213,7 +217,7 @@ class VersionGateTest {
 
         ToolError error = refusal(() -> gate().admit(AUTO, Capability.PROCESS_CONTROL,
             Kind.WRITE, CLI_REST));
-        Admission read = gate().admit(AUTO, Capability.DIAGNOSIS, Kind.READ, REST);
+        Admission read = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
 
         assertThat(error.message()).contains(
             "the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T08:00:00Z)");
@@ -243,10 +247,10 @@ class VersionGateTest {
     @Test
     void aVersionOlderThanTheBoundIsDetectedAgainBeforeAWriteButNotBeforeARead() {
         detection.answer("8.1.17");
-        gate().admit(AUTO, Capability.DIAGNOSIS, Kind.READ, REST);
+        gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
         clock.advance(TTL.plusSeconds(1));
 
-        gate().admit(AUTO, Capability.DIAGNOSIS, Kind.READ, REST);
+        gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
         assertThat(detection.calls).as("reads use the cached version").isEqualTo(1);
 
         gate().admit(AUTO, Capability.DEVELOPMENT_WRITE, Kind.WRITE, CLI_REST);
@@ -259,7 +263,7 @@ class VersionGateTest {
         gate().admit(AUTO, Capability.DEVELOPMENT_WRITE, Kind.WRITE, CLI_REST);
         versions.stale(AUTO);
 
-        gate().admit(AUTO, Capability.DIAGNOSIS, Kind.READ, REST);
+        gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
         assertThat(detection.calls).isEqualTo(1);
 
         gate().admit(AUTO, Capability.DEVELOPMENT_WRITE, Kind.WRITE, CLI_REST);
@@ -279,7 +283,7 @@ class VersionGateTest {
         clock.advance(Duration.ofSeconds(59));
         ToolError second = refusal(() -> gate().admit(AUTO, Capability.DEVELOPMENT_WRITE,
             Kind.WRITE, CLI_REST));
-        Admission read = gate().admit(AUTO, Capability.DIAGNOSIS, Kind.READ, REST);
+        Admission read = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
 
         assertThat(first.message()).contains(
             "the INUBIT version of dev/node1 is unknown (UNREACHABLE at 2026-10-18T08:00:05Z)");
@@ -313,7 +317,7 @@ class VersionGateTest {
         versions.clientProbed(AUTO, client("8.1.17", "4.0.1", "8.1.17"));
 
         Admission cli = gate().admit(AUTO, Capability.DEVELOPMENT_WRITE, Kind.WRITE, CLI_REST);
-        Admission rest = gate().admit(AUTO, Capability.DIAGNOSIS, Kind.READ, REST);
+        Admission rest = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
 
         assertThat(cli.warnings()).containsExactly("StartCLI client 8.1.17 on dev/node1"
             + " differs from INUBIT 8.1.18 (mismatch);"
@@ -336,18 +340,23 @@ class VersionGateTest {
     @Test
     void aReadDeclaredUnsupportedByATestMatrixIsRefused() {
         Map<Capability, SupportState> states = all(SupportState.SUPPORTED);
-        states.put(Capability.DIAGNOSIS, SupportState.UNSUPPORTED);
+        states.put(Capability.PROCESS_DIAGNOSIS, SupportState.UNSUPPORTED);
+        states.put(Capability.LOG_DIAGNOSIS, SupportState.UNSUPPORTED);
         CapabilityMatrix matrix = new CapabilityMatrix(
             List.of(new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1), states)),
             all(SupportState.UNSUPPORTED));
         detection.answer("8.1.17");
 
-        ToolError error = refusal(() -> gate(matrix).admit(AUTO, Capability.DIAGNOSIS, Kind.READ,
-            REST));
+        ToolError processes = refusal(() -> gate(matrix).admit(AUTO,
+            Capability.PROCESS_DIAGNOSIS, Kind.READ, REST));
+        ToolError logs = refusal(() -> gate(matrix).admit(AUTO, Capability.LOG_DIAGNOSIS,
+            Kind.READ, REST));
 
-        assertThat(error.message()).isEqualTo(
-            "INUBIT 8.1.17 on dev/node1 does not support diagnosis yet; nothing was sent");
-        assertThat(appender.list).hasSize(1);
+        assertThat(processes.message()).isEqualTo("INUBIT 8.1.17 on dev/node1 does not support"
+            + " process diagnosis yet; nothing was sent");
+        assertThat(logs.message()).isEqualTo("INUBIT 8.1.17 on dev/node1 does not support"
+            + " log diagnosis yet; nothing was sent");
+        assertThat(appender.list).hasSize(2);
     }
 
     @Test
@@ -376,7 +385,7 @@ class VersionGateTest {
         versions.stale(PINNED);
         assertThat(gate().admit(PINNED, Capability.PROCESS_CONTROL, Kind.WRITE, CLI_REST)
             .warnings()).isEmpty();
-        assertThat(gate().admit(PINNED, Capability.DIAGNOSIS, Kind.READ, REST).warnings())
+        assertThat(gate().admit(PINNED, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST).warnings())
             .isEmpty();
 
         assertThat(detection.calls).isZero();
@@ -386,12 +395,12 @@ class VersionGateTest {
     void aV9xLineRefusesWritesAndWarnsReadsWithoutDetection() {
         ToolError error = refusal(() -> gate().admit(V9_X, Capability.DEPLOYMENT, Kind.WRITE,
             CLI_REST));
-        Admission read = gate().admit(V9_X, Capability.DIAGNOSIS, Kind.READ, REST);
+        Admission read = gate().admit(V9_X, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
 
         assertThat(error.message()).isEqualTo("INUBIT 9.x (versionLine V9_X) on prod/node3 does"
             + " not support deployment yet; nothing was sent");
         assertThat(read.warnings()).containsExactly("INUBIT 9.x (versionLine V9_X) on prod/node3"
-            + " is not verified for diagnosis; results may be incomplete");
+            + " is not verified for process diagnosis; results may be incomplete");
         assertThat(detection.calls).isZero();
     }
 
@@ -421,7 +430,7 @@ class VersionGateTest {
         detection.answer("8.1.18");
         probe.answer(client("8.1.17", "4.0.1", "8.1.17"));
 
-        Admission rest = gate().admit(AUTO, Capability.DIAGNOSIS, Kind.READ, REST);
+        Admission rest = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
         assertThat(probe.calls).as("no probe for a REST-only call").isEmpty();
         Admission first = gate().admit(AUTO, Capability.DEVELOPMENT_WRITE, Kind.WRITE, CLI_REST);
         Admission second = gate().admit(AUTO, Capability.WORKSPACE_EXPORT, Kind.READ, CLI);
@@ -608,7 +617,7 @@ class VersionGateTest {
         detection.fail(detectionError(ErrorCode.AUTH_FAILED));
         ToolError unknown = refusal(() -> gate().admit(AUTO, Capability.DEVELOPMENT_WRITE,
             Kind.WRITE, CLI_REST));
-        Admission unknownRead = gate().admit(AUTO, Capability.DIAGNOSIS, Kind.READ, REST);
+        Admission unknownRead = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
         versions.clientProbeFailed(AUTO, ErrorCode.CLI_UNAVAILABLE);
         Admission unknownCli = gate().admit(AUTO, Capability.INVENTORY, Kind.READ, CLI);
         clock.advance(Duration.ofMinutes(2));
@@ -644,7 +653,7 @@ class VersionGateTest {
         detection.fail(detectionError(ErrorCode.AUTH_FAILED));
         ToolError unknown = refusal(() -> gate.admit(AUTO, Capability.PROCESS_CONTROL,
             Kind.WRITE, CLI_REST));
-        Admission unknownRead = gate.admit(AUTO, Capability.DIAGNOSIS, Kind.READ, REST);
+        Admission unknownRead = gate.admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
         versions.clientProbeFailed(AUTO, ErrorCode.CLI_UNAVAILABLE);
         Admission unknownCli = gate.admit(AUTO, Capability.INVENTORY, Kind.READ, CLI);
         clock.advance(Duration.ofMinutes(2));

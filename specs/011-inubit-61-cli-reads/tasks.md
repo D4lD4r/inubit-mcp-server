@@ -77,7 +77,7 @@ approved step; US4 (export, P3) is blocked on them and on a research addendum.
   `:690-691` name `V6_1`. Tests first: `VersionSettingTest` (`V6_1` → 6.1; `"6.1.0.89"` and
   `"6.1.0.89-HF1"` → 6.1.0 with raw kept; `"6.1"` refused), `ConfigLoaderTest` (error text),
   `NodeVersionStateTest` (`effectiveVersion()` of `V6_1` = 6.1).
-- [ ] T004 Split the capability "diagnosis" (FR-004, research D-2): replace `Capability.DIAGNOSIS`
+- [X] T004 Split the capability "diagnosis" (FR-004, research D-2): replace `Capability.DIAGNOSIS`
   by `PROCESS_DIAGNOSIS` and `LOG_DIAGNOSIS` in `main/domain/model/Capability.java`; update
   `VersionGate.label()` ("process diagnosis", "log diagnosis"), `NodeOverview.name()`
   (`process_diagnosis`, `log_diagnosis`), `res/schemas/list_nodes.output.json` enum

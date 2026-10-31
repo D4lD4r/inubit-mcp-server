@@ -179,8 +179,8 @@ class FindProcessesToolTest {
         assertMatchesOutputSchema("find_processes", result);
         JsonNode entry = result.path("structuredContent").path("results").get(0);
         assertThat(entry.path("warnings")).extracting(JsonNode::asString).containsExactly(
-            "INUBIT 9.0.7 on dev/node1 is not verified for diagnosis; results may be"
-                + " incomplete");
+            "INUBIT 9.0.7 on dev/node1 is not verified for process diagnosis; results may"
+                + " be incomplete");
         assertThat(entry.path("page").path("items")).hasSize(2);
         assertThat(dev.findAll(getRequestedFor(urlPathEqualTo("/ibis/rest/system/info"))))
             .as("one detection request").hasSize(1);
