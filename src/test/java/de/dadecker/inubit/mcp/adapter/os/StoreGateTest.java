@@ -14,6 +14,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /** Feature 011 T003 (research R-8, quickstart Q8): one credential store read at a time. */
 class StoreGateTest {
@@ -56,6 +57,7 @@ class StoreGateTest {
     }
 
     @Test
+    @Timeout(10)
     void aWaitingReadGoesBeforeALaterOneEvenFromTheReleasingThread() throws Exception {
         List<String> order = new java.util.concurrent.CopyOnWriteArrayList<>();
         CountDownLatch holding = new CountDownLatch(1);

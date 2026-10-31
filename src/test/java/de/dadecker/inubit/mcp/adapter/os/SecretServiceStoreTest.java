@@ -57,6 +57,14 @@ class SecretServiceStoreTest {
     }
 
     @Test
+    void exitZeroWithoutOutputIsAnEmptyValue() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("", "", 0);
+
+        assertThat(store(launcher, USR_BIN).read(ACCOUNT, TIMEOUT)).isInstanceOfSatisfying(
+            Lookup.Found.class, found -> assertThat(found.value().reveal()).isEmpty());
+    }
+
+    @Test
     void exitOneWithoutOutputIsNotFound() {
         FakeProcessLauncher launcher = FakeProcessLauncher.of("", "", 1);
 

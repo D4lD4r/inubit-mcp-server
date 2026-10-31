@@ -82,14 +82,15 @@ public final class SecretServiceStore implements CredentialStore {
                 FailureKind.STORE_NOT_AVAILABLE, tool + " could not be started ("
                     + notStarted.reason() + ")");
             case ToolRun.Outcome.TimedOut timedOut -> new Lookup.Failed(FailureKind.TIMEOUT,
-                "secret-tool did not exit within " + timeout.toSeconds() + " s");
+                "secret-tool " + timedOut.reason());
             case ToolRun.Outcome.Exited exited -> classify(exited);
         };
     }
 
     private static Lookup classify(ToolRun.Outcome.Exited exited) {
         String stderr = new String(exited.stderr(), StandardCharsets.UTF_8).strip();
-        if (exited.code() == 0 && exited.stdout().length > 0) {
+        if (exited.code() == 0) {
+            // an empty entry prints nothing: an empty value, which the caller treats as not found
             Lookup lookup = decode(exited.stdout());
             ToolRun.wipe(exited.stdout());
             return lookup;

@@ -88,7 +88,7 @@ public final class KeychainStore implements CredentialStore {
                 FailureKind.STORE_NOT_AVAILABLE, SECURITY + " could not be started ("
                     + notStarted.reason() + ")");
             case ToolRun.Outcome.TimedOut timedOut -> new Lookup.Failed(FailureKind.TIMEOUT,
-                "security did not exit within " + timeout.toSeconds() + " s");
+                "security " + timedOut.reason());
             case ToolRun.Outcome.Exited exited -> classify(exited);
         };
     }

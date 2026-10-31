@@ -42,8 +42,8 @@ final class ToolRun {
             }
         }
 
-        /** The tool did not exit within the timeout (or the caller was interrupted). */
-        record TimedOut() implements Outcome {
+        /** The tool did not end in time (or the caller was interrupted); {@code reason} says how. */
+        record TimedOut(String reason) implements Outcome {
         }
 
         /** The tool could not be started, e.g. it is not installed. */
@@ -72,7 +72,7 @@ final class ToolRun {
         try {
             if (!process.waitFor(timeout)) {
                 kill(process);
-                return new Outcome.TimedOut();
+                return new Outcome.TimedOut("did not exit within " + timeout.toSeconds() + " s");
             }
             byte[] out = finish(stdout);
             byte[] err = finish(stderr);
@@ -82,13 +82,14 @@ final class ToolRun {
                 kill(process);
                 wipe(out);
                 wipe(err);
-                return new Outcome.TimedOut();
+                return new Outcome.TimedOut("the output was still open " + KILL_GRACE.toSeconds()
+                    + " s after the tool exited");
             }
             return new Outcome.Exited(process.exitValue(), out, err);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             kill(process);
-            return new Outcome.TimedOut();
+            return new Outcome.TimedOut("interrupted");
         }
     }
 

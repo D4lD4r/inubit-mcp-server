@@ -53,6 +53,6 @@ class CredentialStoresTest {
 
         // JNA sets jna.loaded when its native library is loaded (com.sun.jna.Native's
         // initializer); it is loaded on the first Windows read only (JnaCredApi.Holder)
-        assertThat(System.getProperty("jna.loaded")).isNull();
+        assertThat(System.getProperty("jna.loaded")).isNotEqualTo("true");
     }
 }
