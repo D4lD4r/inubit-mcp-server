@@ -60,6 +60,7 @@ following libraries (the runtime dependencies of `pom.xml`, as resolved by
 | `software.amazon.awssdk:url-connection-client:2.57.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
 | `software.amazon.awssdk:utils:2.57.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
 | `software.amazon.awssdk:utils-lite:2.57.3` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `net.java.dev.jna:jna:5.17.0` | dual-licensed: Apache License, Version 2.0 **or** GNU Lesser General Public License 2.1 or later; used under the Apache License 2.0 | https://www.apache.org/licenses/LICENSE-2.0.txt, https://www.gnu.org/licenses/old-licenses/lgpl-2.1 |
 
 `jackson-core` itself bundles code of FastDoubleParser (MIT License, with third-party code under
 the Boost Software License 1.0) and Schubfach (MIT License); their license texts are kept in the JAR
@@ -77,11 +78,18 @@ used with `url-connection-client` as its only HTTP client; `netty-nio-client`, `
 2.21.8 (Apache License 2.0), repackaged under `software/amazon/awssdk/thirdparty/jackson/core/`; its
 FastDoubleParser and Schubfach license files are identical to those of `jackson-core` above.
 
+Java Native Access (JNA, `net.java.dev.jna:jna`, https://github.com/java-native-access/jna) is used
+unmodified and not relocated, only on Windows (to read the Windows Credential Manager); it contains
+its native dispatch libraries for every platform below `com/sun/jna/<platform>/`. Its JAR ships the
+license texts `META-INF/AL2.0` and `META-INF/LGPL2.1` (kept in the executable JAR under the same
+names) and a `META-INF/LICENSE` that names both licenses (appended to `META-INF/LICENSE`).
+
 ### License files inside the JAR
 
 - `META-INF/LICENSE` starts with the Apache License 2.0 of this project, followed unchanged by the
   `META-INF/LICENSE` files of the Jackson libraries, including the repackaged jackson-core of the
-  AWS SDK (all Apache License 2.0).
+  AWS SDK (all Apache License 2.0), and of JNA (its choice between Apache License 2.0 and LGPL 2.1).
+- `META-INF/AL2.0` and `META-INF/LGPL2.1` are the license texts shipped with JNA.
 - `META-INF/NOTICE` starts with the `NOTICE` of this project, followed unchanged by the
   `META-INF/NOTICE` files of the Jackson libraries, including the repackaged jackson-core of the
   AWS SDK.

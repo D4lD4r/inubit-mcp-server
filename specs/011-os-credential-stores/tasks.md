@@ -57,7 +57,7 @@ step and removes the environment path. US4 (`--check-config`), US5 (rotation, me
 
 ## Phase 1: Setup
 
-- [ ] T001 JNA dependency (research R-1, R-4): in `pom.xml` add `net.java.dev.jna:jna` `5.17.0`
+- [X] T001 JNA dependency (research R-1, R-4): in `pom.xml` add `net.java.dev.jna:jna` `5.17.0`
   (core only, not relocated by the shade plugin); add it to `THIRD-PARTY-NOTICES.md` (Apache-2.0
   option of its dual license). Resolve once online, then build offline. Test first:
   `test/architecture/JnaDependencyTest.java` asserting that `com.sun.jna.Native` loads as a class
@@ -70,17 +70,17 @@ step and removes the environment path. US4 (`--check-config`), US5 (rotation, me
 
 ## Phase 2: Foundational — port and adapters (US1, US2)
 
-- [ ] T002 Port (R-2, data-model): `main/config/CredentialStore.java` (constant `SERVICE`,
+- [X] T002 Port (R-2, data-model): `main/config/CredentialStore.java` (constant `SERVICE`,
   `StoreKind kind()`, `Lookup read(String account, Duration timeout)`), sealed `Lookup`
   (`Found(Secret)`, `NotFound`, `Failed(FailureKind, String detail)`), `StoreKind` with display
   names; `FailureKind` gains `STORE_NOT_AVAILABLE` and `TIMEOUT`; test double
   `test/config/FakeCredentialStore.java` (values per account, scripted delays and failures, call
   log). Tests first: `CredentialStoreTest` (`Found.toString()` never shows the value), `FakeCredentialStoreTest`.
-- [ ] T003 [P] `main/adapter/os/StoreGate.java` (+ `package-info.java`): process-wide fair lock,
+- [X] T003 [P] `main/adapter/os/StoreGate.java` (+ `package-info.java`): process-wide fair lock,
   `read(Instant deadline, Supplier<Lookup>)` returns `Failed(TIMEOUT)` when the lock is not obtained
   before the deadline (R-8). Test first: `StoreGateTest` (one read at a time across threads; waiting
   counts against the deadline; fairness), Q8.
-- [ ] T004 [P] [US1] `main/adapter/os/KeychainStore.java` (R-3): `/usr/bin/security
+- [X] T004 [P] [US1] `main/adapter/os/KeychainStore.java` (R-3): `/usr/bin/security
   find-generic-password -s inubit-mcp -a <ACCOUNT> -g` through `ProcessLauncher`, environment `HOME`,
   `USER`, `LANG` only, stdin closed, stderr parsed (`password: "…"`, `password: 0x… "…"`, empty);
   the `password:` line is dropped before anything is logged or put into `Failed.detail`; exit codes
@@ -88,21 +88,21 @@ step and removes the environment path. US4 (`--check-config`), US5 (rotation, me
   `KeychainStoreTest` against a fake executable printing recorded outputs (Q5): every outcome, strict
   UTF-8 for the hex form (malformed → `INVALID_VALUE`), arguments never contain a value, a `password:`
   line with an unexpected exit code never reaches the log (log capture), the timeout kills the child.
-- [ ] T005 [P] [US2] `main/adapter/os/SecretServiceStore.java` (R-5): executable from
+- [X] T005 [P] [US2] `main/adapter/os/SecretServiceStore.java` (R-5): executable from
   `/usr/bin/secret-tool`, `/usr/local/bin/secret-tool`, then `PATH`; environment allowlist
   (`DBUS_SESSION_BUS_ADDRESS`, `XDG_RUNTIME_DIR`, `DISPLAY`, `WAYLAND_DISPLAY`, `HOME`, `USER`,
   `LANG`, `PATH`); stdout = value (strict UTF-8), never logged; outcomes per R-5. Tests first:
   `SecretServiceStoreTest` against a fake executable (Q7): found, not found, not installed, no D-Bus,
   other stderr, timeout kills the process, no `INUBIT_*` variable reaches the child, stdout absent
   from the log.
-- [ ] T006 [P] [US2] `main/adapter/os/WindowsCredentialStore.java` + `CredApi` seam (R-4): JNA
+- [X] T006 [P] [US2] `main/adapter/os/WindowsCredentialStore.java` + `CredApi` seam (R-4): JNA
   mapping of `CREDENTIALW`, `CredReadW`, `CredFree` (`W` functions only); target
   `inubit-mcp:<ACCOUNT>`, `CRED_TYPE_GENERIC`; blob copied, freed, decoded strict UTF-16LE, byte copy
   wiped; 1168 → not found, 1312 → not available, other → access denied; `LinkageError` → not
   available; read on its own thread, abandoned after the timeout. Tests first:
   `WindowsCredentialStoreTest` through a fake `CredApi` (Q6); the JNA call itself is covered only by
   the Windows live check (T020).
-- [ ] T007 `main/adapter/os/UnavailableStore.java` and `CredentialStores.forOs(String osName,
+- [X] T007 `main/adapter/os/UnavailableStore.java` and `CredentialStores.forOs(String osName,
   ProcessLauncher)`: macOS → `KeychainStore`, Windows → `WindowsCredentialStore`, Linux →
   `SecretServiceStore`, other → `UnavailableStore` (every read `STORE_NOT_AVAILABLE`); every adapter
   goes through the shared `StoreGate`. Tests first: `CredentialStoresTest` (selection by `os.name`

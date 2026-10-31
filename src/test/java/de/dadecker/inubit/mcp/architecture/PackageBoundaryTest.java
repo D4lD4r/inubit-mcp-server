@@ -65,6 +65,10 @@ import org.junit.jupiter.api.Test;
  * <p>Feature 010 (T009, research R-2): the Parameter Store adapter {@code adapter.aws} exists, is
  * the only package that uses the AWS SDK ({@code software.amazon}), and depends neither on
  * {@code mcp} nor on {@code application}.
+ *
+ * <p>Feature 011 (T001, research R-2): JNA ({@code com.sun.jna}) is used only in the credential
+ * store adapters {@code adapter.os}. The process rule is unchanged: {@code adapter.os} starts its
+ * tools through the {@code ProcessLauncher} interface of {@code adapter.cli}.
  */
 class PackageBoundaryTest {
 
@@ -83,6 +87,8 @@ class PackageBoundaryTest {
     /** The Parameter Store adapter of feature 010 (T009). */
     private static final String AWS_ADAPTER = "adapter/aws";
     private static final String AWS_SDK = "software/amazon/";
+    private static final String OS_ADAPTER = "adapter/os";
+    private static final String JNA = "com/sun/jna/";
 
     /** Class (internal name) → its type names and member references. */
     private static Map<String, ClassRefs> classes;
@@ -168,6 +174,19 @@ class PackageBoundaryTest {
     }
 
     @Test
+    void onlyTheOsAdapterUsesJna() {
+        assertThat(violations(inPackage(OS_ADAPTER).negate(), forbidden(JNA)))
+            .as("com.sun.jna outside adapter.os").isEmpty();
+    }
+
+    @Test
+    void theOsAdapterReachesNeitherTheMcpLayerNorTheApplication() {
+        assertThat(violations(inPackage(OS_ADAPTER), forbidden(BASE + "mcp/",
+            BASE + "application/")))
+            .as("adapter.os → mcp / application").isEmpty();
+    }
+
+    @Test
     void onlyTheCliAdapterStartsOrInspectsProcesses() {
         assertThat(violations(inPackage("adapter/cli").negate(), PROCESS_TYPES::contains))
             .as("ProcessBuilder / Process / ProcessHandle outside adapter.cli").isEmpty();
@@ -196,15 +215,15 @@ class PackageBoundaryTest {
     }
 
     /**
-     * The packages of the workspace adapters, the SOAP adapter and the AWS adapter exist and are
-     * documented. A {@code package-info} without annotations compiles to no class file, so the
-     * sources are checked.
+     * The packages of the workspace adapters, the SOAP adapter, the AWS adapter and the credential
+     * store adapters exist and are documented. A {@code package-info} without annotations compiles
+     * to no class file, so the sources are checked.
      */
     @Test
     void theWorkspaceAdapterPackagesExist() {
         Path sources = Path.of("src", "main", "java");
         for (String pkg : List.of("adapter/archive/v81", "adapter/git", "adapter/xslt",
-            SOAP_ADAPTER, AWS_ADAPTER)) {
+            SOAP_ADAPTER, AWS_ADAPTER, OS_ADAPTER)) {
             assertThat(sources.resolve(BASE + pkg).resolve("package-info.java"))
                 .as("package-info of %s", pkg).isRegularFile();
         }
@@ -223,6 +242,7 @@ class PackageBoundaryTest {
         assertThat(types(BASE + "adapter/cli/CliResources")).contains("java/lang/ProcessHandle");
         assertThat(types(BASE + "adapter/aws/SsmParameterStore"))
             .anyMatch(t -> t.startsWith(AWS_SDK));
+        assertThat(types(BASE + "adapter/os/JnaCredApi")).anyMatch(t -> t.startsWith(JNA));
         assertThat(types(BASE + "application/FanOut")).anyMatch(t -> t.startsWith("org/slf4j/"));
         assertThat(classes.get(BASE + "Wiring").members())
             .contains("java/lang/Runtime.getRuntime");

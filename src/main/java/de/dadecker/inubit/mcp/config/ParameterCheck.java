@@ -139,7 +139,8 @@ public final class ParameterCheck {
                             case NOT_FOUND -> failed(Status.NOT_FOUND, subject, errors);
                             case ACCESS_DENIED -> failed(Status.ACCESS_DENIED, subject, errors);
                             case INVALID_VALUE -> failed(Status.INVALID_VALUE, subject, errors);
-                            case UNREACHABLE, NO_CREDENTIALS, UNKNOWN_PROFILE -> {
+                            case UNREACHABLE, NO_CREDENTIALS, UNKNOWN_PROFILE,
+                                STORE_NOT_AVAILABLE, TIMEOUT -> {
                                 unchecked.add(failure.kind());
                                 yield Status.NOT_CHECKED;
                             }
