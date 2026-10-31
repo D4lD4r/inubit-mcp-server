@@ -740,8 +740,8 @@ keys of its `type`, anything else is a startup error.
 Secret values are never logged, printed or returned; every tool result and log line is scrubbed
 of them. StartCLI receives the password on stdin, never as a process argument. A password
 shorter than 4 characters is refused, because such a short value cannot be scrubbed reliably: a
-configuration error for the `_PASSWORD` variable, an invalid value for the `password` and
-`e2ePassword` parameters.
+configuration error for the `_PASSWORD` and `_E2E_PASSWORD` variables, an invalid value for the
+`password` and `e2ePassword` parameters.
 
 <a id="4-credentials-environment-variables"></a>
 

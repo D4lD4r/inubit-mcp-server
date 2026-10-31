@@ -826,6 +826,27 @@ class ConfigValidatorTest {
         }
 
         @Test
+        void veryShortE2ePassword() {
+            // like _PASSWORD and the e2ePassword parameter (feature 010, research R-17)
+            env.put("INUBIT_ACME_DEV_E2E_USERNAME", "e2e-user");
+            env.put("INUBIT_ACME_DEV_E2E_PASSWORD", "xyz");
+
+            ValidationReport report = validate(server(""));
+
+            assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
+                .contains("dev/node1", "INUBIT_ACME_DEV_E2E_PASSWORD", "4 characters")
+                .doesNotContain("xyz"));
+        }
+
+        @Test
+        void aShortGroupE2ePasswordBehindALongNodeOneIsNotUsed() {
+            env.put("INUBIT_ACME_DEV_E2E_PASSWORD", "xyz");
+            env.put("INUBIT_ACME_DEV_NODE1_E2E_PASSWORD", "e2e-node-pw");
+
+            assertThat(validate(server("")).errors()).isEmpty();
+        }
+
+        @Test
         void unmatchedWarningConsidersServersWithoutBaseUrl() {
             env.put("INUBIT_ACME_DEV_NOURL_PASSWORD", "server-pw");
 

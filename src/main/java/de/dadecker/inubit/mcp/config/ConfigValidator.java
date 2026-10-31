@@ -514,6 +514,7 @@ public final class ConfigValidator {
         credentials.all().stream()
             .filter(c -> c.node().equals(server.id()))
             .forEach(c -> checkCredentials(server, c, findings));
+        checkE2ePassword(server, findings);
         if (server.cliConfigured()) {
             checkCli(server, findings);
         }
@@ -600,6 +601,23 @@ public final class ConfigValidator {
             }
         }
         return set;
+    }
+
+    /**
+     * The e2e password variable that wins for {@code server} (node before group) must be long
+     * enough to be scrubbed, like {@code _PASSWORD} and the {@code e2ePassword} parameter (feature
+     * 010, research R-17). An AWS node reads no variables; its value is checked when fetched.
+     */
+    private void checkE2ePassword(EffectiveNodeConfig server, Findings findings) {
+        if (server.secretPlan().aws()) {
+            return;
+        }
+        server.credentialVariables().candidates(CredentialVariables.E2E_PASSWORD).stream()
+            .filter(variable -> CredentialRules.isSet(environment.get(variable)))
+            .findFirst()
+            .filter(variable -> !CredentialRules.isScrubbable(environment.get(variable)))
+            .ifPresent(variable -> findings.error(server.id().value() + ": the password from "
+                + variable + " " + CredentialRules.SHORT_PASSWORD_RULE));
     }
 
     /** Feature 010 (research R-6): the configured e2e Parameter Store names of an AWS node. */

@@ -7,6 +7,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- An end-to-end test password from an environment variable (`<PREFIX>_<GROUP>[_<NODE>]_E2E_PASSWORD`)
+  shorter than 4 characters is now a configuration error, like the `_PASSWORD` variable and the
+  `e2ePassword` parameter; before, it was accepted although it cannot be scrubbed reliably.
+- `SECURITY.md` names AWS Systems Manager Parameter Store as a credential source (feature 010)
+  and its bound of two failed logins per node per 60 s.
+
 ## [0.6.2] - 2026-10-28
 
 Dependency update; no change to tools, configuration or output. Live checks are unchanged since
