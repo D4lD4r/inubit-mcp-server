@@ -862,13 +862,14 @@ class ConfigLoaderTest {
 
     /**
      * Feature 009 (T005, research D-2, contracts/configuration-delta.md): {@code versionLine}
-     * accepts {@code AUTO}, {@code V8_1}, {@code V9_X} or a full version as a string.
+     * accepts {@code AUTO}, {@code V8_1}, {@code V9_X} or a full version as a string; feature 011
+     * (T003, FR-002) adds {@code V6_1}.
      */
     @Nested
     class VersionLineValues {
 
         private static final String EXPECTED =
-            "expected AUTO, V8_1, V9_X or a full version such as \"8.1.17\"";
+            "expected AUTO, V6_1, V8_1, V9_X or a full version such as \"8.1.17\"";
 
         private VersionSetting nodeSetting(String value) {
             String yaml = MINIMAL.replace("baseUrl:",
@@ -887,6 +888,14 @@ class ConfigLoaderTest {
                 OptionalInt.empty()));
             assertThat(List.of(nodeSetting("AUTO"), nodeSetting("V8_1"), nodeSetting("V9_X"))
                 .stream().map(VersionSetting::text)).containsExactly("AUTO", "V8_1", "V9_X");
+        }
+
+        @Test
+        void sixOneIsALineAndAFourPartPin() {
+            assertThat(nodeSetting("V6_1")).isEqualTo(VersionSetting.V6_1);
+            assertThat(nodeSetting("V6_1").text()).isEqualTo("V6_1");
+            assertThat(nodeSetting("\"6.1.0.89-HF1\"")).isEqualTo(new VersionSetting.Pinned(
+                new InubitVersion(6, 1, OptionalInt.of(0), "6.1.0.89-HF1")));
         }
 
         @Test
@@ -919,7 +928,7 @@ class ConfigLoaderTest {
         }
 
         @ParameterizedTest
-        @ValueSource(strings = {"8.1", "\"8.1\"", "\"V10\"", "auto", "\"\"", "17", "true",
+        @ValueSource(strings = {"8.1", "\"8.1\"", "\"6.1\"", "\"V10\"", "auto", "\"\"", "17", "true",
             "\"x8.1.17\""})
         void anythingElseIsRefusedWithoutEcho(String value) {
             String yaml = MINIMAL.replace("baseUrl:",

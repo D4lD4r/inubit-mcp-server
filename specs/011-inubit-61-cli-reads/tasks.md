@@ -71,7 +71,7 @@ approved step; US4 (export, P3) is blocked on them and on a research addendum.
 
 ## Phase 2: Foundational (blocks every user story)
 
-- [ ] T003 `V6_1` and concrete 6.1 pins (FR-002, research D-1): add `VersionSetting.Line.V6_1`;
+- [X] T003 `V6_1` and concrete 6.1 pins (FR-002, research D-1): add `VersionSetting.Line.V6_1`;
   accept `"V6_1"` in `VersionSetting.parse` and `ConfigLoader.VersionSettingDeserializer`
   (`main/config/ConfigLoader.java:759-776`); error texts at `ConfigLoader.java:350-352` and
   `:690-691` name `V6_1`. Tests first: `VersionSettingTest` (`V6_1` → 6.1; `"6.1.0.89"` and
