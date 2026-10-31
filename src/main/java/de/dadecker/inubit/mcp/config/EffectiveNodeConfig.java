@@ -160,9 +160,12 @@ public record EffectiveNodeConfig(
             .orElseGet(() -> new CredentialNames(credentialPrefix, id));
     }
 
-    /** The names of this node's secrets in messages, per its source (research R-15). */
+    /**
+     * The names of this node's secrets in messages, per its source (research R-15); a credential
+     * store node names the store of the running system (feature 011).
+     */
     public SecretLabels secretLabels() {
-        return SecretLabels.of(secretPlan);
+        return SecretLabels.of(secretPlan, StoreKind.forOs(System.getProperty("os.name")));
     }
 
     /** Write access after the production lock: {@code enabled && (!production || optIn)}. */

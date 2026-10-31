@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.SecretLabels;
 import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.SecretSourceConfig;
+import de.dadecker.inubit.mcp.config.StoreKind;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.net.URI;
@@ -41,8 +42,8 @@ public final class TestNodeConfig {
     }
 
     /** The message names of an environment node with credential prefix {@code prefix}. */
-    public static SecretLabels environmentLabels(String prefix, NodeId node) {
-        return new SecretLabels.Environment(new CredentialNames(prefix, node));
+    public static SecretLabels storeLabels(String prefix, NodeId node) {
+        return new SecretLabels.Store(new CredentialNames(prefix, node), StoreKind.KEYCHAIN);
     }
 
     public static TestNodeConfig node() {

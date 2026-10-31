@@ -6,7 +6,8 @@ import java.util.Optional;
 
 /**
  * The names of one node's secrets in messages, per source (feature 010, data-model.md →
- * SecretLabels, research R-15, FR-008). Names only, never values.
+ * SecretLabels, research R-15, FR-008; feature 011, research R-12: the credential store replaces
+ * environment variables). Names only, never values.
  */
 public sealed interface SecretLabels {
 
@@ -14,8 +15,8 @@ public sealed interface SecretLabels {
     NodeId node();
 
     /**
-     * The human-readable name of one kind: environment {@code <NODE_VAR> (or <GROUP_VAR>)}, AWS
-     * {@code Parameter Store <name> (<region>[, profile <p>])}.
+     * The human-readable name of one kind: {@code credential store entry <NODE> (or <GROUP>) in
+     * the <store>}, AWS {@code Parameter Store <name> (<region>[, profile <p>])}.
      *
      * @param kind one of {@link CredentialNames#KINDS} or {@link CredentialNames#E2E_KINDS}
      */
@@ -23,6 +24,9 @@ public sealed interface SecretLabels {
 
     /** The next step after rejected or missing credentials, for the node's source. */
     String fixCredentials();
+
+    /** The source in a sentence: "AWS Parameter Store", "the macOS Keychain". */
+    String source();
 
     /**
      * Completes "the certificates are encrypted and …" of a trust store that is unreadable
@@ -33,46 +37,67 @@ public sealed interface SecretLabels {
     /** Completes "… or …": how to supply the trust-store password, e.g. "set …". */
     String supplyTrustStorePassword();
 
-    /** The labels of the node of {@code plan}. */
-    static SecretLabels of(SecretPlan plan) {
-        if (plan.source() instanceof SecretSourceConfig.AwsParameterStore store) {
-            return new Aws(plan.node(), new StoreLocation(store.region(), store.awsProfile()),
+    /**
+     * The labels of the node of {@code plan}.
+     *
+     * @param store the credential store of the running system, named in the texts of a credential
+     *     store node
+     */
+    static SecretLabels of(SecretPlan plan, StoreKind store) {
+        if (plan.source() instanceof SecretSourceConfig.AwsParameterStore aws) {
+            return new Aws(plan.node(), new StoreLocation(aws.region(), aws.awsProfile()),
                 plan.names().orElseThrow());
         }
-        return new Environment(plan.entries().orElseThrow());
+        return new Store(plan.entries().orElseThrow(), store);
     }
 
-    /** Environment variables: the texts of features 002–009. */
-    record Environment(CredentialNames variables) implements SecretLabels {
+    /**
+     * The credential store of the running system (feature 011, research R-12): the entry names
+     * (node entry, else group entry) and the store; a changed entry needs no restart, it is read
+     * again after a rejected login.
+     */
+    record Store(CredentialNames names, StoreKind store) implements SecretLabels {
 
-        public Environment {
-            Objects.requireNonNull(variables, "variables");
+        public Store {
+            Objects.requireNonNull(names, "names");
+            Objects.requireNonNull(store, "store");
         }
 
         @Override
         public NodeId node() {
-            return variables.node();
+            return names.node();
         }
 
         @Override
         public String label(String kind) {
-            return variables.either(kind);
+            return "credential store entry " + names.either(kind) + " in the "
+                + store.displayName();
         }
 
         @Override
         public String fixCredentials() {
-            return "Fix " + variables.either(CredentialNames.PASSWORD) + " and _USERNAME,"
-                + " then restart the MCP client from a shell with the new values";
+            return "Correct the credential store entries " + names.either(CredentialNames.USERNAME)
+                + " and " + names.either(CredentialNames.PASSWORD) + " (service "
+                + CredentialStore.SERVICE + ") in the " + store.displayName()
+                + "; no restart is needed";
+        }
+
+        @Override
+        public String source() {
+            return "the " + store.displayName();
         }
 
         @Override
         public String trustStorePasswordMissing() {
-            return "neither " + label(CredentialNames.TRUSTSTORE_PASSWORD) + " is set";
+            return "no trust store password entry " + names.either(
+                CredentialNames.TRUSTSTORE_PASSWORD) + " is in the " + store.displayName();
         }
 
         @Override
         public String supplyTrustStorePassword() {
-            return "set " + label(CredentialNames.TRUSTSTORE_PASSWORD);
+            return "store its password in the " + store.displayName() + " as entry "
+                + names.either(CredentialNames.TRUSTSTORE_PASSWORD) + ", service "
+                + CredentialStore.SERVICE;
         }
     }
 
@@ -116,6 +141,11 @@ public sealed interface SecretLabels {
             return "Correct the parameter value(s) " + nameOrSetting(CredentialNames.USERNAME)
                 + ", " + nameOrSetting(CredentialNames.PASSWORD) + " in Parameter Store ("
                 + where() + "); no restart is needed";
+        }
+
+        @Override
+        public String source() {
+            return "AWS Parameter Store";
         }
 
         private String where() {

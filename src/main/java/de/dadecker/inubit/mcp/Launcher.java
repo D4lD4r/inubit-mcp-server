@@ -12,11 +12,13 @@ import de.dadecker.inubit.mcp.config.ConfigSummary;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
 import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.config.EntryCheck;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.ParameterCheck;
 import de.dadecker.inubit.mcp.config.ParameterStore;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.SecretPlan;
+import de.dadecker.inubit.mcp.config.StoreKind;
 import de.dadecker.inubit.mcp.config.ValidationReport;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -56,8 +58,9 @@ import org.slf4j.LoggerFactory;
  * The command line behind {@link Main} (contracts/configuration.md → Command-line arguments).
  *
  * <p>Order: arguments, config file, validation (all errors on stderr, exit 1), log level, audit
- * directory (owner-only), wiring, MCP server. The server runs until stdin is closed. {@link Main} has already set the locale and installed the stdout guard
- * before this class (and with it Logback) is initialized.
+ * directory (owner-only), wiring, MCP server. The server runs until stdin is closed.
+ * {@link Main} has already set the locale and installed the stdout guard before this class (and
+ * with it Logback) is initialized.
  *
  * <p>Exit codes: 0 success, 1 configuration or startup error, 2 usage error.
  */
@@ -187,9 +190,14 @@ final class Launcher {
             ParameterCheck.Result parameters = plans.stream().anyMatch(SecretPlan::aws)
                 ? ParameterCheck.run(plans, context.parameterStore().get())
                 : ParameterCheck.Result.NONE;
-            ValidationReport checked = parameters.addTo(withProbes);
+            // feature 011 (research R-13): the credential store only for credential store nodes
+            List<EffectiveNodeConfig> nodes = loaded.config().resolvableNodes();
+            EntryCheck.Result entries = plans.stream().anyMatch(plan -> !plan.aws())
+                ? EntryCheck.run(nodes, context.credentialStore().get())
+                : EntryCheck.Result.none(StoreKind.forOs(System.getProperty("os.name")));
+            ValidationReport checked = entries.addTo(parameters.addTo(withProbes));
             context.out().print(new ConfigSummary(context.exists(), context.windows())
-                .render(loaded, checked, clients, parameters));
+                .render(loaded, checked, clients, parameters, entries));
             context.out().flush();
             return checked.hasErrors() ? EXIT_ERROR : EXIT_OK;
         }

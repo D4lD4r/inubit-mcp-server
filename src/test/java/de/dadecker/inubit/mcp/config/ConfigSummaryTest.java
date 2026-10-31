@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -31,6 +32,22 @@ class ConfigSummaryTest {
 
     /** Feature 011: no credential comes from the environment; the summary names the entries. */
     private final Map<String, String> env = new HashMap<>(Map.of("JAVA_HOME", "/opt/jdk"));
+    /**
+     * The credential store (feature 011, T017): group entries for the prefixes and groups of these
+     * tests, so that every credential store node is complete.
+     */
+    private final Map<String, String> storeEntries = groupEntries();
+
+    private static Map<String, String> groupEntries() {
+        Map<String, String> entries = new HashMap<>();
+        for (String prefix : List.of("INUBIT_ACME", "INUBIT_TEAM", "INUBIT")) {
+            for (String group : List.of("TEST", "PROD", "QA", "DEV")) {
+                entries.put(prefix + "_" + group + "_USERNAME", "store-user");
+                entries.put(prefix + "_" + group + "_PASSWORD", "store-Pw-1");
+            }
+        }
+        return entries;
+    }
     private final Predicate<Path> exists = Set.of(Path.of("/opt/client/bin/startcli.sh"))::contains;
     /** The Parameter Store of the AWS nodes (feature 010); unscripted names are not found. */
     private final FakeParameterStore store = new FakeParameterStore();
@@ -57,8 +74,11 @@ class ConfigSummaryTest {
                 source -> List.of(), workspaces).validate(loaded);
         ParameterCheck.Result parameters =
             ParameterCheck.run(loaded.config().secretPlans().values(), store, storeTimeout);
+        // feature 011 (T017): the credential store holds the entries named like the variables
+        EntryCheck.Result entries = EntryCheck.run(loaded.config().resolvableNodes(),
+            TestSecrets.store(storeEntries), Duration.ofSeconds(5));
         return new ConfigSummary(exists, false).render(loaded,
-            parameters.addTo(report), clients, parameters);
+            entries.addTo(parameters.addTo(report)), clients, parameters, entries);
     }
 
     private static final String CONFIG = """
@@ -187,17 +207,19 @@ class ConfigSummaryTest {
         String summary = render(CONFIG);
 
         assertThat(summary).contains("Configuration: " + SOURCE);
+        // feature 011 (T017): the entry found and its outcome
         assertThat(summary).contains("test/inubit01: write enabled (confirmation SERVER), "
-            + "cli: available, inubit: AUTO, username ← INUBIT_ACME_TEST_INUBIT01_USERNAME (or"
-            + " INUBIT_ACME_TEST_USERNAME), password ← INUBIT_ACME_TEST_INUBIT01_PASSWORD (or"
-            + " INUBIT_ACME_TEST_PASSWORD)");
+            + "cli: available, inubit: AUTO, secrets: credentialStore (macOS Keychain),"
+            + " username ← INUBIT_ACME_TEST_USERNAME ok,"
+            + " password ← INUBIT_ACME_TEST_PASSWORD ok\n");
         assertThat(summary).contains("test/inubit02: read-only, cli: available, inubit: AUTO, "
-            + "username ← INUBIT_ACME_TEST_INUBIT02_USERNAME (or INUBIT_ACME_TEST_USERNAME),"
-            + " password ← INUBIT_ACME_TEST_INUBIT02_PASSWORD (or INUBIT_ACME_TEST_PASSWORD)");
+            + "secrets: credentialStore (macOS Keychain),"
+            + " username ← INUBIT_ACME_TEST_USERNAME ok,"
+            + " password ← INUBIT_ACME_TEST_PASSWORD ok\n");
         assertThat(summary).contains("prod/inubit01: read-only (production, no productionOptIn), "
-            + "cli: unavailable, inubit: AUTO, username ← INUBIT_ACME_PROD_INUBIT01_USERNAME (or"
-            + " INUBIT_ACME_PROD_USERNAME), password ← INUBIT_ACME_PROD_INUBIT01_PASSWORD (or"
-            + " INUBIT_ACME_PROD_PASSWORD)");
+            + "cli: unavailable, inubit: AUTO, secrets: credentialStore (macOS Keychain),"
+            + " username ← INUBIT_ACME_PROD_USERNAME ok,"
+            + " password ← INUBIT_ACME_PROD_PASSWORD ok\n");
         assertThat(summary).contains("Result: OK");
     }
 
@@ -217,13 +239,14 @@ class ConfigSummaryTest {
     void showsTheCredentialPrefixAndTheAuditDirectoryOfTheProfile() {
         // 002 US2: what keeps this profile apart from others running side by side
         String summary = render(CONFIG);
-        String explicit = render(CONFIG + "credentials:\n  envPrefix: INUBIT\n"
+        String explicit = render(CONFIG + "credentials:\n  prefix: INUBIT\n"
             + "auditDirectory: /var/audit/acme\n");
 
-        assertThat(summary).contains("Credential variables: INUBIT_ACME_<GROUP>[_<NODE>]_USERNAME"
-            + " / _PASSWORD\n", "Audit directory: " + HOME.resolve(".inubit-mcp/acme/audit")
-            + "\n");
-        assertThat(explicit).contains("Credential variables: INUBIT_<GROUP>[_<NODE>]_USERNAME",
+        assertThat(summary).contains("Credential store entries: service inubit-mcp, account"
+            + " INUBIT_ACME_<GROUP>[_<NODE>]_<KIND> (macOS Keychain)\n", "Audit directory: "
+            + HOME.resolve(".inubit-mcp/acme/audit") + "\n");
+        assertThat(explicit).contains("Credential store entries: service inubit-mcp, account"
+            + " INUBIT_<GROUP>[_<NODE>]_<KIND> (macOS Keychain)\n",
             "Audit directory: " + Path.of("/var/audit/acme") + "\n");
     }
 
@@ -370,17 +393,22 @@ class ConfigSummaryTest {
             NodeId.parse("test/node3"), client("8.1.17", null, null)));
 
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: 8.1.17,"
-            + " client: 8.1.17 (4.0.1–8.1.17), client vs pin: match, username ←");
+            + " client: 8.1.17 (4.0.1–8.1.17), client vs pin: match,"
+            + " secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).contains("test/node2: read-only, cli: available, inubit: 8.1.17,"
-            + " client: 8.1.18 (4.0.1–8.1.18), client vs pin: mismatch, username ←");
+            + " client: 8.1.18 (4.0.1–8.1.18), client vs pin: mismatch,"
+            + " secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).as("without a concrete pin there is nothing to compare with (FR-011a);"
             + " a client without declared range shows its version only")
             .contains("test/node3: read-only, cli: available, inubit: V8_1, client: 8.1.17,"
-                + " server version: determined at runtime, username ←");
+                + " server version: determined at runtime,"
+                + " secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).as("no client result (failed probe, reported as a warning)")
-            .contains("test/node4: read-only, cli: available, inubit: AUTO, username ←");
+            .contains("test/node4: read-only, cli: available, inubit: AUTO,"
+                + " secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).as("no StartCLI installation: no client")
-            .contains("prod/node1: read-only, cli: unavailable, inubit: 8.1.17, username ←");
+            .contains("prod/node1: read-only, cli: unavailable, inubit: 8.1.17,"
+                + " secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).contains("Result: OK");
     }
 
@@ -390,7 +418,7 @@ class ConfigSummaryTest {
             client("8.1", "4.0.1", "8.1.17")));
 
         assertThat(summary).contains("inubit: 8.1.17, client: 8.1 (4.0.1–8.1.17), client vs pin:"
-            + " not comparable, username ←");
+            + " not comparable, secrets: credentialStore (macOS Keychain), username ←");
     }
 
     @Test
@@ -403,9 +431,10 @@ class ConfigSummaryTest {
 
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: 9.0.7,"
             + " client: 8.1.17 (4.0.1–8.1.17), client vs pin: mismatch, pin outside client"
-            + " range, username ←");
+            + " range, secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).as("a patch mismatch inside the range")
-            .contains("client vs pin: mismatch, username ←");
+            .contains("client vs pin: mismatch,"
+                + " secrets: credentialStore (macOS Keychain), username ←");
     }
 
     // --- feature 010 T008: the secret source per node (contracts/configuration-delta.md) -------
@@ -437,16 +466,15 @@ class ConfigSummaryTest {
         """;
 
     @Test
-    void aProfileWithoutSourceShowsNoSecretsPart() {
-        // SC-001: today's output; the explicit default source only adds "secrets: credentialStore"
+    void everyNodeLineShowsItsSourceAlsoWithoutASourceSetting() {
+        // feature 011 (T017, FR-011): the default source is shown like an explicit one
         String summary = render(CONFIG);
         String explicit = render(CONFIG + "credentials:\n  source:\n    type: credentialStore\n");
 
-        assertThat(summary).doesNotContain("secrets:")
-            .contains("Credential variables: INUBIT_ACME_<GROUP>[_<NODE>]_USERNAME / _PASSWORD\n");
-        assertThat(explicit).contains("test/inubit01: write enabled (confirmation SERVER), "
-            + "cli: available, inubit: AUTO, secrets: credentialStore, username ←");
-        assertThat(explicit.replace("secrets: credentialStore, ", "")).isEqualTo(summary);
+        assertThat(summary).contains("test/inubit01: write enabled (confirmation SERVER), "
+            + "cli: available, inubit: AUTO, secrets: credentialStore (macOS Keychain),"
+            + " username ←");
+        assertThat(explicit).isEqualTo(summary);
     }
 
     @Test
@@ -457,11 +485,10 @@ class ConfigSummaryTest {
         String summary = render(SOURCES);
 
         assertThat(summary).as("T015 carry-over: no node uses the profile prefix")
-            .doesNotContain("Credential variables:");
+            .doesNotContain("Credential store entries:");
         assertThat(summary).contains("test/inubit01: read-only, cli: unavailable, inubit: AUTO,"
-            + " secrets: credentialStore, username ← INUBIT_TEAM_TEST_INUBIT01_USERNAME (or"
-            + " INUBIT_TEAM_TEST_USERNAME), password ← INUBIT_TEAM_TEST_INUBIT01_PASSWORD (or"
-            + " INUBIT_TEAM_TEST_PASSWORD)\n");
+            + " secrets: credentialStore (macOS Keychain), username ← INUBIT_TEAM_TEST_USERNAME"
+            + " ok, password ← INUBIT_TEAM_TEST_PASSWORD ok\n");
         assertThat(summary).contains("prod/inubit01: read-only, cli: unavailable, inubit: AUTO,"
             + " secrets: awsParameterStore (eu-central-1), username ← /inubit/prod/username ok,"
             + " password ← /inubit/prod/password ok\n");
@@ -492,7 +519,7 @@ class ConfigSummaryTest {
         store.put(EU_CENTRAL, "/inubit/test/username", "test-user")
             .put(EU_CENTRAL, "/inubit/test/password", "test-Secret-1");
 
-        assertThat(render(allAws)).doesNotContain("Credential variables:", "(missing)")
+        assertThat(render(allAws)).doesNotContain("Credential store entries:", "(missing)")
             .contains("test/inubit01: read-only, cli: unavailable, inubit: AUTO,"
                 + " secrets: awsParameterStore (eu-central-1),"
                 + " username ← /inubit/test/username ok, password ← /inubit/test/password ok\n");
@@ -511,10 +538,10 @@ class ConfigSummaryTest {
                     baseUrl: https://inubit-qa-01.example.test:8443
             """);
 
-        assertThat(summary).contains("Credential variables: INUBIT_ACME_<GROUP>[_<NODE>]_USERNAME"
-            + " / _PASSWORD\n", "qa/inubit01: read-only, cli: unavailable, inubit: AUTO,"
-            + " secrets: credentialStore, username ← INUBIT_ACME_QA_INUBIT01_USERNAME (or"
-            + " INUBIT_ACME_QA_USERNAME)");
+        assertThat(summary).contains("Credential store entries: service inubit-mcp, account"
+            + " INUBIT_ACME_<GROUP>[_<NODE>]_<KIND> (macOS Keychain)\n", "qa/inubit01: read-only,"
+            + " cli: unavailable, inubit: AUTO, secrets: credentialStore (macOS Keychain),"
+            + " username ← INUBIT_ACME_QA_USERNAME ok");
     }
 
     // --- feature 010 T015: AWS parameters read and checked (FR-009, research R-12) -------------

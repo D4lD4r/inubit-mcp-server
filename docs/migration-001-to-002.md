@@ -149,7 +149,9 @@ java -jar /absolute/path/to/inubit-mcp-server-<version>.jar --profile acme --che
 ```
 
 It must end with `Result: OK` and list the same nodes and the same variable names as before
-(with `prefix: INUBIT`: `Credential variables: INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD`).
+(with `prefix: INUBIT`: `Credential store entries: service inubit-mcp, account
+INUBIT_<STAGE>[_<SERVER>]_<KIND>`; since 0.7.0 the names are credential store entries, see
+[migration-environment-variables.md](migration-environment-variables.md)).
 Then replace the registration of feature 001 by one per profile:
 
 ```bash
@@ -282,14 +284,14 @@ export INUBIT_QA_NODE2_PASSWORD='…'   # node-specific: wins for qa/node2
 Configuration: /Users/jdoe/.config/inubit-mcp/acme.yaml
 Profile: acme (ACME – INUBIT integration platform)
 Terminology: stage/stages, server/servers
-Credential variables: INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD
+Credential store entries: service inubit-mcp, account INUBIT_<STAGE>[_<SERVER>]_<KIND> (macOS Keychain)
 Audit directory: /Users/jdoe/.inubit-mcp/acme/audit
 Workspace: /Users/jdoe/.inubit-mcp/acme/workspace (ok)
 Stage dev:
-  Server dev/node1: write enabled (confirmation CLIENT), cli: unavailable, inubit: AUTO, username ← INUBIT_DEV_NODE1_USERNAME (or INUBIT_DEV_USERNAME), password ← INUBIT_DEV_NODE1_PASSWORD (or INUBIT_DEV_PASSWORD)
+  Server dev/node1: write enabled (confirmation CLIENT), cli: unavailable, inubit: AUTO, secrets: credentialStore (macOS Keychain), username ← INUBIT_DEV_USERNAME ok, password ← INUBIT_DEV_PASSWORD ok
 Stage qa:
-  Server qa/node1: read-only, cli: unavailable, inubit: AUTO, username ← INUBIT_QA_NODE1_USERNAME (or INUBIT_QA_USERNAME), password ← INUBIT_QA_NODE1_PASSWORD (or INUBIT_QA_PASSWORD)
-  Server qa/node2: read-only, cli: unavailable, inubit: AUTO, username ← INUBIT_QA_NODE2_USERNAME (or INUBIT_QA_USERNAME), password ← INUBIT_QA_NODE2_PASSWORD (or INUBIT_QA_PASSWORD)
+  Server qa/node1: read-only, cli: unavailable, inubit: AUTO, secrets: credentialStore (macOS Keychain), username ← INUBIT_QA_USERNAME ok, password ← INUBIT_QA_PASSWORD ok
+  Server qa/node2: read-only, cli: unavailable, inubit: AUTO, secrets: credentialStore (macOS Keychain), username ← INUBIT_QA_USERNAME ok, password ← INUBIT_QA_NODE2_PASSWORD ok
 Result: OK
 ```
 

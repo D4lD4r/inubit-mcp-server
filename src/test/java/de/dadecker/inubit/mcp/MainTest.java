@@ -176,14 +176,15 @@ class MainTest {
 
         assertThat(exit).as(err()).isZero();
         assertThat(out())
+            // feature 011 (T017): the entries found in the credential store, never a value
             .contains("dev/node1: write enabled (confirmation SERVER), cli: unavailable,"
-                + " inubit: AUTO, username ← INUBIT_ACME_DEV_NODE1_USERNAME (or"
-                + " INUBIT_ACME_DEV_USERNAME), password ← INUBIT_ACME_DEV_NODE1_PASSWORD (or"
-                + " INUBIT_ACME_DEV_PASSWORD)")
+                + " inubit: AUTO, secrets: credentialStore (macOS Keychain),"
+                + " username ← INUBIT_ACME_DEV_USERNAME ok, password ← INUBIT_ACME_DEV_PASSWORD ok")
             .contains("qa/node2: read-only, cli: available, inubit: AUTO,"
                 + " client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime,"
-                + " username ← INUBIT_ACME_QA_NODE2_USERNAME (or INUBIT_ACME_QA_USERNAME),"
-                + " password ← INUBIT_ACME_QA_NODE2_PASSWORD (or INUBIT_ACME_QA_PASSWORD)")
+                + " secrets: credentialStore (macOS Keychain),"
+                + " username ← INUBIT_ACME_QA_USERNAME ok,"
+                + " password ← INUBIT_ACME_QA_NODE2_PASSWORD ok")
             .contains("Result: OK")
             .doesNotContain(PASSWORD, USERNAME, "other-Secret-99", "other-user",
                 "inubit.example.test");
@@ -221,9 +222,11 @@ class MainTest {
     @Test
     void checkConfigOutputOfAnExistingProfileNamesTheEntriesAndLeftoverVariables()
         throws IOException {
-        // feature 011: entries are named, not read; a variable an earlier version read is a
-        // warning; a missing entry is no error until the node is used
+        // feature 011: the entries found and their outcome (T017); a variable an earlier version
+        // read is a warning
         credentials();
+        entries.put("INUBIT_ACME_QA_NODE2_USERNAME", "qa-user");
+        entries.put("INUBIT_ACME_QA_PASSWORD", "qa-Password-2");
         environment.put("INUBIT_ACME_QA_NODE2_USERNAME", "qa-user");
         environment.put("INUBIT_ACME_DEV_NODE9_PASSWORD", "unrelated-Secret-1");
         Path file = profileWithCredentials("");
@@ -235,17 +238,18 @@ class MainTest {
             Configuration: %s
             Profile: acme
             Terminology: group/groups, node/nodes
-            Credential variables: INUBIT_ACME_<GROUP>[_<NODE>]_USERNAME / _PASSWORD
+            Credential store entries: service inubit-mcp, account \
+            INUBIT_ACME_<GROUP>[_<NODE>]_<KIND> (macOS Keychain)
             Audit directory: %s
             Workspace: %s (ok)
             Group dev:
               Node dev/node1: read-only, cli: unavailable, inubit: V8_1, \
-            username ← INUBIT_ACME_DEV_NODE1_USERNAME (or INUBIT_ACME_DEV_USERNAME), \
-            password ← INUBIT_ACME_DEV_NODE1_PASSWORD (or INUBIT_ACME_DEV_PASSWORD)
+            secrets: credentialStore (macOS Keychain), \
+            username ← INUBIT_ACME_DEV_USERNAME ok, password ← INUBIT_ACME_DEV_PASSWORD ok
             Group qa:
               Node qa/node2: read-only, cli: unavailable, inubit: AUTO, \
-            username ← INUBIT_ACME_QA_NODE2_USERNAME (or INUBIT_ACME_QA_USERNAME), \
-            password ← INUBIT_ACME_QA_NODE2_PASSWORD (or INUBIT_ACME_QA_PASSWORD)
+            secrets: credentialStore (macOS Keychain), \
+            username ← INUBIT_ACME_QA_NODE2_USERNAME ok, password ← INUBIT_ACME_QA_PASSWORD ok
             Warnings:
               - Environment variables are no longer read for INUBIT credentials (since 0.7.0): \
             INUBIT_ACME_QA_NODE2_USERNAME; move them to the credential store or Parameter Store \
@@ -253,6 +257,27 @@ class MainTest {
             Result: OK
             """.formatted(file, home.resolve("audit"), home.resolve("workspace")));
         assertThat(storesCreated).as("T015: no Parameter Store without an AWS node").hasValue(0);
+    }
+
+    @Test
+    void checkConfigExitsOneOnAMissingEntryAndNamesItButStartsTheServer() throws IOException {
+        // feature 011 (T017, US4-2, quickstart Q15): an error of --check-config, never a value;
+        // the server itself starts (the entry is read on first use)
+        credentials();
+        Path file = profileWithCredentials("");
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).isEqualTo(1);
+        assertThat(out()).contains("qa/node2: read-only, cli: unavailable, inubit: AUTO,"
+                + " secrets: credentialStore (macOS Keychain),"
+                + " username ← INUBIT_ACME_QA_NODE2_USERNAME | INUBIT_ACME_QA_USERNAME not found",
+            "qa/node2: credential store entry INUBIT_ACME_QA_NODE2_USERNAME (or"
+                + " INUBIT_ACME_QA_USERNAME) in the macOS Keychain for the username: not found",
+            "Result: FAILED")
+            .doesNotContain(PASSWORD, USERNAME);
+        stdout.reset();
+        assertThat(run("--config", file.toString())).as(err()).isZero();
     }
 
     @Test
@@ -281,16 +306,14 @@ class MainTest {
             stdout.reset();
             stderr.reset();
             assertThat(run("--check-config", "--config", file.toString())).as(out()).isZero();
-            // T008 adds "secrets: credentialStore" to each node line of a profile that uses source
-            outputs.add(out().replace("secrets: credentialStore, ", ""));
+            outputs.add(out());
             stdout.reset();
             assertThat(run("--config", file.toString())).as(err()).isZero();
             startups.add(err());
         }
 
         assertThat(outputs).as("--check-config").containsOnly(outputs.get(0));
-        assertThat(outputs.get(0)).contains("username ← INUBIT_ACME_QA_NODE2_USERNAME (or"
-            + " INUBIT_ACME_QA_USERNAME)");
+        assertThat(outputs.get(0)).contains("username ← INUBIT_ACME_QA_USERNAME ok");
         assertThat(startups).as("startup messages").containsOnly(startups.get(0));
     }
 
@@ -565,7 +588,7 @@ class MainTest {
 
         assertThat(exit).as(out() + err()).isZero();
         assertThat(out()).contains("dev/node1: read-only, cli: available, inubit: 8.1.17,"
-                + " username ←")
+                + " secrets: credentialStore (macOS Keychain), username ←")
             .contains("Warnings:", "  - dev/node1: StartCLI client probe failed: StartCLI did not"
                 + " report its version (exit code 1)")
             .contains("Result: OK");
@@ -713,7 +736,7 @@ class MainTest {
 
         assertThat(exit).as(err()).isZero();
         assertThat(out()).contains("Configuration: " + acme, "Profile: acme",
-            "username ← INUBIT_ACME_DEV_NODE1_USERNAME (or INUBIT_ACME_DEV_USERNAME)");
+            "username ← INUBIT_ACME_DEV_USERNAME ok");
     }
 
     @Test

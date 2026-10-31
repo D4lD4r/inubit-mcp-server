@@ -6,11 +6,13 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -130,14 +132,17 @@ class MigrationGuideExampleTest {
         ValidationReport report = new ConfigValidator(path -> true, Map.of(), false,
             Path.of("/var/tmp"), file -> List.of(), NO_DISK).validate(loaded);
 
-        String summary = new ConfigSummary(path -> true, false).render(loaded, report,
-            Map.of(), ParameterCheck.Result.NONE);
+        EntryCheck.Result entries = EntryCheck.run(loaded.config().resolvableNodes(),
+            TestSecrets.store(ENV_001), Duration.ofSeconds(5));
+        String summary = new ConfigSummary(path -> true, false).render(loaded,
+            entries.addTo(report), Map.of(), ParameterCheck.Result.NONE, entries);
 
         assertThat(summary)
             .contains("Profile: acme")
             .contains("Terminology: stage/stages, server/servers")
-            .contains("Credential variables: INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD")
-            .contains("Server qa/node2:", "password ← INUBIT_QA_NODE2_PASSWORD")
+            .contains("Credential store entries: service inubit-mcp, account"
+                + " INUBIT_<STAGE>[_<SERVER>]_<KIND>")
+            .contains("Server qa/node2:", "password ← INUBIT_QA_NODE2_PASSWORD ok")
             .contains("Result: OK")
             .doesNotContain("Secret-1");
     }
@@ -153,8 +158,10 @@ class MigrationGuideExampleTest {
         ValidationReport report = new ConfigValidator(path -> true, Map.of(), false,
             Path.of("/var/tmp"), file -> List.of(), NO_DISK).validate(loaded);
 
-        String summary = new ConfigSummary(path -> true, false).render(loaded, report,
-            Map.of(), ParameterCheck.Result.NONE);
+        EntryCheck.Result entries = EntryCheck.run(loaded.config().resolvableNodes(),
+            TestSecrets.store(ENV_001), Duration.ofSeconds(5));
+        String summary = new ConfigSummary(path -> true, false).render(loaded,
+            entries.addTo(report), Map.of(), ParameterCheck.Result.NONE, entries);
 
         assertThat(summary).startsWith("Configuration: /Users/jdoe/.config/inubit-mcp/acme.yaml\n")
             .contains("Audit directory: /Users/jdoe/.inubit-mcp/acme/audit\n");

@@ -490,7 +490,7 @@ class GetHealthToolTest {
         assertThat(second.path("unavailable").path(0).path("reason").asString())
             .contains("avoid account lockout");
         assertThat(second.path("unavailable").path(0).path("nextStep").asString())
-            .contains("INUBIT_STAGING_LOCKED_PASSWORD", "restart the MCP client");
+            .contains("INUBIT_STAGING_LOCKED_PASSWORD", "no restart is needed");
     }
 
     @Test

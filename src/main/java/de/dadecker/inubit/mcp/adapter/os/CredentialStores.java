@@ -2,9 +2,9 @@ package de.dadecker.inubit.mcp.adapter.os;
 
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.config.CredentialStore;
+import de.dadecker.inubit.mcp.config.StoreKind;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -27,16 +27,12 @@ public final class CredentialStores {
      */
     public static CredentialStore forOs(String osName, ProcessLauncher launcher,
         Map<String, String> environment, Path home) {
-        String name = osName == null ? "" : osName.toLowerCase(Locale.ROOT);
-        if (name.startsWith("mac")) {
-            return new KeychainStore(launcher, GATE, environment, home);
-        }
-        if (name.startsWith("windows")) {
-            return new WindowsCredentialStore(GATE);
-        }
-        if (name.startsWith("linux")) {
-            return new SecretServiceStore(launcher, GATE, environment, home, Files::isExecutable);
-        }
-        return new UnavailableStore(osName);
+        return switch (StoreKind.forOs(osName)) {
+            case KEYCHAIN -> new KeychainStore(launcher, GATE, environment, home);
+            case CREDENTIAL_MANAGER -> new WindowsCredentialStore(GATE);
+            case SECRET_SERVICE -> new SecretServiceStore(launcher, GATE, environment, home,
+                Files::isExecutable);
+            case NONE -> new UnavailableStore(osName);
+        };
     }
 }

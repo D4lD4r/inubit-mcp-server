@@ -6,7 +6,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
-import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -100,7 +100,7 @@ class V81InventoryAdapterTest {
         credentials = TestSecrets.credentialStore(List.of(config), Map.of(
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD), scrubber)
             .get(DEV).current(Duration.ofSeconds(5));
-        guard = new CredentialGuard(environmentLabels("INUBIT", DEV), clock);
+        guard = new CredentialGuard(storeLabels("INUBIT", DEV), clock);
         wireMock.stubFor(get(urlPathEqualTo(SYSTEM_INFO))
             .willReturn(RestFixtures.response("system_info", "xml")));
         probe = new V81MaintenanceProbe(config, Optional.empty(), scrubber);

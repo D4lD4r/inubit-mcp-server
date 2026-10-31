@@ -188,24 +188,34 @@ step and removes the environment path. US4 (`--check-config`), US5 (rotation, me
 
 ## Phase 6: User Story 5 — rotation and messages (Priority: P2)
 
-- [ ] T016 [US5] Messages (FR-010, R-12): `SecretLabels` credential store variant (labels, next steps
+- [X] T016 [US5] Messages (FR-010, R-12): `SecretLabels` credential store variant (labels, next steps
   with the system command, "no restart is needed"); the environment variant and "restart the MCP
   client from a shell" deleted; `CliOutputClassifier` login-failure text via `SecretLabels`; error
   codes per `FailureKind` mapping. Re-read for credential store nodes through the guard (Q16). Tests
   first: `SecretLabelsTest`, `CliOutputClassifierTest`, `CredentialGuardTest` (Q16, Q17; changed →
   next call uses it; unchanged → 60 s pause; ≤ 2 failed logins / 60 s; re-read bounded by 60 s).
+  Done: `SecretLabels.Store` (labels, next steps with store and service, "no restart is needed");
+  the store kind reaches the labels through `StoreKind.forOs(os.name)` in
+  `EffectiveNodeConfig.secretLabels()` (also used by `CredentialStores.forOs`); new
+  `SecretLabels.source()`, so the guard's "replaced by new values from …" text names the source
+  (Parameter Store text unchanged); `SecretLabelsTest` asserts that "restart the MCP client from a
+  shell" appears in no production source.
 
 ---
 
 ## Phase 7: User Story 4 — `--check-config` (Priority: P2)
 
-- [ ] T017 [US4] `main/config/EntryCheck.java` and `ConfigSummary` (FR-011, R-13): per node and kind
+- [X] T017 [US4] `main/config/EntryCheck.java` and `ConfigSummary` (FR-011, R-13): per node and kind
   the found name or both names with `ok | not found | invalid value | access denied | not checked`;
   each distinct account read once; existence-only lookups where the store allows; trust store with
   CLI and e2e over `http://` as errors; first `STORE_NOT_AVAILABLE`/`TIMEOUT` → one warning per store,
   the rest `not checked`; `Credential store entries:` line and `secrets: credentialStore (<store>)` on
   every node line; exit codes. Tests first: `EntryCheckTest` (Q27), `ConfigSummaryTest`, `MainTest`
   (Q15; never a value in the output).
+  Done; deviations: optional kinds are shown only when present (an absent optional kind and a
+  "not checked" optional kind are left out); only one of the two end-to-end entries is reported as
+  an error (as for Parameter Store names); the `Credential store entries:` line keeps the rule of
+  010 (shown once some node reads entries under the profile prefix).
 
 ---
 

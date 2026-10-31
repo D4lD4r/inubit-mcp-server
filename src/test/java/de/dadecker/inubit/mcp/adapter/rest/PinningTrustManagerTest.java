@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import de.dadecker.inubit.mcp.config.CredentialNames;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig.Tls;
 import de.dadecker.inubit.mcp.config.SecretLabels;
+import de.dadecker.inubit.mcp.config.StoreKind;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -33,8 +34,8 @@ import org.junit.jupiter.api.Timeout;
 class PinningTrustManagerTest {
 
     private static final TestCertificates CERTS = TestCertificates.get();
-    private static final SecretLabels LABELS = new SecretLabels.Environment(
-        new CredentialNames("INUBIT", NodeId.parse("test/node1")));
+    private static final SecretLabels LABELS = new SecretLabels.Store(
+        new CredentialNames("INUBIT", NodeId.parse("test/node1")), StoreKind.KEYCHAIN);
 
     private static Tls tls(boolean disableHostnameVerification, String pin) {
         return new Tls(Optional.of(CERTS.trustStore()), disableHostnameVerification,

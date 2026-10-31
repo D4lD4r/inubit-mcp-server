@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.cli.v81;
 
-import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
@@ -54,7 +54,7 @@ class V81ProcessControlAdapterTest {
 
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-03T08:00:00Z"));
     private final CredentialGuard guard =
-        new CredentialGuard(environmentLabels("INUBIT", DEV), clock);
+        new CredentialGuard(storeLabels("INUBIT", DEV), clock);
     private final SecretScrubber scrubber = new SecretScrubber();
 
     @BeforeEach

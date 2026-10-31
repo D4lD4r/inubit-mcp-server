@@ -462,4 +462,21 @@ class NodeSecretsCredentialStoreTest {
                 .doesNotContain("group-Pw-2");
         });
     }
+
+    @Test
+    void aReReadIsBoundedByTheStoreTimeout() {
+        // feature 011 (T016, FR-009): the re-read on the rejected call ends with the timeout
+        store.put(GROUP_USER, "jdoe").put(GROUP_PW, "group-Pw-2");
+        NodeSecrets secrets = new NodeSecrets(config().build(), store, scrubber, clock,
+            Duration.ofMillis(300));
+        secrets.current(LONG);
+        store.delay(NODE_USER, Duration.ofSeconds(10));
+
+        long start = System.nanoTime();
+        NodeSecrets.Reread outcome = secrets.reread();
+
+        assertThat(outcome).isEqualTo(NodeSecrets.Reread.FAILED);
+        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(3));
+        assertThat(secrets.held()).isPresent();
+    }
 }
