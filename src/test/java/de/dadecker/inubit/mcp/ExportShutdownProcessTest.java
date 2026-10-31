@@ -18,11 +18,13 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -72,6 +74,29 @@ class ExportShutdownProcessTest {
         assertThat(stale).as("swept at startup").doesNotExist();
         assertThat(legacy).as("001 name, swept at startup").doesNotExist();
         assertThat(otherProfile).as("another profile's").exists();
+    }
+
+    /**
+     * A {@code secret-tool} that answers {@code lookup service inubit-mcp account <name>} with
+     * the test credentials (feature 011). Used only where the server finds it on {@code PATH}:
+     * on Linux without a real one in {@code /usr/bin} or {@code /usr/local/bin}.
+     */
+    private Path fakeSecretTool() throws IOException {
+        Assumptions.assumeTrue(System.getProperty("os.name", "").toLowerCase(Locale.ROOT)
+                .startsWith("linux") && !Files.exists(Path.of("/usr/bin/secret-tool"))
+                && !Files.exists(Path.of("/usr/local/bin/secret-tool")),
+            "needs Linux without an installed secret-tool (a fake one is put on PATH)");
+        Path tools = Files.createDirectories(home.resolve("tools"));
+        Path tool = Files.writeString(tools.resolve("secret-tool"), """
+            #!/bin/sh
+            case "$5" in
+              INUBIT_ACME_DEV_USERNAME) printf '%%s' 'export-test-user' ;;
+              INUBIT_ACME_DEV_PASSWORD) printf '%%s' '%s' ;;
+              *) exit 1 ;;
+            esac
+            """.formatted(PASSWORD));
+        tool.toFile().setExecutable(true);
+        return tools;
     }
 
     /** {@code inubit-mcp-export-<middle>-1} with a file, in the server's temp directory. */
@@ -186,9 +211,9 @@ class ExportShutdownProcessTest {
         ProcessBuilder builder = new ProcessBuilder(command);
         Map<String, String> environment = builder.environment();
         environment.clear();
-        environment.put("PATH", "/usr/bin:/bin");
-        environment.put("INUBIT_ACME_DEV_USERNAME", "export-test-user");
-        environment.put("INUBIT_ACME_DEV_PASSWORD", PASSWORD);
+        // feature 011: the server reads the credential store of the system; on Linux a fake
+        // secret-tool on PATH stands in for the Secret Service
+        environment.put("PATH", fakeSecretTool() + ":/usr/bin:/bin");
         // stderr to a file: it stays readable whatever happens to the pipes
         Path stderr = home.resolve("server-stderr.log");
         builder.redirectError(stderr.toFile());

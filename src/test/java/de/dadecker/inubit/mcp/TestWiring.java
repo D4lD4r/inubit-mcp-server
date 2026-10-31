@@ -1,7 +1,7 @@
 package de.dadecker.inubit.mcp;
 
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
-import de.dadecker.inubit.mcp.config.CredentialResolution;
+import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.ParameterStore;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
@@ -26,14 +26,14 @@ public final class TestWiring implements AutoCloseable {
     }
 
     /** @param config a configuration that {@code ConfigValidator} reported no errors for */
-    public static TestWiring of(ProfileConfig config, CredentialResolution credentials,
+    public static TestWiring of(ProfileConfig config, CredentialStore credentials,
         SecretScrubber scrubber, Predicate<Path> exists, boolean windows) {
         return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
             exists, windows));
     }
 
     /** As above, with a fake StartCLI ({@code launcher}) and its parent environment. */
-    public static TestWiring of(ProfileConfig config, CredentialResolution credentials,
+    public static TestWiring of(ProfileConfig config, CredentialStore credentials,
         SecretScrubber scrubber, Predicate<Path> exists, boolean windows,
         ProcessLauncher launcher, Map<String, String> environment) {
         return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
@@ -41,7 +41,7 @@ public final class TestWiring implements AutoCloseable {
     }
 
     /** As above, with the Parameter Store of the AWS nodes. */
-    public static TestWiring of(ProfileConfig config, CredentialResolution credentials,
+    public static TestWiring of(ProfileConfig config, CredentialStore credentials,
         SecretScrubber scrubber, Predicate<Path> exists, boolean windows,
         ProcessLauncher launcher, Map<String, String> environment, ParameterStore store) {
         return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),

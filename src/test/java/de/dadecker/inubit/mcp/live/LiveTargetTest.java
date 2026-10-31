@@ -161,8 +161,6 @@ class LiveTargetTest {
         assertThat(live.node()).isEqualTo(NodeId.parse("test/node1"));
         assertThat(live.loaded().source()).isEqualTo(globex);
         assertThat(live.loaded().config().profile().name()).isEqualTo("globex");
-        assertThat(live.credentials().credentials(NodeId.parse("test/node1")).username())
-            .hasValueSatisfying(username -> assertThat(username.value()).isEqualTo("live-user"));
     }
 
     @Test

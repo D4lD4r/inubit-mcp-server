@@ -47,8 +47,8 @@ import de.dadecker.inubit.mcp.application.WorkspaceService;
 import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
 import de.dadecker.inubit.mcp.application.WriteGuard;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
-import de.dadecker.inubit.mcp.config.CredentialResolution;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.config.CredentialNames;
+import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.ParameterStore;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
@@ -172,12 +172,14 @@ final class Wiring implements AutoCloseable {
 
     /**
      * @param config  a configuration that {@code ConfigValidator} reported no errors for
+     * @param credentialStore the credential store of the running system (feature 011); nothing is
+     *     read here
      * @param exists  file-system check for the CLI availability of {@code list_nodes}
      * @param windows whether the server runs on Windows ({@code startcli.bat})
      */
-    Wiring(ProfileConfig config, CredentialResolution credentials, SecretScrubber scrubber,
+    Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows) {
-        this(config, credentials, scrubber, clock, exists, windows, new SystemProcessLauncher(),
+        this(config, credentialStore, scrubber, clock, exists, windows, new SystemProcessLauncher(),
             System.getenv(), SsmParameterStore::new);
     }
 
@@ -185,10 +187,10 @@ final class Wiring implements AutoCloseable {
      * As above, with the launcher of StartCLI and the environment its allowlist is copied from
      * (tests replace StartCLI with a fake).
      */
-    Wiring(ProfileConfig config, CredentialResolution credentials, SecretScrubber scrubber,
+    Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment) {
-        this(config, credentials, scrubber, clock, exists, windows, launcher, environment,
+        this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
             SsmParameterStore::new);
     }
 
@@ -196,7 +198,7 @@ final class Wiring implements AutoCloseable {
      * As above, with the Parameter Store of the AWS nodes (feature 010), created only if a node
      * reads its secrets from it; nothing is fetched here (FR-006a).
      */
-    Wiring(ProfileConfig config, CredentialResolution credentials, SecretScrubber scrubber,
+    Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment, Supplier<ParameterStore> parameterStore) {
         this.profile = config.profileInfo();
@@ -219,7 +221,7 @@ final class Wiring implements AutoCloseable {
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
         CliRunner cliRunner = new CliRunner(launcher, environment, windows, cliResources);
         // feature 009 (research D-16): only the 8.1 port set, as default for every version
-        Map<NodeId, NodeSecrets> secrets = secrets(servers, credentials, scrubber, clock,
+        Map<NodeId, NodeSecrets> secrets = secrets(servers, credentialStore, scrubber, clock,
             parameterStore);
         this.gateways = new AdapterGatewayFactory(servers, secrets, scrubber, clock.clock(),
             cliRunner, versions, PortSetRegistry.v81Default());
@@ -299,24 +301,15 @@ final class Wiring implements AutoCloseable {
             workspace, profile.name(), developmentGuard, gateways::tags,
             id -> byId.get(id).inventory().owner(), accounts, challenges, audit, clock.clock(),
             UUID::randomUUID)));
-        CredentialResolver e2eCredentials = new CredentialResolver(environment, scrubber,
-            config.terminology().effectiveOrDefault(), config.credentialPrefix(),
-            config.secretPlans());
         Function<NodeId, E2ePort> e2ePorts = id -> {
-            if (!byId.get(id).secretPlan().aws()) {
-                return e2eClients.computeIfAbsent(id, node -> new SoapE2eClient(byId.get(node),
-                    development.get(node).soapBaseUrl().orElseThrow(),
-                    trustStorePassword(credentials, node), e2eCredentials.e2e(node)
-                        .map(e2e -> new SoapE2eClient.BasicAuth(e2e.username().value(),
-                            e2e.password().value()))));
-            }
-            // feature 010 (FR-006a, research R-7): both fetches before computeIfAbsent, so a slow
-            // fetch blocks no other entry and a failed one is not cached as a client
+            // feature 010 (FR-006a, research R-7): both reads before computeIfAbsent, so a slow
+            // read blocks no other entry and a failed one is not cached as a client; feature 011
+            // (research R-7): each waits as long as the node's store may take
             NodeSecrets nodeSecrets = secrets.get(id);
             Optional<de.dadecker.inubit.mcp.infra.Secret> trustStorePassword = nodeSecrets
-                .current(NodeSecrets.STORE_TIMEOUT).trustStorePassword()
+                .current(nodeSecrets.timeout()).trustStorePassword()
                 .map(SourcedValue::value);
-            Optional<SoapE2eClient.BasicAuth> auth = nodeSecrets.e2e(NodeSecrets.STORE_TIMEOUT)
+            Optional<SoapE2eClient.BasicAuth> auth = nodeSecrets.e2e(nodeSecrets.timeout())
                 .map(e2e -> new SoapE2eClient.BasicAuth(e2e.username().value(),
                     e2e.password().value()));
             return e2eClients.computeIfAbsent(id, node -> new SoapE2eClient(byId.get(node),
@@ -382,12 +375,12 @@ final class Wiring implements AutoCloseable {
     }
 
     /**
-     * Feature 010 (research R-7): one {@link NodeSecrets} per node; environment nodes hold their
-     * startup credentials, AWS nodes fetch on first use from the one Parameter Store, which is
-     * created only if there is an AWS node.
+     * Feature 010 (research R-7), feature 011 (research R-7): one {@link NodeSecrets} per node,
+     * read on first use: credential store nodes from {@code credentialStore}, AWS nodes from the
+     * one Parameter Store, which is created only if there is an AWS node.
      */
     private static Map<NodeId, NodeSecrets> secrets(List<EffectiveNodeConfig> servers,
-        CredentialResolution credentials, SecretScrubber scrubber, ClockProvider clock,
+        CredentialStore credentialStore, SecretScrubber scrubber, ClockProvider clock,
         Supplier<ParameterStore> parameterStore) {
         ParameterStore store = servers.stream().anyMatch(server -> server.secretPlan().aws())
             ? parameterStore.get() : null;
@@ -395,24 +388,17 @@ final class Wiring implements AutoCloseable {
         for (EffectiveNodeConfig server : servers) {
             secrets.put(server.id(), server.secretPlan().aws()
                 ? NodeSecrets.aws(server.secretPlan(), store, scrubber, clock.clock())
-                : NodeSecrets.environment(credentials.credentials(server.id())));
+                : NodeSecrets.credentialStore(server, credentialStore, scrubber, clock.clock()));
         }
         return secrets;
     }
 
-    /** The resolved trust-store password of {@code node}, if any. */
-    private static Optional<de.dadecker.inubit.mcp.infra.Secret> trustStorePassword(
-        CredentialResolution credentials, NodeId node) {
-        return credentials.all().stream().filter(resolved -> resolved.node().equals(node))
-            .findFirst().flatMap(resolved -> resolved.trustStorePassword())
-            .map(SourcedValue::value);
-    }
-
     /**
      * The write settings of {@code server} with the INUBIT account for the audit (research
-     * R-16): the username {@code secrets} hold (an environment node's startup username, an AWS
-     * node's fetched one), else for an AWS node {@code (Parameter Store <username parameter>)};
-     * never fetches.
+     * R-16): the username {@code secrets} hold (read on first use), else the name it is read from:
+     * {@code (Parameter Store <username parameter>)} for an AWS node, {@code (credential store
+     * <node entry> or <group entry>)} for a credential store node (feature 011, research R-17);
+     * never reads.
      */
     private static WritePolicy policy(EffectiveNodeConfig server, NodeSecrets secrets) {
         Optional<String> account = secrets.held()
@@ -420,6 +406,10 @@ final class Wiring implements AutoCloseable {
         if (account.isEmpty() && server.secretPlan().aws()) {
             account = Optional.of("(Parameter Store " + server.secretPlan().names().orElseThrow()
                 .username().orElseThrow() + ")");
+        } else if (account.isEmpty()) {
+            CredentialNames names = server.credentialNames();
+            account = Optional.of("(credential store " + names.nodeName(CredentialNames.USERNAME)
+                + " or " + names.groupName(CredentialNames.USERNAME) + ")");
         }
         return new WritePolicy(server.id(), server.production(), server.write().enabled(),
             server.write().productionOptIn(),

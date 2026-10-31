@@ -47,9 +47,8 @@ import org.slf4j.spi.LoggingEventBuilder;
 
 /**
  * The credentials of one node (feature 010, data-model.md → NodeSecrets, research R-7, R-11,
- * R-14, R-17; feature 011, research R-7). An environment node holds its startup credentials. A
- * node whose credentials come from a store reads username, password and (if configured) trust
- * store password on first use, and its end-to-end test credentials in a separate read on their
+ * R-14, R-17; feature 011, research R-7). Every node reads username, password and (if configured)
+ * trust store password on first use, and its end-to-end test credentials in a separate read on their
  * own first use ({@link #e2e}). The store is AWS Parameter Store (all names in one
  * {@code GetParameters} call) or, since feature 011, the credential store of the running system
  * (one entry at a time, the node entry before the group entry). Each of the two reads follows the
@@ -123,11 +122,9 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
     private final SecretScrubber scrubber;
     private final Clock clock;
     private final Duration timeout;
-    /** False for an environment node, whose credentials cannot be read again. */
-    private final boolean rereadable;
     /** Username, password and trust store password. */
     private final Cell<NodeCredentials> main;
-    /** The end-to-end test credentials; {@code null} if the node can have none. */
+    /** The end-to-end test credentials; {@code null} for an AWS node without such names. */
     private final Cell<Optional<E2eCredentials>> e2e;
 
     /** The checked values of one read per key, and the name each was read from. */
@@ -150,17 +147,6 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
         implements Attempt<T> {
     }
 
-    private NodeSecrets(NodeCredentials credentials) {
-        this.node = credentials.node();
-        this.scrubber = null;
-        this.clock = null;
-        this.timeout = Duration.ZERO;
-        this.rereadable = false;
-        this.main = new Cell<>("INUBIT credentials", null);
-        this.main.held = credentials;
-        this.e2e = null;
-    }
-
     /** With {@code timeout} instead of {@link #STORE_TIMEOUT}, so tests need not wait 10 s. */
     NodeSecrets(SecretPlan plan, ParameterStore store, SecretScrubber scrubber, Clock clock,
         Duration timeout) {
@@ -172,7 +158,6 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
         this.scrubber = Objects.requireNonNull(scrubber, "scrubber");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.timeout = Objects.requireNonNull(timeout, "timeout");
-        this.rereadable = true;
         StoreLocation location = new StoreLocation(source.region(), source.awsProfile());
         Objects.requireNonNull(store, "store");
         List<Wanted> kinds = new ArrayList<>();
@@ -202,7 +187,6 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
         this.scrubber = Objects.requireNonNull(scrubber, "scrubber");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.timeout = Objects.requireNonNull(timeout, "timeout");
-        this.rereadable = true;
         Objects.requireNonNull(store, "store");
         List<String> kinds = new ArrayList<>(List.of(USERNAME, PASSWORD));
         if (config.tls().trustStore().isPresent()) {
@@ -255,15 +239,6 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
             () -> new IllegalArgumentException(node + ": no " + key + " parameter name")));
     }
 
-    /** The startup credentials of an environment node. */
-    public static NodeSecrets environment(NodeCredentials credentials) {
-        if (credentials.deferred()) {
-            throw new IllegalArgumentException("Deferred credentials belong to a store node: "
-                + credentials.node());
-        }
-        return new NodeSecrets(credentials);
-    }
-
     /** The secrets of an AWS node, fetched on first use; nothing is fetched here. */
     public static NodeSecrets aws(SecretPlan plan, ParameterStore store, SecretScrubber scrubber,
         Clock clock) {
@@ -284,10 +259,7 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
         return node;
     }
 
-    /**
-     * How long a caller waits at most for a read of this node: the store's timeout (zero for an
-     * environment node, whose credentials are held from the start).
-     */
+    /** How long a caller waits at most for a read of this node: the store's timeout. */
     public Duration timeout() {
         return timeout;
     }
@@ -298,10 +270,6 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
         return main.held();
     }
 
-    /** True for a store node, whose credentials {@link #reread()} can read again. */
-    public boolean rereadable() {
-        return rereadable;
-    }
 
     /**
      * Reads username, password and (if configured) trust store password again after INUBIT
@@ -312,15 +280,9 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
      * the held credentials (the same instance); a failure starts no {@link #BACK_OFF}. One
      * {@code secret.fetch} log record with {@code changed}. Not single flight: the node's
      * {@link CredentialGuard} runs one re-read at a time.
-     *
-     * @throws UnsupportedOperationException for an environment node
      */
     @Override
     public Reread reread() {
-        if (!rereadable()) {
-            throw new UnsupportedOperationException(node + ": environment variables are read at"
-                + " startup only");
-        }
         return main.reread(NodeSecrets::sameAccount);
     }
 
@@ -332,7 +294,7 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
     }
 
     /**
-     * The node's credentials; starts or joins the read of a store node if they are not held yet.
+     * The node's credentials; starts or joins their read if they are not held yet.
      *
      * @param bound how long to wait for a read; at most {@link #timeout()} is waited
      * @throws ToolErrorException the classified read failure ({@code AUTH_FAILED} or
@@ -346,9 +308,8 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
     /**
      * The end-to-end test credentials; starts or joins their own read (independent of
      * {@link #current}) if they are not held yet. Empty for an AWS node without
-     * {@code e2eUsername}/{@code e2ePassword} parameters, for a credential store node without
-     * end-to-end entries, and for an environment node (its end-to-end credentials come from
-     * {@link de.dadecker.inubit.mcp.config.CredentialResolver#e2e}).
+     * {@code e2eUsername}/{@code e2ePassword} parameters and for a credential store node without
+     * end-to-end entries.
      *
      * @param bound as for {@link #current}
      * @throws ToolErrorException as {@link #current}, naming the end-to-end names
@@ -452,7 +413,7 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
 
         /** What the cell holds, for messages ("INUBIT credentials"). */
         private final String subject;
-        /** What it reads; {@code null} for an environment node. */
+        /** What it reads. */
         private final Source<T> source;
 
         private final Object lock = new Object();

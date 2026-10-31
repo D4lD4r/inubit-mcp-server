@@ -3,10 +3,10 @@ package de.dadecker.inubit.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.config.ConfigLoader;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -67,10 +67,9 @@ class DevelopmentWiringTest {
         ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml")).config();
         SecretScrubber scrubber = new SecretScrubber();
-        TestWiring wiring = TestWiring.of(config, new CredentialResolver(Map.of(
-            "INUBIT_ACME_DEV_USERNAME", "jdoe", "INUBIT_ACME_DEV_PASSWORD", "dev-wiring-pw"),
-            scrubber, config.credentialPrefix()).resolve(config.nodeIds()), scrubber,
-            path -> false, false);
+        TestWiring wiring = TestWiring.of(config, TestSecrets.store(Map.of(
+            "INUBIT_ACME_DEV_USERNAME", "jdoe", "INUBIT_ACME_DEV_PASSWORD", "dev-wiring-pw")),
+            scrubber, path -> false, false);
         closeables.add(wiring);
         McpTestClient client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         closeables.add(client);

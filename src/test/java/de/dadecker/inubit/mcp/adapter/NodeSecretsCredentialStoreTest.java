@@ -82,7 +82,6 @@ class NodeSecretsCredentialStoreTest {
         assertThat(store.reads()).isEmpty();
         assertThat(secrets.held()).isEmpty();
         assertThat(secrets.timeout()).isEqualTo(LONG);
-        assertThat(secrets.rereadable()).isTrue();
     }
 
     @Test

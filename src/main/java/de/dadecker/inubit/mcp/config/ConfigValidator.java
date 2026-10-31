@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -110,7 +111,7 @@ public final class ConfigValidator {
      * Checks {@code loaded}; the messages use the profile's terminology (FR-007), or the default
      * names while the terminology itself is invalid.
      */
-    public ValidationReport validate(LoadedConfig loaded, CredentialResolution credentials) {
+    public ValidationReport validate(LoadedConfig loaded) {
         ProfileConfig config = loaded.config();
         Terminology terms = config.terminology().effectiveOrDefault();
         Findings findings = new Findings(terms);
@@ -129,7 +130,7 @@ public final class ConfigValidator {
         checkResultLimits(config.resultLimits(), findings);
         checkDeployConfirmationTtl(config.defaults(), findings);
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
-            checkServer(server, credentials, findings);
+            checkServer(server, findings);
             checkDevelopment(server, findings);
             checkParameterNames(server, findings);
         }
@@ -165,8 +166,9 @@ public final class ConfigValidator {
             }
         }
         checkOtherProfiles(loaded, findings);
-        findings.errors.addAll(credentials.errors());
-        findings.warnings.addAll(credentials.warnings());
+        checkEntryNameCollisions(config, findings);
+        // feature 011 (FR-003): variables that earlier versions read are reported, names only
+        LeftoverVariables.warning(environment, config).ifPresent(findings::warning);
         return new ValidationReport(findings.errors, findings.warnings, workspace);
     }
 
@@ -517,8 +519,7 @@ public final class ConfigValidator {
         }
     }
 
-    private void checkServer(EffectiveNodeConfig server, CredentialResolution credentials,
-        Findings findings) {
+    private void checkServer(EffectiveNodeConfig server, Findings findings) {
         String id = server.id().value();
         checkBaseUrl(server, findings);
         if (server.production() && server.write().confirmation() == ConfirmationMode.CLIENT) {
@@ -527,10 +528,6 @@ public final class ConfigValidator {
         }
         checkCliUrl(server, findings);
         checkTls(server, findings);
-        credentials.all().stream()
-            .filter(c -> c.node().equals(server.id()))
-            .forEach(c -> checkCredentials(server, c, findings));
-        checkE2ePassword(server, findings);
         if (server.cliConfigured()) {
             checkCli(server, findings);
         }
@@ -586,8 +583,8 @@ public final class ConfigValidator {
                 findings.error(id + ": e2e.soap.baseUrl must be an absolute https:// URL"
                     + " (http:// is accepted with a warning)");
             } else if (scheme.equals("http")) {
-                List<String> credentials = new ArrayList<>(e2eCredentialVariables(server));
-                credentials.addAll(e2eParameterNames(server));
+                // feature 011 (research R-11): credential store entries are checked when read
+                List<String> credentials = e2eParameterNames(server);
                 if (e2eTests != E2ePolicy.FORBIDDEN && !credentials.isEmpty()) {
                     findings.error(id + ": e2e.soap.baseUrl uses http:// while the e2e basic"
                         + " authentication is set (" + String.join(", ", credentials) + "); the"
@@ -598,42 +595,6 @@ public final class ConfigValidator {
                 }
             }
         });
-    }
-
-    /**
-     * The set e2e basic-authentication variables of {@code server} (names only); none for an AWS
-     * node, which reads no variables (research R-6, R-13).
-     */
-    private List<String> e2eCredentialVariables(EffectiveNodeConfig server) {
-        List<String> set = new ArrayList<>();
-        if (server.secretPlan().aws()) {
-            return set;
-        }
-        for (String kind : CredentialNames.E2E_KINDS) {
-            for (String variable : server.credentialNames().candidates(kind)) {
-                if (CredentialRules.isSet(environment.get(variable))) {
-                    set.add(variable);
-                }
-            }
-        }
-        return set;
-    }
-
-    /**
-     * The e2e password variable that wins for {@code server} (node before group) must be long
-     * enough to be scrubbed, like {@code _PASSWORD} and the {@code e2ePassword} parameter (feature
-     * 010, research R-17). An AWS node reads no variables; its value is checked when fetched.
-     */
-    private void checkE2ePassword(EffectiveNodeConfig server, Findings findings) {
-        if (server.secretPlan().aws()) {
-            return;
-        }
-        server.credentialNames().candidates(CredentialNames.E2E_PASSWORD).stream()
-            .filter(variable -> CredentialRules.isSet(environment.get(variable)))
-            .findFirst()
-            .filter(variable -> !CredentialRules.isScrubbable(environment.get(variable)))
-            .ifPresent(variable -> findings.error(server.id().value() + ": the password from "
-                + variable + " " + CredentialRules.SHORT_PASSWORD_RULE));
     }
 
     /** Feature 010 (research R-6): the configured e2e Parameter Store names of an AWS node. */
@@ -716,6 +677,37 @@ public final class ConfigValidator {
                 }
             }
         }
+    }
+
+    /**
+     * Feature 011 (research R-10; from {@code CredentialResolver}, 002 research D-6): two groups or
+     * nodes of this profile must not derive the same credential store entry name, or both would
+     * read it. Only credential store nodes derive names (AWS nodes read named parameters).
+     */
+    private static void checkEntryNameCollisions(ProfileConfig config, Findings findings) {
+        Terminology terms = config.terminology().effectiveOrDefault();
+        Map<String, Set<String>> owners = new LinkedHashMap<>();
+        for (EffectiveNodeConfig server : config.resolvableNodes()) {
+            if (server.secretPlan().aws()) {
+                continue;
+            }
+            CredentialNames names = server.credentialNames();
+            for (String kind : CredentialNames.KINDS) {
+                owners.computeIfAbsent(names.nodeName(kind), k -> new TreeSet<>())
+                    .add(terms.render("{node} ") + server.id());
+                owners.computeIfAbsent(names.groupName(kind), k -> new TreeSet<>())
+                    .add(terms.render("{group} ") + server.id().group());
+            }
+        }
+        Map<Set<String>, List<String>> byOwners = new LinkedHashMap<>();
+        owners.forEach((name, users) -> {
+            if (users.size() > 1) {
+                byOwners.computeIfAbsent(users, k -> new ArrayList<>()).add(name);
+            }
+        });
+        byOwners.forEach((users, names) -> findings.error("Credential store entry names collide: "
+            + String.join(", ", names) + " would be used by " + String.join(" and ", users)
+            + terms.render("; rename one of the {groups} or {nodes}")));
     }
 
     /**
@@ -938,26 +930,6 @@ public final class ConfigValidator {
             findings.warning(id + ": cli.url uses http:// (allowInsecureHttp: true); the CLI"
                 + " password is sent unencrypted");
         }
-    }
-
-    private static void checkCredentials(EffectiveNodeConfig server,
-        NodeCredentials credentials, Findings findings) {
-        String id = server.id().value();
-        credentials.trustStorePassword().ifPresent(password -> {
-            if (server.cliConfigured()) {
-                findings.termError("%s: %s is set, but this {node} has a CLI configured and needs"
-                    + " a password-less trust store (StartCLI could only receive the password as"
-                    + " a process argument)", id, password.sourceVariable());
-            }
-            if (server.tls().trustStore().isEmpty()) {
-                findings.warning(id + ": " + password.sourceVariable() + " is set, but no"
-                    + " tls.trustStore is configured; the variable is ignored");
-            }
-        });
-        credentials.password()
-            .filter(password -> !CredentialRules.isScrubbable(password.value().reveal()))
-            .ifPresent(password -> findings.error(id + ": the password from "
-                + password.sourceVariable() + " " + CredentialRules.SHORT_PASSWORD_RULE));
     }
 
     private void checkTls(EffectiveNodeConfig server, Findings findings) {

@@ -43,14 +43,8 @@ class ProfileSectionTest {
 
     private static ValidationReport validate(String yaml) {
         LoadedConfig loaded = load(yaml);
-        Map<String, String> env = new HashMap<>();
-        env.put(loaded.config().credentialPrefix() + "_DEV_USERNAME", "user");
-        env.put(loaded.config().credentialPrefix() + "_DEV_PASSWORD", "secret-value");
-        CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
-            loaded.config().credentialPrefix())
-            .resolve(loaded.config().nodeIds());
-        return new ConfigValidator(path -> true, env, false, Path.of("/var/tmp"),
-            source -> List.of(), NO_DISK).validate(loaded, credentials);
+        return new ConfigValidator(path -> true, Map.of(), false, Path.of("/var/tmp"),
+            source -> List.of(), NO_DISK).validate(loaded);
     }
 
     @Nested

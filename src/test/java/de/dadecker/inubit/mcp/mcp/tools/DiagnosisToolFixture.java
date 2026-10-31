@@ -17,7 +17,6 @@ import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TargetResolver;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -73,12 +72,14 @@ final class DiagnosisToolFixture implements AutoCloseable {
             EffectiveNodeConfig::id, EffectiveNodeConfig::versionLine));
         NodeVersions versions = new NodeVersions(Clock.systemUTC(), versionLines::get,
             id -> Duration.ofMinutes(10));
-        gateways = new AdapterGatewayFactory(servers, TestSecrets.environment(new CredentialResolver(Map.of(
+        gateways = new AdapterGatewayFactory(servers, TestSecrets.credentialStore(servers, Map.of(
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
-            "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber, "INUBIT")
-            .resolve(ids)), scrubber, Clock.systemUTC(),
-            new CliRunner(new SystemProcessLauncher(), Map.of(), false,
+            "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber), scrubber,
+            Clock.systemUTC(), new CliRunner(new SystemProcessLauncher(), Map.of(), false,
                 new CliResources("acme")), versions, PortSetRegistry.v81Default());
+        // feature 011: credentials are read on first use; read them now (from the store double,
+        // no request to INUBIT), so that the input checks without network run before the fan-out
+        ids.forEach(id -> gateways.prepareCredentials(id, Duration.ofSeconds(5)));
         Map<NodeId, Duration> timeouts = servers.stream().collect(Collectors.toMap(
             EffectiveNodeConfig::id, EffectiveNodeConfig::timeout));
         Map<NodeId, Duration> thresholds = servers.stream().collect(Collectors.toMap(

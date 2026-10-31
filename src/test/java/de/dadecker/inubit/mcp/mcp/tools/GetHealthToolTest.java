@@ -19,7 +19,6 @@ import de.dadecker.inubit.mcp.application.FanOut;
 import de.dadecker.inubit.mcp.application.HealthService;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.TargetResolver;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.ParameterNames;
 import de.dadecker.inubit.mcp.config.SecretPlan;
@@ -142,13 +141,12 @@ class GetHealthToolTest {
             EffectiveNodeConfig::id, Function.identity()));
         NodeVersions versions = new NodeVersions(Clock.systemUTC(),
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
-        Map<NodeId, NodeSecrets> secrets = new HashMap<>(TestSecrets.environment(
-            new CredentialResolver(Map.of(
+        // feature 011: the credential store nodes; awsSecrets adds the Parameter Store nodes
+        Map<NodeId, NodeSecrets> secrets = new HashMap<>(TestSecrets.credentialStore(
+            servers.stream().filter(server -> !server.secretPlan().aws()).toList(), Map.of(
                 "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
                 "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD,
-                "INUBIT_STAGING_USERNAME", "jdoe", "INUBIT_STAGING_PASSWORD", PASSWORD), scrubber,
-                "INUBIT")
-            .resolve(ids)));
+                "INUBIT_STAGING_USERNAME", "jdoe", "INUBIT_STAGING_PASSWORD", PASSWORD), scrubber));
         secrets.putAll(awsSecrets.apply(scrubber));
         gateways = new AdapterGatewayFactory(servers, secrets, scrubber, Clock.systemUTC(),
             new CliRunner(new SystemProcessLauncher(), Map.of(), false,

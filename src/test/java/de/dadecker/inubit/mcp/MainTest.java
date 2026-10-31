@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import de.dadecker.inubit.mcp.mcp.ToolHints;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -60,6 +61,8 @@ class MainTest {
     private final ByteArrayOutputStream stdout = new ByteArrayOutputStream();
     private final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
     private final Map<String, String> environment = new HashMap<>();
+    /** The credential store entries (feature 011: no credential comes from the environment). */
+    private final Map<String, String> entries = new HashMap<>();
     /** The Parameter Store of AWS nodes; no test reaches AWS. */
     private final FakeParameterStore store = new FakeParameterStore();
     /** How often the launcher asked for {@link #store}. */
@@ -82,7 +85,7 @@ class MainTest {
             Files::exists, () -> {
                 storesCreated.incrementAndGet();
                 return store;
-            }), handlers);
+            }, () -> TestSecrets.store(entries)), handlers);
     }
 
     private int run(String... args) {
@@ -118,8 +121,8 @@ class MainTest {
     }
 
     private void credentials() {
-        environment.put("INUBIT_ACME_DEV_USERNAME", USERNAME);
-        environment.put("INUBIT_ACME_DEV_PASSWORD", PASSWORD);
+        entries.put("INUBIT_ACME_DEV_USERNAME", USERNAME);
+        entries.put("INUBIT_ACME_DEV_PASSWORD", PASSWORD);
     }
 
     @Test
@@ -135,8 +138,8 @@ class MainTest {
     @Test
     void checkConfigPrintsServersFlagsAndVariableNamesButNoValues() throws IOException {
         credentials();
-        environment.put("INUBIT_ACME_QA_NODE2_PASSWORD", "other-Secret-99");
-        environment.put("INUBIT_ACME_QA_USERNAME", "other-user");
+        entries.put("INUBIT_ACME_QA_NODE2_PASSWORD", "other-Secret-99");
+        entries.put("INUBIT_ACME_QA_USERNAME", "other-user");
         Path cliHome = fakeStartCli("""
             echo "$@" > "$(dirname "$0")/arguments"
             echo "CLI 8.1.17"
@@ -166,11 +169,13 @@ class MainTest {
         assertThat(exit).as(err()).isZero();
         assertThat(out())
             .contains("dev/node1: write enabled (confirmation SERVER), cli: unavailable,"
-                + " inubit: AUTO, username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD")
+                + " inubit: AUTO, username ← INUBIT_ACME_DEV_NODE1_USERNAME (or"
+                + " INUBIT_ACME_DEV_USERNAME), password ← INUBIT_ACME_DEV_NODE1_PASSWORD (or"
+                + " INUBIT_ACME_DEV_PASSWORD)")
             .contains("qa/node2: read-only, cli: available, inubit: AUTO,"
                 + " client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime,"
-                + " username ← INUBIT_ACME_QA_USERNAME,"
-                + " password ← INUBIT_ACME_QA_NODE2_PASSWORD")
+                + " username ← INUBIT_ACME_QA_NODE2_USERNAME (or INUBIT_ACME_QA_USERNAME),"
+                + " password ← INUBIT_ACME_QA_NODE2_PASSWORD (or INUBIT_ACME_QA_PASSWORD)")
             .contains("Result: OK")
             .doesNotContain(PASSWORD, USERNAME, "other-Secret-99", "other-user",
                 "inubit.example.test");
@@ -206,15 +211,18 @@ class MainTest {
     }
 
     @Test
-    void checkConfigOutputOfAnExistingProfileIsUnchanged() throws IOException {
+    void checkConfigOutputOfAnExistingProfileNamesTheEntriesAndLeftoverVariables()
+        throws IOException {
+        // feature 011: entries are named, not read; a variable an earlier version read is a
+        // warning; a missing entry is no error until the node is used
         credentials();
         environment.put("INUBIT_ACME_QA_NODE2_USERNAME", "qa-user");
-        environment.put("INUBIT_ACME_DEV_NODE9_PASSWORD", "typo-Secret-1");
+        environment.put("INUBIT_ACME_DEV_NODE9_PASSWORD", "unrelated-Secret-1");
         Path file = profileWithCredentials("");
 
         int exit = run("--check-config", "--config", file.toString());
 
-        assertThat(exit).isEqualTo(1);
+        assertThat(exit).isZero();
         assertThat(out()).isEqualTo("""
             Configuration: %s
             Profile: acme
@@ -224,17 +232,17 @@ class MainTest {
             Workspace: %s (ok)
             Group dev:
               Node dev/node1: read-only, cli: unavailable, inubit: V8_1, \
-            username ← INUBIT_ACME_DEV_USERNAME, password ← INUBIT_ACME_DEV_PASSWORD
+            username ← INUBIT_ACME_DEV_NODE1_USERNAME (or INUBIT_ACME_DEV_USERNAME), \
+            password ← INUBIT_ACME_DEV_NODE1_PASSWORD (or INUBIT_ACME_DEV_PASSWORD)
             Group qa:
               Node qa/node2: read-only, cli: unavailable, inubit: AUTO, \
-            username ← INUBIT_ACME_QA_NODE2_USERNAME, password ← (missing)
+            username ← INUBIT_ACME_QA_NODE2_USERNAME (or INUBIT_ACME_QA_USERNAME), \
+            password ← INUBIT_ACME_QA_NODE2_PASSWORD (or INUBIT_ACME_QA_PASSWORD)
             Warnings:
-              - Environment variable INUBIT_ACME_DEV_NODE9_PASSWORD matches no configured group or \
-            node (typo?)
-            Errors:
-              - qa/node2: no password variable set (expected INUBIT_ACME_QA_NODE2_PASSWORD or \
-            INUBIT_ACME_QA_PASSWORD)
-            Result: FAILED (1 error(s))
+              - Environment variables are no longer read for INUBIT credentials (since 0.7.0): \
+            INUBIT_ACME_QA_NODE2_USERNAME; move them to the credential store or Parameter Store \
+            (docs/migration-environment-variables.md)
+            Result: OK
             """.formatted(file, home.resolve("audit"), home.resolve("workspace")));
         assertThat(storesCreated).as("T015: no Parameter Store without an AWS node").hasValue(0);
     }
@@ -243,8 +251,8 @@ class MainTest {
     void anExplicitEnvironmentSourceChecksAndStartsLikeAProfileWithoutSource()
         throws IOException {
         credentials();
-        environment.put("INUBIT_ACME_QA_USERNAME", "qa-user");
-        environment.put("INUBIT_ACME_QA_PASSWORD", "qa-Password-2");
+        entries.put("INUBIT_ACME_QA_USERNAME", "qa-user");
+        entries.put("INUBIT_ACME_QA_PASSWORD", "qa-Password-2");
         String explicit = """
             credentials:
               source:
@@ -273,7 +281,8 @@ class MainTest {
         }
 
         assertThat(outputs).as("--check-config").containsOnly(outputs.get(0));
-        assertThat(outputs.get(0)).contains("username ← INUBIT_ACME_QA_USERNAME");
+        assertThat(outputs.get(0)).contains("username ← INUBIT_ACME_QA_NODE2_USERNAME (or"
+            + " INUBIT_ACME_QA_USERNAME)");
         assertThat(startups).as("startup messages").containsOnly(startups.get(0));
     }
 
@@ -526,19 +535,6 @@ class MainTest {
     }
 
     @Test
-    void checkConfigExitsOneOnErrorsAndNamesTheExpectedVariables() throws IOException {
-        environment.put("INUBIT_ACME_DEV_USERNAME", USERNAME);
-        Path file = validConfig();
-
-        int exit = run("--config", file.toString(), "--check-config");
-
-        assertThat(exit).isEqualTo(1);
-        assertThat(out()).contains("Result: FAILED")
-            .contains("INUBIT_ACME_DEV_NODE1_PASSWORD", "INUBIT_ACME_DEV_PASSWORD")
-            .doesNotContain(USERNAME);
-    }
-
-    @Test
     void checkConfigDoesNotStartTheServerOrCreateTheAuditDirectory() throws IOException {
         credentials();
         Path file = validConfig();
@@ -569,7 +565,7 @@ class MainTest {
 
         assertThat(exit).isEqualTo(1);
         assertThat(err()).contains("stages", "groups", "stages[0].servers", "nodes", "profile",
-                "credentials.envPrefix: INUBIT", "~/.inubit-mcp/audit",
+                "credentials.prefix: INUBIT", "~/.inubit-mcp/audit",
                 "docs/migration-001-to-002.md")
             .doesNotContain("Unknown key", USERNAME, PASSWORD, "node1.dev.example.test");
         assertThat(out()).isEmpty();
@@ -638,7 +634,7 @@ class MainTest {
 
         assertThat(exit).isEqualTo(1);
         assertThat(err()).contains("confirmation CLIENT", "http://",
-            "store the value in the credential store", "INUBIT_ACME_PROD_NODE1_USERNAME")
+            "store the value in the credential store", "service inubit-mcp")
             .doesNotContain(PASSWORD);
         assertThat(out()).as("nothing on the protocol stdout").isEmpty();
     }
@@ -671,7 +667,7 @@ class MainTest {
 
         assertThat(exit).as(err()).isZero();
         assertThat(out()).contains("Configuration: " + acme, "Profile: acme",
-            "username ← INUBIT_ACME_DEV_USERNAME");
+            "username ← INUBIT_ACME_DEV_NODE1_USERNAME (or INUBIT_ACME_DEV_USERNAME)");
     }
 
     @Test

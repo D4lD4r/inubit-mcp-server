@@ -104,21 +104,19 @@ class MigrationGuideExampleTest {
 
         LoadedConfig loaded = loader().loadFile(resource("migration-after.yaml"));
         ProfileConfig config = loaded.config();
-        CredentialResolution credentials = new CredentialResolver(ENV_001, new SecretScrubber(),
-            config.terminology().effectiveOrDefault(), config.credentialPrefix())
-            .resolve(config.nodeIds());
-        ValidationReport report = new ConfigValidator(path -> true, ENV_001, false,
-            Path.of("/var/tmp"), file -> List.of(), NO_DISK).validate(loaded, credentials);
+        ValidationReport report = new ConfigValidator(path -> true, Map.of(), false,
+            Path.of("/var/tmp"), file -> List.of(), NO_DISK).validate(loaded);
 
         assertThat(report.errors()).isEmpty();
         assertThat(report.warnings()).isEmpty();
         assertThat(config.nodeIds()).containsExactlyElementsOf(expected.keySet());
+        // feature 011: the variable names of 001 are now the credential store entry names
         expected.forEach((node, variables) -> {
-            NodeCredentials resolved = credentials.credentials(node);
-            assertThat(resolved.username()).as(node + " username")
-                .hasValueSatisfying(value -> assertThat(value.sourceVariable()).isEqualTo(variables[0]));
-            assertThat(resolved.password()).as(node + " password")
-                .hasValueSatisfying(value -> assertThat(value.sourceVariable()).isEqualTo(variables[1]));
+            CredentialNames names = config.secretPlans().get(node).entries().orElseThrow();
+            assertThat(names.candidates(CredentialNames.USERNAME)).as(node + " username")
+                .contains(variables[0]);
+            assertThat(names.candidates(CredentialNames.PASSWORD)).as(node + " password")
+                .contains(variables[1]);
         });
         assertThat(config.credentialPrefix()).isEqualTo("INUBIT");
         assertThat(config.auditDirectory())
@@ -129,13 +127,10 @@ class MigrationGuideExampleTest {
     void theCheckSummaryShowsTheVariableSchemeOf001AndTheOldWording() {
         LoadedConfig loaded = loader().loadFile(resource("migration-after.yaml"));
         ProfileConfig config = loaded.config();
-        CredentialResolution credentials = new CredentialResolver(ENV_001, new SecretScrubber(),
-            config.terminology().effectiveOrDefault(), config.credentialPrefix())
-            .resolve(config.nodeIds());
-        ValidationReport report = new ConfigValidator(path -> true, ENV_001, false,
-            Path.of("/var/tmp"), file -> List.of(), NO_DISK).validate(loaded, credentials);
+        ValidationReport report = new ConfigValidator(path -> true, Map.of(), false,
+            Path.of("/var/tmp"), file -> List.of(), NO_DISK).validate(loaded);
 
-        String summary = new ConfigSummary(path -> true, false).render(loaded, credentials, report,
+        String summary = new ConfigSummary(path -> true, false).render(loaded, report,
             Map.of(), ParameterCheck.Result.NONE);
 
         assertThat(summary)
@@ -155,13 +150,10 @@ class MigrationGuideExampleTest {
         LoadedConfig loaded = new ConfigLoader(ENV_001, home, false)
             .parse(Files.readString(resource("migration-after.yaml")), source);
         ProfileConfig config = loaded.config();
-        CredentialResolution credentials = new CredentialResolver(ENV_001, new SecretScrubber(),
-            config.terminology().effectiveOrDefault(), config.credentialPrefix())
-            .resolve(config.nodeIds());
-        ValidationReport report = new ConfigValidator(path -> true, ENV_001, false,
-            Path.of("/var/tmp"), file -> List.of(), NO_DISK).validate(loaded, credentials);
+        ValidationReport report = new ConfigValidator(path -> true, Map.of(), false,
+            Path.of("/var/tmp"), file -> List.of(), NO_DISK).validate(loaded);
 
-        String summary = new ConfigSummary(path -> true, false).render(loaded, credentials, report,
+        String summary = new ConfigSummary(path -> true, false).render(loaded, report,
             Map.of(), ParameterCheck.Result.NONE);
 
         assertThat(summary).startsWith("Configuration: /Users/jdoe/.config/inubit-mcp/acme.yaml\n")

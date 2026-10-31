@@ -153,7 +153,7 @@ step and removes the environment path. US4 (`--check-config`), US5 (rotation, me
   `config`; `secret.fetch` with `source`, `store`, `entries`; 60 s deadline of the whole node read
   through `StoreGate`. Tests first: `NodeSecretsCredentialStoreTest` (Q1–Q4, Q8, Q14, Q24 timed with
   25 ms per entry, Q25 log capture).
-- [ ] T013 [US1] Wiring switch (R-7, R-9, R-14, R-17): `Wiring` gets a `CredentialStore` seam
+- [X] T013 [US1] Wiring switch (R-7, R-9, R-14, R-17): `Wiring` gets a `CredentialStore` seam
   (production `CredentialStores.forOs`), builds `NodeSecrets` for every node; `TestWiring.of(...)`
   takes a store instead of a `CredentialResolution`; `AdapterGatewayFactory.awaitCredentials()` and
   the e2e function use `NodeSecrets.timeout()`; `CredentialGuard` of every authenticated client gets
@@ -161,7 +161,7 @@ step and removes the environment path. US4 (`--check-config`), US5 (rotation, me
   account fallback "(credential store <account>)". Tests first: `AdapterGatewayFactoryTest` (Q22: a
   single-node call whose fake store answers after 30 s succeeds), `WiringE2eTest`, `WiringAuditTest`
   (Q26), all wiring tests moved to `FakeCredentialStore`.
-- [ ] T014 [US3] Remove the environment path (FR-002, R-10, R-15): delete `CredentialResolver`,
+- [X] T014 [US3] Remove the environment path (FR-002, R-10, R-15): delete `CredentialResolver`,
   `CredentialResolution` and the deferred `NodeCredentials` placeholder; `Launcher` no longer resolves
   credentials at startup (only `LeftoverVariables`); missing username/password is no longer a startup
   error; move every test fixture that supplied credentials through environment maps to

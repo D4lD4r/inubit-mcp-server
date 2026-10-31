@@ -137,24 +137,7 @@ class NodeSecretsTest {
             + error;
     }
 
-    // --- environment nodes and first use ---
-
-    @Test
-    void anEnvironmentNodeReturnsItsStartupCredentialsWithoutTouchingTheStore() {
-        NodeCredentials startup = new NodeCredentials(NODE1,
-            Optional.of(new SourcedValue<>("test-user-1", "INUBIT_DEV_NODE1_USERNAME")),
-            Optional.of(new SourcedValue<>(Secret.of("test-password-1"),
-                "INUBIT_DEV_NODE1_PASSWORD")),
-            Optional.empty(), Optional.empty());
-
-        NodeSecrets secrets = NodeSecrets.environment(startup);
-
-        assertThat(secrets.node()).isEqualTo(NODE1);
-        assertThat(secrets.current(Duration.ZERO)).isSameAs(startup);
-        assertThat(secrets.held()).containsSame(startup);
-        assertThat(store.calls()).isZero();
-        assertThat(appender.list).isEmpty();
-    }
+    // --- first use ---
 
     @Test
     void anAwsNodeFetchesNothingUntilFirstUseThenOnceForAllKinds() {
@@ -172,7 +155,6 @@ class NodeSecretsTest {
             List.of(USERNAME, PASSWORD, TRUST), NodeSecrets.STORE_TIMEOUT));
         assertThat(NodeSecrets.STORE_TIMEOUT).isEqualTo(Duration.ofSeconds(10));
         assertThat(first.node()).isEqualTo(NODE1);
-        assertThat(first.deferred()).isFalse();
         assertThat(first.username().orElseThrow())
             .isEqualTo(new SourcedValue<>("test-user-1", USERNAME));
         assertThat(first.password().orElseThrow().value().reveal()).isEqualTo("test-password-1");
@@ -694,15 +676,8 @@ class NodeSecretsTest {
     }
 
     @Test
-    void withoutEndToEndNamesOrOnAnEnvironmentNodeThereIsNoEndToEndCell() {
-        NodeSecrets environment = NodeSecrets.environment(new NodeCredentials(NODE1,
-            Optional.of(new SourcedValue<>("test-user-1", "INUBIT_DEV_NODE1_USERNAME")),
-            Optional.of(new SourcedValue<>(Secret.of("test-password-1"),
-                "INUBIT_DEV_NODE1_PASSWORD")),
-            Optional.empty(), Optional.empty()));
-
+    void withoutEndToEndNamesThereIsNoEndToEndCell() {
         assertThat(secrets().e2e(LONG)).isEmpty();
-        assertThat(environment.e2e(LONG)).isEmpty();
         assertThat(store.calls()).isZero();
     }
 
@@ -951,21 +926,6 @@ class NodeSecretsTest {
 
         assertThat(store.requests()).hasSize(2).allSatisfy(request ->
             assertThat(request.names()).containsExactly(USERNAME, PASSWORD));
-    }
-
-    @Test
-    void onlyAnAwsNodeCanBeReRead() {
-        NodeSecrets environment = NodeSecrets.environment(new NodeCredentials(NODE1,
-            Optional.of(new SourcedValue<>("test-user-1", "INUBIT_DEV_NODE1_USERNAME")),
-            Optional.of(new SourcedValue<>(Secret.of("test-password-1"),
-                "INUBIT_DEV_NODE1_PASSWORD")),
-            Optional.empty(), Optional.empty()));
-
-        assertThat(environment.rereadable()).isFalse();
-        assertThat(secrets().rereadable()).isTrue();
-        assertThatThrownBy(environment::reread)
-            .isInstanceOf(UnsupportedOperationException.class);
-        assertThat(store.calls()).isZero();
     }
 
     // --- feature 011 T011: the Parameter Store texts are those of feature 010, byte for byte ---

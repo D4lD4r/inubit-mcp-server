@@ -29,13 +29,8 @@ class ConfigSummaryTest {
     private static final Path HOME = Path.of("/home/test");
     private static final Path SOURCE = HOME.resolve(".config/inubit-mcp/config.yaml");
 
-    private final Map<String, String> env = new HashMap<>(Map.of(
-        "INUBIT_ACME_TEST_USERNAME", "jdoe",
-        "INUBIT_ACME_TEST_PASSWORD", "stage-secret",
-        "INUBIT_ACME_TEST_INUBIT02_PASSWORD", "server-secret",
-        "INUBIT_ACME_PROD_USERNAME", "jdoe",
-        "INUBIT_ACME_PROD_PASSWORD", "prod-secret",
-        "JAVA_HOME", "/opt/jdk"));
+    /** Feature 011: no credential comes from the environment; the summary names the entries. */
+    private final Map<String, String> env = new HashMap<>(Map.of("JAVA_HOME", "/opt/jdk"));
     private final Predicate<Path> exists = Set.of(Path.of("/opt/client/bin/startcli.sh"))::contains;
     /** The Parameter Store of the AWS nodes (feature 010); unscripted names are not found. */
     private final FakeParameterStore store = new FakeParameterStore();
@@ -57,16 +52,12 @@ class ConfigSummaryTest {
     private String render(String yaml, WorkspaceDirectory.Preparer workspaces,
         Map<NodeId, ClientVersion> clients) {
         LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, false).parse(yaml, SOURCE);
-        CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
-            loaded.config().terminology().effectiveOrDefault(),
-            loaded.config().credentialPrefix(), loaded.config().secretPlans())
-            .resolve(loaded.config().nodeIds());
         ValidationReport report =
             new ConfigValidator(exists, env, false, Path.of(System.getProperty("java.io.tmpdir")),
-                source -> List.of(), workspaces).validate(loaded, credentials);
+                source -> List.of(), workspaces).validate(loaded);
         ParameterCheck.Result parameters =
             ParameterCheck.run(loaded.config().secretPlans().values(), store, storeTimeout);
-        return new ConfigSummary(exists, false).render(loaded, credentials,
+        return new ConfigSummary(exists, false).render(loaded,
             parameters.addTo(report), clients, parameters);
     }
 
@@ -197,14 +188,16 @@ class ConfigSummaryTest {
 
         assertThat(summary).contains("Configuration: " + SOURCE);
         assertThat(summary).contains("test/inubit01: write enabled (confirmation SERVER), "
-            + "cli: available, inubit: AUTO, username ← INUBIT_ACME_TEST_USERNAME,"
-            + " password ← INUBIT_ACME_TEST_PASSWORD");
+            + "cli: available, inubit: AUTO, username ← INUBIT_ACME_TEST_INUBIT01_USERNAME (or"
+            + " INUBIT_ACME_TEST_USERNAME), password ← INUBIT_ACME_TEST_INUBIT01_PASSWORD (or"
+            + " INUBIT_ACME_TEST_PASSWORD)");
         assertThat(summary).contains("test/inubit02: read-only, cli: available, inubit: AUTO, "
-            + "username ← INUBIT_ACME_TEST_USERNAME,"
-            + " password ← INUBIT_ACME_TEST_INUBIT02_PASSWORD");
+            + "username ← INUBIT_ACME_TEST_INUBIT02_USERNAME (or INUBIT_ACME_TEST_USERNAME),"
+            + " password ← INUBIT_ACME_TEST_INUBIT02_PASSWORD (or INUBIT_ACME_TEST_PASSWORD)");
         assertThat(summary).contains("prod/inubit01: read-only (production, no productionOptIn), "
-            + "cli: unavailable, inubit: AUTO, username ← INUBIT_ACME_PROD_USERNAME,"
-            + " password ← INUBIT_ACME_PROD_PASSWORD");
+            + "cli: unavailable, inubit: AUTO, username ← INUBIT_ACME_PROD_INUBIT01_USERNAME (or"
+            + " INUBIT_ACME_PROD_USERNAME), password ← INUBIT_ACME_PROD_INUBIT01_PASSWORD (or"
+            + " INUBIT_ACME_PROD_PASSWORD)");
         assertThat(summary).contains("Result: OK");
     }
 
@@ -243,38 +236,21 @@ class ConfigSummaryTest {
     }
 
     @Test
-    void reportsMissingVariablesErrorsAndWarnings() {
-        env.remove("INUBIT_ACME_PROD_PASSWORD");
-
+    void reportsErrorsAndWarnings() {
         String summary = render(CONFIG + """
           - name: dev
             versionLine: V9_X
             nodes:
               - name: inubit01
-                baseUrl: https://dev.example.test
+                baseUrl: http://dev.example.test
         """);
 
-        assertThat(summary).contains("prod/inubit01: read-only (production, no productionOptIn), "
-            + "cli: unavailable, inubit: AUTO, username ← INUBIT_ACME_PROD_USERNAME,"
-            + " password ← (missing)");
-        assertThat(summary).contains("Errors:", "INUBIT_ACME_PROD_INUBIT01_PASSWORD");
+        assertThat(summary).contains("Errors:", "dev/inubit01: baseUrl uses http://");
         assertThat(summary).contains("Warnings:", "dev/inubit01: versionLine V9_X: write tools are"
             + " refused on this node (INUBIT 9.x is not supported for writes yet); read tools run"
             + " unverified");
         assertThat(summary).contains("Result: FAILED (");
     }
-
-    @Test
-    void showsTheTrustStorePasswordSourceWhenUsed() {
-        env.put("INUBIT_ACME_PROD_TRUSTSTORE_PASSWORD", "ts-secret");
-
-        String summary = render(CONFIG);
-
-        assertThat(summary).contains("trustStorePassword ← INUBIT_ACME_PROD_TRUSTSTORE_PASSWORD");
-        assertThat(summary).doesNotContain("ts-secret");
-    }
-
-    // --- feature 005 T013: the stage chain (research D-2) -------------------------------------
 
     private static final String CHAIN = """
         profile:
@@ -475,10 +451,6 @@ class ConfigSummaryTest {
 
     @Test
     void withSourceEveryNodeLineShowsItsSource() {
-        env.put("INUBIT_TEAM_TEST_USERNAME", "jdoe");
-        env.put("INUBIT_TEAM_TEST_PASSWORD", "team-secret");
-        env.put("INUBIT_TEAM_TEST_TRUSTSTORE_PASSWORD", "ts-secret");
-
         store.put(EU_CENTRAL, "/inubit/prod/username", "prod-user")
             .put(EU_CENTRAL, "/inubit/prod/password", "prod-secret");
 
@@ -487,9 +459,9 @@ class ConfigSummaryTest {
         assertThat(summary).as("T015 carry-over: no node uses the profile prefix")
             .doesNotContain("Credential variables:");
         assertThat(summary).contains("test/inubit01: read-only, cli: unavailable, inubit: AUTO,"
-            + " secrets: credentialStore, username ← INUBIT_TEAM_TEST_USERNAME,"
-            + " password ← INUBIT_TEAM_TEST_PASSWORD,"
-            + " trustStorePassword ← INUBIT_TEAM_TEST_TRUSTSTORE_PASSWORD\n");
+            + " secrets: credentialStore, username ← INUBIT_TEAM_TEST_INUBIT01_USERNAME (or"
+            + " INUBIT_TEAM_TEST_USERNAME), password ← INUBIT_TEAM_TEST_INUBIT01_PASSWORD (or"
+            + " INUBIT_TEAM_TEST_PASSWORD)\n");
         assertThat(summary).contains("prod/inubit01: read-only, cli: unavailable, inubit: AUTO,"
             + " secrets: awsParameterStore (eu-central-1), username ← /inubit/prod/username ok,"
             + " password ← /inubit/prod/password ok\n");
@@ -528,9 +500,7 @@ class ConfigSummaryTest {
 
     @Test
     void theCredentialVariablesLineNeedsANodeUnderTheProfilePrefix() {
-        // T008 review r1 carry-over: shown as soon as one environment node uses the prefix
-        env.put("INUBIT_TEAM_TEST_USERNAME", "jdoe");
-        env.put("INUBIT_TEAM_TEST_PASSWORD", "team-secret");
+        // T008 review r1 carry-over: shown as soon as one credential store node uses the prefix
         store.put(EU_CENTRAL, "/inubit/prod/username", "prod-user")
             .put(EU_CENTRAL, "/inubit/prod/password", "prod-secret");
 
@@ -543,7 +513,8 @@ class ConfigSummaryTest {
 
         assertThat(summary).contains("Credential variables: INUBIT_ACME_<GROUP>[_<NODE>]_USERNAME"
             + " / _PASSWORD\n", "qa/inubit01: read-only, cli: unavailable, inubit: AUTO,"
-            + " secrets: credentialStore, username ← (missing)");
+            + " secrets: credentialStore, username ← INUBIT_ACME_QA_INUBIT01_USERNAME (or"
+            + " INUBIT_ACME_QA_USERNAME)");
     }
 
     // --- feature 010 T015: AWS parameters read and checked (FR-009, research R-12) -------------

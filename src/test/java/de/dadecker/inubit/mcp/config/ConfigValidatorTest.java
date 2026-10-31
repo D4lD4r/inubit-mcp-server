@@ -30,8 +30,6 @@ class ConfigValidatorTest {
     private static final String CLI_HOME = "/opt/client";
 
     private final Map<String, String> env = new HashMap<>();
-    /** Stage-wide credential variables that a test wants to be unset. */
-    private final Set<String> unset = new HashSet<>();
     private final Set<Path> existing = new HashSet<>();
     /** Workspaces the validator asked to prepare; no directory is created by these tests. */
     private final List<Path> prepared = new ArrayList<>();
@@ -51,24 +49,12 @@ class ConfigValidatorTest {
     private ValidationReport validate(String yaml) {
         LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, windows)
             .parse(yaml, HOME.resolve("config.yaml"));
-        // stage-wide credentials for every configured stage, unless a test unsets them
-        for (GroupConfig stage : loaded.config().groups()) {
-            String prefix = loaded.config().credentialPrefix() + "_"
-                + stage.name().toUpperCase().replace('-', '_');
-            for (String kind : new String[] {"_USERNAME", "_PASSWORD"}) {
-                if (!unset.contains(prefix + kind)) {
-                    env.putIfAbsent(prefix + kind, "secret-value" + kind);
-                }
-            }
-        }
-        CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
-            loaded.config().credentialPrefix())
-            .resolve(loaded.config().nodeIds());
+        // feature 011: no credential comes from the environment; nothing is read at startup
         return new ConfigValidator(existing::contains, env, windows, tempDirectory,
             source -> List.of(), workspace -> {
                 prepared.add(workspace);
                 return workspaceResult;
-            }).validate(loaded, credentials);
+            }).validate(loaded);
     }
 
     private static String server(String settings) {
@@ -185,22 +171,31 @@ class ConfigValidatorTest {
         }
 
         @Test
-        void missingUsernameOrPasswordVariable() {
-            unset.add("INUBIT_ACME_DEV_PASSWORD");
-
+        void missingCredentialsAreNoStartupError() {
+            // feature 011 (FR-006): entries are read on first use; a missing one fails that call
             ValidationReport report = validate(server(""));
 
-            assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
-                .contains("dev/node1", "INUBIT_ACME_DEV_NODE1_PASSWORD",
-                    "INUBIT_ACME_DEV_PASSWORD")
-                .doesNotContain("secret-value"));
+            assertThat(report.errors()).isEmpty();
         }
 
         @Test
-        void collidingDerivedVariableNames() {
-            env.put("INUBIT_ACME_A_B_C_USERNAME", "u");
-            env.put("INUBIT_ACME_A_B_C_PASSWORD", "colliding-pw");
+        void leftoverCredentialVariablesAreOneWarningWithNamesOnly() {
+            // feature 011 (FR-003)
+            env.put("INUBIT_ACME_DEV_PASSWORD", "leftover-Pw-1");
+            env.put("INUBIT_ACME_DEV_NODE1_TRUSTSTORE_PASSWORD", "leftover-Ts-2");
 
+            ValidationReport report = validate(server(""));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).singleElement().satisfies(w -> assertThat(w)
+                .contains("no longer read", "INUBIT_ACME_DEV_PASSWORD",
+                    "INUBIT_ACME_DEV_NODE1_TRUSTSTORE_PASSWORD")
+                .doesNotContain("leftover-Pw-1", "leftover-Ts-2"));
+        }
+
+        @Test
+        void collidingDerivedEntryNames() {
+            // feature 011 (research R-10): reported by the validator, not on first use
             ValidationReport report = validate("""
                 profile:
                   name: acme
@@ -216,7 +211,8 @@ class ConfigValidatorTest {
                 """);
 
             assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
-                .contains("a-b/c", "a/b-c", "INUBIT_ACME_A_B_C_USERNAME"));
+                .contains("Credential store entry names collide", "a-b/c", "a/b-c",
+                    "INUBIT_ACME_A_B_C_USERNAME"));
         }
 
         @Test
@@ -430,26 +426,7 @@ class ConfigValidatorTest {
         }
 
         @Test
-        void trustStorePasswordForAServerWithCli() {
-            env.put("INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD", "ts-secret");
-
-            ValidationReport report = validate(server("""
-                tls:
-                  trustStore: /opt/truststore.p12
-                cli:
-                  home: /opt/client
-                  javaHome: /opt/jdk17
-                """));
-
-            assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
-                .contains("dev/node1", "INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD", "CLI")
-                .doesNotContain("ts-secret"));
-        }
-
-        @Test
         void trustStorePasswordWithoutCliIsAllowed() {
-            env.put("INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD", "ts-secret");
-
             ValidationReport report = validate(server("tls:\n  trustStore: /opt/truststore.p12\n"));
 
             assertThat(report.errors()).isEmpty();
@@ -560,8 +537,6 @@ class ConfigValidatorTest {
 
         @Test
         void allErrorsAreCollectedAndReportedTogether() {
-            unset.add("INUBIT_ACME_DEV_USERNAME");
-
             ValidationReport report = validate("""
                 profile:
                   name: acme
@@ -582,7 +557,7 @@ class ConfigValidatorTest {
                           confirmation: CLIENT
                 """);
 
-            assertThat(report.errors()).hasSize(5);
+            assertThat(report.errors()).hasSize(4);
             assertThat(report.hasErrors()).isTrue();
         }
     }
@@ -802,54 +777,7 @@ class ConfigValidatorTest {
         }
 
         @Test
-        void trustStorePasswordWithoutTrustStore() {
-            env.put("INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD", "ts-secret");
-
-            ValidationReport report = validate(server(""));
-
-            assertThat(report.warnings()).singleElement().satisfies(w -> assertThat(w)
-                .contains("dev/node1", "INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD", "tls.trustStore")
-                .doesNotContain("ts-secret"));
-        }
-
-        @Test
-        void veryShortPassword() {
-            env.put("INUBIT_ACME_DEV_PASSWORD", "abc");
-
-            ValidationReport report = validate(server(""));
-
-            // Phase 3 review m4: an error (was a warning)
-            assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
-                .contains("dev/node1", "INUBIT_ACME_DEV_PASSWORD", "4 characters")
-                .doesNotContain("abc"));
-            assertThat(report.warnings()).isEmpty();
-        }
-
-        @Test
-        void veryShortE2ePassword() {
-            // like _PASSWORD and the e2ePassword parameter (feature 010, research R-17)
-            env.put("INUBIT_ACME_DEV_E2E_USERNAME", "e2e-user");
-            env.put("INUBIT_ACME_DEV_E2E_PASSWORD", "xyz");
-
-            ValidationReport report = validate(server(""));
-
-            assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
-                .contains("dev/node1", "INUBIT_ACME_DEV_E2E_PASSWORD", "4 characters")
-                .doesNotContain("xyz"));
-        }
-
-        @Test
-        void aShortGroupE2ePasswordBehindALongNodeOneIsNotUsed() {
-            env.put("INUBIT_ACME_DEV_E2E_PASSWORD", "xyz");
-            env.put("INUBIT_ACME_DEV_NODE1_E2E_PASSWORD", "e2e-node-pw");
-
-            assertThat(validate(server("")).errors()).isEmpty();
-        }
-
-        @Test
-        void unmatchedWarningConsidersServersWithoutBaseUrl() {
-            env.put("INUBIT_ACME_DEV_NOURL_PASSWORD", "server-pw");
-
+        void aNodeWithoutBaseUrlIsAnErrorWithoutWarnings() {
             ValidationReport report = validate(server("") + """
                   - name: nourl
                 """.indent(4));
@@ -859,15 +787,6 @@ class ConfigValidatorTest {
                 .contains("dev/nourl", "baseUrl is missing"));
         }
 
-        @Test
-        void passwordVariableMatchingNoServer() {
-            env.put("INUBIT_ACME_DEV_INUBTI_PASSWORD", "typo-value");
-
-            ValidationReport report = validate(server(""));
-
-            assertThat(report.warnings()).singleElement().satisfies(w -> assertThat(w)
-                .contains("INUBIT_ACME_DEV_INUBTI_PASSWORD").doesNotContain("typo-value"));
-        }
     }
 
     /**
@@ -908,16 +827,9 @@ class ConfigValidatorTest {
             ConfigLoader loader = new ConfigLoader(Map.of(), home, false);
             LoadedConfig loaded = loader.loadFile(file);
             ProfileConfig config = loaded.config();
-            // the group-wide variables of every environment node (feature 010: AWS nodes read none)
-            config.secretPlans().values().forEach(plan -> plan.entries().ifPresent(variables -> {
-                env.put(variables.groupName("USERNAME"), "user");
-                env.put(variables.groupName("PASSWORD"), "secret-value");
-            }));
-            CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
-                config.terminology().effectiveOrDefault(), config.credentialPrefix(),
-                config.secretPlans()).resolve(config.nodeIds());
+            
             return new ConfigValidator(existing::contains, env, false, tempDirectory,
-                loader::otherProfiles).validate(loaded, credentials);
+                loader::otherProfiles).validate(loaded);
         }
 
         @Test
@@ -1365,12 +1277,9 @@ class ConfigValidatorTest {
         void theValidatorCreatesTheWorkspaceAtStartup() {
             LoadedConfig loaded = new ConfigLoader(Map.of(), home, false).parse(server(""),
                 home.resolve("config.yaml"));
-            CredentialResolution credentials = new CredentialResolver(Map.of(
-                "INUBIT_ACME_DEV_USERNAME", "u", "INUBIT_ACME_DEV_PASSWORD", "secret-value"),
-                new SecretScrubber(), "INUBIT_ACME").resolve(loaded.config().nodeIds());
 
             ValidationReport report = new ConfigValidator(existing::contains, env, false,
-                tempDirectory, source -> List.of()).validate(loaded, credentials);
+                tempDirectory, source -> List.of()).validate(loaded);
 
             assertThat(report.errors()).isEmpty();
             assertThat(home.resolve(".inubit-mcp/acme/workspace")).isDirectory();
@@ -1416,8 +1325,10 @@ class ConfigValidatorTest {
         }
 
         @Test
-        void e2eBasicAuthOverPlainHttpIsAnError() {
-            // review m-c: the e2e credentials must not travel in clear text
+        void e2eVariablesOverPlainHttpAreNoLongerAStartupError() {
+            // review m-c: the e2e credentials must not travel in clear text; feature 011 (research
+            // R-11): credential store entries are refused when read
+            // (NodeSecretsCredentialStoreTest)
             String http = profile("""
                 development:
                   enabled: true
@@ -1432,9 +1343,10 @@ class ConfigValidatorTest {
             env.put("INUBIT_ACME_DEV_E2E_PASSWORD", "e2e-validator-pw");
             ValidationReport report = validate(http);
 
-            assertThat(report.errors()).singleElement().asString()
-                .contains("dev/node1", "http://", "INUBIT_ACME_DEV_E2E_USERNAME")
-                .doesNotContain("e2e-validator-pw");
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).anySatisfy(warning -> assertThat(warning)
+                .contains("no longer read", "INUBIT_ACME_DEV_E2E_USERNAME")
+                .doesNotContain("e2e-validator-pw"));
         }
 
         @Test
@@ -2184,15 +2096,8 @@ class ConfigValidatorTest {
             LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, windows)
                 .parse(yaml, HOME.resolve("config.yaml"));
             ProfileConfig config = loaded.config();
-            config.secretPlans().values().forEach(plan -> plan.entries().ifPresent(variables -> {
-                env.putIfAbsent(variables.groupName("USERNAME"), "user");
-                env.putIfAbsent(variables.groupName("PASSWORD"), "secret-value");
-            }));
-            CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
-                config.terminology().effectiveOrDefault(), config.credentialPrefix(),
-                config.secretPlans()).resolve(config.nodeIds());
             return new ConfigValidator(existing::contains, env, windows, tempDirectory,
-                source -> List.of(), workspace -> workspaceResult).validate(loaded, credentials);
+                source -> List.of(), workspace -> workspaceResult).validate(loaded);
         }
 
         private static ProfileConfig parse(String yaml) {

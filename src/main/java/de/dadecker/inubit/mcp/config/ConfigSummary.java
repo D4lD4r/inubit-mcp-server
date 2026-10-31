@@ -54,7 +54,7 @@ public final class ConfigSummary {
      * @param parameters the Parameter Store check of the AWS nodes (feature 010); its findings
      *                are among those of {@code report}
      */
-    public String render(LoadedConfig loaded, CredentialResolution credentials,
+    public String render(LoadedConfig loaded,
         ValidationReport report, Map<NodeId, ClientVersion> clients,
         ParameterCheck.Result parameters) {
         ProfileConfig config = loaded.config();
@@ -117,11 +117,11 @@ public final class ConfigSummary {
                 out.append(", secrets: ").append(server.secretPlan().aws() ? "awsParameterStore"
                     : "credentialStore");
             }
-            // feature 010: an AWS node reads no credential variables
+            // feature 010: an AWS node reads no credential store entries
             if (server.secretPlan().aws()) {
                 appendParameters(out, server.secretPlan(), parameters);
             } else {
-                appendVariables(out, credentials, server);
+                appendEntries(out, server);
             }
             out.append('\n');
         }
@@ -133,20 +133,14 @@ public final class ConfigSummary {
         return out.toString();
     }
 
-    /** {@code , username ← <variable>, password ← <variable>[, trustStorePassword ← …]}. */
-    private static void appendVariables(StringBuilder out, CredentialResolution credentials,
-        EffectiveNodeConfig server) {
-        Optional<NodeCredentials> serverCredentials = credentials.all().stream()
-            .filter(c -> c.node().equals(server.id()))
-            .findFirst();
-        out.append(", username ← ").append(serverCredentials
-            .flatMap(NodeCredentials::username).map(SourcedValue::sourceVariable)
-            .orElse(MISSING));
-        out.append(", password ← ").append(serverCredentials
-            .flatMap(NodeCredentials::password).map(SourcedValue::sourceVariable)
-            .orElse(MISSING));
-        serverCredentials.flatMap(NodeCredentials::trustStorePassword)
-            .ifPresent(ts -> out.append(", trustStorePassword ← ").append(ts.sourceVariable()));
+    /**
+     * Feature 011: {@code , username ← <node entry> (or <group entry>), password ← …}; the
+     * entries are read on first use, not here.
+     */
+    private static void appendEntries(StringBuilder out, EffectiveNodeConfig server) {
+        CredentialNames names = server.credentialNames();
+        out.append(", username ← ").append(names.either(CredentialNames.USERNAME));
+        out.append(", password ← ").append(names.either(CredentialNames.PASSWORD));
     }
 
     /**

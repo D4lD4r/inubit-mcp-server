@@ -11,7 +11,6 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
@@ -20,6 +19,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -113,9 +113,7 @@ class WiringE2eTest {
             TestCertificates.get().protectedTrustStore());
         ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml")).config();
-        wiring = new Wiring(config, new CredentialResolver(environment, scrubber,
-                config.terminology().effectiveOrDefault(), config.credentialPrefix(),
-                config.secretPlans()).resolve(config.nodeIds()), scrubber,
+        wiring = new Wiring(config, TestSecrets.store(environment), scrubber,
             new ClockProvider(clock), path -> false, false, new SystemProcessLauncher(),
             environment, () -> store);
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);

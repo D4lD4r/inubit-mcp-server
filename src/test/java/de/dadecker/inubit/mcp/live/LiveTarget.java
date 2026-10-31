@@ -4,11 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 
 import de.dadecker.inubit.mcp.TestWiring;
+import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.os.CredentialStores;
 import de.dadecker.inubit.mcp.config.ConfigException;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
-import de.dadecker.inubit.mcp.config.CredentialResolution;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.DevelopmentConfig;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.GroupConfig;
@@ -22,25 +23,23 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import org.junit.jupiter.api.Assumptions;
 
 /**
  * The live node of the opt-in live tests (Constitution III; 002 research D-13):
  * {@code INUBIT_LIVE_NODE} (e.g. {@code test/node1}) from the real configuration, located like
  * the server locates it without arguments (002 research D-9: {@code INUBIT_MCP_CONFIG}, then
- * {@code INUBIT_MCP_PROFILE}, then {@code ~/.config/inubit-mcp/config.yaml}), with the
- * credentials from the profile's environment variables. Skips without the variable; the variable
+ * {@code INUBIT_MCP_PROFILE}, then {@code ~/.config/inubit-mcp/config.yaml}); feature 011
+ * (research R-14): the wiring reads the credentials exactly as the server does, from the
+ * credential store of this system or AWS Parameter Store. Skips without the variable; the variable
  * of feature 001, {@code INUBIT_LIVE_SERVER}, is refused with a hint; a node whose group is
  * {@code production: true} is refused before anything is contacted.
  */
-record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credentials,
-    SecretScrubber scrubber, boolean windows) {
+record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boolean windows) {
 
     static final String NODE_VARIABLE = "INUBIT_LIVE_NODE";
     /** The variable of feature 001; refused (002 research D-13). */
@@ -54,8 +53,7 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
     }
 
     /**
-     * @param environment the process environment (live target, configuration location,
-     *     credentials)
+     * @param environment the process environment (live target, configuration location)
      * @param home        the user's home directory
      * @param windows     whether the tests run on Windows
      */
@@ -92,13 +90,11 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
             fail("Refusing to run live tests against " + nodeId
                 + ": its group is production: true (Constitution III)");
         }
-        return new LiveTarget(nodeId, loaded, configured.credentials(), configured.scrubber(),
-            windows);
+        return new LiveTarget(nodeId, loaded, configured.scrubber(), windows);
     }
 
-    /** The validated real configuration with its credentials. */
-    private record Configured(LoadedConfig loaded, CredentialResolution credentials,
-        SecretScrubber scrubber) {
+    /** The validated real configuration. */
+    private record Configured(LoadedConfig loaded, SecretScrubber scrubber) {
     }
 
     private static Configured configured(Map<String, String> environment, Path home,
@@ -112,21 +108,14 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
             throw new AssertionError(e.getMessage(), e);
         }
         List<LoadedConfig> otherProfiles = loader.otherProfiles(loaded.source());
-        Set<String> otherVariables = new HashSet<>();
-        otherProfiles.forEach(other -> otherVariables.addAll(
-            other.config().credentialEntryNames()));
         SecretScrubber scrubber = new SecretScrubber();
-        CredentialResolution credentials = new CredentialResolver(environment, scrubber,
-            loaded.config().terminology().effectiveOrDefault(),
-            loaded.config().credentialPrefix())
-            .resolve(loaded.config().nodeIds(), otherVariables);
         // the workspace is not prepared: live tests must not create the person's real
         // workspace (feature 003, review M11); a test that needs one uses a temporary directory
         ValidationReport report = new ConfigValidator(Files::exists, environment, windows,
             Path.of(System.getProperty("java.io.tmpdir")), source -> otherProfiles,
-            workspace -> new WorkspaceDirectory.Usable(false)).validate(loaded, credentials);
+            workspace -> new WorkspaceDirectory.Usable(false)).validate(loaded);
         assertThat(report.errors()).as("configuration errors in " + loaded.source()).isEmpty();
-        return new Configured(loaded, credentials, scrubber);
+        return new Configured(loaded, scrubber);
     }
 
     /** The target group of the deployment live test (feature 005, T030). */
@@ -174,8 +163,7 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
         if (link.mode() == de.dadecker.inubit.mcp.domain.model.DeployMode.PACKAGE_ONLY) {
             fail("Refusing to run the deployment live test: " + group + " is package-only");
         }
-        return new LiveTarget(nodes.get(0).id(), loaded, configured.credentials(),
-            configured.scrubber(), windows);
+        return new LiveTarget(nodes.get(0).id(), loaded, configured.scrubber(), windows);
     }
 
     /**
@@ -208,7 +196,7 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
 
     /** The production wiring for the real configuration. */
     TestWiring wiring() {
-        return TestWiring.of(loaded.config(), credentials, scrubber, Files::exists, windows);
+        return TestWiring.of(loaded.config(), store(), scrubber, Files::exists, windows);
     }
 
     /**
@@ -268,7 +256,13 @@ record LiveTarget(NodeId node, LoadedConfig loaded, CredentialResolution credent
     private TestWiring wiring(ProfileConfig config, Path workspace) {
         return TestWiring.of(new ProfileConfig(config.profile(), config.terminology(),
             config.credentials(), config.groups(), config.defaults(), config.auditDirectory(),
-            config.logLevel(), config.resultLimits(), workspace), credentials, scrubber,
+            config.logLevel(), config.resultLimits(), workspace), store(), scrubber,
             Files::exists, windows);
+    }
+
+    /** The credential store of this system, as the server picks it (Launcher). */
+    private static CredentialStore store() {
+        return CredentialStores.forOs(System.getProperty("os.name"), new SystemProcessLauncher(),
+            System.getenv(), Path.of(System.getProperty("user.home")));
     }
 }

@@ -22,7 +22,6 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.ParameterType;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
@@ -30,6 +29,7 @@ import de.dadecker.inubit.mcp.infra.ScrubbingJsonEncoder;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -142,10 +142,8 @@ class NoSecretLeakTest {
         SecretScrubber scrubber = SecretScrubber.global();
         Map<String, String> parent = new LinkedHashMap<>(environment);
         parent.put("PATH", "/usr/bin");
-        wiring = TestWiring.of(config, new CredentialResolver(environment, scrubber,
-            config.credentialPrefix())
-                .resolve(config.nodeIds()), scrubber, Files::exists, false, startCli(),
-            parent);
+        wiring = TestWiring.of(config, TestSecrets.store(environment), scrubber, Files::exists,
+            false, startCli(), parent);
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
     }
@@ -482,9 +480,7 @@ class NoSecretLeakTest {
         ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml")).config();
         SecretScrubber scrubber = SecretScrubber.global();
-        wiring = TestWiring.of(config, new CredentialResolver(Map.of(), scrubber,
-                config.terminology().effectiveOrDefault(), config.credentialPrefix(),
-                config.secretPlans()).resolve(config.nodeIds()), scrubber, Files::exists, false,
+        wiring = TestWiring.of(config, TestSecrets.store(Map.of()), scrubber, Files::exists, false,
             startCli(), Map.of("PATH", "/usr/bin"), store);
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
