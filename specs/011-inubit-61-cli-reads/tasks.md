@@ -129,7 +129,7 @@ contact, with node, version, capability and next step.
   contradiction). An admission on a 6.1 node carries version notes (process diagnosis: "logs of
   INUBIT 6.1 cannot be read with query_logs; read them in the Workbench"), used by T033. Test
   first: `VersionGateTest` per capability and for the admission notes.
-- [ ] T009 [P] [US3] Per-tool refusal matrix (SC-003): `test/application/V61RefusalTest` calls
+- [X] T009 [P] [US3] Per-tool refusal matrix (SC-003): `test/application/V61RefusalTest` calls
   every tool (`get_health` and `find_processes` with the production matrix, `query_logs`,
   `list_inventory`, `get_inventory_item`, `export_artifacts`, `restart_process`, `kill_process`,
   `import_artifacts`, `restore_backup`, `set_active`, `tag_artifacts`, `deploy_release`,
