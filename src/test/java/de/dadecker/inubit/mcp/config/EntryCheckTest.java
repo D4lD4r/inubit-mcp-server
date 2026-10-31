@@ -53,6 +53,15 @@ class EntryCheckTest {
         return EntryCheck.run(nodes, store, Duration.ofSeconds(5));
     }
 
+    private static final String E2E_ALLOWED = """
+        development:
+          enabled: true
+        e2eTests: FREE
+        e2e:
+          soap:
+            baseUrl: https://inubit-dev.example.test:8443
+        """;
+
     @Test
     void foundEntriesAreOkAndASharedGroupEntryIsReadOnce() {
         store.put("INUBIT_ACME_DEV_USERNAME", "jdoe").put("INUBIT_ACME_DEV_PASSWORD", "group-Pw-1");
@@ -121,7 +130,8 @@ class EntryCheckTest {
 
         assertThat(result.errors()).isEmpty();
         assertThat(result.warnings()).singleElement().asString().contains("macOS Keychain",
-            "dev/node1, dev/node2", "resolvability not checked", "secret-tool is not installed");
+            "dev/node1, dev/node2", "resolvability not checked", "could not be asked")
+            .doesNotContain("secret-tool is not installed");
         assertThat(result.line(DEV2, "password").orElseThrow().status())
             .isEqualTo(EntryCheck.Status.NOT_CHECKED);
         assertThat(store.reads()).hasSize(1);
@@ -182,7 +192,7 @@ class EntryCheckTest {
         store.put("INUBIT_ACME_DEV_USERNAME", "jdoe").put("INUBIT_ACME_DEV_PASSWORD", "group-Pw-1")
             .put("INUBIT_ACME_DEV_E2E_USERNAME", "e2e-user");
 
-        assertThat(run(nodes("", "")).errors()).anySatisfy(error -> assertThat(error)
+        assertThat(run(nodes(E2E_ALLOWED, "")).errors()).anySatisfy(error -> assertThat(error)
             .contains("dev/node1", "INUBIT_ACME_DEV_NODE1_E2E_PASSWORD", "both"));
     }
 
@@ -196,5 +206,176 @@ class EntryCheckTest {
         assertThat(store.reads()).isEmpty();
         assertThat(result.errors()).isEmpty();
         assertThat(result.store()).isEqualTo(StoreKind.KEYCHAIN);
+    }
+
+    // --- review T016-T017 r1 ---
+
+    @Test
+    void theBoundIsSixtySecondsPerNode() {
+        assertThat(EntryCheck.TIMEOUT).isEqualTo(Duration.ofSeconds(60));
+    }
+
+    @Test
+    void eachNodeHasItsOwnDeadlineAndEachReadGetsTheTimeLeft() {
+        store.put("INUBIT_ACME_DEV_NODE1_USERNAME", "jdoe")
+            .delay("INUBIT_ACME_DEV_NODE1_USERNAME", Duration.ofMillis(150))
+            .put("INUBIT_ACME_DEV_PASSWORD", "group-Pw-1")
+            .put("INUBIT_ACME_DEV_NODE2_USERNAME", "jdoe2");
+
+        EntryCheck.Result result = EntryCheck.run(nodes("", ""), store, Duration.ofMillis(400));
+
+        assertThat(result.warnings()).isEmpty();
+        List<FakeCredentialStore.Read> reads = store.reads();
+        Duration afterSlowRead = reads.stream()
+            .filter(read -> read.account().equals("INUBIT_ACME_DEV_NODE1_PASSWORD"))
+            .findFirst().orElseThrow().timeout();
+        Duration node2First = reads.stream()
+            .filter(read -> read.account().equals("INUBIT_ACME_DEV_NODE2_USERNAME"))
+            .findFirst().orElseThrow().timeout();
+        // node1's later read got only what was left; node2 starts with a fresh 400 ms
+        assertThat(afterSlowRead).isLessThanOrEqualTo(Duration.ofMillis(400 - 150));
+        assertThat(node2First).isGreaterThan(afterSlowRead)
+            .isLessThanOrEqualTo(Duration.ofMillis(400));
+    }
+
+    @Test
+    void aNodeWhoseBudgetRunsOutIsNotCheckedAndStopsTheStore() {
+        store.put("INUBIT_ACME_DEV_NODE1_USERNAME", "jdoe")
+            .delay("INUBIT_ACME_DEV_NODE1_USERNAME", Duration.ofMillis(250))
+            .put("INUBIT_ACME_DEV_PASSWORD", "group-Pw-1");
+
+        EntryCheck.Result result = EntryCheck.run(nodes("", ""), store, Duration.ofMillis(200));
+
+        assertThat(result.line(DEV1, "password").orElseThrow().status())
+            .isEqualTo(EntryCheck.Status.NOT_CHECKED);
+        assertThat(result.line(DEV2, "username").orElseThrow().status())
+            .isEqualTo(EntryCheck.Status.NOT_CHECKED);
+        assertThat(result.warnings()).singleElement().asString().contains("dev/node1",
+            "dev/node2", "access dialog");
+        assertThat(store.reads()).extracting(FakeCredentialStore.Read::account)
+            .noneMatch(account -> account.contains("NODE2"));
+    }
+
+    @Test
+    void theFirstTimeoutStopsTheStore() {
+        store.fail("INUBIT_ACME_DEV_NODE1_USERNAME", FailureKind.TIMEOUT, "no answer");
+
+        EntryCheck.Result result = run(nodes("", ""));
+
+        assertThat(store.reads()).hasSize(1);
+        assertThat(result.line(DEV1, "password").orElseThrow().status())
+            .isEqualTo(EntryCheck.Status.NOT_CHECKED);
+        assertThat(result.line(DEV2, "username").orElseThrow().status())
+            .isEqualTo(EntryCheck.Status.NOT_CHECKED);
+        assertThat(result.line(DEV2, "password").orElseThrow().status())
+            .isEqualTo(EntryCheck.Status.NOT_CHECKED);
+    }
+
+    @Test
+    void theWarningNamesOnlyNodesThatWereNotFullyRead() {
+        store.put("INUBIT_ACME_DEV_USERNAME", "jdoe").put("INUBIT_ACME_DEV_PASSWORD", "group-Pw-1")
+            .fail("INUBIT_ACME_DEV_NODE2_USERNAME", FailureKind.TIMEOUT, "no answer");
+
+        EntryCheck.Result result = run(nodes("", ""));
+
+        assertThat(result.line(DEV1, "username").orElseThrow().status())
+            .isEqualTo(EntryCheck.Status.OK);
+        assertThat(result.warnings()).singleElement().asString().contains("dev/node2")
+            .doesNotContain("dev/node1");
+    }
+
+    @Test
+    void theWarningCarriesAFixedReasonNotTheToolOutput() {
+        store.fail("INUBIT_ACME_DEV_NODE1_USERNAME", FailureKind.STORE_NOT_AVAILABLE,
+            "exit 1: secret-tool: Cannot autolaunch D-Bus without X11 $DISPLAY");
+        FakeCredentialStore linux = new FakeCredentialStore(StoreKind.SECRET_SERVICE);
+        linux.fail("INUBIT_ACME_DEV_NODE1_USERNAME", FailureKind.STORE_NOT_AVAILABLE,
+            "exit 1: secret-tool: Cannot autolaunch D-Bus without X11 $DISPLAY");
+
+        EntryCheck.Result result = EntryCheck.run(nodes("", ""), linux, Duration.ofSeconds(5));
+
+        assertThat(result.warnings()).singleElement().asString().contains("Secret Service",
+            "secret-tool is not installed or no Secret Service")
+            .doesNotContain("exit 1", "autolaunch", "$DISPLAY");
+    }
+
+    @Test
+    void withoutASupportedStoreTheWarningSaysSo() {
+        FakeCredentialStore none = new FakeCredentialStore(StoreKind.NONE);
+        none.fail("INUBIT_ACME_DEV_NODE1_USERNAME", FailureKind.STORE_NOT_AVAILABLE,
+            "no supported credential store on FreeBSD");
+
+        EntryCheck.Result result = EntryCheck.run(nodes("", ""), none, Duration.ofSeconds(5));
+
+        assertThat(result.warnings()).singleElement().asString()
+            .startsWith("No supported credential store on this system for dev/node1, dev/node2");
+    }
+
+    @Test
+    void theNodeEntryIsReadBeforeTheGroupEntry() {
+        store.put("INUBIT_ACME_DEV_USERNAME", "jdoe").put("INUBIT_ACME_DEV_PASSWORD", "group-Pw-1");
+
+        run(nodes("", ""));
+
+        assertThat(store.reads()).extracting(FakeCredentialStore.Read::account)
+            .containsSubsequence("INUBIT_ACME_DEV_NODE1_USERNAME", "INUBIT_ACME_DEV_USERNAME");
+    }
+
+    @Test
+    void anInvalidOrDeniedNodeEntryDoesNotFallBackButAnEmptyOneDoes() {
+        store.put("INUBIT_ACME_DEV_NODE1_USERNAME", "jd:oe")
+            .put("INUBIT_ACME_DEV_USERNAME", "jdoe")
+            .fail("INUBIT_ACME_DEV_NODE1_PASSWORD", FailureKind.ACCESS_DENIED, "exit 128")
+            .put("INUBIT_ACME_DEV_NODE2_PASSWORD", "")
+            .put("INUBIT_ACME_DEV_PASSWORD", "group-Pw-1");
+
+        EntryCheck.Result result = run(nodes("", ""));
+
+        assertThat(result.line(DEV1, "username").orElseThrow()).isEqualTo(
+            new EntryCheck.Line("INUBIT_ACME_DEV_NODE1_USERNAME", EntryCheck.Status.INVALID_VALUE));
+        assertThat(result.line(DEV1, "password").orElseThrow()).isEqualTo(
+            new EntryCheck.Line("INUBIT_ACME_DEV_NODE1_PASSWORD", EntryCheck.Status.ACCESS_DENIED));
+        assertThat(result.line(DEV2, "password").orElseThrow()).isEqualTo(
+            new EntryCheck.Line("INUBIT_ACME_DEV_PASSWORD", EntryCheck.Status.OK));
+    }
+
+    @Test
+    void absentOptionalKindsAreHidden() {
+        store.put("INUBIT_ACME_DEV_USERNAME", "jdoe").put("INUBIT_ACME_DEV_PASSWORD", "group-Pw-1");
+
+        EntryCheck.Result result = run(nodes(E2E_ALLOWED, ""));
+
+        assertThat(result.line(DEV1, "trustStorePassword")).isEmpty();
+        assertThat(result.line(DEV1, "e2eUsername")).isEmpty();
+        assertThat(result.line(DEV1, "e2ePassword")).isEmpty();
+    }
+
+    @Test
+    void oneOfTwoEndToEndEntriesIsNoErrorOnceTheStoreIsUnavailable() {
+        store.put("INUBIT_ACME_DEV_USERNAME", "jdoe").put("INUBIT_ACME_DEV_PASSWORD", "group-Pw-1")
+            .put("INUBIT_ACME_DEV_NODE1_E2E_USERNAME", "e2e-user")
+            .fail("INUBIT_ACME_DEV_NODE1_E2E_PASSWORD", FailureKind.TIMEOUT, "no answer");
+
+        EntryCheck.Result result = run(nodes(E2E_ALLOWED, ""));
+
+        assertThat(result.errors()).isEmpty();
+        assertThat(result.warnings()).singleElement().asString().contains("access dialog");
+    }
+
+    @Test
+    void endToEndEntriesAreNotReadWhileEndToEndTestsAreForbidden() {
+        store.put("INUBIT_ACME_DEV_USERNAME", "jdoe").put("INUBIT_ACME_DEV_PASSWORD", "group-Pw-1")
+            .put("INUBIT_ACME_DEV_E2E_USERNAME", "e2e-user");
+
+        EntryCheck.Result result = run(nodes("""
+            e2e:
+              soap:
+                baseUrl: http://inubit-dev.example.test:8080
+            """, ""));
+
+        assertThat(result.errors()).isEmpty();
+        assertThat(result.line(DEV1, "e2eUsername")).isEmpty();
+        assertThat(store.reads()).extracting(FakeCredentialStore.Read::account)
+            .noneMatch(account -> account.contains("E2E"));
     }
 }

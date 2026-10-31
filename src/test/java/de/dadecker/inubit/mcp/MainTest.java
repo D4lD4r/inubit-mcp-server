@@ -71,6 +71,8 @@ class MainTest {
     private final AtomicInteger storesCreated = new AtomicInteger();
     /** The credential store the launcher created last (feature 011). */
     private final AtomicReference<FakeCredentialStore> credentialStore = new AtomicReference<>();
+    /** The store the launcher gets instead of one built from {@link #entries}, if set. */
+    private FakeCredentialStore scriptedStore;
 
     @AfterEach
     void restoreTestLogLevel() {
@@ -90,7 +92,8 @@ class MainTest {
                 storesCreated.incrementAndGet();
                 return store;
             }, () -> {
-                FakeCredentialStore created = TestSecrets.store(entries);
+                FakeCredentialStore created = scriptedStore != null ? scriptedStore
+                    : TestSecrets.store(entries);
                 credentialStore.set(created);
                 return created;
             }), handlers);
@@ -278,6 +281,52 @@ class MainTest {
             .doesNotContain(PASSWORD, USERNAME);
         stdout.reset();
         assertThat(run("--config", file.toString())).as(err()).isZero();
+    }
+
+    @Test
+    void checkConfigExitsZeroWithAWarningWhenTheStoreCannotBeAsked() throws IOException {
+        // feature 011 (US4-3): no store on this machine is a warning, the names are not checked
+        scriptedStore = new FakeCredentialStore(de.dadecker.inubit.mcp.config.StoreKind
+            .SECRET_SERVICE).fail("INUBIT_ACME_DEV_NODE1_USERNAME",
+                de.dadecker.inubit.mcp.config.FailureKind.STORE_NOT_AVAILABLE, "no D-Bus");
+        Path file = profileWithCredentials("");
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out()).isZero();
+        assertThat(out()).contains("username ← INUBIT_ACME_DEV_NODE1_USERNAME |"
+                + " INUBIT_ACME_DEV_USERNAME not checked",
+            "Secret Service for dev/node1, qa/node2: resolvability not checked", "Result: OK")
+            .doesNotContain("no D-Bus");
+    }
+
+    @Test
+    void anAwsOnlyCheckBuildsNoCredentialStore() throws IOException {
+        Files.createDirectories(home.resolve("workspace"));
+        Path file = config("""
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            credentials:
+              source:
+                type: awsParameterStore
+                region: eu-central-1
+            groups:
+              - name: prod
+                credentials:
+                  parameters:
+                    username: /inubit/prod/username
+                    password: /inubit/prod/password
+                nodes:
+                  - name: node1
+                    baseUrl: https://prod.example.test:8443
+            """.formatted(home.resolve("audit"), home.resolve("workspace")));
+        store.put(EU_CENTRAL, "/inubit/prod/username", "prod-user")
+            .put(EU_CENTRAL, "/inubit/prod/password", "prod-Password-1");
+
+        assertThat(run("--check-config", "--config", file.toString())).as(out()).isZero();
+        assertThat(credentialStore.get()).as("no credential store built").isNull();
     }
 
     @Test

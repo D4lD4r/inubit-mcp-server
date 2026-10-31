@@ -20,7 +20,10 @@ import java.util.stream.Stream;
  * optional kinds when present, and checks each value with {@link CredentialRules} as at run
  * time. Each distinct entry is read at most once per run (a group entry shared by many nodes opens
  * at most one access dialog); the reads of one node are bounded by {@link #TIMEOUT}. Values are
- * only checked, never kept or described; the raw store text is never part of an error.
+ * only checked, never kept or described: each read is classified at once into a value-free
+ * outcome. The raw store text is never part of an error or warning; an unavailable store is
+ * reported with a fixed reason per store. End-to-end entries are read only for nodes whose
+ * end-to-end tests are not {@code FORBIDDEN} (at run time they are never read otherwise).
  *
  * <p>Errors: a required entry missing, an invalid value, access denied, a trust store password
  * entry of a node with a CLI, only one of the two end-to-end entries, end-to-end entries with an
@@ -119,12 +122,18 @@ public final class EntryCheck {
         }
         Run run = new Run(store, timeout);
         Map<NodeId, Map<String, Line>> lines = new LinkedHashMap<>();
+        List<String> incomplete = new ArrayList<>();
         for (EffectiveNodeConfig node : checked) {
             lines.put(node.id(), run.node(node));
+            if (run.nodeIncomplete) {
+                incomplete.add(node.id().value());
+            }
         }
         if (run.unavailable != null) {
-            run.warnings.add(store.kind().displayName() + " for " + checked.stream()
-                .map(node -> node.id().value()).collect(Collectors.joining(", "))
+            String where = store.kind() == StoreKind.NONE
+                ? "No supported credential store on this system"
+                : store.kind().displayName();
+            run.warnings.add(where + " for " + String.join(", ", incomplete)
                 + ": resolvability not checked: " + run.unavailable);
         }
         return new Result(lines, run.errors, run.warnings, store.kind());
@@ -135,12 +144,14 @@ public final class EntryCheck {
 
         private final CredentialStore store;
         private final Duration timeout;
-        /** Each distinct account's outcome, read once. */
-        private final Map<String, CredentialStore.Lookup> read = new HashMap<>();
+        /** Each distinct account's value-free outcome, read once. */
+        private final Map<String, Outcome> read = new HashMap<>();
         private final List<String> errors = new ArrayList<>();
         private final List<String> warnings = new ArrayList<>();
-        /** Why the store cannot be asked, once known; then nothing more is read. */
+        /** Why the store cannot be asked, once known (a fixed text); then nothing more is read. */
         private String unavailable;
+        /** Whether the node of the last {@link #node} call has a kind that was not checked. */
+        private boolean nodeIncomplete;
 
         Run(CredentialStore store, Duration timeout) {
             this.store = store;
@@ -152,10 +163,18 @@ public final class EntryCheck {
             long deadline = System.nanoTime() + timeout.toNanos();
             Map<String, Line> lines = new LinkedHashMap<>();
             Map<String, String> found = new HashMap<>();
+            boolean e2e = node.development().e2eTests() != E2ePolicy.FORBIDDEN;
+            nodeIncomplete = false;
             for (String key : KEYS) {
                 boolean required = key.equals("username") || key.equals("password");
+                if (!e2e && key.startsWith("e2e")) {
+                    continue;
+                }
                 String kind = kind(key);
                 Line line = line(names, key, kind, deadline, found);
+                if (line.status() == Status.NOT_CHECKED) {
+                    nodeIncomplete = true;
+                }
                 if (!required && (line.status() == Status.NOT_FOUND
                     || line.status() == Status.NOT_CHECKED)) {
                     continue;
@@ -228,56 +247,90 @@ public final class EntryCheck {
                 if (unavailable != null) {
                     return new Line(both, Status.NOT_CHECKED);
                 }
-                CredentialStore.Lookup lookup = read.get(account);
-                if (lookup == null) {
+                Outcome outcome = read.get(account);
+                if (outcome == null) {
                     Duration left = Duration.ofNanos(deadline - System.nanoTime());
-                    lookup = left.isNegative() || left.isZero()
-                        ? new CredentialStore.Lookup.Failed(FailureKind.TIMEOUT, "no time left")
-                        : store.read(account, left);
-                    read.put(account, lookup);
+                    outcome = left.isNegative() || left.isZero()
+                        ? new Outcome(OutcomeKind.TIMEOUT, "")
+                        : classify(key, store.read(account, left));
+                    read.put(account, outcome);
                 }
-                switch (lookup) {
-                    case CredentialStore.Lookup.NotFound notFound -> {
+                switch (outcome.kind()) {
+                    case NOT_FOUND, EMPTY -> {
                         continue;
                     }
-                    case CredentialStore.Lookup.Failed failed -> {
-                        switch (failed.kind()) {
-                            case ACCESS_DENIED -> {
-                                return new Line(account, Status.ACCESS_DENIED);
-                            }
-                            case INVALID_VALUE -> {
-                                found.put("rule:" + key, failed.detail());
-                                return new Line(account, Status.INVALID_VALUE);
-                            }
-                            case TIMEOUT -> {
-                                unavailable = "no answer within " + timeout.toSeconds() + " s"
-                                    + " (an access dialog may be waiting)";
-                                return new Line(both, Status.NOT_CHECKED);
-                            }
-                            default -> {
-                                unavailable = "no usable credential store (" + failed.detail()
-                                    + ")";
-                                return new Line(both, Status.NOT_CHECKED);
-                            }
-                        }
-                    }
-                    case CredentialStore.Lookup.Found value -> {
-                        String text = value.value().reveal();
-                        if (text.isEmpty()) {
-                            continue;
-                        }
-                        Optional<CredentialRules.Refusal> refusal = CredentialRules.checkValue(
-                            CredentialRules.roleOf(key), ParameterType.SECURE_STRING, text);
-                        if (refusal.isPresent()) {
-                            found.put("rule:" + key, refusal.get().rule());
-                            return new Line(account, Status.INVALID_VALUE);
-                        }
+                    case OK -> {
                         return new Line(account, Status.OK);
+                    }
+                    case INVALID -> {
+                        found.put("rule:" + key, outcome.rule());
+                        return new Line(account, Status.INVALID_VALUE);
+                    }
+                    case DENIED -> {
+                        return new Line(account, Status.ACCESS_DENIED);
+                    }
+                    case TIMEOUT -> {
+                        unavailable = "no answer within " + timeout.toSeconds() + " s"
+                            + " (an access dialog may be waiting)";
+                        return new Line(both, Status.NOT_CHECKED);
+                    }
+                    case UNAVAILABLE -> {
+                        unavailable = unavailableReason(store.kind());
+                        return new Line(both, Status.NOT_CHECKED);
                     }
                 }
             }
             return new Line(both, Status.NOT_FOUND);
         }
+    }
+
+    /** What a read gave, without the value. */
+    private enum OutcomeKind { OK, EMPTY, NOT_FOUND, INVALID, DENIED, TIMEOUT, UNAVAILABLE }
+
+    /** @param rule why a value was refused (a fixed text, never the value); else empty */
+    private record Outcome(OutcomeKind kind, String rule) {
+    }
+
+    /** Classifies one read at once, so that no value outlives it. */
+    private static Outcome classify(String key, CredentialStore.Lookup lookup) {
+        return switch (lookup) {
+            case CredentialStore.Lookup.NotFound notFound ->
+                new Outcome(OutcomeKind.NOT_FOUND, "");
+            case CredentialStore.Lookup.Failed failed -> switch (failed.kind()) {
+                case ACCESS_DENIED -> new Outcome(OutcomeKind.DENIED, "");
+                // the adapters' INVALID_VALUE details are fixed texts ("cannot be decoded …")
+                case INVALID_VALUE -> new Outcome(OutcomeKind.INVALID, failed.detail());
+                case TIMEOUT -> new Outcome(OutcomeKind.TIMEOUT, "");
+                default -> new Outcome(OutcomeKind.UNAVAILABLE, "");
+            };
+            case CredentialStore.Lookup.Found value -> {
+                String text = value.value().reveal();
+                if (text.isEmpty()) {
+                    yield new Outcome(OutcomeKind.EMPTY, "");
+                }
+                yield CredentialRules.checkValue(CredentialRules.roleOf(key),
+                        ParameterType.SECURE_STRING, text)
+                    .map(refusal -> new Outcome(OutcomeKind.INVALID, refusal.rule()))
+                    .orElseGet(() -> new Outcome(OutcomeKind.OK, ""));
+            }
+        };
+    }
+
+    /**
+     * A fixed reason per store for "could not be asked"; the store's own text (tool stderr) is
+     * never shown (FR-010).
+     */
+    private static String unavailableReason(StoreKind kind) {
+        return switch (kind) {
+            case KEYCHAIN -> "the macOS Keychain could not be asked (no desktop session, or the"
+                + " keychain is locked or missing)";
+            case SECRET_SERVICE -> "the Secret Service could not be asked (secret-tool is not"
+                + " installed or no Secret Service is running in this session)";
+            case CREDENTIAL_MANAGER -> "the Windows Credential Manager could not be asked (no"
+                + " credential set for this logon session, or the Windows credential API could not"
+                + " be loaded)";
+            case NONE -> "use AWS Parameter Store (credentials.source type awsParameterStore)";
+        };
     }
 
     /** The {@link CredentialNames} kind of a key. */

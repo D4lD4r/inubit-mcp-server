@@ -216,6 +216,15 @@ step and removes the environment path. US4 (`--check-config`), US5 (rotation, me
   "not checked" optional kind are left out); only one of the two end-to-end entries is reported as
   an error (as for Parameter Store names); the `Credential store entries:` line keeps the rule of
   010 (shown once some node reads entries under the profile prefix).
+  Review r1 (T016-T017): every read is classified at once into a value-free outcome (no value is
+  kept for the run); the warning of an unavailable store names only the nodes that were not fully
+  read and gives a fixed reason per store (never the tool's stderr); end-to-end entries are read only
+  for nodes whose end-to-end tests are not `FORBIDDEN` (at run time they are never read otherwise);
+  a system without a supported store shows `(none on this system)`. Further deviation: the
+  existence-only lookup of R-13 (a trust store password entry of a node without `tls.trustStore`
+  checked without reading its value) is not implemented; the entry is read and the value discarded.
+  Whether macOS `find-generic-password` without `-g` opens no access dialog is to be confirmed by the
+  macOS live check (T020) before an `exists` method is added to the port.
 
 ---
 

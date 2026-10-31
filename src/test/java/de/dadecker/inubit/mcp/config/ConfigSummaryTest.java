@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.nio.file.Path;
@@ -37,6 +38,8 @@ class ConfigSummaryTest {
      * tests, so that every credential store node is complete.
      */
     private final Map<String, String> storeEntries = groupEntries();
+    /** A scripted credential store instead of {@link #storeEntries}, if set. */
+    private FakeCredentialStore credentialStore;
 
     private static Map<String, String> groupEntries() {
         Map<String, String> entries = new HashMap<>();
@@ -76,7 +79,8 @@ class ConfigSummaryTest {
             ParameterCheck.run(loaded.config().secretPlans().values(), store, storeTimeout);
         // feature 011 (T017): the credential store holds the entries named like the variables
         EntryCheck.Result entries = EntryCheck.run(loaded.config().resolvableNodes(),
-            TestSecrets.store(storeEntries), Duration.ofSeconds(5));
+            credentialStore != null ? credentialStore : TestSecrets.store(storeEntries),
+            Duration.ofSeconds(5));
         return new ConfigSummary(exists, false).render(loaded,
             entries.addTo(parameters.addTo(report)), clients, parameters, entries);
     }
@@ -816,5 +820,72 @@ class ConfigSummaryTest {
             "type: credentialStore"));
 
         assertThat(store.calls()).isZero();
+    }
+
+    // --- review T016-T017 r1: the outcomes of the entry check in the node line ---
+
+    private static final String TWO_NODES = """
+        profile:
+          name: acme
+        groups:
+          - name: dev
+            nodes:
+              - name: node1
+                baseUrl: https://inubit-dev-1.example.test:8443
+                tls:
+                  trustStore: /home/test/.config/inubit-mcp/dev.p12
+              - name: node2
+                baseUrl: https://inubit-dev-2.example.test:8443
+        """;
+
+    @Test
+    void theNodeLineShowsNotFoundInvalidAndPresentOptionalKinds() {
+        credentialStore = new FakeCredentialStore()
+            .put("INUBIT_ACME_DEV_USERNAME", "store-user")
+            .put("INUBIT_ACME_DEV_NODE1_PASSWORD", "abc")
+            .put("INUBIT_ACME_DEV_NODE1_TRUSTSTORE_PASSWORD", "ts-Pw-1");
+
+        String summary = render(TWO_NODES);
+
+        assertThat(summary).contains("dev/node1: read-only, cli: unavailable, inubit: AUTO,"
+            + " secrets: credentialStore (macOS Keychain),"
+            + " username ← INUBIT_ACME_DEV_USERNAME ok,"
+            + " password ← INUBIT_ACME_DEV_NODE1_PASSWORD invalid value,"
+            + " trustStorePassword ← INUBIT_ACME_DEV_NODE1_TRUSTSTORE_PASSWORD ok\n");
+        assertThat(summary).contains("dev/node2: read-only, cli: unavailable, inubit: AUTO,"
+            + " secrets: credentialStore (macOS Keychain),"
+            + " username ← INUBIT_ACME_DEV_USERNAME ok,"
+            + " password ← INUBIT_ACME_DEV_NODE2_PASSWORD | INUBIT_ACME_DEV_PASSWORD not found\n");
+        assertThat(summary).doesNotContain("abc", "ts-Pw-1", "store-user");
+    }
+
+    @Test
+    void theNodeLineShowsNotCheckedOnceTheStoreStopsAnswering() {
+        credentialStore = new FakeCredentialStore()
+            .put("INUBIT_ACME_DEV_USERNAME", "store-user")
+            .put("INUBIT_ACME_DEV_PASSWORD", "store-Pw-1")
+            .fail("INUBIT_ACME_DEV_NODE2_USERNAME", FailureKind.TIMEOUT, "no answer");
+
+        String summary = render(TWO_NODES);
+
+        assertThat(summary).contains(" username ← INUBIT_ACME_DEV_NODE2_USERNAME |"
+            + " INUBIT_ACME_DEV_USERNAME not checked, password ← INUBIT_ACME_DEV_NODE2_PASSWORD |"
+            + " INUBIT_ACME_DEV_PASSWORD not checked\n");
+        // a warning, no error about the entries (the missing trust store file is another error)
+        assertThat(summary).contains("macOS Keychain for dev/node2: resolvability not checked")
+            .doesNotContain("credential store entry");
+    }
+
+    @Test
+    void aSystemWithoutAStoreSaysSo() {
+        credentialStore = new FakeCredentialStore(StoreKind.NONE)
+            .fail("INUBIT_ACME_DEV_NODE1_USERNAME", FailureKind.STORE_NOT_AVAILABLE, "none");
+
+        String summary = render(TWO_NODES);
+
+        assertThat(summary).contains("secrets: credentialStore (none on this system)",
+            "Credential store entries: service inubit-mcp, account INUBIT_ACME_<GROUP>[_<NODE>]"
+                + "_<KIND> (none on this system)",
+            "No supported credential store on this system for dev/node1, dev/node2");
     }
 }

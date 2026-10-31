@@ -81,7 +81,7 @@ public final class ConfigSummary {
             out.append("Credential store entries: service ").append(CredentialStore.SERVICE)
                 .append(", account ").append(config.credentialPrefix()).append('_')
                 .append(ConfigValidator.variablePart(terms)).append("_<KIND> (")
-                .append(entries.store().displayName()).append(")\n");
+                .append(storeName(entries.store())).append(")\n");
         }
         out.append("Audit directory: ").append(config.auditDirectory()).append('\n');
         // feature 003 (FR-004): ok, created just now, or why it cannot be used
@@ -121,7 +121,7 @@ public final class ConfigSummary {
                 out.append(", secrets: awsParameterStore");
                 appendParameters(out, server.secretPlan(), parameters);
             } else {
-                out.append(", secrets: credentialStore (").append(entries.store().displayName())
+                out.append(", secrets: credentialStore (").append(storeName(entries.store()))
                     .append(')');
                 appendEntries(out, server, entries);
             }
@@ -138,6 +138,8 @@ public final class ConfigSummary {
     /**
      * Feature 011: {@code , username ← <entry> <status>, password ← …} and the optional kinds
      * that are present; an entry that was not found shows both names ({@code <node> | <group>}).
+     * A required kind without an outcome (the check did not run for the node) is
+     * {@code not checked}, so that no line lacks an outcome.
      */
     private static void appendEntries(StringBuilder out, EffectiveNodeConfig server,
         EntryCheck.Result entries) {
@@ -152,9 +154,15 @@ public final class ConfigSummary {
                 String kind = key.equals("username") ? CredentialNames.USERNAME
                     : CredentialNames.PASSWORD;
                 out.append(", ").append(key).append(" ← ").append(names.nodeName(kind))
-                    .append(" | ").append(names.groupName(kind));
+                    .append(" | ").append(names.groupName(kind)).append(' ')
+                    .append(EntryCheck.Status.NOT_CHECKED.text());
             }
         }
+    }
+
+    /** The store in a node line; a system without a supported store says so. */
+    private static String storeName(StoreKind kind) {
+        return kind == StoreKind.NONE ? "none on this system" : kind.displayName();
     }
 
     /**
