@@ -63,6 +63,22 @@ feature.
   `inubit-mcp`, account = today's derived variable name (`<PREFIX>_<GROUP>[_<NODE>]_<KIND>`, node
   before group). Existing Keychain entries keep working without migration.
 
+### Session 2026-10-31 (spec review r1)
+
+Decisions taken on the review findings (to be confirmed by the product owner):
+
+- Windows identity: a generic credential with the target name `inubit-mcp:<ACCOUNT>`; its user-name
+  field is ignored. Linux: the attributes `service` = `inubit-mcp` and `account` = `<ACCOUNT>`.
+- Error codes follow feature 010: what a person must fix is `AUTH_FAILED`, a store that does not
+  answer in time is `UNREACHABLE`.
+- Only one of the two end-to-end entries is an error of the `run_e2e_test` call (today an unset
+  variable silently meant "no basic authentication"); listed in the migration notes.
+- The profile-wide prefix key is `credentials.prefix`.
+- Store reads are serialised (at most one access dialog at a time) and the timeout bounds the whole
+  read of a node.
+- One opt-in live check per operating system is a deliverable; the release needs it executed on
+  macOS at least.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Read credentials from the macOS Keychain without a start script (Priority: P1)
@@ -86,18 +102,20 @@ created for a fictitious profile.
 1. **Given** Keychain entries with service `inubit-mcp` and the accounts
    `INUBIT_ACME_DEV_USERNAME` and `INUBIT_ACME_DEV_PASSWORD` (created for the existing start
    script), **When** the server, registered directly without a script, runs a tool on `dev/node1`,
-   **Then** it authenticates with these values; the entries need no change.
+   **Then** it authenticates with these values; the entries need no change, although macOS may ask
+   once per entry whether the server may read it (US1-4).
 2. **Given** an entry for the node (`INUBIT_ACME_DEV_NODE1_PASSWORD`) and one for its group
    (`INUBIT_ACME_DEV_PASSWORD`), **When** the node's password is needed, **Then** the node entry is
    used; without the node entry, the group entry is used.
 3. **Given** no entry for a node's password under either name, **When** a tool needs the node,
    **Then** the call fails with `AUTH_FAILED` naming the node, the store and both entry names it
-   looked for, and a next step that tells how to create the entry; tools on other nodes keep
+   looked for (service and account), and a next step that tells how to create the entry; tools on other nodes keep
    working.
 4. **Given** the Keychain asks for permission the first time the server reads an entry, **When**
-   the person allows it, **Then** the call continues; **When** the person denies it or does not
-   answer in time, **Then** the call fails with an error naming the entry and the reason (access
-   denied, timeout), never a value.
+   the person allows it, **Then** the call continues; **When** the person denies it, **Then** the
+   call fails with `AUTH_FAILED` "access denied" naming the entry, and no further dialog is opened
+   for that node within 30 s; **When** nobody answers within the store timeout, **Then** the call
+   fails with `UNREACHABLE` "timeout"; never a value.
 
 ---
 
@@ -118,18 +136,22 @@ created for a fictitious profile.
 
 **Acceptance Scenarios**:
 
-1. **Given** a profile without `credentials.source` on Windows with entries for the derived names in
-   the Credential Manager, **When** a tool runs on a node, **Then** it authenticates with them.
+1. **Given** a profile without `credentials.source` on Windows with generic credentials whose target
+   names are `inubit-mcp:<derived name>` (for example `inubit-mcp:INUBIT_ACME_DEV_PASSWORD`) in the
+   Credential Manager, **When** a tool runs on a node, **Then** it authenticates with them.
 2. **Given** the same profile on Linux with entries (attribute service `inubit-mcp`, account = the
    derived name) in the Secret Service, **When** a tool runs on a node, **Then** it authenticates
    with them.
 3. **Given** a Linux machine without a running Secret Service (for example a headless server or a
-   container), or a locked keyring that cannot be unlocked without a person, **When** a node with the
-   credential store as source is needed, **Then** the call fails with an error that says that no
-   usable credential store is available and that names AWS Parameter Store as the alternative.
+   container, or no session bus in the server's environment), or a locked store that cannot show an
+   unlock prompt (no prompter, an SSH session on macOS), **When** a node with the credential store as
+   source is needed, **Then** the call fails at once with `AUTH_FAILED` "store not available", which
+   names AWS Parameter Store as the alternative. A locked store that can show an unlock prompt waits
+   for it like an access dialog (US1-4).
 4. **Given** the documentation, **When** an administrator follows it on any of the three systems,
    **Then** they can create, change and delete an entry with the system's own tools, without
-   putting the value on a command line where the tool allows that.
+   putting the value on a command line where the tool allows that, and the server reads the value
+   exactly as typed.
 
 ---
 
@@ -156,16 +178,16 @@ working profile.
    or `awsParameterStore`) and the migration guide.
 2. **Given** a profile without `credentials.source` and an environment that still contains
    variables with the derived names of its nodes (for example `INUBIT_ACME_DEV_PASSWORD`), **When**
-   the server starts or `--check-config` runs, **Then** a warning lists those variable names (never
-   values), says that they are no longer read and points to the migration guide; the server reads
+   the server starts or `--check-config` runs, **Then** one warning lists those variable names (never
+   values; the name set of FR-003), says that they are no longer read and points to the migration guide; the server reads
    the credential store.
 3. **Given** a group whose environment source named its own `prefix` (for example a group with
    variables under an older name), **When** the administrator follows the migration guide, **Then**
    they can keep these names for the credential store entries with a `prefix` on the group's
    credential store source.
 4. **Given** a profile with `credentials.envPrefix`, **When** it is loaded, **Then** the prefix still
-   applies (now to the entry names) and a warning recommends the new key name for it; a profile that
-   sets both the old and the new key with different values is a configuration error naming both.
+   applies (now to the entry names) and a warning recommends `credentials.prefix`; a profile that
+   sets profile-wide prefixes that differ (FR-005) is a configuration error naming them.
 
 ---
 
@@ -187,11 +209,12 @@ entries, invalid values, denied access and an unavailable store, and confirm out
 1. **Given** a profile with nodes on the credential store, **When** `--check-config` runs, **Then**
    every node line shows `secrets: credentialStore (<store of this system>)` and, per kind, the
    entry name that was found (node or group name) with its outcome (`ok`, `not found`,
-   `invalid value`, `access denied`), never a value.
+   `invalid value`, `access denied`, `not checked`; FR-011), never a value.
 2. **Given** a required entry (username, password) that exists under neither name, or an entry
    with an invalid value, **When** `--check-config` runs, **Then** it reports an error naming the
    node and both names and exits with code 1.
-3. **Given** a credential store that cannot be asked (no store on this machine, locked, timed out),
+3. **Given** a credential store that cannot be asked (no store on this machine, locked without a
+   prompt, or an access dialog left unanswered until the timeout),
    **When** `--check-config` runs, **Then** it lists the names it would read, reports that
    resolvability could not be checked as one warning per store and exits with code 0 if nothing else
    is wrong.
@@ -216,7 +239,8 @@ value, and an unchanged value pauses the node for 60 s.
 1. **Given** a changed entry in the credential store, **When** INUBIT rejects the old password,
    **Then** the server re-reads the node's username and password once, the rejected call fails as
    today, and the next call logs in with the new value (the rules of 010 FR-010 apply unchanged: at
-   most two failed logins per node per 60 s).
+   most two failed logins per node per 60 s). The re-read runs on the rejected call and can add up
+   to the store timeout to it.
 2. **Given** an unchanged entry that INUBIT rejects, **When** the re-read finds the same values,
    **Then** the node is paused for 60 s as today, and the `AUTH_FAILED` next step names the entries to
    correct and says that no restart is needed.
@@ -233,7 +257,8 @@ nodes with Parameter Store and would stop working entirely once variables are re
 
 **Independent Test**: Run the live test setup (`LiveTarget`) against test doubles of both stores and
 confirm it resolves the same values as the server; `docs/live-tests.md` describes how to provide
-them.
+them. Separately, one opt-in live check per operating system reads entries created for a
+fictitious profile from the real store (FR-017).
 
 **Acceptance Scenarios**:
 
@@ -247,6 +272,10 @@ them.
 
 - **Entry exists but is empty**: counts as not found (as an empty variable does today); the group
   entry is used if the node entry is empty.
+- **Value encoding**: a value created with the documented system tool of each operating system is
+  read exactly as typed (in the character encoding that tool writes, for example UTF-16 for a
+  Windows generic credential; no trailing line break added or kept). A value that cannot be decoded
+  is an invalid value.
 - **Invalid value** (a username with `:`, control characters or a leading `-`; a password shorter
   than 4 characters, also for `_E2E_PASSWORD`): an error naming the entry, never the value, at the
   call and in `--check-config`; a node entry with an invalid value does not fall back to the group
@@ -254,23 +283,38 @@ them.
 - **Trust store password and end-to-end credentials**: read from the node's effective source under
   the kinds `TRUSTSTORE_PASSWORD`, `E2E_USERNAME`, `E2E_PASSWORD`. They are optional: absent entries
   mean no trust store password and no end-to-end basic authentication, as unset variables do today.
-  A trust store password for a node with CLI configured stays an error. The end-to-end entries are
-  read only when an end-to-end test runs on the node; one of the two without the other is an error
-  of that call naming the missing entry.
+  The startup checks that today look at variable values move as follows for credential store nodes:
+  - the trust store password entry is read only for a node with `tls.trustStore`; an entry for a
+    node without a trust store is a `--check-config` warning ("ignored");
+  - a trust store password entry for a node with CLI configured is an error of the node's first read
+    (`AUTH_FAILED`, nothing is sent) and of `--check-config`;
+  - the end-to-end entries are read only when an end-to-end test runs on the node; one of the two
+    without the other is an error of that call naming the missing entry (a change from unset
+    variables, which silently meant no basic authentication);
+  - end-to-end entries together with an `http://` `e2e.soap.baseUrl` while end-to-end tests are not
+    `FORBIDDEN` are refused at the first `run_e2e_test` before anything is sent, and reported as an
+    error by `--check-config`.
 - **Several entries for the same name** (possible in some stores, for example two Keychain items in
-  different keychains, or two Secret Service items with the same attributes): the store's own
-  default lookup decides, as the system tools do; the documentation says how to find duplicates.
-- **The store asks the person** (a Keychain access dialog, an unlock prompt of the keyring): the
-  read waits up to the store timeout (FR-008); a fan-out call is not blocked longer than that for
-  the nodes whose credentials are available.
+  different keychains of the search list, or two Secret Service items with the same attributes in
+  different collections): the system's default search decides, as the system tools' own lookup does;
+  the documentation says how to find duplicates.
+- **The store asks the person** (a Keychain access dialog per entry, an unlock prompt of the
+  keyring): reads are serialised, so at most one dialog is open at a time, also during a fan-out over
+  many nodes; the store timeout bounds the whole read of one node (all its entries), and a node waiting
+  behind another node's read counts that wait in its own timeout. Nodes whose credentials are held are
+  never blocked. After "access denied" the node's back-off (30 s) applies, so no new dialog for that
+  node within that time.
 - **Access control of the store**: whatever the person allows ("Always Allow" in the Keychain
   dialog, an unlocked keyring) applies to the program that reads the entry; the documentation names
   which program that is on each system and what the permission means.
 - **Two profiles derive the same entry name**: a configuration error as today for variables (both
   read the same entry; another profile in the default configuration directory, or two groups or
-  nodes of the same profile). Two profiles may still read the same Parameter Store parameter.
+  nodes of the same profile); a file with the same `profile.name` stays a warning, and a node named
+  `e2e` where its group allows end-to-end tests stays an error (its username entry is the group's
+  `_E2E_USERNAME` entry). Two profiles may still read the same Parameter Store parameter.
 - **Leftover environment variables of other profiles**: the warning of US3-2 lists only the names
-  this profile derives, so variables of other profiles are not reported.
+  this profile derives (FR-003), so variables of other profiles are not reported. Today's warning
+  "`<PREFIX>_*_PASSWORD` matches no configured group or node (typo?)" is dropped.
 - **The server runs where no credential store exists** (container, CI, headless Linux without
   Secret Service): it starts; nodes with the credential store as source fail on first use with the
   error of US2-3; nodes with Parameter Store work.
@@ -294,24 +338,32 @@ them.
   credential (username, password, trust store password, end-to-end credentials) from environment
   variables. `type: environment` on any level MUST be a configuration error that names the key path,
   the replacement and the migration guide (US3-1).
-- **FR-003**: Variables in the server's environment whose names this profile derives for its nodes
-  MUST produce one warning at startup and in `--check-config` that lists the names (never values),
-  says that they are no longer read and points to the migration guide. Variables not read by
-  INUBIT credentials (`INUBIT_MCP_CONFIG`, `INUBIT_MCP_PROFILE`, the AWS SDK's variables) are
-  unaffected.
+- **FR-003**: Variables in the server's environment whose names this profile derives for any of its
+  nodes (every node, also Parameter Store nodes, under the prefix the node would use as a credential
+  store node; every kind including `TRUSTSTORE_PASSWORD` and the end-to-end kinds) MUST produce one
+  warning at startup and in `--check-config` that lists the names (never values), says that they are
+  no longer read and points to the migration guide. The warning about a `<PREFIX>_*_PASSWORD`
+  variable that matches no node is dropped. Variables that are not INUBIT credentials
+  (`INUBIT_MCP_CONFIG`, `INUBIT_MCP_PROFILE`, the AWS SDK's variables) are unaffected.
 - **FR-004**: A credential store entry MUST be identified by the service `inubit-mcp` and an account
   name derived as today's variable names: `<PREFIX>_<GROUP>_<NODE>_<KIND>`, else
   `<PREFIX>_<GROUP>_<KIND>`, with the same normalisation (upper case, every character other than
   `A–Z`/`0–9` replaced by `_`) and the same kinds. The node entry wins over the group entry, each kind
-  independently, by value (a missing or empty node entry falls back to the group entry). The
-  documentation MUST state for each operating system how this identity maps onto the store's own
-  fields, so that entries can be created with the system's tools.
+  independently, by value (a missing or empty node entry falls back to the group entry). The identity
+  maps onto the stores as follows: macOS Keychain, a generic password with service `inubit-mcp` and
+  account `<ACCOUNT>`; Windows Credential Manager, a generic credential with the target name
+  `inubit-mcp:<ACCOUNT>` (its user-name field is ignored); Linux Secret Service, an item with the
+  attributes `service` = `inubit-mcp` and `account` = `<ACCOUNT>`. A value created with the
+  documented system tool MUST be read exactly as typed (Edge Cases, "Value encoding").
 - **FR-005**: The prefix of the entry names MUST be configurable as today: a `prefix` on the
-  credential store source of a group or node, else the profile-wide prefix, else `INUBIT_<PROFILE>`.
-  The profile-wide prefix MUST get a source-neutral key name; `credentials.envPrefix` MUST stay
-  accepted with the same meaning and a warning recommending the new name; both keys with different
-  values MUST be a configuration error naming both (US3-4). The collision checks of today (other
-  profiles in the default configuration directory; two groups or nodes of the same profile) MUST
+  credential store source of a group or node, else the profile-wide prefix, else `INUBIT_<PROFILE>`
+  (normalised as today), with the pattern of today (`^[A-Z][A-Z0-9_]{0,63}$`). The profile-wide prefix
+  is `credentials.prefix`; `credentials.envPrefix` and a top-level `source: { type: credentialStore,
+  prefix }` stay accepted with the same meaning (`envPrefix` with a warning recommending
+  `credentials.prefix`); two or three of them set to different values MUST be a configuration error
+  naming them (US3-4). The checks of today on derived names (another profile in the default
+  configuration directory: error; a file with the same `profile.name`: warning; two groups or nodes of
+  the same profile: error; a node named `e2e` where its group allows end-to-end tests: error) MUST
   apply to the derived entry names of every node with the credential store as source.
 - **FR-006**: Credentials from the credential store MUST be read on first use per node, not at
   startup, with the rules of 010 FR-006a: first use is the first call that has to authenticate to the
@@ -325,8 +377,12 @@ them.
   end-to-end password at least 4 characters; an empty entry counts as not found. A value that breaks
   a rule is a failed read ("invalid value") naming the entry.
 - **FR-008**: A read from the credential store MUST be bounded by a timeout, long enough for a person
-  to answer a system access dialog (default 60 s, see Assumptions), and MUST NOT block calls on nodes
-  whose credentials are already held. Concurrent calls that need the same node share one read. After
+  to answer a system access dialog (default 60 s, see Assumptions), that bounds the whole read of one
+  node including any wait behind another node's read; reads from the credential store are serialised
+  so that at most one access dialog is open at a time. A read MUST NOT block calls on nodes whose
+  credentials are already held. Concurrent calls that need the same node share one read. A fan-out
+  call counts a node's read in that node's deadline as in feature 010 (010 research R-8), so a slow
+  read fails that node's part, not the whole call. After
   a failed read the node's credentials are not read again for 30 s (calls fail at once with the
   recorded failure); the first call after that reads again, so a created or corrected entry needs no
   restart. `get_health` keeps its time budget as in feature 010 (a node still being read is reported
@@ -334,11 +390,15 @@ them.
 - **FR-009**: The re-read after a rejected login (010 FR-010) MUST apply to the credential store as
   well: when INUBIT rejects a node's username and password, the server re-reads the node's entries
   once; changed values allow exactly one further login without a pause; unchanged values or a failed
-  re-read pause the node for 60 s. At most two failed logins per node per 60 s for every source.
+  re-read pause the node for 60 s. At most two failed logins per node per 60 s for every source. The
+  re-read runs on the rejected call and can add up to the store timeout to it.
 - **FR-010**: Every error about a credential MUST name the node, the source (and for the credential
   store which store: Keychain, Credential Manager, Secret Service), the entry or parameter names and
   the kind of failure (not found, access denied, invalid value, store not available, timeout), never a
-  value; the next step MUST refer to the source: for the credential store, create or correct the
+  value. Error codes as in feature 010: not found, access denied, invalid value and store not
+  available are `AUTH_FAILED`; a timeout (also an access dialog nobody answered) is `UNREACHABLE`.
+  The `get_health` text for a node whose read is still running names the credential store instead of
+  Parameter Store. The next step MUST refer to the source: for the credential store, create or correct the
   entry (naming service and account) — no restart and no reconnect needed. The message "restart the
   MCP client from a shell with the new values" MUST NOT appear any more. Raw messages of the store go
   to the log only, scrubbed.
@@ -346,8 +406,9 @@ them.
   the entry name it found (node or group name) or both names when none was found, with the outcome
   (`ok`, `not found`, `invalid value`, `access denied`, `not checked`), never a value. Missing
   required entries, invalid values and denied access are errors (exit code 1); a store that cannot be
-  asked (no store on this machine, locked, timeout) is one warning per store with `not checked` after
-  its names (exit code 0 if nothing else is wrong). The Parameter Store part stays as in feature 010.
+  asked (no store on this machine, locked without a prompt, or an access dialog left unanswered until
+  the timeout) is one warning per store with `not checked` after its names (exit code 0 if nothing
+  else is wrong). An access dialog that the person denies is `access denied` (error). The Parameter Store part stays as in feature 010.
   The `Credential variables:` line is replaced by the entry naming scheme.
 - **FR-012**: Credential values MUST be handled as today (Constitution II): never in tool parameters,
   results, logs, error messages, audit records or files; never as a process argument (also not when
@@ -366,9 +427,19 @@ them.
   change and delete entries without putting the value on a command line where the tool allows it;
   what an access permission of the store grants), `docs/tools.md`, `SECURITY.md`, and a migration
   guide from environment variables (exported in a shell profile, or exported by the macOS start
-  script, which then is no longer needed) to the credential store or Parameter Store.
+  script, which then is no longer needed) to the credential store or Parameter Store, including the
+  changed end-to-end behaviour (Edge Cases). Also updated: `docs/migration-001-to-002.md` (variable
+  names and `envPrefix`), the hint of the feature-001 format check ("add credentials.envPrefix:
+  INUBIT"), the `--help` text of `--check-config`, and the CHANGELOG with a prominent breaking-change
+  note.
 - **FR-016**: Tools, their parameters and their results MUST NOT change, except texts of errors and
   next steps (FR-010); no tool takes or returns a secret or says where a node's secrets come from.
+- **FR-017**: Every operating system MUST have an opt-in live check (skipped unless explicitly enabled,
+  like the existing live tests) that creates or expects entries for a fictitious profile in the real
+  store and verifies identity mapping, value encoding and the not-found and access-denied outcomes; it
+  never contacts INUBIT. Existing tests and fixtures that supply credentials through environment maps
+  move to test doubles of the stores; only the SC-002 negative test and the FR-003 warning test keep
+  credential variables.
 
 ### Key Entities
 
@@ -388,7 +459,9 @@ them.
 ### Measurable Outcomes
 
 - **SC-001**: An installation that uses the macOS start script of the current how-to works after
-  re-registering the JAR without the script, with no change to its Keychain entries or its profile.
+  re-registering the JAR without the script, with no change to its Keychain entries or its profile,
+  after allowing at most one Keychain access request per entry; verified by the macOS live check
+  (FR-017) before the release.
 - **SC-002**: No INUBIT credential is read from an environment variable on any code path, verified by
   a test that sets every derived variable to a distinct value and asserts that none is ever used.
 - **SC-003**: No credential value appears in any tool result, log line, error message, audit record,
@@ -402,7 +475,9 @@ them.
   takes at most 200 ms longer than with credentials already held; later calls show no measurable
   difference.
 - **SC-007**: The same profile file works unchanged on macOS, Windows and Linux when the entries exist
-  in each system's store.
+  in each system's store: verified with test doubles of every store in the build, and by the live
+  check of each operating system (FR-017) where it has been executed; the release notes say on which
+  systems it was executed.
 
 ## Out of Scope
 
@@ -419,9 +494,10 @@ them.
 - **Breaking release**: removing the environment-variable source is released as a new minor version
   before 1.0 (0.7.0), with the migration guide and a prominent CHANGELOG entry; installations that
   export variables must migrate before upgrading.
-- **Default store per system**: the login keychain (macOS), the generic credentials of the current
-  user (Windows), the default collection of the Secret Service of the user's session (Linux); entries
-  are those of the user who runs the MCP client.
+- **Store per system**: the keychain search list of the user (macOS, normally the login keychain),
+  the generic credentials of the current user (Windows), all unlocked collections of the Secret
+  Service of the user's session, as `secret-tool lookup` searches them (Linux); entries are those of
+  the user who runs the MCP client.
 - **Timeout**: 60 s by default because the first read on macOS may wait for the person to answer the
   Keychain dialog; whether it should be configurable (like `timeout` and `cliTimeout`) is decided in
   the plan.
@@ -431,7 +507,7 @@ them.
   asking; with the start script that was `/usr/bin/security`. Which program the server uses to read
   the store (and so what "Always Allow" grants) is decided in the plan, together with any new
   dependency (its license goes to `THIRD-PARTY-NOTICES.md`).
-- Tests use test doubles of every store; no test contacts a real store, AWS or INUBIT (Constitution
-  III). Optional live checks against a real store may be added like the existing live tests.
+- The default build uses test doubles of every store; no test of the default build contacts a real
+  store, AWS or INUBIT (Constitution III). The live checks of FR-017 are opt-in.
 - The feature-010 Parameter Store behaviour is unchanged except where this spec says otherwise (the
   same `AUTH_FAILED` texts, timeouts, back-off and checks).
