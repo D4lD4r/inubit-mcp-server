@@ -967,4 +967,73 @@ class NodeSecretsTest {
             .isInstanceOf(UnsupportedOperationException.class);
         assertThat(store.calls()).isZero();
     }
+
+    // --- feature 011 T011: the Parameter Store texts are those of feature 010, byte for byte ---
+
+    @Test
+    void theNotFoundTextsAreUnchanged() {
+        store.put(EU, USERNAME, "test-user-1");
+
+        ToolError error = failure(secrets(), LONG);
+
+        assertThat(error.message()).isEqualTo("dev/node1: INUBIT credentials from AWS Parameter"
+            + " Store (eu-central-1, profile test-profile) are unavailable: not found for"
+            + " /test/dev/node1/password");
+        assertThat(error.likelyCause()).isEqualTo("The parameter does not exist in this region"
+            + " and account, or it is empty");
+        assertThat(error.nextStep()).isEqualTo("Create the parameter /test/dev/node1/password in"
+            + " Parameter Store (eu-central-1, profile test-profile) or correct"
+            + " credentials.parameters.password");
+        assertThat(lastLog(appender).getFormattedMessage()).isEqualTo("dev/node1: INUBIT"
+            + " credentials could not be fetched from AWS Parameter Store (eu-central-1, profile"
+            + " test-profile): NOT_FOUND");
+    }
+
+    @Test
+    void theUnreachableTextsAreUnchanged() {
+        putValid();
+        store.delay(EU, Duration.ofSeconds(60));
+        NodeSecrets secrets = new NodeSecrets(plan(NODE1, USERNAME, PASSWORD, Optional.empty()),
+            store, scrubber, clock, Duration.ofMillis(300));
+
+        ToolError error = failure(secrets, LONG);
+
+        assertThat(error.message()).isEqualTo("dev/node1: INUBIT credentials from AWS Parameter"
+            + " Store (eu-central-1, profile test-profile) are unavailable: Parameter Store"
+            + " unreachable");
+        assertThat(error.likelyCause()).isEqualTo("The Parameter Store could not be reached,"
+            + " throttled the request or did not answer within 0 s");
+        assertThat(error.nextStep()).isEqualTo("Check network access to"
+            + " ssm.eu-central-1.amazonaws.com; the fetch is retried after 30 s");
+    }
+
+    @Test
+    void thePendingAndSuccessTextsAreUnchanged() {
+        putValid();
+        store.delay(EU, Duration.ofMillis(300));
+        NodeSecrets secrets = secrets();
+
+        ToolError pending = failure(secrets, Duration.ofMillis(20));
+        secrets.current(LONG);
+
+        assertThat(pending.message()).isEqualTo("dev/node1: the INUBIT credentials from AWS"
+            + " Parameter Store (eu-central-1, profile test-profile) are not yet available (still"
+            + " fetching)");
+        assertThat(pending.likelyCause()).isEqualTo("The Parameter Store answers slowly");
+        assertThat(pending.nextStep()).isEqualTo("Retry shortly; the fetch continues and the next"
+            + " call uses its result");
+        assertThat(lastLog(appender).getFormattedMessage()).matches("dev/node1: INUBIT"
+            + " credentials fetched from AWS Parameter Store \\(eu-central-1, profile"
+            + " test-profile\\) in \\d+ ms");
+    }
+
+    @Test
+    void theFactoriesUseTheTimeoutOfTheirStore() {
+        assertThat(secrets().timeout()).isEqualTo(NodeSecrets.STORE_TIMEOUT)
+            .isEqualTo(Duration.ofSeconds(10));
+        assertThat(NodeSecrets.CREDENTIAL_STORE_TIMEOUT).isEqualTo(Duration.ofSeconds(60));
+        assertThat(NodeSecrets.credentialStore(TestNodeConfig.node().id("dev/node1").build(),
+            new de.dadecker.inubit.mcp.testing.FakeCredentialStore(), scrubber, clock).timeout())
+            .isEqualTo(NodeSecrets.CREDENTIAL_STORE_TIMEOUT);
+    }
 }

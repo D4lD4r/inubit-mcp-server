@@ -20,7 +20,7 @@ Configuration file /Users/jdoe/.config/inubit-mcp/config.yaml uses the format of
   - stages (top level): rename to groups
   - servers (at stages[0].servers, stages[1].servers): rename to nodes
   - profile (missing): add a profile block at the top, profile: {name: <name>}, the name matching ^[a-z0-9][a-z0-9-]{0,31}$, except audit
-To keep the credential variables of feature 001 (INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD), add credentials.envPrefix: INUBIT; without it the variables start with INUBIT_<PROFILE>.
+To keep the credential variables of feature 001 (INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD), add credentials.prefix: INUBIT; without it the variables start with INUBIT_<PROFILE>.
 Audit records of feature 001 stay in their directory (default ~/.inubit-mcp/audit); new records go to ~/.inubit-mcp/<profile.name>/audit unless auditDirectory is set.
 Step-by-step guide: docs/migration-001-to-002.md
 ```
@@ -35,7 +35,7 @@ same way; the message names each old key and where it is.
 | — | `profile.name` (required) | `^[a-z0-9][a-z0-9-]{0,31}$`; `audit` is reserved |
 | — | `profile.description` (optional) | one line, at most 200 characters; shown to the assistant |
 | — | `terminology` (optional) | the words used in messages and descriptions; default `group`/`groups`, `node`/`nodes` |
-| — | `credentials.envPrefix` (optional) | default `INUBIT_<PROFILE>`; `INUBIT` keeps the 001 variables |
+| — | `credentials.prefix` (optional) | default `INUBIT_<PROFILE>`; `INUBIT` keeps the 001 variables |
 | `stages` | `groups` | same content (`name`, `production`, `write`, `tls`, `cli`, timeouts, `inventory`, …) |
 | `stages[].servers` | `groups[].nodes` | same content (`name`, `baseUrl`, overrides) |
 | `auditDirectory` (default `~/.inubit-mcp/audit`) | `auditDirectory` (default `~/.inubit-mcp/<profile.name>/audit`) | see step 6 |
@@ -113,7 +113,7 @@ explicitly:
 
 ```yaml
 credentials:
-  envPrefix: INUBIT
+  prefix: INUBIT
 ```
 
 The rule "node-specific variable before group-wide variable" is unchanged. Alternatively, rename
@@ -149,7 +149,7 @@ java -jar /absolute/path/to/inubit-mcp-server-<version>.jar --profile acme --che
 ```
 
 It must end with `Result: OK` and list the same nodes and the same variable names as before
-(with `envPrefix: INUBIT`: `Credential variables: INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD`).
+(with `prefix: INUBIT`: `Credential variables: INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD`).
 Then replace the registration of feature 001 by one per profile:
 
 ```bash
@@ -188,15 +188,15 @@ A prompt such as "list the servers" still works; a script that calls `list_serve
 
 ### 10. Adding more profiles later
 
-A profile with `envPrefix: INUBIT` reads `INUBIT_<GROUP>…`, which other profiles can derive as
+A profile with `prefix: INUBIT` reads `INUBIT_<GROUP>…`, which other profiles can derive as
 well: the profile `acme` (default prefix `INUBIT_ACME`) with the group `test` reads
-`INUBIT_ACME_TEST_USERNAME`, and so does a profile with `envPrefix: INUBIT` and the group
+`INUBIT_ACME_TEST_USERNAME`, and so does a profile with `prefix: INUBIT` and the group
 `acme-test`. When two profile files in `~/.config/inubit-mcp` derive the same variable name, the
 server refuses to start (`--check-config` exits 1) and names the other file and the shared
 variable names. To resolve it, give the migrated profile its own prefix: remove
-`credentials.envPrefix` (or set another one) and rename its exported variables accordingly
+`credentials.prefix` (or set another one) and rename its exported variables accordingly
 (`INUBIT_DEV_USERNAME` → `INUBIT_ACME_DEV_USERNAME`), or rename the conflicting group. Use
-`envPrefix: INUBIT` for at most one profile.
+`prefix: INUBIT` for at most one profile.
 
 ## Before and after
 
@@ -239,7 +239,7 @@ terminology:                       # new, optional: keeps the wording of feature
   node:  { singular: server, plural: servers }
 
 credentials:                       # new, optional: keeps the variables INUBIT_<STAGE>[_<SERVER>]_*
-  envPrefix: INUBIT
+  prefix: INUBIT
 
 logLevel: INFO
 # auditDirectory removed: new audit records go to ~/.inubit-mcp/acme/audit

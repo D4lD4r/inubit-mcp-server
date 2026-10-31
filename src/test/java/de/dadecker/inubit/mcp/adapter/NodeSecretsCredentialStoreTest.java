@@ -361,4 +361,106 @@ class NodeSecretsCredentialStoreTest {
         assertThat(secrets.held().orElseThrow().password().orElseThrow().value().reveal())
             .isEqualTo("group-Pw-5");
     }
+
+    // --- review T008-T012 r1 ---
+
+    @Test
+    void eachEntryGetsOnlyTheTimeLeftOfTheNodeRead() {
+        store.put(NODE_USER, "jdoe").delay(NODE_USER, Duration.ofMillis(100))
+            .put(NODE_PW, "node-Pw-1");
+        NodeSecrets secrets = new NodeSecrets(config().build(), store, scrubber, clock,
+            Duration.ofSeconds(2));
+
+        secrets.current(LONG);
+
+        assertThat(store.reads()).hasSize(2);
+        assertThat(store.reads().get(1).timeout())
+            .isLessThanOrEqualTo(Duration.ofSeconds(2).minusMillis(100));
+    }
+
+    @Test
+    void noStoreNamesTheStoresReason() {
+        store.fail(NODE_USER, FailureKind.STORE_NOT_AVAILABLE,
+            "secret-tool is not installed (package libsecret-tools or libsecret)");
+
+        assertThat(catchThrowableOfType(ToolErrorException.class, () -> secrets().current(LONG))
+            .error().message()).contains("no usable credential store", "secret-tool is not"
+                + " installed");
+    }
+
+    @Test
+    void anUndecodableEntryIsAnInvalidValueAndTheOtherEntriesAreStillRead() {
+        store.fail(NODE_USER, FailureKind.INVALID_VALUE, "the value cannot be decoded as UTF-8")
+            .put(GROUP_PW, "group-Pw-2");
+
+        ToolErrorException error = catchThrowableOfType(ToolErrorException.class,
+            () -> secrets().current(LONG));
+
+        assertThat(error.error().message()).contains("invalid value for " + NODE_USER,
+            "cannot be decoded");
+        assertThat(store.reads()).extracting(FakeCredentialStore.Read::account)
+            .contains(NODE_PW, GROUP_PW);
+    }
+
+    @Test
+    void endToEndEntriesCreatedLaterAreFoundWithoutARestart() {
+        NodeSecrets secrets = secrets();
+        assertThat(secrets.e2e(LONG)).isEmpty();
+
+        store.put("INUBIT_ACME_DEV_E2E_USERNAME", "e2e-user")
+            .put("INUBIT_ACME_DEV_E2E_PASSWORD", "e2e-Pw-4");
+
+        assertThat(secrets.e2e(LONG)).isPresent();
+    }
+
+    @Test
+    void endToEndEntriesOverPlainHttpAreAllowedWhileTestsAreForbidden() {
+        store.put("INUBIT_ACME_DEV_E2E_USERNAME", "e2e-user")
+            .put("INUBIT_ACME_DEV_E2E_PASSWORD", "e2e-Pw-4");
+        EffectiveNodeConfig config = config().development(new EffectiveNodeConfig.Development(
+            false, ConfirmationMode.SERVER, E2ePolicy.FORBIDDEN,
+            Optional.of(URI.create("http://inubit-dev.example.test:8080")), false)).build();
+
+        assertThat(secrets(config).e2e(LONG)).isPresent();
+    }
+
+    @Test
+    void anUnexpectedStoreFailureIsNoTimeout() {
+        de.dadecker.inubit.mcp.config.CredentialStore broken =
+            new de.dadecker.inubit.mcp.config.CredentialStore() {
+                @Override
+                public StoreKind kind() {
+                    return StoreKind.KEYCHAIN;
+                }
+
+                @Override
+                public Lookup read(String account, Duration timeout) {
+                    throw new IllegalStateException("boom");
+                }
+            };
+
+        ToolErrorException error = catchThrowableOfType(ToolErrorException.class,
+            () -> new NodeSecrets(config().build(), broken, scrubber, clock, LONG).current(LONG));
+
+        assertThat(error.error().code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(error.error().message()).contains("the read failed");
+        assertThat(error.error().nextStep()).doesNotContain("access dialog");
+    }
+
+    @Test
+    void aSecretInAFailureDetailIsScrubbedFromTheLog() {
+        store.put(GROUP_USER, "jdoe").put(GROUP_PW, "group-Pw-2");
+        NodeSecrets secrets = secrets();
+        secrets.current(LONG);
+        store.fail(NODE_USER, FailureKind.ACCESS_DENIED, "stderr mentions group-Pw-2");
+
+        assertThat(secrets.reread()).isEqualTo(NodeSecrets.Reread.FAILED);
+
+        ILoggingEvent event = appender.list.get(appender.list.size() - 1);
+        assertThat(event.getKeyValuePairs()).anySatisfy(pair -> {
+            assertThat(pair.key).isEqualTo("detail");
+            assertThat((String) pair.value).contains("stderr mentions")
+                .doesNotContain("group-Pw-2");
+        });
+    }
 }

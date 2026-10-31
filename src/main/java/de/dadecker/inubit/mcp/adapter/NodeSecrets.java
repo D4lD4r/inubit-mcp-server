@@ -423,8 +423,8 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
         /** One read of all names of the cell; never throws for a store failure. */
         Attempt<T> fetch(String subject);
 
-        /** A read that did not end in time or threw. */
-        Failed<T> unreachable(String subject, String detail);
+        /** A read that did not end in time ({@code timedOut}) or threw. */
+        Failed<T> unreachable(String subject, String detail, boolean timedOut);
 
         /** "from AWS Parameter Store (eu-west-1)" / "from the macOS Keychain". */
         String from();
@@ -549,7 +549,8 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
                         thrown instanceof TimeoutException
                             ? "no answer within " + timeout.toMillis() + " ms"
                             : thrown.getMessage() == null ? thrown.getClass().getName()
-                            : thrown.getClass().getName() + ": " + thrown.getMessage()));
+                            : thrown.getClass().getName() + ": " + thrown.getMessage(),
+                        thrown instanceof TimeoutException));
                 });
             worker.start();
             return done;
@@ -587,7 +588,12 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
             synchronized (lock) {
                 inFlight = null;
                 if (outcome instanceof Success<T> success) {
-                    held = success.credentials();
+                    // feature 011 (FR-008): "no end-to-end entries" is not held, so that entries
+                    // created later are found without a restart
+                    if (!(success.credentials() instanceof Optional<?> optional
+                        && optional.isEmpty())) {
+                        held = success.credentials();
+                    }
                 } else {
                     refusal = new Refusal(((Failed<T>) outcome).error(), clock.instant());
                 }
@@ -745,7 +751,7 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
         }
 
         @Override
-        public Failed<T> unreachable(String subject, String detail) {
+        public Failed<T> unreachable(String subject, String detail, boolean timedOut) {
             return new Failed<>(callError(subject, FailureKind.UNREACHABLE),
                 FailureKind.UNREACHABLE.name(), detail);
         }
@@ -944,8 +950,10 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
                         continue;
                     }
                     case CredentialStore.Lookup.Failed failed -> {
-                        return Optional.of(new EntryProblem(key, account, failed.kind(), "",
-                            failed.detail(), true));
+                        // an undecodable value is a value problem, not a store failure
+                        boolean value = failed.kind() == FailureKind.INVALID_VALUE;
+                        return Optional.of(new EntryProblem(key, account, failed.kind(),
+                            value ? failed.detail() : "", failed.detail(), !value));
                     }
                     case CredentialStore.Lookup.Found found -> {
                         String value = found.value().reveal();
@@ -987,7 +995,9 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
             Optional<FailureKind> callKind = problems.stream().map(EntryProblem::kind)
                 .filter(NodeSecrets::callLevel).findFirst();
             if (callKind.isPresent()) {
-                return new Failed<>(callError(subject, callKind.get()), outcome, detail);
+                String reason = problems.stream().filter(problem -> problem.kind()
+                    == callKind.get()).map(EntryProblem::logDetail).findFirst().orElse("");
+                return new Failed<>(callError(subject, callKind.get(), reason), outcome, detail);
             }
             if (refused != null) {
                 return new Failed<>(ToolError.of(ErrorCode.AUTH_FAILED,
@@ -1006,10 +1016,12 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
                 unavailable(subject) + failures, causes, steps).withNode(node), outcome, detail);
         }
 
-        private ToolError callError(String subject, FailureKind kind) {
+        /** @param reason the store's own reason; scrubbed, it never contains a value */
+        private ToolError callError(String subject, FailureKind kind, String reason) {
             ToolError error = kind == FailureKind.STORE_NOT_AVAILABLE
                 ? ToolError.of(ErrorCode.AUTH_FAILED,
-                    unavailable(subject) + "no usable credential store",
+                    unavailable(subject) + "no usable credential store ("
+                        + scrubber.scrub(reason) + ")",
                     "The " + storeName() + " is not available on this machine (not installed, no"
                         + " desktop session, or locked without a way to ask)",
                     "Install or start the credential store of this system, or read the"
@@ -1024,9 +1036,16 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
         }
 
         @Override
-        public Failed<T> unreachable(String subject, String detail) {
-            return new Failed<>(callError(subject, FailureKind.TIMEOUT),
-                FailureKind.TIMEOUT.name(), detail);
+        public Failed<T> unreachable(String subject, String detail, boolean timedOut) {
+            if (timedOut) {
+                return new Failed<>(callError(subject, FailureKind.TIMEOUT, detail),
+                    FailureKind.TIMEOUT.name(), detail);
+            }
+            return new Failed<>(ToolError.of(ErrorCode.AUTH_FAILED,
+                unavailable(subject) + "the read failed",
+                "Reading the " + storeName() + " failed unexpectedly",
+                "Retry; if it fails again, the log of the MCP server names the cause")
+                .withNode(node), "FAILED", detail);
         }
 
         private String unavailable(String subject) {

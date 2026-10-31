@@ -65,7 +65,7 @@ final class Format001Detector {
         }
         message.append("\nTo keep the credential variables of feature 001"
                 + " (INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD), add"
-                + " credentials.envPrefix: INUBIT; without it the variables start with"
+                + " credentials.prefix: INUBIT; without it the variables start with"
                 + " INUBIT_<PROFILE>.")
             .append("\nAudit records of feature 001 stay in their directory (default ")
             .append(OLD_AUDIT_DIRECTORY).append("); new records go to"

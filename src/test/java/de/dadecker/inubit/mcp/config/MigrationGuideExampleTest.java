@@ -79,7 +79,7 @@ class MigrationGuideExampleTest {
             .hasMessageContaining("stages[0].servers, stages[1].servers")
             .hasMessageContaining("rename to nodes")
             .hasMessageContaining("profile (missing)")
-            .hasMessageContaining("credentials.envPrefix: INUBIT")
+            .hasMessageContaining("credentials.prefix: INUBIT")
             .hasMessageContaining("~/.inubit-mcp/audit")
             .hasMessageContaining("docs/migration-001-to-002.md")
             .hasMessageNotContaining("example.test")

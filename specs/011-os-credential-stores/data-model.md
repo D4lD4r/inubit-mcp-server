@@ -5,7 +5,8 @@ results). Packages follow research R-2. Types of feature 010 not listed here are
 
 ## SecretSourceConfig (config, changed)
 
-Sealed: `CredentialStore(Optional<String> prefix)` | `AwsParameterStore(String region,
+Sealed: `SystemStore(Optional<String> prefix)` (YAML `credentialStore`; named so as not to clash with
+the port `CredentialStore`) | `AwsParameterStore(String region,
 Optional<String> awsProfile)` (unchanged). `Environment` is removed.
 
 | Field | Rule |
