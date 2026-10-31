@@ -32,7 +32,7 @@ public final class V81LogAdapter implements LogPort {
     /** Server-independent: the error carries no server id (review D8). */
     @Override
     public void validate(LogQuery query) {
-        LogRequestBuilder.validate(query);
+        V81QueryRules.INSTANCE.validate(query);
     }
 
     @Override

@@ -3,10 +3,10 @@ package de.dadecker.inubit.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.config.ConfigLoader;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -37,9 +37,8 @@ class ExportArtifactsWiringTest {
         ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml")).config();
         SecretScrubber scrubber = new SecretScrubber();
-        try (TestWiring wiring = TestWiring.of(config, new CredentialResolver(Map.of(), scrubber,
-            config.credentialPrefix()).resolve(config.nodeIds()), scrubber, path -> false,
-            false)) {
+        try (TestWiring wiring = TestWiring.of(config, TestSecrets.store(Map.of()), scrubber,
+            path -> false, false)) {
             return wiring.toolHandlers().stream().map(ToolHandler::name).toList();
         }
     }

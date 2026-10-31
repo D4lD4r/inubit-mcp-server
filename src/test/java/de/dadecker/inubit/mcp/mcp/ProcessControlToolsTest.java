@@ -23,7 +23,6 @@ import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.WriteGuard;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -138,11 +137,10 @@ class ProcessControlToolsTest {
         ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml")).config();
         SecretScrubber scrubber = new SecretScrubber();
-        TestWiring wiring = TestWiring.of(config, new CredentialResolver(Map.of(
+        TestWiring wiring = TestWiring.of(config, TestSecrets.store(Map.of(
             "INUBIT_ACME_DEV_USERNAME", "jdoe", "INUBIT_ACME_DEV_PASSWORD", PASSWORD,
-            "INUBIT_ACME_PROD_USERNAME", "jdoe", "INUBIT_ACME_PROD_PASSWORD", PASSWORD), scrubber,
-            config.credentialPrefix())
-            .resolve(config.nodeIds()), scrubber, path -> false, false);
+            "INUBIT_ACME_PROD_USERNAME", "jdoe", "INUBIT_ACME_PROD_PASSWORD", PASSWORD)), scrubber,
+            path -> false, false);
         closeables.add(wiring);
         McpTestClient client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         closeables.add(client);
@@ -196,8 +194,8 @@ class ProcessControlToolsTest {
         SecretScrubber scrubber = new SecretScrubber();
         List<NodeId> ids = List.of(server.id());
         AdapterGatewayFactory gateways = new AdapterGatewayFactory(List.of(server),
-            TestSecrets.environment(new CredentialResolver(Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD",
-                PASSWORD), scrubber, "INUBIT").resolve(ids)), scrubber, Clock.systemUTC(),
+            TestSecrets.credentialStore(List.of(server), Map.of("INUBIT_DEV_USERNAME", "jdoe",
+                "INUBIT_DEV_PASSWORD", PASSWORD), scrubber), scrubber, Clock.systemUTC(),
             new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
             new RecordingVersionObserver(), PortSetRegistry.v81Default());
         closeables.add(gateways);

@@ -4,10 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.TestWiring;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
-import de.dadecker.inubit.mcp.config.CredentialResolution;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -83,9 +83,8 @@ class TerminologyRenderingTest {
         ProfileConfig config = new ConfigLoader(Map.of(), Path.of("/home/test"), false)
             .parse(yaml, Path.of("/home/test/acme.yaml")).config();
         SecretScrubber scrubber = new SecretScrubber();
-        CredentialResolution credentials = new CredentialResolver(Map.of(
-            "INUBIT_ACME_TEST_USERNAME", "user", "INUBIT_ACME_TEST_PASSWORD", "rendering-test-pw"),
-            scrubber, config.credentialPrefix()).resolve(config.nodeIds());
+        CredentialStore credentials = TestSecrets.store(Map.of(
+            "INUBIT_ACME_TEST_USERNAME", "user", "INUBIT_ACME_TEST_PASSWORD", "rendering-test-pw"));
         try (TestWiring wiring = TestWiring.of(config, credentials, scrubber, path -> false,
                 false);
             McpTestClient client = McpTestClient.start(wiring.serverFactory("0.0.0-test"))) {

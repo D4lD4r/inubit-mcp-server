@@ -9,8 +9,7 @@ import de.dadecker.inubit.mcp.application.InventoryService.ListRequest;
 import de.dadecker.inubit.mcp.application.InventoryService.Listing;
 import de.dadecker.inubit.mcp.application.InventoryService.Lookup;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
-import de.dadecker.inubit.mcp.config.CredentialResolution;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -34,6 +33,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -183,9 +183,7 @@ class InventoryOwnerTest {
         Map<String, String> env = Map.of("INUBIT_ACME_TEST_USERNAME", "user",
             "INUBIT_ACME_TEST_PASSWORD", "owner-test-pw");
         SecretScrubber scrubber = new SecretScrubber();
-        CredentialResolution credentials = new CredentialResolver(env, scrubber,
-            loaded.config().credentialPrefix())
-            .resolve(loaded.config().nodeIds());
+        CredentialStore credentials = TestSecrets.store(env);
         try (TestWiring wiring = TestWiring.of(loaded.config(), credentials, scrubber,
             path -> false, false)) {
             JsonNode inventory = json(handler(wiring, "list_inventory").handle(Map.of(

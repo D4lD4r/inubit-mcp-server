@@ -91,6 +91,8 @@ public final class ConfigLoader {
     private static final List<String> PARAMETER_KINDS = List.of("username", "password",
         "trustStorePassword", "e2eUsername", "e2ePassword");
 
+    private static final String CREDENTIAL_STORE = "credentialStore";
+    /** The source type of feature 010 removed in 0.7.0 (feature 011, research R-6). */
     private static final String ENVIRONMENT = "environment";
     private static final String AWS_PARAMETER_STORE = "awsParameterStore";
 
@@ -383,7 +385,10 @@ public final class ConfigLoader {
         return userHome.resolve(".inubit-mcp").resolve(directory).resolve("workspace");
     }
 
-    /** True for keys that must never appear in the YAML: credentials come from the environment. */
+    /**
+     * True for keys that must never appear in the YAML: credentials come from the credential store
+     * or AWS Parameter Store.
+     */
     static boolean isCredentialKey(String key) {
         String lower = key.toLowerCase(Locale.ROOT);
         return CREDENTIAL_KEYS.contains(lower) || lower.contains("password");
@@ -446,7 +451,8 @@ public final class ConfigLoader {
 
     /**
      * The key rules of the {@code credentials} sections (feature 010, research R-4), after the
-     * credential keys are stripped: only {@code envPrefix} and {@code source} at the top level,
+     * credential keys are stripped: only {@code prefix}, {@code envPrefix} and {@code source} at
+     * the top level,
      * only {@code source} and {@code parameters} on groups and nodes, only the keys of its type
      * inside {@code source} (so AWS access keys are refused, FR-004) and only the parameter kinds
      * inside {@code parameters}, each with a valid name. Messages name keys and paths, never a
@@ -484,11 +490,11 @@ public final class ConfigLoader {
         boolean topLevel = ownerPath.isEmpty();
         String path = topLevel ? CREDENTIALS_SECTION : ownerPath + "." + CREDENTIALS_SECTION;
         if (topLevel) {
-            rejectUnknownKeys(section, path, List.of("envPrefix", "source"),
-                "allowed: envPrefix, source; parameters only on groups and nodes", source);
+            rejectUnknownKeys(section, path, List.of("prefix", "envPrefix", "source"),
+                "allowed: prefix, envPrefix, source; parameters only on groups and nodes", source);
         } else {
             rejectUnknownKeys(section, path, List.of("source", "parameters"),
-                "allowed: source, parameters; envPrefix only at the top level", source);
+                "allowed: source, parameters; prefix and envPrefix only at the top level", source);
         }
         checkSource(section.get("source"), path + ".source", source);
         JsonNode parameters = section.get("parameters");
@@ -504,7 +510,7 @@ public final class ConfigLoader {
         if (node == null || node.isNull()) {
             return;
         }
-        String types = "one of " + ENVIRONMENT + ", " + AWS_PARAMETER_STORE;
+        String types = "one of " + CREDENTIAL_STORE + ", " + AWS_PARAMETER_STORE;
         if (!(node instanceof ObjectNode sourceNode)) {
             throw new ConfigException("Invalid value at " + path + " in " + source
                 + ": expected a mapping with type " + types);
@@ -516,8 +522,15 @@ public final class ConfigLoader {
         }
         String typeName = type.isString() ? type.asString() : "";
         if (typeName.equals(ENVIRONMENT)) {
+            throw new ConfigException("Invalid value at " + path + ".type in " + source
+                + ": credentials.source.type environment was removed in 0.7.0; credentials come"
+                + " from the credential store of this system (type credentialStore, the default)"
+                + " or AWS Parameter Store (type awsParameterStore); see"
+                + " docs/migration-environment-variables.md");
+        }
+        if (typeName.equals(CREDENTIAL_STORE)) {
             rejectUnknownKeys(sourceNode, path, List.of("type", "prefix"),
-                "allowed for type " + ENVIRONMENT + ": type, prefix", source);
+                "allowed for type " + CREDENTIAL_STORE + ": type, prefix", source);
             checkText(sourceNode, path, "prefix", ProfileInfo::isValidPrefix,
                 ProfileInfo.PREFIX_PATTERN.pattern(), source);
         } else if (typeName.equals(AWS_PARAMETER_STORE)) {
@@ -653,7 +666,8 @@ public final class ConfigLoader {
             // parse as a host plus fragment or path and keep the credentials. The value is dropped
             // as a whole, so no part of it can ever be printed.
             problems.add(label + ": " + displayKey + " must not contain user info ('@'); the value"
-                + " was ignored. Credentials belong in environment variables");
+                + " was ignored. Credentials belong in the credential store or in AWS Parameter"
+                + " Store");
             parent.remove(key);
             return;
         }

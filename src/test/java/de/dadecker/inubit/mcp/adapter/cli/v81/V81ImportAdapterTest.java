@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.cli.v81;
 
-import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -51,7 +51,7 @@ class V81ImportAdapterTest {
             Optional.of(new SourcedValue<>("jdoe", "INUBIT_DEV_USERNAME")),
             Optional.of(new SourcedValue<>(Secret.of("pw-import-adapter"), "INUBIT_DEV_PASSWORD")),
             Optional.empty(), Optional.empty());
-        CredentialGuard guard = new CredentialGuard(environmentLabels("INUBIT", DEV),
+        CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", DEV),
             new MutableClock(Instant.parse("2026-10-07T08:00:00Z")));
         CliRunner runner = new CliRunner(spec -> {
             calls.add("startcli");

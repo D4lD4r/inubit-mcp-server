@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
-import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
@@ -206,7 +206,7 @@ public final class DeployHarness {
     }
 
     private CredentialGuard guard(NodeId node) {
-        return new CredentialGuard(environmentLabels("INUBIT", node), clock);
+        return new CredentialGuard(storeLabels("INUBIT", node), clock);
     }
 
     private CliExportRunner exports(NodeId node) {

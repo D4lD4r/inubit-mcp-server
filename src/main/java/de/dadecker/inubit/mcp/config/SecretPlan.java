@@ -9,10 +9,10 @@ import java.util.Optional;
  * R-6), computed at load time. Holds names only, never values.
  *
  * @param node      the node
- * @param source    the effective source: node → group → profile → environment (default)
+ * @param source    the effective source: node → group → profile → credential store (default)
  * @param origin    where {@code source} was declared
- * @param variables the credential variables (environment source only), under the source's
- *                  {@code prefix}, else {@code credentials.envPrefix}, else the default prefix
+ * @param entries   the credential store entry names (credential store source only), under the
+ *                  source's {@code prefix}, else the profile-wide prefix, else the default prefix
  * @param names     the Parameter Store names (AWS source only): per kind the node's name, else the
  *                  group's name if the node has no own {@code source}; kinds may be missing here,
  *                  {@link ConfigValidator} reports them
@@ -21,7 +21,7 @@ public record SecretPlan(
     NodeId node,
     SecretSourceConfig source,
     Origin origin,
-    Optional<CredentialVariables> variables,
+    Optional<CredentialNames> entries,
     Optional<ParameterNames> names) {
 
     /** The level that declared the effective source. */
@@ -31,15 +31,15 @@ public record SecretPlan(
         Objects.requireNonNull(node, "node");
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(origin, "origin");
-        Objects.requireNonNull(variables, "variables");
+        Objects.requireNonNull(entries, "entries");
         Objects.requireNonNull(names, "names");
-        boolean environment = source instanceof SecretSourceConfig.Environment;
-        if (environment != variables.isPresent() || environment == names.isPresent()) {
-            throw new IllegalArgumentException("An environment plan has variables, an AWS plan"
+        boolean store = source instanceof SecretSourceConfig.SystemStore;
+        if (store != entries.isPresent() || store == names.isPresent()) {
+            throw new IllegalArgumentException("A credential store plan has entry names, an AWS plan"
                 + " has parameter names");
         }
-        if (variables.isPresent() && !variables.get().node().equals(node)) {
-            throw new IllegalArgumentException("The variables belong to another node");
+        if (entries.isPresent() && !entries.get().node().equals(node)) {
+            throw new IllegalArgumentException("The entry names belong to another node");
         }
     }
 
@@ -49,14 +49,14 @@ public record SecretPlan(
     }
 
     /**
-     * The source the nodes of {@code group} inherit: the group's, else the profile's, else
-     * environment variables.
+     * The source the nodes of {@code group} inherit: the group's, else the profile's, else the
+     * credential store.
      *
      * @param profile the top-level {@code credentials} section
      */
     static SecretSourceConfig groupSource(CredentialsConfig profile, GroupConfig group) {
         return group.credentials().source().or(profile::source)
-            .orElseGet(() -> new SecretSourceConfig.Environment(Optional.empty()));
+            .orElseGet(() -> new SecretSourceConfig.SystemStore(Optional.empty()));
     }
 
     /**
@@ -79,10 +79,10 @@ public record SecretPlan(
             origin = group.credentials().source().isPresent() ? Origin.GROUP
                 : profile.source().isPresent() ? Origin.PROFILE : Origin.DEFAULT;
         }
-        if (source instanceof SecretSourceConfig.Environment environment) {
-            String prefix = environment.prefix().orElse(profilePrefix);
+        if (source instanceof SecretSourceConfig.SystemStore store) {
+            String prefix = store.prefix().orElse(profilePrefix);
             return new SecretPlan(id, source, origin,
-                Optional.of(new CredentialVariables(prefix, id)), Optional.empty());
+                Optional.of(new CredentialNames(prefix, id)), Optional.empty());
         }
         ParameterNames nodeNames = node.credentials().parameters().orElse(ParameterNames.EMPTY);
         ParameterNames groupNames = own.isPresent() ? ParameterNames.EMPTY

@@ -7,8 +7,10 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.filter.Filter;
 import ch.qos.logback.core.read.ListAppender;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
+import ch.qos.logback.core.spi.FilterReply;
+import de.dadecker.inubit.mcp.config.E2eCredentials;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.Fetched;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
@@ -76,17 +78,35 @@ class NodeSecretsTest {
     private final Logger logger = (Logger) org.slf4j.LoggerFactory.getLogger(NodeSecrets.class);
     private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
 
-    /** Successful fetches are logged at INFO (the production root level); tests run at WARN. */
+    /**
+     * Successful fetches are logged at INFO (the production root level); tests run at WARN. Only
+     * records of this class's store location (AWS profile {@code test-profile}) are captured: a
+     * background fetch of another test class that ends late logs on the same logger.
+     */
     @BeforeEach
     void captureLog() {
+        appender.addFilter(new Filter<>() {
+            @Override
+            public FilterReply decide(ILoggingEvent event) {
+                return event.getKeyValuePairs() != null && event.getKeyValuePairs().stream()
+                    .anyMatch(pair -> pair.key.equals("profile")
+                        && "test-profile".equals(pair.value))
+                    ? FilterReply.NEUTRAL : FilterReply.DENY;
+            }
+        });
         appender.start();
         logger.addAppender(appender);
         logger.setAdditive(false);
         logger.setLevel(Level.INFO);
     }
 
+    /**
+     * The background fetches of a test end, and log, before its capture is released, so that no
+     * record reaches the next test's capture (T013-T015 review r2).
+     */
     @AfterEach
-    void releaseLog() {
+    void releaseLog() throws InterruptedException {
+        store.release(Duration.ofSeconds(2));
         logger.setLevel(null);
         logger.setAdditive(true);
         logger.detachAppender(appender);
@@ -137,24 +157,7 @@ class NodeSecretsTest {
             + error;
     }
 
-    // --- environment nodes and first use ---
-
-    @Test
-    void anEnvironmentNodeReturnsItsStartupCredentialsWithoutTouchingTheStore() {
-        NodeCredentials startup = new NodeCredentials(NODE1,
-            Optional.of(new SourcedValue<>("test-user-1", "INUBIT_DEV_NODE1_USERNAME")),
-            Optional.of(new SourcedValue<>(Secret.of("test-password-1"),
-                "INUBIT_DEV_NODE1_PASSWORD")),
-            Optional.empty(), Optional.empty());
-
-        NodeSecrets secrets = NodeSecrets.environment(startup);
-
-        assertThat(secrets.node()).isEqualTo(NODE1);
-        assertThat(secrets.current(Duration.ZERO)).isSameAs(startup);
-        assertThat(secrets.held()).containsSame(startup);
-        assertThat(store.calls()).isZero();
-        assertThat(appender.list).isEmpty();
-    }
+    // --- first use ---
 
     @Test
     void anAwsNodeFetchesNothingUntilFirstUseThenOnceForAllKinds() {
@@ -172,7 +175,6 @@ class NodeSecretsTest {
             List.of(USERNAME, PASSWORD, TRUST), NodeSecrets.STORE_TIMEOUT));
         assertThat(NodeSecrets.STORE_TIMEOUT).isEqualTo(Duration.ofSeconds(10));
         assertThat(first.node()).isEqualTo(NODE1);
-        assertThat(first.deferred()).isFalse();
         assertThat(first.username().orElseThrow())
             .isEqualTo(new SourcedValue<>("test-user-1", USERNAME));
         assertThat(first.password().orElseThrow().value().reveal()).isEqualTo("test-password-1");
@@ -658,8 +660,8 @@ class NodeSecretsTest {
         assertThat(store.requests()).singleElement().satisfies(request ->
             assertThat(request.names()).containsExactly(USERNAME, PASSWORD));
 
-        CredentialResolver.E2eCredentials first = secrets.e2e(LONG).orElseThrow();
-        CredentialResolver.E2eCredentials second = secrets.e2e(LONG).orElseThrow();
+        E2eCredentials first = secrets.e2e(LONG).orElseThrow();
+        E2eCredentials second = secrets.e2e(LONG).orElseThrow();
 
         assertThat(second).isSameAs(first);
         assertThat(store.requests()).hasSize(2).last().isEqualTo(new FakeParameterStore.Request(
@@ -694,15 +696,8 @@ class NodeSecretsTest {
     }
 
     @Test
-    void withoutEndToEndNamesOrOnAnEnvironmentNodeThereIsNoEndToEndCell() {
-        NodeSecrets environment = NodeSecrets.environment(new NodeCredentials(NODE1,
-            Optional.of(new SourcedValue<>("test-user-1", "INUBIT_DEV_NODE1_USERNAME")),
-            Optional.of(new SourcedValue<>(Secret.of("test-password-1"),
-                "INUBIT_DEV_NODE1_PASSWORD")),
-            Optional.empty(), Optional.empty()));
-
+    void withoutEndToEndNamesThereIsNoEndToEndCell() {
         assertThat(secrets().e2e(LONG)).isEmpty();
-        assertThat(environment.e2e(LONG)).isEmpty();
         assertThat(store.calls()).isZero();
     }
 
@@ -711,13 +706,13 @@ class NodeSecretsTest {
         putValidE2e();
         store.delay(EU, Duration.ofMillis(500));
         NodeSecrets secrets = secretsWithE2e(NodeSecrets.STORE_TIMEOUT);
-        List<Future<Optional<CredentialResolver.E2eCredentials>>> results = new ArrayList<>();
+        List<Future<Optional<E2eCredentials>>> results = new ArrayList<>();
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             for (int i = 0; i < 8; i++) {
                 results.add(executor.submit(() -> secrets.e2e(LONG)));
             }
-            CredentialResolver.E2eCredentials first = results.get(0).get().orElseThrow();
-            for (Future<Optional<CredentialResolver.E2eCredentials>> result : results) {
+            E2eCredentials first = results.get(0).get().orElseThrow();
+            for (Future<Optional<E2eCredentials>> result : results) {
                 assertThat(result.get()).containsSame(first);
             }
         }
@@ -953,18 +948,72 @@ class NodeSecretsTest {
             assertThat(request.names()).containsExactly(USERNAME, PASSWORD));
     }
 
-    @Test
-    void onlyAnAwsNodeCanBeReRead() {
-        NodeSecrets environment = NodeSecrets.environment(new NodeCredentials(NODE1,
-            Optional.of(new SourcedValue<>("test-user-1", "INUBIT_DEV_NODE1_USERNAME")),
-            Optional.of(new SourcedValue<>(Secret.of("test-password-1"),
-                "INUBIT_DEV_NODE1_PASSWORD")),
-            Optional.empty(), Optional.empty()));
+    // --- feature 011 T011: the Parameter Store texts are those of feature 010, byte for byte ---
 
-        assertThat(environment.rereadable()).isFalse();
-        assertThat(secrets().rereadable()).isTrue();
-        assertThatThrownBy(environment::reread)
-            .isInstanceOf(UnsupportedOperationException.class);
-        assertThat(store.calls()).isZero();
+    @Test
+    void theNotFoundTextsAreUnchanged() {
+        store.put(EU, USERNAME, "test-user-1");
+
+        ToolError error = failure(secrets(), LONG);
+
+        assertThat(error.message()).isEqualTo("dev/node1: INUBIT credentials from AWS Parameter"
+            + " Store (eu-central-1, profile test-profile) are unavailable: not found for"
+            + " /test/dev/node1/password");
+        assertThat(error.likelyCause()).isEqualTo("The parameter does not exist in this region"
+            + " and account, or it is empty");
+        assertThat(error.nextStep()).isEqualTo("Create the parameter /test/dev/node1/password in"
+            + " Parameter Store (eu-central-1, profile test-profile) or correct"
+            + " credentials.parameters.password");
+        assertThat(lastLog(appender).getFormattedMessage()).isEqualTo("dev/node1: INUBIT"
+            + " credentials could not be fetched from AWS Parameter Store (eu-central-1, profile"
+            + " test-profile): NOT_FOUND");
+    }
+
+    @Test
+    void theUnreachableTextsAreUnchanged() {
+        putValid();
+        store.delay(EU, Duration.ofSeconds(60));
+        NodeSecrets secrets = new NodeSecrets(plan(NODE1, USERNAME, PASSWORD, Optional.empty()),
+            store, scrubber, clock, Duration.ofMillis(300));
+
+        ToolError error = failure(secrets, LONG);
+
+        assertThat(error.message()).isEqualTo("dev/node1: INUBIT credentials from AWS Parameter"
+            + " Store (eu-central-1, profile test-profile) are unavailable: Parameter Store"
+            + " unreachable");
+        assertThat(error.likelyCause()).isEqualTo("The Parameter Store could not be reached,"
+            + " throttled the request or did not answer within 0 s");
+        assertThat(error.nextStep()).isEqualTo("Check network access to"
+            + " ssm.eu-central-1.amazonaws.com; the fetch is retried after 30 s");
+    }
+
+    @Test
+    void thePendingAndSuccessTextsAreUnchanged() {
+        putValid();
+        store.delay(EU, Duration.ofMillis(300));
+        NodeSecrets secrets = secrets();
+
+        ToolError pending = failure(secrets, Duration.ofMillis(20));
+        secrets.current(LONG);
+
+        assertThat(pending.message()).isEqualTo("dev/node1: the INUBIT credentials from AWS"
+            + " Parameter Store (eu-central-1, profile test-profile) are not yet available (still"
+            + " fetching)");
+        assertThat(pending.likelyCause()).isEqualTo("The Parameter Store answers slowly");
+        assertThat(pending.nextStep()).isEqualTo("Retry shortly; the fetch continues and the next"
+            + " call uses its result");
+        assertThat(lastLog(appender).getFormattedMessage()).matches("dev/node1: INUBIT"
+            + " credentials fetched from AWS Parameter Store \\(eu-central-1, profile"
+            + " test-profile\\) in \\d+ ms");
+    }
+
+    @Test
+    void theFactoriesUseTheTimeoutOfTheirStore() {
+        assertThat(secrets().timeout()).isEqualTo(NodeSecrets.STORE_TIMEOUT)
+            .isEqualTo(Duration.ofSeconds(10));
+        assertThat(NodeSecrets.CREDENTIAL_STORE_TIMEOUT).isEqualTo(Duration.ofSeconds(60));
+        assertThat(NodeSecrets.credentialStore(TestNodeConfig.node().id("dev/node1").build(),
+            new de.dadecker.inubit.mcp.testing.FakeCredentialStore(), scrubber, clock).timeout())
+            .isEqualTo(NodeSecrets.CREDENTIAL_STORE_TIMEOUT);
     }
 }

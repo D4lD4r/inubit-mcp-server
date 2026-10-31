@@ -683,6 +683,10 @@ class ConfigLoaderTest {
                 .contains("dev/node1", "baseUrl", "user info"));
             assertThat(loaded.urlProblems()).anySatisfy(p -> assertThat(p)
                 .contains("groups[0] 'dev'", "cli.url", "user info"));
+            // feature 011 (review T013-T014 r1): the advice names the two sources
+            assertThat(loaded.urlProblems()).allSatisfy(p -> assertThat(p)
+                .contains("credential store", "AWS Parameter Store")
+                .doesNotContain("environment variables"));
             GroupConfig stage = loaded.config().groups().get(0);
             assertThat(stage.cli().url()).isEmpty();
             assertThat(stage.nodes().get(0).baseUrl()).isEmpty();
@@ -1302,7 +1306,7 @@ class ConfigLoaderTest {
                 credentials:
                   envPrefix: INUBIT_ACME
                   source:
-                    type: environment
+                    type: credentialStore
                     prefix: INUBIT_ACME
                 groups:
                   - name: prod
@@ -1326,7 +1330,7 @@ class ConfigLoaderTest {
                       - name: node2
                         baseUrl: https://inubit.example.test:8444
                         credentials:
-                          source: { type: environment }
+                          source: { type: credentialStore }
                 """;
 
             LoadedConfig loaded = parse(yaml);
@@ -1336,7 +1340,7 @@ class ConfigLoaderTest {
             assertThat(loaded.credentialKeys()).isEmpty();
             assertThat(config.credentials().envPrefix()).contains("INUBIT_ACME");
             assertThat(config.credentials().source()).contains(
-                new SecretSourceConfig.Environment(Optional.of("INUBIT_ACME")));
+                new SecretSourceConfig.SystemStore(Optional.of("INUBIT_ACME")));
             assertThat(config.credentials().parameters()).isEmpty();
             assertThat(group.credentials().source()).contains(
                 new SecretSourceConfig.AwsParameterStore("eu-central-1",
@@ -1352,7 +1356,7 @@ class ConfigLoaderTest {
                 Optional.empty(), Optional.of("/inubit/prod/node1/password"), Optional.empty(),
                 Optional.empty(), Optional.empty()));
             assertThat(group.nodes().get(1).credentials().source())
-                .contains(new SecretSourceConfig.Environment(Optional.empty()));
+                .contains(new SecretSourceConfig.SystemStore(Optional.empty()));
         }
 
         @Test
@@ -1454,7 +1458,7 @@ class ConfigLoaderTest {
 
         @Test
         void sourceKeysDependOnTheType() {
-            assertRefused(withCredentials("credentials:\n  source:\n    type: environment\n"
+            assertRefused(withCredentials("credentials:\n  source:\n    type: credentialStore\n"
                 + "    region: eu-central-1\n", ""), "Unknown key 'region'",
                 "groups[0].credentials.source", "type, prefix");
             assertRefused(withCredentials("credentials:\n  source:\n"
@@ -1470,6 +1474,33 @@ class ConfigLoaderTest {
         void aMissingOrUnknownSourceTypeIsRefused(String source) {
             assertRefused(withCredentials("credentials:\n  " + source + "\n", ""),
                 "groups[0].credentials.source");
+        }
+
+        @Test
+        void theEnvironmentSourceIsRefusedWithItsReplacementAndTheGuide() {
+            // feature 011 (US3-1, research R-6): environment variables are no longer a source
+            for (String yaml : List.of(
+                MINIMAL + "credentials:\n  source:\n    type: environment\n",
+                withCredentials("credentials:\n  source: { type: environment }\n", ""),
+                withCredentials("", "credentials:\n  source:\n    type: environment\n"
+                    + "    prefix: INUBIT_ACME\n"))) {
+                assertThatThrownBy(() -> parse(yaml))
+                    .isInstanceOf(ConfigException.class)
+                    .hasMessageContainingAll("credentials.source.type", "environment",
+                        "removed in 0.7.0", "type credentialStore", "type awsParameterStore",
+                        "docs/migration-environment-variables.md");
+            }
+            assertThatThrownBy(() -> parse(withCredentials("",
+                "credentials:\n  source: { type: environment }\n")))
+                .hasMessageContaining("groups[0].nodes[0].credentials.source.type");
+        }
+
+        @Test
+        void anUnknownTypeListsTheSupportedTypes() {
+            assertThatThrownBy(() -> parse(withCredentials(
+                "credentials:\n  source: { type: keychain }\n", "")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("one of credentialStore, awsParameterStore");
         }
 
         @Test
@@ -1494,7 +1525,7 @@ class ConfigLoaderTest {
 
         @Test
         void anInvalidEnvironmentPrefixIsRefusedNamingTheKeyPath() {
-            assertRefused(withCredentials("credentials:\n  source:\n    type: environment\n"
+            assertRefused(withCredentials("credentials:\n  source:\n    type: credentialStore\n"
                 + "    prefix: pasted-secret-value-1\n", ""),
                 "groups[0].credentials.source.prefix", ProfileInfo.PREFIX_PATTERN.pattern());
         }

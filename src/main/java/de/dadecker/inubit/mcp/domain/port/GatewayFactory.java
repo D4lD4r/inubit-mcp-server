@@ -111,6 +111,28 @@ public interface GatewayFactory {
     }
 
     /**
+     * The server-independent input checks of the diagnosis queries for {@code server}, chosen by
+     * its version as its ports would be, without its credentials or client (feature 011, review
+     * T013-T014 r1). The default, for a factory whose ports need no credentials, asks the ports.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException
+     *     {@code TARGET_UNKNOWN} for a server that is not configured
+     */
+    default QueryRules queryRules(NodeId server) {
+        return new QueryRules() {
+            @Override
+            public void validate(de.dadecker.inubit.mcp.domain.model.LogQuery query) {
+                logs(server).validate(query);
+            }
+
+            @Override
+            public void validate(de.dadecker.inubit.mcp.domain.model.ProcessQuery query) {
+                processes(server).validate(query);
+            }
+        };
+    }
+
+    /**
      * Makes the credentials of {@code server} available, waiting at most {@code bound} (feature
      * 010, research R-9): {@code get_health} asks this first, so that a first fetch from AWS
      * Parameter Store cannot outlast its time budget. Starts the fetch if none is running, also

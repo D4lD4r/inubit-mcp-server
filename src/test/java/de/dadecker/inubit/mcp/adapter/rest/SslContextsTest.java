@@ -4,10 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import de.dadecker.inubit.mcp.config.CredentialVariables;
+import de.dadecker.inubit.mcp.config.CredentialNames;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig.Tls;
 import de.dadecker.inubit.mcp.config.ParameterNames;
 import de.dadecker.inubit.mcp.config.SecretLabels;
+import de.dadecker.inubit.mcp.config.StoreKind;
 import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -28,8 +29,8 @@ class SslContextsTest {
 
     private static final TestCertificates CERTS = TestCertificates.get();
     /** Profile {@code acme} with its default credential prefix (002 research D-6). */
-    private static final SecretLabels NODE = new SecretLabels.Environment(
-        new CredentialVariables("INUBIT_ACME", NodeId.parse("test/node1")));
+    private static final SecretLabels NODE = new SecretLabels.Store(
+        new CredentialNames("INUBIT_ACME", NodeId.parse("test/node1")), StoreKind.KEYCHAIN);
 
     /** An AWS node (feature 010, research R-15), with or without a trust-store parameter. */
     private static SecretLabels awsNode(Optional<String> trustStorePassword) {
@@ -109,20 +110,24 @@ class SslContextsTest {
     }
 
     @Test
-    void theTextsOfAnEnvironmentNodeAreUnchanged() {
-        String variables = "INUBIT_ACME_TEST_NODE1_TRUSTSTORE_PASSWORD (or"
+    void trustStoreErrorsOfACredentialStoreNodeNameItsEntry() {
+        // feature 011 (T016, research R-12)
+        String entry = "INUBIT_ACME_TEST_NODE1_TRUSTSTORE_PASSWORD (or"
             + " INUBIT_ACME_TEST_TRUSTSTORE_PASSWORD)";
         ToolErrorException empty = tlsError(() -> SslContexts.forServer(NODE,
             trustStore(CERTS.protectedTrustStore()), Optional.empty()));
         assertThat(empty.error().likelyCause()).isEqualTo("The trust store is empty, or its"
-            + " certificates are encrypted and neither " + variables + " is set");
+            + " certificates are encrypted and no trust store password entry " + entry
+            + " is in the macOS Keychain");
         assertThat(empty.error().nextStep()).isEqualTo("Import the INUBIT server certificate"
-            + " into a password-less PKCS12 trust store, or set " + variables
-            + " (not allowed together with a CLI)");
+            + " into a password-less PKCS12 trust store, or store its password in the macOS"
+            + " Keychain as entry " + entry + ", service inubit-mcp (not allowed together with a"
+            + " CLI)");
 
         ToolErrorException wrong = tlsError(() -> SslContexts.forServer(NODE,
             trustStore(CERTS.protectedTrustStore()), Optional.of(Secret.of("wrong-pw-123"))));
-        assertThat(wrong.error().nextStep()).isEqualTo("Check tls.trustStore and " + variables);
+        assertThat(wrong.error().nextStep()).isEqualTo("Check tls.trustStore and credential"
+            + " store entry " + entry + " in the macOS Keychain");
     }
 
     @Test

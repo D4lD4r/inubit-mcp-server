@@ -20,7 +20,6 @@ import de.dadecker.inubit.mcp.application.NodeOverview;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.domain.model.Capability;
@@ -345,10 +344,10 @@ class ListNodesToolTest {
         versions = new NodeVersions(clock,
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
         SecretScrubber scrubber = new SecretScrubber();
-        gateways = new AdapterGatewayFactory(nodes, TestSecrets.environment(new CredentialResolver(Map.of(
+        gateways = new AdapterGatewayFactory(nodes, TestSecrets.credentialStore(nodes, Map.of(
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
-            "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber, "INUBIT")
-            .resolve(List.copyOf(byId.keySet()))), scrubber, Clock.systemUTC(),
+            "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber), scrubber,
+            Clock.systemUTC(),
             new CliRunner(noStartCli(new AtomicInteger()), Map.of(), false,
                 new CliResources("acme")), versions, PortSetRegistry.v81Default());
         Map<NodeId, Set<Capability>> allowed = Map.of(DEV1, DEVELOPMENT, DEV2, READS,
@@ -706,11 +705,10 @@ class ListNodesToolTest {
             .parse(yaml, temp.resolve("config.yaml")).config();
         SecretScrubber scrubber = new SecretScrubber();
         AtomicInteger runs = new AtomicInteger();
-        try (TestWiring wiring = TestWiring.of(config, new CredentialResolver(Map.of(
+        try (TestWiring wiring = TestWiring.of(config, TestSecrets.store(Map.of(
                 "INUBIT_ACME_DEV_USERNAME", "jdoe", "INUBIT_ACME_DEV_PASSWORD", PASSWORD,
-                "INUBIT_ACME_TEST_USERNAME", "jdoe", "INUBIT_ACME_TEST_PASSWORD", PASSWORD),
-                scrubber, config.credentialPrefix()).resolve(config.nodeIds()), scrubber,
-                path -> true, false, noStartCli(runs), Map.of());
+                "INUBIT_ACME_TEST_USERNAME", "jdoe", "INUBIT_ACME_TEST_PASSWORD", PASSWORD)),
+                scrubber, path -> true, false, noStartCli(runs), Map.of());
             McpTestClient wired = McpTestClient.start(wiring.toolHandlers(), scrubber)) {
             wired.initialize();
 

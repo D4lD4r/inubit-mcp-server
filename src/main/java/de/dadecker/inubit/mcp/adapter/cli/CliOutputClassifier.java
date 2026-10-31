@@ -253,8 +253,8 @@ public final class CliOutputClassifier {
     private ToolError authFailed(String inubitText) {
         return error(ErrorCode.AUTH_FAILED, "StartCLI login failed: " + inubitText,
             "Wrong username or password for this INUBIT server, or the account is locked",
-            labels.map(SecretLabels::fixCredentials).orElse("Check the username and"
-                + " password variables (see --check-config) and restart the MCP client"));
+            labels.map(SecretLabels::fixCredentials).orElse("Check the node's username and"
+                + " password with --check-config and correct them where they are stored"));
     }
 
     private ToolError unreachable() {

@@ -7,6 +7,62 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Planned as **0.7.0**: feature 011, credentials only from the credential store of the system or
+from AWS Parameter Store. The live check against the real credential stores (macOS required before
+the release; Windows and Linux where available, `docs/live-tests.md`) has not been executed yet.
+
+### Breaking
+
+- **Environment variables are no longer read for INUBIT credentials.** Every node reads its
+  credentials from the credential store of the system the server runs on (macOS Keychain, Windows
+  Credential Manager, Linux Secret Service; the default) or from AWS Systems Manager Parameter
+  Store. The entries use the former variable names as account and the service `inubit-mcp`, so
+  entries created for the macOS start script of 0.6.x keep working; the start script is no longer
+  needed. Upgrading: [docs/migration-environment-variables.md](docs/migration-environment-variables.md).
+- `credentials.source: { type: environment }` is refused at startup with a hint to the
+  replacement (`type: credentialStore`, the default, or `awsParameterStore`).
+- Credentials are read on a node's first use, no longer at startup: a missing entry no longer
+  stops the server but fails the first call on that node with `AUTH_FAILED` (and is reported by
+  `--check-config`).
+- Only one of the two end-to-end entries (`_E2E_USERNAME` / `_E2E_PASSWORD`) now fails
+  `run_e2e_test` naming the missing entry; before, one variable alone silently meant no basic
+  authentication.
+
+### Added
+
+- Credential store adapters: `/usr/bin/security` on macOS, `CredReadW` on Windows (new dependency
+  JNA 5.17.0, Apache-2.0 option of its dual license, see `THIRD-PARTY-NOTICES.md`), `secret-tool`
+  on Linux (needs `libsecret-tools`/`libsecret` and a Secret Service). One entry is read at a
+  time (at most one access dialog), 60 s per node, 30 s back-off after a failure.
+- `credentials.prefix` as the name of the profile-wide entry prefix (`envPrefix` still works, with
+  a warning).
+- `--check-config` reads every credential store entry once and shows per node the entry found and
+  its outcome (`ok`, `not found`, `invalid value`, `access denied`, `not checked`); a store that
+  cannot be asked is a warning.
+- A warning names (never shows) environment variables that earlier versions read as credentials.
+- Opt-in live check of the credential store (`mvn verify -Plive-store` with
+  `INUBIT_LIVE_STORE=1`).
+
+### Changed
+
+- A changed password needs no restart for any source: after INUBIT rejects a login the server
+  reads the node's credentials once more (at most two failed logins per node per 60 s). Messages
+  name the entries or parameters to correct and no longer ask to restart the MCP client.
+- Within calls over several nodes, a node's part gets the read time (61 s credential store, 11 s
+  Parameter Store) on top of its deadline only while its credentials are not read yet; a timeout
+  during a pending credential store read names a possibly open access dialog.
+- `query_logs` and `find_processes` check their input for every node before any node is contacted
+  and without reading credentials.
+- The audit `account` of a node before its first read is `(credential store <entry> or <entry>)`.
+
+### Fixed
+
+- An end-to-end test password shorter than 4 characters is refused, like the password and the
+  `e2ePassword` parameter; before, a short `_E2E_PASSWORD` variable was accepted although it
+  cannot be scrubbed reliably (since 0.7.0 checked when the entry is read).
+- `SECURITY.md` names AWS Systems Manager Parameter Store as a credential source (feature 010)
+  and its bound of two failed logins per node per 60 s.
+
 ## [0.6.2] - 2026-10-28
 
 Dependency update; no change to tools, configuration or output. Live checks are unchanged since

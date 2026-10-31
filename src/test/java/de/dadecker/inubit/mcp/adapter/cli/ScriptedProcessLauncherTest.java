@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.cli;
 
-import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -247,7 +247,7 @@ class ScriptedProcessLauncherTest {
     }
 
     private static CredentialGuard guard() {
-        return new CredentialGuard(environmentLabels("INUBIT", DEV),
+        return new CredentialGuard(storeLabels("INUBIT", DEV),
             new MutableClock(Instant.parse("2026-10-06T08:00:00Z")));
     }
 }

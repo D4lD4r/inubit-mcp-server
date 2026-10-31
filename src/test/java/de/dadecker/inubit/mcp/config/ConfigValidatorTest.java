@@ -30,8 +30,6 @@ class ConfigValidatorTest {
     private static final String CLI_HOME = "/opt/client";
 
     private final Map<String, String> env = new HashMap<>();
-    /** Stage-wide credential variables that a test wants to be unset. */
-    private final Set<String> unset = new HashSet<>();
     private final Set<Path> existing = new HashSet<>();
     /** Workspaces the validator asked to prepare; no directory is created by these tests. */
     private final List<Path> prepared = new ArrayList<>();
@@ -51,24 +49,12 @@ class ConfigValidatorTest {
     private ValidationReport validate(String yaml) {
         LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, windows)
             .parse(yaml, HOME.resolve("config.yaml"));
-        // stage-wide credentials for every configured stage, unless a test unsets them
-        for (GroupConfig stage : loaded.config().groups()) {
-            String prefix = loaded.config().credentialPrefix() + "_"
-                + stage.name().toUpperCase().replace('-', '_');
-            for (String kind : new String[] {"_USERNAME", "_PASSWORD"}) {
-                if (!unset.contains(prefix + kind)) {
-                    env.putIfAbsent(prefix + kind, "secret-value" + kind);
-                }
-            }
-        }
-        CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
-            loaded.config().credentialPrefix())
-            .resolve(loaded.config().nodeIds());
+        // feature 011: no credential comes from the environment; nothing is read at startup
         return new ConfigValidator(existing::contains, env, windows, tempDirectory,
             source -> List.of(), workspace -> {
                 prepared.add(workspace);
                 return workspaceResult;
-            }).validate(loaded, credentials);
+            }).validate(loaded);
     }
 
     private static String server(String settings) {
@@ -162,8 +148,8 @@ class ConfigValidatorTest {
 
             assertThat(report.errors()).hasSize(3);
             assertThat(report.errors()).anySatisfy(e -> assertThat(e)
-                .contains("groups[0].nodes[0].password", "set the value in the environment variable",
-                    "or store it in AWS Parameter Store and name it in credentials.parameters"));
+                .contains("groups[0].nodes[0].password", "store the value in the credential store",
+                    "or in AWS Parameter Store and name it in credentials.parameters"));
             // 002: the top-level credentials section is allowed, a password inside it is not
             assertThat(report.errors()).anySatisfy(e -> assertThat(e)
                 .contains("credentials.password"));
@@ -176,7 +162,7 @@ class ConfigValidatorTest {
             // 002 research D-6: the hint names the variables this profile reads
             ValidationReport defaultPrefix = validate(server("password: in-the-file\n"));
             ValidationReport explicitPrefix = validate(server("password: in-the-file\n")
-                + "credentials:\n  envPrefix: INUBIT_TEAM\n");
+                + "credentials:\n  prefix: INUBIT_TEAM\n");
 
             assertThat(defaultPrefix.errors()).singleElement().asString()
                 .contains("INUBIT_ACME_<GROUP>[_<NODE>]_USERNAME");
@@ -185,22 +171,31 @@ class ConfigValidatorTest {
         }
 
         @Test
-        void missingUsernameOrPasswordVariable() {
-            unset.add("INUBIT_ACME_DEV_PASSWORD");
-
+        void missingCredentialsAreNoStartupError() {
+            // feature 011 (FR-006): entries are read on first use; a missing one fails that call
             ValidationReport report = validate(server(""));
 
-            assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
-                .contains("dev/node1", "INUBIT_ACME_DEV_NODE1_PASSWORD",
-                    "INUBIT_ACME_DEV_PASSWORD")
-                .doesNotContain("secret-value"));
+            assertThat(report.errors()).isEmpty();
         }
 
         @Test
-        void collidingDerivedVariableNames() {
-            env.put("INUBIT_ACME_A_B_C_USERNAME", "u");
-            env.put("INUBIT_ACME_A_B_C_PASSWORD", "colliding-pw");
+        void leftoverCredentialVariablesAreOneWarningWithNamesOnly() {
+            // feature 011 (FR-003)
+            env.put("INUBIT_ACME_DEV_PASSWORD", "leftover-Pw-1");
+            env.put("INUBIT_ACME_DEV_NODE1_TRUSTSTORE_PASSWORD", "leftover-Ts-2");
 
+            ValidationReport report = validate(server(""));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).singleElement().satisfies(w -> assertThat(w)
+                .contains("no longer read", "INUBIT_ACME_DEV_PASSWORD",
+                    "INUBIT_ACME_DEV_NODE1_TRUSTSTORE_PASSWORD")
+                .doesNotContain("leftover-Pw-1", "leftover-Ts-2"));
+        }
+
+        @Test
+        void collidingDerivedEntryNames() {
+            // feature 011 (research R-10): reported by the validator, not on first use
             ValidationReport report = validate("""
                 profile:
                   name: acme
@@ -216,7 +211,48 @@ class ConfigValidatorTest {
                 """);
 
             assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
-                .contains("a-b/c", "a/b-c", "INUBIT_ACME_A_B_C_USERNAME"));
+                .contains("Credential store entry names collide", "a-b/c", "a/b-c",
+                    "INUBIT_ACME_A_B_C_USERNAME"));
+        }
+
+        @Test
+        void aNodeEntryCollidingWithAnotherGroupsGroupWideEntryIsAnError() {
+            // review T013-T014 r1 (from CredentialResolverTest): node a/b and group a-b
+            ValidationReport report = validate("""
+                profile:
+                  name: acme
+                groups:
+                  - name: a-b
+                    nodes:
+                      - name: x
+                        baseUrl: https://one.example.test
+                  - name: a
+                    nodes:
+                      - name: b
+                        baseUrl: https://two.example.test
+                """);
+
+            assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
+                .contains("Credential store entry names collide", "INUBIT_ACME_A_B_USERNAME",
+                    "group a-b", "node a/b"));
+        }
+
+        @Test
+        void aNodeNamedTruststoreCollidesWithTheGroupsTrustStorePasswordEntry() {
+            // review T013-T014 r1 (from CredentialResolverTest): <GROUP>_TRUSTSTORE_PASSWORD
+            ValidationReport report = validate("""
+                profile:
+                  name: acme
+                groups:
+                  - name: dev
+                    nodes:
+                      - name: truststore
+                        baseUrl: https://one.example.test
+                """);
+
+            assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
+                .contains("Credential store entry names collide",
+                    "INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD"));
         }
 
         @Test
@@ -430,26 +466,7 @@ class ConfigValidatorTest {
         }
 
         @Test
-        void trustStorePasswordForAServerWithCli() {
-            env.put("INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD", "ts-secret");
-
-            ValidationReport report = validate(server("""
-                tls:
-                  trustStore: /opt/truststore.p12
-                cli:
-                  home: /opt/client
-                  javaHome: /opt/jdk17
-                """));
-
-            assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
-                .contains("dev/node1", "INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD", "CLI")
-                .doesNotContain("ts-secret"));
-        }
-
-        @Test
         void trustStorePasswordWithoutCliIsAllowed() {
-            env.put("INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD", "ts-secret");
-
             ValidationReport report = validate(server("tls:\n  trustStore: /opt/truststore.p12\n"));
 
             assertThat(report.errors()).isEmpty();
@@ -560,8 +577,6 @@ class ConfigValidatorTest {
 
         @Test
         void allErrorsAreCollectedAndReportedTogether() {
-            unset.add("INUBIT_ACME_DEV_USERNAME");
-
             ValidationReport report = validate("""
                 profile:
                   name: acme
@@ -582,7 +597,7 @@ class ConfigValidatorTest {
                           confirmation: CLIENT
                 """);
 
-            assertThat(report.errors()).hasSize(5);
+            assertThat(report.errors()).hasSize(4);
             assertThat(report.hasErrors()).isTrue();
         }
     }
@@ -802,33 +817,7 @@ class ConfigValidatorTest {
         }
 
         @Test
-        void trustStorePasswordWithoutTrustStore() {
-            env.put("INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD", "ts-secret");
-
-            ValidationReport report = validate(server(""));
-
-            assertThat(report.warnings()).singleElement().satisfies(w -> assertThat(w)
-                .contains("dev/node1", "INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD", "tls.trustStore")
-                .doesNotContain("ts-secret"));
-        }
-
-        @Test
-        void veryShortPassword() {
-            env.put("INUBIT_ACME_DEV_PASSWORD", "abc");
-
-            ValidationReport report = validate(server(""));
-
-            // Phase 3 review m4: an error (was a warning)
-            assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
-                .contains("dev/node1", "INUBIT_ACME_DEV_PASSWORD", "4 characters")
-                .doesNotContain("abc"));
-            assertThat(report.warnings()).isEmpty();
-        }
-
-        @Test
-        void unmatchedWarningConsidersServersWithoutBaseUrl() {
-            env.put("INUBIT_ACME_DEV_NOURL_PASSWORD", "server-pw");
-
+        void aNodeWithoutBaseUrlIsAnErrorWithoutWarnings() {
             ValidationReport report = validate(server("") + """
                   - name: nourl
                 """.indent(4));
@@ -838,15 +827,6 @@ class ConfigValidatorTest {
                 .contains("dev/nourl", "baseUrl is missing"));
         }
 
-        @Test
-        void passwordVariableMatchingNoServer() {
-            env.put("INUBIT_ACME_DEV_INUBTI_PASSWORD", "typo-value");
-
-            ValidationReport report = validate(server(""));
-
-            assertThat(report.warnings()).singleElement().satisfies(w -> assertThat(w)
-                .contains("INUBIT_ACME_DEV_INUBTI_PASSWORD").doesNotContain("typo-value"));
-        }
     }
 
     /**
@@ -887,16 +867,9 @@ class ConfigValidatorTest {
             ConfigLoader loader = new ConfigLoader(Map.of(), home, false);
             LoadedConfig loaded = loader.loadFile(file);
             ProfileConfig config = loaded.config();
-            // the group-wide variables of every environment node (feature 010: AWS nodes read none)
-            config.secretPlans().values().forEach(plan -> plan.variables().ifPresent(variables -> {
-                env.put(variables.groupVariable("USERNAME"), "user");
-                env.put(variables.groupVariable("PASSWORD"), "secret-value");
-            }));
-            CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
-                config.terminology().effectiveOrDefault(), config.credentialPrefix(),
-                config.secretPlans()).resolve(config.nodeIds());
+            
             return new ConfigValidator(existing::contains, env, false, tempDirectory,
-                loader::otherProfiles).validate(loaded, credentials);
+                loader::otherProfiles).validate(loaded);
         }
 
         @Test
@@ -922,7 +895,7 @@ class ConfigValidatorTest {
             assertThat(report.warnings()).singleElement().asString()
                 .contains(globex.toString(), "'globex'", "audit directory",
                     home.resolve("shared-audit").toString())
-                .doesNotContain("profile name", "prefix");
+                .doesNotContain("profile name", "entry prefix");
         }
 
         @Test
@@ -930,12 +903,12 @@ class ConfigValidatorTest {
             // acme's default prefix INUBIT_ACME, configured explicitly by the other profile
             Path acme = profileFile("acme.yaml", "acme", "");
             Path globex = profileFile("globex.yaml", "globex",
-                "credentials:\n  envPrefix: INUBIT_ACME\n");
+                "credentials:\n  prefix: INUBIT_ACME\n");
 
             ValidationReport report = validateFile(acme);
 
             assertThat(report.warnings()).singleElement().asString()
-                .contains(globex.toString(), "'globex'", "credential variable prefix INUBIT_ACME")
+                .contains(globex.toString(), "'globex'", "credential entry prefix INUBIT_ACME")
                 .doesNotContain("profile name", "audit directory");
             // both configure test/node1, so they also derive the same names (review P1)
             assertThat(report.errors()).singleElement().asString()
@@ -947,7 +920,7 @@ class ConfigValidatorTest {
             // T007 (research R-13, spec edge case "two profiles read the same parameter")
             String aws = """
                 credentials:
-                  envPrefix: INUBIT_SHARED
+                  prefix: INUBIT_SHARED
                 groups:
                   - name: test
                     credentials:
@@ -970,14 +943,14 @@ class ConfigValidatorTest {
             assertThat(validateFile(globex).errors()).isEmpty();
             // an environment profile with the same names next to them shares nothing either
             Path initech = profileFile("initech.yaml", "initech",
-                "credentials:\n  envPrefix: INUBIT_SHARED\n");
+                "credentials:\n  prefix: INUBIT_SHARED\n");
             assertThat(validateFile(initech).errors()).isEmpty();
             assertThat(validateFile(acme).errors()).isEmpty();
             // T007 review r1: the same prefix is no shared variable unless both read variables
             assertThat(validateFile(acme).warnings()).as("acme and globex: AWS only")
-                .noneMatch(warning -> warning.contains("credential variable prefix"));
+                .noneMatch(warning -> warning.contains("credential entry prefix"));
             assertThat(validateFile(initech).warnings()).as("initech next to AWS-only profiles")
-                .noneMatch(warning -> warning.contains("credential variable prefix"));
+                .noneMatch(warning -> warning.contains("credential entry prefix"));
         }
 
         // --- T035 (feature 003, FR-003): no shared workspace ----------------------------------
@@ -1047,7 +1020,7 @@ class ConfigValidatorTest {
 
             assertThat(report.warnings()).singleElement().asString()
                 .contains(copy.toString(), "profile name 'acme'", "unique",
-                    "credential variable prefix INUBIT_ACME", "audit directory", "workspace");
+                    "credential entry prefix INUBIT_ACME", "audit directory", "workspace");
             // re-review N1: a copy of the same profile may start (spec edge case)
             assertThat(report.errors()).isEmpty();
         }
@@ -1060,7 +1033,7 @@ class ConfigValidatorTest {
                 profile:
                   name: acme
                 credentials:
-                  envPrefix: INUBIT_ACME_2
+                  prefix: INUBIT_ACME_2
                 groups:
                   - name: test
                     nodes:
@@ -1080,16 +1053,16 @@ class ConfigValidatorTest {
             throws IOException {
             // re-review N1 (b): different customers sharing INUBIT_DEV_*
             Path acme = profileFile("acme.yaml", "acme",
-                "credentials:\n  envPrefix: INUBIT\n");
+                "credentials:\n  prefix: INUBIT\n");
             Path globex = profileFile("globex.yaml", "globex",
-                "credentials:\n  envPrefix: INUBIT\n");
+                "credentials:\n  prefix: INUBIT\n");
 
             ValidationReport report = validateFile(acme);
 
             assertThat(report.errors()).singleElement().asString()
                 .contains(globex.toString(), "'globex'", "INUBIT_TEST_USERNAME");
             assertThat(report.warnings()).singleElement().asString()
-                .contains("credential variable prefix INUBIT");
+                .contains("credential entry prefix INUBIT");
         }
 
         @Test
@@ -1099,20 +1072,20 @@ class ConfigValidatorTest {
                 profile:
                   name: acme
                 credentials:
-                  envPrefix: INUBIT_TEAM
+                  prefix: INUBIT_TEAM
                 groups:
                   - name: dev
                     nodes:
                       - name: node1
                         baseUrl: https://node1.example.test:8443
                 """);
-            profileFile("globex.yaml", "globex", "credentials:\n  envPrefix: INUBIT_TEAM\n");
+            profileFile("globex.yaml", "globex", "credentials:\n  prefix: INUBIT_TEAM\n");
 
             ValidationReport report = validateFile(acme);
 
             assertThat(report.errors()).isEmpty();
             assertThat(report.warnings()).singleElement().asString()
-                .contains("credential variable prefix INUBIT_TEAM")
+                .contains("credential entry prefix INUBIT_TEAM")
                 .doesNotContain("INUBIT_TEAM_DEV", "INUBIT_TEAM_TEST");
         }
 
@@ -1194,7 +1167,7 @@ class ConfigValidatorTest {
                 profile:
                   name: legacy
                 credentials:
-                  envPrefix: INUBIT
+                  prefix: INUBIT
                 groups:
                   - name: acme-test
                     nodes:
@@ -1213,12 +1186,12 @@ class ConfigValidatorTest {
         void anInvalidProfileNameOfAnotherFileIsNeverPrinted() throws IOException {
             Path acme = profileFile("acme.yaml", "acme", "");
             profileFile("odd.yaml", "\"x\\e[31mred\\u0007\"",
-                "credentials:\n  envPrefix: INUBIT_ACME\n");
+                "credentials:\n  prefix: INUBIT_ACME\n");
 
             ValidationReport report = validateFile(acme);
 
             assertThat(String.join("\n", report.warnings()) + String.join("\n", report.errors()))
-                .contains("(invalid profile.name)", "credential variable prefix INUBIT_ACME")
+                .contains("(invalid profile.name)", "credential entry prefix INUBIT_ACME")
                 .doesNotContain("\u001b", "\u0007", "[31m");
         }
     }
@@ -1344,12 +1317,9 @@ class ConfigValidatorTest {
         void theValidatorCreatesTheWorkspaceAtStartup() {
             LoadedConfig loaded = new ConfigLoader(Map.of(), home, false).parse(server(""),
                 home.resolve("config.yaml"));
-            CredentialResolution credentials = new CredentialResolver(Map.of(
-                "INUBIT_ACME_DEV_USERNAME", "u", "INUBIT_ACME_DEV_PASSWORD", "secret-value"),
-                new SecretScrubber(), "INUBIT_ACME").resolve(loaded.config().nodeIds());
 
             ValidationReport report = new ConfigValidator(existing::contains, env, false,
-                tempDirectory, source -> List.of()).validate(loaded, credentials);
+                tempDirectory, source -> List.of()).validate(loaded);
 
             assertThat(report.errors()).isEmpty();
             assertThat(home.resolve(".inubit-mcp/acme/workspace")).isDirectory();
@@ -1395,8 +1365,10 @@ class ConfigValidatorTest {
         }
 
         @Test
-        void e2eBasicAuthOverPlainHttpIsAnError() {
-            // review m-c: the e2e credentials must not travel in clear text
+        void e2eVariablesOverPlainHttpAreNoLongerAStartupError() {
+            // review m-c: the e2e credentials must not travel in clear text; feature 011 (research
+            // R-11): credential store entries are refused when read
+            // (NodeSecretsCredentialStoreTest)
             String http = profile("""
                 development:
                   enabled: true
@@ -1411,9 +1383,10 @@ class ConfigValidatorTest {
             env.put("INUBIT_ACME_DEV_E2E_PASSWORD", "e2e-validator-pw");
             ValidationReport report = validate(http);
 
-            assertThat(report.errors()).singleElement().asString()
-                .contains("dev/node1", "http://", "INUBIT_ACME_DEV_E2E_USERNAME")
-                .doesNotContain("e2e-validator-pw");
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).anySatisfy(warning -> assertThat(warning)
+                .contains("no longer read", "INUBIT_ACME_DEV_E2E_USERNAME")
+                .doesNotContain("e2e-validator-pw"));
         }
 
         @Test
@@ -1450,7 +1423,7 @@ class ConfigValidatorTest {
             ProfileConfig config = new ConfigLoader(Map.of(), HOME, false).parse(profile("", ""),
                 HOME.resolve("config.yaml")).config();
 
-            assertThat(config.credentialVariableNames()).contains("INUBIT_ACME_DEV_E2E_USERNAME",
+            assertThat(config.credentialEntryNames()).contains("INUBIT_ACME_DEV_E2E_USERNAME",
                 "INUBIT_ACME_DEV_E2E_PASSWORD", "INUBIT_ACME_DEV_NODE1_E2E_PASSWORD");
         }
 
@@ -2041,13 +2014,13 @@ class ConfigValidatorTest {
         void aProfileEnvironmentPrefixOtherThanEnvPrefixIsAnErrorNamingBothKeys() {
             // US1-3
             String top = "credentials:\n  envPrefix: INUBIT_LEGACY\n  source:\n"
-                + "    type: environment\n    prefix: %s\n";
+                + "    type: credentialStore\n    prefix: %s\n";
 
             ValidationReport report = validate(profile(top.formatted("INUBIT_OTHER"), "", "", ""));
             ValidationReport equal = validate(profile(top.formatted("INUBIT_LEGACY"), "", "", ""));
             // a group or node with its own prefix is an override, not a contradiction
             ValidationReport group = validate(profile("credentials:\n  envPrefix: INUBIT_LEGACY\n",
-                "source:\n  type: environment\n  prefix: INUBIT_OTHER\n", "", ""));
+                "source:\n  type: credentialStore\n  prefix: INUBIT_OTHER\n", "", ""));
 
             assertThat(report.errors()).anySatisfy(e -> assertThat(e)
                 .contains("credentials.source.prefix", "credentials.envPrefix"));
@@ -2094,20 +2067,20 @@ class ConfigValidatorTest {
             String top = "credentials:\n" + AWS.indent(2);
 
             ValidationReport report = validate(profile(top,
-                "source:\n  type: environment\n" + NAMES, "", ""));
+                "source:\n  type: credentialStore\n" + NAMES, "", ""));
             ValidationReport implicit = validate(profile("", NAMES, "", ""));
 
             assertThat(report.errors()).isEmpty();
             assertThat(report.warnings()).singleElement().asString()
                 .contains("Group 'dev'", "credentials.parameters", "ignored",
-                    "environment variables");
+                    "credential store");
             assertThat(implicit.warnings()).singleElement().asString()
                 .contains("Group 'dev'", "credentials.parameters", "ignored");
         }
 
         @Test
         void parameterNamesOfAnEnvironmentNodeInAnAwsGroupAreIgnoredWithAWarning() {
-            String node = "source:\n  type: environment\n"
+            String node = "source:\n  type: credentialStore\n"
                 + "parameters:\n  password: /inubit/node1/password\n";
 
             ValidationReport report = validate(profile("", awsGroup(""), node, ""));
@@ -2115,7 +2088,7 @@ class ConfigValidatorTest {
             assertThat(report.errors()).isEmpty();
             assertThat(report.warnings()).singleElement().asString()
                 .contains("dev/node1", "credentials.parameters", "ignored",
-                    "environment variables");
+                    "credential store");
         }
 
         @Test
@@ -2163,15 +2136,8 @@ class ConfigValidatorTest {
             LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, windows)
                 .parse(yaml, HOME.resolve("config.yaml"));
             ProfileConfig config = loaded.config();
-            config.secretPlans().values().forEach(plan -> plan.variables().ifPresent(variables -> {
-                env.putIfAbsent(variables.groupVariable("USERNAME"), "user");
-                env.putIfAbsent(variables.groupVariable("PASSWORD"), "secret-value");
-            }));
-            CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
-                config.terminology().effectiveOrDefault(), config.credentialPrefix(),
-                config.secretPlans()).resolve(config.nodeIds());
             return new ConfigValidator(existing::contains, env, windows, tempDirectory,
-                source -> List.of(), workspace -> workspaceResult).validate(loaded, credentials);
+                source -> List.of(), workspace -> workspaceResult).validate(loaded);
         }
 
         private static ProfileConfig parse(String yaml) {
@@ -2218,15 +2184,15 @@ class ConfigValidatorTest {
             ProfileConfig allAws = parse(profile("credentials:\n" + AWS.indent(2), NAMES, "",
                 ""));
             ProfileConfig mixed = parse(profile("", awsGroup(""),
-                "source:\n  type: environment\n  prefix: INUBIT_OWN\n", "") + """
+                "source:\n  type: credentialStore\n  prefix: INUBIT_OWN\n", "") + """
                   - name: qa
                     nodes:
                       - name: node1
                         baseUrl: https://inubit-qa.example.test:8443
                 """);
 
-            assertThat(allAws.credentialVariableNames()).isEmpty();
-            assertThat(mixed.credentialVariableNames())
+            assertThat(allAws.credentialEntryNames()).isEmpty();
+            assertThat(mixed.credentialEntryNames())
                 .contains("INUBIT_OWN_DEV_NODE1_PASSWORD", "INUBIT_OWN_DEV_E2E_USERNAME",
                     "INUBIT_ACME_QA_NODE1_PASSWORD", "INUBIT_ACME_QA_E2E_PASSWORD")
                 .noneMatch(name -> name.startsWith("INUBIT_ACME_DEV"));
@@ -2286,7 +2252,7 @@ class ConfigValidatorTest {
 
             ValidationReport aws = validateWithPlans(yaml.formatted(""));
             ValidationReport environment = validateWithPlans(yaml.formatted(
-                "credentials:\n  source:\n    type: environment\n".indent(8).stripTrailing()));
+                "credentials:\n  source:\n    type: credentialStore\n".indent(8).stripTrailing()));
 
             assertThat(aws.errors()).isEmpty();
             assertThat(environment.errors()).anySatisfy(error -> assertThat(error)

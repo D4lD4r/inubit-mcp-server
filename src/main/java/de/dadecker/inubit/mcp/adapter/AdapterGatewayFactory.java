@@ -28,6 +28,7 @@ import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.domain.port.QueryRules;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.time.Clock;
@@ -84,13 +85,14 @@ import org.slf4j.LoggerFactory;
  * reported. Every port handed out is wrapped by {@link StaleReportingPorts}, which reports
  * {@code UNEXPECTED_RESPONSE} failures as stale.
  *
- * <p>Credentials (feature 010, research R-7, FR-006a): each server's {@link NodeSecrets} holds
- * its startup credentials (environment variables) or fetches them from AWS Parameter Store on
- * first use. Every call that builds or uses the client ({@link #forServer}, {@link #detect},
+ * <p>Credentials (feature 010, research R-7, FR-006a; feature 011, research R-7): each server's
+ * {@link NodeSecrets} reads them on first use from the credential store or AWS Parameter Store.
+ * Every call that builds or uses the client ({@link #forServer}, {@link #detect},
  * {@link #monitoring} and the port methods) first waits for them with
- * {@link NodeSecrets#current} for at most {@link #SECRETS_WAIT}, holding no lock of the slot, so
- * an interrupted caller returns at once even while another caller's fetch is pending; a failed
- * fetch fails the call before anything is sent to INUBIT. The client is built with the
+ * {@link NodeSecrets#current} for at most {@link NodeSecrets#timeout()} (60 s for the credential
+ * store, which may wait for an access dialog; 10 s for Parameter Store), holding no lock of the
+ * slot, so an interrupted caller returns at once even while another caller's fetch is pending; a
+ * failed fetch fails the call before anything is sent to INUBIT. The client is built with the
  * credentials, because the trust store password is part of its TLS context. Construction,
  * {@link #credentialsHeld} and {@link #knownGateway} never start a fetch;
  * {@link #prepareCredentials} starts or joins it and waits at most its bound (research R-9).
@@ -108,9 +110,6 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
 
     /** How long the 8.1 fallback of a failed {@code AUTO} detection is used before a retry. */
     public static final Duration FAILED_DETECTION_TTL = Duration.ofSeconds(60);
-
-    /** How long a call waits for the secrets of its server (research R-7). */
-    private static final Duration SECRETS_WAIT = NodeSecrets.STORE_TIMEOUT;
 
     /**
      * @param servers     the validated servers, in config order
@@ -198,6 +197,16 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
         return slot(server).ports().processControl();
     }
 
+    /**
+     * The query checks of the port set the node's current effective version selects; builds no
+     * client and reads no credentials (feature 011, review T013-T014 r1).
+     */
+    @Override
+    public QueryRules queryRules(NodeId server) {
+        slot(server);
+        return portSets.select(versions.effectiveVersion(server)).rules();
+    }
+
     @Override
     public boolean credentialsHeld(NodeId server) {
         return slot(server).secrets.held().isPresent();
@@ -281,9 +290,8 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
         Slot(EffectiveNodeConfig server, NodeSecrets secrets) {
             this.server = server;
             this.secrets = secrets;
-            this.guard = secrets.rereadable()
-                ? new CredentialGuard(server.secretLabels(), clock, secrets)
-                : new CredentialGuard(server.secretLabels(), clock);
+            // feature 011 (research R-9): every node's credentials can be read again
+            this.guard = new CredentialGuard(server.secretLabels(), clock, secrets);
             this.stale = new StaleReportingPorts(server.id(), versions);
         }
 
@@ -295,7 +303,7 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
          * @throws ToolErrorException the fetch failure, or {@code TIMEOUT} if the wait ends
          */
         private void awaitCredentials() {
-            secrets.current(SECRETS_WAIT);
+            secrets.current(secrets.timeout());
         }
 
         Gateway gateway() {

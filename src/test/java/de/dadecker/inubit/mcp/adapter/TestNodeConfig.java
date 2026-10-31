@@ -1,11 +1,12 @@
 package de.dadecker.inubit.mcp.adapter;
 
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
+import de.dadecker.inubit.mcp.config.CredentialNames;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.SecretLabels;
 import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.SecretSourceConfig;
+import de.dadecker.inubit.mcp.config.StoreKind;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.net.URI;
@@ -41,8 +42,8 @@ public final class TestNodeConfig {
     }
 
     /** The message names of an environment node with credential prefix {@code prefix}. */
-    public static SecretLabels environmentLabels(String prefix, NodeId node) {
-        return new SecretLabels.Environment(new CredentialVariables(prefix, node));
+    public static SecretLabels storeLabels(String prefix, NodeId node) {
+        return new SecretLabels.Store(new CredentialNames(prefix, node), StoreKind.KEYCHAIN);
     }
 
     public static TestNodeConfig node() {
@@ -158,8 +159,8 @@ public final class TestNodeConfig {
             Duration.ofMinutes(5),
             credentialPrefix,
             development,
-            new SecretPlan(id, new SecretSourceConfig.Environment(Optional.empty()),
+            new SecretPlan(id, new SecretSourceConfig.SystemStore(Optional.empty()),
                 SecretPlan.Origin.DEFAULT,
-                Optional.of(new CredentialVariables(credentialPrefix, id)), Optional.empty()));
+                Optional.of(new CredentialNames(credentialPrefix, id)), Optional.empty()));
     }
 }

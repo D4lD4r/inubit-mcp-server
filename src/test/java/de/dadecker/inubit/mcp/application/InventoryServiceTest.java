@@ -959,11 +959,11 @@ class InventoryServiceTest {
     }
 
     @Test
-    void theFanOutDeadlinesOfAnAwsNodeAddTheFetchAllowance() {
-        // feature 010 (T013, research R-8): always for an AWS node (whether or not its secrets
-        // are held already), never for the others
+    void theFanOutDeadlinesOfANodeWhoseCredentialsAreNotHeldAddTheFetchAllowance() {
+        // feature 010 (T013, research R-8), feature 011 (FR-008): while the node's credentials
+        // are not held, for every source; never for a node without a store wait
         InventoryService environment = service();
-        secretTiming = new SecretTiming(Set.of(QA1), Duration.ofSeconds(10));
+        secretTiming = new SecretTiming(Map.of(QA1, Duration.ofSeconds(10)), node -> false);
         InventoryService service = service();
         Duration allowance = Duration.ofSeconds(10).plusSeconds(1);
 
@@ -980,11 +980,26 @@ class InventoryServiceTest {
     }
 
     @Test
+    void theFetchAllowanceEndsOnceTheCredentialsAreHeld() {
+        // feature 011 (T015, FR-008): no allowance once a node's credentials are held
+        InventoryService none = service();
+        Set<NodeId> held = ConcurrentHashMap.newKeySet();
+        secretTiming = new SecretTiming(Map.of(QA1, Duration.ofSeconds(60)), held::contains);
+        InventoryService service = service();
+
+        assertThat(service.listDeadline(InventoryKind.DIAGRAM, QA1))
+            .isEqualTo(none.listDeadline(InventoryKind.DIAGRAM, QA1).plusSeconds(61));
+        held.add(QA1);
+        assertThat(service.listDeadline(InventoryKind.DIAGRAM, QA1))
+            .isEqualTo(none.listDeadline(InventoryKind.DIAGRAM, QA1));
+    }
+
+    @Test
     void aSlowFirstFetchGivesThatNodesResultNotAFanOutTimeout() {
         // feature 010 (T013, research R-8): acquiring the port of qa/node1 waits 3 s for its
         // first fetch, longer than the 1.3 s diagram list deadline without the allowance
         timeout = Duration.ofMillis(100);
-        secretTiming = new SecretTiming(Set.of(QA1), Duration.ofSeconds(10));
+        secretTiming = new SecretTiming(Map.of(QA1, Duration.ofSeconds(10)), node -> false);
         AtomicBoolean fetched = new AtomicBoolean();
         acquisition = server -> {
             if (server.equals(QA1) && fetched.compareAndSet(false, true)) {
