@@ -58,7 +58,7 @@ approved step; US4 (export, P3) is blocked on them and on a research addendum.
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] Fixture scaffold (research D-15): create `fixtures/v6_1/cli/README.md` (case
+- [X] T001 [P] Fixture scaffold (research D-15): create `fixtures/v6_1/cli/README.md` (case
   layout as `fixtures/v8_1/cli/README.md`, source "reconstructed from the vendor documentation of
   inubit 6.1 until recorded", neutral names) and `fixtures/v6_1/cli/RECONSTRUCTED.txt` (format
   `<case> <capability>` per line, `#` comments; later tasks only append lines). Test first:
