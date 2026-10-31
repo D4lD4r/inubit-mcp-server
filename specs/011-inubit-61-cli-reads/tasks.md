@@ -64,7 +64,7 @@ approved step; US4 (export, P3) is blocked on them and on a research addendum.
   `<case> <capability>` per line, `#` comments; later tasks only append lines). Test first:
   `test/adapter/cli/V61FixturesShapeTest` fails while the folder or file is missing and checks that
   every case listed has its three files.
-- [ ] T002 [P] Make `FakeProcessLauncher.replaying` take the fixture version (`v8_1` default,
+- [X] T002 [P] Make `FakeProcessLauncher.replaying` take the fixture version (`v8_1` default,
   `v6_1`) instead of the hard-coded `/fixtures/v8_1/cli/` (`test/adapter/cli/FakeProcessLauncher.java:65`);
   same for `ScriptedProcessLauncher.replying` if it resolves cases. Test first: a
   `FakeProcessLauncherTest` case replaying a `v6_1` case.

@@ -55,9 +55,15 @@ public final class ScriptedProcessLauncher implements ProcessLauncher {
 
     /** Answers the last expected step with {@code fixtures/v8_1/cli/<fixtureCase>.*}. */
     public ScriptedProcessLauncher replying(String fixtureCase) {
-        return replying(FakeProcessLauncher.fixtureText(fixtureCase + ".stdout"),
-            FakeProcessLauncher.fixtureText(fixtureCase + ".stderr"),
-            Integer.parseInt(FakeProcessLauncher.fixtureText(fixtureCase + ".exit").strip()));
+        return replying(FakeProcessLauncher.DEFAULT_VERSION, fixtureCase);
+    }
+
+    /** Answers the last expected step with {@code fixtures/<version>/cli/<fixtureCase>.*}. */
+    public ScriptedProcessLauncher replying(String version, String fixtureCase) {
+        return replying(FakeProcessLauncher.fixtureText(version, fixtureCase + ".stdout"),
+            FakeProcessLauncher.fixtureText(version, fixtureCase + ".stderr"),
+            Integer.parseInt(
+                FakeProcessLauncher.fixtureText(version, fixtureCase + ".exit").strip()));
     }
 
     /** Answers the last expected step with the given output and exit code. */

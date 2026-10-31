@@ -19,7 +19,8 @@ import java.util.function.Consumer;
 
 /**
  * Test double for {@link ProcessLauncher} (research R-17): replays recorded StartCLI runs from
- * {@code fixtures/v8_1/cli/<case>.{stdout,stderr,exit}} and records every launch (argument array,
+ * {@code fixtures/<version>/cli/<case>.{stdout,stderr,exit}} ({@code v8_1} unless a version is
+ * given, e.g. {@code v6_1}) and records every launch (argument array,
  * environment, working directory, stdin bytes, destroy calls).
  *
  * <p>Variants: {@link #hanging()} never exits until destroyed, {@link #ignoringDestroy()} also
@@ -27,6 +28,9 @@ import java.util.function.Consumer;
  * a large output through a pipe and exits only after the reader consumed all of it.
  */
 public final class FakeProcessLauncher implements ProcessLauncher {
+
+    /** The fixture folder used when no version is given. */
+    static final String DEFAULT_VERSION = "v8_1";
 
     private final byte[] stdout;
     private final byte[] stderr;
@@ -48,10 +52,14 @@ public final class FakeProcessLauncher implements ProcessLauncher {
 
     /** Replays {@code fixtures/v8_1/cli/<fixtureCase>.*}. */
     public static FakeProcessLauncher replaying(String fixtureCase) {
-        return new FakeProcessLauncher(fixture(fixtureCase + ".stdout"),
-            fixture(fixtureCase + ".stderr"),
-            Integer.parseInt(new String(fixture(fixtureCase + ".exit"), StandardCharsets.UTF_8)
-                .strip()));
+        return replaying(DEFAULT_VERSION, fixtureCase);
+    }
+
+    /** Replays {@code fixtures/<version>/cli/<fixtureCase>.*}, e.g. version {@code v6_1}. */
+    public static FakeProcessLauncher replaying(String version, String fixtureCase) {
+        return new FakeProcessLauncher(fixture(version, fixtureCase + ".stdout"),
+            fixture(version, fixtureCase + ".stderr"),
+            Integer.parseInt(fixtureText(version, fixtureCase + ".exit").strip()));
     }
 
     public static FakeProcessLauncher of(String stdout, String stderr, int exitCode) {
@@ -59,12 +67,18 @@ public final class FakeProcessLauncher implements ProcessLauncher {
             stderr.getBytes(StandardCharsets.UTF_8), exitCode);
     }
 
-    /** Reads a fixture file as bytes. */
+    /** Reads a {@code v8_1} fixture file as bytes. */
     public static byte[] fixture(String name) {
+        return fixture(DEFAULT_VERSION, name);
+    }
+
+    /** Reads a fixture file of {@code version} as bytes. */
+    public static byte[] fixture(String version, String name) {
+        String path = version + "/cli/" + name;
         try (InputStream in = FakeProcessLauncher.class.getResourceAsStream(
-            "/fixtures/v8_1/cli/" + name)) {
+            "/fixtures/" + path)) {
             if (in == null) {
-                throw new IllegalArgumentException("No fixture " + name);
+                throw new IllegalArgumentException("No fixture " + path);
             }
             return in.readAllBytes();
         } catch (IOException e) {
@@ -72,9 +86,14 @@ public final class FakeProcessLauncher implements ProcessLauncher {
         }
     }
 
-    /** Reads a fixture file as UTF-8 text. */
+    /** Reads a {@code v8_1} fixture file as UTF-8 text. */
     public static String fixtureText(String name) {
-        return new String(fixture(name), StandardCharsets.UTF_8);
+        return fixtureText(DEFAULT_VERSION, name);
+    }
+
+    /** Reads a fixture file of {@code version} as UTF-8 text. */
+    public static String fixtureText(String version, String name) {
+        return new String(fixture(version, name), StandardCharsets.UTF_8);
     }
 
     public FakeProcessLauncher hanging() {
