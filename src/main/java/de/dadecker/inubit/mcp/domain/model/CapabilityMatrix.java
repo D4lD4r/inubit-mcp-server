@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 
 /**
  * Declares per INUBIT version range whether each capability is supported, unverified or
@@ -16,15 +17,31 @@ import java.util.OptionalInt;
  * entry (or the unknown declaration) does not list is {@link SupportState#UNSUPPORTED}.
  * {@link SupportState#UNVERIFIED} is rejected for write capabilities (it means "runs with a
  * warning", which only reads may do).
+ *
+ * <p>An entry may declare channels per capability that replace the capability's own
+ * {@link Capability#channels()}, and may be {@code cliOnly}: the node is reached through StartCLI
+ * only (feature 011, research D-3).
  */
 public final class CapabilityMatrix {
 
-    /** The states of one version range; capabilities not listed are unsupported. */
-    public record Entry(VersionRange range, Map<Capability, SupportState> states) {
+    /**
+     * The states of one version range; capabilities not listed are unsupported. A capability
+     * without declared {@code channels} uses its own channels.
+     */
+    public record Entry(VersionRange range, Map<Capability, SupportState> states,
+        Map<Capability, Set<Channel>> channels, boolean cliOnly) {
 
         public Entry {
             Objects.requireNonNull(range, "range");
             states = checked(states);
+            Map<Capability, Set<Channel>> copy = new EnumMap<>(Capability.class);
+            channels.forEach((capability, declared) -> copy.put(capability, Set.copyOf(declared)));
+            channels = Map.copyOf(copy);
+        }
+
+        /** An entry without declared channels that is not CLI-only. */
+        public Entry(VersionRange range, Map<Capability, SupportState> states) {
+            this(range, states, Map.of(), false);
         }
     }
 
@@ -33,8 +50,19 @@ public final class CapabilityMatrix {
     /** Reads run with a warning, writes are refused. */
     private static final Map<Capability, SupportState> READS_UNVERIFIED = readsUnverified();
 
+    /**
+     * 6.1: StartCLI only. A capability becomes {@code SUPPORTED} only together with its recorded
+     * fixtures (FR-005, research D-15); until then everything is refused.
+     */
+    private static final Entry V6_1 = new Entry(new VersionRange(6, 1, 6, 1),
+        Map.of(Capability.MONITORING, SupportState.UNSUPPORTED,
+            Capability.PROCESS_DIAGNOSIS, SupportState.UNSUPPORTED),
+        Map.of(Capability.MONITORING, Set.of(Channel.CLI),
+            Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)),
+        true);
+
     private static final CapabilityMatrix PRODUCTION = new CapabilityMatrix(
-        List.of(new Entry(new VersionRange(8, 1, 8, 1), ALL_SUPPORTED),
+        List.of(V6_1, new Entry(new VersionRange(8, 1, 8, 1), ALL_SUPPORTED),
             new Entry(new VersionRange(9, 0, 9, 0), READS_UNVERIFIED)),
         READS_UNVERIFIED);
 
@@ -53,8 +81,9 @@ public final class CapabilityMatrix {
     }
 
     /**
-     * The production declaration of research D-3: 8.1.x all supported; 9.0.x, any other known
-     * version and unknown versions: reads unverified, writes unsupported.
+     * The production declaration of research D-3: 6.1.x CLI-only with every capability
+     * unsupported; 8.1.x all supported; 9.0.x, any other known version and unknown versions: reads
+     * unverified, writes unsupported.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;
@@ -62,12 +91,25 @@ public final class CapabilityMatrix {
 
     /** The state of {@code capability} on {@code version}; empty means the version is unknown. */
     public SupportState state(Optional<InubitVersion> version, Capability capability) {
-        Map<Capability, SupportState> states = version
-            .flatMap(v -> entries.stream().filter(e -> e.range().contains(v)).findFirst())
-            .map(Entry::states)
-            .orElse(unknown);
+        Map<Capability, SupportState> states = entry(version).map(Entry::states).orElse(unknown);
         return states.getOrDefault(Objects.requireNonNull(capability, "capability"),
             SupportState.UNSUPPORTED);
+    }
+
+    /**
+     * The channels {@code capability} uses on {@code version}: the entry's declaration, else the
+     * capability's own channels (also for unknown versions).
+     */
+    public Set<Channel> channels(Optional<InubitVersion> version, Capability capability) {
+        Objects.requireNonNull(capability, "capability");
+        return entry(version).map(Entry::channels)
+            .map(declared -> declared.get(capability))
+            .orElse(capability.channels());
+    }
+
+    /** Whether {@code version} is reached through StartCLI only; an unknown version is not. */
+    public boolean isCliOnly(Optional<InubitVersion> version) {
+        return entry(version).map(Entry::cliOnly).orElse(false);
     }
 
     /**
@@ -81,6 +123,11 @@ public final class CapabilityMatrix {
                 major + "." + minor.getAsInt()))
             : Optional.empty();
         return state(version, capability);
+    }
+
+    private Optional<Entry> entry(Optional<InubitVersion> version) {
+        return version.flatMap(
+            v -> entries.stream().filter(e -> e.range().contains(v)).findFirst());
     }
 
     private static Map<Capability, SupportState> checked(Map<Capability, SupportState> states) {

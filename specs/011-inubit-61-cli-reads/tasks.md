@@ -86,7 +86,7 @@ approved step; US4 (export, P3) is blocked on them and on a research addendum.
   first: `CapabilityMatrixTest`, `VersionGateTest` (message texts), `ListNodesToolTest` and
   `NodeOverviewTest` (names), `DiagnosisServiceTest` (admitted capability per tool); adjust the
   tests that asserted `diagnosis` (deliberate change, SC-005).
-- [ ] T005 Matrix channels and `cliOnly` (research D-3): extend `CapabilityMatrix.Entry` with
+- [X] T005 Matrix channels and `cliOnly` (research D-3): extend `CapabilityMatrix.Entry` with
   per-capability channels and a `cliOnly` flag; add `channels(version, capability)` and
   `isCliOnly(version)`; add the production entry 6.1 with `MONITORING`/`PROCESS_DIAGNOSIS` channel
   CLI, `cliOnly`, and every capability `UNSUPPORTED` (FR-005). Add `NodeAccess` (`REST_AND_CLI`,

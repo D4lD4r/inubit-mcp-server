@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -103,6 +104,61 @@ class CapabilityMatrixTest {
             .containsExactlyInAnyOrder(Channel.SOAP, Channel.REST);
         assertThat(Capability.PROCESS_CONTROL.channels())
             .containsExactlyInAnyOrder(Channel.REST, Channel.CLI);
+    }
+
+    /** Feature 011 (FR-005, research D-3): 6.1 is CLI-only and nothing runs until recorded. */
+    @ParameterizedTest
+    @EnumSource(Capability.class)
+    void everyCapabilityIsUnsupportedOn61(Capability capability) {
+        assertThat(production.state(version("6.1.0.89-HF1"), capability))
+            .isEqualTo(SupportState.UNSUPPORTED);
+        assertThat(production.stateOfLine(6, OptionalInt.of(1), capability))
+            .isEqualTo(SupportState.UNSUPPORTED);
+    }
+
+    @Test
+    void monitoringAndProcessDiagnosisUseStartCliOn61() {
+        assertThat(production.channels(version("6.1.0.89"), Capability.MONITORING))
+            .containsExactly(Channel.CLI);
+        assertThat(production.channels(version("6.1.0.89"), Capability.PROCESS_DIAGNOSIS))
+            .containsExactly(Channel.CLI);
+        assertThat(production.channels(version("6.1.0.89"), Capability.LOG_DIAGNOSIS))
+            .as("a capability without declared channels keeps its own")
+            .isEqualTo(Capability.LOG_DIAGNOSIS.channels());
+        assertThat(production.isCliOnly(version("6.1.0.89-HF1"))).isTrue();
+        assertThat(production.isCliOnly(version("6.1"))).isTrue();
+    }
+
+    @ParameterizedTest
+    @EnumSource(Capability.class)
+    void otherVersionsKeepTheCapabilityChannelsAndAreNotCliOnly(Capability capability) {
+        for (Optional<InubitVersion> other : List.of(version("8.1.17"), version("9.0.7"),
+                version("6.0.5"), version("6.2"), Optional.<InubitVersion>empty())) {
+            assertThat(production.channels(other, capability)).as("%s", other)
+                .isEqualTo(capability.channels());
+            assertThat(production.isCliOnly(other)).as("%s", other).isFalse();
+        }
+    }
+
+    @Test
+    void anEntryWithChannelsAndCliOnlyRoundTrips() {
+        CapabilityMatrix.Entry entry = new CapabilityMatrix.Entry(new VersionRange(7, 9, 7, 9),
+            Map.of(Capability.MONITORING, SupportState.SUPPORTED),
+            Map.of(Capability.MONITORING, Set.of(Channel.CLI, Channel.SOAP)), true);
+        CapabilityMatrix matrix = new CapabilityMatrix(List.of(entry), Map.of());
+
+        assertThat(entry.channels())
+            .isEqualTo(Map.of(Capability.MONITORING, Set.of(Channel.CLI, Channel.SOAP)));
+        assertThat(entry.cliOnly()).isTrue();
+        assertThat(matrix.state(version("7.9.3"), Capability.MONITORING))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(matrix.channels(version("7.9.3"), Capability.MONITORING))
+            .containsExactlyInAnyOrder(Channel.CLI, Channel.SOAP);
+        assertThat(matrix.isCliOnly(version("7.9.3"))).isTrue();
+        assertThat(new CapabilityMatrix.Entry(new VersionRange(7, 9, 7, 9), Map.of()))
+            .as("the two-argument entry declares no channels and is not CLI-only")
+            .isEqualTo(new CapabilityMatrix.Entry(new VersionRange(7, 9, 7, 9), Map.of(),
+                Map.of(), false));
     }
 
     @Test
