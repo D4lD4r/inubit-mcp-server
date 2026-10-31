@@ -359,10 +359,12 @@ fictitious profile from the real store (FR-017).
 - **FR-005**: The prefix of the entry names MUST be configurable as today: a `prefix` on the
   credential store source of a group or node, else the profile-wide prefix, else `INUBIT_<PROFILE>`
   (normalised as today), with the pattern of today (`^[A-Z][A-Z0-9_]{0,63}$`). The profile-wide prefix
-  is `credentials.prefix`; `credentials.envPrefix` and a top-level `source: { type: credentialStore,
-  prefix }` stay accepted with the same meaning (`envPrefix` with a warning recommending
-  `credentials.prefix`); two or three of them set to different values MUST be a configuration error
-  naming them (US3-4). The checks of today on derived names (another profile in the default
+  is `credentials.prefix`; `credentials.envPrefix` stays accepted with the same meaning and a warning
+  recommending `credentials.prefix`; both set to different values MUST be a configuration error
+  naming both (US3-4). A top-level `source: { type: credentialStore, prefix }` keeps today's meaning:
+  its `prefix` applies to the nodes that inherit the top-level source, and it MUST equal the
+  profile-wide prefix if that is set (otherwise a configuration error naming both); a group or node
+  override without its own `prefix` uses the profile-wide prefix, else the default. The checks of today on derived names (another profile in the default
   configuration directory: error; a file with the same `profile.name`: warning; two groups or nodes of
   the same profile: error; a node named `e2e` where its group allows end-to-end tests: error) MUST
   apply to the derived entry names of every node with the credential store as source.
@@ -382,8 +384,11 @@ fictitious profile from the real store (FR-017).
   node including any wait behind another node's read; reads from the credential store are serialised
   so that at most one access dialog is open at a time. A read MUST NOT block calls on nodes whose
   credentials are already held. Concurrent calls that need the same node share one read. A fan-out
-  call counts a node's read in that node's deadline as in feature 010 (010 research R-8), so a slow
-  read fails that node's part, not the whole call. After
+  call counts a node's read in that node's deadline (010 research R-8), so a slow read fails that
+  node's part, not the whole call; the read allowance (store timeout plus 1 s) is added to a node's
+  fan-out deadline only while its credentials are not held, so once they are held fan-out deadlines
+  are as today. This also applies to Parameter Store nodes (a change from 010, where the allowance
+  was always added). After
   a failed read the node's credentials are not read again for 30 s (calls fail at once with the
   recorded failure); the first call after that reads again, so a created or corrected entry needs no
   restart. `get_health` keeps its time budget as in feature 010 (a node still being read is reported
@@ -437,8 +442,11 @@ fictitious profile from the real store (FR-017).
   next steps (FR-010); no tool takes or returns a secret or says where a node's secrets come from.
 - **FR-017**: Every operating system MUST have an opt-in live check (skipped unless explicitly enabled,
   like the existing live tests) that creates or expects entries for a fictitious profile in the real
-  store and verifies identity mapping, value encoding and the not-found and access-denied outcomes; it
-  never contacts INUBIT. Existing tests and fixtures that supply credentials through environment maps
+  store and verifies identity mapping, value encoding and the not-found outcome; it never contacts
+  INUBIT. The access-denied outcome is checked with test doubles on every system, and on a real store
+  as a documented manual step where it exists (macOS: "Deny" in the Keychain dialog; Linux: dismissing
+  the unlock prompt); the Windows Credential Manager has no per-entry access control for the user's
+  own credentials, so there is no such step. Existing tests and fixtures that supply credentials through environment maps
   move to test doubles of the stores; only the SC-002 negative test and the FR-003 warning test keep
   credential variables.
 
@@ -496,9 +504,9 @@ fictitious profile from the real store (FR-017).
   before 1.0 (0.7.0), with the migration guide and a prominent CHANGELOG entry; installations that
   export variables must migrate before upgrading.
 - **Store per system**: the keychain search list of the user (macOS, normally the login keychain),
-  the generic credentials of the current user (Windows), all unlocked collections of the Secret
-  Service of the user's session, as `secret-tool lookup` searches them (Linux); entries are those of
-  the user who runs the MCP client.
+  the generic credentials of the current user (Windows), all collections of the Secret Service of
+  the user's session, a locked collection being unlocked through the session's prompt (US2-3), as
+  `secret-tool lookup` does (Linux); entries are those of the user who runs the MCP client.
 - **Timeout**: 60 s by default because the first read on macOS may wait for the person to answer the
   Keychain dialog; whether it should be configurable (like `timeout` and `cliTimeout`) is decided in
   the plan.
