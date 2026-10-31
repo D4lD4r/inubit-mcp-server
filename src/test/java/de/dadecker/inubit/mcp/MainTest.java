@@ -248,13 +248,13 @@ class MainTest {
         String explicit = """
             credentials:
               source:
-                type: environment
+                type: credentialStore
             """;
         String explicitWithPrefix = """
             credentials:
               envPrefix: INUBIT_ACME
               source:
-                type: environment
+                type: credentialStore
                 prefix: INUBIT_ACME
             """;
         List<String> variants = List.of("", explicit, explicitWithPrefix);
@@ -265,8 +265,8 @@ class MainTest {
             stdout.reset();
             stderr.reset();
             assertThat(run("--check-config", "--config", file.toString())).as(out()).isZero();
-            // T008 adds "secrets: environment" to each node line of a profile that uses source
-            outputs.add(out().replace("secrets: environment, ", ""));
+            // T008 adds "secrets: credentialStore" to each node line of a profile that uses source
+            outputs.add(out().replace("secrets: credentialStore, ", ""));
             stdout.reset();
             assertThat(run("--config", file.toString())).as(err()).isZero();
             startups.add(err());

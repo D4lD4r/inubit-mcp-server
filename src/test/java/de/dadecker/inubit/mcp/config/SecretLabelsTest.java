@@ -16,8 +16,8 @@ class SecretLabelsTest {
 
     private static SecretLabels environment() {
         return SecretLabels.of(new SecretPlan(NODE1,
-            new SecretSourceConfig.Environment(Optional.empty()), SecretPlan.Origin.DEFAULT,
-            Optional.of(new CredentialVariables("INUBIT_ACME", NODE1)), Optional.empty()));
+            new SecretSourceConfig.SystemStore(Optional.empty()), SecretPlan.Origin.DEFAULT,
+            Optional.of(new CredentialNames("INUBIT_ACME", NODE1)), Optional.empty()));
     }
 
     private static SecretLabels aws(Optional<String> awsProfile, ParameterNames names) {
@@ -37,9 +37,9 @@ class SecretLabelsTest {
         SecretLabels labels = environment();
 
         assertThat(labels.node()).isEqualTo(NODE1);
-        assertThat(labels.label(CredentialVariables.TRUSTSTORE_PASSWORD)).isEqualTo(
+        assertThat(labels.label(CredentialNames.TRUSTSTORE_PASSWORD)).isEqualTo(
             "INUBIT_ACME_DEV_NODE1_TRUSTSTORE_PASSWORD (or INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD)");
-        assertThat(labels.label(CredentialVariables.E2E_USERNAME)).isEqualTo(
+        assertThat(labels.label(CredentialNames.E2E_USERNAME)).isEqualTo(
             "INUBIT_ACME_DEV_NODE1_E2E_USERNAME (or INUBIT_ACME_DEV_E2E_USERNAME)");
         assertThat(labels.fixCredentials()).isEqualTo("Fix INUBIT_ACME_DEV_NODE1_PASSWORD (or"
             + " INUBIT_ACME_DEV_PASSWORD) and _USERNAME, then restart the MCP client from a shell"
@@ -51,15 +51,15 @@ class SecretLabelsTest {
         SecretLabels labels = aws(Optional.of("inubit"), ALL);
 
         assertThat(labels.node()).isEqualTo(NODE1);
-        assertThat(labels.label(CredentialVariables.USERNAME)).isEqualTo(
+        assertThat(labels.label(CredentialNames.USERNAME)).isEqualTo(
             "Parameter Store /inubit/dev/node1/username (eu-central-1, profile inubit)");
-        assertThat(labels.label(CredentialVariables.PASSWORD)).isEqualTo(
+        assertThat(labels.label(CredentialNames.PASSWORD)).isEqualTo(
             "Parameter Store /inubit/dev/node1/password (eu-central-1, profile inubit)");
-        assertThat(labels.label(CredentialVariables.TRUSTSTORE_PASSWORD)).isEqualTo(
+        assertThat(labels.label(CredentialNames.TRUSTSTORE_PASSWORD)).isEqualTo(
             "Parameter Store /inubit/dev/node1/truststore-password (eu-central-1, profile inubit)");
-        assertThat(labels.label(CredentialVariables.E2E_USERNAME)).isEqualTo(
+        assertThat(labels.label(CredentialNames.E2E_USERNAME)).isEqualTo(
             "Parameter Store /inubit/dev/node1/e2e-username (eu-central-1, profile inubit)");
-        assertThat(labels.label(CredentialVariables.E2E_PASSWORD)).isEqualTo(
+        assertThat(labels.label(CredentialNames.E2E_PASSWORD)).isEqualTo(
             "Parameter Store /inubit/dev/node1/e2e-password (eu-central-1, profile inubit)");
     }
 
@@ -78,7 +78,7 @@ class SecretLabelsTest {
             Optional.empty()));
 
         // optional kind: named by its setting, not as an error
-        assertThat(labels.label(CredentialVariables.TRUSTSTORE_PASSWORD)).isEqualTo(
+        assertThat(labels.label(CredentialNames.TRUSTSTORE_PASSWORD)).isEqualTo(
             "credentials.parameters.trustStorePassword (Parameter Store, eu-central-1)");
         assertThat(labels.trustStorePasswordMissing()).isEqualTo("no trust store password"
             + " parameter is configured (credentials.parameters.trustStorePassword)");

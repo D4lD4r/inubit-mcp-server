@@ -3,7 +3,7 @@ package de.dadecker.inubit.mcp.adapter.cli;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.cli.CliOutput.Marker;
-import de.dadecker.inubit.mcp.config.CredentialVariables;
+import de.dadecker.inubit.mcp.config.CredentialNames;
 import de.dadecker.inubit.mcp.config.ParameterNames;
 import de.dadecker.inubit.mcp.config.SecretLabels;
 import de.dadecker.inubit.mcp.config.StoreLocation;
@@ -190,7 +190,7 @@ class CliOutputClassifierTest {
         // 002 research D-6: the next step names the variables the profile actually reads
         CliOutputClassifier forNode = new CliOutputClassifier(scrubber,
             new SecretLabels.Environment(
-                new CredentialVariables("INUBIT_ACME", NodeId.parse("test/node1"))));
+                new CredentialNames("INUBIT_ACME", NodeId.parse("test/node1"))));
 
         CliOutcome outcome = forNode.classify(fixture("login_failed"));
 

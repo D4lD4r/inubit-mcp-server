@@ -177,11 +177,11 @@ class ProfileSectionTest {
         @Test
         void aTopLevelEnvironmentSourceIsLoaded() {
             ProfileConfig config = load("profile:\n  name: acme\ncredentials:\n"
-                + "  envPrefix: INUBIT\n  source:\n    type: environment\n"
+                + "  envPrefix: INUBIT\n  source:\n    type: credentialStore\n"
                 + "    prefix: INUBIT\n" + GROUPS).config();
 
             assertThat(config.credentials().source())
-                .contains(new SecretSourceConfig.Environment(Optional.of("INUBIT")));
+                .contains(new SecretSourceConfig.SystemStore(Optional.of("INUBIT")));
             assertThat(config.credentials().envPrefix()).contains("INUBIT");
         }
 
@@ -214,7 +214,7 @@ class ProfileSectionTest {
             assertThatThrownBy(() -> load("profile:\n  name: acme\ncredentials:\n  source:\n"
                 + "    " + line + "\n" + GROUPS)).isInstanceOf(ConfigException.class)
                 .hasMessageContaining("credentials.source.type")
-                .hasMessageContaining("environment, awsParameterStore");
+                .hasMessageContaining("credentialStore, awsParameterStore");
         }
 
         @Test

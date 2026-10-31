@@ -76,15 +76,15 @@ public record ProfileConfig(
     public Set<String> credentialVariableNames() {
         Set<String> names = new TreeSet<>();
         for (SecretPlan plan : secretPlans().values()) {
-            if (plan.variables().isEmpty()) {
+            if (plan.entries().isEmpty()) {
                 continue;
             }
-            CredentialVariables variables = plan.variables().get();
-            for (String kind : CredentialVariables.KINDS) {
+            CredentialNames variables = plan.entries().get();
+            for (String kind : CredentialNames.KINDS) {
                 names.addAll(variables.candidates(kind));
             }
             // feature 004 (review m-g): the optional e2e basic authentication
-            for (String kind : CredentialVariables.E2E_KINDS) {
+            for (String kind : CredentialNames.E2E_KINDS) {
                 names.addAll(variables.candidates(kind));
             }
         }

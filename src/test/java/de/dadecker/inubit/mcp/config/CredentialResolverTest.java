@@ -39,12 +39,12 @@ class CredentialResolverTest {
 
     @Test
     void derivesVariableNamesByUppercasingAndReplacingNonAlphanumerics() {
-        CredentialVariables variables =
-            new CredentialVariables("INUBIT", NodeId.parse("a-b/c-1"));
+        CredentialNames variables =
+            new CredentialNames("INUBIT", NodeId.parse("a-b/c-1"));
 
-        assertThat(variables.groupVariable("USERNAME")).isEqualTo("INUBIT_A_B_USERNAME");
-        assertThat(variables.nodeVariable("USERNAME")).isEqualTo("INUBIT_A_B_C_1_USERNAME");
-        assertThat(new CredentialVariables("INUBIT", DEV).nodeVariable("PASSWORD"))
+        assertThat(variables.groupName("USERNAME")).isEqualTo("INUBIT_A_B_USERNAME");
+        assertThat(variables.nodeName("USERNAME")).isEqualTo("INUBIT_A_B_C_1_USERNAME");
+        assertThat(new CredentialNames("INUBIT", DEV).nodeName("PASSWORD"))
             .isEqualTo("INUBIT_DEV_NODE1_PASSWORD");
     }
 
@@ -52,7 +52,7 @@ class CredentialResolverTest {
 
     @Test
     void theVariableNamesStartWithTheGivenPrefix() {
-        CredentialVariables variables = new CredentialVariables("INUBIT_ACME", TEST_NODE1);
+        CredentialNames variables = new CredentialNames("INUBIT_ACME", TEST_NODE1);
 
         assertThat(variables.candidates("PASSWORD")).containsExactly(
             "INUBIT_ACME_TEST_NODE1_PASSWORD", "INUBIT_ACME_TEST_PASSWORD");
@@ -452,7 +452,7 @@ class CredentialResolverTest {
 
         CredentialResolution today = resolveWithPlans(acme("", ""));
         CredentialResolution explicit = resolveWithPlans(
-            acme("credentials:\n  source:\n    type: environment\n", ""));
+            acme("credentials:\n  source:\n    type: credentialStore\n", ""));
 
         assertThat(explicit).isEqualTo(today);
         assertThat(today.credentials(ACME_DEV).complete()).isTrue();
@@ -475,7 +475,7 @@ class CredentialResolverTest {
             credentials:
               envPrefix: INUBIT_LEGACY
               source:
-                type: environment
+                type: credentialStore
                 prefix: INUBIT_LEGACY
             """, ""));
 
@@ -498,7 +498,7 @@ class CredentialResolverTest {
         ProfileConfig config = acme("", """
             credentials:
               source:
-                type: environment
+                type: credentialStore
                 prefix: INUBIT_OWN
             """);
         CredentialResolver resolver = new CredentialResolver(env, scrubber, Terminology.DEFAULT,
@@ -512,7 +512,7 @@ class CredentialResolverTest {
         assertThat(dev.password()).contains(
             new SourcedValue<>(Secret.of("own-pw"), "INUBIT_OWN_DEV_NODE1_PASSWORD"));
         assertThat(resolver.variables(ACME_DEV))
-            .isEqualTo(config.effectiveNodes().get(0).credentialVariables());
+            .isEqualTo(config.effectiveNodes().get(0).credentialNames());
         assertThat(resolver.e2e(ACME_DEV)).hasValueSatisfying(e2e -> {
             assertThat(e2e.username().sourceVariable())
                 .isEqualTo("INUBIT_OWN_DEV_NODE1_E2E_USERNAME");

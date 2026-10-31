@@ -112,7 +112,7 @@ step and removes the environment path. US4 (`--check-config`), US5 (rotation, me
 
 ## Phase 3: Configuration model (US3)
 
-- [ ] T008 [US3] Names and source type (R-6): rename `CredentialVariables` → `CredentialNames`
+- [X] T008 [US3] Names and source type (R-6): rename `CredentialVariables` → `CredentialNames`
   (`nodeName`, `groupName`, `candidates`), `EffectiveNodeConfig.credentialVariables()` →
   `credentialNames()`, `SslContexts` updated; `SecretSourceConfig.Environment` →
   `SecretSourceConfig.CredentialStore(Optional<String> prefix)`, YAML `type: credentialStore`, the

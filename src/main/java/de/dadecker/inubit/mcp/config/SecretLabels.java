@@ -17,7 +17,7 @@ public sealed interface SecretLabels {
      * The human-readable name of one kind: environment {@code <NODE_VAR> (or <GROUP_VAR>)}, AWS
      * {@code Parameter Store <name> (<region>[, profile <p>])}.
      *
-     * @param kind one of {@link CredentialVariables#KINDS} or {@link CredentialVariables#E2E_KINDS}
+     * @param kind one of {@link CredentialNames#KINDS} or {@link CredentialNames#E2E_KINDS}
      */
     String label(String kind);
 
@@ -39,11 +39,11 @@ public sealed interface SecretLabels {
             return new Aws(plan.node(), new StoreLocation(store.region(), store.awsProfile()),
                 plan.names().orElseThrow());
         }
-        return new Environment(plan.variables().orElseThrow());
+        return new Environment(plan.entries().orElseThrow());
     }
 
     /** Environment variables: the texts of features 002–009. */
-    record Environment(CredentialVariables variables) implements SecretLabels {
+    record Environment(CredentialNames variables) implements SecretLabels {
 
         public Environment {
             Objects.requireNonNull(variables, "variables");
@@ -61,18 +61,18 @@ public sealed interface SecretLabels {
 
         @Override
         public String fixCredentials() {
-            return "Fix " + variables.either(CredentialVariables.PASSWORD) + " and _USERNAME,"
+            return "Fix " + variables.either(CredentialNames.PASSWORD) + " and _USERNAME,"
                 + " then restart the MCP client from a shell with the new values";
         }
 
         @Override
         public String trustStorePasswordMissing() {
-            return "neither " + label(CredentialVariables.TRUSTSTORE_PASSWORD) + " is set";
+            return "neither " + label(CredentialNames.TRUSTSTORE_PASSWORD) + " is set";
         }
 
         @Override
         public String supplyTrustStorePassword() {
-            return "set " + label(CredentialVariables.TRUSTSTORE_PASSWORD);
+            return "set " + label(CredentialNames.TRUSTSTORE_PASSWORD);
         }
     }
 
@@ -98,14 +98,14 @@ public sealed interface SecretLabels {
 
         @Override
         public String trustStorePasswordMissing() {
-            String kind = CredentialVariables.TRUSTSTORE_PASSWORD;
+            String kind = CredentialNames.TRUSTSTORE_PASSWORD;
             return name(kind).isPresent() ? "no trust store password is set in " + label(kind)
                 : "no trust store password parameter is configured (" + setting(kind) + ")";
         }
 
         @Override
         public String supplyTrustStorePassword() {
-            String kind = CredentialVariables.TRUSTSTORE_PASSWORD;
+            String kind = CredentialNames.TRUSTSTORE_PASSWORD;
             return name(kind).isPresent() ? "store its password in " + label(kind)
                 : "store its password in Parameter Store (" + where() + ") and set "
                     + setting(kind) + " to its name";
@@ -113,8 +113,8 @@ public sealed interface SecretLabels {
 
         @Override
         public String fixCredentials() {
-            return "Correct the parameter value(s) " + nameOrSetting(CredentialVariables.USERNAME)
-                + ", " + nameOrSetting(CredentialVariables.PASSWORD) + " in Parameter Store ("
+            return "Correct the parameter value(s) " + nameOrSetting(CredentialNames.USERNAME)
+                + ", " + nameOrSetting(CredentialNames.PASSWORD) + " in Parameter Store ("
                 + where() + "); no restart is needed";
         }
 
@@ -132,11 +132,11 @@ public sealed interface SecretLabels {
 
         private Optional<String> name(String kind) {
             return switch (kind) {
-                case CredentialVariables.USERNAME -> names.username();
-                case CredentialVariables.PASSWORD -> names.password();
-                case CredentialVariables.TRUSTSTORE_PASSWORD -> names.trustStorePassword();
-                case CredentialVariables.E2E_USERNAME -> names.e2eUsername();
-                case CredentialVariables.E2E_PASSWORD -> names.e2ePassword();
+                case CredentialNames.USERNAME -> names.username();
+                case CredentialNames.PASSWORD -> names.password();
+                case CredentialNames.TRUSTSTORE_PASSWORD -> names.trustStorePassword();
+                case CredentialNames.E2E_USERNAME -> names.e2eUsername();
+                case CredentialNames.E2E_PASSWORD -> names.e2ePassword();
                 default -> throw new IllegalArgumentException("Unknown kind: " + kind);
             };
         }
@@ -144,11 +144,11 @@ public sealed interface SecretLabels {
         /** The YAML key of {@code kind} under {@code credentials.parameters}. */
         private static String key(String kind) {
             return switch (kind) {
-                case CredentialVariables.USERNAME -> "username";
-                case CredentialVariables.PASSWORD -> "password";
-                case CredentialVariables.TRUSTSTORE_PASSWORD -> "trustStorePassword";
-                case CredentialVariables.E2E_USERNAME -> "e2eUsername";
-                case CredentialVariables.E2E_PASSWORD -> "e2ePassword";
+                case CredentialNames.USERNAME -> "username";
+                case CredentialNames.PASSWORD -> "password";
+                case CredentialNames.TRUSTSTORE_PASSWORD -> "trustStorePassword";
+                case CredentialNames.E2E_USERNAME -> "e2eUsername";
+                case CredentialNames.E2E_PASSWORD -> "e2ePassword";
                 default -> throw new IllegalArgumentException("Unknown kind: " + kind);
             };
         }

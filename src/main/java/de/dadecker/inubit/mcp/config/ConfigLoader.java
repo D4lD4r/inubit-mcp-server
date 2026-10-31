@@ -91,6 +91,8 @@ public final class ConfigLoader {
     private static final List<String> PARAMETER_KINDS = List.of("username", "password",
         "trustStorePassword", "e2eUsername", "e2ePassword");
 
+    private static final String CREDENTIAL_STORE = "credentialStore";
+    /** The source type of feature 010 removed in 0.7.0 (feature 011, research R-6). */
     private static final String ENVIRONMENT = "environment";
     private static final String AWS_PARAMETER_STORE = "awsParameterStore";
 
@@ -504,7 +506,7 @@ public final class ConfigLoader {
         if (node == null || node.isNull()) {
             return;
         }
-        String types = "one of " + ENVIRONMENT + ", " + AWS_PARAMETER_STORE;
+        String types = "one of " + CREDENTIAL_STORE + ", " + AWS_PARAMETER_STORE;
         if (!(node instanceof ObjectNode sourceNode)) {
             throw new ConfigException("Invalid value at " + path + " in " + source
                 + ": expected a mapping with type " + types);
@@ -516,8 +518,15 @@ public final class ConfigLoader {
         }
         String typeName = type.isString() ? type.asString() : "";
         if (typeName.equals(ENVIRONMENT)) {
+            throw new ConfigException("Invalid value at " + path + ".type in " + source
+                + ": credentials.source.type environment was removed in 0.7.0; credentials come"
+                + " from the credential store of this system (type credentialStore, the default)"
+                + " or AWS Parameter Store (type awsParameterStore); see"
+                + " docs/migration-environment-variables.md");
+        }
+        if (typeName.equals(CREDENTIAL_STORE)) {
             rejectUnknownKeys(sourceNode, path, List.of("type", "prefix"),
-                "allowed for type " + ENVIRONMENT + ": type, prefix", source);
+                "allowed for type " + CREDENTIAL_STORE + ": type, prefix", source);
             checkText(sourceNode, path, "prefix", ProfileInfo::isValidPrefix,
                 ProfileInfo.PREFIX_PATTERN.pattern(), source);
         } else if (typeName.equals(AWS_PARAMETER_STORE)) {

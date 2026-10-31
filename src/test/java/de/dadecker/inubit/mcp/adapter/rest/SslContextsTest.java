@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import de.dadecker.inubit.mcp.config.CredentialVariables;
+import de.dadecker.inubit.mcp.config.CredentialNames;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig.Tls;
 import de.dadecker.inubit.mcp.config.ParameterNames;
 import de.dadecker.inubit.mcp.config.SecretLabels;
@@ -29,7 +29,7 @@ class SslContextsTest {
     private static final TestCertificates CERTS = TestCertificates.get();
     /** Profile {@code acme} with its default credential prefix (002 research D-6). */
     private static final SecretLabels NODE = new SecretLabels.Environment(
-        new CredentialVariables("INUBIT_ACME", NodeId.parse("test/node1")));
+        new CredentialNames("INUBIT_ACME", NodeId.parse("test/node1")));
 
     /** An AWS node (feature 010, research R-15), with or without a trust-store parameter. */
     private static SecretLabels awsNode(Optional<String> trustStorePassword) {

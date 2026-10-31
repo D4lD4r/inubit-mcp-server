@@ -28,7 +28,7 @@ import java.util.function.Predicate;
  * {@code Chains:} block (one line per stage chain and the exclusions of each target) before the
  * groups. Feature 009 (FR-011a, research D-13) adds the {@code versionLine} setting and, for a
  * node whose StartCLI client was probed, the client version with its declared range and its
- * comparison with a concrete pin. Feature 010 (research R-12) adds {@code secrets: environment |
+ * comparison with a concrete pin. Feature 010 (research R-12) adds {@code secrets: credentialStore |
  * awsParameterStore} to every node line once the profile sets {@code credentials.source}
  * anywhere; an AWS node shows its region, AWS profile and parameter names with the outcome of
  * {@link ParameterCheck} instead of variables, and the {@code Credential variables:} line is left
@@ -72,7 +72,7 @@ public final class ConfigSummary {
         // 002 US2: what keeps this profile apart from others running side by side; feature 010:
         // only if some node reads its variables under the profile prefix
         Map<NodeId, SecretPlan> plans = config.secretPlans();
-        if (plans.isEmpty() || plans.values().stream().anyMatch(plan -> plan.variables()
+        if (plans.isEmpty() || plans.values().stream().anyMatch(plan -> plan.entries()
             .filter(variables -> variables.prefix().equals(config.credentialPrefix()))
             .isPresent())) {
             out.append("Credential variables: ").append(config.credentialPrefix()).append('_')
@@ -115,7 +115,7 @@ public final class ConfigSummary {
                     .append(deploy.mode()).append(')'));
             if (sources) {
                 out.append(", secrets: ").append(server.secretPlan().aws() ? "awsParameterStore"
-                    : "environment");
+                    : "credentialStore");
             }
             // feature 010: an AWS node reads no credential variables
             if (server.secretPlan().aws()) {

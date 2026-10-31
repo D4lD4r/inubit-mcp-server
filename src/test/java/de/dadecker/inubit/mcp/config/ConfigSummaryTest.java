@@ -442,7 +442,7 @@ class ConfigSummaryTest {
           - name: test
             credentials:
               source:
-                type: environment
+                type: credentialStore
                 prefix: INUBIT_TEAM
             nodes:
               - name: inubit01
@@ -462,15 +462,15 @@ class ConfigSummaryTest {
 
     @Test
     void aProfileWithoutSourceShowsNoSecretsPart() {
-        // SC-001: today's output; the explicit default source only adds "secrets: environment"
+        // SC-001: today's output; the explicit default source only adds "secrets: credentialStore"
         String summary = render(CONFIG);
-        String explicit = render(CONFIG + "credentials:\n  source:\n    type: environment\n");
+        String explicit = render(CONFIG + "credentials:\n  source:\n    type: credentialStore\n");
 
         assertThat(summary).doesNotContain("secrets:")
             .contains("Credential variables: INUBIT_ACME_<GROUP>[_<NODE>]_USERNAME / _PASSWORD\n");
         assertThat(explicit).contains("test/inubit01: write enabled (confirmation SERVER), "
-            + "cli: available, inubit: AUTO, secrets: environment, username ←");
-        assertThat(explicit.replace("secrets: environment, ", "")).isEqualTo(summary);
+            + "cli: available, inubit: AUTO, secrets: credentialStore, username ←");
+        assertThat(explicit.replace("secrets: credentialStore, ", "")).isEqualTo(summary);
     }
 
     @Test
@@ -487,7 +487,7 @@ class ConfigSummaryTest {
         assertThat(summary).as("T015 carry-over: no node uses the profile prefix")
             .doesNotContain("Credential variables:");
         assertThat(summary).contains("test/inubit01: read-only, cli: unavailable, inubit: AUTO,"
-            + " secrets: environment, username ← INUBIT_TEAM_TEST_USERNAME,"
+            + " secrets: credentialStore, username ← INUBIT_TEAM_TEST_USERNAME,"
             + " password ← INUBIT_TEAM_TEST_PASSWORD,"
             + " trustStorePassword ← INUBIT_TEAM_TEST_TRUSTSTORE_PASSWORD\n");
         assertThat(summary).contains("prod/inubit01: read-only, cli: unavailable, inubit: AUTO,"
@@ -543,7 +543,7 @@ class ConfigSummaryTest {
 
         assertThat(summary).contains("Credential variables: INUBIT_ACME_<GROUP>[_<NODE>]_USERNAME"
             + " / _PASSWORD\n", "qa/inubit01: read-only, cli: unavailable, inubit: AUTO,"
-            + " secrets: environment, username ← (missing)");
+            + " secrets: credentialStore, username ← (missing)");
     }
 
     // --- feature 010 T015: AWS parameters read and checked (FR-009, research R-12) -------------
@@ -815,7 +815,7 @@ class ConfigSummaryTest {
     @Test
     void aProfileWithoutAwsNodesReadsNothing() {
         render(SOURCES.replace("type: awsParameterStore\n        region: eu-central-1",
-            "type: environment"));
+            "type: credentialStore"));
 
         assertThat(store.calls()).isZero();
     }

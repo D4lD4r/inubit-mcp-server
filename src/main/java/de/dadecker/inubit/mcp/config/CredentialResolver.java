@@ -19,7 +19,7 @@ import java.util.TreeSet;
  * 002 research D-6).
  *
  * <ul>
- *   <li>Names ({@link CredentialVariables}): {@code <PREFIX>_<GROUP>_<NODE>_<KIND>} then
+ *   <li>Names ({@link CredentialNames}): {@code <PREFIX>_<GROUP>_<NODE>_<KIND>} then
  *       {@code <PREFIX>_<GROUP>_<KIND>}, with {@code PREFIX} the profile's effective prefix and
  *       {@code KIND} one of {@code USERNAME}, {@code PASSWORD}, {@code TRUSTSTORE_PASSWORD}; the
  *       first non-empty value wins, each kind independently. Variables under another prefix are
@@ -39,10 +39,10 @@ import java.util.TreeSet;
  */
 public final class CredentialResolver {
 
-    static final String USERNAME = CredentialVariables.USERNAME;
-    static final String PASSWORD = CredentialVariables.PASSWORD;
-    static final String TRUSTSTORE_PASSWORD = CredentialVariables.TRUSTSTORE_PASSWORD;
-    private static final List<String> KINDS = CredentialVariables.KINDS;
+    static final String USERNAME = CredentialNames.USERNAME;
+    static final String PASSWORD = CredentialNames.PASSWORD;
+    static final String TRUSTSTORE_PASSWORD = CredentialNames.TRUSTSTORE_PASSWORD;
+    private static final List<String> KINDS = CredentialNames.KINDS;
 
     private final Map<String, String> environment;
     private final SecretScrubber scrubber;
@@ -88,11 +88,11 @@ public final class CredentialResolver {
 
     /**
      * The variables of {@code node}: those of its plan; for an AWS node or a node without a plan
-     * those under this resolver's prefix (like {@link EffectiveNodeConfig#credentialVariables()}).
+     * those under this resolver's prefix (like {@link EffectiveNodeConfig#credentialNames()}).
      */
-    public CredentialVariables variables(NodeId node) {
-        return Optional.ofNullable(plans.get(node)).flatMap(SecretPlan::variables)
-            .orElseGet(() -> new CredentialVariables(prefix, node));
+    public CredentialNames variables(NodeId node) {
+        return Optional.ofNullable(plans.get(node)).flatMap(SecretPlan::entries)
+            .orElseGet(() -> new CredentialNames(prefix, node));
     }
 
     private boolean aws(NodeId node) {
@@ -121,10 +121,10 @@ public final class CredentialResolver {
         if (aws(server)) {
             return Optional.empty();
         }
-        Optional<SourcedValue<String>> username = lookup(server, CredentialVariables.E2E_USERNAME)
+        Optional<SourcedValue<String>> username = lookup(server, CredentialNames.E2E_USERNAME)
             .filter(value -> CredentialRules.isSafeUsername(value.value()));
         Optional<SourcedValue<String>> password = lookup(server,
-            CredentialVariables.E2E_PASSWORD);
+            CredentialNames.E2E_PASSWORD);
         if (username.isEmpty() || password.isEmpty()) {
             return Optional.empty();
         }
@@ -217,8 +217,8 @@ public final class CredentialResolver {
                 continue;
             }
             for (String kind : kinds) {
-                String serverVariable = variables(server).nodeVariable(kind);
-                String stageVariable = variables(server).groupVariable(kind);
+                String serverVariable = variables(server).nodeName(kind);
+                String stageVariable = variables(server).groupName(kind);
                 owners.computeIfAbsent(serverVariable, k -> new TreeSet<>())
                     .add(terms.render("{node} ") + server);
                 owners.computeIfAbsent(stageVariable, k -> new TreeSet<>())
@@ -245,7 +245,7 @@ public final class CredentialResolver {
     private List<String> unmatchedPasswordVariables(List<NodeId> servers,
         Set<String> otherProfiles) {
         Set<String> known = owners(servers, Stream.concat(KINDS.stream(),
-            CredentialVariables.E2E_KINDS.stream()).toList()).keySet();
+            CredentialNames.E2E_KINDS.stream()).toList()).keySet();
         Set<String> unmatched = new TreeSet<>();
         for (String variable : environment.keySet()) {
             if (variable.startsWith(prefix + "_") && variable.endsWith("_" + PASSWORD)

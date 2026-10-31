@@ -909,9 +909,9 @@ class ConfigValidatorTest {
             LoadedConfig loaded = loader.loadFile(file);
             ProfileConfig config = loaded.config();
             // the group-wide variables of every environment node (feature 010: AWS nodes read none)
-            config.secretPlans().values().forEach(plan -> plan.variables().ifPresent(variables -> {
-                env.put(variables.groupVariable("USERNAME"), "user");
-                env.put(variables.groupVariable("PASSWORD"), "secret-value");
+            config.secretPlans().values().forEach(plan -> plan.entries().ifPresent(variables -> {
+                env.put(variables.groupName("USERNAME"), "user");
+                env.put(variables.groupName("PASSWORD"), "secret-value");
             }));
             CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
                 config.terminology().effectiveOrDefault(), config.credentialPrefix(),
@@ -2062,13 +2062,13 @@ class ConfigValidatorTest {
         void aProfileEnvironmentPrefixOtherThanEnvPrefixIsAnErrorNamingBothKeys() {
             // US1-3
             String top = "credentials:\n  envPrefix: INUBIT_LEGACY\n  source:\n"
-                + "    type: environment\n    prefix: %s\n";
+                + "    type: credentialStore\n    prefix: %s\n";
 
             ValidationReport report = validate(profile(top.formatted("INUBIT_OTHER"), "", "", ""));
             ValidationReport equal = validate(profile(top.formatted("INUBIT_LEGACY"), "", "", ""));
             // a group or node with its own prefix is an override, not a contradiction
             ValidationReport group = validate(profile("credentials:\n  envPrefix: INUBIT_LEGACY\n",
-                "source:\n  type: environment\n  prefix: INUBIT_OTHER\n", "", ""));
+                "source:\n  type: credentialStore\n  prefix: INUBIT_OTHER\n", "", ""));
 
             assertThat(report.errors()).anySatisfy(e -> assertThat(e)
                 .contains("credentials.source.prefix", "credentials.envPrefix"));
@@ -2115,7 +2115,7 @@ class ConfigValidatorTest {
             String top = "credentials:\n" + AWS.indent(2);
 
             ValidationReport report = validate(profile(top,
-                "source:\n  type: environment\n" + NAMES, "", ""));
+                "source:\n  type: credentialStore\n" + NAMES, "", ""));
             ValidationReport implicit = validate(profile("", NAMES, "", ""));
 
             assertThat(report.errors()).isEmpty();
@@ -2128,7 +2128,7 @@ class ConfigValidatorTest {
 
         @Test
         void parameterNamesOfAnEnvironmentNodeInAnAwsGroupAreIgnoredWithAWarning() {
-            String node = "source:\n  type: environment\n"
+            String node = "source:\n  type: credentialStore\n"
                 + "parameters:\n  password: /inubit/node1/password\n";
 
             ValidationReport report = validate(profile("", awsGroup(""), node, ""));
@@ -2184,9 +2184,9 @@ class ConfigValidatorTest {
             LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, windows)
                 .parse(yaml, HOME.resolve("config.yaml"));
             ProfileConfig config = loaded.config();
-            config.secretPlans().values().forEach(plan -> plan.variables().ifPresent(variables -> {
-                env.putIfAbsent(variables.groupVariable("USERNAME"), "user");
-                env.putIfAbsent(variables.groupVariable("PASSWORD"), "secret-value");
+            config.secretPlans().values().forEach(plan -> plan.entries().ifPresent(variables -> {
+                env.putIfAbsent(variables.groupName("USERNAME"), "user");
+                env.putIfAbsent(variables.groupName("PASSWORD"), "secret-value");
             }));
             CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
                 config.terminology().effectiveOrDefault(), config.credentialPrefix(),
@@ -2239,7 +2239,7 @@ class ConfigValidatorTest {
             ProfileConfig allAws = parse(profile("credentials:\n" + AWS.indent(2), NAMES, "",
                 ""));
             ProfileConfig mixed = parse(profile("", awsGroup(""),
-                "source:\n  type: environment\n  prefix: INUBIT_OWN\n", "") + """
+                "source:\n  type: credentialStore\n  prefix: INUBIT_OWN\n", "") + """
                   - name: qa
                     nodes:
                       - name: node1
@@ -2307,7 +2307,7 @@ class ConfigValidatorTest {
 
             ValidationReport aws = validateWithPlans(yaml.formatted(""));
             ValidationReport environment = validateWithPlans(yaml.formatted(
-                "credentials:\n  source:\n    type: environment\n".indent(8).stripTrailing()));
+                "credentials:\n  source:\n    type: credentialStore\n".indent(8).stripTrailing()));
 
             assertThat(aws.errors()).isEmpty();
             assertThat(environment.errors()).anySatisfy(error -> assertThat(error)

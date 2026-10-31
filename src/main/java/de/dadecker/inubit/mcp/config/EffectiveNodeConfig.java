@@ -19,7 +19,7 @@ import java.util.function.Predicate;
  *
  * @param credentialPrefix the profile's effective credential prefix (002 research D-6), so that
  *     every message about this node's credentials names its own variables
- *     ({@link #credentialVariables()})
+ *     ({@link #credentialNames()})
  * @param secretPlan where this node's credentials come from (feature 010, research R-6)
  */
 public record EffectiveNodeConfig(
@@ -155,9 +155,9 @@ public record EffectiveNodeConfig(
      * The credential environment variables of this node: those of its plan; for an AWS node
      * (no variables) those under the profile's prefix, as before feature 010.
      */
-    public CredentialVariables credentialVariables() {
-        return secretPlan.variables()
-            .orElseGet(() -> new CredentialVariables(credentialPrefix, id));
+    public CredentialNames credentialNames() {
+        return secretPlan.entries()
+            .orElseGet(() -> new CredentialNames(credentialPrefix, id));
     }
 
     /** The names of this node's secrets in messages, per its source (research R-15). */

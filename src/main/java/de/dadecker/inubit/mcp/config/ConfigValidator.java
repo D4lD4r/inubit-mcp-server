@@ -380,7 +380,7 @@ public final class ConfigValidator {
         // feature 010 (US1-3): envPrefix is the default of every environment source without one
         Optional<String> envPrefix = config.credentials().envPrefix();
         if (config.credentials().source().orElse(null)
-            instanceof SecretSourceConfig.Environment environment
+            instanceof SecretSourceConfig.SystemStore environment
             && environment.prefix().isPresent() && envPrefix.isPresent()
             && !environment.prefix().equals(envPrefix)) {
             findings.error("credentials.source.prefix and credentials.envPrefix differ; set only"
@@ -593,8 +593,8 @@ public final class ConfigValidator {
         if (server.secretPlan().aws()) {
             return set;
         }
-        for (String kind : CredentialVariables.E2E_KINDS) {
-            for (String variable : server.credentialVariables().candidates(kind)) {
+        for (String kind : CredentialNames.E2E_KINDS) {
+            for (String variable : server.credentialNames().candidates(kind)) {
                 if (CredentialRules.isSet(environment.get(variable))) {
                     set.add(variable);
                 }
@@ -612,7 +612,7 @@ public final class ConfigValidator {
         if (server.secretPlan().aws()) {
             return;
         }
-        server.credentialVariables().candidates(CredentialVariables.E2E_PASSWORD).stream()
+        server.credentialNames().candidates(CredentialNames.E2E_PASSWORD).stream()
             .filter(variable -> CredentialRules.isSet(environment.get(variable)))
             .findFirst()
             .filter(variable -> !CredentialRules.isScrubbable(environment.get(variable)))
@@ -679,7 +679,7 @@ public final class ConfigValidator {
     private static void checkIgnoredParameterNames(ProfileConfig config, Findings findings) {
         for (GroupConfig group : config.groups()) {
             boolean environment = SecretPlan.groupSource(config.credentials(), group)
-                instanceof SecretSourceConfig.Environment;
+                instanceof SecretSourceConfig.SystemStore;
             if (environment && group.credentials().parameters().isPresent()) {
                 findings.termWarning("{Group} '%s': credentials.parameters is ignored; the"
                     + " secrets of this {group} come from environment variables", group.name());
@@ -720,7 +720,7 @@ public final class ConfigValidator {
                     + " e2e basic-authentication variables of its {group} (%s is its username"
                     + " variable as well); rename the {node} or set e2eTests: FORBIDDEN for the"
                     + " {group}", server.id().value(), server.id().name(),
-                    server.credentialVariables().groupVariable(CredentialVariables.E2E_USERNAME)));
+                    server.credentialNames().groupName(CredentialNames.E2E_USERNAME)));
         });
     }
 
