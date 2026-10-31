@@ -959,9 +959,9 @@ class InventoryServiceTest {
     }
 
     @Test
-    void theFanOutDeadlinesOfAnAwsNodeAddTheFetchAllowance() {
-        // feature 010 (T013, research R-8): always for an AWS node (whether or not its secrets
-        // are held already), never for the others
+    void theFanOutDeadlinesOfANodeWhoseCredentialsAreNotHeldAddTheFetchAllowance() {
+        // feature 010 (T013, research R-8), feature 011 (FR-008): while the node's credentials
+        // are not held, for every source; never for a node without a store wait
         InventoryService environment = service();
         secretTiming = new SecretTiming(Map.of(QA1, Duration.ofSeconds(10)), node -> false);
         InventoryService service = service();

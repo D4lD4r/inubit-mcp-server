@@ -73,13 +73,9 @@ public final class PortSetRegistry {
 
     /**
      * A copy of this registry in which {@code factory} serves the versions in {@code range}, with
-     * the default query checks.
+     * the credential-free query checks {@code rules} of that port set (feature 011; explicit, so
+     * that a new port set never checks its queries with the rules of another version).
      */
-    public PortSetRegistry register(VersionRange range, Factory factory) {
-        return register(range, factory, defaultRules);
-    }
-
-    /** As above, with the query checks of that port set (feature 011). */
     public PortSetRegistry register(VersionRange range, Factory factory, QueryRules rules) {
         List<Entry> extended = new ArrayList<>(entries);
         extended.add(new Entry(Objects.requireNonNull(range, "range"),

@@ -7,7 +7,9 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.filter.Filter;
 import ch.qos.logback.core.read.ListAppender;
+import ch.qos.logback.core.spi.FilterReply;
 import de.dadecker.inubit.mcp.config.E2eCredentials;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.Fetched;
@@ -76,17 +78,35 @@ class NodeSecretsTest {
     private final Logger logger = (Logger) org.slf4j.LoggerFactory.getLogger(NodeSecrets.class);
     private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
 
-    /** Successful fetches are logged at INFO (the production root level); tests run at WARN. */
+    /**
+     * Successful fetches are logged at INFO (the production root level); tests run at WARN. Only
+     * records of this class's store location (AWS profile {@code test-profile}) are captured: a
+     * background fetch of another test class that ends late logs on the same logger.
+     */
     @BeforeEach
     void captureLog() {
+        appender.addFilter(new Filter<>() {
+            @Override
+            public FilterReply decide(ILoggingEvent event) {
+                return event.getKeyValuePairs() != null && event.getKeyValuePairs().stream()
+                    .anyMatch(pair -> pair.key.equals("profile")
+                        && "test-profile".equals(pair.value))
+                    ? FilterReply.NEUTRAL : FilterReply.DENY;
+            }
+        });
         appender.start();
         logger.addAppender(appender);
         logger.setAdditive(false);
         logger.setLevel(Level.INFO);
     }
 
+    /**
+     * The background fetches of a test end, and log, before its capture is released, so that no
+     * record reaches the next test's capture (T013-T015 review r2).
+     */
     @AfterEach
-    void releaseLog() {
+    void releaseLog() throws InterruptedException {
+        store.release(Duration.ofSeconds(2));
         logger.setLevel(null);
         logger.setAdditive(true);
         logger.detachAppender(appender);
@@ -290,9 +310,7 @@ class NodeSecretsTest {
             "Parameter Store unreachable");
         assertThat(store.requests()).singleElement()
             .satisfies(request -> assertThat(request.timeout()).isEqualTo(timeout));
-        // the fetch count is pinned by store.requests(); the log may also hold a record of an
-        // earlier test's background fetch that ended late, so it is not counted here
-        assertThat(appender.list).anySatisfy(event -> {
+        assertThat(appender.list).singleElement().satisfies(event -> {
             assertThat(event.getLevel()).isEqualTo(Level.WARN);
             assertThat(fields(event)).containsEntry("outcome", "UNREACHABLE");
         });

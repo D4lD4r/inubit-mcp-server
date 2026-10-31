@@ -537,8 +537,9 @@ class DiagnosisServiceTest {
     }
 
     @Test
-    void theFanOutDeadlineOfAnAwsNodeAddsTheFetchAllowance() {
-        // feature 010 (T013, research R-8): always for an AWS node, never for the others
+    void theFanOutDeadlineOfANodeWhoseCredentialsAreNotHeldAddsTheFetchAllowance() {
+        // feature 010 (T013, research R-8), feature 011 (FR-008): while the node's credentials
+        // are not held, for every source; never for a node without a store wait
         secretTiming = new SecretTiming(Map.of(QA1, Duration.ofSeconds(10)), node -> false);
         DiagnosisService service = service();
         Duration base = TIMEOUT.multipliedBy(3).plus(DiagnosisService.FAN_OUT_GRACE);
@@ -548,11 +549,11 @@ class DiagnosisServiceTest {
     }
 
     @Test
-    void aReReadInsideAFanOutEndsThatBranchInATimeoutAndTheNextCallUsesItsResult() {
-        // feature 011 (T015, research R-8, quickstart Q23): the node's credentials are held, so
-        // its branch gets no allowance; a rejected login starts a re-read that outlasts the
-        // 1.9 s deadline. The branch reports TIMEOUT, the other node is unaffected, and once the
-        // re-read has finished the next call works
+    void aHeldNodeWhoseCallOutlastsItsDeadlineKeepsThePlainFanOutTimeout() {
+        // feature 011 (T015, research R-8): the node's credentials are held, so its branch gets
+        // no allowance and its TIMEOUT keeps the text of the fan-out (no access dialog hint); the
+        // other node is unaffected, and the next call works. The real re-read inside a fan-out
+        // (quickstart Q23) is RotationInsideAFanOutTest
         secretTiming = new SecretTiming(Map.of(QA1, Duration.ofSeconds(60)), node -> true,
             Map.of(QA1, "macOS Keychain"));
         CountDownLatch reread = new CountDownLatch(1);
@@ -574,8 +575,11 @@ class DiagnosisServiceTest {
         List<NodeResult<NodePage<ProcessInstance>>> second = service.findProcesses(
             processRequest("qa"));
 
-        assertThat(first.get(0).error()).hasValueSatisfying(error ->
-            assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT));
+        assertThat(first.get(0).error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+            assertThat(error.likelyCause()).doesNotContain("access dialog");
+            assertThat(error.nextStep()).doesNotContain("access dialog");
+        });
         assertThat(first.get(1).isSuccess()).isTrue();
         assertThat(second).allSatisfy(result -> assertThat(result.isSuccess()).isTrue());
     }

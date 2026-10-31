@@ -18,6 +18,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
+import de.dadecker.inubit.mcp.adapter.rest.v81.V81QueryRules;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.Capability;
@@ -179,7 +180,7 @@ class CapabilityExtensionTest {
         PortSetRegistry portSets = PortSetRegistry.v81Default().register(V7_9, node -> {
             built79.add(node.server().id());
             return portSet79();
-        });
+        }, V81QueryRules.INSTANCE);
         gateways = new AdapterGatewayFactory(servers, TestSecrets.credentialStore(servers, Map.of(
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber), scrubber,

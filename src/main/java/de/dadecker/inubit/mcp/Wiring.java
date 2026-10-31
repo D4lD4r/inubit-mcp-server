@@ -311,15 +311,16 @@ final class Wiring implements AutoCloseable {
         Function<NodeId, E2ePort> e2ePorts = id -> {
             // feature 010 (FR-006a, research R-7): both reads before computeIfAbsent, so a slow
             // read blocks no other entry and a failed one is not cached as a client; feature 011
-            // (research R-7, review T013-T014 r1): together they wait at most as long as the
-            // node's store may take for one read, not twice that
+            // (research R-7, review T013-T015 r2): each read gets the node's store timeout of its
+            // own, so that the access dialogs of the main read (username, password, trust store
+            // password) cannot use up the time of the end-to-end read; the call may take twice
+            // the store timeout on a fresh node, which E2eTestService allows (it has no overall
+            // deadline)
             NodeSecrets nodeSecrets = secrets.get(id);
-            long waitEnd = System.nanoTime() + nodeSecrets.timeout().toNanos();
             Optional<de.dadecker.inubit.mcp.infra.Secret> trustStorePassword = nodeSecrets
                 .current(nodeSecrets.timeout()).trustStorePassword()
                 .map(SourcedValue::value);
-            Optional<SoapE2eClient.BasicAuth> auth = nodeSecrets.e2e(Duration.ofNanos(
-                    Math.max(waitEnd - System.nanoTime(), 0)))
+            Optional<SoapE2eClient.BasicAuth> auth = nodeSecrets.e2e(nodeSecrets.timeout())
                 .map(e2e -> new SoapE2eClient.BasicAuth(e2e.username().value(),
                     e2e.password().value()));
             return e2eClients.computeIfAbsent(id, node -> new SoapE2eClient(byId.get(node),
