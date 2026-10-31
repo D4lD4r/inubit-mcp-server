@@ -27,9 +27,9 @@ one online dependency resolution.
 | 2 | US1-2: node entry before group entry | node entry used; group entry when node entry missing or empty; no fallback after a failure | `NodeSecretsCredentialStoreTest` |
 | 3 | US1-3: entry missing | `AUTH_FAILED` naming store and both accounts; other nodes work | `NodeSecretsCredentialStoreTest`, `InventoryServiceTest` |
 | 4 | US1-4: dialog denied / unanswered | `AUTH_FAILED` access denied, no new read for 30 s; `UNREACHABLE` timeout | `NodeSecretsCredentialStoreTest` (fake clock), `KeychainStoreTest` |
-| 5 | R-3: `security -g` parsing | text, `0x` hex (UTF-8), empty, not found (44), denied, no GUI session; arguments contain no value | `KeychainStoreTest` (fake executable) |
-| 6 | R-4: Windows decoding | UTF-16LE, odd size → invalid, 1168 → not found, 1312 → not available | `WindowsCredentialStoreTest` (`CredApi` seam) |
-| 7 | R-5 / US2-3: `secret-tool` | found, not found, no D-Bus / not installed → not available, timeout kills the process | `SecretServiceStoreTest` (fake executable) |
+| 5 | R-3: `security -g` parsing | text, `0x` hex (UTF-8), empty; exit codes 44 / 128 / 51 / 36 / 50 mapped first; arguments contain no value; a `password:` line with an unexpected exit never reaches the log | `KeychainStoreTest` (fake executable) |
+| 6 | R-4: Windows decoding | UTF-16LE, odd size → invalid, 1168 → not found, 1312 → not available, `LinkageError` → not available | `WindowsCredentialStoreTest` (`CredApi` seam) |
+| 7 | R-5 / US2-3: `secret-tool` | found, not found, no D-Bus / not installed → not available, timeout kills the process; environment allowlist (no `INUBIT_*`); stdout never logged | `SecretServiceStoreTest` (fake executable) |
 | 8 | FR-008 / R-8: serialised reads, node deadline | one entry read at a time; waiting counts in the node's 60 s | `StoreGateTest`, `NodeSecretsCredentialStoreTest` |
 | 9 | FR-008: fan-out allowance only while not held | deadlines as today once held, for both sources | `SecretTimingTest`, `InventoryServiceTest` |
 | 10 | US3-1: `type: environment` | configuration error with path, replacement, guide | `ConfigLoaderTest` |
@@ -44,3 +44,9 @@ one online dependency resolution.
 | 19 | SC-003: no leak | values absent from results, logs, errors, audit, arguments, summary | `NoSecretLeakTest` |
 | 20 | US6 / FR-014: live tests | `LiveTarget` resolves like the server for both sources | `LiveTargetTest` |
 | 21 | Boundary | JNA only in `adapter/os` | `PackageBoundaryTest` |
+| 22 | R-7: single-node wait per source | a call whose fake store answers after 30 s succeeds (no 10 s give-up) | `AdapterGatewayFactoryTest`, `WiringE2eTest` |
+| 23 | R-8: re-read inside a fan-out | branch `TIMEOUT`, re-read finishes, next call uses its result | `CredentialGuardTest`, `InventoryServiceTest` |
+| 24 | SC-006: first-call overhead | 25 ms per entry, ≤ 4 reads → ≤ 200 ms extra; later calls unchanged | `NodeSecretsCredentialStoreTest` (timed, fake store) |
+| 25 | FR-013: `secret.fetch` record | `source=credentialStore`, `store`, `entries`, `durationMs`, `outcome`, `changed` on re-read; INFO/WARN; none within back-off; never a value | `NodeSecretsCredentialStoreTest` (log capture) |
+| 26 | R-17: audit account before first read | "(credential store <account>)", then the read username | `WiringAuditTest` |
+| 27 | R-13: `--check-config` reads each account once | a group entry shared by N nodes read once | `EntryCheckTest` |

@@ -40,8 +40,9 @@ Per node: effective `source` (node → group → profile → `CredentialStore(em
 | `StoreKind kind()` | `KEYCHAIN`, `CREDENTIAL_MANAGER`, `SECRET_SERVICE`, `NONE`; display names "macOS Keychain", "Windows Credential Manager", "Secret Service", "no credential store" |
 | `Lookup read(String account, Duration timeout)` | never throws for store failures |
 
-`Lookup`: `Found(String value)` | `NotFound` | `Failed(FailureKind kind, String detail)`; `detail` is
-raw store text for the scrubbed log only.
+`Lookup`: `Found(Secret value)` | `NotFound` | `Failed(FailureKind kind, String detail)`; `detail` is
+store text for the scrubbed log only and never contains tool output that may carry a value (R-3,
+R-5).
 
 ## FailureKind (config, extended)
 
@@ -56,23 +57,37 @@ and runs one entry read at a time (R-8).
 
 ## NodeSecrets (adapter, changed)
 
-Factories `credentialStore(SecretPlan, CredentialStore, SecretScrubber, Clock)` and `aws(...)`
-(unchanged); the environment constructor is removed. State per cell unchanged (single flight, 30 s
+Factories `credentialStore(EffectiveNodeConfig, CredentialStore, SecretScrubber, Clock)` and
+`aws(...)` (unchanged); the environment constructor is removed. Per-source `SecretReader`
+(`EntryReader`, `ParameterReader` with today's texts). State per cell unchanged (single flight, 30 s
 back-off, settle grace). `held()` returns the held credentials without reading (used by
-`SecretTiming`). Timeout: `CREDENTIAL_STORE_TIMEOUT` = 60 s or `STORE_TIMEOUT` = 10 s by source.
+`SecretTiming`). `timeout()`: `CREDENTIAL_STORE_TIMEOUT` = 60 s or `STORE_TIMEOUT` = 10 s by source;
+every caller's wait uses it (`AdapterGatewayFactory.awaitCredentials`, the e2e function in
+`Wiring`).
 
 Main read (credential store): per kind `USERNAME`, `PASSWORD`, and `TRUSTSTORE_PASSWORD` if
 `tls.trustStore` is set — node entry; on `NotFound` or empty, group entry; `Failed` or invalid stops.
 Missing `USERNAME`/`PASSWORD` → `AUTH_FAILED` naming both entries. Trust store password with CLI →
 `AUTH_FAILED` (R-11).
 
-E2E read: `E2E_USERNAME`, `E2E_PASSWORD` the same way; none → no basic authentication; exactly one →
+E2E read (cell always present, result `Optional<E2eCredentials>`): `E2E_USERNAME`, `E2E_PASSWORD`
+the same way; none → empty (no basic authentication); exactly one →
 `AUTH_FAILED` naming the missing entry; found together with an `http://` `e2e.soap.baseUrl` while e2e
 tests are allowed → refused before sending.
 
 ## NodeCredentials (config, changed)
 
-Only the deferred form remains at startup; values exist only inside `NodeSecrets` after a read.
+Only the resolved form remains, built only inside `NodeSecrets` from read values; the `deferred` flag
+and `NodeCredentials.deferred(...)` are removed.
+
+## E2eCredentials (config, moved)
+
+From `CredentialResolver.E2eCredentials`, unchanged fields.
+
+## CredentialGuard (adapter, changed)
+
+Authenticated clients always get the node's `NodeSecrets` as `Rereadable`; the constructor without it
+stays only for clients that never authenticate (maintenance probe, tests).
 
 ## SecretTiming (application, changed)
 

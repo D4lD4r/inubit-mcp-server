@@ -480,8 +480,9 @@ fictitious profile from the real store (FR-017).
 - **SC-005**: A changed credential takes effect without restart or reconnect for every source (at the
   latest after one rejected login), and the documentation describes one procedure per source for
   changing a credential.
-- **SC-006**: With a test double of the store that answers within 100 ms, the first call on a node
-  takes at most 200 ms longer than with credentials already held; later calls show no measurable
+- **SC-006**: With a test double of the store that answers each entry read within 25 ms, the first
+  call on a node (at most four entry reads: username and password, each with a group fallback) takes
+  at most 200 ms longer than with credentials already held; later calls show no measurable
   difference.
 - **SC-007**: The same profile file works unchanged on macOS, Windows and Linux when the entries exist
   in each system's store: verified with test doubles of every store in the build, and by the live

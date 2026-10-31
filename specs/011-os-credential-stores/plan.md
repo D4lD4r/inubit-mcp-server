@@ -22,9 +22,12 @@ rejects them, so a changed credential never needs a restart.
   `KeychainStore` (`/usr/bin/security … -g`), `WindowsCredentialStore` (`CredReadW` through JNA),
   `SecretServiceStore` (`secret-tool lookup`), `UnavailableStore`.
 - **Lazy credentials for every node** (R-7, R-8): `NodeSecrets.credentialStore(...)` next to
-  `NodeSecrets.aws(...)`; node entry before group entry by value; 60 s store timeout covering the
-  whole read of a node; reads serialised process-wide (one dialog at a time); fan-out allowance only
-  while a node's credentials are not held.
+  `NodeSecrets.aws(...)`, with a per-source reader (`EntryReader`, `ParameterReader`); node entry
+  before group entry by value; 60 s store timeout covering the whole read of a node, used by every
+  caller's wait (`NodeSecrets.timeout()`); reads serialised process-wide (one dialog at a time);
+  fan-out allowance only while a node's credentials are not held; the resolved `NodeCredentials`
+  stays, the deferred placeholder goes.
+- **Audit** (R-17): account fallback "(credential store <account>)" before the first read.
 - **Rotation** (R-9): the guard always re-reads; at most two failed logins per node per 60 s.
 - **Removal** (R-10, R-11): `CredentialResolver` shrinks to `LeftoverVariables` (warning with names
   only); startup checks that read variable values move to read time and `--check-config`.
@@ -36,7 +39,7 @@ rejects them, so a changed credential never needs a restart.
 **Language/Version**: Java 21 (unchanged).
 
 **Primary Dependencies**: existing (MCP Java SDK, Jackson YAML, logback, Saxon-HE, AWS SDK v2) plus
-**JNA 5.x core** (`net.java.dev.jna:jna`, Apache-2.0 option of its dual license) for `CredReadW` on
+**JNA 5.17.0 core** (`net.java.dev.jna:jna`, Apache-2.0 option of its dual license) for `CredReadW` on
 Windows only. Justification in research R-1/R-4. `THIRD-PARTY-NOTICES.md` is updated. Runtime
 prerequisites per system: macOS `/usr/bin/security` (part of the OS); Linux `secret-tool`
 (`libsecret-tools` on Debian/Ubuntu, `libsecret` on Fedora/Arch) and a Secret Service provider;
@@ -73,14 +76,17 @@ unchanged); startup has no store access; fan-out deadlines unchanged once creden
 
 **Scale/Scope**: no new tool; changed: profile schema (`credentials.prefix`, `type:
 credentialStore`, `environment` removed), `--check-config`, error texts and next steps, `get_health`
-pending text, docs. About 9 new classes (`CredentialStore` + `Lookup`, `StoreKind`, `CredentialNames`
-(renamed), `KeychainStore`, `WindowsCredentialStore` + `CredApi`, `SecretServiceStore`,
-`UnavailableStore`, `CredentialStores`, `StoreGate`, `EntryCheck`, `LeftoverVariables`,
-`SecretsFactory`) and changes to `SecretSourceConfig`, `CredentialsConfig`, `ProfileConfig`,
-`SecretPlan`, `ConfigLoader`, `ConfigValidator`, `ConfigSummary`, `SecretLabels`, `FailureKind`,
-`NodeSecrets`, `NodeCredentials`, `CredentialGuard`, `SecretTiming`, `HealthService`,
-`CliOutputClassifier`, `Format001Detector`, `Launcher`, `Wiring`, `LiveTarget`; `CredentialResolver`
-and `CredentialResolution` are removed.
+pending text, docs. New classes: `CredentialStore` + `Lookup`, `StoreKind`, `CredentialNames`
+(renamed from `CredentialVariables`), `E2eCredentials` (moved to `config`), `KeychainStore`,
+`WindowsCredentialStore` + `CredApi`, `SecretServiceStore`, `UnavailableStore`, `CredentialStores`,
+`StoreGate`, `SecretReader` + `EntryReader` + `ParameterReader`, `EntryCheck`, `LeftoverVariables`.
+Changed: `SecretSourceConfig`, `CredentialsConfig`, `ProfileConfig`, `EffectiveNodeConfig`
+(`credentialNames()`), `SecretPlan`, `ConfigLoader`, `ConfigValidator` (checks and texts),
+`ConfigSummary`, `SecretLabels`, `FailureKind`, `NodeSecrets`, `NodeCredentials` (deferred form
+removed), `CredentialGuard`, `AdapterGatewayFactory` (`awaitCredentials` per source), `SslContexts`,
+`SecretTiming`, `HealthService`, `CliOutputClassifier`, `Format001Detector`, `Launcher`, `Wiring`
+(store seam, audit fallback), `TestWiring`, `LiveTarget`, `PackageBoundaryTest` (JNA rule,
+`ProcessLauncher` in `adapter/os`). Removed: `CredentialResolver`, `CredentialResolution`.
 
 ## Constitution Check
 
@@ -113,7 +119,7 @@ specs/011-os-credential-stores/
 │   ├── configuration-delta.md
 │   └── mcp-tools-delta.md
 ├── checklists/requirements.md
-├── reviews/                    # spec-r1, spec-r2 (+ plan reviews)
+├── reviews/                    # spec-r1, spec-r2, plan-r1 …
 └── tasks.md                    # /speckit-tasks
 ```
 
@@ -126,17 +132,18 @@ src/main/java/de/dadecker/inubit/mcp/
 │                  # ProfileConfig.credentialPrefix/credentialNameSet, SecretPlan, ConfigLoader (environment refused),
 │                  # ConfigValidator (name checks, moved value checks), ConfigSummary, EntryCheck (new),
 │                  # LeftoverVariables (new; replaces CredentialResolver/CredentialResolution), SecretLabels, FailureKind,
-│                  # Format001Detector (hint)
+│                  # E2eCredentials (moved), NodeCredentials (resolved form only), EffectiveNodeConfig, Format001Detector (hint)
 ├── adapter/os/    # KeychainStore, WindowsCredentialStore (+ CredApi, JNA mapping), SecretServiceStore,
 │                  # UnavailableStore, CredentialStores, StoreGate (+ package-info) — the only JNA user
-├── adapter/       # NodeSecrets (credential store variant, environment variant removed), NodeCredentials (deferred only),
-│                  # CredentialGuard (always re-readable), AdapterGatewayFactory, SecretsFactory (new)
+├── adapter/       # NodeSecrets + SecretReader/EntryReader/ParameterReader (environment variant removed),
+│                  # CredentialGuard (re-readable for every authenticated client), AdapterGatewayFactory (wait per source)
+├── adapter/rest/  # SslContexts: CredentialNames, texts via SecretLabels
 ├── adapter/cli/   # CliOutputClassifier: login-failure text from SecretLabels
 ├── application/   # SecretTiming (per-node wait, only while not held), HealthService (pending text per store)
 ├── Launcher.java  # no credential resolution at startup; LeftoverVariables warning; EntryCheck in --check-config; --help
-└── Wiring.java    # CredentialStore for the running OS, NodeSecrets for every node via SecretsFactory
+└── Wiring.java    # CredentialStore seam (CredentialStores.forOs in production), NodeSecrets for every node, audit fallback
 src/test/…          # FakeCredentialStore, fake security / secret-tool executables, tests per quickstart table,
-                    # NoEnvironmentCredentialsTest, CredentialStoreLiveTest (opt-in), LiveTarget via SecretsFactory
+                    # NoEnvironmentCredentialsTest, CredentialStoreLiveTest (opt-in), TestWiring/LiveTarget with a store
 pom.xml, THIRD-PARTY-NOTICES.md   # JNA core; live-store profile
 docs/setup.md (section 4 rewritten), docs/migration-environment-variables.md (new), docs/tools.md,
 docs/live-tests.md, docs/migration-001-to-002.md (note), README, SECURITY.md, CHANGELOG (0.7.0, breaking)
@@ -151,14 +158,15 @@ docs/live-tests.md, docs/migration-001-to-002.md (note), README, SECURITY.md, CH
 2. **Configuration model** (US3): `CredentialNames`, `type: credentialStore` as the default,
    `environment` refused, `credentials.prefix` / `envPrefix`, name checks on credential store nodes,
    `LeftoverVariables` warning.
-3. **Lazy credentials for every node** (US1, US2): `NodeSecrets.credentialStore`, node-before-group
-   fallback, moved value checks (R-11), e2e cell, `SecretsFactory`, `Wiring`, removal of the
-   environment path (`CredentialResolver`, non-deferred `NodeCredentials`), `NoEnvironmentCredentialsTest`.
+3. **Lazy credentials for every node** (US1, US2): `SecretReader` split, `NodeSecrets.credentialStore`,
+   node-before-group fallback, moved value checks (R-11), e2e cell, `timeout()` used by every wait,
+   `Wiring`/`TestWiring` store seam, audit fallback (R-17), removal of the environment path
+   (`CredentialResolver`, the deferred `NodeCredentials` placeholder), `NoEnvironmentCredentialsTest`.
 4. **Time budgets**: `SecretTiming` per node and only while not held, `get_health` pending text.
 5. **Rotation and messages** (US5): guard always re-readable, `SecretLabels` credential store
    variant, `CliOutputClassifier`.
 6. **`--check-config`** (US4): `EntryCheck`, `ConfigSummary` lines.
-7. **Live tests** (US6): `LiveTarget` via `SecretsFactory`, `CredentialStoreLiveTest`.
+7. **Live tests** (US6): `LiveTarget` with the real store through `TestWiring`, `CredentialStoreLiveTest`.
 8. **Docs, migration guide, CHANGELOG, notices, quickstart validation**; macOS live check executed
    before the release (SC-001).
 
