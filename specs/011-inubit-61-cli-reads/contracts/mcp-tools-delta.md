@@ -56,13 +56,18 @@ unchanged. Output changes are additive except the capability names (deliberate, 
 
 ## Refusals on a 6.1 node (`UNSUPPORTED_VERSION`)
 
-Message pattern (feature 009): `<tool> on <node>: INUBIT 6.1 (versionLine V6_1) does not support
-<capability or input>; <next step>; nothing was sent`.
+Message pattern (feature 009): `<tool>: INUBIT 6.1 (versionLine V6_1) on <node> does not support
+<capability or input>; <next step>; nothing was sent` (a node pinned to a concrete version, e.g.
+`6.1.0.89`, is named `INUBIT 6.1.0.89` without the line). `nextStep` holds the next step,
+except for the contradiction, whose `nextStep` stays that of feature 009 (`Correct versionLine of
+<node> (get_health observed INUBIT <version>) and restart the server`); "node" is written in the
+profile's terminology (a placeholder takes no "a"/"an" before it).
 
 | Tool / input | Next step |
 |---|---|
 | `query_logs` | "read the logs of INUBIT 6.1 in the Workbench" |
-| `list_inventory`, `get_inventory_item` | "use the Workbench, or a node of another version" |
+| `list_inventory`, `get_inventory_item` | "use the Workbench, or another node with a different INUBIT version"; the message has "modules of INUBIT 6.1 cannot be looked up" before it |
+| `get_health`, `find_processes` while their capability is not supported for 6.1 | "use the Workbench, or another node with a different INUBIT version" |
 | `export_artifacts` (until US4), module export | "use the Workbench export" |
 | write tools | "use the Workbench" |
 | any tool except `get_health` while the 6.1 pin is contradicted | "check the version with get_health and correct versionLine" |

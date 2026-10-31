@@ -595,8 +595,9 @@ class HealthServiceTest {
         assertThat(refused.status()).isEqualTo(HealthStatus.UNKNOWN);
         assertThat(refused.error()).hasValueSatisfying(error -> {
             assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
-            assertThat(error.message()).isEqualTo("INUBIT 6.1 on dev/node1 does not support"
-                + " monitoring yet; nothing was sent");
+            assertThat(error.message()).isEqualTo("INUBIT 6.1 (versionLine V6_1) on dev/node1"
+                + " does not support monitoring; use the Workbench, or another node with a"
+                + " different INUBIT version; nothing was sent");
             assertThat(error.node()).contains(DEV);
         });
         assertThat(refused.client()).isEmpty();

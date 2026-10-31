@@ -122,7 +122,7 @@ contact, with node, version, capability and next step.
 **Independent Test**: call every tool on a pinned 6.1 node with the production matrix; confirm
 `UNSUPPORTED_VERSION`, the next step, and no launch, handshake or REST request (SC-003).
 
-- [ ] T008 [US3] Refusal texts and next steps (FR-007, contracts/mcp-tools-delta): extend
+- [X] T008 [US3] Refusal texts and next steps (FR-007, contracts/mcp-tools-delta): extend
   `VersionGate.refuse()`/`name()` so a 6.1 refusal reads `INUBIT 6.1 (versionLine V6_1) does not
   support <capability>; <next step>; nothing was sent`, with the next steps of the contract table
   (logs, inventory incl. "modules of INUBIT 6.1 cannot be looked up", export, writes,

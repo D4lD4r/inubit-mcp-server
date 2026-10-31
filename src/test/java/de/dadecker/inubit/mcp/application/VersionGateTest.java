@@ -605,8 +605,8 @@ class VersionGateTest {
 
         assertThat(processes.warnings()).isEmpty();
         assertThat(monitoring.warnings()).isEmpty();
-        assertThat(inventory.message()).isEqualTo("INUBIT 6.1 on old/node1 does not support"
-            + " inventory yet; nothing was sent");
+        assertThat(inventory.message()).startsWith("INUBIT 6.1 (versionLine V6_1) on old/node1"
+            + " does not support inventory; ");
         assertThat(logs.message()).contains("log diagnosis");
         assertThat(write.message()).contains("development writes");
         assertThat(detection.calls).isZero();
@@ -654,7 +654,8 @@ class VersionGateTest {
             assertThat(error.message()).as("%s", capability).isEqualTo("versionLine V6_1 of"
                 + " old/node1 contradicts INUBIT 8.1.17 observed by get_health at"
                 + " 2026-10-18T08:00:00Z; " + VersionGate.label(capability)
-                + " refused; nothing was sent");
+                + " refused; check the version with get_health and correct versionLine;"
+                + " nothing was sent");
         }
         Admission monitoring = gate(matrix61()).admit(V6_1, Capability.MONITORING, Kind.READ,
             REST);
@@ -709,8 +710,9 @@ class VersionGateTest {
         ToolError line = refusal(() -> gate().monitoringAccess(V6_1));
         ToolError pinned = refusal(() -> gate().monitoringAccess(V6_1_PINNED));
 
-        assertThat(line.message()).isEqualTo("INUBIT 6.1 on old/node1 does not support"
-            + " monitoring yet; nothing was sent");
+        assertThat(line.message()).isEqualTo("INUBIT 6.1 (versionLine V6_1) on old/node1 does"
+            + " not support monitoring; use the Workbench, or another node with a different"
+            + " INUBIT version; nothing was sent");
         assertThat(line.node()).contains(V6_1);
         assertThat(pinned.message()).contains("INUBIT 6.1.0.89", "old/node2", "monitoring");
         assertThat(probe.calls).as("no StartCLI run").isEmpty();
@@ -719,6 +721,119 @@ class VersionGateTest {
         assertThat(appender.list).hasSize(2)
             .allSatisfy(event -> assertThat(event.getFormattedMessage())
                 .contains("MONITORING", "REFUSED", "UNSUPPORTED_VERSION", "INUBIT 6.1"));
+    }
+
+    // --- feature 011, T008: refusal texts, next steps and version notes (FR-007) -------------
+
+    @Test
+    void a61RefusalNamesTheVersionLineTheCapabilityAndItsNextStep() {
+        String other = "use the Workbench, or another node with a different INUBIT version";
+        Map<Capability, String> expected = new EnumMap<>(Capability.class);
+        expected.put(Capability.MONITORING, "monitoring; " + other);
+        expected.put(Capability.PROCESS_DIAGNOSIS, "process diagnosis; " + other);
+        expected.put(Capability.LOG_DIAGNOSIS,
+            "log diagnosis; read the logs of INUBIT 6.1 in the Workbench");
+        expected.put(Capability.INVENTORY,
+            "inventory; modules of INUBIT 6.1 cannot be looked up; " + other);
+        expected.put(Capability.WORKSPACE_EXPORT, "workspace export; use the Workbench export");
+        expected.put(Capability.DEVELOPMENT_WRITE, "development writes; use the Workbench");
+        expected.put(Capability.DEPLOYMENT, "deployment; use the Workbench");
+        expected.put(Capability.E2E_TEST, "end-to-end test; use the Workbench");
+        expected.put(Capability.PROCESS_CONTROL, "process control; use the Workbench");
+
+        for (Capability capability : Capability.values()) {
+            ToolError error = refusal(() -> gate().admit(V6_1, capability, capability.kind(),
+                CLI_REST));
+            assertThat(error.message()).as("%s", capability).isEqualTo("INUBIT 6.1 (versionLine"
+                + " V6_1) on old/node1 does not support " + expected.get(capability)
+                + "; nothing was sent");
+            String step = expected.get(capability)
+                .substring(expected.get(capability).lastIndexOf("; ") + 2);
+            assertThat(error.nextStep()).as("%s", capability)
+                .isEqualTo(Character.toUpperCase(step.charAt(0)) + step.substring(1));
+        }
+        // a concrete pin is named by its version; the line exists only for a versionLine
+        ToolError pinned = refusal(() -> gate().admit(V6_1_PINNED, Capability.LOG_DIAGNOSIS,
+            Kind.READ, REST));
+        assertThat(pinned.message()).isEqualTo("INUBIT 6.1.0.89 on old/node2 does not support"
+            + " log diagnosis; read the logs of INUBIT 6.1 in the Workbench; nothing was sent");
+        assertThat(detection.calls).isZero();
+    }
+
+    @Test
+    void a61RefusalWithTheToolNameAndAsEvaluationCarriesTheNextStepInItsCause() {
+        ToolError logs = refusal(() -> gate().admit("query_logs", V6_1,
+            Capability.LOG_DIAGNOSIS, Kind.READ, REST));
+        // T010: check_artifacts takes the module lookup text from the cause of the evaluation
+        Evaluation inventory = gate().evaluate(V6_1, Capability.INVENTORY, Kind.READ, CLI_REST);
+
+        assertThat(logs.message()).isEqualTo("query_logs: INUBIT 6.1 (versionLine V6_1) on"
+            + " old/node1 does not support log diagnosis; read the logs of INUBIT 6.1 in the"
+            + " Workbench; nothing was sent");
+        assertThat(inventory.cause()).contains("INUBIT 6.1 (versionLine V6_1) on old/node1 does"
+            + " not support inventory; modules of INUBIT 6.1 cannot be looked up; use the"
+            + " Workbench, or another node with a different INUBIT version");
+        assertThat(inventory.refusal()).get().satisfies(error -> assertThat(error.likelyCause())
+            .isEqualTo("This server declares inventory unsupported for that version"));
+    }
+
+    @Test
+    void a61RefusalUsesTheProfilesTerminology() {
+        Terminology terms = new Terminology("Umgebung", "Umgebungen", "Knoten", "Knoten");
+
+        ToolError inventory = refusal(() -> gate(CapabilityMatrix.production(), terms)
+            .admit(V6_1, Capability.INVENTORY, Kind.READ, CLI_REST));
+        ToolError write = refusal(() -> gate(CapabilityMatrix.production(), terms)
+            .admit(V6_1, Capability.PROCESS_CONTROL, Kind.WRITE, CLI_REST));
+
+        assertThat(inventory.nextStep())
+            .isEqualTo("Use the Workbench, or another Knoten with a different INUBIT version");
+        assertThat(write.likelyCause())
+            .isEqualTo("The Knoten runs a version for which no verified write access exists");
+        assertThat(Stream.of(inventory, write).flatMap(error -> Stream.of(error.message(),
+            error.likelyCause(), error.nextStep())))
+            .allSatisfy(text -> assertThat(text).doesNotContainPattern("(?i)\\bnodes?\\b"));
+    }
+
+    @Test
+    void anAdmittedProcessDiagnosisOn61CarriesTheLogNoteAndNoOtherAdmissionDoes() {
+        withClient.add(V6_1_PINNED);
+        probe.answer(client("6.1.0", "4.0.1", "6.1.0"));
+        String note = "logs of INUBIT 6.1 cannot be read with query_logs; read them in the"
+            + " Workbench";
+
+        Admission line = gate(matrix61()).admit(V6_1, Capability.PROCESS_DIAGNOSIS, Kind.READ,
+            REST);
+        Admission pinned = gate(matrix61()).admit("find_processes", V6_1_PINNED,
+            Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+        Admission monitoring = gate(matrix61()).admit(V6_1, Capability.MONITORING, Kind.READ,
+            REST);
+        // FR-018: no notes on 8.1 and 9.x
+        Admission on81 = gate(matrix61()).admit(PINNED, Capability.PROCESS_DIAGNOSIS, Kind.READ,
+            REST);
+        Admission on9x = gate().admit(V9_X, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+
+        assertThat(line.notes()).containsExactly(note);
+        assertThat(line.warnings()).as("a note is no warning").isEmpty();
+        assertThat(pinned.notes()).containsExactly(note);
+        assertThat(pinned.warnings()).isEmpty();
+        assertThat(monitoring.notes()).isEmpty();
+        assertThat(on81.notes()).isEmpty();
+        assertThat(on9x.notes()).isEmpty();
+        assertThat(on9x.warnings()).hasSize(1);
+    }
+
+    @Test
+    void theLogNoteIsLeftOutWhenTheCliOnlyVersionSupportsLogDiagnosis() {
+        CapabilityMatrix withLogs = new CapabilityMatrix(List.of(
+            new CapabilityMatrix.Entry(new VersionRange(6, 1, 6, 1),
+                Map.of(Capability.PROCESS_DIAGNOSIS, SupportState.SUPPORTED,
+                    Capability.LOG_DIAGNOSIS, SupportState.SUPPORTED),
+                Map.of(Capability.PROCESS_DIAGNOSIS, CLI, Capability.LOG_DIAGNOSIS, CLI), true)),
+            all(SupportState.SUPPORTED));
+
+        assertThat(gate(withLogs).admit(V6_1, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST)
+            .notes()).isEmpty();
     }
 
     // --- T023: evaluate, the non-throwing admission of deploy_release (research D-11) ---------

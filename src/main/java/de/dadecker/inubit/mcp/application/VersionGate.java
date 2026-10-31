@@ -69,10 +69,16 @@ public final class VersionGate {
     /** The end of every refusal message. */
     private static final String NOTHING_SENT = "; nothing was sent";
 
-    /** An admitted call (data-model.md → Admission): the warnings for the call's result. */
-    public record Admission(List<String> warnings) {
+    /**
+     * An admitted call (data-model.md → Admission): the warnings for the call's result, and the
+     * version notes of the node's version (feature 011, FR-010: what the version lacks next to the
+     * admitted capability, e.g. "logs of INUBIT 6.1 cannot be read with query_logs; read them in
+     * the Workbench"), which the caller adds to its result.
+     */
+    public record Admission(List<String> warnings, List<String> notes) {
         public Admission {
             warnings = List.copyOf(warnings);
+            notes = List.copyOf(notes);
         }
     }
 
@@ -152,7 +158,7 @@ public final class VersionGate {
         if (evaluation.refusal().isPresent()) {
             throw new ToolErrorException(evaluation.refusal().get());
         }
-        return new Admission(evaluation.warnings());
+        return new Admission(evaluation.warnings(), notes(capability, evaluation.version()));
     }
 
     /**
@@ -178,7 +184,7 @@ public final class VersionGate {
         String versionName = name(state, version).orElse("INUBIT version unknown");
         try {
             return new Evaluation(version, versionName,
-                judge(node, capability, purpose, channels, state, version).warnings(),
+                judge(node, capability, purpose, channels, state, version),
                 Optional.empty(), Optional.empty());
         } catch (Refusal e) {
             return new Evaluation(version, versionName, List.of(), Optional.of(e.error()),
@@ -205,7 +211,7 @@ public final class VersionGate {
             return Channel.REST;
         }
         if (matrix.state(pin, Capability.MONITORING) != SupportState.SUPPORTED) {
-            throw refuseUnsupported(node, Capability.MONITORING, Capability.Kind.READ, state,
+            throw refuseUnsupported(node, Capability.MONITORING, Capability.Kind.READ, state, pin,
                 name(state, pin));
         }
         return Channel.CLI;
@@ -224,11 +230,12 @@ public final class VersionGate {
         Objects.requireNonNull(node, "node");
         Objects.requireNonNull(read, "read");
         NodeVersionState state = versions.state(node);
-        return judge(node, Capability.MONITORING, Capability.Kind.READ, Set.of(Channel.REST),
-            state, read.or(state::effectiveVersion));
+        return new Admission(judge(node, Capability.MONITORING, Capability.Kind.READ,
+            Set.of(Channel.REST), state, read.or(state::effectiveVersion)), List.of());
     }
 
-    private Admission judge(NodeId node, Capability capability, Capability.Kind purpose,
+    /** @return the warnings of the admission */
+    private List<String> judge(NodeId node, Capability capability, Capability.Kind purpose,
         Set<Channel> channels, NodeVersionState state, Optional<InubitVersion> version) {
         Optional<String> name = name(state, version);
         List<String> warnings = new ArrayList<>();
@@ -244,7 +251,7 @@ public final class VersionGate {
         SupportState support = support(state, version, capability);
         if (cliOnly && support != SupportState.SUPPORTED) {
             // no warning path on a CLI-only version: it has no 8.1 adapters to fall back to
-            throw refuseUnsupported(node, capability, purpose, state, name);
+            throw refuseUnsupported(node, capability, purpose, state, version, name);
         }
         if (support == SupportState.UNVERIFIED && purpose == Capability.Kind.READ
             || support == SupportState.UNSUPPORTED && capability == Capability.MONITORING) {
@@ -253,7 +260,7 @@ public final class VersionGate {
                     + label(capability) + "; results may be incomplete")
                 .orElseGet(() -> unknown(node, state) + "; results are unverified"));
         } else if (support != SupportState.SUPPORTED) {
-            throw refuseUnsupported(node, capability, purpose, state, name);
+            throw refuseUnsupported(node, capability, purpose, state, version, name);
         }
         if ((cliOnly ? matrix.channels(version, capability) : channels).contains(Channel.CLI)) {
             boolean probe = withClient.test(node) && versions.needsClientProbe(node);
@@ -263,7 +270,7 @@ public final class VersionGate {
             checkClient(node, capability, probe ? versions.state(node) : state, version, name,
                 warnings);
         }
-        return new Admission(warnings);
+        return warnings;
     }
 
     /**
@@ -382,21 +389,32 @@ public final class VersionGate {
             + " run, but their results may be unreliable";
     }
 
+    /** On a pin of a CLI-only version the message carries the next step (feature 011, FR-006). */
     private Refusal refuseContradiction(NodeId node, Capability capability,
         NodeVersionState state) {
         Timed<InubitVersion> observed = state.observed().orElseThrow();
         return refuse(node, capability,
             "versionLine " + state.setting().text() + " of " + node + " contradicts INUBIT "
                 + observed.value().raw() + " observed by get_health at " + time(observed) + "; "
-                + label(capability) + " refused",
+                + label(capability) + " refused"
+                + (matrix.isCliOnly(pinnedVersion(state))
+                    ? "; check the version with get_health and correct versionLine" : ""),
             terms.render("The configured version does not match the version the {node} runs"
                 + " (for example after an upgrade)"),
             "Correct versionLine of " + node + " (get_health observed INUBIT "
                 + observed.value().raw() + ") and restart the server");
     }
 
+    /**
+     * On a CLI-only version the message names the configured line and ends with the next step of
+     * the capability (feature 011, FR-007), e.g. "INUBIT 6.1 (versionLine V6_1) on old/node1 does
+     * not support log diagnosis; read the logs of INUBIT 6.1 in the Workbench".
+     *
+     * @param version the version {@code name} was built from
+     */
     private Refusal refuseUnsupported(NodeId node, Capability capability,
-        Capability.Kind purpose, NodeVersionState state, Optional<String> name) {
+        Capability.Kind purpose, NodeVersionState state, Optional<InubitVersion> version,
+        Optional<String> name) {
         if (name.isEmpty()) {
             return refuse(node, capability,
                 capitalized(label(capability)) + " refused: " + unknown(node, state),
@@ -406,15 +424,59 @@ public final class VersionGate {
                     + " versionLine of " + node + terms.render(" to the version the {node}"
                     + " actually runs and restart the server"));
         }
+        String likelyCause = purpose == Capability.Kind.WRITE
+            ? terms.render("The {node} runs a version for which no verified write access exists")
+            : "This server declares " + label(capability) + " unsupported for that version";
+        if (matrix.isCliOnly(version)) {
+            String release = majorMinor(state, version);
+            String step = cliOnlyStep(capability, release);
+            return refuse(node, capability,
+                name.get() + (state.setting() instanceof VersionSetting.Line line
+                    ? " (versionLine " + line.text() + ")" : "")
+                    + " on " + node + " does not support " + label(capability)
+                    + (capability == Capability.INVENTORY
+                        ? "; modules of INUBIT " + release + " cannot be looked up" : "")
+                    + "; " + step,
+                likelyCause, capitalized(step));
+        }
         return refuse(node, capability,
             name.get() + " on " + node + " does not support " + label(capability) + " yet",
-            purpose == Capability.Kind.WRITE
-                ? terms.render("The {node} runs a version for which no verified write access"
-                    + " exists")
-                : "This server declares " + label(capability) + " unsupported for that version",
+            likelyCause,
             terms.render("Use another {node} whose INUBIT version supports ") + label(capability)
                 + terms.render(" (list_nodes shows the usable capabilities per {node}), or wait"
                 + " for a version of this server that supports that INUBIT version"));
+    }
+
+    /**
+     * The next step of a refusal on a CLI-only version (contracts/mcp-tools-delta.md, "Refusals on
+     * a 6.1 node").
+     *
+     * @param release the version's major.minor, e.g. "6.1"
+     */
+    private String cliOnlyStep(Capability capability, String release) {
+        return switch (capability) {
+            case LOG_DIAGNOSIS -> "read the logs of INUBIT " + release + " in the Workbench";
+            case WORKSPACE_EXPORT -> "use the Workbench export";
+            case MONITORING, PROCESS_DIAGNOSIS, INVENTORY ->
+                terms.render("use the Workbench, or another {node} with a different INUBIT"
+                    + " version");
+            case DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL -> "use the Workbench";
+        };
+    }
+
+    /**
+     * The version notes of an admission (feature 011, FR-010): process diagnosis on a CLI-only
+     * version that does not support log diagnosis notes where its logs can be read.
+     */
+    private List<String> notes(Capability capability, Optional<InubitVersion> version) {
+        if (capability != Capability.PROCESS_DIAGNOSIS || !matrix.isCliOnly(version)
+            || matrix.state(version, Capability.LOG_DIAGNOSIS) == SupportState.SUPPORTED) {
+            return List.of();
+        }
+        InubitVersion known = version.orElseThrow();
+        // the find_processes warning of contracts/mcp-tools-delta.md; T033 returns it verbatim
+        return List.of("logs of INUBIT " + known.major() + "." + known.minor()
+            + " cannot be read with query_logs; read them in the Workbench");
     }
 
     /** @param cause the message without its closing "; nothing was sent" */
