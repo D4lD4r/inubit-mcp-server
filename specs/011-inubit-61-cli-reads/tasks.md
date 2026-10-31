@@ -137,7 +137,7 @@ contact, with node, version, capability and next step.
   launcher and WireMock that fail on any use; a mixed group 8.1 + 6.1 for `query_logs` returns
   per-node results (US3-3). Fix any path that is not refused before contact. (Verification task
   where T006/T007 already cover the path.)
-- [ ] T010 [P] [US3] `check_artifacts` on 6.1 (FR-006a): the module lookup refusal for a 6.1 node
+- [X] T010 [P] [US3] `check_artifacts` on 6.1 (FR-006a): the module lookup refusal for a 6.1 node
   gives `MODULE_UNVERIFIED` findings carrying the gate's refusal text (from T008; no version text
   in `ArtifactCheckService`, FR-016); offline checks still run; also while the 6.1 pin is
   contradicted. Test first: `ArtifactCheckServiceTest`.
