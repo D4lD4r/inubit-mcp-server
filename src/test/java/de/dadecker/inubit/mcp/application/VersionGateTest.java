@@ -61,6 +61,9 @@ class VersionGateTest {
     private static final NodeId AUTO = NodeId.parse("dev/node1");
     private static final NodeId PINNED = NodeId.parse("prod/node1");
     private static final NodeId V9_X = NodeId.parse("prod/node3");
+    /** Feature 011: a node on the 6.1 line and one pinned to a concrete 6.1 version. */
+    private static final NodeId V6_1 = NodeId.parse("old/node1");
+    private static final NodeId V6_1_PINNED = NodeId.parse("old/node2");
     private static final Instant T0 = Instant.parse("2026-10-18T08:00:00Z");
     private static final Duration TTL = Duration.ofMinutes(10);
     private static final Duration CLI_TIMEOUT = Duration.ofSeconds(45);
@@ -78,7 +81,9 @@ class VersionGateTest {
     private final NodeVersions versions = new NodeVersions(clock,
         Map.of(AUTO, VersionSetting.AUTO,
             PINNED, VersionSetting.parse("8.1.17").orElseThrow(),
-            V9_X, VersionSetting.V9_X)::get,
+            V9_X, VersionSetting.V9_X,
+            V6_1, VersionSetting.V6_1,
+            V6_1_PINNED, VersionSetting.parse("6.1.0.89").orElseThrow())::get,
         node -> TTL);
     private final ScriptedDetection detection = new ScriptedDetection();
     private final ScriptedProbe probe = new ScriptedProbe();
@@ -148,6 +153,23 @@ class VersionGateTest {
             states.put(capability, state);
         }
         return states;
+    }
+
+    /**
+     * Feature 011 (research D-3): the 6.1 entry of production with process diagnosis and
+     * monitoring {@code SUPPORTED} (channel CLI) and inventory {@code UNVERIFIED}; every
+     * capability is supported on 8.1 and on unknown versions, so only the 6.1 rules refuse.
+     */
+    private static CapabilityMatrix matrix61() {
+        return new CapabilityMatrix(List.of(
+            new CapabilityMatrix.Entry(new VersionRange(6, 1, 6, 1),
+                Map.of(Capability.MONITORING, SupportState.SUPPORTED,
+                    Capability.PROCESS_DIAGNOSIS, SupportState.SUPPORTED,
+                    Capability.INVENTORY, SupportState.UNVERIFIED),
+                Map.of(Capability.MONITORING, CLI, Capability.PROCESS_DIAGNOSIS, CLI), true),
+            new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1),
+                all(SupportState.SUPPORTED))),
+            all(SupportState.SUPPORTED));
     }
 
     @Test
@@ -537,6 +559,113 @@ class VersionGateTest {
 
         assertThat(thrown).isSameAs(cancelled);
         assertThat(versions.state(PINNED).clientFailure()).as("no back-off").isEmpty();
+    }
+
+    // --- feature 011, T006: CLI-only versions (FR-005 to FR-007, FR-013, FR-019) -----------
+
+    @Test
+    void theProductionMatrixRefusesEveryCapabilityOf61BeforeAnyDetectionOrProbe() {
+        withClient.add(V6_1);
+        withClient.add(V6_1_PINNED);
+
+        for (NodeId node : List.of(V6_1, V6_1_PINNED)) {
+            for (Capability capability : Capability.values()) {
+                ToolError error = refusal(() -> gate().admit(node, capability,
+                    capability.kind(), CLI_REST));
+                assertThat(error.message()).as("%s on %s", capability, node)
+                    .contains(node.toString(), "INUBIT 6.1", "does not support "
+                        + VersionGate.label(capability));
+                assertThat(error.node()).contains(node);
+            }
+        }
+
+        assertThat(detection.calls).isZero();
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+        // FR-019: every refusal is logged like the refusals of feature 009
+        assertThat(appender.list).hasSize(2 * Capability.values().length)
+            .allSatisfy(event -> assertThat(event.getFormattedMessage())
+                .contains("REFUSED", "UNSUPPORTED_VERSION", "INUBIT 6.1"));
+        assertThat(appender.list).anySatisfy(event -> assertThat(event.getFormattedMessage())
+            .contains("MONITORING", "old/node2", "INUBIT 6.1.0.89"));
+    }
+
+    @Test
+    void a61NodeRefusesEveryCapabilityThatIsNotSupportedIncludingAnUnverifiedRead() {
+        Admission processes = gate(matrix61()).admit(V6_1, Capability.PROCESS_DIAGNOSIS,
+            Kind.READ, REST);
+        Admission monitoring = gate(matrix61()).admit(V6_1, Capability.MONITORING, Kind.READ,
+            REST);
+        // no warning path and no 8.1 fallback on a CLI-only version
+        ToolError inventory = refusal(() -> gate(matrix61()).admit(V6_1, Capability.INVENTORY,
+            Kind.READ, REST));
+        ToolError logs = refusal(() -> gate(matrix61()).admit(V6_1, Capability.LOG_DIAGNOSIS,
+            Kind.READ, REST));
+        ToolError write = refusal(() -> gate(matrix61()).admit(V6_1,
+            Capability.DEVELOPMENT_WRITE, Kind.WRITE, CLI_REST));
+
+        assertThat(processes.warnings()).isEmpty();
+        assertThat(monitoring.warnings()).isEmpty();
+        assertThat(inventory.message()).isEqualTo("INUBIT 6.1 on old/node1 does not support"
+            + " inventory yet; nothing was sent");
+        assertThat(logs.message()).contains("log diagnosis");
+        assertThat(write.message()).contains("development writes");
+        assertThat(detection.calls).isZero();
+        assertThat(appender.list).hasSize(3);
+    }
+
+    @Test
+    void aClientWhoseRangeExcludes61RefusesProcessDiagnosisThroughTheChannelOfTheEntry() {
+        withClient.add(V6_1);
+        withClient.add(V6_1_PINNED);
+        probe.answer(client("9.0.7", "8.1.0", "9.0.7"));
+
+        // the caller declares REST; the 6.1 entry declares CLI, so the client is checked
+        ToolError error = refusal(() -> gate(matrix61()).admit("find_processes", V6_1,
+            Capability.PROCESS_DIAGNOSIS, Kind.READ, REST));
+        probe.answer(client("6.1.0", "4.0.0", "6.1.0"));
+        Admission compatible = gate(matrix61()).admit(V6_1_PINNED,
+            Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+
+        assertThat(error.message()).isEqualTo("find_processes: StartCLI client 9.0.7 of"
+            + " old/node1 supports INUBIT 8.1.0 to 9.0.7, which excludes INUBIT 6.1;"
+            + " process diagnosis via StartCLI refused; nothing was sent");
+        assertThat(error.nextStep()).isEqualTo(
+            "Install a StartCLI client on the host of this server that supports INUBIT 6.1");
+        assertThat(compatible.warnings()).isEmpty();
+        assertThat(probe.calls).hasSize(2);
+        assertThat(versions.state(V6_1_PINNED).client()).isPresent();
+        assertThat(detection.calls).isZero();
+        assertThat(appender.list).singleElement().satisfies(event -> assertThat(
+            event.getFormattedMessage()).contains("PROCESS_DIAGNOSIS", "old/node1", "REFUSED",
+            "UNSUPPORTED_VERSION", "excludes INUBIT 6.1"));
+    }
+
+    @Test
+    void aContradicted61PinRefusesEveryCapabilityExceptMonitoring() {
+        versions.observed(V6_1, version("8.1.17"));
+        versions.observed(PINNED, version("8.2.0"));
+
+        for (Capability capability : Capability.values()) {
+            if (capability == Capability.MONITORING) {
+                continue;
+            }
+            ToolError error = refusal(() -> gate(matrix61()).admit(V6_1, capability,
+                capability.kind(), CLI_REST));
+            assertThat(error.message()).as("%s", capability).isEqualTo("versionLine V6_1 of"
+                + " old/node1 contradicts INUBIT 8.1.17 observed by get_health at"
+                + " 2026-10-18T08:00:00Z; " + VersionGate.label(capability)
+                + " refused; nothing was sent");
+        }
+        Admission monitoring = gate(matrix61()).admit(V6_1, Capability.MONITORING, Kind.READ,
+            REST);
+        // FR-018: a contradicted pin of another version still refuses writes only
+        Admission read = gate(matrix61()).admit(PINNED, Capability.PROCESS_DIAGNOSIS,
+            Kind.READ, REST);
+
+        assertThat(monitoring.warnings()).isEmpty();
+        assertThat(read.warnings()).isEmpty();
+        assertThat(detection.calls).isZero();
+        assertThat(appender.list).hasSize(Capability.values().length - 1);
     }
 
     // --- T023: evaluate, the non-throwing admission of deploy_release (research D-11) ---------

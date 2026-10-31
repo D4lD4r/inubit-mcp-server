@@ -92,7 +92,7 @@ approved step; US4 (export, P3) is blocked on them and on a research addendum.
   CLI, `cliOnly`, and every capability `UNSUPPORTED` (FR-005). Add `NodeAccess` (`REST_AND_CLI`,
   `CLI_ONLY`). Tests first: `CapabilityMatrixTest` (6.1 states and channels; 8.1/9.0 unchanged;
   unknown versions still `READS_UNVERIFIED`; entry with channels round-trips).
-- [ ] T006 Gate rules for CLI-only versions (FR-005, FR-006, FR-007, FR-013, research D-3, D-11):
+- [X] T006 Gate rules for CLI-only versions (FR-005, FR-006, FR-007, FR-013, research D-3, D-11):
   in `main/application/VersionGate.java` `judge` (`:201-226`), on a `cliOnly` entry refuse every
   capability that is not `SUPPORTED` with `UNSUPPORTED_VERSION` — including reads (no 8.1
   fallback, no warning path); take the channels for the client check from the matrix entry; on a

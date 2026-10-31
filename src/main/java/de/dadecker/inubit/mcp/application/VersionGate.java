@@ -35,11 +35,15 @@ import org.slf4j.LoggerFactory;
  *   <li>detect the version of an {@code AUTO} node through {@link GatewayFactory#detect} when
  *       {@link NodeVersions#needsDetection} says so (never for pinned nodes, never for
  *       {@code MONITORING}, whose {@code get_health} read is the detection itself);</li>
- *   <li>refuse a write when a pin is contradicted by {@code get_health};</li>
+ *   <li>refuse a write when a pin is contradicted by {@code get_health}; for a pin of a
+ *       {@linkplain CapabilityMatrix#isCliOnly CLI-only} version every capability except
+ *       {@code MONITORING} (feature 011, research D-11);</li>
  *   <li>look up the {@link CapabilityMatrix}: {@code SUPPORTED} admits, {@code UNVERIFIED} admits
  *       a read with a warning, anything else refuses ({@code MONITORING} is never refused and gets
- *       a warning instead);</li>
- *   <li>only when {@link Channel#CLI} is among the call's channels: probe the StartCLI client of
+ *       a warning instead); on a CLI-only version anything but {@code SUPPORTED} refuses,
+ *       {@code MONITORING} and reads included (feature 011, research D-3);</li>
+ *   <li>only when {@link Channel#CLI} is among the call's channels (on a CLI-only version the
+ *       channels of its matrix entry): probe the StartCLI client of
  *       a node with a StartCLI installation when no client result is known and no failed probe
  *       lies within the last 60 s ({@link NodeVersions#needsClientProbe}; FR-002), bounded by the
  *       node's {@code cliTimeout}, a run of its own before the tool's StartCLI call; then check
@@ -184,9 +188,10 @@ public final class VersionGate {
 
     /**
      * The {@code MONITORING} admission of one {@code get_health} call: never detects and never
-     * refuses. It is judged on the version this call's own {@code /system/info} read returned;
-     * without one (the read failed or gave no parsable version) on the node's known state, so a
-     * failed {@code AUTO} detection gives the "unknown (&lt;code&gt; at &lt;time&gt;)" warning.
+     * refuses, except on a CLI-only version (research D-3). It is judged on the version this
+     * call's own {@code /system/info} read returned; without one (the read failed or gave no
+     * parsable version) on the node's known state, so a failed {@code AUTO} detection gives the
+     * "unknown (&lt;code&gt; at &lt;time&gt;)" warning.
      *
      * @param read the version the call read, if any
      */
@@ -202,11 +207,21 @@ public final class VersionGate {
         Set<Channel> channels, NodeVersionState state, Optional<InubitVersion> version) {
         Optional<String> name = name(state, version);
         List<String> warnings = new ArrayList<>();
+        boolean cliOnly = matrix.isCliOnly(version);
+        // the pinned version itself: version is the observed one while the pin is contradicted
+        boolean cliOnlyPin = matrix.isCliOnly(
+            NodeVersionState.initial(state.setting()).effectiveVersion());
 
-        if (purpose == Capability.Kind.WRITE && state.pinContradiction()) {
+        // a contradicted pin of a CLI-only version leaves only get_health (research D-11)
+        if (state.pinContradiction() && (purpose == Capability.Kind.WRITE
+            || cliOnlyPin && capability != Capability.MONITORING)) {
             throw refuseContradiction(node, capability, state);
         }
         SupportState support = support(state, version, capability);
+        if (cliOnly && support != SupportState.SUPPORTED) {
+            // no warning path on a CLI-only version: it has no 8.1 adapters to fall back to
+            throw refuseUnsupported(node, capability, purpose, state, name);
+        }
         if (support == SupportState.UNVERIFIED && purpose == Capability.Kind.READ
             || support == SupportState.UNSUPPORTED && capability == Capability.MONITORING) {
             warnings.add(name.map(n -> n + " on " + node + " is not "
@@ -216,7 +231,7 @@ public final class VersionGate {
         } else if (support != SupportState.SUPPORTED) {
             throw refuseUnsupported(node, capability, purpose, state, name);
         }
-        if (channels.contains(Channel.CLI)) {
+        if ((cliOnly ? matrix.channels(version, capability) : channels).contains(Channel.CLI)) {
             boolean probe = withClient.test(node) && versions.needsClientProbe(node);
             if (probe) {
                 probeClient(node);
