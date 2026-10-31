@@ -187,9 +187,34 @@ public final class VersionGate {
     }
 
     /**
-     * The {@code MONITORING} admission of one {@code get_health} call: never detects and never
-     * refuses, except on a CLI-only version (research D-3). It is judged on the version this
-     * call's own {@code /system/info} read returned; without one (the read failed or gave no
+     * How one {@code get_health} call reaches the node, decided before any contact (FR-001,
+     * research D-11): {@link Channel#CLI} for a node pinned to a CLI-only version whose
+     * {@code MONITORING} is {@code SUPPORTED}, {@link Channel#REST} for every other node, whose
+     * call then goes on with {@link #admitMonitoring} after its reads. Decided on the pin, not on
+     * an observation, so a contradicted 6.1 pin still gets no REST request (FR-002). Never detects
+     * and never probes the client: {@code get_health} probes it in parallel with its own calls.
+     *
+     * @throws ToolErrorException {@code UNSUPPORTED_VERSION} if the node is pinned to a CLI-only
+     *     version whose {@code MONITORING} is not {@code SUPPORTED}
+     */
+    public Channel monitoringAccess(NodeId node) {
+        Objects.requireNonNull(node, "node");
+        NodeVersionState state = versions.state(node);
+        Optional<InubitVersion> pin = pinnedVersion(state);
+        if (!matrix.isCliOnly(pin)) {
+            return Channel.REST;
+        }
+        if (matrix.state(pin, Capability.MONITORING) != SupportState.SUPPORTED) {
+            throw refuseUnsupported(node, Capability.MONITORING, Capability.Kind.READ, state,
+                name(state, pin));
+        }
+        return Channel.CLI;
+    }
+
+    /**
+     * The {@code MONITORING} admission of one {@code get_health} call over REST: never detects
+     * and never refuses, except on a CLI-only version (research D-3). It is judged on the version
+     * this call's own {@code /system/info} read returned; without one (the read failed or gave no
      * parsable version) on the node's known state, so a failed {@code AUTO} detection gives the
      * "unknown (&lt;code&gt; at &lt;time&gt;)" warning.
      *
@@ -209,8 +234,7 @@ public final class VersionGate {
         List<String> warnings = new ArrayList<>();
         boolean cliOnly = matrix.isCliOnly(version);
         // the pinned version itself: version is the observed one while the pin is contradicted
-        boolean cliOnlyPin = matrix.isCliOnly(
-            NodeVersionState.initial(state.setting()).effectiveVersion());
+        boolean cliOnlyPin = matrix.isCliOnly(pinnedVersion(state));
 
         // a contradicted pin of a CLI-only version leaves only get_health (research D-11)
         if (state.pinContradiction() && (purpose == Capability.Kind.WRITE
@@ -292,6 +316,14 @@ public final class VersionGate {
             }
             versions.clientProbeFailed(node, e.error().code());
         }
+    }
+
+    /**
+     * The version the node's setting pins, whatever was observed; empty for {@code AUTO} and a
+     * major-only line.
+     */
+    private static Optional<InubitVersion> pinnedVersion(NodeVersionState state) {
+        return NodeVersionState.initial(state.setting()).effectiveVersion();
     }
 
     private SupportState support(NodeVersionState state, Optional<InubitVersion> version,

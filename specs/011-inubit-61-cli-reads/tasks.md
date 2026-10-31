@@ -101,7 +101,7 @@ approved step; US4 (export, P3) is blocked on them and on a research addendum.
   `UNSUPPORTED`): refusal before any detection, probe or launch; a client whose declared range
   excludes 6.1 refuses process diagnosis on a 6.1 node (FR-013, channel CLI from the entry); the
   refusal is logged (FR-019, assert the log record).
-- [ ] T007 Monitoring admission before contact (FR-001, research D-11): add
+- [X] T007 Monitoring admission before contact (FR-001, research D-11): add
   `VersionGate.monitoringAccess(node)` → refusal | `CLI` for `cliOnly` entries, `REST` otherwise
   (the existing non-refusing `admitMonitoring` path stays for REST); `HealthService.checkServer`
   (`:176-225`) calls it before `gateways.monitoring()` and returns the node with the refusal as

@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
+import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.Durations;
@@ -53,6 +54,12 @@ import org.slf4j.LoggerFactory;
  *   <li>The target is resolved first (unknown → {@code TARGET_UNKNOWN}); no target means all
  *       servers. Servers are checked in parallel ({@link FanOut}), reports come in config order,
  *       one per server, also for servers that failed.
+ *   <li>Access (feature 011, FR-001, research D-11): first, before any contact,
+ *       {@link VersionGate#monitoringAccess} decides how the server is reached. A node pinned to
+ *       a CLI-only version (INUBIT 6.1) whose monitoring the matrix does not support gets a
+ *       failed report with the {@code UNSUPPORTED_VERSION} refusal as its error: no credentials,
+ *       no request, no client probe. A node with CLI access is never read over REST (its
+ *       StartCLI path follows with US1); every other node is read over REST as described below.
  *   <li>Per server, the monitoring port is taken without waiting for a version detection
  *       (Phase 3 review H1): the unauthenticated healthcheck and readiness check start at once
  *       and the healthcheck alone decides reachability. {@code /system/info} runs in parallel;
@@ -68,8 +75,8 @@ import org.slf4j.LoggerFactory;
  *       the version gate's {@code MONITORING} warning (feature 009): derived from the version
  *       this call's {@code /system/info} read returned, or for a failed read from the node's
  *       known version state (e.g. "the INUBIT version of &lt;node&gt; is unknown (&lt;code&gt; at
- *       &lt;time&gt;); results are unverified"). The gate never detects and never refuses here,
- *       so the call sends no extra request and keeps its time budget.
+ *       &lt;time&gt;); results are unverified"). The gate never detects and, after the access
+ *       above, never refuses here, so the call sends no extra request and keeps its time budget.
  *   <li>Observation (feature 009, FR-012): this service alone reports the version it read to
  *       {@link NodeVersions#observed} for every node, pinned ones too. A read whose major.minor
  *       differs from the pin sets the pin contradiction (writes refused until a matching read)
@@ -84,7 +91,7 @@ import org.slf4j.LoggerFactory;
  *       warning; a failed or timed-out probe is the part
  *       {@code client} in {@code unavailable} ({@code not yet detected (timeout)} or the cause).
  *       A node without a StartCLI installation reports the client as {@code not_available}.
- *   <li>Credentials (feature 010, research R-9): before anything else the server's credentials
+ *   <li>Credentials (feature 010, research R-9): before any request the server's credentials
  *       are prepared within what is left of the budget. A first fetch from AWS Parameter Store
  *       that is still running then gives a failed report with {@code TIMEOUT} and sends nothing
  *       to the server (its client needs the secrets); the fetch continues for the next call. A
@@ -156,6 +163,17 @@ public final class HealthService {
 
     private HealthReport checkServer(NodeId server, boolean includeSystemInfo)
         throws InterruptedException {
+        // decided before any contact; a refusal is the report's error (FR-001, research D-11)
+        Channel access;
+        try {
+            access = gate.monitoringAccess(server);
+        } catch (ToolErrorException e) {
+            return failed(server, e.error());
+        }
+        if (access == Channel.CLI) {
+            // never REST to a CLI-only node; the CLI path of get_health comes with US1 (T027)
+            throw new UnsupportedOperationException("get_health via StartCLI");
+        }
         Duration timeout = timeouts.apply(server);
         long deadline = System.nanoTime() + timeout.plus(PART_GRACE).toNanos();
         long budgetEnd = deadline - PART_GRACE.toNanos();

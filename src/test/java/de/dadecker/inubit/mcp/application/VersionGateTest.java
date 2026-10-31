@@ -668,6 +668,59 @@ class VersionGateTest {
         assertThat(appender.list).hasSize(Capability.values().length - 1);
     }
 
+    // --- feature 011, T007: monitoring access before contact (FR-001, research D-11) --------
+
+    @Test
+    void monitoringAccessIsRestForEveryNodeNotPinnedToACliOnlyVersion() {
+        withClient.add(AUTO);
+        withClient.add(PINNED);
+
+        assertThat(gate(matrix61()).monitoringAccess(AUTO)).isEqualTo(Channel.REST);
+        assertThat(gate(matrix61()).monitoringAccess(PINNED)).isEqualTo(Channel.REST);
+        assertThat(gate(matrix61()).monitoringAccess(V9_X)).isEqualTo(Channel.REST);
+        assertThat(gate().monitoringAccess(PINNED)).isEqualTo(Channel.REST);
+
+        assertThat(detection.calls).isZero();
+        assertThat(probe.calls).isEmpty();
+        assertThat(appender.list).isEmpty();
+    }
+
+    @Test
+    void monitoringAccessOfA61PinIsCliWhenSupportedEvenWhileThePinIsContradicted() {
+        withClient.add(V6_1);
+        withClient.add(V6_1_PINNED);
+        versions.observed(V6_1, version("8.1.17"));
+
+        assertThat(gate(matrix61()).monitoringAccess(V6_1)).as("decided by the pin (FR-002)")
+            .isEqualTo(Channel.CLI);
+        assertThat(gate(matrix61()).monitoringAccess(V6_1_PINNED)).isEqualTo(Channel.CLI);
+
+        // get_health probes the client itself, in parallel with its own calls
+        assertThat(probe.calls).isEmpty();
+        assertThat(detection.calls).isZero();
+        assertThat(appender.list).isEmpty();
+    }
+
+    @Test
+    void monitoringAccessOfA61PinIsRefusedWithTheProductionMatrix() {
+        withClient.add(V6_1);
+        withClient.add(V6_1_PINNED);
+
+        ToolError line = refusal(() -> gate().monitoringAccess(V6_1));
+        ToolError pinned = refusal(() -> gate().monitoringAccess(V6_1_PINNED));
+
+        assertThat(line.message()).isEqualTo("INUBIT 6.1 on old/node1 does not support"
+            + " monitoring yet; nothing was sent");
+        assertThat(line.node()).contains(V6_1);
+        assertThat(pinned.message()).contains("INUBIT 6.1.0.89", "old/node2", "monitoring");
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+        assertThat(detection.calls).isZero();
+        // FR-019: the refusal is logged
+        assertThat(appender.list).hasSize(2)
+            .allSatisfy(event -> assertThat(event.getFormattedMessage())
+                .contains("MONITORING", "REFUSED", "UNSUPPORTED_VERSION", "INUBIT 6.1"));
+    }
+
     // --- T023: evaluate, the non-throwing admission of deploy_release (research D-11) ---------
 
     @Test

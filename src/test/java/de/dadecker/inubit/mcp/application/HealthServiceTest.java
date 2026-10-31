@@ -4,7 +4,9 @@ import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutCli
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -13,10 +15,12 @@ import de.dadecker.inubit.mcp.domain.model.HealthStatus;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LoadFigures;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
+import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
@@ -105,6 +109,10 @@ class HealthServiceTest {
     }
 
     private HealthService service() {
+        return service(CapabilityMatrix.production());
+    }
+
+    private HealthService service(CapabilityMatrix matrix) {
         GatewayFactory gateways = new GatewayFactory() {
             @Override
             public Gateway forServer(NodeId server) {
@@ -170,7 +178,7 @@ class HealthServiceTest {
         };
         return new HealthService(gateways, new TargetResolver(SERVERS), new FanOut(),
             server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC),
-            gateWithoutClients(versions, gateways, CapabilityMatrix.production()), versions,
+            gateWithoutClients(versions, gateways, matrix), versions,
             probe, withClient::contains);
     }
 
@@ -564,6 +572,83 @@ class HealthServiceTest {
         };
 
         assertThat(checkOne(DEV, false).warnings()).isEmpty();
+    }
+
+    // --- feature 011, T007: monitoring access before contact (FR-001, research D-11) --------
+
+    @Test
+    void a61NodeIsRefusedBeforeAnyContactWhileAutoAnd81NodesAreReadAsBefore() {
+        versionLines.put(DEV, VersionSetting.V6_1);
+        withClient.add(DEV);
+        versionLines.put(QA1, VersionSetting.AUTO);
+        monitoring(QA1).systemInfo = () -> {
+            versions.detected(QA1, InubitVersion.parse("8.1.17").orElseThrow());
+            return SYSTEM_INFO;
+        };
+        // qa/node2 stays pinned to V8_1
+
+        List<HealthReport> reports = service().check(Optional.empty(), false);
+
+        HealthReport refused = reports.get(0);
+        assertThat(refused.node()).isEqualTo(DEV);
+        assertThat(refused.reachable()).isFalse();
+        assertThat(refused.status()).isEqualTo(HealthStatus.UNKNOWN);
+        assertThat(refused.error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+            assertThat(error.message()).isEqualTo("INUBIT 6.1 on dev/node1 does not support"
+                + " monitoring yet; nothing was sent");
+            assertThat(error.node()).contains(DEV);
+        });
+        assertThat(refused.client()).isEmpty();
+        assertThat(refused.warnings()).isEmpty();
+        // FR-001: no monitoring port, so no request; no client probe, so no StartCLI launch
+        assertThat(monitorings).doesNotContainKey(DEV);
+        assertThat(probeTimeouts).isEmpty();
+        assertThat(credentialBounds).as("credentials prepared for the two other nodes only")
+            .hasSize(2);
+
+        for (HealthReport report : reports.subList(1, 3)) {
+            assertThat(report.reachable()).isTrue();
+            assertThat(report.version()).contains("8.1.17");
+            assertThat(report.error()).isEmpty();
+            assertThat(report.warnings()).isEmpty();
+            assertThat(monitoring(report.node()).calls()).containsExactlyInAnyOrder(
+                "healthcheck", "ready", "systemInfo", "metrics");
+        }
+        assertThat(gateDetections).hasValue(0);
+    }
+
+    @Test
+    void aConcrete61PinIsRefusedBeforeAnyContact() {
+        versionLines.put(DEV, VersionSetting.parse("6.1.0.89").orElseThrow());
+        withClient.add(DEV);
+
+        HealthReport report = checkOne(DEV, false);
+
+        assertThat(report.error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+            assertThat(error.message()).contains("INUBIT 6.1.0.89", "dev/node1", "monitoring");
+        });
+        assertThat(monitorings).isEmpty();
+        assertThat(probeTimeouts).isEmpty();
+        assertThat(credentialBounds).isEmpty();
+    }
+
+    @Test
+    void a61NodeWhoseMonitoringIsSupportedIsNotReadThroughRest() {
+        // until the CLI path of get_health exists (US1), such a node gets an error report
+        versionLines.put(DEV, VersionSetting.V6_1);
+        withClient.add(DEV);
+        CapabilityMatrix matrix = new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+            new VersionRange(6, 1, 6, 1), Map.of(Capability.MONITORING, SupportState.SUPPORTED),
+            Map.of(Capability.MONITORING, Set.of(Channel.CLI)), true)), Map.of());
+
+        List<HealthReport> reports = service(matrix).check(Optional.of(DEV.value()), false);
+
+        assertThat(reports).singleElement().satisfies(report ->
+            assertThat(report.error()).isPresent());
+        assertThat(monitorings).isEmpty();
+        assertThat(probeTimeouts).isEmpty();
     }
 
     // --- feature 009: get_health observes the version of every node (T016, FR-012) ---------
