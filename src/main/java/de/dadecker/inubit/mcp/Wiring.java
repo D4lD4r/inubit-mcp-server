@@ -115,6 +115,9 @@ import java.util.stream.Collectors;
  * (US1: {@code list_nodes}, {@code get_health}; US2: {@code find_processes},
  * {@code query_logs}; US3: {@code list_inventory}, {@code get_inventory_item}; feature 003:
  * {@code export_artifacts}, only if a node has a CLI installation, and {@code check_artifacts}).
+ * Feature 011 (research D-12): the read tools other than {@code list_nodes}, {@code get_health}
+ * and {@code check_artifacts} are announced only if some node may run their capability
+ * ({@link #possiblyCapable}).
  * The write tools
  * of US4 ({@code restart_process}, {@code kill_process}) are added only if
  * {@link #anyWriteEnabled()} (contracts/mcp-tools.md, Story 4 / AS 6); their service, the write
@@ -135,9 +138,9 @@ import java.util.stream.Collectors;
  */
 final class Wiring implements AutoCloseable {
 
-    private static final CapabilityMatrix MATRIX = CapabilityMatrix.production();
-
     private final ProfileInfo profile;
+    /** Feature 011 (research D-12): the capability matrix, injectable for tests. */
+    private final CapabilityMatrix matrix;
     private final SecretScrubber scrubber;
     private final List<EffectiveNodeConfig> servers;
     private final TargetResolver targets;
@@ -199,7 +202,17 @@ final class Wiring implements AutoCloseable {
     Wiring(ProfileConfig config, CredentialResolution credentials, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment, Supplier<ParameterStore> parameterStore) {
+        this(config, credentials, scrubber, clock, exists, windows, launcher, environment,
+            parameterStore, CapabilityMatrix.production());
+    }
+
+    /** As above, with a capability matrix other than the production one (tests). */
+    Wiring(ProfileConfig config, CredentialResolution credentials, SecretScrubber scrubber,
+        ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
+        Map<String, String> environment, Supplier<ParameterStore> parameterStore,
+        CapabilityMatrix matrix) {
         this.profile = config.profileInfo();
+        this.matrix = matrix;
         this.scrubber = scrubber;
         // 002 research D-8: the export directories carry the profile name
         this.cliResources = new CliResources(profile.name());
@@ -231,7 +244,7 @@ final class Wiring implements AutoCloseable {
         Set<NodeId> withClient = servers.stream()
             .filter(server -> server.cliAvailable(exists, windows))
             .map(EffectiveNodeConfig::id).collect(Collectors.toUnmodifiableSet());
-        VersionGate versionGate = new VersionGate(versions, gateways, MATRIX, clientVersions,
+        VersionGate versionGate = new VersionGate(versions, gateways, matrix, clientVersions,
             withClient::contains, id -> byId.get(id).cliTimeout(), terms);
         Map<NodeId, Duration> timeouts = new HashMap<>();
         servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
@@ -283,7 +296,7 @@ final class Wiring implements AutoCloseable {
         servers.forEach(server -> allowed.put(server.id(), allowed(server,
             withClient.contains(server.id()))));
         this.overview = new NodeOverview(servers.stream()
-            .map(server -> server.summary(exists, windows)).toList(), versions, MATRIX,
+            .map(server -> server.summary(exists, windows)).toList(), versions, matrix,
             allowed::get);
         DevelopmentGuard developmentGuard = new DevelopmentGuard(targets, development::get,
             node -> gateways.imports(node).checkAvailable(), versionGate,
@@ -433,11 +446,19 @@ final class Wiring implements AutoCloseable {
         List<ToolHandler> handlers = new ArrayList<>();
         handlers.add(new ListNodesTool(profile, overview::nodes));
         handlers.add(new GetHealthTool(health));
-        handlers.add(new FindProcessesTool(diagnosis));
-        handlers.add(new QueryLogsTool(diagnosis));
-        handlers.add(new ListInventoryTool(inventory));
-        handlers.add(new GetInventoryItemTool(inventory));
-        if (servers.stream().anyMatch(server -> server.cli().home().isPresent())) {
+        // feature 011 (research D-12): a read tool only if some node may run its capability
+        if (anyPossiblyCapable(Capability.PROCESS_DIAGNOSIS)) {
+            handlers.add(new FindProcessesTool(diagnosis));
+        }
+        if (anyPossiblyCapable(Capability.LOG_DIAGNOSIS)) {
+            handlers.add(new QueryLogsTool(diagnosis));
+        }
+        if (anyPossiblyCapable(Capability.INVENTORY)) {
+            handlers.add(new ListInventoryTool(inventory));
+            handlers.add(new GetInventoryItemTool(inventory));
+        }
+        if (servers.stream().anyMatch(server -> server.cli().home().isPresent()
+            && possiblyCapable(server, Capability.WORKSPACE_EXPORT))) {
             handlers.add(exportArtifacts);
         }
         handlers.add(checkArtifacts);
@@ -577,17 +598,22 @@ final class Wiring implements AutoCloseable {
             && possiblyCapable(server, Capability.PROCESS_CONTROL));
     }
 
+    /** True if some node may run {@code capability} ({@link #possiblyCapable}). */
+    private boolean anyPossiblyCapable(Capability capability) {
+        return servers.stream().anyMatch(server -> possiblyCapable(server, capability));
+    }
+
     /**
      * Feature 009 (research D-12, FR-007): false only if {@code server} is pinned to a line or
      * version on which the matrix declares {@code capability} unsupported; an {@code AUTO} node
      * may turn out to run a capable version.
      */
-    private static boolean possiblyCapable(EffectiveNodeConfig server, Capability capability) {
+    private boolean possiblyCapable(EffectiveNodeConfig server, Capability capability) {
         return switch (server.versionLine()) {
             case VersionSetting.Auto auto -> true;
-            case VersionSetting.Line line -> MATRIX.stateOfLine(line.major(), line.minor(),
+            case VersionSetting.Line line -> matrix.stateOfLine(line.major(), line.minor(),
                 capability) != SupportState.UNSUPPORTED;
-            case VersionSetting.Pinned pinned -> MATRIX.state(Optional.of(pinned.version()),
+            case VersionSetting.Pinned pinned -> matrix.state(Optional.of(pinned.version()),
                 capability) != SupportState.UNSUPPORTED;
         };
     }

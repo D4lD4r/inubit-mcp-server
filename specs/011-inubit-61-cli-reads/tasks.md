@@ -146,7 +146,7 @@ contact, with node, version, capability and next step.
   flag; `VersionGate.unknown()` (`:405`) appends `; if this node runs INUBIT 6.1, pin V6_1` only
   then. Tests first: `V81VersionDetectorTest` (404 vs. 401 vs. 500), `VersionGateTest` (hint only
   for 404), `NodeVersionsTest`.
-- [ ] T012 [P] [US3] Tool announcement for read tools (research D-12): in `main/Wiring.java`
+- [X] T012 [P] [US3] Tool announcement for read tools (research D-12): in `main/Wiring.java`
   `toolHandlers()` (`:431-466`) announce `find_processes`, `query_logs`, `list_inventory`,
   `get_inventory_item` and `export_artifacts` only if some node is `possiblyCapable` for their
   capability (`:585-593`); `list_nodes`, `get_health`, `check_artifacts` stay always announced.
