@@ -53,11 +53,11 @@ Decisions R-1 … R-17. Each: decision, rationale, alternatives considered. Feat
     stay for Parameter Store.
   - `adapter/os` (new, `package-info.java`): the four adapters and `CredentialStores.forOs(String
     osName, ProcessLauncher)`. Only this package may use `com.sun.jna` (`PackageBoundaryTest`); it
-    starts processes only through the existing `ProcessLauncher` (no `ProcessBuilder`, no
-    `ProcessHandle`, as `onlyTheCliAdapterStartsOrInspectsProcesses` requires — the rule is widened to
-    allow `ProcessLauncher` use in `adapter/os`).
-  - `CredentialResolver.E2eCredentials` moves to `config.E2eCredentials` (used by `NodeSecrets`,
-    `Wiring`, `SoapE2eClient`).
+    starts processes only through the existing `ProcessLauncher` interface; the process rule
+    `onlyTheCliAdapterStartsOrInspectsProcesses` stays unchanged (it already allows that and keeps
+    `ProcessBuilder`/`Process`/`ProcessHandle` out of `adapter/os`). The only new boundary rule is
+    "`com.sun.jna` only in `adapter/os`".
+  - `CredentialResolver.E2eCredentials` moves to `config.E2eCredentials` (used by `NodeSecrets`).
   - `adapter` (root): `NodeSecrets` gains the credential store variant (R-7); `CredentialGuard`
     always has a `Rereadable` (R-9).
 - **Rationale**: the same shape as 010's `ParameterStore` keeps `NodeSecrets`, the guard and the
@@ -198,7 +198,10 @@ Decisions R-1 … R-17. Each: decision, rationale, alternatives considered. Feat
   (10 s for AWS nodes, 60 s for credential store nodes), plus `GRACE`, added only while the node's
   credentials are not held (`NodeSecrets.held()`, which never reads; FR-008), so fan-out deadlines
   stay as today once the credentials are read; `get_health` keeps its budget
-  and reports a running read as "credentials not yet available (still reading from the <store>)".
+  and reports a running read as "credentials not yet available (still reading from the <store>)":
+  `HealthService` (in `application`, which may not see `config`) gets a `Function<NodeId, String>`
+  from `Wiring` with the pending text per node, as it gets `timeouts::get`; the Parameter Store text
+  stays byte-for-byte.
   A rejected login inside a fan-out on a node whose credentials are held starts a re-read (up to
   60 s) that no allowance covers: that branch ends in `TIMEOUT`, the re-read runs to its end, and the
   next call on the node uses its result (or waits for it, as the guard makes new attempts wait).

@@ -481,7 +481,8 @@ fictitious profile from the real store (FR-017).
   latest after one rejected login), and the documentation describes one procedure per source for
   changing a credential.
 - **SC-006**: With a test double of the store that answers each entry read within 25 ms, the first
-  call on a node (at most four entry reads: username and password, each with a group fallback) takes
+  call on a node (at most four entry reads: username and password, each with a group fallback; six with
+  a trust store password) takes
   at most 200 ms longer than with credentials already held; later calls show no measurable
   difference.
 - **SC-007**: The same profile file works unchanged on macOS, Windows and Linux when the entries exist

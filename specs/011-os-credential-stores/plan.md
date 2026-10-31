@@ -63,8 +63,8 @@ support Windows; this feature adds its store).
 
 **Project Type**: single Maven module, shaded JAR.
 
-**Performance Goals**: SC-006 (store double ≤ 100 ms → first call ≤ 200 ms slower; later calls
-unchanged); startup has no store access; fan-out deadlines unchanged once credentials are held.
+**Performance Goals**: SC-006 (store double ≤ 25 ms per entry read, at most six reads with a trust
+store → first call ≤ 200 ms slower; later calls unchanged); startup has no store access; fan-out deadlines unchanged once credentials are held.
 
 **Constraints**:
 - no secret in tool parameters, results, logs, errors, audit records, files or process arguments
@@ -85,8 +85,8 @@ Changed: `SecretSourceConfig`, `CredentialsConfig`, `ProfileConfig`, `EffectiveN
 `ConfigSummary`, `SecretLabels`, `FailureKind`, `NodeSecrets`, `NodeCredentials` (deferred form
 removed), `CredentialGuard`, `AdapterGatewayFactory` (`awaitCredentials` per source), `SslContexts`,
 `SecretTiming`, `HealthService`, `CliOutputClassifier`, `Format001Detector`, `Launcher`, `Wiring`
-(store seam, audit fallback), `TestWiring`, `LiveTarget`, `PackageBoundaryTest` (JNA rule,
-`ProcessLauncher` in `adapter/os`). Removed: `CredentialResolver`, `CredentialResolution`.
+(store seam, audit fallback, pending labels for `HealthService`), `TestWiring`, `LiveTarget`,
+`PackageBoundaryTest` (new rule: `com.sun.jna` only in `adapter/os`; the process rule is unchanged). Removed: `CredentialResolver`, `CredentialResolution`.
 
 ## Constitution Check
 
@@ -112,7 +112,7 @@ removed), `CredentialGuard`, `AdapterGatewayFactory` (`awaitCredentials` per sou
 ```text
 specs/011-os-credential-stores/
 ├── plan.md
-├── research.md                 # R-1 … R-16
+├── research.md                 # R-1 … R-17
 ├── data-model.md
 ├── quickstart.md
 ├── contracts/

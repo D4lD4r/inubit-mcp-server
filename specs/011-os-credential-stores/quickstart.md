@@ -46,7 +46,7 @@ one online dependency resolution.
 | 21 | Boundary | JNA only in `adapter/os` | `PackageBoundaryTest` |
 | 22 | R-7: single-node wait per source | a call whose fake store answers after 30 s succeeds (no 10 s give-up) | `AdapterGatewayFactoryTest`, `WiringE2eTest` |
 | 23 | R-8: re-read inside a fan-out | branch `TIMEOUT`, re-read finishes, next call uses its result | `CredentialGuardTest`, `InventoryServiceTest` |
-| 24 | SC-006: first-call overhead | 25 ms per entry, ≤ 4 reads → ≤ 200 ms extra; later calls unchanged | `NodeSecretsCredentialStoreTest` (timed, fake store) |
+| 24 | SC-006: first-call overhead | 25 ms per entry, ≤ 6 reads → ≤ 200 ms extra; later calls unchanged | `NodeSecretsCredentialStoreTest` (timed, fake store) |
 | 25 | FR-013: `secret.fetch` record | `source=credentialStore`, `store`, `entries`, `durationMs`, `outcome`, `changed` on re-read; INFO/WARN; none within back-off; never a value | `NodeSecretsCredentialStoreTest` (log capture) |
 | 26 | R-17: audit account before first read | "(credential store <account>)", then the read username | `WiringAuditTest` |
 | 27 | R-13: `--check-config` reads each account once | a group entry shared by N nodes read once | `EntryCheckTest` |
