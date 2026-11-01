@@ -75,6 +75,13 @@ public final class TestNodeConfig {
         return this;
     }
 
+    /** {@code disableHostnameVerification} without a pin (refused by the validator). */
+    public TestNodeConfig disableHostnameVerificationWithoutPin() {
+        this.disableHostnameVerification = true;
+        this.pin = Optional.empty();
+        return this;
+    }
+
     public TestNodeConfig pin(String pinnedSha256) {
         this.pin = Optional.of(pinnedSha256);
         return this;

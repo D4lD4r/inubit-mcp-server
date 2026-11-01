@@ -206,7 +206,7 @@ password channel, the client options, the configuration warnings and the process
   `optionsFor` for `--check-config` (T021). 8.1 nodes keep exactly one `-v` run. Fixture: `fixtures/v6_1/cli/help` (reconstructed; append to
   `RECONSTRUCTED.txt`). Tests first: `CliClientProbeTest` (6.1 options, unreadable help, 8.1 node:
   no `-h` launch).
-- [ ] T018 [US5] Client trust arguments (FR-012a, research D-8): `CliRunner.runSession` takes the
+- [X] T018 [US5] Client trust arguments (FR-012a, research D-8): `CliRunner.runSession` takes the
   `CliClientOptions` and passes the trust store by `--trustStoreFilePath` when the given options have it, otherwise
   `-Djavax.net.ssl.trustStore=<path> -Djavax.net.ssl.trustStoreType=<type>` appended to
   `JAVA_TOOL_OPTIONS`; `--disableHostNameVerification` only when the options have it and the node

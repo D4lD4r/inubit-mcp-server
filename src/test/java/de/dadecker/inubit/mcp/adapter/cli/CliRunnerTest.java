@@ -6,23 +6,28 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.GeneralSecurityException;
+import java.security.KeyStore;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -478,10 +483,17 @@ class CliRunnerTest {
         CliSessionCommand.UNAME, CliSessionCommand.psCount(CliSessionCommand.Listing.ERROR),
         CliSessionCommand.psList(CliSessionCommand.Listing.ALL, 10_000));
 
+    /** A client with its own trust-store and host-name options. */
+    private static final CliClientOptions ALL_OPTIONS =
+        new CliClientOptions(true, true, false, Optional.of(8));
+    /** A client without either option (trust store through its runtime's settings). */
+    private static final CliClientOptions NO_OPTIONS =
+        new CliClientOptions(false, false, false, Optional.of(8));
+
     private CliResult runSession(FakeProcessLauncher launcher, CredentialGuard guard,
         Duration timeout) {
         return runner(launcher).runSession(server().build(), USER, Secret.of(PASSWORD),
-            HEALTH_COMMANDS, timeout, guard);
+            ALL_OPTIONS, HEALTH_COMMANDS, timeout, guard);
     }
 
     @Test
@@ -606,7 +618,7 @@ class CliRunnerTest {
         Path trustStore = Path.of("/etc/inubit/trust.p12");
         EffectiveNodeConfig config = server().trustStore(trustStore)
             .disableHostnameVerification("AB".repeat(32)).build();
-        runner.runSession(config, USER, Secret.of(PASSWORD), HEALTH_COMMANDS,
+        runner.runSession(config, USER, Secret.of(PASSWORD), ALL_OPTIONS, HEALTH_COMMANDS,
             Duration.ofSeconds(5), guard());
 
         runner.run(config, USER, Secret.of(PASSWORD), CliCommand.processErrorStart("110190387"),
@@ -622,5 +634,155 @@ class CliRunnerTest {
             "https://inubit-dev-1.example.test:8443/ibis/servlet/IBISSoapServlet");
         assertThat(new String(execCommand.stdinBytes(), StandardCharsets.UTF_8))
             .isEqualTo(PASSWORD + "\n");
+    }
+
+    // --- client trust arguments on INUBIT 6.1 (feature 011, T018, research D-8) -----------
+
+    private static final String PIN = "AB".repeat(32);
+    private static final String URL =
+        "https://inubit-dev-1.example.test:8443/ibis/servlet/IBISSoapServlet";
+
+    private FakeProcessLauncher.FakeProcess session(EffectiveNodeConfig config,
+        CliClientOptions options) {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(SESSION_OK, "", 0);
+        runner(launcher).runSession(config, USER, Secret.of(PASSWORD), options, HEALTH_COMMANDS,
+            Duration.ofSeconds(5), guard());
+        return launcher.last();
+    }
+
+    /** A password-less trust store of {@code type}, written by the JDK's own key store. */
+    private Path trustStoreFile(String name, String type)
+        throws IOException, GeneralSecurityException {
+        KeyStore store = KeyStore.getInstance(type);
+        store.load(null, null);
+        Path file = Files.createDirectories(cliHome.resolve("trust")).resolve(name);
+        try (OutputStream out = Files.newOutputStream(file)) {
+            store.store(out, new char[0]);
+        }
+        return file;
+    }
+
+    @Test
+    void aClientWithItsOwnTrustStoreOptionGetsTheTrustStoreAsArgument() {
+        Path trustStore = cliHome.resolve("trust store.p12"); // an argument may contain spaces
+
+        FakeProcessLauncher.FakeProcess process =
+            session(server().trustStore(trustStore).build(), ALL_OPTIONS);
+
+        assertThat(process.spec().command()).containsExactly(script.toString(), "-u", USER,
+            "--trustStoreFilePath", trustStore.toString(), URL);
+        assertThat(process.spec().environment())
+            .containsEntry("JAVA_TOOL_OPTIONS", CliRunner.JAVA_TOOL_OPTIONS);
+    }
+
+    @Test
+    void aClientWithoutTheTrustStoreOptionGetsAPkcs12TrustStoreThroughJavaToolOptions()
+        throws Exception {
+        Path trustStore = trustStoreFile("trust.p12", "PKCS12");
+
+        FakeProcessLauncher.FakeProcess process =
+            session(server().trustStore(trustStore).build(), NO_OPTIONS);
+
+        assertThat(process.spec().command()).containsExactly(script.toString(), "-u", USER, URL);
+        assertThat(process.spec().environment()).containsEntry("JAVA_TOOL_OPTIONS",
+            CliRunner.JAVA_TOOL_OPTIONS + " -Djavax.net.ssl.trustStore=" + trustStore
+                + " -Djavax.net.ssl.trustStoreType=PKCS12");
+    }
+
+    @Test
+    void aJksTrustStoreIsPassedWithItsType() throws Exception {
+        Path trustStore = trustStoreFile("trust.jks", "JKS");
+
+        FakeProcessLauncher.FakeProcess process =
+            session(server().trustStore(trustStore).build(), NO_OPTIONS);
+
+        assertThat(process.spec().environment()).containsEntry("JAVA_TOOL_OPTIONS",
+            CliRunner.JAVA_TOOL_OPTIONS + " -Djavax.net.ssl.trustStore=" + trustStore
+                + " -Djavax.net.ssl.trustStoreType=JKS");
+    }
+
+    @Test
+    void withoutATrustStoreNeitherTheArgumentNorTheRuntimeSettingIsPassed() {
+        for (CliClientOptions options : List.of(ALL_OPTIONS, NO_OPTIONS)) {
+            FakeProcessLauncher.FakeProcess process = session(server().build(), options);
+
+            assertThat(process.spec().command()).as("%s", options)
+                .containsExactly(script.toString(), "-u", USER, URL);
+            assertThat(process.spec().environment()).as("%s", options)
+                .containsEntry("JAVA_TOOL_OPTIONS", CliRunner.JAVA_TOOL_OPTIONS);
+        }
+    }
+
+    @Test
+    void neverATrustStorePasswordInTheArgumentsOrTheEnvironment() throws Exception {
+        parentEnv.put("INUBIT_DEV_TRUSTSTORE_PASSWORD", "ts-secret");
+        parentEnv.put("JAVA_TOOL_OPTIONS", "-Djavax.net.ssl.trustStorePassword=ts-secret");
+        Path trustStore = trustStoreFile("trust.p12", "PKCS12");
+
+        for (CliClientOptions options : List.of(ALL_OPTIONS, NO_OPTIONS)) {
+            FakeProcessLauncher.FakeProcess process =
+                session(server().trustStore(trustStore).build(), options);
+
+            String everything = String.join(" ", process.spec().command()) + " "
+                + String.join(" ", process.spec().environment().values());
+            assertThat(everything).as("%s", options)
+                .doesNotContain("ts-secret", "trustStorePassword", PASSWORD);
+        }
+    }
+
+    @Test
+    void aTrustStorePathWithWhitespaceNeverReachesJavaToolOptions() {
+        // V61Connection (T020) refuses such a node first; the runner defends itself anyway
+        // because JAVA_TOOL_OPTIONS is split at whitespace without quoting on Java 7/8
+        for (String name : List.of("trust store.p12", "trust\tstore.p12", "trust\nstore.p12")) {
+            FakeProcessLauncher launcher = FakeProcessLauncher.of(SESSION_OK, "", 0);
+            CredentialGuard guard = guard();
+            EffectiveNodeConfig config = server().trustStore(cliHome.resolve(name)).build();
+
+            assertThatThrownBy(() -> runner(launcher).runSession(config, USER,
+                Secret.of(PASSWORD), NO_OPTIONS, HEALTH_COMMANDS, Duration.ofSeconds(5), guard))
+                .as(name).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageNotContaining(PASSWORD);
+            assertThat(launcher.launchCount()).as(name).isZero();
+            assertThat(guard.confirmed()).as(name).isFalse();
+        }
+    }
+
+    @Test
+    void hostNameVerificationIsSkippedWithTheClientsOptionForAPinnedNode() {
+        FakeProcessLauncher.FakeProcess process =
+            session(server().disableHostnameVerification(PIN).build(), ALL_OPTIONS);
+
+        assertThat(process.spec().command()).containsExactly(script.toString(), "-u", USER,
+            "--disableHostNameVerification", URL);
+    }
+
+    @Test
+    void bothClientOptionsComeBeforeTheUrl() {
+        Path trustStore = cliHome.resolve("trust.p12");
+
+        FakeProcessLauncher.FakeProcess process = session(
+            server().trustStore(trustStore).disableHostnameVerification(PIN).build(), ALL_OPTIONS);
+
+        assertThat(process.spec().command()).containsExactly(script.toString(), "-u", USER,
+            "--trustStoreFilePath", trustStore.toString(), "--disableHostNameVerification", URL);
+    }
+
+    @Test
+    void hostNameVerificationIsNeverSkippedOtherwise() {
+        // the runner refuses nothing (owner: V61Connection, T020); it only leaves the flag out
+        CliClientOptions withoutHostNameOption =
+            new CliClientOptions(true, false, false, Optional.of(8));
+        List<FakeProcessLauncher.FakeProcess> processes = List.of(
+            session(server().disableHostnameVerification(PIN).build(), withoutHostNameOption),
+            session(server().disableHostnameVerificationWithoutPin().build(), ALL_OPTIONS),
+            session(server().pin(PIN).build(), ALL_OPTIONS));
+
+        assertThat(processes).allSatisfy(process -> {
+            assertThat(process.spec().command())
+                .containsExactly(script.toString(), "-u", USER, URL);
+            assertThat(process.spec().environment())
+                .containsEntry("JAVA_TOOL_OPTIONS", CliRunner.JAVA_TOOL_OPTIONS);
+        });
     }
 }

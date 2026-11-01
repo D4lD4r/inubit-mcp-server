@@ -447,6 +447,26 @@ class ConfigValidatorTest {
         }
 
         @Test
+        void trustStorePasswordForAV61NodeWithCliStaysAnError() {
+            // feature 011 (US5-5, FR-012a): the existing rule, unchanged for INUBIT 6.1
+            env.put("INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD", "ts-secret");
+
+            ValidationReport report = validate(server("""
+                versionLine: V6_1
+                tls:
+                  trustStore: /opt/truststore.p12
+                cli:
+                  home: /opt/client
+                  javaHome: /opt/jdk17
+                """));
+
+            assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
+                .contains("dev/node1", "INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD", "CLI",
+                    "password-less trust store")
+                .doesNotContain("ts-secret"));
+        }
+
+        @Test
         void trustStorePasswordWithoutCliIsAllowed() {
             env.put("INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD", "ts-secret");
 

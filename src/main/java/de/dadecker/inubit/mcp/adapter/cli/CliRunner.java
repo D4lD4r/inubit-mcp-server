@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchedProcess;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -35,9 +36,14 @@ import java.util.function.Supplier;
  *       [--disableHostNameVerification], --execCommand, <command>, <cliUrl>]}. There is never a
  *       {@code -p}; the password plus {@code \n} is written to stdin, which is then closed.
  *   <li>An interactive session on INUBIT 6.1 ({@link #runSession}, feature 011, research D-5):
- *       {@code [startcli.sh, -u, <user>, <cliUrl>]}; stdin receives the password line, one line
+ *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <path>],
+ *       [--disableHostNameVerification], <cliUrl>]}; stdin receives the password line, one line
  *       per {@link CliSessionCommand} and {@code exit}, and is then closed. Environment,
  *       timeout, output bound and credential guard are those of the {@code --execCommand} run.
+ *       The client trust options follow its {@link CliClientOptions} (research D-8): a client
+ *       without {@code --trustStoreFilePath} gets the trust store through
+ *       {@code -Djavax.net.ssl.trustStore} and {@code -Djavax.net.ssl.trustStoreType} appended
+ *       to {@code JAVA_TOOL_OPTIONS}; never a trust-store password.
  *   <li>The child environment is an allowlist: {@code PATH}, {@code HOME}, {@code TMPDIR},
  *       {@code LANG}, {@code LC_ALL}, {@code USER} (copied if set), {@code JAVA_HOME} (from
  *       {@code cli.javaHome}, else the server's own) and
@@ -59,6 +65,8 @@ public final class CliRunner {
     static final String WINDOWS_UNSUPPORTED =
         "CLI tools are not supported on Windows in this version";
     private static final Duration POLL = Duration.ofMillis(20);
+    private static final byte[] JKS_MAGIC =
+        {(byte) 0xfe, (byte) 0xed, (byte) 0xfe, (byte) 0xed};
 
     /** Variables copied from the server's own environment, if set. */
     static final List<String> INHERITED_VARIABLES =
@@ -102,7 +110,7 @@ public final class CliRunner {
         arguments.add(command.commandLine());
         arguments.add(server.cli().url().toString());
         return execute(server, arguments, Optional.of(password), List.of(), timeout,
-            timeoutSetting);
+            timeoutSetting, JAVA_TOOL_OPTIONS);
     }
 
     /**
@@ -134,19 +142,67 @@ public final class CliRunner {
      * Logs in as {@code username} in StartCLI's interactive mode (INUBIT 6.1, feature 011,
      * research D-5) and runs {@code commands}, then {@code exit}, in one process, guarded like
      * {@link #run(EffectiveNodeConfig, String, Secret, CliCommand, Duration, CredentialGuard)}.
-     * Neither the password nor a command appears in the argument array.
+     * Neither the password nor a command appears in the argument array. The trust store and the
+     * host-name option are passed as {@code options} allow (research D-8); every refusal is
+     * made by the caller before (feature 011, {@code V61Connection}).
      *
      * @throws ToolErrorException {@code AUTH_FAILED} from the guard, {@code CLI_UNAVAILABLE} if
      *     StartCLI cannot be started, {@code TIMEOUT} if it does not finish within
      *     {@code timeout}
+     * @throws IllegalArgumentException if the trust store has to go through
+     *     {@code JAVA_TOOL_OPTIONS} and its path contains whitespace (the caller refuses such a
+     *     node first); nothing is launched
      */
     public CliResult runSession(EffectiveNodeConfig server, String username, Secret password,
-        List<CliSessionCommand> commands, Duration timeout, CredentialGuard guard) {
-        List<String> arguments = List.of("-u", username, server.cli().url().toString());
+        CliClientOptions options, List<CliSessionCommand> commands, Duration timeout,
+        CredentialGuard guard) {
+        Optional<Path> trustStore = server.tls().trustStore();
+        String javaToolOptions = options.trustStoreFilePath() ? JAVA_TOOL_OPTIONS
+            : JAVA_TOOL_OPTIONS + trustStore.map(CliRunner::trustStoreProperties).orElse("");
+        List<String> arguments = new ArrayList<>(List.of("-u", username));
+        if (options.trustStoreFilePath()) {
+            trustStore.ifPresent(path -> {
+                arguments.add("--trustStoreFilePath");
+                arguments.add(path.toString());
+            });
+        }
+        if (options.disableHostNameVerification() && server.tls().disableHostnameVerification()
+            && server.tls().pinnedCertificateSha256().isPresent()) {
+            arguments.add("--disableHostNameVerification");
+        }
+        arguments.add(server.cli().url().toString());
         List<CliSessionCommand> lines = new ArrayList<>(commands);
         lines.add(CliSessionCommand.EXIT);
         return guarded(guard, () -> execute(server, arguments, Optional.of(password), lines,
-            timeout, "cliTimeout"));
+            timeout, "cliTimeout", javaToolOptions));
+    }
+
+    /**
+     * {@code -Djavax.net.ssl.trustStore=<path> -Djavax.net.ssl.trustStoreType=<type>} with a
+     * leading space. {@code JAVA_TOOL_OPTIONS} is split at whitespace without quoting on Java
+     * 7/8, so a path with whitespace is never passed.
+     */
+    private static String trustStoreProperties(Path trustStore) {
+        String path = trustStore.toString();
+        if (path.chars().anyMatch(Character::isWhitespace)) {
+            throw new IllegalArgumentException("A trust-store path with whitespace cannot be"
+                + " passed in JAVA_TOOL_OPTIONS");
+        }
+        return " -Djavax.net.ssl.trustStore=" + path + " -Djavax.net.ssl.trustStoreType="
+            + trustStoreType(trustStore);
+    }
+
+    /**
+     * {@code JKS} for a file that starts with the JKS magic number, else {@code PKCS12} (the
+     * format of {@code tls.trustStore}); an unreadable file counts as PKCS12, the TLS check
+     * before the session reports it.
+     */
+    private static String trustStoreType(Path trustStore) {
+        try (InputStream in = Files.newInputStream(trustStore)) {
+            return Arrays.equals(in.readNBytes(JKS_MAGIC.length), JKS_MAGIC) ? "JKS" : "PKCS12";
+        } catch (IOException e) {
+            return "PKCS12";
+        }
     }
 
     /**
@@ -170,18 +226,19 @@ public final class CliRunner {
      */
     CliResult execute(EffectiveNodeConfig server, List<String> arguments,
         Optional<Secret> stdinSecret, Duration timeout) {
-        return execute(server, arguments, stdinSecret, List.of(), timeout, "cliTimeout");
+        return execute(server, arguments, stdinSecret, List.of(), timeout, "cliTimeout",
+            JAVA_TOOL_OPTIONS);
     }
 
     private CliResult execute(EffectiveNodeConfig server, List<String> arguments,
         Optional<Secret> stdinSecret, List<CliSessionCommand> stdinCommands, Duration timeout,
-        String timeoutSetting) {
+        String timeoutSetting, String javaToolOptions) {
         LaunchTarget target = launchTarget(server);
         List<String> command = new ArrayList<>(arguments.size() + 1);
         command.add(target.script().toString());
         command.addAll(arguments);
-        LaunchSpec spec = new LaunchSpec(command, childEnvironment(target.javaHome()),
-            target.home());
+        LaunchSpec spec = new LaunchSpec(command,
+            childEnvironment(target.javaHome(), javaToolOptions), target.home());
         return launchAndWait(server, spec, stdinSecret, stdinCommands, timeout, timeoutSetting);
     }
 
@@ -229,7 +286,7 @@ public final class CliRunner {
                 .filter(value -> !value.isBlank()));
     }
 
-    private Map<String, String> childEnvironment(String javaHome) {
+    private Map<String, String> childEnvironment(String javaHome, String javaToolOptions) {
         Map<String, String> environment = new LinkedHashMap<>();
         for (String name : INHERITED_VARIABLES) {
             String value = parentEnvironment.get(name);
@@ -238,7 +295,7 @@ public final class CliRunner {
             }
         }
         environment.put("JAVA_HOME", javaHome);
-        environment.put("JAVA_TOOL_OPTIONS", JAVA_TOOL_OPTIONS);
+        environment.put("JAVA_TOOL_OPTIONS", javaToolOptions);
         return environment;
     }
 
