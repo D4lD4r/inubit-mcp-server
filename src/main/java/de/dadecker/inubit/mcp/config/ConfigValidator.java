@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.config;
 
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
@@ -976,6 +977,43 @@ public final class ConfigValidator {
                     + " CLI-backed capabilities report CLI_UNAVAILABLE");
             }
         }
+    }
+
+    /**
+     * Feature 011 (FR-012a, contracts/configuration-delta.md → Validation): the warnings for a
+     * node pinned to a CLI-only version (6.1) whose StartCLI client options were read by the local
+     * probe of {@code --check-config}; each names a refusal {@code V61Connection} makes at
+     * runtime. Not part of {@link #validate}, which runs no probes.
+     *
+     * @param terms          the profile's terminology (FR-007)
+     * @param options        the client options; an option that could not be read is absent
+     * @param trustStoreType the format of {@code tls.trustStore} ({@code JKS} or {@code PKCS12});
+     *                       ignored without a trust store
+     */
+    public static List<String> clientOptionWarnings(Terminology terms, EffectiveNodeConfig server,
+        CliClientOptions options, String trustStoreType) {
+        String id = server.id().value();
+        EffectiveNodeConfig.Tls tls = server.tls();
+        List<String> warnings = new ArrayList<>();
+        if (tls.disableHostnameVerification() && tls.pinnedCertificateSha256().isPresent()
+            && !options.disableHostNameVerification()) {
+            warnings.add(id + terms.render(": the StartCLI client offers no option to skip"
+                + " host-name verification; StartCLI-backed tools on this {node} are refused"
+                + " (TLS_ERROR)"));
+        }
+        if (tls.trustStore().isPresent() && trustStoreType.equals("PKCS12")
+            && options.javaFeatureVersion().filter(java -> java >= 8).isEmpty()) {
+            warnings.add(id + ": the StartCLI runtime (Java " + options.javaFeatureVersion()
+                .map(String::valueOf).orElse("unknown") + ") cannot read the PKCS12 trust store;"
+                + " convert it to JKS or set cliJavaHome");
+        }
+        if (!options.trustStoreFilePath() && tls.trustStore()
+            .filter(path -> path.toString().chars().anyMatch(Character::isWhitespace))
+            .isPresent()) {
+            warnings.add(id + ": the trust-store path contains spaces, which the StartCLI runtime"
+                + " settings cannot carry; use a path without spaces");
+        }
+        return warnings;
     }
 
     private static void checkPositive(String id, String key, Duration value, Findings findings) {

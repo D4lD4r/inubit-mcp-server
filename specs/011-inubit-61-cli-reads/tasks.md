@@ -232,7 +232,7 @@ password channel, the client options, the configuration warnings and the process
   call with options not yet cached, `disableHostnameVerification` + pin and a client that has the
   option → admitted and `--disableHostNameVerification` passed; `cli.javaHome` absent with an
   unreadable `JAVA_HOME` runtime and a PKCS12 trust store → refused; path with spaces → refused.
-- [ ] T021 [US5] `--check-config` warnings (FR-012a, US5-8, contracts/configuration-delta):
+- [X] T021 [US5] `--check-config` warnings (FR-012a, US5-8, contracts/configuration-delta):
   missing host-name option or options unknown, unreadable trust-store format or runtime version,
   trust-store path with whitespace; client options in
   the client part, for 6.1 nodes only; a 6.1 node with an `http://` StartCLI URL with and without

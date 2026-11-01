@@ -2,6 +2,8 @@ package de.dadecker.inubit.mcp.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
+import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -12,6 +14,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -819,6 +822,133 @@ class ConfigValidatorTest {
                 assertThat(report.errors()).as(line).isEmpty();
                 assertThat(report.warnings()).as(line).isEmpty();
             }
+        }
+
+        @Test
+        void aV61NodeWithAnHttpStartCliUrlFollowsTheExistingRule() {
+            // feature 011 (US5-8, FR-012): the rule applies to the effective StartCLI URL
+            String http = """
+                profile:
+                  name: acme
+                groups:
+                  - name: dev
+                    versionLine: V6_1
+                    cli:
+                      home: /opt/client
+                    inventory:
+                      owner: INTEGRATION
+                    nodes:
+                      - name: node1
+                        baseUrl: http://inubit.example.test:8080
+                """;
+            String overridden = server("versionLine: V6_1\ncli:\n  home: /opt/client\n"
+                + "  url: http://cli.example.test:8080/ibis/servlet/IBISSoapServlet\n");
+
+            ValidationReport insecure = validate(http);
+            ValidationReport allowed = validate(http + "        allowInsecureHttp: true\n");
+            ValidationReport insecureCli = validate(overridden);
+            ValidationReport allowedCli = validate(overridden + "        allowInsecureHttp: true\n");
+
+            assertThat(insecure.errors()).containsExactly("dev/node1: baseUrl uses http://; use"
+                + " https:// or set allowInsecureHttp: true");
+            assertThat(allowed.errors()).isEmpty();
+            assertThat(allowed.warnings()).containsExactly("dev/node1: baseUrl uses http://"
+                + " (allowInsecureHttp: true); credentials are sent unencrypted");
+            assertThat(insecureCli.errors()).containsExactly("dev/node1: cli.url uses http://; use"
+                + " https:// or set allowInsecureHttp: true");
+            assertThat(allowedCli.errors()).isEmpty();
+            assertThat(allowedCli.warnings()).containsExactly("dev/node1: cli.url uses http://"
+                + " (allowInsecureHttp: true); the CLI password is sent unencrypted");
+        }
+
+        @Test
+        void aV61NodeHasNoClientOptionFindingWithoutTheProbeOfCheckConfig() {
+            // feature 011 (FR-012a): the client options are read by --check-config only
+            ValidationReport report = validate(server("""
+                versionLine: V6_1
+                tls:
+                  trustStore: /opt/truststore.p12
+                  disableHostnameVerification: true
+                  pinnedCertificateSha256: '%s'
+                cli:
+                  home: /opt/client
+                  javaHome: /opt/jdk17
+                """.formatted(PIN)));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("dev/node1: hostname verification is"
+                + " disabled; the certificate is checked against the pinned SHA-256 fingerprint"
+                + " instead");
+        }
+
+        @Test
+        void aClientWithoutHostNameOptionIsAWarningWhenHostNamesAreSkippedWithAPin() {
+            // feature 011 (FR-012a, US5-4): an option that could not be read counts as absent
+            EffectiveNodeConfig node = node("versionLine: V6_1\ntls:\n"
+                + "  disableHostnameVerification: true\n  pinnedCertificateSha256: '" + PIN + "'\n");
+
+            assertThat(warnings(node, options(false, false, 17), ""))
+                .containsExactly("dev/node1: the StartCLI client offers no option to skip"
+                    + " host-name verification; StartCLI-backed tools on this node are refused"
+                    + " (TLS_ERROR)");
+            assertThat(warnings(node, options(false, true, 17), "")).isEmpty();
+            assertThat(ConfigValidator.clientOptionWarnings(new Terminology("Umgebung",
+                "Umgebungen", "Knoten", "Knoten"), node, options(false, false, 17), ""))
+                .as("FR-007").singleElement().asString().contains("on this Knoten are refused");
+            assertThat(warnings(node("versionLine: V6_1\n"), options(false, false, 17), ""))
+                .as("host names are verified").isEmpty();
+        }
+
+        @Test
+        void aPkcs12TrustStoreIsAWarningForARuntimeBelowJava8OrOfUnknownVersion() {
+            EffectiveNodeConfig node =
+                node("versionLine: V6_1\ntls:\n  trustStore: /opt/truststore.p12\n");
+
+            assertThat(warnings(node, options(true, false, 7), "PKCS12")).containsExactly(
+                "dev/node1: the StartCLI runtime (Java 7) cannot read the PKCS12 trust store;"
+                    + " convert it to JKS or set cliJavaHome");
+            assertThat(warnings(node, options(true, false, null), "PKCS12")).containsExactly(
+                "dev/node1: the StartCLI runtime (Java unknown) cannot read the PKCS12 trust"
+                    + " store; convert it to JKS or set cliJavaHome");
+            assertThat(warnings(node, options(true, false, 8), "PKCS12")).isEmpty();
+            assertThat(warnings(node, options(true, false, 7), "JKS")).as("Java 7 reads JKS")
+                .isEmpty();
+        }
+
+        @Test
+        void aTrustStorePathWithSpacesIsAWarningForAClientWithoutTrustStoreOption() {
+            EffectiveNodeConfig node =
+                node("versionLine: V6_1\ntls:\n  trustStore: \"/opt/trust store.jks\"\n");
+
+            assertThat(warnings(node, options(false, false, 7), "JKS")).containsExactly(
+                "dev/node1: the trust-store path contains spaces, which the StartCLI runtime"
+                    + " settings cannot carry; use a path without spaces");
+            assertThat(warnings(node, options(true, false, 7), "JKS"))
+                .as("the client's own option carries the path").isEmpty();
+        }
+
+        @Test
+        void aClientOfferingWhatTheNodeNeedsHasNoFinding() {
+            assertThat(warnings(node("versionLine: V6_1\n"), options(false, false, null), ""))
+                .isEmpty();
+        }
+
+        private static List<String> warnings(EffectiveNodeConfig node, CliClientOptions options,
+            String trustStoreType) {
+            return ConfigValidator.clientOptionWarnings(Terminology.DEFAULT, node, options,
+                trustStoreType);
+        }
+
+        private static EffectiveNodeConfig node(String settings) {
+            return new ConfigLoader(Map.of(), HOME, false)
+                .parse(server(settings), HOME.resolve("config.yaml"))
+                .config().resolvableNodes().getFirst();
+        }
+
+        private static CliClientOptions options(boolean trustStoreOption,
+            boolean hostNameOption, Integer java) {
+            return new CliClientOptions(trustStoreOption, hostNameOption, true,
+                Optional.ofNullable(java));
         }
 
         @Test

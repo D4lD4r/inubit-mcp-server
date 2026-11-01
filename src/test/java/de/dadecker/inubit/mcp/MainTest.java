@@ -549,15 +549,79 @@ class MainTest {
             + " end-to-end test, process control)";
         assertThat(out())
             .contains("dev/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI"
-                + " only; " + refused + ", client: 6.1.0")
+                + " only; " + refused + ", client: 6.1.0 (4.0.1–6.1.0; options: no trust-store"
+                + " option, no host-name option), server version: determined at runtime,"
+                + " username ←")
             .contains("dev/node2: read-only, cli: unavailable, inubit: V6_1 (INUBIT 6.1, StartCLI"
                 + " only; " + refused + ", username ←")
             .contains("  - dev/node2: INUBIT 6.1 is reached through StartCLI only, but no cliHome"
                 + " is configured; its capabilities report CLI_UNAVAILABLE")
             .contains("Result: OK")
             .doesNotContain("inubit.example.test", "jsonrpc");
-        // no INUBIT contact: the local client probe is the only StartCLI call, without server URL
-        assertThat(Files.readString(cliHome.resolve("bin/arguments"))).isEqualTo("-v\n");
+        // no INUBIT contact: the local client probes (version, help) are the only StartCLI
+        // calls, without server URL; an unreadable help means every option absent (FR-012a)
+        assertThat(Files.readString(cliHome.resolve("bin/arguments"))).isEqualTo("-v\n-h\n");
+    }
+
+    @Test
+    void checkConfigWarnsAboutWhatTheStartCliClientOfAV61NodeCannotDo() throws IOException {
+        // feature 011 (FR-012a, contracts/configuration-delta.md → Validation): the warnings name
+        // the refusals of V61Connection; local probes only, the server is not contacted
+        credentials();
+        Path cliHome = fakeStartCli("""
+            echo "$@" >> "$(dirname "$0")/arguments"
+            if [ "$1" = "-h" ]; then
+              echo "usage: startcli.sh -u <user> [--execCommand <command>] <url>"
+            else
+              echo "CLI 6.1.0"
+              echo "Supported inubit Process Engine versions from 4.0.1 to 6.1.0."
+            fi
+            """);
+        Path java7 = Files.createDirectories(home.resolve("jdk7"));
+        Files.writeString(java7.resolve("release"), "JAVA_VERSION=\"1.7.0_80\"\n");
+        Path trustStore = Files.writeString(home.resolve("trust store.p12"), "not JKS");
+        String pin = "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD"
+            + ":EF:01:23:45:67:89";
+        Path file = config("""
+            profile:
+              name: acme
+            groups:
+              - name: dev
+                cli:
+                  home: %s
+                  javaHome: %s
+                tls:
+                  trustStore: "%s"
+                  disableHostnameVerification: true
+                  pinnedCertificateSha256: "%s"
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V6_1
+                  - name: node2
+                    baseUrl: https://node2.example.test:8443
+                    versionLine: V8_1
+            """.formatted(cliHome, java7, trustStore, pin));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        assertThat(out())
+            .contains("dev/node1: the StartCLI client offers no option to skip host-name"
+                + " verification; StartCLI-backed tools on this node are refused (TLS_ERROR)")
+            .contains("dev/node1: the StartCLI runtime (Java 7) cannot read the PKCS12 trust"
+                + " store; convert it to JKS or set cliJavaHome")
+            .contains("dev/node1: the trust-store path contains spaces, which the StartCLI"
+                + " runtime settings cannot carry; use a path without spaces")
+            .contains("client: 6.1.0 (4.0.1–6.1.0; options: no trust-store option, no host-name"
+                + " option), server version: determined at runtime")
+            .contains("dev/node2: read-only, cli: available, inubit: V8_1, client: 6.1.0"
+                + " (4.0.1–6.1.0), server version: determined at runtime, username ←")
+            .doesNotContain("dev/node2: the")
+            .contains("Result: OK");
+        // the 8.1 node gets its version probe only, no help run
+        assertThat(Files.readString(cliHome.resolve("bin/arguments")))
+            .isEqualTo("-v\n-h\n-v\n");
     }
 
     /** An executable {@code <home>/client/bin/startcli.sh} running {@code body}; the CLI home. */

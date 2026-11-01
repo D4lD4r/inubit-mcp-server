@@ -136,7 +136,7 @@ class MigrationGuideExampleTest {
             Path.of("/var/tmp"), file -> List.of(), NO_DISK).validate(loaded, credentials);
 
         String summary = new ConfigSummary(path -> true, false).render(loaded, credentials, report,
-            Map.of(), ParameterCheck.Result.NONE);
+            Map.of(), Map.of(), ParameterCheck.Result.NONE);
 
         assertThat(summary)
             .contains("Profile: acme")
@@ -162,7 +162,7 @@ class MigrationGuideExampleTest {
             Path.of("/var/tmp"), file -> List.of(), NO_DISK).validate(loaded, credentials);
 
         String summary = new ConfigSummary(path -> true, false).render(loaded, credentials, report,
-            Map.of(), ParameterCheck.Result.NONE);
+            Map.of(), Map.of(), ParameterCheck.Result.NONE);
 
         assertThat(summary).startsWith("Configuration: /Users/jdoe/.config/inubit-mcp/acme.yaml\n")
             .contains("Audit directory: /Users/jdoe/.inubit-mcp/acme/audit\n");

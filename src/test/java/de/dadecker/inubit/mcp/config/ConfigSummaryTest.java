@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -69,6 +70,17 @@ class ConfigSummaryTest {
 
     private String render(String yaml, WorkspaceDirectory.Preparer workspaces,
         Map<NodeId, ClientVersion> clients, CapabilityMatrix matrix) {
+        return render(yaml, workspaces, clients, Map.of(), matrix);
+    }
+
+    private String render(String yaml, Map<NodeId, ClientVersion> clients,
+        Map<NodeId, CliClientOptions> options) {
+        return render(yaml, NO_DISK, clients, options, CapabilityMatrix.production());
+    }
+
+    private String render(String yaml, WorkspaceDirectory.Preparer workspaces,
+        Map<NodeId, ClientVersion> clients, Map<NodeId, CliClientOptions> options,
+        CapabilityMatrix matrix) {
         LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, false).parse(yaml, SOURCE);
         CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
             loaded.config().terminology().effectiveOrDefault(),
@@ -80,7 +92,7 @@ class ConfigSummaryTest {
         ParameterCheck.Result parameters =
             ParameterCheck.run(loaded.config().secretPlans().values(), store, storeTimeout);
         return new ConfigSummary(exists, false, matrix).render(loaded, credentials,
-            parameters.addTo(report), clients, parameters);
+            parameters.addTo(report), clients, options, parameters);
     }
 
     private static final String CONFIG = """
@@ -509,6 +521,39 @@ class ConfigSummaryTest {
                 + " cliHome is configured; its capabilities report CLI_UNAVAILABLE")
             .doesNotContain("test/node3: INUBIT 6.1")
             .contains("Result: OK");
+    }
+
+    // --- feature 011 T021: the client options of a 6.1 node (FR-012a, research D-8) -----------
+
+    @Test
+    void aV61NodeShowsTheClientOptionsInsideItsClientPart() {
+        CliClientOptions none = new CliClientOptions(false, false, false, Optional.empty());
+        CliClientOptions both = new CliClientOptions(true, true, true, Optional.of(8));
+
+        String summary = render(V6_1, Map.of(
+            NodeId.parse("test/node1"), client("6.1.0", "4.0.1", "6.1.0"),
+            NodeId.parse("test/node2"), client("6.1.0", null, null),
+            NodeId.parse("test/node3"), client("8.1.17", "4.0.1", "8.1.17")),
+            Map.of(NodeId.parse("test/node1"), none, NodeId.parse("test/node2"), both));
+
+        assertThat(summary).contains("process control), client: 6.1.0 (4.0.1–6.1.0; options: no"
+            + " trust-store option, no host-name option), server version: determined at runtime,"
+            + " username ←");
+        assertThat(summary).as("a client without declared range")
+            .contains("process control), client: 6.1.0 (options: trust-store option, host-name"
+                + " option), client vs pin: ");
+        assertThat(summary).as("8.1 lines are unchanged: no client options")
+            .contains("test/node3: read-only, cli: available, inubit: V8_1, client: 8.1.17"
+                + " (4.0.1–8.1.17), server version: determined at runtime, username ←");
+    }
+
+    @Test
+    void aV61NodeWithoutClientResultShowsNoClientOptions() {
+        // the -v probe failed (a warning): the options have no client part to go into
+        String summary = render(V6_1, Map.of(), Map.of(NodeId.parse("test/node1"),
+            new CliClientOptions(false, false, false, Optional.empty())));
+
+        assertThat(summary).contains("process control), username ←").doesNotContain("options:");
     }
 
     // --- feature 010 T008: the secret source per node (contracts/configuration-delta.md) -------
