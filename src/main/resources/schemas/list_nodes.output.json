@@ -60,7 +60,7 @@
                 },
                 "versionLine": {
                   "type": "string",
-                  "description": "As configured: AUTO, V8_1, V9_X or a full version such as 8.1.17"
+                  "description": "As configured: AUTO, V6_1, V8_1, V9_X or a full version such as 8.1.17"
                 },
                 "cliAvailable": {
                   "type": "boolean",
@@ -81,11 +81,15 @@
     "Version": {
       "type": "object",
       "description": "What this MCP server last learned about the INUBIT version and the StartCLI client of the {node} (from get_health and earlier tool calls; list_nodes contacts no {node}), the support status and the capabilities whose tools run on the {node}",
-      "required": ["setting", "server", "client", "status", "capabilities"],
+      "required": ["setting", "access", "server", "client", "status", "capabilities"],
       "properties": {
         "setting": {
           "type": "string",
-          "description": "The configured versionLine: AUTO, V8_1, V9_X or a full version such as 8.1.17"
+          "description": "The configured versionLine: AUTO, V6_1, V8_1, V9_X or a full version such as 8.1.17"
+        },
+        "access": {
+          "enum": ["rest_and_cli", "cli_only"],
+          "description": "How the {node} is reached: rest_and_cli, or cli_only (StartCLI only) if the {node} is pinned to INUBIT 6.1"
         },
         "server": {
           "type": "object",

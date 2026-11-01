@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.NodeAccess;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
@@ -16,6 +17,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -33,6 +35,10 @@ import java.util.function.Function;
  * the client refuses ({@code inventory}: modules and history) stays usable for its REST part
  * and is additionally listed as {@code "<name> (StartCLI parts)"} in {@code notUsable}; a write
  * is admitted for all its channels at once, so it is not usable at all.
+ *
+ * <p>Feature 011 (research D-13): the block names the node's access, {@code cli_only} for a node
+ * pinned to a CLI-only version (6.1), whose capabilities are judged on its matrix entry and run
+ * only if {@code SUPPORTED}.
  */
 public final class NodeOverview {
 
@@ -64,6 +70,11 @@ public final class NodeOverview {
         NodeId id = node.id();
         NodeVersionState state = versions.state(id);
         Optional<InubitVersion> version = state.effectiveVersion();
+        // feature 011 (FR-002): a node pinned to a CLI-only version is judged on its pin, as the
+        // gate does, also while an observation contradicts the pin
+        Optional<InubitVersion> pin = NodeVersionState.initial(state.setting()).effectiveVersion();
+        boolean cliOnly = matrix.isCliOnly(pin);
+        Optional<InubitVersion> judged = cliOnly ? pin : version;
         Set<Capability> configured = allowed.apply(id);
         List<String> usable = new ArrayList<>();
         List<NodeSummary.NotUsable> notUsable = new ArrayList<>();
@@ -72,15 +83,17 @@ public final class NodeOverview {
             if (!configured.contains(capability)) {
                 continue;
             }
-            SupportState support = support(state, version, capability);
+            SupportState support = support(state, judged, capability);
             allSupported &= support == SupportState.SUPPORTED;
-            Optional<String> refusal = refusal(id, state, version, capability, support);
+            Optional<String> refusal = refusal(id, state, judged, capability, support, cliOnly);
             if (refusal.isPresent()) {
                 notUsable.add(new NodeSummary.NotUsable(name(capability), refusal.get()));
                 continue;
             }
-            Optional<String> clientRefusal = capability.channels().contains(Channel.CLI)
-                ? clientRefusal(id, state, version) : Optional.empty();
+            // the entry's channels: on 6.1 monitoring and process diagnosis run over StartCLI
+            Optional<String> clientRefusal =
+                matrix.channels(judged, capability).contains(Channel.CLI)
+                    ? clientRefusal(id, state, judged) : Optional.empty();
             if (clientRefusal.isEmpty()) {
                 usable.add(name(capability));
             } else if (capability.kind() == Capability.Kind.READ
@@ -107,7 +120,9 @@ public final class NodeOverview {
         // FR-011, US1-4: what the client means for the StartCLI-backed tools, as in get_health
         state.client().map(Timed::value).flatMap(client -> HealthService.clientWarning(id,
             client, version, client.compare(version))).ifPresent(warnings::add);
-        return new NodeSummary.Version(state.setting().text(), server(state, version),
+        NodeAccess access = cliOnly ? NodeAccess.CLI_ONLY : NodeAccess.REST_AND_CLI;
+        return new NodeSummary.Version(state.setting().text(),
+            access.name().toLowerCase(Locale.ROOT), server(state, version),
             client(node, state, version), status,
             new NodeSummary.Capabilities(usable, notUsable), Optional.of(warnings));
     }
@@ -121,19 +136,30 @@ public final class NodeOverview {
         return matrix.state(version, capability);
     }
 
-    /** Why the gate refuses {@code capability} for its version alone; empty if it admits it. */
+    /**
+     * Why the gate refuses {@code capability} for its version alone; empty if it admits it. On a
+     * CLI-only pin a contradiction leaves only monitoring ({@code get_health}), and a refusal
+     * names the configured line without "yet", as the gate's message before its next step.
+     */
     private static Optional<String> refusal(NodeId node, NodeVersionState state,
-        Optional<InubitVersion> version, Capability capability, SupportState support) {
-        if (capability.kind() == Capability.Kind.WRITE && state.pinContradiction()) {
+        Optional<InubitVersion> version, Capability capability, SupportState support,
+        boolean cliOnly) {
+        if (state.pinContradiction() && (capability.kind() == Capability.Kind.WRITE
+            || cliOnly && capability != Capability.MONITORING)) {
             return Optional.of(contradiction(node, state));
         }
         if (support == SupportState.SUPPORTED
-            || support == SupportState.UNVERIFIED && capability.kind() == Capability.Kind.READ) {
+            || support == SupportState.UNVERIFIED && capability.kind() == Capability.Kind.READ
+            && !cliOnly) {
             return Optional.empty();
         }
         return Optional.of(VersionGate.name(state, version)
-            .map(name -> name + " on " + node + " does not support "
-                + VersionGate.label(capability) + " yet")
+            .map(name -> cliOnly
+                ? name + (state.setting() instanceof VersionSetting.Line line
+                    ? " (versionLine " + line.text() + ")" : "") + " on " + node
+                    + " does not support " + VersionGate.label(capability)
+                : name + " on " + node + " does not support "
+                    + VersionGate.label(capability) + " yet")
             .orElseGet(() -> VersionGate.unknown(node, state)
                 + "; call get_health to detect it"));
     }

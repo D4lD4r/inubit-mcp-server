@@ -25,13 +25,17 @@ import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
+import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
+import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
@@ -298,6 +302,7 @@ class ListNodesToolTest {
     private static final NodeId DEV2 = NodeId.parse("dev/node2");
     private static final NodeId QA1 = NodeId.parse("qa/node1");
     private static final NodeId QA3 = NodeId.parse("qa/node3");
+    private static final NodeId QA4 = NodeId.parse("qa/node4");
     private static final String PASSWORD = "list-nodes-test-pw";
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -307,6 +312,9 @@ class ListNodesToolTest {
     private NodeVersions versions;
     private AdapterGatewayFactory gateways;
     private McpTestClient versionClient;
+    /** The summaries and allowed capabilities of the nodes, for an overview with another matrix. */
+    private List<NodeSummary> summaries;
+    private Map<NodeId, Set<Capability>> allowed;
 
     @TempDir
     Path temp;
@@ -325,7 +333,8 @@ class ListNodesToolTest {
      * dev/node1 ({@code AUTO}, StartCLI, {@link #DEVELOPMENT}), dev/node2 ({@code AUTO}, no
      * StartCLI, reads), qa/node1 ({@code V8_1}, StartCLI, {@link #DEVELOPMENT}), qa/node2
      * (pinned {@code 8.1.17}, no StartCLI, reads) and qa/node3 ({@code V9_X}, StartCLI,
-     * {@link #DEVELOPMENT}), all at the WireMock server.
+     * {@link #DEVELOPMENT}), all at the WireMock server; feature 011: qa/node4 ({@code V6_1},
+     * StartCLI, {@link #DEVELOPMENT}).
      */
     @BeforeEach
     void startVersionClient() {
@@ -339,7 +348,8 @@ class ListNodesToolTest {
             versionNode("qa/node1", baseUrl, VersionSetting.V8_1).cliHome(CLI_HOME).build(),
             versionNode("qa/node2", baseUrl, VersionSetting.parse("8.1.17").orElseThrow())
                 .build(),
-            versionNode("qa/node3", baseUrl, VersionSetting.V9_X).cliHome(CLI_HOME).build());
+            versionNode("qa/node3", baseUrl, VersionSetting.V9_X).cliHome(CLI_HOME).build(),
+            versionNode("qa/node4", baseUrl, VersionSetting.V6_1).cliHome(CLI_HOME).build());
         Map<NodeId, EffectiveNodeConfig> byId = new HashMap<>();
         nodes.forEach(node -> byId.put(node.id(), node));
         clock = new MutableClock(NOW);
@@ -352,10 +362,10 @@ class ListNodesToolTest {
             .resolve(List.copyOf(byId.keySet()))), scrubber, Clock.systemUTC(),
             new CliRunner(noStartCli(new AtomicInteger()), Map.of(), false,
                 new CliResources("acme")), versions, PortSetRegistry.v81Default());
-        Map<NodeId, Set<Capability>> allowed = Map.of(DEV1, DEVELOPMENT, DEV2, READS,
-            QA1, DEVELOPMENT, NodeId.parse("qa/node2"), READS, QA3, DEVELOPMENT);
-        NodeOverview overview = new NodeOverview(nodes.stream()
-            .map(node -> node.summary(EXISTS, false)).toList(), versions,
+        allowed = Map.of(DEV1, DEVELOPMENT, DEV2, READS, QA1, DEVELOPMENT,
+            NodeId.parse("qa/node2"), READS, QA3, DEVELOPMENT, QA4, DEVELOPMENT);
+        summaries = nodes.stream().map(node -> node.summary(EXISTS, false)).toList();
+        NodeOverview overview = new NodeOverview(summaries, versions,
             CapabilityMatrix.production(), allowed::get);
         versionClient = McpTestClient.start(McpTestClient.TEST_PROFILE, List.of(
             new ListNodesTool(McpTestClient.TEST_PROFILE, overview::nodes)));
@@ -676,6 +686,125 @@ class ListNodesToolTest {
         assertThat(text).doesNotContain("https://", "localhost", String.valueOf(
             wireMock.httpsPort()), "baseUrl", "jdoe", "username", PASSWORD, "password",
             CLI_HOME.toString());
+    }
+
+    // --- 011-T013: a 6.1 node (US3-5, research D-13) ---------------------------------------
+
+    @Test
+    void aV61NodeIsCliOnlyAndNoCapabilityIsUsableWithoutContactingIt() {
+        // US3-5: the production matrix declares every capability of 6.1 unsupported; listVersions
+        // fails on any request, and the launcher on any StartCLI run
+        JsonNode result = versionClient.callTool("list_nodes", Map.of());
+        JsonNode node = StreamSupport.stream(result.path("structuredContent").path("groups")
+                .spliterator(), false)
+            .flatMap(group -> StreamSupport.stream(group.path("nodes").spliterator(), false))
+            .filter(item -> item.path("id").asString().equals("qa/node4"))
+            .findFirst().orElseThrow();
+        assertThat(node.path("versionLine").asString()).isEqualTo("V6_1");
+
+        JsonNode version = listVersions().get("qa/node4");
+
+        assertThat(requests()).isZero();
+        assertThat(version.path("setting").asString()).isEqualTo("V6_1");
+        assertThat(version.path("access").asString()).isEqualTo("cli_only");
+        assertThat(version.path("server").path("version").asString()).isEqualTo("6.1");
+        assertThat(version.path("server").path("source").asString()).isEqualTo("pinned");
+        assertThat(version.path("status").asString()).isEqualTo("unsupported");
+        assertThat(usable(version)).isEmpty();
+        assertThat(notUsable(version)).containsExactly("monitoring", "process_diagnosis",
+            "log_diagnosis", "inventory", "workspace_export", "development_writes",
+            "process_control");
+        assertThat(reason(version, "monitoring")).isEqualTo("INUBIT 6.1 (versionLine V6_1) on"
+            + " qa/node4 does not support monitoring");
+        assertThat(reason(version, "log_diagnosis")).isEqualTo("INUBIT 6.1 (versionLine V6_1)"
+            + " on qa/node4 does not support log diagnosis");
+        assertThat(reason(version, "process_control")).isEqualTo("INUBIT 6.1 (versionLine V6_1)"
+            + " on qa/node4 does not support process control");
+    }
+
+    @Test
+    void nodesOfOtherVersionsAreReachedOverRestAndCli() {
+        // research D-13: access comes from the matrix entry of the pin; AUTO is REST-based
+        versions.detected(DEV1, InubitVersion.parse("8.1.17").orElseThrow());
+
+        Map<String, JsonNode> byNode = listVersions();
+
+        assertThat(byNode.get("dev/node1").path("access").asString()).isEqualTo("rest_and_cli");
+        assertThat(byNode.get("dev/node2").path("access").asString()).as("AUTO, not detected")
+            .isEqualTo("rest_and_cli");
+        assertThat(byNode.get("qa/node1").path("access").asString()).as("V8_1")
+            .isEqualTo("rest_and_cli");
+        assertThat(byNode.get("qa/node3").path("access").asString()).as("V9_X")
+            .isEqualTo("rest_and_cli");
+        assertThat(usable(byNode.get("qa/node1"))).as("US3-5: the split diagnosis names")
+            .contains("process_diagnosis", "log_diagnosis").doesNotContain("diagnosis");
+    }
+
+    @Test
+    void theUsableCapabilitiesOfAV61NodeAreThoseOfItsMatrixEntry() {
+        // a 6.1 entry with monitoring and process diagnosis supported over StartCLI (the flip of
+        // research D-15): exactly those are usable, as the gate admits them
+        CapabilityMatrix flipped = new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+                new VersionRange(6, 1, 6, 1),
+                Map.of(Capability.MONITORING, SupportState.SUPPORTED,
+                    Capability.PROCESS_DIAGNOSIS, SupportState.SUPPORTED),
+                Map.of(Capability.MONITORING, Set.of(Channel.CLI),
+                    Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)), true)), Map.of());
+
+        NodeSummary.Version version = version(flipped, QA4);
+
+        assertThat(version.access()).isEqualTo("cli_only");
+        assertThat(version.status()).isEqualTo("partially_supported");
+        assertThat(version.capabilities().usable()).containsExactly("monitoring",
+            "process_diagnosis");
+        assertThat(version.capabilities().notUsable()).extracting(NodeSummary.NotUsable::capability)
+            .containsExactly("log_diagnosis", "inventory", "workspace_export",
+                "development_writes", "process_control");
+    }
+
+    @Test
+    void aClientThatExcludes61MakesTheStartCliCapabilitiesOfTheEntryNotUsable() {
+        // FR-011: on 6.1 monitoring runs over StartCLI (the entry's channels), so a client
+        // whose range excludes 6.1 refuses it
+        CapabilityMatrix flipped = new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+                new VersionRange(6, 1, 6, 1), Map.of(Capability.MONITORING, SupportState.SUPPORTED),
+                Map.of(Capability.MONITORING, Set.of(Channel.CLI)), true)), Map.of());
+        versions.clientProbed(QA4, clientVersion("9.0.7", "8.1.0", "9.0.7"));
+
+        NodeSummary.Version version = version(flipped, QA4);
+
+        assertThat(version.capabilities().usable()).isEmpty();
+        assertThat(version.capabilities().notUsable()).first().isEqualTo(
+            new NodeSummary.NotUsable("monitoring", "StartCLI client 9.0.7 of qa/node4 supports"
+                + " INUBIT 8.1.0 to 9.0.7, which excludes INUBIT 6.1"));
+    }
+
+    @Test
+    void aContradictedV61PinLeavesNoCapabilityUsable() {
+        // US3-6: the gate refuses every tool but get_health while the 6.1 pin is contradicted,
+        // and judges monitoring on the pin
+        versions.observed(QA4, InubitVersion.parse("8.1.17").orElseThrow());
+
+        JsonNode version = listVersions().get("qa/node4");
+
+        assertThat(version.path("access").asString()).isEqualTo("cli_only");
+        assertThat(version.path("server").path("version").asString()).isEqualTo("8.1.17");
+        assertThat(version.path("server").path("source").asString()).isEqualTo("observed");
+        assertThat(usable(version)).isEmpty();
+        assertThat(version.path("status").asString()).isEqualTo("unsupported");
+        assertThat(reason(version, "monitoring")).isEqualTo("INUBIT 6.1 (versionLine V6_1) on"
+            + " qa/node4 does not support monitoring");
+        assertThat(reason(version, "process_diagnosis")).startsWith("versionLine V6_1 of"
+            + " qa/node4 contradicts INUBIT 8.1.17 observed by get_health at");
+        assertThat(reason(version, "development_writes")).startsWith("versionLine V6_1 of"
+            + " qa/node4 contradicts INUBIT 8.1.17");
+    }
+
+    /** The version block of {@code node} in an overview with {@code matrix}. */
+    private NodeSummary.Version version(CapabilityMatrix matrix, NodeId node) {
+        return new NodeOverview(summaries, versions, matrix, allowed::get).nodes().stream()
+            .filter(summary -> summary.id().equals(node)).findFirst().orElseThrow()
+            .version().orElseThrow();
     }
 
     @Test

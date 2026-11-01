@@ -18,8 +18,9 @@ import java.util.Optional;
  * @param confirmationMode   {@code SERVER} or {@code CLIENT} (of {@code write})
  * @param repositoryWrite    the effective {@code development.repository} is {@code WRITE} on a
  *                           development stage: the repository file tools may write (008, D-13)
- * @param versionLine        as configured: {@code AUTO}, {@code V8_1}, {@code V9_X} or a full
- *                           version such as {@code 8.1.17} ({@code VersionSetting#text()})
+ * @param versionLine        as configured: {@code AUTO}, {@code V6_1}, {@code V8_1},
+ *                           {@code V9_X} or a full version such as {@code 8.1.17}
+ *                           ({@code VersionSetting#text()})
  * @param cliAvailable       CLI home configured and {@code startcli} script found
  * @param version            feature 009 (FR-004, research D-9): the version block, added at call
  *                           time by {@code list_nodes}; empty in the startup summary
@@ -42,15 +43,18 @@ public record NodeSummary(
      * usable on it (data-model.md → NodeSummary, contracts/mcp-tools-delta.md).
      *
      * @param setting      the configured {@code versionLine} text
+     * @param access       feature 011 (research D-13): {@code rest_and_cli}, or {@code cli_only}
+     *                     for a node pinned to a CLI-only version ({@link NodeAccess})
      * @param status       {@code supported}, {@code partially_supported}, {@code unsupported} or
      *                     {@code unknown}
      * @param warnings     e.g. a pin contradicted by {@code get_health}; empty (omitted) if none
      */
-    public record Version(String setting, Server server, Client client, String status,
-        Capabilities capabilities, Optional<List<String>> warnings) {
+    public record Version(String setting, String access, Server server, Client client,
+        String status, Capabilities capabilities, Optional<List<String>> warnings) {
 
         public Version {
             Objects.requireNonNull(setting, "setting");
+            Objects.requireNonNull(access, "access");
             Objects.requireNonNull(server, "server");
             Objects.requireNonNull(client, "client");
             Objects.requireNonNull(status, "status");

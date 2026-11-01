@@ -153,7 +153,7 @@ contact, with node, version, capability and next step.
   `Wiring` takes the capability matrix as an injectable dependency instead of the static
   `MATRIX` (`:138`). Tests first: `ToolAnnouncementTest` — profile of 6.1 nodes only before and after the flip (test
   matrix), mixed profile and `AUTO` profile (announced as today).
-- [ ] T013 [US3] `list_nodes` for 6.1 (US3-5, research D-13): `NodeOverview.version()` adds
+- [X] T013 [US3] `list_nodes` for 6.1 (US3-5, research D-13): `NodeOverview.version()` adds
   `access` (`cli_only`/`rest_and_cli`) and lists usable/not usable capabilities of the 6.1 entry;
   `versionLine` shows `V6_1`; schema `res/schemas/list_nodes.output.json` gets `access`. Test
   first: `ListNodesToolTest` (6.1 node, 8.1 node, no contact).
