@@ -309,7 +309,7 @@ request.
   `main/adapter/cli/v81/InubitDates.java` to `main/adapter/cli/CliDates.java` (Europe/Berlin, DST
   rule unchanged) and add the ISO local form; `v81` uses it. Tests first: `CliDatesTest` (both
   forms, DST overlap/gap); existing `InubitDates` tests move.
-- [ ] T031 [US2] `V61PsParser` (FR-010, FR-017): columns by header positions (English and German),
+- [X] T031 [US2] `V61PsParser` (FR-010, FR-017): columns by header positions (English and German),
   module text kept, `Total:` line, German state names mapped before `ProcessState.fromRaw`, other
   raw states → `OTHER`, `__NotAssigned__` → no `inubitNode`; unknown header or line →
   `UNEXPECTED_RESPONSE`. Tests first: `V61PsParserTest` over the T029 fixtures and malformed
