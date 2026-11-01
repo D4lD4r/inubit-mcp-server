@@ -605,7 +605,7 @@ class VersionGateTest {
                     capability.kind(), CLI_REST));
                 assertThat(error.message()).as("%s on %s", capability, node)
                     .contains(node.toString(), "INUBIT 6.1", "does not support "
-                        + VersionGate.label(capability));
+                        + capability.label());
                 assertThat(error.node()).contains(node);
             }
         }
@@ -684,7 +684,7 @@ class VersionGateTest {
                 capability.kind(), CLI_REST));
             assertThat(error.message()).as("%s", capability).isEqualTo("versionLine V6_1 of"
                 + " old/node1 contradicts INUBIT 8.1.17 observed by get_health at"
-                + " 2026-10-18T08:00:00Z; " + VersionGate.label(capability)
+                + " 2026-10-18T08:00:00Z; " + capability.label()
                 + " refused; check the version with get_health and correct versionLine;"
                 + " nothing was sent");
         }

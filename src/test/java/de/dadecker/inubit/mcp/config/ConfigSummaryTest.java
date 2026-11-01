@@ -2,9 +2,13 @@ package de.dadecker.inubit.mcp.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.SupportState;
+import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import java.nio.file.Path;
@@ -56,6 +60,15 @@ class ConfigSummaryTest {
 
     private String render(String yaml, WorkspaceDirectory.Preparer workspaces,
         Map<NodeId, ClientVersion> clients) {
+        return render(yaml, workspaces, clients, CapabilityMatrix.production());
+    }
+
+    private String render(String yaml, CapabilityMatrix matrix) {
+        return render(yaml, NO_DISK, Map.of(), matrix);
+    }
+
+    private String render(String yaml, WorkspaceDirectory.Preparer workspaces,
+        Map<NodeId, ClientVersion> clients, CapabilityMatrix matrix) {
         LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, false).parse(yaml, SOURCE);
         CredentialResolution credentials = new CredentialResolver(env, new SecretScrubber(),
             loaded.config().terminology().effectiveOrDefault(),
@@ -66,7 +79,7 @@ class ConfigSummaryTest {
                 source -> List.of(), workspaces).validate(loaded, credentials);
         ParameterCheck.Result parameters =
             ParameterCheck.run(loaded.config().secretPlans().values(), store, storeTimeout);
-        return new ConfigSummary(exists, false).render(loaded, credentials,
+        return new ConfigSummary(exists, false, matrix).render(loaded, credentials,
             parameters.addTo(report), clients, parameters);
     }
 
@@ -430,6 +443,72 @@ class ConfigSummaryTest {
             + " range, username ←");
         assertThat(summary).as("a patch mismatch inside the range")
             .contains("client vs pin: mismatch, username ←");
+    }
+
+    // --- feature 011 T014: a 6.1 node is StartCLI only (FR-014, research D-13) ----------------
+
+    private static final String V6_1 = """
+        profile:
+          name: acme
+        groups:
+          - name: test
+            cli:
+              home: /opt/client
+            nodes:
+              - name: node1
+                baseUrl: https://inubit-legacy-01.example.test:8443
+                versionLine: V6_1
+              - name: node2
+                baseUrl: https://inubit-legacy-02.example.test:8443
+                versionLine: "6.1.0.89-HF1"
+              - name: node3
+                baseUrl: https://inubit-legacy-03.example.test:8443
+                versionLine: V8_1
+        """;
+
+    @Test
+    void aV61NodeShowsStartCliOnlyAndRefusesEveryCapabilityBeforeTheRecordings() {
+        String summary = render(V6_1);
+
+        String access = " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring,"
+            + " process diagnosis, log diagnosis, inventory, workspace export, development"
+            + " writes, deployment, end-to-end test, process control), username ←";
+        assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
+            + access);
+        assertThat(summary).as("a concrete 6.1 pin is judged like the line")
+            .contains("test/node2: read-only, cli: available, inubit: 6.1.0.89-HF1" + access);
+        assertThat(summary).as("8.1 lines are unchanged")
+            .contains("test/node3: read-only, cli: available, inubit: V8_1, username ←");
+        assertThat(summary).contains("Result: OK");
+    }
+
+    @Test
+    void theCapabilitiesOfAV61NodeAreJudgedOnTheMatrixEntryOfItsPin() {
+        // what T040 will declare: a capability is available only if SUPPORTED, as the gate admits
+        CapabilityMatrix matrix = new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+            new VersionRange(6, 1, 6, 1), Map.of(Capability.MONITORING, SupportState.SUPPORTED,
+                Capability.PROCESS_DIAGNOSIS, SupportState.SUPPORTED,
+                Capability.LOG_DIAGNOSIS, SupportState.UNVERIFIED),
+            Map.of(), true)), Map.of());
+
+        String summary = render(V6_1, matrix);
+
+        assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
+            + " (INUBIT 6.1, StartCLI only; available: monitoring, process diagnosis; refused:"
+            + " log diagnosis, inventory, workspace export, development writes, deployment,"
+            + " end-to-end test, process control), username ←");
+    }
+
+    @Test
+    void aV61NodeWithoutCliHomeIsShownWithItsWarning() {
+        String summary = render(V6_1.replace("    cli:\n      home: /opt/client\n", ""));
+
+        assertThat(summary).contains("test/node1: read-only, cli: unavailable, inubit: V6_1"
+                + " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring,")
+            .contains("  - test/node1: INUBIT 6.1 is reached through StartCLI only, but no"
+                + " cliHome is configured; its capabilities report CLI_UNAVAILABLE")
+            .doesNotContain("test/node3: INUBIT 6.1")
+            .contains("Result: OK");
     }
 
     // --- feature 010 T008: the secret source per node (contracts/configuration-delta.md) -------

@@ -1,8 +1,13 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
+import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
@@ -11,6 +16,7 @@ import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,7 +38,9 @@ import java.util.function.Predicate;
  * awsParameterStore} to every node line once the profile sets {@code credentials.source}
  * anywhere; an AWS node shows its region, AWS profile and parameter names with the outcome of
  * {@link ParameterCheck} instead of variables, and the {@code Credential variables:} line is left
- * out unless some node reads variables under the profile prefix.
+ * out unless some node reads variables under the profile prefix. Feature 011 (FR-014, research
+ * D-13) follows the setting of a node pinned to a CLI-only version (6.1) with
+ * {@code (INUBIT 6.1, StartCLI only; available: …; refused: …)}.
  * Groups and nodes are named with the profile's display names (FR-007). Values and URLs are never
  * printed.
  */
@@ -42,10 +50,17 @@ public final class ConfigSummary {
 
     private final Predicate<Path> exists;
     private final boolean windows;
+    private final CapabilityMatrix matrix;
 
     public ConfigSummary(Predicate<Path> exists, boolean windows) {
+        this(exists, windows, CapabilityMatrix.production());
+    }
+
+    /** With a matrix other than {@link CapabilityMatrix#production()} (tests). */
+    ConfigSummary(Predicate<Path> exists, boolean windows, CapabilityMatrix matrix) {
         this.exists = exists;
         this.windows = windows;
+        this.matrix = matrix;
     }
 
     /**
@@ -107,7 +122,8 @@ public final class ConfigSummary {
                 .append(writeFlag(server))
                 .append(development ? ", " + development(server) : "")
                 .append(", cli: ").append(cliAvailable(server) ? "available" : "unavailable")
-                .append(", inubit: ").append(server.versionLine().text());
+                .append(", inubit: ").append(server.versionLine().text())
+                .append(cliOnly(server.versionLine()));
             Optional.ofNullable(clients.get(server.id()))
                 .ifPresent(client -> out.append(client(server.versionLine(), client)));
             Optional.ofNullable(deploys.get(server.id().group().value())).ifPresent(deploy ->
@@ -224,6 +240,32 @@ public final class ConfigSummary {
                 == ClientVersion.Compatibility.INCOMPATIBLE ? ", pin outside client range" : "")
             : "server version: determined at runtime";
         return ", client: " + client.version().raw() + range + ", " + server;
+    }
+
+    /**
+     * Feature 011 (FR-014, research D-13): {@code  (INUBIT 6.1, StartCLI only; available: <names>
+     * | none; refused: <names> | none)} for a setting pinned to a CLI-only version, else empty.
+     * Judged on the pin as the version gate and {@code list_nodes} do: on a CLI-only version a
+     * capability runs only if the matrix declares it {@code SUPPORTED}.
+     */
+    private String cliOnly(VersionSetting setting) {
+        Optional<InubitVersion> pin = NodeVersionState.initial(setting).effectiveVersion();
+        if (!matrix.isCliOnly(pin)) {
+            return "";
+        }
+        List<String> available = new ArrayList<>();
+        List<String> refused = new ArrayList<>();
+        for (Capability capability : Capability.values()) {
+            (matrix.state(pin, capability) == SupportState.SUPPORTED ? available : refused)
+                .add(capability.label());
+        }
+        InubitVersion version = pin.orElseThrow();
+        return " (INUBIT " + version.major() + "." + version.minor() + ", StartCLI only;"
+            + " available: " + names(available) + "; refused: " + names(refused) + ")";
+    }
+
+    private static String names(List<String> names) {
+        return names.isEmpty() ? "none" : String.join(", ", names);
     }
 
     /** CLI home configured and {@code startcli} found (data-model.md → NodeSummary). */

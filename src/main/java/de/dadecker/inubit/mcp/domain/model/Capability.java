@@ -45,4 +45,22 @@ public enum Capability {
     public Set<Channel> channels() {
         return channels;
     }
+
+    /**
+     * The capability as named in the spec's tool classification, in refusals and in
+     * {@code --check-config}.
+     */
+    public String label() {
+        return switch (this) {
+            case MONITORING -> "monitoring";
+            case PROCESS_DIAGNOSIS -> "process diagnosis";
+            case LOG_DIAGNOSIS -> "log diagnosis";
+            case INVENTORY -> "inventory";
+            case WORKSPACE_EXPORT -> "workspace export";
+            case DEVELOPMENT_WRITE -> "development writes";
+            case DEPLOYMENT -> "deployment";
+            case E2E_TEST -> "end-to-end test";
+            case PROCESS_CONTROL -> "process control";
+        };
+    }
 }

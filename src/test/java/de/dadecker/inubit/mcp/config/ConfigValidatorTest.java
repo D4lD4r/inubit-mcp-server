@@ -762,6 +762,46 @@ class ConfigValidatorTest {
         }
 
         @Test
+        void aV61NodeWithoutCliHomeIsAWarningOnly() {
+            // feature 011 (FR-014): the server starts, the node answers CLI_UNAVAILABLE
+            for (String line : List.of("V6_1", "\"6.1.0\"", "\"6.1.0.89-HF1\"")) {
+                ValidationReport report = validate(server("versionLine: " + line + "\n"));
+
+                assertThat(report.errors()).as(line).isEmpty();
+                assertThat(report.warnings()).as(line).containsExactly("dev/node1: INUBIT 6.1 is"
+                    + " reached through StartCLI only, but no cliHome is configured; its"
+                    + " capabilities report CLI_UNAVAILABLE");
+            }
+        }
+
+        @Test
+        void aV61NodeWhoseCliHomeHasNoStartCliKeepsTheExistingWarning() {
+            ValidationReport report = validate(server(
+                "versionLine: V6_1\ncli:\n  home: /opt/other\n  javaHome: /opt/jdk17\n"));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("dev/node1: "
+                + Path.of("/opt/other/bin/startcli.sh") + " not found; CLI-backed capabilities"
+                + " report CLI_UNAVAILABLE");
+        }
+
+        @Test
+        void aV61NodeWithAStartCliInstallationHasNoFinding() {
+            assertThat(validate(server("versionLine: V6_1\ncli:\n  home: /opt/client\n"))
+                .warnings()).isEmpty();
+        }
+
+        @Test
+        void an81NodeWithoutCliHomeHasNoFinding() {
+            for (String line : List.of("V8_1", "\"8.1.17\"", "AUTO")) {
+                ValidationReport report = validate(server("versionLine: " + line + "\n"));
+
+                assertThat(report.errors()).as(line).isEmpty();
+                assertThat(report.warnings()).as(line).isEmpty();
+            }
+        }
+
+        @Test
         void cliUrlWithHttpAndAllowInsecureHttp() {
             ValidationReport report = validate("""
                 profile:

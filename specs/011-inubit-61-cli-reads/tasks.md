@@ -157,7 +157,7 @@ contact, with node, version, capability and next step.
   `access` (`cli_only`/`rest_and_cli`) and lists usable/not usable capabilities of the 6.1 entry;
   `versionLine` shows `V6_1`; schema `res/schemas/list_nodes.output.json` gets `access`. Test
   first: `ListNodesToolTest` (6.1 node, 8.1 node, no contact).
-- [ ] T014 [US3] `--check-config` 6.1 line (FR-014, research D-13,
+- [X] T014 [US3] `--check-config` 6.1 line (FR-014, research D-13,
   contracts/configuration-delta): `ConfigSummary` prints `inubit: V6_1 (INUBIT 6.1, StartCLI only;
   available: …; refused: …)`; `ConfigValidator` adds a warning for a 6.1 node without `cliHome`
   ("INUBIT 6.1 is reached through StartCLI only, but no cliHome is configured; its capabilities

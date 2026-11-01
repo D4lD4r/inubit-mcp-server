@@ -258,7 +258,7 @@ public final class VersionGate {
             || support == SupportState.UNSUPPORTED && capability == Capability.MONITORING) {
             warnings.add(name.map(n -> n + " on " + node + " is not "
                     + (support == SupportState.UNVERIFIED ? "verified" : "supported") + " for "
-                    + label(capability) + "; results may be incomplete")
+                    + capability.label() + "; results may be incomplete")
                 .orElseGet(() -> unknown(node, state) + "; results are unverified"));
         } else if (support != SupportState.SUPPORTED) {
             throw refuseUnsupported(node, capability, purpose, state, version, name);
@@ -361,7 +361,7 @@ public final class VersionGate {
                 "StartCLI client " + client.version().raw() + " of " + node + " supports INUBIT "
                     + client.supportedFrom().orElseThrow().raw() + " to "
                     + client.supportedTo().orElseThrow().raw() + ", which excludes "
-                    + name.orElseThrow() + "; " + label(capability)
+                    + name.orElseThrow() + "; " + capability.label()
                     + " via StartCLI refused",
                 terms.render("The local StartCLI client does not support the INUBIT version of"
                     + " the {node}"),
@@ -397,7 +397,7 @@ public final class VersionGate {
         return refuse(node, capability,
             "versionLine " + state.setting().text() + " of " + node + " contradicts INUBIT "
                 + observed.value().raw() + " observed by get_health at " + time(observed) + "; "
-                + label(capability) + " refused"
+                + capability.label() + " refused"
                 + (matrix.isCliOnly(pinnedVersion(state))
                     ? "; check the version with get_health and correct versionLine" : ""),
             terms.render("The configured version does not match the version the {node} runs"
@@ -418,8 +418,8 @@ public final class VersionGate {
         Optional<String> name) {
         if (name.isEmpty()) {
             return refuse(node, capability,
-                capitalized(label(capability)) + " refused: " + unknown(node, state),
-                capitalized(label(capability)) + " needs a known INUBIT version that supports"
+                capitalized(capability.label()) + " refused: " + unknown(node, state),
+                capitalized(capability.label()) + " needs a known INUBIT version that supports"
                     + " it, and the version could not be detected",
                 "Fix the cause of the failed version detection and retry in a minute, or set"
                     + " versionLine of " + node + terms.render(" to the version the {node}"
@@ -427,23 +427,23 @@ public final class VersionGate {
         }
         String likelyCause = purpose == Capability.Kind.WRITE
             ? terms.render("The {node} runs a version for which no verified write access exists")
-            : "This server declares " + label(capability) + " unsupported for that version";
+            : "This server declares " + capability.label() + " unsupported for that version";
         if (matrix.isCliOnly(version)) {
             String release = majorMinor(state, version);
             String step = cliOnlyStep(capability, release);
             return refuse(node, capability,
                 name.get() + (state.setting() instanceof VersionSetting.Line line
                     ? " (versionLine " + line.text() + ")" : "")
-                    + " on " + node + " does not support " + label(capability)
+                    + " on " + node + " does not support " + capability.label()
                     + (capability == Capability.INVENTORY
                         ? "; modules of INUBIT " + release + " cannot be looked up" : "")
                     + "; " + step,
                 likelyCause, capitalized(step));
         }
         return refuse(node, capability,
-            name.get() + " on " + node + " does not support " + label(capability) + " yet",
+            name.get() + " on " + node + " does not support " + capability.label() + " yet",
             likelyCause,
-            terms.render("Use another {node} whose INUBIT version supports ") + label(capability)
+            terms.render("Use another {node} whose INUBIT version supports ") + capability.label()
                 + terms.render(" (list_nodes shows the usable capabilities per {node}), or wait"
                 + " for a version of this server that supports that INUBIT version"));
     }
@@ -535,20 +535,5 @@ public final class VersionGate {
 
     private static String capitalized(String text) {
         return Character.toUpperCase(text.charAt(0)) + text.substring(1);
-    }
-
-    /** The capability as named in the spec's tool classification. */
-    static String label(Capability capability) {
-        return switch (capability) {
-            case MONITORING -> "monitoring";
-            case PROCESS_DIAGNOSIS -> "process diagnosis";
-            case LOG_DIAGNOSIS -> "log diagnosis";
-            case INVENTORY -> "inventory";
-            case WORKSPACE_EXPORT -> "workspace export";
-            case DEVELOPMENT_WRITE -> "development writes";
-            case DEPLOYMENT -> "deployment";
-            case E2E_TEST -> "end-to-end test";
-            case PROCESS_CONTROL -> "process control";
-        };
     }
 }

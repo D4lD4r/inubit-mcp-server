@@ -157,9 +157,9 @@ public final class NodeOverview {
             .map(name -> cliOnly
                 ? name + (state.setting() instanceof VersionSetting.Line line
                     ? " (versionLine " + line.text() + ")" : "") + " on " + node
-                    + " does not support " + VersionGate.label(capability)
+                    + " does not support " + capability.label()
                 : name + " on " + node + " does not support "
-                    + VersionGate.label(capability) + " yet")
+                    + capability.label() + " yet")
             .orElseGet(() -> VersionGate.unknown(node, state)
                 + "; call get_health to detect it"));
     }

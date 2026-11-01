@@ -516,6 +516,50 @@ class MainTest {
             .contains("Result: OK");
     }
 
+    @Test
+    void checkConfigShowsAV61NodeAsStartCliOnlyWithoutContactingInubit() throws IOException {
+        // feature 011 (FR-014, research D-13)
+        credentials();
+        Path cliHome = fakeStartCli("""
+            echo "$@" >> "$(dirname "$0")/arguments"
+            echo "CLI 6.1.0"
+            echo "Supported inubit Process Engine versions from 4.0.1 to 6.1.0."
+            """);
+        Path file = config("""
+            profile:
+              name: acme
+            groups:
+              - name: dev
+                versionLine: V6_1
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    cli:
+                      home: %s
+                      javaHome: %s
+                  - name: node2
+                    baseUrl: https://node2.example.test:8443
+            """.formatted(cliHome, home));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        String refused = "available: none; refused: monitoring, process diagnosis, log"
+            + " diagnosis, inventory, workspace export, development writes, deployment,"
+            + " end-to-end test, process control)";
+        assertThat(out())
+            .contains("dev/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI"
+                + " only; " + refused + ", client: 6.1.0")
+            .contains("dev/node2: read-only, cli: unavailable, inubit: V6_1 (INUBIT 6.1, StartCLI"
+                + " only; " + refused + ", username ←")
+            .contains("  - dev/node2: INUBIT 6.1 is reached through StartCLI only, but no cliHome"
+                + " is configured; its capabilities report CLI_UNAVAILABLE")
+            .contains("Result: OK")
+            .doesNotContain("inubit.example.test", "jsonrpc");
+        // no INUBIT contact: the local client probe is the only StartCLI call, without server URL
+        assertThat(Files.readString(cliHome.resolve("bin/arguments"))).isEqualTo("-v\n");
+    }
+
     /** An executable {@code <home>/client/bin/startcli.sh} running {@code body}; the CLI home. */
     private Path fakeStartCli(String body) throws IOException {
         Path cliHome = Files.createDirectories(home.resolve("client/bin")).getParent();

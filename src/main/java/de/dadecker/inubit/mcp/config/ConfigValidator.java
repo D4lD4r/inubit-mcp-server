@@ -1,8 +1,10 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
@@ -516,6 +518,11 @@ public final class ConfigValidator {
             .forEach(c -> checkCredentials(server, c, findings));
         if (server.cliConfigured()) {
             checkCli(server, findings);
+        } else if (CapabilityMatrix.production().isCliOnly(
+            NodeVersionState.initial(server.versionLine()).effectiveVersion())) {
+            // feature 011 (FR-014): the server starts, the node answers CLI_UNAVAILABLE
+            findings.warning(id + ": INUBIT 6.1 is reached through StartCLI only, but no cliHome"
+                + " is configured; its capabilities report CLI_UNAVAILABLE");
         }
         if (server.versionLine().equals(VersionSetting.V9_X)) {
             // feature 009 (research D-13)
