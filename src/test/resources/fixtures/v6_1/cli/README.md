@@ -48,6 +48,35 @@ assumes:
   recordings, which `CliOutputClassifier` and the credential guard read; exit 1.
 - stderr holds the JVM line `Picked up JAVA_TOOL_OPTIONS: …` of the runner's environment.
 
+## Process session layout (reconstructed)
+
+A process session is one `CliRunner.runSession` run for `find_processes` (research D-5, D-10):
+the password line, then one `ps <-a|-e|-w|-q> -l 10000` per listing and `exit`. Prompt and
+password handling are those of the health session; one prompt per listing plus the empty one
+answering `exit`. The reconstruction assumes (REC: to be confirmed by the recordings):
+
+- A listing is a header line, one row per instance and `Total: <n>` with `n` = number of rows.
+  An empty listing is the header and `Total: 0` (as the 8.1 recordings show it).
+- Fixed-width columns in the documented order `NODE UID PID PRIO STATE DATE WORKFLOW MODULE`;
+  each column starts where its header name starts (widths 21, 16, 11, 11, 11, 21, 21, then
+  `MODULE` to the end of the line). Values are shorter than their column. Lines carry no trailing
+  blanks, so a row without module ends after the workflow name.
+- `NODE` is the INUBIT node or `__NotAssigned__`; `UID` the owner; `PRIO` `low`, `normal` or
+  `high`; `DATE` the ISO local date-time `uuuu-MM-ddTHH:mm:ss` without zone; `MODULE`
+  `Name(id)` as on 8.1.
+- `ps -a` lists every state including `Processing` and `Retry`; `ps -w` lists `Waiting` only
+  (not `Retry`), `ps -e` `Error`, `ps -q` `Queued`. `Suspended` stands for a raw state the server
+  does not map (`OTHER`).
+- German labels (`ps_session_de`): header `KNOTEN BENUTZER PID PRIO STATUS DATUM WORKFLOW MODUL`
+  (same column starts), states `Fehler` (Error), `Aktiv` (Processing), `Wartend` (Waiting),
+  `Wiederholt` (Retry), `Eingereiht` (Queued), `Angehalten` (unmapped, `OTHER`), dates
+  `dd.MM.uuuu HH:mm:ss`, `Gesamt: <n>`; `__NotAssigned__` stays as it is.
+- Rows: `ps_session_all` has nine instances on `node1`/`node2` (Error 3, Processing 1, Waiting 2,
+  Retry 1, Queued 1, Suspended 1), not sorted by date; `ps_session_error`,
+  `ps_session_waiting_queued` and `ps_session_de` hold the same instances (by `PID`).
+- No fixture holds a listing at the row cap: tests that need 10,000 rows generate them from the
+  row format above.
+
 ## Cases
 
 Each StartCLI case has a row here and its lines in `RECONSTRUCTED.txt`.
@@ -64,3 +93,9 @@ Each StartCLI case has a row here and its lines in `RECONSTRUCTED.txt`.
 | `health_session_alive_failed` | monitoring | reconstructed | as `health_session_ok`, but `uptime` answers `Process Engine is not alive` (login succeeded, alive check negative); exit 0 |
 | `login_failed` | monitoring | reconstructed | session whose login is rejected: `@Start@LoginFailure@@@…@End@` and `The user does not exist or password does not match.`, no prompt; exit 1 |
 | `unreachable` | monitoring | reconstructed | session that cannot connect: `@Start@LoginFailed@@@Login to the server failed.@End@` with `java.net.ConnectException: Connection refused`, no prompt; exit 1 |
+| `ps_session_all` | process diagnosis | reconstructed | process session `ps -a -l 10000`: nine instances in all raw states, `Total: 9`; exit 0 |
+| `ps_session_error` | process diagnosis | reconstructed | process session `ps -e -l 10000`: the three Error instances of `ps_session_all`, `Total: 3`; exit 0 |
+| `ps_session_waiting_queued` | process diagnosis | reconstructed | process session with two listings, `ps -w -l 10000` (two Waiting instances, `Total: 2`) and `ps -q -l 10000` (one Queued instance, `Total: 1`); exit 0 |
+| `ps_session_empty` | process diagnosis | reconstructed | process session `ps -e -l 10000`: header only, `Total: 0`; exit 0 |
+| `ps_session_de` | process diagnosis | reconstructed | as `ps_session_all` with German header, state names, dates and `Gesamt: 9`; exit 0 |
+| `ps_session_unassigned` | process diagnosis | reconstructed | process session `ps -a -l 10000`: a Waiting instance on node `__NotAssigned__` and an Error instance without module, `Total: 2`; exit 0 |

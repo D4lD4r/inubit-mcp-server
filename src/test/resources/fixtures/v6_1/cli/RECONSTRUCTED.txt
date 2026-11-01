@@ -14,3 +14,10 @@ health_session_de monitoring
 health_session_alive_failed monitoring
 login_failed monitoring
 unreachable monitoring
+# process session (T029, research D-10): the find_processes listings
+ps_session_all process_diagnosis
+ps_session_error process_diagnosis
+ps_session_waiting_queued process_diagnosis
+ps_session_empty process_diagnosis
+ps_session_de process_diagnosis
+ps_session_unassigned process_diagnosis
