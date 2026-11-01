@@ -260,7 +260,7 @@ request.
   `LoadFigures`; `UnavailablePart` parts `threads`, `blockingQueue` and reason
   `NOT_AVAILABLE_ON_6_1`; schema `res/schemas/get_health.output.json`. Tests first:
   `HealthReportTest`, `UnavailablePartTest`, schema test; 8.1 reports serialize as before.
-- [ ] T024 [US1] `V61SessionParser` and `V61HealthParser` (FR-017, research D-5/D-6): split the
+- [X] T024 [US1] `V61SessionParser` and `V61HealthParser` (FR-017, research D-5/D-6): split the
   session output at the prompt into command blocks; parse `uname`, `uptime`, `maintenance`,
   `free -m` and the counts; English and German; unknown output → `UNEXPECTED_RESPONSE` (never
   empty). Tests first: `V61HealthParserTest` over the T022 fixtures and malformed variants.
