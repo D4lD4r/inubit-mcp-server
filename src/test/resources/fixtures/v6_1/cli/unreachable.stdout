@@ -1,0 +1,5 @@
+Password: 
+ERROR 09:00:03,517 [main      ] CLI                       ERROR
+com.inubit.ibis.cli.CliConnectionException: @Start@LoginFailed@@@Login to the server failed.@End@Error opening socket: java.net.ConnectException: Connection refused
+CONNECTION ERROR
+Login to the server failed. : Error opening socket: java.net.ConnectException: Connection refused

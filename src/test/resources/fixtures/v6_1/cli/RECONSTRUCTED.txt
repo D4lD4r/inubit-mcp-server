@@ -7,3 +7,10 @@
 # help: the local -h probe (T017) that every StartCLI capability on 6.1 relies on
 help monitoring
 help process_diagnosis
+# health session (T022, research D-5/D-6): the get_health session and its login failures
+health_session_ok monitoring
+health_session_maintenance monitoring
+health_session_de monitoring
+health_session_alive_failed monitoring
+login_failed monitoring
+unreachable monitoring

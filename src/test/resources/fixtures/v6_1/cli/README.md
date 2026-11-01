@@ -20,6 +20,34 @@ any more (FR-005); the recordings that replace the reconstructed cases are made 
 Reconstructed cases use only neutral names: node `legacy/node1`, owner `jdoe`
 (`Doe, John`, `jdoe@example.test`), host `inubit-legacy-1.example.test`.
 
+## Health session layout (reconstructed)
+
+A health session is one `CliRunner.runSession` run (research D-5, D-6): arguments
+`-u jdoe <cli.url>`, stdin = the password line, then `uname`, `uptime`, `maintenance`, `free -m`,
+`ps -c -e`, `ps -c -w`, `ps -c -q`, `ps -c -a` and `exit`, one per line. The reconstruction
+assumes:
+
+- stdin is not echoed; after `Password: ` the client prints the prompt `cli> ` before reading
+  each line, and a command's output starts right after its prompt on the same line (further lines
+  follow without prompt). So the output has one prompt per line sent after the password (9), and
+  the blocks between prompts belong to the commands in the order sent; the last prompt is the
+  one `exit` answers, without output.
+- `uname`: `INUBIT Process Engine 6.1.0.89`; `uptime`: the alive check (`Process Engine is
+  alive (up …)` or `Process Engine is not alive`); `maintenance`: `Maintenance mode: off|on`;
+  `free -m`: three lines `Used memory: <n> MB`, `Free memory: <n> MB`, `Max memory: <n> MB`;
+  `ps -c <state>`: `Total: <n>`.
+- German labels (`health_session_de`): `Process Engine ist aktiv (läuft seit …)`,
+  `Wartungsmodus: aus|ein`, `Belegter Speicher`, `Freier Speicher`, `Maximaler Speicher`,
+  `Gesamt: <n>`; the client's own texts (`Password: `) stay English (`JAVA_TOOL_OPTIONS` sets the
+  English locale).
+- Values (those of the `get_health` example in `contracts/mcp-tools-delta.md`): version
+  `6.1.0.89`; memory used 1210, free 838, max 2048 MB; counts Error 3, Waiting 12, Queued 0 and
+  all 15, so all − Error − Waiting − Queued gives Processing 0.
+- A rejected login and an unreachable server end before the first prompt with the
+  `@Start@LoginFailure` / `@Start@LoginFailed` markers and the texts known from the 8.1
+  recordings, which `CliOutputClassifier` and the credential guard read; exit 1.
+- stderr holds the JVM line `Picked up JAVA_TOOL_OPTIONS: …` of the runner's environment.
+
 ## Cases
 
 Each StartCLI case has a row here and its lines in `RECONSTRUCTED.txt`.
@@ -30,3 +58,9 @@ Each StartCLI case has a row here and its lines in `RECONSTRUCTED.txt`.
 |---|---|---|---|
 | `replay_selftest` | – | test-only | marker output `v6_1 replay`, empty stderr, exit 3; lets `FakeProcessLauncherTest` (T002) check that a 6.1 case is replayed from this folder |
 | `help` | monitoring, process diagnosis | reconstructed | `startcli.sh -h` of the 6.1 client, read by `CliClientProbe` (T017, research D-8): login, help and version options and the direct monitoring options; no trust-store, host-name or `--execCommand` option; exit 0 |
+| `health_session_ok` | monitoring | reconstructed | health session: version `6.1.0.89`, alive, maintenance off, memory 1210/838/2048 MB, counts Error 3, Waiting 12, Queued 0, all 15; exit 0 |
+| `health_session_maintenance` | monitoring | reconstructed | as `health_session_ok` with `Maintenance mode: on`; exit 0 |
+| `health_session_de` | monitoring | reconstructed | as `health_session_ok` with German labels; exit 0 |
+| `health_session_alive_failed` | monitoring | reconstructed | as `health_session_ok`, but `uptime` answers `Process Engine is not alive` (login succeeded, alive check negative); exit 0 |
+| `login_failed` | monitoring | reconstructed | session whose login is rejected: `@Start@LoginFailure@@@…@End@` and `The user does not exist or password does not match.`, no prompt; exit 1 |
+| `unreachable` | monitoring | reconstructed | session that cannot connect: `@Start@LoginFailed@@@Login to the server failed.@End@` with `java.net.ConnectException: Connection refused`, no prompt; exit 1 |

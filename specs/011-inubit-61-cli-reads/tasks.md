@@ -251,7 +251,7 @@ password channel, the client options, the configuration warnings and the process
 `SUPPORTED`), call `get_health`; confirm fields, `NOT_AVAILABLE_ON_6_1` parts, budgets and no REST
 request.
 
-- [ ] T022 [P] [US1] Reconstructed health fixtures (research D-5, D-15):
+- [X] T022 [P] [US1] Reconstructed health fixtures (research D-5, D-15):
   `fixtures/v6_1/cli/health_session_ok`, `health_session_maintenance`, `health_session_de`
   (German labels), `health_session_alive_failed`, `login_failed`, `unreachable`; append them to
   `RECONSTRUCTED.txt` as `monitoring`. Covered by `V61FixturesShapeTest`.
