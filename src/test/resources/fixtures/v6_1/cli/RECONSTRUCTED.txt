@@ -4,3 +4,6 @@
 # is the capability name the case serves (as in list_nodes, e.g. monitoring). A case is removed
 # from this list when a recording of a real 6.1 node replaces it. Lines starting with # are
 # comments.
+# help: the local -h probe (T017) that every StartCLI capability on 6.1 relies on
+help monitoring
+help process_diagnosis

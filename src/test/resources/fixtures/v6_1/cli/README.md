@@ -22,10 +22,11 @@ Reconstructed cases use only neutral names: node `legacy/node1`, owner `jdoe`
 
 ## Cases
 
-No StartCLI case yet; each case gets a row here and a line in `RECONSTRUCTED.txt` when it is added.
+Each StartCLI case has a row here and its lines in `RECONSTRUCTED.txt`.
 `replay_selftest` is not StartCLI output and serves no capability, so it is not listed in
 `RECONSTRUCTED.txt`.
 
 | Case | Capability | Kind | What it is |
 |---|---|---|---|
 | `replay_selftest` | – | test-only | marker output `v6_1 replay`, empty stderr, exit 3; lets `FakeProcessLauncherTest` (T002) check that a 6.1 case is replayed from this folder |
+| `help` | monitoring, process diagnosis | reconstructed | `startcli.sh -h` of the 6.1 client, read by `CliClientProbe` (T017, research D-8): login, help and version options and the direct monitoring options; no trust-store, host-name or `--execCommand` option; exit 0 |

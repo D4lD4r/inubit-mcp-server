@@ -215,13 +215,18 @@ public final class CliRunner {
                 "cliHome does not point to an INUBIT client installation",
                 "Set cliHome to the client directory that contains bin/" + script.getFileName());
         }
-        String javaHome = server.cli().javaHome().map(Path::toString)
-            .or(() -> Optional.ofNullable(parentEnvironment.get("JAVA_HOME"))
-                .filter(value -> !value.isBlank()))
+        String javaHome = javaHome(server)
             .orElseThrow(() -> unavailable(server, "No JDK for StartCLI on " + server.id(),
                 "Neither cli.javaHome (cliJavaHome) nor JAVA_HOME is set",
                 "Set cli.javaHome to the JDK the INUBIT client needs (8.1: JDK 17)"));
         return new LaunchTarget(home, script, javaHome);
+    }
+
+    /** The Java runtime StartCLI runs with: {@code cli.javaHome}, else the server's own. */
+    Optional<String> javaHome(EffectiveNodeConfig server) {
+        return server.cli().javaHome().map(Path::toString)
+            .or(() -> Optional.ofNullable(parentEnvironment.get("JAVA_HOME"))
+                .filter(value -> !value.isBlank()));
     }
 
     private Map<String, String> childEnvironment(String javaHome) {

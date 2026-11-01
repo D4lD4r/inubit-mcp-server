@@ -196,7 +196,7 @@ password channel, the client options, the configuration warnings and the process
   failure → `AUTH_FAILED` and guard `rejected()`, timeout → `TIMEOUT`, output cap; the 8.1
   `--execCommand` argument array is unchanged (regression test); `CliSessionCommandTest` (no free
   text accepted).
-- [ ] T017 [P] [US5] `CliClientProbe` with client options for 6.1 nodes (FR-012a, research D-8):
+- [X] T017 [P] [US5] `CliClientProbe` with client options for 6.1 nodes (FR-012a, research D-8):
   a new class `main/adapter/cli/CliClientProbe.java` beside `CliVersionProbe` (which stays the `-v`
   probe behind the unchanged `ClientVersionPort`); for `cliOnly` nodes only, a `-h` run and the Java version from
   `<runtime>/release` (`cli.javaHome`, else the parent's `JAVA_HOME`); result `CliClientOptions`;
