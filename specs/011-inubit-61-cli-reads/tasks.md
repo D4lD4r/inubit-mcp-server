@@ -214,7 +214,7 @@ password channel, the client options, the configuration warnings and the process
   first: `CliRunnerTest` for each argument/environment case, never a trust-store password,
   whitespace in a path never reaches `JAVA_TOOL_OPTIONS` (T020 refuses it first); the
   existing trust-store-password configuration error stays (`ConfigValidatorTest`, US5-5).
-- [ ] T019 [P] [US5] `CliConcurrencyLimiter` (FR-015, research D-9): per-node `Semaphore(2)` for
+- [X] T019 [P] [US5] `CliConcurrencyLimiter` (FR-015, research D-9): per-node `Semaphore(2)` for
   `cliOnly` nodes, `tryAcquire(cliTimeout)` else `TIMEOUT`; the local probes take no permit.
   Tests first: `CliConcurrencyLimiterTest` — five parallel acquisitions with held permits: at most
   two succeed, the rest `TIMEOUT` after the bound; 8.1 nodes get no limiter.
