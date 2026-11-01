@@ -6,12 +6,16 @@ import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutCli
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import de.dadecker.inubit.mcp.TestWiring;
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
 import de.dadecker.inubit.mcp.adapter.NodeSecrets;
 import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
@@ -19,16 +23,24 @@ import de.dadecker.inubit.mcp.application.FanOut;
 import de.dadecker.inubit.mcp.application.HealthService;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.TargetResolver;
+import de.dadecker.inubit.mcp.config.ConfigLoader;
+import de.dadecker.inubit.mcp.config.ConfigValidator;
+import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.ParameterNames;
 import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.SecretSourceConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.SupportState;
+import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -38,8 +50,13 @@ import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +71,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -61,6 +79,9 @@ import tools.jackson.databind.json.JsonMapper;
  * T056: {@code get_health} over MCP with the real adapters against WireMock (contracts/mcp-tools.md
  * §2, quickstart V2/V3): {@code dev/node1} is healthy, both {@code qa} servers are in maintenance
  * mode, not ready and unlicensed for metrics, and {@code staging/bogus} is unreachable.
+ *
+ * <p>Feature 011 (T028, US1): {@code get_health} on an INUBIT 6.1 node through the production
+ * wiring, see {@link #startWith61}.
  */
 @Timeout(60)
 class GetHealthToolTest {
@@ -75,6 +96,8 @@ class GetHealthToolTest {
     private static WireMockServer dev;
     private static WireMockServer integration;
     private static WireMockServer other;
+    /** The baseUrl of the 6.1 node: plain HTTP, without stubs, must never be asked. */
+    private static WireMockServer legacy;
 
     private SecretScrubber scrubber;
     /** Feature 009: nodes with a StartCLI installation (none by default) and their probe. */
@@ -84,12 +107,19 @@ class GetHealthToolTest {
     };
     private AdapterGatewayFactory gateways;
     private McpTestClient client;
+    /** Feature 011: the production wiring of {@link #startWith61}, if started. */
+    private TestWiring wiring;
+
+    @TempDir
+    Path temp;
 
     @BeforeAll
     static void start() {
         dev = TestCertificates.httpsWireMock(TestCertificates.get().localhostKeyStore());
         integration = TestCertificates.httpsWireMock(TestCertificates.get().localhostKeyStore());
         other = TestCertificates.httpsWireMock(TestCertificates.get().localhostKeyStore());
+        legacy = new WireMockServer(WireMockConfiguration.options().dynamicPort());
+        legacy.start();
     }
 
     @AfterAll
@@ -97,6 +127,7 @@ class GetHealthToolTest {
         dev.stop();
         integration.stop();
         other.stop();
+        legacy.stop();
     }
 
     @BeforeEach
@@ -104,6 +135,7 @@ class GetHealthToolTest {
         dev.resetAll();
         integration.resetAll();
         other.resetAll();
+        legacy.resetAll();
         stub(dev, "/ibis/rest/healthcheck", "healthcheck", "json");
         stub(dev, "/ibis/rest/ready", "ready", "json");
         stub(dev, "/ibis/rest/system/info", "system_info", "xml");
@@ -166,7 +198,12 @@ class GetHealthToolTest {
     @AfterEach
     void tearDown() {
         client.close();
-        gateways.close();
+        if (gateways != null) {
+            gateways.close();
+        }
+        if (wiring != null) {
+            wiring.close();
+        }
         client = null;
     }
 
@@ -556,5 +593,221 @@ class GetHealthToolTest {
         JsonNode result = call(Map.of("includeSystemInfo", true));
 
         assertThat(result.toString()).doesNotContain(PASSWORD, "jdoe", "Authorization");
+    }
+
+    // --- feature 011, T028: get_health on a 6.1 node end to end (US1) -----------------------
+
+    private static final String LEGACY_81 = "legacy/node1";
+    private static final String LEGACY_61 = "legacy/node2";
+    /** 8.1 as in production, 6.1 CLI-only with monitoring supported (as after T040). */
+    private static final CapabilityMatrix WITH_61 = new CapabilityMatrix(List.of(
+        new CapabilityMatrix.Entry(new VersionRange(6, 1, 6, 1),
+            Map.of(Capability.MONITORING, SupportState.SUPPORTED),
+            Map.of(Capability.MONITORING, Set.of(Channel.CLI)), true),
+        new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1),
+            Arrays.stream(Capability.values()).collect(Collectors.toMap(
+                capability -> capability, capability -> SupportState.SUPPORTED)))),
+        Map.of(Capability.MONITORING, SupportState.UNVERIFIED));
+
+    private final FakeProcessLauncher help = FakeProcessLauncher.replaying("v6_1", "help");
+    private final FakeProcessLauncher clientVersion = FakeProcessLauncher.of("CLI 6.1.0\n"
+        + "Supported inubit Process Engine versions from 4.0.1 to 6.1.0.\n", "", 0);
+    /** Every StartCLI session of the 6.1 node. */
+    private FakeProcessLauncher session;
+
+    /**
+     * Replaces the server of {@link #setUp} by the production wiring with {@link #WITH_61}: the
+     * group {@code legacy} has the 8.1 node {@code legacy/node1} on the {@code dev} WireMock and
+     * the 6.1 node {@code legacy/node2} on {@link #legacy}, read through a fake StartCLI whose
+     * sessions replay the reconstructed fixture {@code sessionCase} (T022); {@code -h} replays
+     * the reconstructed help, {@code -v} answers as a 6.1.0 client.
+     *
+     * @param withStartCli whether the 6.1 node has a StartCLI installation (US1-4)
+     */
+    private void startWith61(String sessionCase, boolean withStartCli) throws IOException {
+        client.close();
+        gateways.close();
+        gateways = null;
+        session = FakeProcessLauncher.replaying("v6_1", sessionCase);
+        Path cliHome = Files.createDirectories(temp.resolve("cli/bin")).getParent();
+        Files.writeString(cliHome.resolve("bin/startcli.sh"), "#!/bin/sh\n");
+        Path javaHome = Files.createDirectories(temp.resolve("java"));
+        Files.writeString(javaHome.resolve("release"), "JAVA_VERSION=\"1.8.0_292\"\n");
+        String yaml = """
+            profile:
+              name: acme
+            groups:
+              - name: legacy
+                nodes:
+                  - name: node1
+                    versionLine: V8_1
+                    baseUrl: https://localhost:%1$d
+                    tls:
+                      trustStore: "%2$s"
+                  - name: node2
+                    versionLine: V6_1
+                    baseUrl: http://localhost:%3$d
+                    allowInsecureHttp: true
+            """.formatted(dev.httpsPort(), TestCertificates.get().trustStore(), legacy.port())
+            + (withStartCli ? """
+                    cli:
+                      home: "%1$s"
+                      javaHome: "%2$s"
+            """.formatted(cliHome, javaHome) : "");
+        Map<String, String> environment = Map.of("INUBIT_ACME_LEGACY_USERNAME", "jdoe",
+            "INUBIT_ACME_LEGACY_PASSWORD", PASSWORD);
+        LoadedConfig loaded = new ConfigLoader(environment, temp, false)
+            .parse(yaml, temp.resolve("config.yaml"));
+        scrubber = new SecretScrubber();
+        CredentialResolution credentials = new CredentialResolver(environment, scrubber,
+            loaded.config().credentialPrefix()).resolve(loaded.config().nodeIds());
+        assertThat(ConfigValidator.forSystem().validate(loaded, credentials).errors())
+            .isEmpty();
+        ProcessLauncher launcher = spec -> switch (spec.command().size() == 2
+            ? spec.command().get(1) : "") {
+            case "-h" -> help.launch(spec);
+            case "-v" -> clientVersion.launch(spec);
+            default -> session.launch(spec);
+        };
+        wiring = TestWiring.of(loaded.config(), credentials, scrubber, Files::exists, false,
+            launcher, Map.of("PATH", "/usr/bin"), WITH_61);
+        client = McpTestClient.start(wiring.toolHandlers(), scrubber);
+        client.initialize();
+    }
+
+    /** The parts of contracts/mcp-tools-delta.md that INUBIT 6.1 does not have. */
+    private static final String NOT_ON_61 = "["
+        + "{\"part\":\"ready\",\"reason\":\"NOT_AVAILABLE_ON_6_1: INUBIT 6.1 has no readiness"
+        + " check\"},"
+        + "{\"part\":\"threads\",\"reason\":\"NOT_AVAILABLE_ON_6_1: INUBIT 6.1 reports no"
+        + " thread figures\"},"
+        + "{\"part\":\"blockingQueue\",\"reason\":\"NOT_AVAILABLE_ON_6_1: INUBIT 6.1 reports no"
+        + " blocking queue\"}]";
+
+    /**
+     * US1-1: the report of a 6.1 node as in contracts/mcp-tools-delta.md, in the variant whose
+     * StartCLI version is the client's (FR-006; {@code V61HealthAdapter} until T037): no
+     * {@code version}, a warning with the value labelled as the client's.
+     */
+    private static void assertContract61Report(JsonNode report) {
+        assertThat(report.path("node").asString()).isEqualTo(LEGACY_61);
+        assertThat(report.path("group").asString()).isEqualTo("legacy");
+        assertThat(Instant.parse(report.path("checkedAt").asString())).isNotNull();
+        assertThat(report.path("reachable").asBoolean()).as(report.toString()).isTrue();
+        assertThat(report.has("version")).as("the client's version is not reported").isFalse();
+        // memory only; the figures are JSON numbers (schema "number", as on 8.1)
+        JsonNode load = report.path("load");
+        assertThat(load.propertyNames()).containsExactlyInAnyOrder("usedMemoryMb",
+            "freeMemoryMb", "maxMemoryMb", "memoryUsedPercent");
+        assertThat(load.path("usedMemoryMb").asDouble()).isEqualTo(1210);
+        assertThat(load.path("freeMemoryMb").asDouble()).isEqualTo(838);
+        assertThat(load.path("maxMemoryMb").asDouble()).isEqualTo(2048);
+        assertThat(load.path("memoryUsedPercent").asDouble()).isEqualTo(59.1);
+        assertThat(report.path("processCounts")).isEqualTo(JSON.readTree("{\"error\":3,"
+            + "\"processing\":0,\"waiting\":12,\"queued\":0}"));
+        // without a server version (the pin V6_1 has no patch) the client is not comparable;
+        // the contract's "match" needs the server version of the other variant
+        assertThat(report.path("client")).isEqualTo(JSON.readTree("{\"version\":\"6.1.0\","
+            + "\"supportedFrom\":\"4.0.1\",\"supportedTo\":\"6.1.0\","
+            + "\"comparison\":\"not_comparable\"}"));
+        assertThat(report.path("unavailable")).isEqualTo(JSON.readTree(NOT_ON_61));
+        assertThat(report.has("ready")).isFalse();
+        assertThat(report.has("readyMessage")).isFalse();
+        assertThat(report.has("systemInfo")).isFalse();
+        assertThat(report.has("error")).isFalse();
+        assertThat(report.path("warnings")).extracting(JsonNode::asString).containsExactly(
+            "the version 6.1.0.89 read on legacy/node2 is the StartCLI client's; the server"
+                + " version cannot be read");
+    }
+
+    @Test
+    void a61NodeIsReportedFromOneStartCliSessionAsInTheContractWithoutRest() throws IOException {
+        startWith61("health_session_ok", true);
+
+        JsonNode result = call(Map.of("target", LEGACY_61));
+
+        assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+        assertMatchesOutputSchema(result);
+        JsonNode report = result.path("structuredContent").path("reports").path(0);
+        assertThat(result.path("structuredContent").path("reports")).hasSize(1);
+        assertContract61Report(report);
+        assertThat(report.path("status").asString()).isEqualTo("OK");
+        assertThat(report.path("maintenanceMode").asBoolean(true)).isFalse();
+        assertThat(session.launchCount()).as("one StartCLI session").isEqualTo(1);
+        assertThat(legacy.getAllServeEvents()).as("US1-3: no REST request to a 6.1 node")
+            .isEmpty();
+        assertThat(dev.getAllServeEvents()).as("the 8.1 node was not addressed").isEmpty();
+        assertThat(result.toString()).doesNotContain(PASSWORD);
+    }
+
+    @Test
+    void aNegativeAliveCheckOnA61NodeIsErrorWithTheOtherPartsStillReported() throws IOException {
+        startWith61("health_session_alive_failed", true);
+
+        JsonNode result = call(Map.of("target", LEGACY_61));
+
+        assertMatchesOutputSchema(result);
+        JsonNode report = result.path("structuredContent").path("reports").path(0);
+        assertContract61Report(report);
+        assertThat(report.path("status").asString()).as("US1-2").isEqualTo("ERROR");
+        assertThat(report.path("maintenanceMode").asBoolean(true)).isFalse();
+        assertThat(legacy.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void aGroupOfAn81AndA61NodeReportsEachByItsOwnChannelWithinTheOverviewBudget()
+        throws IOException {
+        startWith61("health_session_ok", true);
+
+        long start = System.nanoTime();
+        JsonNode result = call(Map.of("target", "legacy"));
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+        assertThat(elapsed).as("US1-5: the overview budget").isLessThan(Duration.ofSeconds(10));
+        assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+        assertMatchesOutputSchema(result);
+        JsonNode reports = result.path("structuredContent").path("reports");
+        assertThat(reports).extracting(report -> report.path("node").asString())
+            .containsExactly(LEGACY_81, LEGACY_61);
+        JsonNode current = reports.get(0);
+        assertThat(current.path("reachable").asBoolean()).isTrue();
+        assertThat(current.path("status").asString()).isEqualTo("OK");
+        assertThat(current.path("ready").asBoolean()).isTrue();
+        assertThat(current.path("version").asString()).isEqualTo("8.1.17");
+        assertThat(current.path("load").path("maxThreads").asLong()).isEqualTo(401);
+        assertThat(current.has("processCounts")).isFalse();
+        assertThat(current.path("unavailable")).isEmpty();
+        assertThat(current.path("client").path("state").asString()).isEqualTo("not_available");
+        assertContract61Report(reports.get(1));
+        assertThat(reports.get(1).path("status").asString()).isEqualTo("OK");
+        assertThat(dev.getAllServeEvents()).as("the 8.1 node is read over REST").isNotEmpty();
+        assertThat(legacy.getAllServeEvents()).as("no REST request to the 6.1 node").isEmpty();
+        assertThat(session.launchCount()).isEqualTo(1);
+    }
+
+    @Test
+    void a61NodeWithoutStartCliIsCliUnavailableWhileThe81NodeIsReported() throws IOException {
+        startWith61("health_session_ok", false);
+
+        JsonNode result = call(Map.of("target", "legacy"));
+
+        assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+        assertMatchesOutputSchema(result);
+        Map<String, JsonNode> reports = byServer(result);
+        assertThat(reports.get(LEGACY_81).path("version").asString()).isEqualTo("8.1.17");
+        assertThat(reports.get(LEGACY_81).has("error")).isFalse();
+        JsonNode unavailable = reports.get(LEGACY_61);
+        assertThat(unavailable.path("status").asString()).as(unavailable.toString())
+            .isEqualTo("UNKNOWN");
+        assertThat(unavailable.path("error").path("code").asString())
+            .isEqualTo("CLI_UNAVAILABLE");
+        assertThat(unavailable.path("error").path("node").asString()).isEqualTo(LEGACY_61);
+        assertThat(unavailable.path("error").path("nextStep").asString())
+            .as("US1-4: names the missing client").contains("INUBIT client");
+        assertThat(unavailable.path("client").path("state").asString())
+            .isEqualTo("not_available");
+        assertThat(help.launchCount() + clientVersion.launchCount() + session.launchCount())
+            .as("no StartCLI launch").isZero();
+        assertThat(legacy.getAllServeEvents()).isEmpty();
     }
 }

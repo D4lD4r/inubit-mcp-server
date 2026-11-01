@@ -286,7 +286,7 @@ request.
   0 requests, at most three StartCLI launches per call besides the probe — FR-009),
   `HealthOverviewPerformanceTest` with a 6.1 node (≤ 10 s, hanging 6.1 session → `TIMEOUT`), new
   `V61HealthTimingTest` (≤ 15 s).
-- [ ] T028 [US1] `get_health` end to end (US1 scenarios): `GetHealthToolTest` with a 6.1 node and
+- [X] T028 [US1] `get_health` end to end (US1 scenarios): `GetHealthToolTest` with a 6.1 node and
   a mixed group (verification task); output matches contracts/mcp-tools-delta.
 
 **Checkpoint**: US1 works with the test matrix; production still refuses until Phase 8.
