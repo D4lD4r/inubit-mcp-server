@@ -47,6 +47,9 @@ import java.util.Set;
  *       non-final state.
  *   <li>Sorted by {@code since}, newest first; the page is the slice {@code offset … offset +
  *       limit} of the matches, whose number is the total.
+ *   <li>The session keeps up to {@link #LISTING_OUTPUT_BYTES} of output per listing (one
+ *       {@link CliSessionCommand#MAX_ROWS}-row listing with modules is about 1.3 MB); a session
+ *       above that is cut and answered with {@code UNEXPECTED_RESPONSE}.
  *   <li>A listing that printed {@link CliSessionCommand#MAX_ROWS} rows, or fewer rows than its
  *       total line, hit the cap: the page is {@code truncated} and its total a lower bound, also
  *       after filtering and merging.
@@ -61,6 +64,9 @@ import java.util.Set;
  * failures are classified as in {@link V61HealthAdapter} and carry the node.
  */
 public final class V61ProcessQueryAdapter implements ProcessQueryPort {
+
+    /** The output bound per listing of a session (research D-10). */
+    static final int LISTING_OUTPUT_BYTES = 4 << 20;
 
     /** The states that have a listing of their own. */
     private static final Map<ProcessState, Listing> OWN_LISTING = Map.of(
@@ -106,7 +112,7 @@ public final class V61ProcessQueryAdapter implements ProcessQueryPort {
     public Page<ProcessInstance> find(ProcessQuery query) {
         validate(query);
         List<CliSessionCommand> commands = commands(query.states());
-        CliResult result = connection.session(commands);
+        CliResult result = connection.session(commands, commands.size() * LISTING_OUTPUT_BYTES);
         if (result.exitCode() != 0 || result.truncated()
             || CliOutputClassifier.isLoginFailure(result)) {
             // the session prints no n-OK message, so the classifier never calls this a success

@@ -37,11 +37,12 @@ class CliOutputClassifierTest {
             Integer.parseInt(FakeProcessLauncher.fixtureText(fixtureCase + ".exit").strip()),
             FakeProcessLauncher.fixtureText(fixtureCase + ".stdout"),
             FakeProcessLauncher.fixtureText(fixtureCase + ".stderr"),
-            Duration.ofSeconds(2), false);
+            Duration.ofSeconds(2), false, CliRunner.MAX_OUTPUT_BYTES);
     }
 
     private static CliResult result(int exitCode, String stdout) {
-        return new CliResult(exitCode, stdout, PICKED_UP, Duration.ofSeconds(1), false);
+        return new CliResult(exitCode, stdout, PICKED_UP, Duration.ofSeconds(1), false,
+            CliRunner.MAX_OUTPUT_BYTES);
     }
 
     private ToolError failure(CliResult result) {
@@ -79,7 +80,7 @@ class CliOutputClassifierTest {
     @Test
     void thePickedUpLineIsPreambleOnStdoutToo() {
         CliOutput output = classifier.parse(new CliResult(0, PICKED_UP + PREAMBLE
-            + "1-OK: done.\n", "", Duration.ZERO, false));
+            + "1-OK: done.\n", "", Duration.ZERO, false, CliRunner.MAX_OUTPUT_BYTES));
 
         assertThat(output.outputLines()).containsExactly("1-OK: done.");
     }
@@ -333,11 +334,18 @@ class CliOutputClassifierTest {
     @Test
     void truncatedOutputIsNeverASuccess() {
         CliResult truncated = new CliResult(0, PREAMBLE + "1-OK: done.\n", "", Duration.ZERO,
-            true);
+            true, CliRunner.MAX_OUTPUT_BYTES);
 
         ToolError error = failure(truncated);
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
-        assertThat(error.message()).contains("1 MB");
+        assertThat(error.message()).contains("exceeded 1 MiB");
+    }
+
+    @Test
+    void theCutMessageNamesTheBoundOfTheRun() {
+        CliResult cut = new CliResult(0, "", "", Duration.ZERO, true, 12 << 20);
+
+        assertThat(failure(cut).message()).contains("exceeded 12 MiB").doesNotContain("1 MB");
     }
 }

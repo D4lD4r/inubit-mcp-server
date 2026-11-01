@@ -398,6 +398,7 @@ class CliRunnerTest {
         assertThat(result.stdout().length()).isEqualTo(CliRunner.MAX_OUTPUT_BYTES);
         assertThat(result.stderr().length()).isEqualTo(CliRunner.MAX_OUTPUT_BYTES);
         assertThat(result.truncated()).isTrue();
+        assertThat(result.outputBound()).isEqualTo(CliRunner.MAX_OUTPUT_BYTES);
         assertThat(result.exitCode()).isZero();
     }
 
@@ -493,7 +494,7 @@ class CliRunnerTest {
     private CliResult runSession(FakeProcessLauncher launcher, CredentialGuard guard,
         Duration timeout) {
         return runner(launcher).runSession(server().build(), USER, Secret.of(PASSWORD),
-            ALL_OPTIONS, HEALTH_COMMANDS, timeout, guard);
+            ALL_OPTIONS, HEALTH_COMMANDS, timeout, CliRunner.MAX_OUTPUT_BYTES, guard);
     }
 
     @Test
@@ -599,7 +600,7 @@ class CliRunnerTest {
     }
 
     @Test
-    void aSessionOutputIsBoundedToOneMegabyteEach() {
+    void aHealthSessionWithTheDefaultBoundIsStillCutAboveOneMebibyte() {
         FakeProcessLauncher launcher = FakeProcessLauncher.of("", "", 0).producing(3 << 20);
 
         CliResult result = runSession(launcher, guard(), Duration.ofSeconds(20));
@@ -607,6 +608,46 @@ class CliRunnerTest {
         assertThat(result.stdout().length()).isEqualTo(CliRunner.MAX_OUTPUT_BYTES);
         assertThat(result.stderr().length()).isEqualTo(CliRunner.MAX_OUTPUT_BYTES);
         assertThat(result.truncated()).isTrue();
+        assertThat(CliOutputClassifier.withGlobalScrubber().classify(result))
+            .isInstanceOfSatisfying(CliOutcome.Failure.class, failure -> {
+                assertThat(failure.error().code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+                assertThat(failure.error().message()).contains("exceeded 1 MiB");
+            });
+    }
+
+    // --- output bound per session (feature 011, T046, research D-10) ----------------------
+
+    private CliResult runSession(FakeProcessLauncher launcher, int maxOutputBytes) {
+        return runner(launcher).runSession(server().build(), USER, Secret.of(PASSWORD),
+            ALL_OPTIONS, HEALTH_COMMANDS, Duration.ofSeconds(20), maxOutputBytes, guard());
+    }
+
+    @Test
+    void aSessionKeepsItsOutputUpToTheBoundOfTheCall() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("", "", 0).producing(3 << 20);
+
+        CliResult result = runSession(launcher, 4 << 20);
+
+        assertThat(result.stdout().length()).isEqualTo(3 << 20);
+        assertThat(result.stderr().length()).isEqualTo(3 << 20);
+        assertThat(result.truncated()).isFalse();
+        assertThat(result.outputBound()).isEqualTo(4 << 20);
+    }
+
+    @Test
+    void aSessionAboveItsBoundIsCutAndUnexpectedResponseNamingThatBound() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("", "", 0).producing(3 << 20);
+
+        CliResult result = runSession(launcher, 2 << 20);
+
+        assertThat(result.stdout().length()).isEqualTo(2 << 20);
+        assertThat(result.truncated()).isTrue();
+        assertThat(CliOutputClassifier.withGlobalScrubber().classify(result))
+            .isInstanceOfSatisfying(CliOutcome.Failure.class, failure -> {
+                assertThat(failure.error().code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+                assertThat(failure.error().message()).contains("exceeded 2 MiB")
+                    .doesNotContain("1 MB");
+            });
     }
 
     @Test
@@ -619,7 +660,7 @@ class CliRunnerTest {
         EffectiveNodeConfig config = server().trustStore(trustStore)
             .disableHostnameVerification("AB".repeat(32)).build();
         runner.runSession(config, USER, Secret.of(PASSWORD), ALL_OPTIONS, HEALTH_COMMANDS,
-            Duration.ofSeconds(5), guard());
+            Duration.ofSeconds(5), CliRunner.MAX_OUTPUT_BYTES, guard());
 
         runner.run(config, USER, Secret.of(PASSWORD), CliCommand.processErrorStart("110190387"),
             Duration.ofSeconds(5), guard());
@@ -646,7 +687,7 @@ class CliRunnerTest {
         CliClientOptions options) {
         FakeProcessLauncher launcher = FakeProcessLauncher.of(SESSION_OK, "", 0);
         runner(launcher).runSession(config, USER, Secret.of(PASSWORD), options, HEALTH_COMMANDS,
-            Duration.ofSeconds(5), guard());
+            Duration.ofSeconds(5), CliRunner.MAX_OUTPUT_BYTES, guard());
         return launcher.last();
     }
 
@@ -740,7 +781,8 @@ class CliRunnerTest {
             EffectiveNodeConfig config = server().trustStore(cliHome.resolve(name)).build();
 
             assertThatThrownBy(() -> runner(launcher).runSession(config, USER,
-                Secret.of(PASSWORD), NO_OPTIONS, HEALTH_COMMANDS, Duration.ofSeconds(5), guard))
+                Secret.of(PASSWORD), NO_OPTIONS, HEALTH_COMMANDS, Duration.ofSeconds(5),
+                CliRunner.MAX_OUTPUT_BYTES, guard))
                 .as(name).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageNotContaining(PASSWORD);
             assertThat(launcher.launchCount()).as(name).isZero();

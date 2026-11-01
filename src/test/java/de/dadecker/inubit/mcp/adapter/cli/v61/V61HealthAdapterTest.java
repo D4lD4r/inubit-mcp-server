@@ -336,4 +336,18 @@ class V61HealthAdapterTest {
         assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
         assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(10));
     }
+
+    // --- output bound (T046, research D-10) -----------------------------------------------------
+
+    @Test
+    void aHealthSessionAboveOneMebibyteIsStillCut() {
+        Launchers launchers =
+            new Launchers(FakeProcessLauncher.of("", "", 0).producing((1 << 20) + 1));
+
+        ToolError error = errorOf(adapter(launchers), Duration.ofSeconds(10));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message()).contains("exceeded 1 MiB");
+        assertThat(error.node()).contains(ID);
+    }
 }

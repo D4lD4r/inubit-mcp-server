@@ -179,17 +179,21 @@ class V61ProcessQueryAdapterTest {
 
     /**
      * A listing of {@code rows} Error rows of workflow {@code Bulk} plus one of workflow
-     * {@code Rare} (the last one), all without module so that 10,000 rows stay below the runner's
-     * output bound ({@link CliRunner#MAX_OUTPUT_BYTES}).
+     * {@code Rare} (the last one), all without module.
      */
     private static String errorListing(int rows) {
+        return errorListing(rows, "");
+    }
+
+    /** As {@link #errorListing(int)}, with {@code module} in every row (empty: none). */
+    private static String errorListing(int rows, String module) {
         String row = "node1                jdoe            %d     normal     Error      "
-            + "2026-10-30T08:15:42  %s";
+            + "2026-10-30T08:15:42  %-21s" + module;
         StringBuilder lines = new StringBuilder(HEADER);
         for (int i = 0; i < rows - 1; i++) {
-            lines.append('\n').append(row.formatted(500000 + i, "Bulk"));
+            lines.append('\n').append(row.formatted(500000 + i, "Bulk").stripTrailing());
         }
-        lines.append('\n').append(row.formatted(600000, "Rare"));
+        lines.append('\n').append(row.formatted(600000, "Rare").stripTrailing());
         return lines.append("\nTotal: ").append(rows).toString();
     }
 
@@ -450,6 +454,51 @@ class V61ProcessQueryAdapterTest {
         assertThat(page.totalIsLowerBound()).isFalse();
         assertThat(page.truncated()).isFalse();
         assertThat(page.nextOffset()).isEqualTo(OptionalInt.of(50));
+    }
+
+    // --- output bound per listing (T046, research D-10) ----------------------------------------
+
+    @Test
+    void aTenThousandRowListingWithModulesAboveOneMebibyteIsAnsweredAsCapped() {
+        String stdout = session(errorListing(10_000, "Sender(10511)"));
+        assertThat(stdout.getBytes(StandardCharsets.UTF_8).length)
+            .isGreaterThan(CliRunner.MAX_OUTPUT_BYTES);
+        Launchers launchers = Launchers.answering(stdout);
+
+        Page<ProcessInstance> page = adapter(launchers).find(query(Set.of(ProcessState.ERROR)));
+
+        assertThat(page.items()).hasSize(50)
+            .allSatisfy(item -> assertThat(item.module()).contains("Sender(10511)"));
+        assertThat(page.total()).isEqualTo(OptionalLong.of(10_000));
+        assertThat(page.totalIsLowerBound()).isTrue();
+        assertThat(page.truncated()).isTrue();
+        assertThat(launchers.sessions()).isEqualTo(1);
+    }
+
+    @Test
+    void aSessionAboveItsBoundOfFourMebibytesPerListingIsUnexpectedResponseNamingIt() {
+        Launchers launchers =
+            new Launchers(FakeProcessLauncher.of("", "", 0).producing((4 << 20) + 1));
+
+        ToolError error = errorOf(() -> adapter(launchers).find(
+            query(Set.of(ProcessState.ERROR))));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message()).contains("exceeded 4 MiB");
+        assertThat(error.node()).contains(ID);
+    }
+
+    @Test
+    void theSessionBoundGrowsWithTheNumberOfListings() {
+        Launchers launchers =
+            new Launchers(FakeProcessLauncher.of("", "", 0).producing((8 << 20) + 1));
+
+        ToolError error = errorOf(() -> adapter(launchers).find(
+            query(Set.of(ProcessState.ERROR, ProcessState.WAITING))));
+
+        assertThat(launchers.commands()).containsExactly("ps -e -l 10000", "ps -w -l 10000");
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message()).contains("exceeded 8 MiB");
     }
 
     @Test

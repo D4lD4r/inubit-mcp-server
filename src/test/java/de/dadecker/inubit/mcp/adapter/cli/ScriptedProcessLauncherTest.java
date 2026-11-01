@@ -228,7 +228,7 @@ class ScriptedProcessLauncherTest {
         return new CliResult(process.exitValue(),
             new String(process.stdout().readAllBytes(), StandardCharsets.UTF_8),
             new String(process.stderr().readAllBytes(), StandardCharsets.UTF_8),
-            Duration.ZERO, false);
+            Duration.ZERO, false, CliRunner.MAX_OUTPUT_BYTES);
     }
 
     private LaunchSpec spec(String execCommand) {

@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.adapter.cli.v61;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutcome;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResult;
+import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.domain.model.CliHealthSnapshot;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -53,10 +54,14 @@ public final class V61HealthAdapter implements CliHealthPort {
         this.classifier = Objects.requireNonNull(classifier, "classifier");
     }
 
-    /** Runs the session bounded by the shorter of {@code budget} and the node's cliTimeout. */
+    /**
+     * Runs the session bounded by the shorter of {@code budget} and the node's cliTimeout, with
+     * the output bound of {@code --execCommand} runs (research D-10).
+     */
     @Override
     public CliHealthSnapshot snapshot(Duration budget) {
-        CliResult result = connection.session(V61HealthParser.COMMANDS, budget);
+        CliResult result = connection.session(V61HealthParser.COMMANDS, budget,
+            CliRunner.MAX_OUTPUT_BYTES);
         if (result.exitCode() != 0 || result.truncated()
             || CliOutputClassifier.isLoginFailure(result)) {
             // the session prints no n-OK message, so the classifier never calls this a success

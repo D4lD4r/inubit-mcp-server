@@ -68,6 +68,7 @@ class V61ConnectionTest {
     private static final String PASSWORD = "S3cr3t-v61-pw";
     private static final List<CliSessionCommand> COMMANDS =
         List.of(CliSessionCommand.UNAME, CliSessionCommand.UPTIME);
+    private static final int BOUND = CliRunner.MAX_OUTPUT_BYTES;
 
     /** A client whose help lists the trust-store, host-name and command options. */
     private static final String HELP_WITH_OPTIONS = """
@@ -203,7 +204,7 @@ class V61ConnectionTest {
         List<Integer> connectionsAtSession = new ArrayList<>();
         launchers.session.onLaunch(spec -> connectionsAtSession.add(inubit.connections()));
 
-        CliResult result = connection(node().build(), launchers).session(COMMANDS);
+        CliResult result = connection(node().build(), launchers).session(COMMANDS, BOUND);
 
         assertThat(result.exitCode()).isZero();
         assertThat(result.stdout()).isEqualTo("OK\n");
@@ -225,7 +226,7 @@ class V61ConnectionTest {
         EffectiveNodeConfig server = node().disableHostnameVerification(
             TestCertificates.fingerprint(CERTS.localhostCertificate())).build();
 
-        ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS));
+        ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS, BOUND));
 
         assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
         assertThat(error.node()).contains(ID);
@@ -240,7 +241,7 @@ class V61ConnectionTest {
             Optional.empty(), Optional.empty());
 
         ToolError error = errorOf(() -> connection(node().build(), none, launchers)
-            .session(COMMANDS));
+            .session(COMMANDS, BOUND));
 
         assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
         assertThat(launchers.order).isEmpty();
@@ -257,7 +258,7 @@ class V61ConnectionTest {
             CliConcurrencyLimiter.Permit second = limiter.acquire(server)) {
             long start = System.nanoTime();
 
-            ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS));
+            ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS, BOUND));
 
             assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
             assertThat(Duration.ofNanos(System.nanoTime() - start))
@@ -274,7 +275,7 @@ class V61ConnectionTest {
         try (CliConcurrencyLimiter.Permit first = limiter.acquire(server);
             CliConcurrencyLimiter.Permit second = limiter.acquire(server)) {
 
-            ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS));
+            ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS, BOUND));
 
             assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
         }
@@ -290,7 +291,7 @@ class V61ConnectionTest {
         EffectiveNodeConfig server =
             node().pin(TestCertificates.fingerprint(CERTS.selfsignedCertificate())).build();
 
-        ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS));
+        ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS, BOUND));
 
         assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
         assertThat(error.node()).contains(ID);
@@ -307,7 +308,7 @@ class V61ConnectionTest {
             String cliUrl = "https://localhost:" + cli.port() + "/custom/IBISSoapServlet";
             EffectiveNodeConfig server = node().cliUrl(cliUrl).build();
 
-            connection(server, launchers).session(COMMANDS);
+            connection(server, launchers).session(COMMANDS, BOUND);
 
             assertThat(cli.connections()).isEqualTo(1);
             assertThat(cli.requestedServerNames()).containsExactly("localhost");
@@ -322,7 +323,7 @@ class V61ConnectionTest {
         String cliUrl = "http://localhost:" + inubit.port() + EffectiveNodeConfig.DEFAULT_CLI_PATH;
         EffectiveNodeConfig server = node().allowInsecureHttp(true).cliUrl(cliUrl).build();
 
-        connection(server, launchers).session(COMMANDS);
+        connection(server, launchers).session(COMMANDS, BOUND);
 
         assertThat(inubit.connections()).isZero();
         assertThat(launchers.sessions()).isEqualTo(1);
@@ -336,7 +337,7 @@ class V61ConnectionTest {
             .cliUrl("http://localhost:" + inubit.port() + EffectiveNodeConfig.DEFAULT_CLI_PATH)
             .build();
 
-        ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS));
+        ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS, BOUND));
 
         assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
         assertThat(error.nextStep()).contains("allowInsecureHttp");
@@ -352,7 +353,7 @@ class V61ConnectionTest {
         V61Connection connection =
             connection(node().cliTimeout(Duration.ofMillis(500)).build(), launchers);
         // a first login confirms the credentials: the guard then lets parallel logins through
-        connection.session(COMMANDS);
+        connection.session(COMMANDS, BOUND);
         CountDownLatch release = new CountDownLatch(1);
         // a session that hangs in its launch, holding its slot until the test lets it go
         launchers.session.onLaunch(spec -> {
@@ -367,7 +368,7 @@ class V61ConnectionTest {
         try (ExecutorService pool = Executors.newFixedThreadPool(5)) {
             try {
                 for (int i = 0; i < 5; i++) {
-                    calls.add(pool.submit(() -> connection.session(COMMANDS)));
+                    calls.add(pool.submit(() -> connection.session(COMMANDS, BOUND)));
                 }
                 // the calls without a slot give up after cliTimeout; with a broken limit they
                 // would hang in the launch as well
@@ -416,7 +417,7 @@ class V61ConnectionTest {
                 .disableHostnameVerification(
                     TestCertificates.fingerprint(CERTS.selfsignedCertificate())).build();
 
-            connection(server, launchers).session(COMMANDS);
+            connection(server, launchers).session(COMMANDS, BOUND);
 
             assertThat(launchers.order).containsExactly("probe", "session");
             assertThat(selfsigned.connections()).isEqualTo(1);
@@ -430,7 +431,7 @@ class V61ConnectionTest {
         EffectiveNodeConfig server = node().disableHostnameVerification(
             TestCertificates.fingerprint(CERTS.localhostCertificate())).build();
 
-        ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS));
+        ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS, BOUND));
 
         assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
         assertThat(error.node()).contains(ID);
@@ -448,7 +449,7 @@ class V61ConnectionTest {
             .versionLine(VersionSetting.V6_1).baseUrl("https://localhost:" + inubit.port())
             .cliHome(cliHome).trustStore(CERTS.trustStore()).build();
 
-        ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS));
+        ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS, BOUND));
 
         assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
         assertThat(error.message()).contains("PKCS12", "unknown");
@@ -462,7 +463,8 @@ class V61ConnectionTest {
         release(javaHome, "JAVA_VERSION=\"1.7.0_80\"");
         Launchers launchers = Launchers.withOptions();
 
-        ToolError error = errorOf(() -> connection(node().build(), launchers).session(COMMANDS));
+        ToolError error =
+            errorOf(() -> connection(node().build(), launchers).session(COMMANDS, BOUND));
 
         assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
         assertThat(error.message()).contains("Java 7", "PKCS12");
@@ -484,7 +486,7 @@ class V61ConnectionTest {
         }
         Launchers launchers = Launchers.sixOne();
 
-        connection(node().trustStore(jks).build(), launchers).session(COMMANDS);
+        connection(node().trustStore(jks).build(), launchers).session(COMMANDS, BOUND);
 
         assertThat(launchers.sessions()).isEqualTo(1);
         assertThat(launchers.session.last().spec().environment().get("JAVA_TOOL_OPTIONS"))
@@ -500,7 +502,7 @@ class V61ConnectionTest {
         Launchers launchers = Launchers.sixOne();
 
         ToolError error = errorOf(() -> connection(node().trustStore(spaced).build(), launchers)
-            .session(COMMANDS));
+            .session(COMMANDS, BOUND));
 
         assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
         assertThat(error.nextStep()).contains("path without spaces");
@@ -515,7 +517,7 @@ class V61ConnectionTest {
         Files.copy(CERTS.trustStore(), spaced);
         Launchers launchers = Launchers.withOptions();
 
-        connection(node().trustStore(spaced).build(), launchers).session(COMMANDS);
+        connection(node().trustStore(spaced).build(), launchers).session(COMMANDS, BOUND);
 
         assertThat(launchers.sessionCommand())
             .containsSubsequence("--trustStoreFilePath", spaced.toString());

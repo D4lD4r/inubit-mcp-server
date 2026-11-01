@@ -40,7 +40,7 @@ import java.util.Optional;
  *   <li>for an {@code https://} StartCLI URL, the server's own handshake with its host and port
  *       ({@link TlsHandshakeCheck}); a rejected certificate starts no StartCLI process;
  *   <li>the session ({@link CliRunner#runSession}) with the node's {@code cliTimeout}, or a
- *       shorter budget of the caller.
+ *       shorter budget of the caller, and the output bound of the caller.
  * </ol>
  *
  * <p>An option the probe could not read counts as absent (fail closed); so does every option of
@@ -72,22 +72,24 @@ public final class V61Connection {
     }
 
     /**
-     * Runs {@code commands} in one StartCLI session after the checks of this class.
+     * Runs {@code commands} in one StartCLI session after the checks of this class, keeping up to
+     * {@code maxOutputBytes} of stdout and stderr each.
      *
      * @throws ToolErrorException {@code CLI_UNAVAILABLE} or {@code AUTH_FAILED} before anything is
      *     launched; {@code TLS_ERROR} for a refusal or a rejected certificate, {@code UNREACHABLE}
      *     or {@code TIMEOUT} from the handshake, {@code TIMEOUT} without a free slot; any error of
      *     {@link CliRunner#runSession}
      */
-    public CliResult session(List<CliSessionCommand> commands) {
-        return session(commands, server.cliTimeout());
+    public CliResult session(List<CliSessionCommand> commands, int maxOutputBytes) {
+        return session(commands, server.cliTimeout(), maxOutputBytes);
     }
 
     /**
-     * As {@link #session(List)}, with the session run bounded by the shorter of {@code budget}
-     * and the node's {@code cliTimeout} (the health budget of research D-6).
+     * As {@link #session(List, int)}, with the session run bounded by the shorter of
+     * {@code budget} and the node's {@code cliTimeout} (the health budget of research D-6).
      */
-    public CliResult session(List<CliSessionCommand> commands, Duration budget) {
+    public CliResult session(List<CliSessionCommand> commands, Duration budget,
+        int maxOutputBytes) {
         runner.checkAvailable(server);
         if (!credentials.complete()) {
             throw new ToolErrorException(ToolError.of(ErrorCode.AUTH_FAILED,
@@ -106,7 +108,8 @@ public final class V61Connection {
             }
             return runner.runSession(server, credentials.username().orElseThrow().value(),
                 credentials.password().orElseThrow().value(), options, commands,
-                budget.compareTo(server.cliTimeout()) < 0 ? budget : server.cliTimeout(), guard);
+                budget.compareTo(server.cliTimeout()) < 0 ? budget : server.cliTimeout(),
+                maxOutputBytes, guard);
         }
     }
 

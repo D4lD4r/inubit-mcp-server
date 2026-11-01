@@ -39,7 +39,8 @@ import java.util.function.Supplier;
  *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <path>],
  *       [--disableHostNameVerification], <cliUrl>]}; stdin receives the password line, one line
  *       per {@link CliSessionCommand} and {@code exit}, and is then closed. Environment,
- *       timeout, output bound and credential guard are those of the {@code --execCommand} run.
+ *       timeout and credential guard are those of the {@code --execCommand} run; the output
+ *       bound is passed per call (research D-10).
  *       The client trust options follow its {@link CliClientOptions} (research D-8): a client
  *       without {@code --trustStoreFilePath} gets the trust store through
  *       {@code -Djavax.net.ssl.trustStore} and {@code -Djavax.net.ssl.trustStoreType} appended
@@ -54,7 +55,8 @@ import java.util.function.Supplier;
  *   <li>Windows is not supported in this version (known limitation, research R-6):
  *       {@code CLI_UNAVAILABLE}.
  *   <li>stdout and stderr are drained completely but kept only up to
- *       {@link #MAX_OUTPUT_BYTES} each.
+ *       {@link #MAX_OUTPUT_BYTES} each ({@code --execCommand} runs), or up to the bound a
+ *       session is given.
  * </ul>
  */
 public final class CliRunner {
@@ -110,7 +112,7 @@ public final class CliRunner {
         arguments.add(command.commandLine());
         arguments.add(server.cli().url().toString());
         return execute(server, arguments, Optional.of(password), List.of(), timeout,
-            timeoutSetting, JAVA_TOOL_OPTIONS);
+            timeoutSetting, JAVA_TOOL_OPTIONS, MAX_OUTPUT_BYTES);
     }
 
     /**
@@ -144,7 +146,9 @@ public final class CliRunner {
      * {@link #run(EffectiveNodeConfig, String, Secret, CliCommand, Duration, CredentialGuard)}.
      * Neither the password nor a command appears in the argument array. The trust store and the
      * host-name option are passed as {@code options} allow (research D-8); every refusal is
-     * made by the caller before (feature 011, {@code V61Connection}).
+     * made by the caller before (feature 011, {@code V61Connection}). stdout and stderr are
+     * kept up to {@code maxOutputBytes} each (research D-10: {@link #MAX_OUTPUT_BYTES} for
+     * health, more for process listings).
      *
      * @throws ToolErrorException {@code AUTH_FAILED} from the guard, {@code CLI_UNAVAILABLE} if
      *     StartCLI cannot be started, {@code TIMEOUT} if it does not finish within
@@ -155,7 +159,7 @@ public final class CliRunner {
      */
     public CliResult runSession(EffectiveNodeConfig server, String username, Secret password,
         CliClientOptions options, List<CliSessionCommand> commands, Duration timeout,
-        CredentialGuard guard) {
+        int maxOutputBytes, CredentialGuard guard) {
         Optional<Path> trustStore = server.tls().trustStore();
         String javaToolOptions = options.trustStoreFilePath() ? JAVA_TOOL_OPTIONS
             : JAVA_TOOL_OPTIONS + trustStore.map(CliRunner::trustStoreProperties).orElse("");
@@ -174,7 +178,7 @@ public final class CliRunner {
         List<CliSessionCommand> lines = new ArrayList<>(commands);
         lines.add(CliSessionCommand.EXIT);
         return guarded(guard, () -> execute(server, arguments, Optional.of(password), lines,
-            timeout, "cliTimeout", javaToolOptions));
+            timeout, "cliTimeout", javaToolOptions, maxOutputBytes));
     }
 
     /**
@@ -227,19 +231,20 @@ public final class CliRunner {
     CliResult execute(EffectiveNodeConfig server, List<String> arguments,
         Optional<Secret> stdinSecret, Duration timeout) {
         return execute(server, arguments, stdinSecret, List.of(), timeout, "cliTimeout",
-            JAVA_TOOL_OPTIONS);
+            JAVA_TOOL_OPTIONS, MAX_OUTPUT_BYTES);
     }
 
     private CliResult execute(EffectiveNodeConfig server, List<String> arguments,
         Optional<Secret> stdinSecret, List<CliSessionCommand> stdinCommands, Duration timeout,
-        String timeoutSetting, String javaToolOptions) {
+        String timeoutSetting, String javaToolOptions, int maxOutputBytes) {
         LaunchTarget target = launchTarget(server);
         List<String> command = new ArrayList<>(arguments.size() + 1);
         command.add(target.script().toString());
         command.addAll(arguments);
         LaunchSpec spec = new LaunchSpec(command,
             childEnvironment(target.javaHome(), javaToolOptions), target.home());
-        return launchAndWait(server, spec, stdinSecret, stdinCommands, timeout, timeoutSetting);
+        return launchAndWait(server, spec, stdinSecret, stdinCommands, timeout, timeoutSetting,
+            maxOutputBytes);
     }
 
     /**
@@ -301,7 +306,7 @@ public final class CliRunner {
 
     private CliResult launchAndWait(EffectiveNodeConfig server, LaunchSpec spec,
         Optional<Secret> stdinSecret, List<CliSessionCommand> stdinCommands, Duration timeout,
-        String timeoutSetting) {
+        String timeoutSetting, int maxOutputBytes) {
         long start = System.nanoTime();
         LaunchedProcess process;
         // announced before the launch, so that a concurrent shutdown waits for and stops it;
@@ -333,7 +338,7 @@ public final class CliRunner {
         }
         try (registration) {
             CliResult result = waitFor(server, process, stdinSecret, stdinCommands, timeout,
-                timeoutSetting, start);
+                timeoutSetting, start, maxOutputBytes);
             if (resources.closed()) {
                 throw new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
                     "The MCP server is shutting down; StartCLI on " + server.id()
@@ -347,9 +352,9 @@ public final class CliRunner {
 
     private CliResult waitFor(EffectiveNodeConfig server, LaunchedProcess process,
         Optional<Secret> stdinSecret, List<CliSessionCommand> stdinCommands, Duration timeout,
-        String timeoutSetting, long start) {
-        BoundedSink stdout = BoundedSink.drain(process.stdout());
-        BoundedSink stderr = BoundedSink.drain(process.stderr());
+        String timeoutSetting, long start, int maxOutputBytes) {
+        BoundedSink stdout = BoundedSink.drain(process.stdout(), maxOutputBytes);
+        BoundedSink stderr = BoundedSink.drain(process.stderr(), maxOutputBytes);
         writeStdin(process, stdinSecret, stdinCommands);
         boolean exited;
         try {
@@ -368,7 +373,8 @@ public final class CliRunner {
         stdout.await(KILL_GRACE);
         stderr.await(KILL_GRACE);
         return new CliResult(process.exitValue(), stdout.text(), stderr.text(),
-            Duration.ofNanos(System.nanoTime() - start), stdout.truncated() || stderr.truncated());
+            Duration.ofNanos(System.nanoTime() - start), stdout.truncated() || stderr.truncated(),
+            maxOutputBytes);
     }
 
     /**
@@ -442,15 +448,23 @@ public final class CliRunner {
             .withNode(server.id()));
     }
 
-    /** Reads a stream to its end on a virtual thread, keeping at most the first 1 MB. */
+    /**
+     * Reads a stream to its end on a virtual thread, keeping at most the first {@code bound}
+     * bytes.
+     */
     private static final class BoundedSink {
 
         private final ByteArrayOutputStream kept = new ByteArrayOutputStream();
+        private final int bound;
         private boolean overflow;
         private Thread reader;
 
-        static BoundedSink drain(InputStream in) {
-            BoundedSink sink = new BoundedSink();
+        private BoundedSink(int bound) {
+            this.bound = bound;
+        }
+
+        static BoundedSink drain(InputStream in, int bound) {
+            BoundedSink sink = new BoundedSink(bound);
             sink.reader = Thread.ofVirtual().start(() -> sink.consume(in));
             return sink;
         }
@@ -461,7 +475,7 @@ public final class CliRunner {
                 int n;
                 while ((n = in.read(buffer)) >= 0) {
                     synchronized (this) {
-                        int room = MAX_OUTPUT_BYTES - kept.size();
+                        int room = bound - kept.size();
                         if (n > room) {
                             overflow = true;
                         }

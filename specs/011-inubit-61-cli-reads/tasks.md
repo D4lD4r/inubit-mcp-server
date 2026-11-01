@@ -333,7 +333,7 @@ request.
   off; `DiagnosisServiceTest` and `FindProcessesToolTest` — held-credentials
   6.1 node with `tag` in a mixed 8.1 + 6.1 group: 6.1 entry refused, 8.1 entry results, no launch;
   WireMock 0 requests for the 6.1 node; timing ≤ 15 s for 100 instances (SC-002).
-- [ ] T046 [US2] Session output bound (research D-10, follow-up from T032): `CliRunner.runSession`
+- [X] T046 [US2] Session output bound (research D-10, follow-up from T032): `CliRunner.runSession`
   takes the output bound per call (`--execCommand` runs and health sessions keep
   `MAX_OUTPUT_BYTES` = 1 MiB); `V61ProcessQueryAdapter` passes 4 MiB per listing; the
   `CliOutputClassifier` cut message names the bound that was exceeded instead of a fixed "1 MB".
