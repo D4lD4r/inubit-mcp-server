@@ -267,7 +267,8 @@ final class Wiring implements AutoCloseable {
             .filter(server -> server.secretPlan().aws()).map(EffectiveNodeConfig::id)
             .collect(Collectors.toUnmodifiableSet()), NodeSecrets.STORE_TIMEOUT);
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
-            hangingThresholds::get, clock.clock(), ResultJson::size, versionGate, secretTiming);
+            id -> byId.get(id).cliTimeout(), hangingThresholds::get, clock.clock(),
+            ResultJson::size, versionGate, secretTiming);
         this.inventory = new InventoryService(gateways, targets, fanOut, limiter,
             new InventoryCache(clock.clock(), id -> byId.get(id).inventory().cacheTtl()),
             id -> byId.get(id).inventory().owner(), timeouts::get,

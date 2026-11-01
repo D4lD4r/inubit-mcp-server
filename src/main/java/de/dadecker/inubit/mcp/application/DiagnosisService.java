@@ -24,8 +24,10 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -52,16 +54,21 @@ import java.util.regex.Pattern;
  *   <li>Servers are queried in parallel ({@link FanOut}); results come in config order, one per
  *       server, a failed server only gets its {@code error}. The ports are taken without waiting
  *       for the adapter selection's version detection, and only REST is used (no CLI home
- *       needed). The per-server deadline is three times the server timeout plus
- *       {@link #FAN_OUT_GRACE}: while the credentials are unconfirmed the first request runs
- *       alone (credential guard), the others after it; then the version gate's detection
- *       (feature 009) and the query. A node whose secrets come from AWS Parameter Store adds
- *       the {@link SecretTiming} allowance for their first fetch (feature 010).
+ *       needed), except on 6.1, whose ports read through StartCLI. The per-server deadline is
+ *       three times the server timeout plus {@link #FAN_OUT_GRACE}: while the credentials are
+ *       unconfirmed the first request runs alone (credential guard), the others after it; then
+ *       the version gate's detection (feature 009) and the query. A node whose secrets come
+ *       from AWS Parameter Store adds the {@link SecretTiming} allowance for their first fetch
+ *       (feature 010). Feature 011: a node whose process diagnosis runs over StartCLI (6.1)
+ *       gets a deadline from its {@code cliTimeout} instead
+ *       ({@link #deadline(NodeId, Capability)}).
  *   <li>Feature 009 (research D-5, D-6, FR-006, FR-009): before its query, each server's call
  *       asks the {@link VersionGate} for its capability ({@code READ}, {@code {REST}}), which
  *       detects the version of an {@code AUTO} node on first use; its warnings go into that
  *       server's {@link NodePage}, a refusal ({@code UNSUPPORTED_VERSION}) becomes that server's
- *       {@code error} and leaves the other servers' results untouched.
+ *       {@code error} and leaves the other servers' results untouched. Feature 011: so does an
+ *       {@code UNSUPPORTED_VERSION} of the process port's own input check (e.g. {@code tag} on
+ *       6.1), before the gate is asked; the admission's version notes follow its warnings.
  *   <li>{@code timeInState} and {@code hanging} are computed here for every instance with the
  *       MCP server's clock: hanging = a {@link ProcessState#NON_FINAL} state longer than the
  *       threshold (request, else the server's {@code hangingThreshold}, else
@@ -138,6 +145,7 @@ public final class DiagnosisService {
     private final FanOut fanOut;
     private final ResultLimiter limiter;
     private final Function<NodeId, Duration> timeouts;
+    private final Function<NodeId, Duration> cliTimeouts;
     private final Function<NodeId, Duration> hangingThresholds;
     private final Clock clock;
     private final ToIntFunction<Object> sizeOf;
@@ -146,6 +154,7 @@ public final class DiagnosisService {
 
     /**
      * @param timeouts          the REST timeout of each server
+     * @param cliTimeouts       feature 011: the StartCLI timeout of each server
      * @param hangingThresholds the configured hanging threshold of each server ({@code null}:
      *                          {@link #DEFAULT_HANGING_THRESHOLD})
      * @param clock             "now" for durations, {@code timeInState} and {@code hanging}
@@ -155,13 +164,14 @@ public final class DiagnosisService {
      */
     public DiagnosisService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
         ResultLimiter limiter, Function<NodeId, Duration> timeouts,
-        Function<NodeId, Duration> hangingThresholds, Clock clock,
-        ToIntFunction<Object> sizeOf, VersionGate gate, SecretTiming secretTiming) {
+        Function<NodeId, Duration> cliTimeouts, Function<NodeId, Duration> hangingThresholds,
+        Clock clock, ToIntFunction<Object> sizeOf, VersionGate gate, SecretTiming secretTiming) {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.fanOut = Objects.requireNonNull(fanOut, "fanOut");
         this.limiter = Objects.requireNonNull(limiter, "limiter");
         this.timeouts = Objects.requireNonNull(timeouts, "timeouts");
+        this.cliTimeouts = Objects.requireNonNull(cliTimeouts, "cliTimeouts");
         this.hangingThresholds = Objects.requireNonNull(hangingThresholds, "hangingThresholds");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.sizeOf = Objects.requireNonNull(sizeOf, "sizeOf");
@@ -185,13 +195,14 @@ public final class DiagnosisService {
         Function<NodeId, ProcessQuery> queryOf = server -> new ProcessQuery(request.states(),
             request.hangingOnly(), threshold(request, server), request.workflow(),
             request.tag(), since, until, request.offset(), request.limit(), now);
-        Set<NodeId> unchecked = validateHeld(servers,
-            server -> gateways.processes(server).validate(queryOf.apply(server)));
+        Validation validation = validateHeld(servers,
+            server -> gateways.processes(server).validate(queryOf.apply(server)), true);
         ResultLimiter shared = limiter.share(servers.size());
-        return fanOut.run(servers, this::deadline, server -> {
-            if (unchecked.contains(server)) {
-                gateways.processes(server).validate(queryOf.apply(server));
-            }
+        Function<NodeId, Duration> deadline =
+            server -> deadline(server, Capability.PROCESS_DIAGNOSIS);
+        return fanOut.run(servers, deadline, server -> {
+            validation.atBranchStart(server,
+                () -> gateways.processes(server).validate(queryOf.apply(server)));
             List<String> warnings = admit("find_processes", Capability.PROCESS_DIAGNOSIS, server);
             ProcessQuery query = queryOf.apply(server);
             Duration threshold = query.hangingThreshold();
@@ -228,13 +239,12 @@ public final class DiagnosisService {
         LogQuery query = new LogQuery(request.logType(), since, until, request.workflow(),
             request.processId(), request.severities(), request.text(), request.offset(),
             request.limit());
-        Set<NodeId> unchecked = validateHeld(servers,
-            server -> gateways.logs(server).validate(query));
+        Validation validation = validateHeld(servers,
+            server -> gateways.logs(server).validate(query), false);
         ResultLimiter shared = limiter.share(servers.size());
-        return fanOut.run(servers, this::deadline, server -> {
-            if (unchecked.contains(server)) {
-                gateways.logs(server).validate(query);
-            }
+        Function<NodeId, Duration> deadline = server -> deadline(server, Capability.LOG_DIAGNOSIS);
+        return fanOut.run(servers, deadline, server -> {
+            validation.atBranchStart(server, () -> gateways.logs(server).validate(query));
             List<String> warnings = admit("query_logs", Capability.LOG_DIAGNOSIS, server);
             Page<LogEntry> page = gateways.logs(server).query(query);
             List<LogEntry> items = new ArrayList<>(page.items());
@@ -249,56 +259,110 @@ public final class DiagnosisService {
     }
 
     /**
-     * The version gate's warnings for a diagnosis read on {@code server} (REST only):
+     * The version gate's warnings for a diagnosis read on {@code server}, followed by the version
+     * notes of its admission (feature 011, FR-010: on 6.1 where the logs can be read):
      * {@code PROCESS_DIAGNOSIS} for {@code find_processes}, {@code LOG_DIAGNOSIS} for
-     * {@code query_logs} (feature 011, FR-004).
+     * {@code query_logs} (feature 011, FR-004). The call names REST; on a CLI-only version the
+     * gate judges the channels of its matrix entry instead.
      */
     private List<String> admit(String tool, Capability capability, NodeId server) {
-        return gate.admit(tool, server, capability, Capability.Kind.READ,
-            Set.of(Channel.REST)).warnings();
+        VersionGate.Admission admission = gate.admit(tool, server, capability,
+            Capability.Kind.READ, Set.of(Channel.REST));
+        List<String> warnings = new ArrayList<>(admission.warnings());
+        warnings.addAll(admission.notes());
+        return warnings;
     }
 
     /**
-     * Runs {@code check} now for every server whose credentials are held and returns the
-     * others, unchecked: taking their port would wait for their first fetch, so they are checked
-     * at the start of their own fan-out branch, within their deadline (feature 010, R-8).
+     * The outcome of {@link #validateHeld}: the servers to check in their own branch, and the
+     * refusals ({@code UNSUPPORTED_VERSION}) of the servers checked up front.
      */
-    private Set<NodeId> validateHeld(List<NodeId> servers, Consumer<NodeId> check) {
+    private record Validation(Set<NodeId> unchecked, Map<NodeId, ToolErrorException> refused) {
+
+        /**
+         * At the start of {@code server}'s fan-out branch: throws its kept refusal, so that it
+         * becomes that server's entry before the version gate is asked (feature 011, FR-007:
+         * nothing is launched), or runs {@code check} if the server was not checked up front.
+         */
+        void atBranchStart(NodeId server, Runnable check) {
+            ToolErrorException refusal = refused.get(server);
+            if (refusal != null) {
+                throw refusal;
+            }
+            if (unchecked.contains(server)) {
+                check.run();
+            }
+        }
+    }
+
+    /**
+     * Runs {@code check} now for every server whose credentials are held; the others stay
+     * unchecked: taking their port would wait for their first fetch, so they are checked at the
+     * start of their own fan-out branch, within their deadline (feature 010, R-8).
+     *
+     * @param keepRefusals whether an {@code UNSUPPORTED_VERSION} of the check is kept as the
+     *     server's entry: for {@code find_processes}, whose 6.1 port refuses an input such as
+     *     {@code tag} (feature 011, research D-10); not for {@code query_logs}, whose 6.1 port
+     *     refuses everything and is preceded by the gate's refusal of log diagnosis with its
+     *     next step
+     */
+    private Validation validateHeld(List<NodeId> servers, Consumer<NodeId> check,
+        boolean keepRefusals) {
         Set<NodeId> unchecked = new HashSet<>();
+        Map<NodeId, ToolErrorException> refused = new HashMap<>();
         for (NodeId server : servers) {
             if (gateways.credentialsHeld(server)) {
-                validate(() -> check.accept(server));
+                validate(() -> check.accept(server)).filter(refusal -> keepRefusals)
+                    .ifPresent(refusal -> refused.put(server, refusal));
             } else {
                 unchecked.add(server);
             }
         }
-        return unchecked;
+        return new Validation(unchecked, refused);
     }
 
     /**
-     * A port's check without network: {@code INVALID_INPUT} fails the whole call; other
-     * failures (e.g. an unusable trust store) are reported per server by the fan-out.
+     * A port's check without network: {@code INVALID_INPUT} fails the whole call; an
+     * {@code UNSUPPORTED_VERSION} (an input the node's version cannot serve, feature 011
+     * research D-10) is returned to become that server's entry; other failures (e.g. an
+     * unusable trust store) are reported per server by the fan-out.
      */
-    private static void validate(Runnable check) {
+    private static Optional<ToolErrorException> validate(Runnable check) {
         try {
             check.run();
         } catch (ToolErrorException e) {
             if (e.error().code() == ErrorCode.INVALID_INPUT) {
                 throw e;
             }
+            if (e.error().code() == ErrorCode.UNSUPPORTED_VERSION) {
+                return Optional.of(e);
+            }
         }
+        return Optional.empty();
     }
 
     /**
-     * {@code 3 × timeout} (guard wait, the version gate's detection, the query) plus
-     * {@link #FAN_OUT_GRACE}. The detection is always counted: whether the gate detects is only
-     * known inside the call (first use, a stale version, the end of the back-off). Feature 010:
-     * plus the {@link SecretTiming#allowance fetch allowance} of an AWS node, always, for the
-     * same reason.
+     * The fan-out deadline of {@code server} for {@code capability}, by the channel the version
+     * gate gives the capability on that node (feature 011, research D-10), plus
+     * {@link #FAN_OUT_GRACE}:
+     * <ul>
+     *   <li>REST: {@code 3 × timeout} (guard wait, the version gate's detection, the query);
+     *   <li>StartCLI ({@code find_processes} on 6.1): {@code cliTimeout} for the client-option
+     *       probe of a first call, {@code cliTimeout} for the wait for the concurrency limiter
+     *       (which also bounds the credential guard wait), {@code timeout} for the TLS handshake
+     *       and {@code cliTimeout} for the session.
+     * </ul>
+     * The detection and the option probe are always counted: whether they run is only known
+     * inside the call (first use, a stale version, the end of the back-off). Feature 010: plus
+     * the {@link SecretTiming#allowance fetch allowance} of an AWS node, always, for the same
+     * reason.
      */
-    Duration deadline(NodeId server) {
-        return timeouts.apply(server).multipliedBy(3).plus(FAN_OUT_GRACE)
-            .plus(secretTiming.allowance(server));
+    Duration deadline(NodeId server, Capability capability) {
+        Duration timeout = timeouts.apply(server);
+        Duration work = gate.channels(server, capability).contains(Channel.CLI)
+            ? cliTimeouts.apply(server).multipliedBy(3).plus(timeout)
+            : timeout.multipliedBy(3);
+        return work.plus(FAN_OUT_GRACE).plus(secretTiming.allowance(server));
     }
 
     private Duration threshold(ProcessRequest request, NodeId server) {

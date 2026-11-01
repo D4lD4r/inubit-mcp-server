@@ -321,7 +321,7 @@ request.
   `totalIsLowerBound` when any listing hit the cap; `validate` and `find` both refuse `tag` with
   `UNSUPPORTED_VERSION`; `findByProcessId` refuses. Added to `V61PortSet`. Tests first:
   `V61ProcessQueryAdapterTest` (US2-1…US2-7; exactly one launch per call).
-- [ ] T033 [US2] `DiagnosisService` for 6.1 (FR-007, FR-010, FR-015, research D-10): an
+- [X] T033 [US2] `DiagnosisService` for 6.1 (FR-007, FR-010, FR-015, research D-10): an
   `UNSUPPORTED_VERSION` from validation is kept and returned as that node's result entry, also for
   nodes whose credentials are held (`validateHeld`/`validate`, `:262-286`); the 6.1 result entry
   carries the warning "logs of INUBIT 6.1 cannot be read with query_logs; read them in the

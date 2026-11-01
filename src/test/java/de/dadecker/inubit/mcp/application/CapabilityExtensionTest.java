@@ -193,7 +193,8 @@ class CapabilityExtensionTest {
         TargetResolver targets = new TargetResolver(ids);
         Function<NodeId, Duration> timeouts = id -> byId.get(id).timeout();
         DiagnosisService diagnosis = new DiagnosisService(gateways, targets, new FanOut(),
-            ResultLimiter.withDefaults(), timeouts, id -> byId.get(id).hangingThreshold(), clock,
+            ResultLimiter.withDefaults(), timeouts, id -> byId.get(id).cliTimeout(),
+            id -> byId.get(id).hangingThreshold(), clock,
             ResultJson::size, gate, SecretTiming.NONE);
         InventoryService inventory = new InventoryService(gateways, targets, new FanOut(),
             ResultLimiter.withDefaults(), new InventoryCache(clock,

@@ -83,9 +83,11 @@ final class DiagnosisToolFixture implements AutoCloseable {
             EffectiveNodeConfig::id, EffectiveNodeConfig::timeout));
         Map<NodeId, Duration> thresholds = servers.stream().collect(Collectors.toMap(
             EffectiveNodeConfig::id, EffectiveNodeConfig::hangingThreshold));
+        Map<NodeId, Duration> cliTimeouts = servers.stream().collect(Collectors.toMap(
+            EffectiveNodeConfig::id, EffectiveNodeConfig::cliTimeout));
         DiagnosisService diagnosis = new DiagnosisService(gateways, new TargetResolver(ids),
-            new FanOut(), ResultLimiter.withDefaults(), timeouts::get, thresholds::get,
-            Clock.systemUTC(), ResultJson::size,
+            new FanOut(), ResultLimiter.withDefaults(), timeouts::get, cliTimeouts::get,
+            thresholds::get, Clock.systemUTC(), ResultJson::size,
             gateWithoutClients(versions, gateways, CapabilityMatrix.production()),
             SecretTiming.NONE);
         client = McpTestClient.start(List.of(tool.apply(diagnosis)), scrubber);

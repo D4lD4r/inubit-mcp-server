@@ -1,6 +1,5 @@
 package de.dadecker.inubit.mcp.application;
 
-import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.application.DiagnosisService.LogRequest;
@@ -8,6 +7,8 @@ import de.dadecker.inubit.mcp.application.DiagnosisService.NodePage;
 import de.dadecker.inubit.mcp.application.DiagnosisService.ProcessRequest;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
@@ -22,6 +23,7 @@ import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.ProcessState;
 import de.dadecker.inubit.mcp.domain.model.Severity;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
+import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
@@ -47,6 +49,7 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -72,6 +75,10 @@ class DiagnosisServiceTest {
     private static final List<NodeId> SERVERS = List.of(DEV, QA1, QA2);
     private static final Instant NOW = Instant.parse("2026-10-01T12:00:00Z");
     private static final Duration TIMEOUT = Duration.ofMillis(300);
+    private static final ClientVersion CLIENT_610 = new ClientVersion(
+        InubitVersion.parse("6.1.0").orElseThrow(),
+        Optional.of(InubitVersion.parse("4.0.1").orElseThrow()),
+        Optional.of(InubitVersion.parse("6.1.0").orElseThrow()));
 
     private final MutableClock clock = new MutableClock(NOW);
     private final Map<NodeId, FakeProcesses> processes = new ConcurrentHashMap<>();
@@ -96,6 +103,12 @@ class DiagnosisServiceTest {
     private final Set<NodeId> pendingSecrets = ConcurrentHashMap.newKeySet();
     /** Feature 010: the first fetch of a pending node (default: succeeds at once). */
     private volatile Consumer<NodeId> fetch = pendingSecrets::remove;
+    /** Feature 011: the {@code cliTimeout} of every server. */
+    private Duration cliTimeout = Duration.ofSeconds(3);
+    /** Feature 009: the nodes with a StartCLI installation, whose client the gate probes. */
+    private final Set<NodeId> withClient = ConcurrentHashMap.newKeySet();
+    /** Every client probe of the gate (a local StartCLI launch), one entry per probe. */
+    private final List<NodeId> probes = new CopyOnWriteArrayList<>();
 
     private void acquire(NodeId server) {
         if (pendingSecrets.contains(server)) {
@@ -161,8 +174,13 @@ class DiagnosisServiceTest {
             }
         };
         return new DiagnosisService(gateways, new TargetResolver(SERVERS), new FanOut(),
-            limiter, server -> TIMEOUT, thresholds::get, clock, item -> sizes.apply(item),
-            gateWithoutClients(versions, detection, matrix), secretTiming);
+            limiter, server -> TIMEOUT, server -> cliTimeout, thresholds::get, clock,
+            item -> sizes.apply(item), new VersionGate(versions, detection, matrix,
+                (node, timeout) -> {
+                    probes.add(node);
+                    return CLIENT_610;
+                }, withClient::contains, node -> cliTimeout, Terminology.DEFAULT),
+            secretTiming);
     }
 
     private static ProcessRequest processRequest(String target) {
@@ -517,7 +535,7 @@ class DiagnosisServiceTest {
     @Test
     void theFanOutDeadlineIncludesTheGuardWaitTheDetectionAndTheQuery() {
         // feature 009 (T012 review r1): the version gate's detection adds one timeout
-        assertThat(service().deadline(DEV))
+        assertThat(service().deadline(DEV, Capability.PROCESS_DIAGNOSIS))
             .isEqualTo(TIMEOUT.multipliedBy(3).plus(DiagnosisService.FAN_OUT_GRACE));
     }
 
@@ -528,8 +546,9 @@ class DiagnosisServiceTest {
         DiagnosisService service = service();
         Duration base = TIMEOUT.multipliedBy(3).plus(DiagnosisService.FAN_OUT_GRACE);
 
-        assertThat(service.deadline(QA1)).isEqualTo(base.plusSeconds(10).plusSeconds(1));
-        assertThat(service.deadline(DEV)).isEqualTo(base);
+        assertThat(service.deadline(QA1, Capability.PROCESS_DIAGNOSIS))
+            .isEqualTo(base.plusSeconds(10).plusSeconds(1));
+        assertThat(service.deadline(DEV, Capability.PROCESS_DIAGNOSIS)).isEqualTo(base);
     }
 
     @Test
@@ -752,6 +771,157 @@ class DiagnosisServiceTest {
         supported.put(Capability.LOG_DIAGNOSIS, SupportState.SUPPORTED);
         return new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
             new VersionRange(8, 1, 8, 1), supported)), Map.of());
+    }
+
+    // --- feature 011, T033: find_processes on a 6.1 node (FR-007, FR-010, research D-10) ------
+
+    /** The warning of a 6.1 entry, from the gate admission's version notes (FR-010, FR-016). */
+    private static final String LOG_NOTE = "logs of INUBIT 6.1 cannot be read with query_logs;"
+        + " read them in the Workbench";
+
+    /** 6.1 CLI-only with process diagnosis supported over StartCLI (as after T040); 8.1 all. */
+    private static CapabilityMatrix with61() {
+        Map<Capability, SupportState> all = new EnumMap<>(Capability.class);
+        for (Capability capability : Capability.values()) {
+            all.put(capability, SupportState.SUPPORTED);
+        }
+        return new CapabilityMatrix(List.of(
+            new CapabilityMatrix.Entry(new VersionRange(6, 1, 6, 1),
+                Map.of(Capability.PROCESS_DIAGNOSIS, SupportState.SUPPORTED),
+                Map.of(Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)), true),
+            new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1), all)), Map.of());
+    }
+
+    /** The adapter's refusal of {@code tag} on a 6.1 node (V61ProcessQueryAdapter, T032). */
+    private static ToolErrorException tagRefused(NodeId node) {
+        return new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
+            "find_processes: INUBIT 6.1 on " + node + " does not support the input tag;"
+                + " nothing was sent", "The process listing of StartCLI 6.1 has no tag column",
+            "Omit tag for this node, or filter by workflow").withNode(node));
+    }
+
+    private static ProcessRequest withTag(ProcessRequest r, String tag) {
+        return new ProcessRequest(r.target(), r.states(), r.hangingOnly(),
+            r.hangingThresholdMinutes(), r.workflow(), Optional.of(tag), r.since(), r.until(),
+            r.offset(), r.limit());
+    }
+
+    @Test
+    void theFanOutDeadlineOfA61NodeFollowsItsStartCliChannel() {
+        // options probe + limiter wait + TLS handshake + session + grace (+ AWS allowance)
+        matrix = with61();
+        versionLines.put(QA2, VersionSetting.V6_1);
+        secretTiming = new SecretTiming(Set.of(QA2), Duration.ofSeconds(10));
+        DiagnosisService service = service();
+        Duration rest = TIMEOUT.multipliedBy(3).plus(DiagnosisService.FAN_OUT_GRACE);
+        Duration aws = Duration.ofSeconds(10).plusSeconds(1);
+
+        assertThat(service.deadline(QA2, Capability.PROCESS_DIAGNOSIS)).isEqualTo(
+            cliTimeout.multipliedBy(3).plus(TIMEOUT).plus(DiagnosisService.FAN_OUT_GRACE)
+                .plus(aws));
+        assertThat(service.deadline(QA2, Capability.LOG_DIAGNOSIS))
+            .as("logs are not read over StartCLI").isEqualTo(rest.plus(aws));
+        assertThat(service.deadline(QA1, Capability.PROCESS_DIAGNOSIS)).isEqualTo(rest);
+        assertThat(detection.requests()).isEmpty();
+        assertThat(probes).isEmpty();
+    }
+
+    @Test
+    void a61SessionLongerThanThreeTimeoutsButWithinCliTimeoutIsAnsweredWithTheLogNote() {
+        // the 8.1 deadline (3 x 300 ms + 1 s) would cut the 2.5 s session off; cliTimeout is 3 s
+        matrix = with61();
+        versionLines.put(QA2, VersionSetting.V6_1);
+        withClient.add(QA2);
+        processes(QA1).answer = query -> page(List.of(
+            instance(QA1, "1", ProcessState.ERROR, NOW)), 0, 50, 1, false);
+        processes(QA2).answer = query -> {
+            try {
+                Thread.sleep(Duration.ofMillis(2_500));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("cut off");
+            }
+            return page(List.of(instance(QA2, "2", ProcessState.ERROR, NOW)), 0, 50, 1, false);
+        };
+
+        List<NodeResult<NodePage<ProcessInstance>>> results = service().findProcesses(
+            processRequest("qa"));
+
+        assertThat(results.get(1).error()).isEmpty();
+        NodePage<ProcessInstance> legacy = results.get(1).payload().orElseThrow();
+        assertThat(legacy.page().items()).extracting(ProcessInstance::processId)
+            .containsExactly("2");
+        assertThat(legacy.warnings()).containsExactly(LOG_NOTE);
+        assertThat(results.get(0).payload().orElseThrow().warnings())
+            .as("no note on 8.1").isEmpty();
+        assertThat(probes).as("the gate checks the StartCLI client of the 6.1 node")
+            .containsExactly(QA2);
+    }
+
+    @Test
+    void anEmptyQueryOn61StillCarriesTheLogNote() {
+        matrix = with61();
+        versionLines.put(QA2, VersionSetting.V6_1);
+
+        NodePage<ProcessInstance> page = service().findProcesses(withStates(
+            processRequest("qa/node2"), Set.of(ProcessState.ERROR), true, Optional.empty()))
+            .get(0).payload().orElseThrow();
+
+        assertThat(page.page().items()).isEmpty();
+        assertThat(page.warnings()).containsExactly(LOG_NOTE);
+        assertThat(processes(QA2).queries()).isEmpty();
+    }
+
+    @Test
+    void aHeld61NodeRefusingTagGetsItsRefusalAndThe81NodeItsResultWithoutAdmission() {
+        // research D-10: the refusal of the up-front validation is kept as the node's entry; the
+        // gate is not asked, so neither the client probe nor a session is launched
+        matrix = with61();
+        versionLines.put(QA2, VersionSetting.V6_1);
+        withClient.add(QA2);
+        processes(QA1).answer = query -> page(List.of(
+            instance(QA1, "1", ProcessState.ERROR, NOW)), 0, 50, 1, false);
+        processes(QA2).validator = query -> {
+            throw tagRefused(QA2);
+        };
+
+        List<NodeResult<NodePage<ProcessInstance>>> results = service().findProcesses(
+            withTag(processRequest("qa"), "release-1"));
+
+        assertThat(results).extracting(NodeResult::node).containsExactly(QA1, QA2);
+        assertThat(results.get(0).payload().orElseThrow().page().items()).hasSize(1);
+        assertThat(processes(QA1).queries()).singleElement()
+            .satisfies(query -> assertThat(query.tag()).contains("release-1"));
+        assertThat(results.get(1).payload()).isEmpty();
+        assertThat(results.get(1).error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+            assertThat(error.node()).contains(QA2);
+            assertThat(error.message()).isEqualTo("find_processes: INUBIT 6.1 on qa/node2"
+                + " does not support the input tag; nothing was sent");
+        });
+        assertThat(processes(QA2).validated()).as("validated once, up front").hasSize(1);
+        assertThat(processes(QA2).queries()).isEmpty();
+        assertThat(probes).isEmpty();
+    }
+
+    @Test
+    void aPending61NodeRefusingTagGetsItsRefusalFromItsOwnBranchWithoutAdmission() {
+        matrix = with61();
+        versionLines.put(QA2, VersionSetting.V6_1);
+        withClient.add(QA2);
+        pendingSecrets.add(QA2);
+        processes(QA2).validator = query -> {
+            throw tagRefused(QA2);
+        };
+
+        List<NodeResult<NodePage<ProcessInstance>>> results = service().findProcesses(
+            withTag(processRequest("qa"), "release-1"));
+
+        assertThat(results.get(0).isSuccess()).isTrue();
+        assertThat(results.get(1).error()).hasValueSatisfying(error ->
+            assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION));
+        assertThat(processes(QA2).queries()).isEmpty();
+        assertThat(probes).isEmpty();
     }
 
     // --- query_logs ----------------------------------------------------------------------------

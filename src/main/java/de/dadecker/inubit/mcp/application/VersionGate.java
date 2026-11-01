@@ -219,6 +219,19 @@ public final class VersionGate {
     }
 
     /**
+     * The channels through which {@code capability} reaches {@code node}, decided on the pin
+     * before any contact like {@link #monitoringAccess}: the matrix entry's channels of the
+     * pinned version (StartCLI for process diagnosis on 6.1), else the capability's own. Callers
+     * size their deadlines by it (feature 011, research D-10). Never detects, never probes and
+     * never refuses; the admission still decides.
+     */
+    public Set<Channel> channels(NodeId node, Capability capability) {
+        Objects.requireNonNull(node, "node");
+        Objects.requireNonNull(capability, "capability");
+        return matrix.channels(pinnedVersion(versions.state(node)), capability);
+    }
+
+    /**
      * The {@code MONITORING} admission of one {@code get_health} call over REST: never detects
      * and never refuses, except on a CLI-only version (research D-3). It is judged on the version
      * this call's own {@code /system/info} read returned; without one (the read failed or gave no

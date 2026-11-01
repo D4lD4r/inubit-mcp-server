@@ -754,6 +754,31 @@ class VersionGateTest {
                 .contains("MONITORING", "REFUSED", "UNSUPPORTED_VERSION", "INUBIT 6.1"));
     }
 
+    // --- feature 011, T033: the channels of a capability before contact (research D-10) ------
+
+    @Test
+    void theChannelsOfACapabilityAreDecidedOnThePinWithoutContact() {
+        withClient.add(AUTO);
+        withClient.add(PINNED);
+        withClient.add(V6_1);
+        withClient.add(V6_1_PINNED);
+        versions.observed(V6_1_PINNED, version("8.1.17"));
+        VersionGate gate = gate(matrix61());
+
+        assertThat(gate.channels(V6_1, Capability.PROCESS_DIAGNOSIS)).isEqualTo(CLI);
+        assertThat(gate.channels(V6_1_PINNED, Capability.PROCESS_DIAGNOSIS))
+            .as("decided by the pin, also while it is contradicted").isEqualTo(CLI);
+        assertThat(gate.channels(V6_1, Capability.LOG_DIAGNOSIS))
+            .as("not declared for 6.1: the capability's own").isEqualTo(REST);
+        assertThat(gate.channels(PINNED, Capability.PROCESS_DIAGNOSIS)).isEqualTo(REST);
+        assertThat(gate.channels(AUTO, Capability.PROCESS_DIAGNOSIS)).isEqualTo(REST);
+        assertThat(gate.channels(AUTO, Capability.INVENTORY)).isEqualTo(CLI_REST);
+
+        assertThat(detection.calls).isZero();
+        assertThat(probe.calls).isEmpty();
+        assertThat(appender.list).isEmpty();
+    }
+
     // --- feature 011, T008: refusal texts, next steps and version notes (FR-007) -------------
 
     @Test
