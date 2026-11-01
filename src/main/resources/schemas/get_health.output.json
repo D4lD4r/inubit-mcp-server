@@ -26,6 +26,7 @@
         "version": { "type": "string" },
         "systemInfo": { "$ref": "#/$defs/SystemInfo" },
         "load": { "$ref": "#/$defs/LoadFigures" },
+        "processCounts": { "$ref": "#/$defs/ProcessCounts" },
         "client": { "$ref": "#/$defs/Client" },
         "unavailable": {
           "type": "array",
@@ -34,7 +35,8 @@
             "required": ["part", "reason"],
             "properties": {
               "part": {
-                "enum": ["status", "ready", "version", "systemInfo", "load", "client"]
+                "enum": ["status", "ready", "version", "systemInfo", "load", "client",
+                  "threads", "blockingQueue"]
               },
               "reason": { "type": "string", "description": "CODE: message" },
               "likelyCause": { "type": "string" },
@@ -77,8 +79,8 @@
     },
     "LoadFigures": {
       "type": "object",
-      "required": ["usedMemoryMb", "freeMemoryMb", "maxMemoryMb", "threadsInUse",
-        "licensedThreads", "maxThreads", "blockingQueueEntries", "maxBlockingQueueSize"],
+      "description": "The thread and blocking queue figures are absent on INUBIT 6.1",
+      "required": ["usedMemoryMb", "freeMemoryMb", "maxMemoryMb"],
       "properties": {
         "usedMemoryMb": { "type": "number" },
         "freeMemoryMb": { "type": "number" },
@@ -90,6 +92,18 @@
         "blockingQueueEntries": { "type": "integer" },
         "maxBlockingQueueSize": { "type": "integer" },
         "blockingQueuePercent": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "ProcessCounts": {
+      "type": "object",
+      "description": "Process instances per state; reported for INUBIT 6.1",
+      "required": ["error", "processing", "waiting", "queued"],
+      "properties": {
+        "error": { "type": "integer" },
+        "processing": { "type": "integer" },
+        "waiting": { "type": "integer" },
+        "queued": { "type": "integer" }
       },
       "additionalProperties": false
     },

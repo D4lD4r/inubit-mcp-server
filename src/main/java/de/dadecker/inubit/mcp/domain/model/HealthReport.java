@@ -12,6 +12,8 @@ import java.util.Optional;
  * @param checkedAt   the INUBIT healthcheck timestamp, or the MCP server's clock if INUBIT gave
  *                    none
  * @param reachable   true if {@code /healthcheck} gave any HTTP response
+ * @param processCounts the process instances per state, reported for INUBIT 6.1 only
+ *                    (feature 011, FR-008)
  * @param client      the node's StartCLI client (feature 009, FR-002); empty while it is not
  *                    known, the part {@code client} in {@code unavailable} then says why
  * @param unavailable parts that could not be obtained, with the reason (FR-008)
@@ -30,6 +32,7 @@ public record HealthReport(
     Optional<String> version,
     Optional<SystemInfo> systemInfo,
     Optional<LoadFigures> load,
+    Optional<ProcessCounts> processCounts,
     Optional<Client> client,
     List<UnavailablePart> unavailable,
     Optional<ToolError> error,
@@ -46,6 +49,7 @@ public record HealthReport(
         version = orEmpty(version);
         systemInfo = orEmpty(systemInfo);
         load = orEmpty(load);
+        processCounts = orEmpty(processCounts);
         client = orEmpty(client);
         unavailable = List.copyOf(unavailable);
         error = orEmpty(error);

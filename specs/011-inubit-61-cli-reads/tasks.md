@@ -255,7 +255,7 @@ request.
   `fixtures/v6_1/cli/health_session_ok`, `health_session_maintenance`, `health_session_de`
   (German labels), `health_session_alive_failed`, `login_failed`, `unreachable`; append them to
   `RECONSTRUCTED.txt` as `monitoring`. Covered by `V61FixturesShapeTest`.
-- [ ] T023 [P] [US1] Report model (FR-008, data-model): `ProcessCounts`, `MemoryFigures`,
+- [X] T023 [P] [US1] Report model (FR-008, data-model): `ProcessCounts`, `MemoryFigures`,
   `CliHealthSnapshot`; `HealthReport.processCounts`; optional thread/queue fields in
   `LoadFigures`; `UnavailablePart` parts `threads`, `blockingQueue` and reason
   `NOT_AVAILABLE_ON_6_1`; schema `res/schemas/get_health.output.json`. Tests first:

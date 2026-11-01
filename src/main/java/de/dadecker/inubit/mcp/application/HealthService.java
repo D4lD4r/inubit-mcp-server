@@ -496,17 +496,17 @@ public final class HealthService {
         warnings.addAll(versionWarnings);
 
         return new HealthReport(server, server.group(), checkedAt, reachable, status, isReady,
-            readyMessage, maintenanceMode, version, info, load, client.client(), unavailable,
-            reachable ? Optional.empty() : Optional.of(healthcheck.error()),
+            readyMessage, maintenanceMode, version, info, load, Optional.empty(), client.client(),
+            unavailable, reachable ? Optional.empty() : Optional.of(healthcheck.error()),
             List.copyOf(warnings));
     }
 
     private HealthReport failed(NodeId server, ToolError error) {
         return new HealthReport(server, server.group(), clock.instant(), false,
             HealthStatus.UNKNOWN, Optional.empty(), Optional.empty(), Optional.empty(),
-            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), List.of(),
-            Optional.of(error.node().isPresent() ? error : error.withNode(server)),
-            List.of());
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+            Optional.empty(), List.of(),
+            Optional.of(error.node().isPresent() ? error : error.withNode(server)), List.of());
     }
 
     /** Waits for {@code future} until {@code deadline} (nano time); interrupts are passed on. */
