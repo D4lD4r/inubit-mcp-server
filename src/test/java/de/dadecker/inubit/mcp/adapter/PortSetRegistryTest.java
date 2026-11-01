@@ -9,6 +9,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61HealthAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
+import de.dadecker.inubit.mcp.adapter.cli.v61.V61ProcessQueryAdapter;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
@@ -35,12 +36,15 @@ import org.junit.jupiter.api.Test;
  */
 class PortSetRegistryTest {
 
+    private static final CliClientProbe PROBE = new CliClientProbe(noStartCli(), id -> {
+        throw new AssertionError("no client probe expected: " + id);
+    }, CapabilityMatrix.production(), Clock.systemUTC());
+    private static final CliConcurrencyLimiter LIMITER =
+        new CliConcurrencyLimiter(CapabilityMatrix.production());
+
     private final PortSetRegistry registry = PortSetRegistry.v81Default()
-        .register(V61PortSet.RANGE, V61PortSet::create, V61PortSet.cliHealth(
-            new CliClientProbe(noStartCli(), id -> {
-                throw new AssertionError("no client probe expected: " + id);
-            }, CapabilityMatrix.production(), Clock.systemUTC()),
-            new CliConcurrencyLimiter(CapabilityMatrix.production())));
+        .register(V61PortSet.RANGE, V61PortSet.factory(PROBE, LIMITER),
+            V61PortSet.cliHealth(PROBE, LIMITER));
 
     private static Optional<InubitVersion> effective(VersionSetting setting) {
         return NodeVersionState.initial(setting).effectiveVersion();
@@ -88,13 +92,15 @@ class PortSetRegistryTest {
     }
 
     @Test
-    void theSixOnePortSetIsBuiltWithoutRestClientAndRefusesEveryPort() {
+    void theSixOnePortSetIsBuiltWithoutRestClientAndRefusesEveryPortButTheProcessQuery() {
+        // the runner of sixOneResources fails on any launch
         PortSetRegistry.NodeResources node = sixOneResources();
 
         PortSet ports = registry.select(effective(VersionSetting.V6_1)).factory().create(node);
 
-        assertThat(List.of(ports.processes(), ports.logs(), ports.inventory(),
-            ports.processControl(), ports.artifacts(), ports.imports(), ports.tags()))
+        assertThat(ports.processes()).isInstanceOf(V61ProcessQueryAdapter.class);
+        assertThat(List.of(ports.logs(), ports.inventory(), ports.processControl(),
+            ports.artifacts(), ports.imports(), ports.tags()))
             .allSatisfy(port -> assertThat(port).isInstanceOf(RefusingPorts.class));
         assertThatThrownBy(() -> ports.logs().query(null))
             .isInstanceOfSatisfying(ToolErrorException.class, e ->

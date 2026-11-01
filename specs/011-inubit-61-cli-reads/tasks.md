@@ -314,7 +314,7 @@ request.
   raw states → `OTHER`, `__NotAssigned__` → no `inubitNode`; unknown header or line →
   `UNEXPECTED_RESPONSE`. Tests first: `V61PsParserTest` over the T029 fixtures and malformed
   variants.
-- [ ] T032 [US2] `V61ProcessQueryAdapter` (FR-010, research D-10): listings per state rule
+- [X] T032 [US2] `V61ProcessQueryAdapter` (FR-010, research D-10): listings per state rule
   (no state or `ACTIVE` → `ps -a`, else one per state, in one session through `V61Connection`,
   each `-l 10000`); filters (workflow, time range, hanging as `since ≤ now − threshold` for
   non-final states); newest first; paging (`offset + limit ≤ 10,000`); `truncated` and

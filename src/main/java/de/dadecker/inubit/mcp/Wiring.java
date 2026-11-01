@@ -244,8 +244,8 @@ final class Wiring implements AutoCloseable {
         CliConcurrencyLimiter cliLimiter = new CliConcurrencyLimiter(matrix);
         this.gateways = new AdapterGatewayFactory(servers, secrets, scrubber, clock.clock(),
             cliRunner, versions, PortSetRegistry.v81Default()
-                .register(V61PortSet.RANGE, V61PortSet::create, V61PortSet.cliHealth(
-                    clientOptions, cliLimiter)));
+                .register(V61PortSet.RANGE, V61PortSet.factory(clientOptions, cliLimiter),
+                    V61PortSet.cliHealth(clientOptions, cliLimiter)));
         // feature 009 (research D-7): the StartCLI client probe, on the same runner so that a
         // shutdown also stops a running probe
         this.clientVersions = new CliVersionProbe(cliRunner, byId::get);

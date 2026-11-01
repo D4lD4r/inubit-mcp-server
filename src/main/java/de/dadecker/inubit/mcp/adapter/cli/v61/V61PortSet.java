@@ -10,9 +10,10 @@ import de.dadecker.inubit.mcp.domain.model.VersionRange;
 
 /**
  * The INUBIT 6.1 port set (feature 011, research D-4), registered as CLI-only for {@link #RANGE}:
- * built without REST client. Every port 6.1 does not offer is a {@link RefusingPorts} stub; the
- * StartCLI adapter for the process query ({@code V61ProcessQueryAdapter}) replaces its refusal
- * once it exists. The health port is the {@link V61HealthAdapter}.
+ * built without REST client. The process query port is the {@link V61ProcessQueryAdapter}, the
+ * health port the {@link V61HealthAdapter}; every other port is a {@link RefusingPorts} stub.
+ * Both StartCLI adapters of a node use the same shared client probe and concurrency limiter
+ * (research D-8, D-9).
  */
 public final class V61PortSet {
 
@@ -22,10 +23,19 @@ public final class V61PortSet {
     private V61PortSet() {
     }
 
-    /** {@link PortSetRegistry.Factory}: the port set of a 6.1 node. */
-    public static PortSet create(PortSetRegistry.NodeResources node) {
-        RefusingPorts refusing = new RefusingPorts(node.server().id());
-        return new PortSet(refusing, refusing, refusing, refusing, refusing, refusing, refusing);
+    /**
+     * The {@link PortSetRegistry.Factory} of 6.1 nodes: a {@link V61ProcessQueryAdapter} per node,
+     * all other ports refusing; {@code probe} and {@code limiter} are shared by every node (one
+     * instance each).
+     */
+    public static PortSetRegistry.Factory factory(CliClientProbe probe,
+        CliConcurrencyLimiter limiter) {
+        return node -> {
+            RefusingPorts refusing = new RefusingPorts(node.server().id());
+            return new PortSet(new V61ProcessQueryAdapter(node.server().id(),
+                connection(node, probe, limiter), classifier(node)), refusing, refusing, refusing,
+                refusing, refusing, refusing);
+        };
     }
 
     /**
@@ -34,9 +44,17 @@ public final class V61PortSet {
      */
     public static PortSetRegistry.CliHealthFactory cliHealth(CliClientProbe probe,
         CliConcurrencyLimiter limiter) {
-        return node -> new V61HealthAdapter(node.server().id(),
-            new V61Connection(node.server(), node.credentials(), node.guard(), node.cliRunner(),
-                probe, limiter),
-            new CliOutputClassifier(node.scrubber(), node.server().secretLabels()));
+        return node -> new V61HealthAdapter(node.server().id(), connection(node, probe, limiter),
+            classifier(node));
+    }
+
+    private static V61Connection connection(PortSetRegistry.NodeResources node,
+        CliClientProbe probe, CliConcurrencyLimiter limiter) {
+        return new V61Connection(node.server(), node.credentials(), node.guard(),
+            node.cliRunner(), probe, limiter);
+    }
+
+    private static CliOutputClassifier classifier(PortSetRegistry.NodeResources node) {
+        return new CliOutputClassifier(node.scrubber(), node.server().secretLabels());
     }
 }

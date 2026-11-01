@@ -1011,18 +1011,22 @@ class AdapterGatewayFactoryTest {
 
     // --- feature 011 T025: the 6.1 selection builds no REST client (research D-4) ------------
 
-    /** The 6.1 health factory as {@code Wiring} builds it; its shared probe never runs here. */
-    private static final PortSetRegistry.CliHealthFactory V61_HEALTH = V61PortSet.cliHealth(
-        new CliClientProbe(new CliRunner(spec -> {
-            throw new AssertionError("no client probe expected: " + spec.command());
-        }, Map.of(), false, new CliResources("acme")), id -> {
-            throw new AssertionError("no client probe expected: " + id);
-        }, CapabilityMatrix.production(), Clock.systemUTC()),
-        new CliConcurrencyLimiter(CapabilityMatrix.production()));
+    /** The shared 6.1 client probe as {@code Wiring} builds it; it never runs here. */
+    private static final CliClientProbe V61_PROBE = new CliClientProbe(new CliRunner(spec -> {
+        throw new AssertionError("no client probe expected: " + spec.command());
+    }, Map.of(), false, new CliResources("acme")), id -> {
+        throw new AssertionError("no client probe expected: " + id);
+    }, CapabilityMatrix.production(), Clock.systemUTC());
+    private static final CliConcurrencyLimiter V61_LIMITER =
+        new CliConcurrencyLimiter(CapabilityMatrix.production());
+    private static final PortSetRegistry.Factory V61_PORTS =
+        V61PortSet.factory(V61_PROBE, V61_LIMITER);
+    private static final PortSetRegistry.CliHealthFactory V61_HEALTH =
+        V61PortSet.cliHealth(V61_PROBE, V61_LIMITER);
 
     /** As {@code Wiring} registers it. */
     private static final PortSetRegistry WITH_V61 = PortSetRegistry.v81Default()
-        .register(V61PortSet.RANGE, V61PortSet::create, V61_HEALTH);
+        .register(V61PortSet.RANGE, V61_PORTS, V61_HEALTH);
 
     /** A node whose REST client cannot be built: its trust store does not exist. */
     private static EffectiveNodeConfig withoutUsableClient(VersionSetting line) {
@@ -1041,8 +1045,8 @@ class AdapterGatewayFactoryTest {
                 .isSameAs(factory.cliHealth(DEV).get());
             assertThat(codeOf(() -> factory.logs(DEV).query(null)))
                 .isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
-            assertThat(codeOf(() -> factory.processes(DEV).find(null)))
-                .isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+            assertThat(codeOf(() -> factory.processes(DEV).findByProcessId("1",
+                Instant.EPOCH, Duration.ofHours(1)))).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
             assertThat(factory.logs(DEV)).as("still wrapped by the stale trigger")
                 .isInstanceOf(StaleReportingPorts.Logs.class);
 
@@ -1073,7 +1077,7 @@ class AdapterGatewayFactoryTest {
             resources -> {
                 assertThat(resources.client()).isNull();
                 builtWith.add(resources.credentials());
-                return V61PortSet.create(resources);
+                return V61_PORTS.create(resources);
             }, V61_HEALTH);
         EffectiveNodeConfig node = server(DEV, VersionSetting.V6_1);
         NodeSecrets secrets = awsSecrets(Optional.empty());
