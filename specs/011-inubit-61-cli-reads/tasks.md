@@ -275,7 +275,7 @@ request.
   with the health commands; maps to `CliHealthSnapshot` (alive, version text and whether it is the
   server's, maintenance, memory, counts, missing parts). Tests first: `V61HealthAdapterTest` over
   the T022 fixtures (exactly one launch per snapshot).
-- [ ] T027 [US1] `HealthService` CLI path and budgets (FR-008, FR-009, research D-6): for the `CLI`
+- [X] T027 [US1] `HealthService` CLI path and budgets (FR-008, FR-009, research D-6): for the `CLI`
   access of T007, `checkServerViaCli` runs the snapshot (whose connection obtains the client
   options first, T020) in parallel with the `-v` client probe of feature 009;
   `status` rule; maintenance warning; version observed only when marked as server version

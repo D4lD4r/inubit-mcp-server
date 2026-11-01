@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.ParameterStore;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpServerFactory;
@@ -46,6 +47,16 @@ public final class TestWiring implements AutoCloseable {
         ProcessLauncher launcher, Map<String, String> environment, ParameterStore store) {
         return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
             exists, windows, launcher, environment, () -> store));
+    }
+
+    /** As the launcher variant, with a capability matrix other than the production one. */
+    public static TestWiring of(ProfileConfig config, CredentialResolution credentials,
+        SecretScrubber scrubber, Predicate<Path> exists, boolean windows,
+        ProcessLauncher launcher, Map<String, String> environment, CapabilityMatrix matrix) {
+        return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
+            exists, windows, launcher, environment, () -> {
+                throw new IllegalStateException("no Parameter Store in this test");
+            }, matrix));
     }
 
     /** The MCP server the launcher starts, with {@link #toolHandlers()}. */
