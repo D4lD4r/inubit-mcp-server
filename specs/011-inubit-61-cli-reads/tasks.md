@@ -186,7 +186,7 @@ password channel, the client options, the configuration warnings and the process
   first: `TlsHandshakeCheckTest` against `TestCertificates.httpsWireMock` — trusted, pin match,
   pin mismatch, untrusted, wrong host name, host name skipped with pin; WireMock records 0 HTTP
   requests.
-- [ ] T016 [P] [US5] `CliSessionCommand` and `CliRunner.runSession` (FR-011, research D-5):
+- [X] T016 [P] [US5] `CliSessionCommand` and `CliRunner.runSession` (FR-011, research D-5):
   allowlisted commands (`uname`, `uptime`, `maintenance`, `free -m`, `ps` with the options of
   D-10, `exit`); `runSession` builds `[startcli.sh, -u, <user>, <cli.url>]` (trust arguments are
   added in T018), writes the password line, the commands and `exit` to stdin, and

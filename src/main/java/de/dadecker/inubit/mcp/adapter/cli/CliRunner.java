@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Runs StartCLI for one server (research R-6, R-12; Constitution I, II, V).
@@ -33,6 +34,10 @@ import java.util.Optional;
  *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <p12>],
  *       [--disableHostNameVerification], --execCommand, <command>, <cliUrl>]}. There is never a
  *       {@code -p}; the password plus {@code \n} is written to stdin, which is then closed.
+ *   <li>An interactive session on INUBIT 6.1 ({@link #runSession}, feature 011, research D-5):
+ *       {@code [startcli.sh, -u, <user>, <cliUrl>]}; stdin receives the password line, one line
+ *       per {@link CliSessionCommand} and {@code exit}, and is then closed. Environment,
+ *       timeout, output bound and credential guard are those of the {@code --execCommand} run.
  *   <li>The child environment is an allowlist: {@code PATH}, {@code HOME}, {@code TMPDIR},
  *       {@code LANG}, {@code LC_ALL}, {@code USER} (copied if set), {@code JAVA_HOME} (from
  *       {@code cli.javaHome}, else the server's own) and
@@ -96,7 +101,8 @@ public final class CliRunner {
         arguments.add("--execCommand");
         arguments.add(command.commandLine());
         arguments.add(server.cli().url().toString());
-        return execute(server, arguments, Optional.of(password), timeout, timeoutSetting);
+        return execute(server, arguments, Optional.of(password), List.of(), timeout,
+            timeoutSetting);
     }
 
     /**
@@ -120,9 +126,36 @@ public final class CliRunner {
      */
     public CliResult run(EffectiveNodeConfig server, String username, Secret password,
         CliCommand command, Duration timeout, String timeoutSetting, CredentialGuard guard) {
+        return guarded(guard, () -> runUnguarded(server, username, password, command, timeout,
+            timeoutSetting));
+    }
+
+    /**
+     * Logs in as {@code username} in StartCLI's interactive mode (INUBIT 6.1, feature 011,
+     * research D-5) and runs {@code commands}, then {@code exit}, in one process, guarded like
+     * {@link #run(EffectiveNodeConfig, String, Secret, CliCommand, Duration, CredentialGuard)}.
+     * Neither the password nor a command appears in the argument array.
+     *
+     * @throws ToolErrorException {@code AUTH_FAILED} from the guard, {@code CLI_UNAVAILABLE} if
+     *     StartCLI cannot be started, {@code TIMEOUT} if it does not finish within
+     *     {@code timeout}
+     */
+    public CliResult runSession(EffectiveNodeConfig server, String username, Secret password,
+        List<CliSessionCommand> commands, Duration timeout, CredentialGuard guard) {
+        List<String> arguments = List.of("-u", username, server.cli().url().toString());
+        List<CliSessionCommand> lines = new ArrayList<>(commands);
+        lines.add(CliSessionCommand.EXIT);
+        return guarded(guard, () -> execute(server, arguments, Optional.of(password), lines,
+            timeout, "cliTimeout"));
+    }
+
+    /**
+     * Runs {@code launch} under the guard: a {@code LoginFailure} rejects and an exit code 0
+     * confirms the credentials.
+     */
+    private static CliResult guarded(CredentialGuard guard, Supplier<CliResult> launch) {
         try (CredentialGuard.Permit permit = guard.acquire()) {
-            CliResult result = runUnguarded(server, username, password, command, timeout,
-                timeoutSetting);
+            CliResult result = launch.get();
             if (CliOutputClassifier.isLoginFailure(result)) {
                 permit.rejected();
             } else if (result.exitCode() == 0) {
@@ -137,18 +170,19 @@ public final class CliRunner {
      */
     CliResult execute(EffectiveNodeConfig server, List<String> arguments,
         Optional<Secret> stdinSecret, Duration timeout) {
-        return execute(server, arguments, stdinSecret, timeout, "cliTimeout");
+        return execute(server, arguments, stdinSecret, List.of(), timeout, "cliTimeout");
     }
 
     private CliResult execute(EffectiveNodeConfig server, List<String> arguments,
-        Optional<Secret> stdinSecret, Duration timeout, String timeoutSetting) {
+        Optional<Secret> stdinSecret, List<CliSessionCommand> stdinCommands, Duration timeout,
+        String timeoutSetting) {
         LaunchTarget target = launchTarget(server);
         List<String> command = new ArrayList<>(arguments.size() + 1);
         command.add(target.script().toString());
         command.addAll(arguments);
         LaunchSpec spec = new LaunchSpec(command, childEnvironment(target.javaHome()),
             target.home());
-        return launchAndWait(server, spec, stdinSecret, timeout, timeoutSetting);
+        return launchAndWait(server, spec, stdinSecret, stdinCommands, timeout, timeoutSetting);
     }
 
     /**
@@ -204,7 +238,8 @@ public final class CliRunner {
     }
 
     private CliResult launchAndWait(EffectiveNodeConfig server, LaunchSpec spec,
-        Optional<Secret> stdinSecret, Duration timeout, String timeoutSetting) {
+        Optional<Secret> stdinSecret, List<CliSessionCommand> stdinCommands, Duration timeout,
+        String timeoutSetting) {
         long start = System.nanoTime();
         LaunchedProcess process;
         // announced before the launch, so that a concurrent shutdown waits for and stops it;
@@ -235,8 +270,8 @@ public final class CliRunner {
             throw new ToolErrorException(e.error().withNode(server.id()));
         }
         try (registration) {
-            CliResult result = waitFor(server, process, stdinSecret, timeout, timeoutSetting,
-                start);
+            CliResult result = waitFor(server, process, stdinSecret, stdinCommands, timeout,
+                timeoutSetting, start);
             if (resources.closed()) {
                 throw new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
                     "The MCP server is shutting down; StartCLI on " + server.id()
@@ -249,10 +284,11 @@ public final class CliRunner {
     }
 
     private CliResult waitFor(EffectiveNodeConfig server, LaunchedProcess process,
-        Optional<Secret> stdinSecret, Duration timeout, String timeoutSetting, long start) {
+        Optional<Secret> stdinSecret, List<CliSessionCommand> stdinCommands, Duration timeout,
+        String timeoutSetting, long start) {
         BoundedSink stdout = BoundedSink.drain(process.stdout());
         BoundedSink stderr = BoundedSink.drain(process.stderr());
-        writeStdin(process, stdinSecret);
+        writeStdin(process, stdinSecret, stdinCommands);
         boolean exited;
         try {
             exited = process.waitFor(timeout);
@@ -273,7 +309,14 @@ public final class CliRunner {
             Duration.ofNanos(System.nanoTime() - start), stdout.truncated() || stderr.truncated());
     }
 
-    private static void writeStdin(LaunchedProcess process, Optional<Secret> secret) {
+    /**
+     * Writes the password line, then one line per session command, and closes stdin. The whole
+     * input is written up front, without waiting for StartCLI's {@code Password:} or command
+     * prompt; the 6.1 prompt behaviour is reconstructed from documentation (research D-5), so
+     * this is the one place to adjust once recordings show otherwise.
+     */
+    private static void writeStdin(LaunchedProcess process, Optional<Secret> secret,
+        List<CliSessionCommand> commands) {
         try (OutputStream stdin = process.stdin()) {
             if (secret.isPresent()) {
                 byte[] bytes = (secret.get().reveal() + "\n").getBytes(StandardCharsets.UTF_8);
@@ -284,6 +327,10 @@ public final class CliRunner {
                     Arrays.fill(bytes, (byte) 0);
                 }
             }
+            for (CliSessionCommand command : commands) {
+                stdin.write((command.text() + "\n").getBytes(StandardCharsets.UTF_8));
+            }
+            stdin.flush();
         } catch (IOException e) {
             // the process exited before reading stdin; its output tells why
         }

@@ -157,8 +157,10 @@ class CliRunnerTest {
     @Test
     void onlyTheGuardedRunIsAccessibleOutsideTheRunner() {
         // Phase 3 re-review N1: tools cannot bypass the credential guard
+        // feature 011 (T016): also the 6.1 session
         List<Method> runs = Arrays.stream(CliRunner.class.getDeclaredMethods())
-            .filter(method -> method.getName().equals("run"))
+            .filter(method -> method.getName().equals("run")
+                || method.getName().equals("runSession"))
             .filter(method -> !Modifier.isPrivate(method.getModifiers()))
             .toList();
 
@@ -464,5 +466,161 @@ class CliRunnerTest {
                 .quoted("--exportWorkflowGroup", "x' ; kill 1 ; '").build(),
             Duration.ofSeconds(5), guard())).code()).isEqualTo(ErrorCode.INVALID_INPUT);
         assertThat(launcher.launchCount()).isZero();
+    }
+
+    // --- interactive session on INUBIT 6.1 (feature 011, T016, research D-5) ---------------
+
+    private static final String SESSION_OK = "Password: \nuname output\n";
+    private static final String SESSION_LOGIN_FAILED = "Password: \n"
+        + "com.inubit.ibis.cli.CliConnectionException: @Start@LoginFailure@@@The user does not"
+        + " exist or password does not match.@End@\n";
+    private static final List<CliSessionCommand> HEALTH_COMMANDS = List.of(
+        CliSessionCommand.UNAME, CliSessionCommand.psCount(CliSessionCommand.Listing.ERROR),
+        CliSessionCommand.psList(CliSessionCommand.Listing.ALL, 10_000));
+
+    private CliResult runSession(FakeProcessLauncher launcher, CredentialGuard guard,
+        Duration timeout) {
+        return runner(launcher).runSession(server().build(), USER, Secret.of(PASSWORD),
+            HEALTH_COMMANDS, timeout, guard);
+    }
+
+    @Test
+    void aSessionPassesOnlyTheUserAndTheCliUrl() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(SESSION_OK, "", 0);
+
+        runSession(launcher, guard(), Duration.ofSeconds(5));
+
+        List<String> command = launcher.last().spec().command();
+        assertThat(command).containsExactly(script.toString(), "-u", USER,
+            "https://inubit-dev-1.example.test:8443/ibis/servlet/IBISSoapServlet");
+    }
+
+    @Test
+    void aSessionHasNeitherThePasswordNorAnyCommandTextInItsArguments() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(SESSION_OK, "", 0);
+
+        runSession(launcher, guard(), Duration.ofSeconds(5));
+
+        String arguments = String.join(" ", launcher.last().spec().command());
+        assertThat(launcher.last().spec().command())
+            .doesNotContain("-p", "--password", "--execCommand");
+        assertThat(arguments).doesNotContain(PASSWORD, "uname", "ps ", "exit");
+    }
+
+    @Test
+    void aSessionWritesThePasswordLineTheCommandsAndExitToStdinWhichIsThenClosed() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(SESSION_OK, "", 0);
+
+        runSession(launcher, guard(), Duration.ofSeconds(5));
+
+        assertThat(new String(launcher.last().stdinBytes(), StandardCharsets.UTF_8))
+            .isEqualTo(PASSWORD + "\nuname\nps -c -e\nps -a -l 10000\nexit\n");
+        assertThat(launcher.last().stdinClosed()).isTrue();
+    }
+
+    @Test
+    void aSessionSharesTheEnvironmentAllowlistAndNoPasswordReachesIt() {
+        parentEnv.put("INUBIT_DEV_PASSWORD", PASSWORD);
+        parentEnv.put("JAVA_TOOL_OPTIONS", "-javaagent:/evil.jar");
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(SESSION_OK, "", 0);
+
+        runSession(launcher, guard(), Duration.ofSeconds(5));
+
+        Map<String, String> env = launcher.last().spec().environment();
+        assertThat(env.keySet()).containsExactlyInAnyOrder("PATH", "HOME", "TMPDIR", "LANG",
+            "LC_ALL", "USER", "JAVA_HOME", "JAVA_TOOL_OPTIONS");
+        assertThat(env).containsEntry("JAVA_HOME", JAVA_HOME.toString())
+            .containsEntry("JAVA_TOOL_OPTIONS", CliRunner.JAVA_TOOL_OPTIONS);
+        assertThat(String.join(" ", env.values())).doesNotContain(PASSWORD);
+        assertThat(launcher.last().spec().workingDirectory()).isEqualTo(cliHome);
+    }
+
+    @Test
+    void aSessionLoginFailureIsAuthFailedAndRejectsTheCredentials() {
+        CredentialGuard guard = guard();
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(SESSION_LOGIN_FAILED, "", 1);
+
+        CliResult result = runSession(launcher, guard, Duration.ofSeconds(5));
+
+        assertThat(CliOutputClassifier.withGlobalScrubber().classify(result))
+            .isInstanceOfSatisfying(CliOutcome.Failure.class,
+                failure -> assertThat(failure.error().code()).isEqualTo(ErrorCode.AUTH_FAILED));
+        ToolError cached = errorOf(() -> runSession(launcher, guard, Duration.ofSeconds(5)));
+        assertThat(cached.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(launcher.launchCount()).as("no second StartCLI login").isEqualTo(1);
+        assertThatThrownBy(guard::acquire).as("REST shares the guard")
+            .isInstanceOf(ToolErrorException.class);
+    }
+
+    @Test
+    void aSuccessfulSessionConfirmsTheCredentials() {
+        CredentialGuard guard = guard();
+
+        runSession(FakeProcessLauncher.of(SESSION_OK, "", 0), guard, Duration.ofSeconds(5));
+
+        assertThat(guard.confirmed()).isTrue();
+    }
+
+    @Test
+    void aPausedGuardRefusesTheSessionWithoutStartingStartCli() {
+        CredentialGuard guard = guard();
+        try (CredentialGuard.Permit permit = guard.acquire()) {
+            permit.rejected();
+        }
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(SESSION_OK, "", 0);
+
+        ToolError error = errorOf(() -> runSession(launcher, guard, Duration.ofSeconds(5)));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(launcher.launchCount()).isZero();
+    }
+
+    @Test
+    void aSessionTimeoutDestroysTheProcessAndReportsTimeout() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("", "", 0).hanging();
+
+        ToolError error = errorOf(() -> runSession(launcher, guard(), Duration.ofMillis(200)));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(error.nextStep()).contains("cliTimeout");
+        assertThat(launcher.last().destroyed()).isTrue();
+    }
+
+    @Test
+    void aSessionOutputIsBoundedToOneMegabyteEach() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("", "", 0).producing(3 << 20);
+
+        CliResult result = runSession(launcher, guard(), Duration.ofSeconds(20));
+
+        assertThat(result.stdout().length()).isEqualTo(CliRunner.MAX_OUTPUT_BYTES);
+        assertThat(result.stderr().length()).isEqualTo(CliRunner.MAX_OUTPUT_BYTES);
+        assertThat(result.truncated()).isTrue();
+    }
+
+    @Test
+    void theExecCommandRunIsUnchangedBesideSessions() {
+        // regression: the 8.1 argument array and stdin stay as before on a runner that also
+        // ran a session
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+        CliRunner runner = runner(launcher);
+        Path trustStore = Path.of("/etc/inubit/trust.p12");
+        EffectiveNodeConfig config = server().trustStore(trustStore)
+            .disableHostnameVerification("AB".repeat(32)).build();
+        runner.runSession(config, USER, Secret.of(PASSWORD), HEALTH_COMMANDS,
+            Duration.ofSeconds(5), guard());
+
+        runner.run(config, USER, Secret.of(PASSWORD), CliCommand.processErrorStart("110190387"),
+            Duration.ofSeconds(5), guard());
+
+        FakeProcessLauncher.FakeProcess execCommand = launcher.last();
+        assertThat(launcher.launchCount()).isEqualTo(2);
+        assertThat(execCommand.spec().command()).containsExactly(
+            script.toString(), "-u", USER,
+            "--trustStoreFilePath", trustStore.toString(),
+            "--disableHostNameVerification",
+            "--execCommand", "processErrorStart 110190387",
+            "https://inubit-dev-1.example.test:8443/ibis/servlet/IBISSoapServlet");
+        assertThat(new String(execCommand.stdinBytes(), StandardCharsets.UTF_8))
+            .isEqualTo(PASSWORD + "\n");
     }
 }
