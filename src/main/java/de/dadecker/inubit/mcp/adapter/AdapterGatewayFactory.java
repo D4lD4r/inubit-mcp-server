@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.Names;
+import de.dadecker.inubit.mcp.domain.model.NodeAccess;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -19,6 +20,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
+import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
@@ -75,8 +77,14 @@ import org.slf4j.LoggerFactory;
  * version moves to another range (e.g. after a re-detection). The monitoring port (US1) is not
  * part of the port set and is handed out without waiting for a detection. The StartCLI-backed
  * ports run with the factory's {@link CliRunner} and the server's {@link CredentialGuard}, shared
- * with its REST client. Production registers only the 8.1 port set, as default for every version
- * ({@link PortSetRegistry#v81Default()}).
+ * with its REST client. Production registers the 8.1 port set as default for every version
+ * ({@link PortSetRegistry#v81Default()}) and the CLI-only 6.1 range.
+ *
+ * <p>CLI-only ranges (feature 011, research D-4): for a node whose effective version selects a
+ * range registered with a {@link PortSetRegistry.CliHealthFactory}, the port set and the
+ * {@link #cliHealth} port are built from the held credentials and a credential guard bound to
+ * them, without REST client; {@link #access} answers {@link NodeAccess#CLI_ONLY}. Every other
+ * node has no {@link #cliHealth} port, and asking for it builds nothing.
  *
  * <p>Version reporting (feature 009 research D-4, D-10): every {@code AUTO} detection of a slot
  * (through {@link #forServer} or the monitoring's {@code /system/info}) and every
@@ -199,6 +207,16 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
     }
 
     @Override
+    public Optional<CliHealthPort> cliHealth(NodeId server) {
+        return slot(server).cliHealth();
+    }
+
+    @Override
+    public NodeAccess access(NodeId server) {
+        return slot(server).selection().access();
+    }
+
+    @Override
     public boolean credentialsHeld(NodeId server) {
         return slot(server).secrets.held().isPresent();
     }
@@ -266,11 +284,17 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
         private final StaleReportingPorts stale;
         private final ReentrantLock clientLock = new ReentrantLock();
         private final ReentrantLock lock = new ReentrantLock();
+        /**
+         * The port set and CLI health port of the registry {@code range} (empty for the default),
+         * built with {@code credentials}.
+         */
+        private record Ports(Optional<VersionRange> range, NodeCredentials credentials,
+            PortSet set, Optional<CliHealthPort> cliHealth) {
+        }
+
         /** Guarded by {@code clientLock}. */
         private Client client;
-        private PortSet ports;
-        /** The registry range {@link #ports} was built for; empty for the default. */
-        private Optional<VersionRange> portsRange;
+        private Ports ports;
         /** Guarded by {@code lock}. */
         private V81Gateway gateway;
         /** The client {@link #gateway} was built with. */
@@ -317,24 +341,57 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
             return ensureClient().monitoring();
         }
 
-        /**
-         * The port set for the node's current effective version, built on the first request and
-         * rebuilt when the version has moved to another registry range or the client was
-         * replaced; no network access.
-         */
+        /** The registry selection for the node's current effective version; no network access. */
+        PortSetRegistry.Selection selection() {
+            return portSets.select(versions.effectiveVersion(server.id()));
+        }
+
+        /** The port set for the node's current effective version; see {@link #built}. */
         PortSet ports() {
             awaitCredentials();
-            PortSetRegistry.Selection selection =
-                portSets.select(versions.effectiveVersion(server.id()));
+            return built(selection()).set();
+        }
+
+        /**
+         * The CLI health port for the node's current effective version; empty, without waiting
+         * for credentials and without building anything, unless a CLI-only range is selected.
+         */
+        Optional<CliHealthPort> cliHealth() {
+            PortSetRegistry.Selection selection = selection();
+            if (selection.cliHealth().isEmpty()) {
+                return Optional.empty();
+            }
+            awaitCredentials();
+            return built(selection).cliHealth();
+        }
+
+        /**
+         * The ports of {@code selection}, built on the first request and rebuilt when the version
+         * has moved to another registry range or other credentials are held; no network access.
+         * A CLI-only selection gets the held credentials and a guard bound to them, without
+         * REST client; any other the client of {@link #ensureClient()}. Call after
+         * {@link #awaitCredentials()}.
+         */
+        private Ports built(PortSetRegistry.Selection selection) {
             clientLock.lock();
             try {
-                Client current = ensureClient();
-                if (ports == null || !selection.range().equals(portsRange)) {
-                    ports = stale.ports(selection.factory().create(new PortSetRegistry
-                        .NodeResources(server, current.credentials(), current.guard(),
-                            current.http(), cliRunner, scrubber)));
-                    portsRange = selection.range();
+                NodeCredentials held = secrets.held().orElseThrow();
+                if (ports != null && ports.range().equals(selection.range())
+                    && ports.credentials() == held) {
+                    return ports;
                 }
+                PortSetRegistry.NodeResources node;
+                if (selection.access() == NodeAccess.CLI_ONLY) {
+                    node = new PortSetRegistry.NodeResources(server, held, guard.bind(held), null,
+                        cliRunner, scrubber);
+                } else {
+                    Client current = ensureClient();
+                    node = new PortSetRegistry.NodeResources(server, current.credentials(),
+                        current.guard(), current.http(), cliRunner, scrubber);
+                }
+                ports = new Ports(selection.range(), node.credentials(),
+                    stale.ports(selection.factory().create(node)),
+                    selection.cliHealth().map(factory -> factory.create(node)));
                 return ports;
             } finally {
                 clientLock.unlock();
@@ -542,7 +599,6 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                         .start(client::close);
                     client = null;
                     ports = null;
-                    portsRange = null;
                 }
                 V81MaintenanceProbe newProbe = new V81MaintenanceProbe(server,
                     current.trustStorePassword().map(SourcedValue::value), scrubber);
@@ -570,7 +626,6 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
                 gatewayClient = null;
                 fallbackUntil = null;
                 ports = null;
-                portsRange = null;
                 if (client != null) {
                     client.close();
                     client = null;

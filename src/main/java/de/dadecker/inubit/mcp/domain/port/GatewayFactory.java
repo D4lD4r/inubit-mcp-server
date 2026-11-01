@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.domain.port;
 
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.NodeAccess;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import java.time.Duration;
 import java.util.Optional;
@@ -94,6 +95,31 @@ public interface GatewayFactory {
     /** The tag port of {@code server} (feature 004); the default asks the gateway. */
     default TagPort tags(NodeId server) {
         return forServer(server).tags();
+    }
+
+    /**
+     * The StartCLI health port of {@code server} if its effective version is reached through
+     * StartCLI only (feature 011, research D-4), else empty. Never detects and never contacts
+     * the server. The default, for a factory without such versions, is empty.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException
+     *     {@code TARGET_UNKNOWN} for a server that is not configured; for a CLI-only node the
+     *     failure of its credential fetch, as {@link #monitoring}
+     */
+    default Optional<CliHealthPort> cliHealth(NodeId server) {
+        return Optional.empty();
+    }
+
+    /**
+     * How {@code server} is reached at its effective version (feature 011, research D-4); never
+     * detects, never contacts the server and never waits for its credentials. The default, for a
+     * factory without CLI-only versions, is {@link NodeAccess#REST_AND_CLI}.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException
+     *     {@code TARGET_UNKNOWN} for a server that is not configured
+     */
+    default NodeAccess access(NodeId server) {
+        return NodeAccess.REST_AND_CLI;
     }
 
     /**

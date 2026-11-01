@@ -13,6 +13,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.soap.SoapE2eClient;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
 import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
@@ -231,11 +232,13 @@ final class Wiring implements AutoCloseable {
         NodeVersions versions = new NodeVersions(clock.clock(),
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
         CliRunner cliRunner = new CliRunner(launcher, environment, windows, cliResources);
-        // feature 009 (research D-16): only the 8.1 port set, as default for every version
+        // feature 009 (research D-16): the 8.1 port set, as default for every version; feature
+        // 011 (research D-4): the 6.1 port set and health port, CLI-only (no REST client)
         Map<NodeId, NodeSecrets> secrets = secrets(servers, credentials, scrubber, clock,
             parameterStore);
         this.gateways = new AdapterGatewayFactory(servers, secrets, scrubber, clock.clock(),
-            cliRunner, versions, PortSetRegistry.v81Default());
+            cliRunner, versions, PortSetRegistry.v81Default()
+                .register(V61PortSet.RANGE, V61PortSet::create, V61PortSet::cliHealth));
         // feature 009 (research D-7): the StartCLI client probe, on the same runner so that a
         // shutdown also stops a running probe
         this.clientVersions = new CliVersionProbe(cliRunner, byId::get);

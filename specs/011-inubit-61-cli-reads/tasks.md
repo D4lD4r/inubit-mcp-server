@@ -264,7 +264,7 @@ request.
   session output at the prompt into command blocks; parse `uname`, `uptime`, `maintenance`,
   `free -m` and the counts; English and German; unknown output → `UNEXPECTED_RESPONSE` (never
   empty). Tests first: `V61HealthParserTest` over the T022 fixtures and malformed variants.
-- [ ] T025 [US1] Selection plumbing (research D-4): `CliHealthPort` in `main/domain/port`;
+- [X] T025 [US1] Selection plumbing (research D-4): `CliHealthPort` in `main/domain/port`;
   `PortSetRegistry.register(range, factory, cliHealthFactory)`; `Slot.cliHealth()` and
   `GatewayFactory.cliHealth/access` in `AdapterGatewayFactory`; `Slot.ports()` skips
   `ensureClient()` for a factory that needs no HTTP client; `RefusingPorts`; `V61PortSet`

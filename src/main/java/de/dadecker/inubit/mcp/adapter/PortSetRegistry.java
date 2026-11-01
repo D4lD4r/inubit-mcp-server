@@ -5,7 +5,9 @@ import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.NodeAccess;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
+import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,8 +20,13 @@ import java.util.Optional;
  * an unknown version. Ranges are matched in registration order. Immutable: {@link #register}
  * returns a new registry.
  *
- * <p>Production uses {@link #v81Default()}: the 8.1 port set for every version, so unverified
- * reads run on the 8.1 adapters. A later version adds its range with its own factory.
+ * <p>A range registered with a {@link CliHealthFactory} is CLI-only (feature 011, research D-4,
+ * {@link NodeAccess#CLI_ONLY}): its server is reached through StartCLI only, so its factories get
+ * no REST client and {@code AdapterGatewayFactory} builds none for it.
+ *
+ * <p>Production uses {@link #v81Default()}, the 8.1 port set for every version, so unverified
+ * reads run on the 8.1 adapters; {@code Wiring} registers the CLI-only 6.1 range on top. A later
+ * version adds its range with its own factory.
  */
 public final class PortSetRegistry {
 
@@ -29,20 +36,36 @@ public final class PortSetRegistry {
         PortSet create(NodeResources node);
     }
 
+    /** Builds the StartCLI health port of a CLI-only server from its resources; no contact. */
+    @FunctionalInterface
+    public interface CliHealthFactory {
+        CliHealthPort create(NodeResources node);
+    }
+
     /**
      * What a port set is built from: the server's configuration and credentials, its credential
      * guard and REST client (shared with the monitoring), the StartCLI runner and the scrubber.
+     * {@code client} is {@code null} for a CLI-only range.
      */
     public record NodeResources(EffectiveNodeConfig server, NodeCredentials credentials,
         CredentialGuard guard, InubitHttpClient client, CliRunner cliRunner,
         SecretScrubber scrubber) {
     }
 
-    /** The factory chosen for a version; {@code range} is empty for the default. */
-    record Selection(Optional<VersionRange> range, Factory factory) {
+    /**
+     * The factories chosen for a version; {@code range} is empty for the default, {@code cliHealth}
+     * is present for a CLI-only range.
+     */
+    record Selection(Optional<VersionRange> range, Factory factory,
+        Optional<CliHealthFactory> cliHealth) {
+
+        NodeAccess access() {
+            return cliHealth.isPresent() ? NodeAccess.CLI_ONLY : NodeAccess.REST_AND_CLI;
+        }
     }
 
-    private record Entry(VersionRange range, Factory factory) {
+    private record Entry(VersionRange range, Factory factory,
+        Optional<CliHealthFactory> cliHealth) {
     }
 
     private final Factory defaultFactory;
@@ -58,16 +81,32 @@ public final class PortSetRegistry {
         this.entries = List.copyOf(entries);
     }
 
-    /** The production registry: only the 8.1 port set, as default for every version. */
+    /** The 8.1 port set as default for every version, without ranges. */
     public static PortSetRegistry v81Default() {
         return new PortSetRegistry(V81PortSet::create);
     }
 
     /** A copy of this registry in which {@code factory} serves the versions in {@code range}. */
     public PortSetRegistry register(VersionRange range, Factory factory) {
+        return register(range, factory, Optional.empty());
+    }
+
+    /**
+     * A copy of this registry in which the versions in {@code range} are CLI-only: {@code factory}
+     * builds their port set and {@code cliHealth} their StartCLI health port, both without REST
+     * client.
+     */
+    public PortSetRegistry register(VersionRange range, Factory factory,
+        CliHealthFactory cliHealth) {
+        return register(range, factory,
+            Optional.of(Objects.requireNonNull(cliHealth, "cliHealth")));
+    }
+
+    private PortSetRegistry register(VersionRange range, Factory factory,
+        Optional<CliHealthFactory> cliHealth) {
         List<Entry> extended = new ArrayList<>(entries);
         extended.add(new Entry(Objects.requireNonNull(range, "range"),
-            Objects.requireNonNull(factory, "factory")));
+            Objects.requireNonNull(factory, "factory"), cliHealth));
         return new PortSetRegistry(defaultFactory, extended);
     }
 
@@ -76,10 +115,11 @@ public final class PortSetRegistry {
         if (version.isPresent()) {
             for (Entry entry : entries) {
                 if (entry.range().contains(version.get())) {
-                    return new Selection(Optional.of(entry.range()), entry.factory());
+                    return new Selection(Optional.of(entry.range()), entry.factory(),
+                        entry.cliHealth());
                 }
             }
         }
-        return new Selection(Optional.empty(), defaultFactory);
+        return new Selection(Optional.empty(), defaultFactory, Optional.empty());
     }
 }

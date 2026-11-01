@@ -17,12 +17,14 @@ import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.config.CredentialResolution;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.FailureKind;
+import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.ParameterNames;
 import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.SecretSourceConfig;
@@ -30,6 +32,7 @@ import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.NodeAccess;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
@@ -1000,6 +1003,82 @@ class AdapterGatewayFactoryTest {
             assertThat(factory.logs(DEV)).isInstanceOf(StaleReportingPorts.Logs.class);
             assertThat(portSetOf(factory.logs(DEV))).isEqualTo("7.9");
         }
+    }
+
+    // --- feature 011 T025: the 6.1 selection builds no REST client (research D-4) ------------
+
+    /** As {@code Wiring} registers it. */
+    private static final PortSetRegistry WITH_V61 = PortSetRegistry.v81Default()
+        .register(V61PortSet.RANGE, V61PortSet::create, V61PortSet::cliHealth);
+
+    /** A node whose REST client cannot be built: its trust store does not exist. */
+    private static EffectiveNodeConfig withoutUsableClient(VersionSetting line) {
+        return TestNodeConfig.node().id(DEV.value())
+            .baseUrl("https://localhost:" + wireMock.httpsPort())
+            .trustStore(Path.of("does-not-exist.p12")).versionLine(line).build();
+    }
+
+    @Test
+    void aSixOneNodeGetsItsPortsAndHealthPortWithoutRestClient() {
+        EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V6_1);
+        try (AdapterGatewayFactory factory = factory(WITH_V61, nodeVersions(node), node)) {
+            assertThat(factory.access(DEV)).isEqualTo(NodeAccess.CLI_ONLY);
+            assertThat(factory.cliHealth(DEV)).isPresent();
+            assertThat(factory.cliHealth(DEV).get()).as("built once")
+                .isSameAs(factory.cliHealth(DEV).get());
+            assertThat(codeOf(() -> factory.logs(DEV).query(null)))
+                .isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+            assertThat(codeOf(() -> factory.processes(DEV).find(null)))
+                .isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+            assertThat(factory.logs(DEV)).as("still wrapped by the stale trigger")
+                .isInstanceOf(StaleReportingPorts.Logs.class);
+
+            // the REST client of this node fails to build, so the calls above built none
+            assertThat(codeOf(() -> factory.monitoring(DEV))).isEqualTo(ErrorCode.TLS_ERROR);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void an81NodeHasNoCliHealthPortAndTheQuestionBuildsNothing() {
+        EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V8_1);
+        try (AdapterGatewayFactory factory = factory(WITH_V61, nodeVersions(node), node)) {
+            assertThat(factory.access(DEV)).isEqualTo(NodeAccess.REST_AND_CLI);
+            assertThat(factory.cliHealth(DEV)).isEmpty();
+            assertThat(codeOf(() -> factory.logs(DEV))).as("the 8.1 port set needs the client")
+                .isEqualTo(ErrorCode.TLS_ERROR);
+            assertThat(codeOf(() -> factory.access(ENT2))).isEqualTo(ErrorCode.TARGET_UNKNOWN);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void aSixOnePortSetIsRebuiltWithRotatedCredentials() {
+        putAwsCredentials();
+        List<NodeCredentials> builtWith = new CopyOnWriteArrayList<>();
+        PortSetRegistry portSets = PortSetRegistry.v81Default().register(V61PortSet.RANGE,
+            resources -> {
+                assertThat(resources.client()).isNull();
+                builtWith.add(resources.credentials());
+                return V61PortSet.create(resources);
+            }, V61PortSet::cliHealth);
+        EffectiveNodeConfig node = server(DEV, VersionSetting.V6_1);
+        NodeSecrets secrets = awsSecrets(Optional.empty());
+        try (AdapterGatewayFactory factory = new AdapterGatewayFactory(List.of(node),
+            Map.of(DEV, secrets), scrubber, clock, new CliRunner(new SystemProcessLauncher(),
+                Map.of(), false, new CliResources("acme")), nodeVersions(node), portSets)) {
+            LogPort before = factory.logs(DEV);
+            assertThat(factory.logs(DEV)).isSameAs(before);
+
+            store.put(EU, AWS_PASSWORD, "test-password-2");
+            secrets.reread();
+
+            assertThat(factory.logs(DEV)).isNotSameAs(before);
+            assertThat(builtWith).hasSize(2);
+            assertThat(builtWith.get(1).password().orElseThrow().value().reveal())
+                .isEqualTo("test-password-2");
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
     }
 
     // --- feature 010 T011: secrets of AWS nodes, fetched on first use (R-7, FR-006a) -------
