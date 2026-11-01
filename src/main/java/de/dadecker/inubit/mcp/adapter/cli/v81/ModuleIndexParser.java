@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.cli.v81;
 
+import de.dadecker.inubit.mcp.adapter.cli.CliDates;
 import de.dadecker.inubit.mcp.adapter.rest.XmlSupport;
 import de.dadecker.inubit.mcp.adapter.rest.v81.DiagramExportParser;
 import de.dadecker.inubit.mcp.adapter.rest.v81.InventoryXml;
@@ -73,7 +74,7 @@ public final class ModuleIndexParser {
             groupName.or(() -> plugin).orElse(""),
             owner,
             InventoryXml.childText(module, "IsActive").flatMap(DiagramExportParser::bool),
-            InventoryXml.childText(module, "LastUpdate").flatMap(InubitDates::parse));
+            InventoryXml.childText(module, "LastUpdate").flatMap(CliDates::parse));
         return new ModuleEntry(item,
             InventoryXml.childText(module, "CheckinComment"),
             InventoryXml.childText(module, "UserComment"),
