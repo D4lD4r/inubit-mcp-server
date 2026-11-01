@@ -11,7 +11,7 @@ class UnavailablePartTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"status", "ready", "version", "systemInfo", "load", "client",
-        "threads", "blockingQueue"})
+        "threads", "blockingQueue", "processCounts"})
     void everyHealthPartIsAccepted(String part) {
         assertThat(new UnavailablePart(part, "TIMEOUT: too slow").part()).isEqualTo(part);
     }
@@ -20,8 +20,9 @@ class UnavailablePartTest {
     void the61PartsAreNamedAsInTheOutput() {
         assertThat(UnavailablePart.THREADS).isEqualTo("threads");
         assertThat(UnavailablePart.BLOCKING_QUEUE).isEqualTo("blockingQueue");
+        assertThat(UnavailablePart.PROCESS_COUNTS).isEqualTo("processCounts");
         assertThat(UnavailablePart.PARTS).contains(UnavailablePart.THREADS,
-            UnavailablePart.BLOCKING_QUEUE);
+            UnavailablePart.BLOCKING_QUEUE, UnavailablePart.PROCESS_COUNTS);
     }
 
     @Test
@@ -30,7 +31,7 @@ class UnavailablePartTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"processCounts", "thread", "blocking_queue", ""})
+    @ValueSource(strings = {"counts", "thread", "blocking_queue", ""})
     void anUnknownPartIsRejected(String part) {
         assertThatIllegalArgumentException()
             .isThrownBy(() -> new UnavailablePart(part, "TIMEOUT: too slow"))

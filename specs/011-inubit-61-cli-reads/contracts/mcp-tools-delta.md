@@ -40,6 +40,8 @@ unchanged. Output changes are additive except the capability names (deliberate, 
   timeout, `CLI_UNAVAILABLE`, login refused, unreachable, `TLS_ERROR`).
 - `threads` covers threads in use, licensed threads and maximum threads; `blockingQueue` covers
   entries, maximum size and percentage.
+- `processCounts` may also be listed in `unavailable` (e.g. `TIMEOUT: …`) when the counts could
+  not be obtained; the `processCounts` field is then absent.
 - `version`: the version StartCLI reports; if the recordings show it is the client's, the field is
   absent and a warning carries the value labelled as the client's, e.g. `the version 6.1.0 read on
   legacy/node1 is the StartCLI client's; the server version cannot be read` (FR-006).

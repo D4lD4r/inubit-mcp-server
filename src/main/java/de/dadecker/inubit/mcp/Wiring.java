@@ -8,6 +8,8 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
 import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
+import de.dadecker.inubit.mcp.adapter.cli.CliClientProbe;
+import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
@@ -236,9 +238,13 @@ final class Wiring implements AutoCloseable {
         // 011 (research D-4): the 6.1 port set and health port, CLI-only (no REST client)
         Map<NodeId, NodeSecrets> secrets = secrets(servers, credentials, scrubber, clock,
             parameterStore);
+        // one client-option probe and one concurrency limiter for all 6.1 nodes (D-8, D-9)
+        CliClientProbe clientOptions = new CliClientProbe(cliRunner, byId::get, matrix,
+            clock.clock());
         this.gateways = new AdapterGatewayFactory(servers, secrets, scrubber, clock.clock(),
             cliRunner, versions, PortSetRegistry.v81Default()
-                .register(V61PortSet.RANGE, V61PortSet::create, V61PortSet::cliHealth));
+                .register(V61PortSet.RANGE, V61PortSet::create, V61PortSet.cliHealth(
+                    clientOptions, new CliConcurrencyLimiter(matrix))));
         // feature 009 (research D-7): the StartCLI client probe, on the same runner so that a
         // shutdown also stops a running probe
         this.clientVersions = new CliVersionProbe(cliRunner, byId::get);

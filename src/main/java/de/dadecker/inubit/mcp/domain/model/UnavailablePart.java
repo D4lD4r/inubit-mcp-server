@@ -27,8 +27,10 @@ public record UnavailablePart(String part, String reason, Optional<String> likel
     public static final String THREADS = "threads";
     /** Blocking queue entries, maximum size and percentage (feature 011, FR-008). */
     public static final String BLOCKING_QUEUE = "blockingQueue";
+    /** The process counts per state of an INUBIT 6.1 node (feature 011, FR-008). */
+    public static final String PROCESS_COUNTS = "processCounts";
     public static final Set<String> PARTS = Set.of(STATUS, READY, VERSION, SYSTEM_INFO, LOAD,
-        CLIENT, THREADS, BLOCKING_QUEUE);
+        CLIENT, THREADS, BLOCKING_QUEUE, PROCESS_COUNTS);
 
     /** Reason code of a {@code /metrics} failure that indicates a missing license (R-10). */
     public static final String METRICS_NOT_LICENSED = "METRICS_NOT_LICENSED";

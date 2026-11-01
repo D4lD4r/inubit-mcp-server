@@ -3,12 +3,16 @@ package de.dadecker.inubit.mcp.adapter;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import de.dadecker.inubit.mcp.adapter.cli.CliClientProbe;
+import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.v61.V61HealthAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeAccess;
@@ -19,7 +23,6 @@ import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.time.Clock;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -33,7 +36,11 @@ import org.junit.jupiter.api.Test;
 class PortSetRegistryTest {
 
     private final PortSetRegistry registry = PortSetRegistry.v81Default()
-        .register(V61PortSet.RANGE, V61PortSet::create, V61PortSet::cliHealth);
+        .register(V61PortSet.RANGE, V61PortSet::create, V61PortSet.cliHealth(
+            new CliClientProbe(noStartCli(), id -> {
+                throw new AssertionError("no client probe expected: " + id);
+            }, CapabilityMatrix.production(), Clock.systemUTC()),
+            new CliConcurrencyLimiter(CapabilityMatrix.production())));
 
     private static Optional<InubitVersion> effective(VersionSetting setting) {
         return NodeVersionState.initial(setting).effectiveVersion();
@@ -95,17 +102,12 @@ class PortSetRegistryTest {
     }
 
     @Test
-    void theSixOneHealthPortRefusesUntilItsStartCliAdapterExists() {
-        PortSetRegistry.NodeResources node = sixOneResources();
-
+    void theSixOneHealthPortIsTheStartCliAdapterAndBuildingItLaunchesNothing() {
+        // the runner of sixOneResources fails on any launch
         CliHealthPort health = registry.select(effective(VersionSetting.V6_1)).cliHealth()
-            .orElseThrow().create(node);
+            .orElseThrow().create(sixOneResources());
 
-        assertThatThrownBy(() -> health.snapshot(Duration.ofSeconds(15)))
-            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
-                assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
-                assertThat(e.error().node()).contains(node.server().id());
-            });
+        assertThat(health).isInstanceOf(V61HealthAdapter.class);
     }
 
     /** The resources of a 6.1 node as {@code AdapterGatewayFactory} passes them: no client. */
@@ -117,9 +119,14 @@ class PortSetRegistryTest {
             Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", "registry-test-pw"),
             scrubber, "INUBIT").resolve(List.of(server.id())).credentials(server.id());
         return new PortSetRegistry.NodeResources(server, credentials,
-            new CredentialGuard(server.secretLabels(), Clock.systemUTC()), null,
-            new CliRunner(spec -> {
-                throw new AssertionError("no StartCLI run expected: " + spec.command());
-            }, Map.of(), false, new CliResources("acme")), scrubber);
+            new CredentialGuard(server.secretLabels(), Clock.systemUTC()), null, noStartCli(),
+            scrubber);
+    }
+
+    /** A runner that fails on any StartCLI launch. */
+    private static CliRunner noStartCli() {
+        return new CliRunner(spec -> {
+            throw new AssertionError("no StartCLI run expected: " + spec.command());
+        }, Map.of(), false, new CliResources("acme"));
     }
 }

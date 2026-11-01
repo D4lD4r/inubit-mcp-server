@@ -36,7 +36,7 @@
             "properties": {
               "part": {
                 "enum": ["status", "ready", "version", "systemInfo", "load", "client",
-                  "threads", "blockingQueue"]
+                  "threads", "blockingQueue", "processCounts"]
               },
               "reason": { "type": "string", "description": "CODE: message" },
               "likelyCause": { "type": "string" },

@@ -271,7 +271,7 @@ request.
   registered for 6.1 in `Wiring` (process query added in T032). Tests first: `PortSetRegistryTest`
   (6.1 selected for `V6_1` and `"6.1.0"`), `AdapterGatewayFactoryTest` (no REST client built for a
   6.1 node), `RefusingPortsTest`.
-- [ ] T026 [US1] `V61HealthAdapter` (research D-6): one session through `V61Connection` (T020)
+- [X] T026 [US1] `V61HealthAdapter` (research D-6): one session through `V61Connection` (T020)
   with the health commands; maps to `CliHealthSnapshot` (alive, version text and whether it is the
   server's, maintenance, memory, counts, missing parts). Tests first: `V61HealthAdapterTest` over
   the T022 fixtures (exactly one launch per snapshot).

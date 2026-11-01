@@ -15,6 +15,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.net.URI;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -38,7 +39,8 @@ import java.util.Optional;
  *   <li>a slot of the node's {@link CliConcurrencyLimiter}, held until the session is over;
  *   <li>for an {@code https://} StartCLI URL, the server's own handshake with its host and port
  *       ({@link TlsHandshakeCheck}); a rejected certificate starts no StartCLI process;
- *   <li>the session ({@link CliRunner#runSession}) with the node's {@code cliTimeout}.
+ *   <li>the session ({@link CliRunner#runSession}) with the node's {@code cliTimeout}, or a
+ *       shorter budget of the caller.
  * </ol>
  *
  * <p>An option the probe could not read counts as absent (fail closed); so does every option of
@@ -78,6 +80,14 @@ public final class V61Connection {
      *     {@link CliRunner#runSession}
      */
     public CliResult session(List<CliSessionCommand> commands) {
+        return session(commands, server.cliTimeout());
+    }
+
+    /**
+     * As {@link #session(List)}, with the session run bounded by the shorter of {@code budget}
+     * and the node's {@code cliTimeout} (the health budget of research D-6).
+     */
+    public CliResult session(List<CliSessionCommand> commands, Duration budget) {
         runner.checkAvailable(server);
         if (!credentials.complete()) {
             throw new ToolErrorException(ToolError.of(ErrorCode.AUTH_FAILED,
@@ -96,7 +106,7 @@ public final class V61Connection {
             }
             return runner.runSession(server, credentials.username().orElseThrow().value(),
                 credentials.password().orElseThrow().value(), options, commands,
-                server.cliTimeout(), guard);
+                budget.compareTo(server.cliTimeout()) < 0 ? budget : server.cliTimeout(), guard);
         }
     }
 

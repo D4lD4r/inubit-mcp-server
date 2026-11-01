@@ -65,9 +65,19 @@ class GetHealthOutputSchemaTest {
     void anUnknownUnavailablePartIsRejected() {
         Map<String, Object> report = json(report61());
         report.put("unavailable",
-            List.of(Map.of("part", "processCounts", "reason", "TIMEOUT: x")));
+            List.of(Map.of("part", "counts", "reason", "TIMEOUT: x")));
 
         assertThat(errors(report)).isNotNull();
+    }
+
+    @Test
+    void processCountsMayBeUnavailable() {
+        Map<String, Object> report = json(report61());
+        report.remove("processCounts");
+        report.put("unavailable",
+            List.of(Map.of("part", "processCounts", "reason", "TIMEOUT: x")));
+
+        assertThat(errors(report)).isNull();
     }
 
     /** The 6.1 report of contracts/mcp-tools-delta.md. */

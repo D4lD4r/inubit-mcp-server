@@ -13,6 +13,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.http.Fault;
+import de.dadecker.inubit.mcp.adapter.cli.CliClientProbe;
+import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
@@ -29,6 +31,7 @@ import de.dadecker.inubit.mcp.config.ParameterNames;
 import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.SecretSourceConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
@@ -58,6 +61,7 @@ import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -1007,9 +1011,18 @@ class AdapterGatewayFactoryTest {
 
     // --- feature 011 T025: the 6.1 selection builds no REST client (research D-4) ------------
 
+    /** The 6.1 health factory as {@code Wiring} builds it; its shared probe never runs here. */
+    private static final PortSetRegistry.CliHealthFactory V61_HEALTH = V61PortSet.cliHealth(
+        new CliClientProbe(new CliRunner(spec -> {
+            throw new AssertionError("no client probe expected: " + spec.command());
+        }, Map.of(), false, new CliResources("acme")), id -> {
+            throw new AssertionError("no client probe expected: " + id);
+        }, CapabilityMatrix.production(), Clock.systemUTC()),
+        new CliConcurrencyLimiter(CapabilityMatrix.production()));
+
     /** As {@code Wiring} registers it. */
     private static final PortSetRegistry WITH_V61 = PortSetRegistry.v81Default()
-        .register(V61PortSet.RANGE, V61PortSet::create, V61PortSet::cliHealth);
+        .register(V61PortSet.RANGE, V61PortSet::create, V61_HEALTH);
 
     /** A node whose REST client cannot be built: its trust store does not exist. */
     private static EffectiveNodeConfig withoutUsableClient(VersionSetting line) {
@@ -1061,7 +1074,7 @@ class AdapterGatewayFactoryTest {
                 assertThat(resources.client()).isNull();
                 builtWith.add(resources.credentials());
                 return V61PortSet.create(resources);
-            }, V61PortSet::cliHealth);
+            }, V61_HEALTH);
         EffectiveNodeConfig node = server(DEV, VersionSetting.V6_1);
         NodeSecrets secrets = awsSecrets(Optional.empty());
         try (AdapterGatewayFactory factory = new AdapterGatewayFactory(List.of(node),
