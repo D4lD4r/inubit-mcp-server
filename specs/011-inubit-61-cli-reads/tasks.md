@@ -218,7 +218,7 @@ password channel, the client options, the configuration warnings and the process
   `cliOnly` nodes, `tryAcquire(cliTimeout)` else `TIMEOUT`; the local probes take no permit.
   Tests first: `CliConcurrencyLimiterTest` — five parallel acquisitions with held permits: at most
   two succeed, the rest `TIMEOUT` after the bound; 8.1 nodes get no limiter.
-- [ ] T020 [US5] `V61Connection` (FR-012, FR-012a, research D-7/D-8): in `main/adapter/cli/v61`,
+- [X] T020 [US5] `V61Connection` (FR-012, FR-012a, research D-7/D-8): in `main/adapter/cli/v61`,
   per tool call and node: `CliRunner.checkAvailable` (missing StartCLI → `CLI_UNAVAILABLE`, no
   contact) → client options from `CliClientProbe.optionsFor` (synchronously, cached or `-h` run
   locally) → option and format refusals (missing host-name option with

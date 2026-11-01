@@ -18,6 +18,7 @@ public final class TestNodeConfig {
 
     private NodeId id = NodeId.parse("dev/node1");
     private URI baseUrl = URI.create("https://inubit.example.test:8443");
+    private boolean allowInsecureHttp;
     private Optional<URI> cliUrl = Optional.empty();
     private Optional<Path> trustStore = Optional.empty();
     private boolean disableHostnameVerification;
@@ -56,6 +57,11 @@ public final class TestNodeConfig {
 
     public TestNodeConfig baseUrl(String value) {
         this.baseUrl = URI.create(value);
+        return this;
+    }
+
+    public TestNodeConfig allowInsecureHttp(boolean value) {
+        this.allowInsecureHttp = value;
         return this;
     }
 
@@ -149,7 +155,7 @@ public final class TestNodeConfig {
             id,
             production,
             baseUrl,
-            false,
+            allowInsecureHttp,
             versionLine,
             write,
             new EffectiveNodeConfig.Tls(trustStore, disableHostnameVerification, pin),

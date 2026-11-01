@@ -195,9 +195,9 @@ public final class CliRunner {
     /**
      * {@code JKS} for a file that starts with the JKS magic number, else {@code PKCS12} (the
      * format of {@code tls.trustStore}); an unreadable file counts as PKCS12, the TLS check
-     * before the session reports it.
+     * before the session reports it. Also the format check of {@code V61Connection}.
      */
-    private static String trustStoreType(Path trustStore) {
+    public static String trustStoreType(Path trustStore) {
         try (InputStream in = Files.newInputStream(trustStore)) {
             return Arrays.equals(in.readNBytes(JKS_MAGIC.length), JKS_MAGIC) ? "JKS" : "PKCS12";
         } catch (IOException e) {
