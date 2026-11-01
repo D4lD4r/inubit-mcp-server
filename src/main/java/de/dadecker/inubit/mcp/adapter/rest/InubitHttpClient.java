@@ -79,6 +79,18 @@ public final class InubitHttpClient implements AutoCloseable {
     private static final int EXCERPT_OVERLAP = 512;
     static final String UNAVAILABLE_CAUSE =
         "INUBIT answered 503: starting up, overloaded, or behind a proxy that is not serving";
+    /** Likely cause of a {@code TLS_ERROR} (shared with {@link TlsHandshakeCheck}). */
+    static final String TLS_CAUSE = "The INUBIT server certificate is not in the trust store, does"
+        + " not match the pinned fingerprint, or the hostname does not match";
+    /** Likely cause of a timeout (shared with {@link TlsHandshakeCheck}). */
+    static final String TIMEOUT_CAUSE =
+        "The INUBIT server is slow, overloaded or not reachable through the network";
+    static final String TIMEOUT_NEXT_STEP =
+        "Retry, check get_health, or raise the timeout in the configuration";
+    /** Likely cause of a failed connection (shared with {@link TlsHandshakeCheck}). */
+    static final String UNREACHABLE_CAUSE = "The INUBIT server is down, the host name cannot be"
+        + " resolved, or the network/VPN is not connected";
+    static final String INTERRUPTED_CAUSE = "The connection was interrupted";
     private static final Pattern HTML_TAG = Pattern.compile("<[^>]*>");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
@@ -204,7 +216,8 @@ public final class InubitHttpClient implements AutoCloseable {
             scrubber, guard);
     }
 
-    private static SSLContext sslContext(EffectiveNodeConfig server,
+    /** The server's context; {@code TLS_ERROR} with the server id if the settings are unusable. */
+    static SSLContext sslContext(EffectiveNodeConfig server,
         Optional<Secret> trustStorePassword) {
         try {
             return SslContexts.forServer(server.secretLabels(), server.tls(),
@@ -418,29 +431,32 @@ public final class InubitHttpClient implements AutoCloseable {
             return error(ErrorCode.TLS_ERROR,
                 "The TLS connection to " + server + " failed for " + request + " ("
                     + rootCause(e).getClass().getSimpleName() + ")",
-                "The INUBIT server certificate is not in the trust store, does not match the pinned"
-                    + " fingerprint, or the hostname does not match",
-                "Check tls.trustStore, tls.pinnedCertificateSha256 and"
-                    + " tls.disableHostnameVerification for " + server);
+                TLS_CAUSE, tlsNextStep(server));
         }
         if (hasCause(e, HttpTimeoutException.class)) {
             return error(ErrorCode.TIMEOUT,
                 "INUBIT did not answer " + request + " within " + Durations.human(timeout),
-                "The INUBIT server is slow, overloaded or not reachable through the network",
-                "Retry, check get_health, or raise the timeout in the configuration");
+                TIMEOUT_CAUSE, TIMEOUT_NEXT_STEP);
         }
-        boolean unreachable = hasCause(e, ConnectException.class)
-            || hasCause(e, UnresolvedAddressException.class)
-            || hasCause(e, UnknownHostException.class)
-            || hasCause(e, NoRouteToHostException.class);
         return error(ErrorCode.UNREACHABLE,
             "Cannot connect to " + server + " for " + request + " ("
                 + rootCause(e).getClass().getSimpleName() + ")",
-            unreachable
-                ? "The INUBIT server is down, the host name cannot be resolved, or the network/VPN is"
-                    + " not connected"
-                : "The connection was interrupted",
+            isUnreachable(e) ? UNREACHABLE_CAUSE : INTERRUPTED_CAUSE,
             "Check baseUrl, DNS and the VPN, then retry");
+    }
+
+    /** Next step of a {@code TLS_ERROR} (shared with {@link TlsHandshakeCheck}). */
+    static String tlsNextStep(NodeId server) {
+        return "Check tls.trustStore, tls.pinnedCertificateSha256 and"
+            + " tls.disableHostnameVerification for " + server;
+    }
+
+    /** Whether no connection could be opened at all (down, unknown host, no route). */
+    static boolean isUnreachable(IOException e) {
+        return hasCause(e, ConnectException.class)
+            || hasCause(e, UnresolvedAddressException.class)
+            || hasCause(e, UnknownHostException.class)
+            || hasCause(e, NoRouteToHostException.class);
     }
 
     private ToolError error(ErrorCode code, String message, String likelyCause, String nextStep) {
@@ -468,7 +484,7 @@ public final class InubitHttpClient implements AutoCloseable {
         return scrubber.scrub(text);
     }
 
-    private static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
+    static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
         for (Throwable t = error; t != null; t = t.getCause()) {
             if (type.isInstance(t)) {
                 return true;
@@ -477,7 +493,7 @@ public final class InubitHttpClient implements AutoCloseable {
         return false;
     }
 
-    private static Throwable rootCause(Throwable error) {
+    static Throwable rootCause(Throwable error) {
         Throwable root = error;
         while (root.getCause() != null) {
             root = root.getCause();

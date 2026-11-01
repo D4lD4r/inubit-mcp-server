@@ -179,7 +179,7 @@ concurrent processes. Nothing of this phase changes 8.1/9.x nodes (research D-8,
 **Independent Test**: with fake launchers and a local TLS test server, confirm the pin check, the
 password channel, the client options, the configuration warnings and the process limit.
 
-- [ ] T015 [P] [US5] `TlsHandshakeCheck` (FR-012, research D-7): `main/adapter/rest/TlsHandshakeCheck.java`
+- [X] T015 [P] [US5] `TlsHandshakeCheck` (FR-012, research D-7): `main/adapter/rest/TlsHandshakeCheck.java`
   — handshake only to host:port with `SslContexts.forServer`, SNI, endpoint identification `HTTPS`
   unless `disableHostnameVerification` with a pin, node `timeout` as connect timeout; result ok or
   `TLS_ERROR` with cause (pin mismatch, untrusted, host name; unreachable → `UNREACHABLE`). Tests
