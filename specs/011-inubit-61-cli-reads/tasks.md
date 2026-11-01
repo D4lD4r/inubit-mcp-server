@@ -333,6 +333,14 @@ request.
   off; `DiagnosisServiceTest` and `FindProcessesToolTest` — held-credentials
   6.1 node with `tag` in a mixed 8.1 + 6.1 group: 6.1 entry refused, 8.1 entry results, no launch;
   WireMock 0 requests for the 6.1 node; timing ≤ 15 s for 100 instances (SC-002).
+- [ ] T046 [US2] Session output bound (research D-10, follow-up from T032): `CliRunner.runSession`
+  takes the output bound per call (`--execCommand` runs and health sessions keep
+  `MAX_OUTPUT_BYTES` = 1 MiB); `V61ProcessQueryAdapter` passes 4 MiB per listing; the
+  `CliOutputClassifier` cut message names the bound that was exceeded instead of a fixed "1 MB".
+  Tests first: a generated 10,000-row listing with modules (> 1 MiB) is answered with
+  `truncated`/`totalIsLowerBound`; a session above its bound is still `UNEXPECTED_RESPONSE`
+  naming that bound; a health session above 1 MiB is still cut (`CliRunnerTest`,
+  `V61ProcessQueryAdapterTest`).
 
 **Checkpoint**: US2 works with the test matrix.
 
@@ -436,12 +444,13 @@ later feature.
 - **Phase 5 US1** (T022–T028): after T020; T022 and T023 parallel; T024 after T022; T025 after
   T023; T026 after T024, T025; T027 after T026; T028 last.
 - **Phase 6 US2** (T029–T033): after T020 and T025; T029 and T030 parallel; T031 after T029, T030;
-  T032 after T031; T033 after T032. US1 (from T026) and US2 can run in parallel.
+  T032 after T031; T033 after T032; T046 after T032 (added after the plan review, so its ID is
+  out of order). US1 (from T026) and US2 can run in parallel.
 - **`RECONSTRUCTED.txt`**: T017, T022 and T029 only append lines; when run in parallel, merge the
   appended lines.
 - **Phase 7** (T034): after T005; best after T028 and T033.
 - **Phase 8** (T035–T040): T035 any time after T016; T036 blocked on approval; T037 after T036,
-  T028; T038 after T036, T033; T039 after T038; T040 after T034, T037, T038, T039.
+  T028; T038 after T036, T033, T046; T039 after T038; T040 after T034, T037, T038, T039.
 - **Phase 9** (T041–T043): after T040 (T041, T042 can start earlier and be finished then).
 - **Phase 10 US4** (T044, T045): after Phase 9; blocked on sample exports.
 

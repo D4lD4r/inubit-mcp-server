@@ -223,12 +223,20 @@ the repository, never committed). Facts about this code base were verified in th
     validation and returns it as that node's result entry, and `find()` repeats the input check
     (second line of defence). `findByProcessId` throws `UNSUPPORTED_VERSION`.
   - `__NotAssigned__` → no `inubitNode`.
+  - Output bound (follow-up from T032): a reconstructed row with a module is about 130 bytes, so
+    one 10,000-row listing is about 1.3 MB and exceeds the 1 MiB bound of `CliRunner`
+    (`MAX_OUTPUT_BYTES`); a session with up to three listings needs several MB. A cut session is
+    `UNEXPECTED_RESPONSE`, so a node with many instances could not be listed at all. Decision:
+    `CliRunner.runSession` takes the output bound per call; process sessions get 4 MiB per
+    listing, health and `--execCommand` runs keep 1 MiB. The cut message names the bound that
+    was exceeded. The cap of `-l 10000` and paging stay unchanged.
   - The 6.1 result entry carries the warning "logs of INUBIT 6.1 cannot be read with query_logs;
     read them in the Workbench" (FR-010; `FindProcessesTool.java:22-24` keeps its description). The
     text comes from the gate admission (`VersionGate` returns version notes with an admission, as
     it returns warnings for unverified reads today), not from `DiagnosisService` (FR-016).
 - **REC questions**: is `DATE` the time of entering the state; does `ps -a` list Processing
-  instances; which rows does `-l` drop (recorded with `-l 5`); German labels. If `DATE` is not the
+  instances; which rows does `-l` drop (recorded with `-l 5`); German labels; does `ps -w` list `Retry` rows (if not, a `WAITING` query also reads
+  them from `ps -a`); how does the client print a value longer than its column. If `DATE` is not the
   state-entry time, a follow-up task makes `ProcessInstance.since` optional
   (`domain/model/ProcessInstance.java:25-40`, required in `find_processes.output.json:85-92`),
   refuses the time inputs, keeps the listing order with the note "not sorted by time" and makes
