@@ -348,7 +348,7 @@ request.
 
 ## Phase 7: Guard for recorded fixtures
 
-- [ ] T034 `V61RecordedFixturesTest` (FR-005, research D-15): for every capability that
+- [X] T034 `V61RecordedFixturesTest` (FR-005, research D-15): for every capability that
   `CapabilityMatrix.production()` declares `SUPPORTED` on 6.1, no case of that capability is
   listed in `fixtures/v6_1/cli/RECONSTRUCTED.txt`. Test first: the test itself, plus a case with a
   test-double matrix that flips a capability while its cases are still listed (must fail).

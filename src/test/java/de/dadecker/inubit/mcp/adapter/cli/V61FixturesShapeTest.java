@@ -47,8 +47,11 @@ class V61FixturesShapeTest {
         }
     }
 
-    /** The lines of {@code RECONSTRUCTED.txt} without blank lines and {@code #} comments. */
-    private static List<String> entries() {
+    /**
+     * The lines of {@code RECONSTRUCTED.txt} without blank lines and {@code #} comments; also read
+     * by {@link V61RecordedFixturesTest}.
+     */
+    static List<String> entries() {
         try (InputStream in = resource(FOLDER + "RECONSTRUCTED.txt")) {
             assertThat(in).as(FOLDER + "RECONSTRUCTED.txt").isNotNull();
             return new String(in.readAllBytes(), StandardCharsets.UTF_8).lines()
