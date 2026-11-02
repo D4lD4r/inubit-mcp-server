@@ -391,12 +391,14 @@ tasks with new tasks for the direct-option alternative before T037.
   6.1 in `CapabilityMatrix.production()`; `V61RecordedFixturesTest` green; the refusal tests of
   T009 that used the production matrix for `get_health`/`find_processes` switch to "admitted".
   Tests first: `CapabilityMatrixTest`, `V61RecordedFixturesTest`.
+  Then update the "in this version refused" statements of T041 (README.md, docs/setup.md,
+  docs/tools.md incl. the HealthReport table, review T041-r1) and the T042 CHANGELOG entry.
 
 ---
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
-- [ ] T041 [P] Docs (research D-18): `docs/setup.md` (versionLine `V6_1`, 6.1 node example,
+- [X] T041 [P] Docs (research D-18): `docs/setup.md` (versionLine `V6_1`, 6.1 node example,
   client options and trust store, TLS pre-check, check-config line), `docs/tools.md` (version
   table with a 6.1 column, capability names, warnings and refusal texts, `list_nodes` `access`,
   `get_health` 6.1 example, `find_processes` 6.1 notes, announcement, `check_artifacts`),

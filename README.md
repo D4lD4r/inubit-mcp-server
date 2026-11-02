@@ -9,8 +9,10 @@ switches workflows on or off, tags tested states, restores backups and sends SOA
 Along a configured **stage chain** it deploys a tagged release into the next group, node by node
 — or, for a package-only group such as production, prepares import packages for a person. It uses
 the INUBIT REST API wherever possible and the INUBIT command-line client (StartCLI) only where REST
-cannot do the job. One server process serves one **profile** (one customer or project, one YAML
-file); several profiles run side by side as separate registrations.
+cannot do the job. Nodes of an older **INUBIT 6.1** installation can be configured read-only:
+they are reached through StartCLI only, never over REST (see [Requirements](#requirements)). One
+server process serves one **profile** (one customer or project, one YAML file); several profiles
+run side by side as separate registrations.
 
 ## Tools
 
@@ -38,8 +40,9 @@ own explicit setting:
 
 | Tools | Offered when |
 |---|---|
-| the six read-only tools and `check_artifacts` | always |
-| `export_artifacts` | a node has a StartCLI installation |
+| `list_nodes`, `get_health`, `check_artifacts` | always |
+| `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item` | a node is not pinned to an INUBIT version that refuses the tool (none of them is offered, e.g., in a profile of INUBIT 6.1 nodes only) |
+| `export_artifacts` | a node has a StartCLI installation and is not pinned to an INUBIT version that refuses the export |
 | `restart_process`, `kill_process` | a node has effective write access (`write.enabled`) |
 | `import_artifacts`, `restore_backup`, `set_active`, `tag_artifacts` | a node has `development.enabled: true` (never on production) |
 | `deploy_release` | a group has a `deploy` record (stage chain); with a target in mode `EXECUTE` also `restore_backup` for deployment backups |
@@ -62,7 +65,8 @@ development stages and the stage chain: [docs/setup.md](docs/setup.md).
   but the version detection is sent on an unknown version (also after a failed detection), on
   any version other than 8.1 (INUBIT 9.x, `V9_X`) and while `get_health` reads a version that
   contradicts the pin. On an unknown version and on versions other than 8.1, read tools run with
-  a warning that their results are unverified. StartCLI-backed tools are also refused where the
+  a warning that their results are unverified — except on INUBIT 6.1, where every tool not
+  declared supported for 6.1 is refused. StartCLI-backed tools are also refused where the
   local StartCLI client does not support the node's INUBIT major.minor, and `deploy_release`
   deploys only between nodes of the same minor version.
   `list_nodes` shows per node the version, the client and the usable capabilities without
@@ -124,6 +128,13 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
 - **INUBIT 8.1** servers reachable over HTTPS, and an INUBIT account per group or node with rights
   to read logs, monitoring and models; where the development tools or deployments are used, also
   with rights to export, import and tag the owner's diagrams and modules.
+- **INUBIT 6.1** is supported read-only, through StartCLI only, for nodes pinned with
+  `versionLine: V6_1` (or a concrete 6.1 version): the server sends them no REST request and
+  never writes to them. In this version every tool except `list_nodes` and the offline checks
+  of `check_artifacts` is still refused on 6.1 (`UNSUPPORTED_VERSION`); health and the process
+  listing (`get_health`, `find_processes`) become available once they have been verified against
+  recorded outputs of a real 6.1 node. Such nodes need a StartCLI client that supports INUBIT 6.1
+  and its Java runtime ([INUBIT 6.1 nodes](docs/setup.md#inubit-61-nodes-v6_1)).
 - Only for the CLI-based parts (`restart_process`, `kill_process`, the module list and version
   histories of the inventory tools, and every tool that exports, imports or tags artifacts —
   `export_artifacts`, the development tools and `deploy_release`, which needs it for the nodes of
