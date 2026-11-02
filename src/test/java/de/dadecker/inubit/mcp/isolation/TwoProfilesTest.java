@@ -23,6 +23,8 @@ import de.dadecker.inubit.mcp.config.ValidationReport;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -118,8 +120,8 @@ class TwoProfilesTest {
 
     /** {@code <home>/.config/inubit-mcp/<name>.yaml}: write enabled on test/node1, no audit key. */
     private Path profileFile(String name, WireMockServer server) throws IOException {
-        Path cliHome = Files.createDirectories(home.resolve("cli-" + name + "/bin")).getParent();
-        Files.writeString(cliHome.resolve("bin/startcli.sh"), "#!/bin/sh\n");
+        Path cliHome = home.resolve("cli-" + name);
+        FakeStartCli.install(cliHome);
         Path file = home.resolve(".config/inubit-mcp/" + name + ".yaml");
         Files.createDirectories(file.getParent());
         return Files.writeString(file, """
@@ -158,7 +160,7 @@ class TwoProfilesTest {
         ProfileConfig config = loaded.config();
         SecretScrubber scrubber = new SecretScrubber();
         // feature 011: the values are credential store entries, not environment variables
-        ValidationReport report = new ConfigValidator(Files::exists, Map.of(), false,
+        ValidationReport report = new ConfigValidator(Files::exists, Map.of(), Platform.windows(),
             Path.of(System.getProperty("java.io.tmpdir")), loader::otherProfiles)
             .validate(loaded);
         assertThat(report.errors()).as(name).isEmpty();
@@ -167,8 +169,8 @@ class TwoProfilesTest {
         List<Path> exportFiles = new CopyOnWriteArrayList<>();
         FakeProcessLauncher startCli = exportingStartCli(exportFiles);
         TestWiring wiring = TestWiring.of(config, TestSecrets.store(environment), scrubber,
-            Files::exists, false,
-            startCli, Map.of("PATH", "/usr/bin"));
+            Files::exists, Platform.windows(),
+            startCli, Map.of("PATH", Platform.searchPath()));
         closeables.add(wiring);
         McpTestClient client = McpTestClient.start(wiring.serverFactory("test"));
         closeables.add(client);
@@ -190,7 +192,8 @@ class TwoProfilesTest {
     private static FakeProcessLauncher exportingStartCli(List<Path> exportFiles) {
         byte[] modules = FakeProcessLauncher.fixture("export_modules_sample.zip");
         return FakeProcessLauncher.replaying("export_modules_sample").onLaunch(spec -> {
-            String command = spec.command().get(spec.command().indexOf("--execCommand") + 1);
+            List<String> arguments = spec.startCliArguments();
+            String command = arguments.get(arguments.indexOf("--execCommand") + 1);
             Matcher matcher = EXPORT_FILE.matcher(command);
             if (matcher.find()) {
                 Path file = Path.of(matcher.group(1));
@@ -305,7 +308,7 @@ class TwoProfilesTest {
     /** The StartCLI runs other than the client probe {@code -v} of the version gate (T019). */
     private static long executions(FakeProcessLauncher startCli) {
         return startCli.processes().stream()
-            .filter(process -> !process.spec().command().contains("-v"))
+            .filter(process -> !process.spec().startCliArguments().contains("-v"))
             .count();
     }
 

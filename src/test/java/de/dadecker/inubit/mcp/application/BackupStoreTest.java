@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import de.dadecker.inubit.mcp.application.BackupStore.Manifest;
 import de.dadecker.inubit.mcp.application.BackupStore.Removed;
@@ -10,6 +11,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -33,6 +35,9 @@ class BackupStoreTest {
     private static final NodeId DEV = NodeId.parse("dev/node1");
     private static final Instant NOW = Instant.parse("2026-10-06T08:00:00Z");
     private static final String SECRET = "S3cr3t-pw-in-backup";
+    /** Owner-only permissions are checked on POSIX; the Windows equivalent follows in T025. */
+    private static final boolean POSIX =
+        FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
 
     @TempDir
     Path home;
@@ -77,17 +82,23 @@ class BackupStoreTest {
             .isEqualTo(export("first " + SECRET));
         assertThat(Files.readAllBytes(root().resolve(id + "-2.zip"))).isEqualTo(export("second"));
         assertThat(root().resolve(id + ".json")).isRegularFile();
-        assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(root())))
-            .isEqualTo("rwx------");
         try (Stream<Path> files = Files.list(root())) {
-            assertThat(files.toList()).hasSize(3).allSatisfy(file -> assertThat(
-                PosixFilePermissions.toString(Files.getPosixFilePermissions(file)))
-                .as(file.getFileName().toString()).isEqualTo("rw-------"));
+            assertThat(files.toList()).hasSize(3);
+        }
+        if (POSIX) {
+            assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(root())))
+                .isEqualTo("rwx------");
+            try (Stream<Path> files = Files.list(root())) {
+                assertThat(files.toList()).allSatisfy(file -> assertThat(
+                    PosixFilePermissions.toString(Files.getPosixFilePermissions(file)))
+                    .as(file.getFileName().toString()).isEqualTo("rw-------"));
+            }
         }
     }
 
     @Test
     void anExistingDirectoryWithWiderPermissionsIsTightened() throws IOException {
+        assumeTrue(POSIX);
         Files.createDirectories(root(), PosixFilePermissions.asFileAttribute(
             PosixFilePermissions.fromString("rwxr-xr-x")));
 

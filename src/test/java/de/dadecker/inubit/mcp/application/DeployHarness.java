@@ -34,8 +34,11 @@ import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -157,8 +160,7 @@ public final class DeployHarness {
         this.root = Files.createDirectories(temp.resolve("workspace"));
         this.cliHome = Files.createDirectories(temp.resolve("client"));
         this.profileHome = Files.createDirectories(temp.resolve("profile"));
-        Files.writeString(Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh"),
-            "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
         this.backups = new BackupStore(profileHome.resolve("backups"), clock);
         this.workspace = new ExportHarness(root);
         this.history = workspace.history;
@@ -201,7 +203,7 @@ public final class DeployHarness {
     }
 
     private CliRunner runner(NodeId node) {
-        return new CliRunner(cli.get(node), Map.of("PATH", "/usr/bin"), false,
+        return TestCliRunners.forHost(cli.get(node), Map.of("PATH", Platform.searchPath()),
             new CliResources("acme"));
     }
 

@@ -18,7 +18,6 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures.SyntheticSecr
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
-import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
@@ -34,8 +33,11 @@ import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.tools.ExportArtifactsTool;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -92,11 +94,11 @@ class SecretLeakTest {
     @BeforeEach
     void setUp() throws IOException {
         captureLogs();
-        Files.writeString(Files.createDirectories(cliHome.resolve("bin"))
-            .resolve("startcli.sh"), "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
         FakeProcessLauncher startCli = FakeProcessLauncher.of(
             "1-OK: Artifacts exported successfully.\n", "", 0).onLaunch(spec -> {
-                String command = spec.command().get(spec.command().indexOf("--execCommand") + 1);
+                List<String> arguments = spec.startCliArguments();
+                String command = arguments.get(arguments.indexOf("--execCommand") + 1);
                 Matcher file = EXPORT_FILE.matcher(command);
                 assertThat(file.find()).isTrue();
                 String fixture = EXPORTS.entrySet().stream()
@@ -117,7 +119,8 @@ class SecretLeakTest {
             .cliHome(cliHome).cliJavaHome(Path.of("/opt/jdk-17")).build(), credentials,
             new CredentialGuard(storeLabels("INUBIT", DEV),
                 new MutableClock(Instant.parse("2026-10-06T08:00:00Z"))),
-            new CliRunner(startCli, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
+            TestCliRunners.forHost(startCli, Map.of("PATH", Platform.searchPath()),
+                new CliResources("acme")),
             new CliOutputClassifier(new SecretScrubber())), () -> { });
         WorkspaceService service = new WorkspaceService(workspace, new GitCli(workspace, "acme",
             new SystemProcessLauncher(), Map.of("PATH",

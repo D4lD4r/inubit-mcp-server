@@ -14,7 +14,6 @@ import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
 import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
-import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.application.ConfirmationRegistry;
@@ -32,8 +31,11 @@ import de.dadecker.inubit.mcp.infra.AuditLog;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
+import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -184,8 +186,8 @@ class ProcessControlToolsTest {
     /** The write tools on {@code dev/node1} (WireMock + fake StartCLI), audit in {@code temp}. */
     private McpTestClient client(FakeProcessLauncher launcher, ConfirmationMode confirmation)
         throws IOException {
-        Path cliHome = Files.createDirectories(temp.resolve("cli/bin")).getParent();
-        Files.writeString(cliHome.resolve("bin/startcli.sh"), "#!/bin/sh\n");
+        Path cliHome = temp.resolve("cli");
+        FakeStartCli.install(cliHome);
         EffectiveNodeConfig server = TestNodeConfig.node().id("dev/node1")
             .baseUrl("https://localhost:" + dev.httpsPort())
             .trustStore(TestCertificates.get().trustStore()).versionLine(VersionSetting.V8_1)
@@ -196,7 +198,8 @@ class ProcessControlToolsTest {
         AdapterGatewayFactory gateways = new AdapterGatewayFactory(List.of(server),
             TestSecrets.credentialStore(List.of(server), Map.of("INUBIT_DEV_USERNAME", "jdoe",
                 "INUBIT_DEV_PASSWORD", PASSWORD), scrubber), scrubber, Clock.systemUTC(),
-            new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
+            TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
+                new CliResources("acme")),
             new RecordingVersionObserver(), PortSetRegistry.v81Default());
         closeables.add(gateways);
         Map<NodeId, WritePolicy> policies = Map.of(server.id(), new WritePolicy(server.id(),
@@ -377,7 +380,7 @@ class ProcessControlToolsTest {
         assertThat(result.path("stateBefore").asString()).isEqualTo("ERROR");
         assertThat(result.path("stateAfter").asString()).isEqualTo("NOT_IN_QUEUE");
         assertThat(launcher.launchCount()).isEqualTo(1);
-        List<String> command = launcher.last().spec().command();
+        List<String> command = launcher.last().spec().startCliArguments();
         assertThat(command.get(command.indexOf("--execCommand") + 1))
             .isEqualTo("processErrorStart " + PID);
         List<JsonNode> records = auditRecords();

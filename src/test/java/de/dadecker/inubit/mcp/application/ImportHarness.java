@@ -41,8 +41,11 @@ import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -131,8 +134,7 @@ public final class ImportHarness {
         String module, String pluginType) throws IOException {
         this.root = Files.createDirectories(temp.resolve("workspace"));
         this.cliHome = Files.createDirectories(temp.resolve("client"));
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
         this.owner = owner;
         this.diagramGroup = diagramGroup;
         this.exports = new ExportHarness(root);
@@ -171,7 +173,7 @@ public final class ImportHarness {
     public ImportService service() {
         CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", DEV),
             clock);
-        CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
+        CliRunner runner = TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
             new CliResources("acme"));
         CliOutputClassifier classifier = new CliOutputClassifier(new SecretScrubber());
         ArtifactPort artifacts = new V81ArtifactAdapter(new CliExportRunner(server, credentials,
@@ -214,7 +216,7 @@ public final class ImportHarness {
     public ArtifactPort artifacts() {
         CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", DEV),
             clock);
-        CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
+        CliRunner runner = TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
             new CliResources("acme"));
         return new V81ArtifactAdapter(new CliExportRunner(server, credentials, guard, runner,
             new CliOutputClassifier(new SecretScrubber())), () -> { });

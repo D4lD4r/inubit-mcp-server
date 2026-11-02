@@ -10,6 +10,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -26,6 +27,9 @@ import org.junit.jupiter.api.io.TempDir;
 class DeployLockTest {
 
     private static final GroupId INT = new GroupId("int");
+    /** Owner-only permissions are checked on POSIX; the Windows equivalent follows in T025. */
+    private static final boolean POSIX =
+        FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
 
     @TempDir
     Path temp;
@@ -43,10 +47,12 @@ class DeployLockTest {
         Path workspace = workspace();
         try (DeployLock lock = DeployLock.acquire(deployments(), INT, workspace)) {
             assertThat(deployments().resolve("int.lock")).isRegularFile();
-            assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(
-                deployments().resolve("int.lock")))).isEqualTo("rw-------");
-            assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(
-                deployments()))).isEqualTo("rwx------");
+            if (POSIX) {
+                assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(
+                    deployments().resolve("int.lock")))).isEqualTo("rw-------");
+                assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(
+                    deployments()))).isEqualTo("rwx------");
+            }
             assertThatThrownBy(() -> WorkspaceLock.acquire(workspace))
                 .isInstanceOf(ToolErrorException.class);
             assertThatThrownBy(() -> DeployLock.acquire(deployments(), INT, workspace))

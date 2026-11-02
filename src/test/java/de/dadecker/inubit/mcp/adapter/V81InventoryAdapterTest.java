@@ -32,7 +32,10 @@ import de.dadecker.inubit.mcp.domain.port.InventoryPort.ModuleEntry;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort.VersionHistory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -92,8 +95,7 @@ class V81InventoryAdapterTest {
     @BeforeEach
     void setUp() throws IOException {
         wireMock.resetAll();
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
         config = TestNodeConfig.node().baseUrl("https://localhost:" + wireMock.httpsPort())
             .trustStore(TestCertificates.get().trustStore()).cliHome(cliHome)
             .cliJavaHome(Path.of("/opt/jdk-17")).build();
@@ -114,7 +116,7 @@ class V81InventoryAdapterTest {
     }
 
     private InventoryPort adapter(FakeProcessLauncher launcher) {
-        CliRunner runner = new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false,
+        CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
             new CliResources("acme"));
         return new V81InventoryAdapter(DEV, client, new CliExportRunner(config, credentials,
             guard, runner, new CliOutputClassifier(scrubber)));

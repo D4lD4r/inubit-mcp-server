@@ -31,6 +31,9 @@ import de.dadecker.inubit.mcp.infra.ResultJson;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -93,8 +96,7 @@ final class InventoryToolFixture implements AutoCloseable {
         Duration exportTimeout, VersionSetting devVersionLine) {
         try {
             cliHome = Files.createTempDirectory("inventory-tool-cli");
-            Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-            Files.writeString(script, "#!/bin/sh\n");
+            FakeStartCli.install(cliHome);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -114,7 +116,8 @@ final class InventoryToolFixture implements AutoCloseable {
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber), scrubber,
             Clock.systemUTC(),
-            new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
+            TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
+                new CliResources("acme")),
             versions, PortSetRegistry.v81Default());
         InventoryService inventory = new InventoryService(gateways, new TargetResolver(ids),
             new FanOut(), ResultLimiter.withDefaults(),
@@ -140,7 +143,8 @@ final class InventoryToolFixture implements AutoCloseable {
         byte[] modules = FakeProcessLauncher.fixture("export_modules_sample.zip");
         byte[] history = FakeProcessLauncher.fixture("export_history_sample.zip");
         return FakeProcessLauncher.replaying("export_history_sample").onLaunch(spec -> {
-            String command = spec.command().get(spec.command().indexOf("--execCommand") + 1);
+            List<String> arguments = spec.startCliArguments();
+            String command = arguments.get(arguments.indexOf("--execCommand") + 1);
             Matcher matcher = EXPORT_FILE.matcher(command);
             if (matcher.find()) {
                 try {

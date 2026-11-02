@@ -14,6 +14,8 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -53,8 +55,7 @@ class MessageTerminologyTest {
 
     @BeforeEach
     void startCliScript() throws IOException {
-        Files.createDirectories(cliHome.resolve("bin"));
-        Files.writeString(cliHome.resolve("bin").resolve("startcli.sh"), "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
         env.put("INUBIT_ACME_TEST_USERNAME", "user");
         env.put("INUBIT_ACME_TEST_PASSWORD", "message-test-pw");
         env.put("INUBIT_ACME_PROD_USERNAME", "user");
@@ -123,7 +124,7 @@ class MessageTerminologyTest {
             SecretScrubber scrubber = new SecretScrubber();
             CredentialStore credentials = TestSecrets.store(env);
             wiring = new Wiring(loaded.config(), credentials, scrubber, ClockProvider.system(),
-                path -> true, false);
+                path -> true, Platform.windows());
         }
         return wiring.toolHandlers().stream().filter(h -> h.name().equals(name)).findFirst()
             .orElseThrow();

@@ -31,6 +31,8 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -129,8 +131,8 @@ class NoSecretLeakTest {
         slow.stubFor(any(anyUrl()).willReturn(RestFixtures.response("healthcheck", "json")
             .withFixedDelay(2_500)));
 
-        cliHome = Files.createDirectories(temp.resolve("cli/bin")).getParent();
-        Files.writeString(cliHome.resolve("bin/startcli.sh"), "#!/bin/sh\n");
+        cliHome = temp.resolve("cli");
+        FakeStartCli.install(cliHome);
         String yaml = yaml();
         ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml")).config();
@@ -143,9 +145,9 @@ class NoSecretLeakTest {
         environment.put("INUBIT_ACME_TEST_PASSWORD", testSeed);
         SecretScrubber scrubber = SecretScrubber.global();
         Map<String, String> parent = new LinkedHashMap<>(environment);
-        parent.put("PATH", "/usr/bin");
+        parent.put("PATH", Platform.searchPath());
         wiring = TestWiring.of(config, TestSecrets.store(environment), scrubber, Files::exists,
-            false, startCli(), parent);
+            Platform.windows(), startCli(), parent);
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
     }
@@ -285,7 +287,7 @@ class NoSecretLeakTest {
         byte[] modules = FakeProcessLauncher.fixture("export_modules_sample.zip");
         byte[] history = FakeProcessLauncher.fixture("export_history_sample.zip");
         return spec -> {
-            List<String> command = spec.command();
+            List<String> command = spec.startCliArguments();
             String exec = command.get(command.indexOf("--execCommand") + 1);
             String url = command.get(command.size() - 1);
             FakeProcessLauncher launcher;
@@ -482,8 +484,8 @@ class NoSecretLeakTest {
         ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml")).config();
         SecretScrubber scrubber = SecretScrubber.global();
-        wiring = TestWiring.of(config, TestSecrets.store(Map.of()), scrubber, Files::exists, false,
-            startCli(), Map.of("PATH", "/usr/bin"), store);
+        wiring = TestWiring.of(config, TestSecrets.store(Map.of()), scrubber, Files::exists,
+            Platform.windows(), startCli(), Map.of("PATH", Platform.searchPath()), store);
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
 
@@ -563,8 +565,8 @@ class NoSecretLeakTest {
         ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml(), temp.resolve("config.yaml")).config();
         SecretScrubber scrubber = SecretScrubber.global();
-        wiring = TestWiring.of(config, store, scrubber, Files::exists, false, startCli(),
-            Map.of("PATH", "/usr/bin"));
+        wiring = TestWiring.of(config, store, scrubber, Files::exists, Platform.windows(),
+            startCli(), Map.of("PATH", Platform.searchPath()));
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
 

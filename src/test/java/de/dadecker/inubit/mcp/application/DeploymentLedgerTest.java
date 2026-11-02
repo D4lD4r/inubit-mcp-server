@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -29,6 +30,9 @@ class DeploymentLedgerTest {
     private static final String FP_B = "sha256:" + "b".repeat(64);
     private static final String AUDIT = "00000000-0000-0000-0000-00000000d019";
     private static final Instant AT = Instant.parse("2026-10-07T10:00:00Z");
+    /** Owner-only permissions are checked on POSIX; the Windows equivalent follows in T025. */
+    private static final boolean POSIX =
+        FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
 
     @TempDir
     Path temp;
@@ -70,10 +74,12 @@ class DeploymentLedgerTest {
             entry(FP_A)));
 
         Path file = deployments().resolve("int.ledger.json");
-        assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(deployments())))
-            .isEqualTo("rwx------");
-        assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(file)))
-            .isEqualTo("rw-------");
+        if (POSIX) {
+            assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(
+                deployments()))).isEqualTo("rwx------");
+            assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(file)))
+                .isEqualTo("rw-------");
+        }
         try (Stream<Path> files = Files.list(deployments())) {
             assertThat(files).containsExactly(file);
         }

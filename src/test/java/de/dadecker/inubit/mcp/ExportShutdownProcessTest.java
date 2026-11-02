@@ -12,14 +12,18 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
+import de.dadecker.inubit.mcp.testing.ArgvRecorder;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.Platform;
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -30,14 +34,18 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Phase 5 review I1: the real server ({@link Main}) in a child JVM runs a module export through a
- * fake {@code startcli.sh} that forks a long {@code sleep}. When the MCP client closes stdin, or
- * the server gets SIGTERM, no StartCLI process may survive and the export directory must be gone.
- * A stale export directory of a dead server process is swept at startup. The fake answers the
- * client probe {@code -v} of the version gate (feature 009, T019) at once. Feature 011: the node
+ * fake StartCLI ({@link FakeStartCli}) that starts a long-sleeping child. When the MCP client
+ * closes stdin, or the server gets SIGTERM, no StartCLI process may survive and the export
+ * directory must be gone. A stale export directory of a dead server process is swept at startup.
+ * The client probe {@code -v} of the version gate (feature 009, T019) is answered by a
+ * {@code get_health} call against a fake that replays the version, before the sleeping fake is
+ * installed; the known client result spares the export call a second probe. Feature 011: the node
  * reads its credentials from AWS Parameter Store, answered by a local stub of the SSM protocol
  * ({@code AWS_ENDPOINT_URL_SSM}), so that the test needs no credential store of the system and
  * runs the same on every machine.
@@ -79,7 +87,7 @@ class ExportShutdownProcessTest {
 
     @Test
     void closingStdinStopsTheExportAndDeletesItsDirectory() throws Exception {
-        long dead = deadPid();
+        long dead = Platform.deadPid();
         Path stale = staleExport("acme-" + dead);
         Path legacy = staleExport(String.valueOf(dead));
         Path otherProfile = staleExport("globex-" + dead);
@@ -104,6 +112,8 @@ class ExportShutdownProcessTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "SIGTERM is POSIX; Windows: the job kill"
+        + " (T012) and the sweep at the next start (T019)")
     void sigtermStopsTheExportAndDeletesItsDirectory() throws Exception {
         Child child = startExport();
         // pure SIGTERM: stdin stays open, only the JVM shutdown hook cleans up
@@ -114,6 +124,8 @@ class ExportShutdownProcessTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "SIGTERM is POSIX; Windows: the job kill"
+        + " (T012) and the sweep at the next start (T019)")
     void eofAndSigtermTogetherStopTheExportAndDeleteItsDirectory() throws Exception {
         // Phase 6 review W2: the main thread (stdin EOF) and the shutdown hook (SIGTERM) close
         // the CLI resources concurrently; the JVM must not exit before the trees are stopped
@@ -128,14 +140,18 @@ class ExportShutdownProcessTest {
         return Files.createDirectories(home.resolve("tmp"));
     }
 
-    private record Child(Process process, OutputStream stdin, Path cliHome, Path tmp,
+    private record Child(Process process, OutputStream stdin, FakeStartCli cli, Path tmp,
         Path stderr) {
 
         void assertCleanShutdown() throws Exception {
             assertThat(process.waitFor(40, TimeUnit.SECONDS)).as("server exits").isTrue();
             String errors = Files.readString(stderr);
-            for (String name : List.of("startcli.pid", "sleep.pid")) {
-                long pid = Long.parseLong(Files.readString(cliHome.resolve(name)).strip());
+            FakeStartCli.Recorded record = cli.record();
+            assertThat(record.childPid()).as("the fake started its child").isNotNull();
+            for (Map.Entry<String, Long> entry : Map.of("startcli", record.pid(),
+                "its child", record.childPid()).entrySet()) {
+                String name = entry.getKey();
+                long pid = entry.getValue();
                 long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
                 while (alive(pid) && System.nanoTime() < deadline) {
                     Thread.sleep(50);
@@ -156,28 +172,9 @@ class ExportShutdownProcessTest {
         return ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
     }
 
-    private static long deadPid() throws Exception {
-        Process process = new ProcessBuilder("/bin/sh", "-c", "exit 0").start();
-        process.waitFor();
-        return process.pid();
-    }
-
     private Child startExport() throws Exception {
         Path cliHome = Files.createDirectories(home.resolve("client"));
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, """
-            #!/bin/sh
-            if [ "$1" = "-v" ]; then
-              echo "CLI 8.1.17"
-              echo "Supported inubit Process Engine versions from 4.0.1 to 8.1.17."
-              exit 0
-            fi
-            echo $$ > "%1$s/startcli.pid.tmp" && mv "%1$s/startcli.pid.tmp" "%1$s/startcli.pid"
-            sleep 300 &
-            echo $! > "%1$s/sleep.pid.tmp" && mv "%1$s/sleep.pid.tmp" "%1$s/sleep.pid"
-            wait
-            """.formatted(cliHome));
-        Files.setPosixFilePermissions(script, PosixFilePermissions.fromString("rwx------"));
+        FakeStartCli probe = FakeStartCli.replaying(cliHome, "version");
         Path tmp = tmp();
         Path config = home.resolve("config.yaml");
         Files.writeString(config, """
@@ -214,7 +211,7 @@ class ExportShutdownProcessTest {
         ProcessBuilder builder = new ProcessBuilder(command);
         Map<String, String> environment = builder.environment();
         environment.clear();
-        environment.put("PATH", "/usr/bin:/bin");
+        environment.put("PATH", Platform.searchPath());
         // feature 011: the credentials come from the SSM stub, with static test AWS credentials
         environment.put("AWS_ENDPOINT_URL_SSM", "http://localhost:" + ssm.port());
         environment.put("AWS_ACCESS_KEY_ID", "AKIDEXAMPLE");
@@ -223,21 +220,35 @@ class ExportShutdownProcessTest {
         Path stderr = home.resolve("server-stderr.log");
         builder.redirectError(stderr.toFile());
         Process process = builder.start();
-        CompletableFuture.runAsync(() -> readAll(process.getInputStream()));
+        BufferedReader stdout = new BufferedReader(new InputStreamReader(process.getInputStream(),
+            StandardCharsets.UTF_8));
         OutputStream stdin = process.getOutputStream();
         send(stdin, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":"
             + "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},"
             + "\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}");
         send(stdin, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
+        // the client probe, against the replaying fake; its result is known from now on
         send(stdin, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":"
+            + "{\"name\":\"get_health\",\"arguments\":{\"target\":\"dev/node1\"}}}");
+        String line;
+        do {
+            line = stdout.readLine();
+        } while (line != null && !line.contains("\"id\":2"));
+        assertThat(line).as("the get_health response").isNotNull();
+        assertThat(probe.record().args()).as("the client probe ran").containsExactly("-v");
+        CompletableFuture.runAsync(() -> readAll(process.getInputStream()));
+        FakeStartCli cli = FakeStartCli.install(cliHome, Map.of(
+            ArgvRecorder.CHILD_SLEEP_MILLIS, "300000", ArgvRecorder.SLEEP_MILLIS, "300000"));
+        Files.delete(cli.recordFile());
+        send(stdin, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":"
             + "{\"name\":\"list_inventory\",\"arguments\":{\"target\":\"dev/node1\","
             + "\"kind\":\"MODULE\"}}}");
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
-        while (!Files.exists(cliHome.resolve("sleep.pid")) && System.nanoTime() < deadline) {
+        while (!Files.exists(cli.recordFile()) && System.nanoTime() < deadline) {
             assertThat(process.isAlive()).as("server died early").isTrue();
             Thread.sleep(50);
         }
-        assertThat(cliHome.resolve("sleep.pid")).as("the fake export runs").exists();
+        assertThat(cli.recordFile()).as("the fake export runs").exists();
         assertThat(ssm.getAllServeEvents()).as("the credentials came from the SSM stub")
             .isNotEmpty();
         try (Stream<Path> files = Files.list(tmp)) {
@@ -246,7 +257,7 @@ class ExportShutdownProcessTest {
                 .startsWith(CliResources.EXPORT_PREFIX + "acme-" + process.pid() + "-"))
                 .toList()).as("the export directory exists while StartCLI runs").isNotEmpty();
         }
-        return new Child(process, stdin, cliHome, tmp, stderr);
+        return new Child(process, stdin, cli, tmp, stderr);
     }
 
     private static void send(OutputStream stdin, String line) throws IOException {

@@ -14,7 +14,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.http.Fault;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
-import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
@@ -51,14 +50,16 @@ import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -154,7 +155,7 @@ class AdapterGatewayFactoryTest {
             List.of(servers), Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD",
                 "gateway-test-pw"), scrubber),
             scrubber, clock,
-            new CliRunner(new SystemProcessLauncher(), Map.of(), false, new CliResources("acme")),
+            TestCliRunners.forHost(new SystemProcessLauncher(), Map.of(), new CliResources("acme")),
             observer, portSets);
     }
 
@@ -437,8 +438,7 @@ class AdapterGatewayFactoryTest {
     @Test
     void theInventoryExportsUseTheGivenCliRunnerAndTheServersCredentialGuard(
         @TempDir Path cliHome) throws IOException {
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
         EffectiveNodeConfig config = TestNodeConfig.node().id(DEV.value())
             .baseUrl("https://localhost:" + wireMock.httpsPort())
             .trustStore(TestCertificates.get().trustStore()).cliHome(cliHome)
@@ -448,7 +448,8 @@ class AdapterGatewayFactoryTest {
         try (AdapterGatewayFactory factory = new AdapterGatewayFactory(List.of(config),
             TestSecrets.credentialStore(List.of(config), Map.of("INUBIT_DEV_USERNAME", "jdoe",
                 "INUBIT_DEV_PASSWORD", "gateway-test-pw"), scrubber), scrubber, clock,
-            new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
+            TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
+                new CliResources("acme")),
             versions, PortSetRegistry.v81Default())) {
 
             assertThatThrownBy(() -> factory.inventory(DEV).listModules("OWNERS"))
@@ -569,7 +570,7 @@ class AdapterGatewayFactoryTest {
             NodeSecrets.STORE_TIMEOUT.plusSeconds(1));
         try (AdapterGatewayFactory factory = new AdapterGatewayFactory(List.of(dev),
             Map.of(DEV, NodeSecrets.credentialStore(dev, store, scrubber, clock)), scrubber,
-            clock, new CliRunner(new SystemProcessLauncher(), Map.of(), false,
+            clock, TestCliRunners.forHost(new SystemProcessLauncher(), Map.of(),
                 new CliResources("acme")), versions, PortSetRegistry.v81Default())) {
 
             assertThat(factory.logs(DEV)).isNotNull();
@@ -588,7 +589,7 @@ class AdapterGatewayFactoryTest {
             "INUBIT_DEV_PASSWORD", "gateway-test-pw"));
         try (AdapterGatewayFactory factory = new AdapterGatewayFactory(List.of(dev),
             Map.of(DEV, NodeSecrets.credentialStore(dev, store, scrubber, clock)), scrubber,
-            clock, new CliRunner(new SystemProcessLauncher(), Map.of(), false,
+            clock, TestCliRunners.forHost(new SystemProcessLauncher(), Map.of(),
                 new CliResources("acme")), versions, PortSetRegistry.v81Default())) {
             LogQuery workflowOnTheAuditLog = new LogQuery(LogType.AUDIT_LOG, Optional.empty(),
                 Optional.empty(), Optional.of("Workflow-0001"), Optional.empty(), Set.of(),
@@ -1067,7 +1068,7 @@ class AdapterGatewayFactoryTest {
 
     private AdapterGatewayFactory awsFactory(EffectiveNodeConfig server, NodeSecrets secrets) {
         return new AdapterGatewayFactory(List.of(server), Map.of(server.id(), secrets), scrubber,
-            clock, new CliRunner(new SystemProcessLauncher(), Map.of(), false,
+            clock, TestCliRunners.forHost(new SystemProcessLauncher(), Map.of(),
                 new CliResources("acme")), versions, PortSetRegistry.v81Default());
     }
 

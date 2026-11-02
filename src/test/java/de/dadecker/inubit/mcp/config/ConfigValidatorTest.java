@@ -1,9 +1,11 @@
 package de.dadecker.inubit.mcp.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -28,6 +30,9 @@ class ConfigValidatorTest {
     private static final String PIN =
         "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89";
     private static final String CLI_HOME = "/opt/client";
+    /** Owner-only permissions are checked on POSIX; the Windows equivalent follows in T026. */
+    private static final boolean POSIX =
+        FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
 
     private final Map<String, String> env = new HashMap<>();
     private final Set<Path> existing = new HashSet<>();
@@ -1272,9 +1277,12 @@ class ConfigValidatorTest {
             WorkspaceDirectory.Result result = WorkspaceDirectory.prepare(workspace);
 
             assertThat(result).isEqualTo(new WorkspaceDirectory.Usable(true));
-            for (Path created : List.of(home.resolve("a"), home.resolve("a/b"), workspace)) {
-                assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(created)))
-                    .as(created.toString()).isEqualTo("rwx------");
+            if (POSIX) {
+                for (Path created : List.of(home.resolve("a"), home.resolve("a/b"), workspace)) {
+                    assertThat(PosixFilePermissions.toString(
+                        Files.getPosixFilePermissions(created)))
+                        .as(created.toString()).isEqualTo("rwx------");
+                }
             }
             assertThat(WorkspaceDirectory.prepare(workspace))
                 .isEqualTo(new WorkspaceDirectory.Usable(false));
@@ -1282,6 +1290,7 @@ class ConfigValidatorTest {
 
         @Test
         void anExistingWorkspaceKeepsItsPermissions() throws IOException {
+            assumeTrue(POSIX);
             Path workspace = Files.createDirectory(home.resolve("ws"),
                 PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwxr-x---")));
 
@@ -1293,6 +1302,7 @@ class ConfigValidatorTest {
 
         @Test
         void aWorkspaceThatIsNotWritableIsUnusable() throws IOException {
+            assumeTrue(POSIX);
             Path workspace = Files.createDirectory(home.resolve("ro"),
                 PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("r-x------")));
 

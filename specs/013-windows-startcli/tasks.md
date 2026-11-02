@@ -100,7 +100,7 @@ recordings and the live check (manual, approved, by a Windows user).
   `V81ProcessControlAdapterTest` and `V81InventoryAdapterTest` read `--execCommand` from it;
   the `new CliRunner(` sites use `TestCliRunners`; expected command strings with paths use
   `Platform.commandPath`; `CliRunnerTest`'s exact-list assertions check `startCliArguments`.
-- [ ] T004 [P] Port the remaining tests that write a `startcli.sh`: `MainTest`,
+- [X] T004 [P] Port the remaining tests that write a `startcli.sh`: `MainTest`,
   `MessageTerminologyTest`, `ExportShutdownProcessTest`, `adapter/AdapterGatewayFactoryTest`,
   `adapter/V81InventoryAdapterTest`, `application/DeployHarness`, `application/ImportHarness`,
   `config/ConfigSummaryTest`, `config/ConfigValidatorTest`, `isolation/TwoProfilesTest`,

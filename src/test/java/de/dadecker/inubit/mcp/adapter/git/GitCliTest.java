@@ -17,6 +17,7 @@ import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -42,6 +43,9 @@ import org.junit.jupiter.api.io.TempDir;
  */
 class GitCliTest {
 
+    /** The hook is made executable on POSIX; Git for Windows runs it without (T026). */
+    private static final boolean POSIX =
+        FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
     private static final List<String> FIXED_OPTIONS = List.of(
         "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false", "-c", "core.quotepath=false",
         "-c", "gc.autoDetach=false", "-c", "maintenance.autoDetach=false",
@@ -150,7 +154,9 @@ class GitCliTest {
         Path marker = root.resolve("hook-ran");
         Path hook = root.resolve(".git/hooks/pre-commit");
         Files.writeString(hook, "#!/bin/sh\ntouch '" + marker + "'\nexit 1\n");
-        Files.setPosixFilePermissions(hook, PosixFilePermissions.fromString("rwx------"));
+        if (POSIX) {
+            Files.setPosixFilePermissions(hook, PosixFilePermissions.fromString("rwx------"));
+        }
         inspect("config", "core.hooksPath", ".git/hooks");
         inspect("config", "commit.gpgsign", "true");
         inspect("config", "core.autocrlf", "true");

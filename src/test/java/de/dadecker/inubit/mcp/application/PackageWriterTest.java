@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -30,6 +31,9 @@ class PackageWriterTest {
 
     private static final NodeId PROD = NodeId.parse("prod/node1");
     private static final byte[] ZIP = {'P', 'K', 3, 4};
+    /** Owner-only permissions are checked on POSIX; the Windows equivalent follows in T025. */
+    private static final boolean POSIX =
+        FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
 
     @TempDir
     Path temp;
@@ -91,11 +95,13 @@ class PackageWriterTest {
         assertThat(Files.readString(dir.resolve("diff.txt"))).contains("Module-0003");
         assertThat(Files.readString(dir.resolve("warnings.txt"))).contains("SHARED_MODULE",
             "Workflow-0004 (excluded)");
-        assertThat(permissions(temp.resolve("packages"))).isEqualTo("rwx------");
-        assertThat(permissions(dir.getParent())).isEqualTo("rwx------");
-        assertThat(permissions(dir)).isEqualTo("rwx------");
-        for (String file : files) {
-            assertThat(permissions(dir.resolve(file))).as(file).isEqualTo("rw-------");
+        if (POSIX) {
+            assertThat(permissions(temp.resolve("packages"))).isEqualTo("rwx------");
+            assertThat(permissions(dir.getParent())).isEqualTo("rwx------");
+            assertThat(permissions(dir)).isEqualTo("rwx------");
+            for (String file : files) {
+                assertThat(permissions(dir.resolve(file))).as(file).isEqualTo("rw-------");
+            }
         }
     }
 

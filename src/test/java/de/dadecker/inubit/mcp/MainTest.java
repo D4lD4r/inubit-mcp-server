@@ -12,6 +12,8 @@ import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import de.dadecker.inubit.mcp.mcp.ToolHints;
 import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -73,6 +75,12 @@ class MainTest {
     private final AtomicReference<FakeCredentialStore> credentialStore = new AtomicReference<>();
     /** The store the launcher gets instead of one built from {@link #entries}, if set. */
     private FakeCredentialStore scriptedStore;
+    /**
+     * The launcher's platform: the host ({@link Platform#windows()}) where a test runs the
+     * substitute StartCLI, which is {@code startcli.bat} on Windows; otherwise POSIX, whose
+     * default configuration directory the profile tests use.
+     */
+    private boolean windows;
 
     @AfterEach
     void restoreTestLogLevel() {
@@ -85,7 +93,7 @@ class MainTest {
 
     private Launcher main(InputStream in, OutputStream out,
         Function<Wiring, List<ToolHandler>> handlers) {
-        return new Launcher(new Launcher.Context(Map.copyOf(environment), home, false, in,
+        return new Launcher(new Launcher.Context(Map.copyOf(environment), home, windows, in,
             new PrintStream(out, true, StandardCharsets.UTF_8),
             new PrintStream(stderr, true, StandardCharsets.UTF_8), new SecretScrubber(),
             Files::exists, () -> {
@@ -151,11 +159,9 @@ class MainTest {
         credentials();
         entries.put("INUBIT_ACME_QA_NODE2_PASSWORD", "other-Secret-99");
         entries.put("INUBIT_ACME_QA_USERNAME", "other-user");
-        Path cliHome = fakeStartCli("""
-            echo "$@" > "$(dirname "$0")/arguments"
-            echo "CLI 8.1.17"
-            echo "Supported inubit Process Engine versions from 4.0.1 to 8.1.17."
-            """);
+        windows = Platform.windows();
+        Path cliHome = home.resolve("client");
+        FakeStartCli cli = FakeStartCli.replaying(cliHome, "version");
         Path file = config("""
             profile:
               name: acme
@@ -193,7 +199,7 @@ class MainTest {
                 "inubit.example.test");
         assertThat(err()).doesNotContain(PASSWORD, "other-Secret-99");
         // feature 009 (FR-011a): the local client probe only, without credentials or server URL
-        assertThat(Files.readString(cliHome.resolve("bin/arguments"))).isEqualTo("-v\n");
+        assertThat(cli.record().args()).containsExactly("-v");
     }
 
     // --- feature 010 (T006): existing profiles behave as before; AWS nodes are deferred -------
@@ -615,10 +621,9 @@ class MainTest {
     @Test
     void checkConfigReportsAFailingClientProbeAsAWarning() throws IOException {
         credentials();
-        Path cliHome = fakeStartCli("""
-            echo "Error: no JDK" >&2
-            exit 1
-            """);
+        windows = Platform.windows();
+        Path cliHome = home.resolve("client");
+        FakeStartCli.replaying(cliHome, "unknown_command"); // exit code 1, no version line
         Path file = config("""
             profile:
               name: acme
@@ -641,15 +646,6 @@ class MainTest {
             .contains("Warnings:", "  - dev/node1: StartCLI client probe failed: StartCLI did not"
                 + " report its version (exit code 1)")
             .contains("Result: OK");
-    }
-
-    /** An executable {@code <home>/client/bin/startcli.sh} running {@code body}; the CLI home. */
-    private Path fakeStartCli(String body) throws IOException {
-        Path cliHome = Files.createDirectories(home.resolve("client/bin")).getParent();
-        Path script = cliHome.resolve("bin/startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n" + body);
-        Files.setPosixFilePermissions(script, PosixFilePermissions.fromString("rwx------"));
-        return cliHome;
     }
 
     @Test
