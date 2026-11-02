@@ -218,9 +218,12 @@ confirm. Code references are to `main` at `18344e2`.
     | `CliExportRunnerTest`, `CliImportRunnerTest`, `ExportShutdownProcessTest` (temporary directories) | DACL read-back and inheritance (T019) |
     | `SystemProcessLauncherTest` (class-level `@DisabledOnOs(WINDOWS)`; signals and process tree) | class-level guard lifted; POSIX signal cases guarded per method; Windows tree cases (T005, T022) |
     | `MainTest` cases that make `startcli.sh` executable | `FakeStartCli` (T004) |
+    | `/bin/sh -c "exit 0"` dead-PID helpers, `new CliRunner(…, false, …)` sites | `Platform` helpers, `TestCliRunners` (T003, T004) |
+    | SIGTERM cases of `ExportShutdownProcessTest` | job kill and sweep at the next start (T019) |
+    | test doubles reading `--execCommand` from `spec.command()` | `LaunchSpec.startCliArguments` (T003) |
 
   - CI: a `windows` job runs `mvn -B verify` with `continue-on-error: true` until the porting and
-    the Windows launch are done (T021 makes it required); a task with Windows tests is done when
+    the Windows launch are done (T021 removes `continue-on-error`); a task with Windows tests is done when
     its own test classes pass in that job's report.
 
 ## R-13 Recordings and live check on Windows

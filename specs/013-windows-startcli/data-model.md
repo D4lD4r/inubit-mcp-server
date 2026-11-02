@@ -40,6 +40,11 @@ the interpreter; `PATH` = `<JAVA_HOME>\bin;<system dir>`; `NoDefaultCurrentDirec
 
 ## PrivateFileSystem (domain.port; implementation adapter.os.OsPrivateFileSystem)
 
+Operations: `createDirectory`, `createDirectories`, `createTempDirectory`, `createFile`, `check`
+(other principals on an existing object), `ownedByCurrentUser` (owner is the token user; used by
+the sweep).
+
+
 | Object | Created by | Windows access | Existing object |
 |---|---|---|---|
 | temporary export / import directory | `CliExportRunner`, `CliImportRunner` | token user + `SYSTEM`, protected DACL, inherited by children | — (always new) |

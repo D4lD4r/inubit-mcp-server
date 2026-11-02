@@ -122,7 +122,7 @@ specs/013-windows-startcli/
 
 ```text
 src/main/java/de/dadecker/inubit/mcp/
-├── adapter/cli/   WindowsCommandLine, StartCliEnvironment, OutputDecoder, ProcessContainment (port);
+├── adapter/cli/   WindowsCommandLine, StartCliEnvironment, OutputDecoder, ProcessContainment and CliSystem (ports);
 │                  CliRunner, SystemProcessLauncher, ProcessLauncher, CliResources,
 │                  CliExportRunner, CliImportRunner, CliOutputClassifier (changed)
 ├── adapter/os/    WindowsJob, NoJob, WindowsSystem, OsPrivateFileSystem (JNA kernel32/advapi32)
@@ -158,6 +158,10 @@ No test is skipped on Windows; POSIX-only assertions stay for POSIX and get a Wi
 | ~35 `new CliRunner(…, false, …)` test sites | `Platform.windows()` (host OS) and a platform `PATH` | T003, T004 |
 | `/bin/sh -c "exit 0"` dead-PID helpers (`CliResourcesTest`, `ExportShutdownProcessTest`) | `Platform` helper with a short `java -version` process | T003, T004 |
 | SIGTERM cases of `ExportShutdownProcessTest` (shutdown hook) | Windows: job kill (T012) and the sweep at the next start | T019 |
+| test doubles that read `--execCommand` from `spec.command()` (`ScriptedProcessLauncher`, `FakeProcessLauncher`, helpers in `CliExportRunnerTest`, `V81ProcessControlAdapterTest`, `V81InventoryAdapterTest`) | read `LaunchSpec.startCliArguments` | T003 |
+| expected command strings with `Path.toString()`; `CliRunnerTest` exact argument lists | `Platform.commandPath`; assertions on `startCliArguments` | T003 |
+| `SystemProcessLauncherTest` cases with `/usr/bin/env`, `/bin/pwd`, `/bin/echo`, `/bin/cat`, `/bin/sh` | POSIX-guarded; Windows cases with `ArgvRecorder` | T005, T008 |
+| `new CliRunner(` with the old constructor | `TestCliRunners` (host `CliSystem`); `Launcher.probeClients` and `Wiring` use the new constructor | T003, T004, T013 |
 | `CliExportRunnerTest`, `CliImportRunnerTest`, `ExportShutdownProcessTest` (owner-only temporary directories) | DACL read-back and inheritance | T019 |
 | `AuditLogTest`, `MainTest` audit directory (`assumeTrue(posix)`) | DACL read-back | T024 |
 | `BackupStoreTest`, `PackageWriterTest`, `DeployLockTest`, `DeploymentLedgerTest` | DACL read-back | T025 |

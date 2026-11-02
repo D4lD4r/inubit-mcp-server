@@ -17,6 +17,7 @@ No new configuration keys. Behaviour changes on Windows only.
 | refused character in `cli.home`, the effective Java home (`cli.javaHome`, else the server's `JAVA_HOME`; also `;`), `tls.trustStore` or the StartCLI URL | `<id>: <setting> contains a character the Windows command interpreter interprets (<class>); CLI-backed capabilities report CLI_UNAVAILABLE` |
 | `cli.home` on a UNC path | `<id>: cli.home is a network path (\\…); StartCLI needs a local drive path on Windows` |
 | configured values exceed the command-line limit | `<id>: the StartCLI command line would exceed 6143 characters (<setting>); CLI-backed capabilities report CLI_UNAVAILABLE` |
+| system directory unreadable (`GetSystemDirectoryW`) | `StartCLI cannot be started: the Windows system directory could not be read (<reason>); CLI-backed capabilities report CLI_UNAVAILABLE` |
 | process job unavailable | `StartCLI processes could not be bound to the server (<reason>); CLI-backed capabilities report CLI_UNAVAILABLE` |
 
 ## Profile-level checks on Windows

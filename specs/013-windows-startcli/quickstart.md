@@ -9,8 +9,9 @@ mvn -q -o clean verify
 - macOS/Linux: the suite is green with no test removed (SC-007); `NoCustomerIdentifiersTest` runs
   (20 tests, 0 skipped).
 - Windows CI job (`windows-latest`): `mvn -B verify` green; the Windows-only tests run
-  (`WindowsCommandLineInjectionTest`, `WindowsProcessTreeTest`, `OsPrivateFileSystemAclTest`,
-  `WindowsJobTest`, the Windows cases of `SystemProcessLauncherTest`); none skipped.
+  (`WindowsCommandLineInjectionTest`, `WindowsSecretInspectionTest`, `WindowsReadOnlyToolsTest`,
+  `WindowsWriteToolsTest`, `WindowsProcessTreeTest`, `OsPrivateFileSystemAclTest`, `WindowsJobTest`,
+  `WindowsSystemTest`, the Windows cases of `SystemProcessLauncherTest`); none skipped.
 
 | Check | Expected | Test |
 |---|---|---|
