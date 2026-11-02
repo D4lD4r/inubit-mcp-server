@@ -29,8 +29,10 @@ import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
-/** The real {@link ProcessBuilder} launcher; uses POSIX tools, so it is skipped on Windows. */
-@DisabledOnOs(OS.WINDOWS)
+/**
+ * The real {@link ProcessBuilder} launcher. The cases below use POSIX binaries or signals and are
+ * guarded per method; their Windows equivalents follow in T008 and T022.
+ */
 @Timeout(30)
 class SystemProcessLauncherTest {
 
@@ -44,6 +46,8 @@ class SystemProcessLauncherTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "uses /usr/bin/env; Windows equivalent with"
+        + " ArgvRecorder in T008")
     void theEnvironmentIsExactlyTheGivenMap() throws Exception {
         LaunchedProcess process = launcher.launch(new LaunchSpec(List.of("/usr/bin/env"),
             Map.of("ONLY_THIS", "1"), directory));
@@ -55,6 +59,8 @@ class SystemProcessLauncherTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "uses /bin/pwd; Windows equivalent with"
+        + " ArgvRecorder in T008")
     void theWorkingDirectoryIsApplied() throws Exception {
         LaunchedProcess process = launcher.launch(new LaunchSpec(List.of("/bin/pwd"),
             Map.of(), directory));
@@ -64,6 +70,8 @@ class SystemProcessLauncherTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "uses /bin/echo and /bin/cat;"
+        + " Windows equivalent with ArgvRecorder in T008")
     void stdinIsPipedAndArgumentsAreNotInterpretedByAShell() throws Exception {
         LaunchedProcess process = launcher.launch(new LaunchSpec(
             List.of("/bin/echo", "$HOME", "a;b", "'x'"), Map.of("HOME", "/nowhere"), directory));
@@ -81,6 +89,8 @@ class SystemProcessLauncherTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "uses /bin/sh; Windows process tree case"
+        + " in T022")
     void destroyAlsoTerminatesDescendants() throws Exception {
         LaunchedProcess process = launcher.launch(new LaunchSpec(
             List.of("/bin/sh", "-c", "sleep 60 & echo $!; wait"), Map.of("PATH", "/bin:/usr/bin"),
@@ -103,6 +113,8 @@ class SystemProcessLauncherTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "uses /bin/sh and SIGTERM; Windows process"
+        + " tree case in T022")
     void aGrandchildIgnoringTermIsKilledWhenTheCliCallTimesOut() throws Exception {
         // fake startcli.sh: the root exits on TERM, its child ignores TERM and keeps running
         Path script = Files.createDirectories(directory.resolve("bin")).resolve("startcli.sh");

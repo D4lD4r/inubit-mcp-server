@@ -115,7 +115,7 @@ recordings and the live check (manual, approved, by a Windows user).
   POSIX-permission assertions in `MainTest`, `BackupStoreTest`, `PackageWriterTest`,
   `DeployLockTest`, `DeploymentLedgerTest`, `GitCliTest`, `ConfigValidatorTest` and `AuditLogTest`
   are guarded for POSIX (Windows equivalents in T024–T026). Verification task.
-- [ ] T005 `SystemProcessLauncherTest`: lift the class-level `@DisabledOnOs(WINDOWS)`; guard every
+- [X] T005 `SystemProcessLauncherTest`: lift the class-level `@DisabledOnOs(WINDOWS)`; guard every
   method that uses POSIX binaries (`/usr/bin/env`, `/bin/pwd`, `/bin/echo`, `/bin/cat`, `/bin/sh`)
   or signals for POSIX; their Windows equivalents with `ArgvRecorder` (environment, working
   directory, stdin) follow in T008, the tree cases in T022. Verification task.
