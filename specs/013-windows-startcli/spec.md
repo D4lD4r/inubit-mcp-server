@@ -73,6 +73,30 @@ not only the 6.1 reads.
   CLI outputs) is a bash script. The certificate tool `inubit-cert-check` does not run on Windows
   (out of scope here).
 
+## Clarifications
+
+### Session 2026-11-02 (spec review r3)
+
+- Q: Must the read-only recordings and live observations on Windows happen before the plan is
+  approved? → A: No. The plan works with fixed defaults (UTF-8 and `\n` on standard input, `/` as
+  the separator of paths inside the StartCLI command, the launch through `startcli.bat`, a
+  substitute that forwards its arguments like a batch file using `%*`); the live check corrects
+  them later, with a spec and plan change where needed.
+- Q: Must a StartCLI process tree also end when the MCP client terminates the server forcibly? →
+  A: Yes; a hanging client would otherwise keep the INUBIT session and file locks.
+- Q: Does the access warning of FR-007 cover directories the user provided? → A: No. It covers
+  only directories the server creates or would create (default audit directory, a workspace it
+  created) and the files it created there; a directory the user provided is used as is, as on
+  macOS.
+- Q (spec review r4): How does the server recognise an existing private directory it created? →
+  A (decided by the creator under the r3 decision): it does not try. Only the default audit
+  directory and the files the server keeps at fixed paths (audit log, deployment ledger and lock)
+  are checked; an existing workspace, including its history, is used as is, whoever created it.
+  Directories and files the server creates from this feature on get the access of FR-007.
+- Q (spec review r4): A client installation on a UNC path? → A (decided by the creator): refused
+  on Windows with `CLI_UNAVAILABLE` naming `cli.home` and a `--check-config` warning, because the
+  command interpreter does not accept a UNC working directory.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Use the read-only StartCLI tools on Windows (Priority: P1)
@@ -142,12 +166,21 @@ records its arguments and environment and finds no credential.
    Windows, **Then** StartCLI receives exactly these values (as the substitute records), and no
    other program runs.
 4. **Given** any StartCLI call on Windows, **When** the process is inspected, **Then** its
-   arguments and environment contain no credential, and the password reached StartCLI only through
-   its standard input.
-5. **Given** a tool input that makes the StartCLI command longer than the limit of FR-011,
+   arguments and environment contain no credential, its environment contains only the variables of
+   the documented Windows allowlist (FR-004), and the password reached StartCLI only through its
+   standard input.
+5. **Given** a password with a character outside ASCII and no live-check evidence that it reaches
+   the Windows client unchanged, **When** a StartCLI-backed tool runs on Windows, **Then** it fails
+   with `AUTH_FAILED` naming the cause and the entry (never the value) before any process starts,
+   without counting as a failed login.
+6. **Given** a tool input that makes the StartCLI command longer than the limit of FR-011,
    **When** the tool runs on Windows, **Then** it fails with `INVALID_INPUT` and no process
    starts.
-6. **Given** a Windows client that does not read the password from standard input, **When** this
+7. **Given** configured values (e.g. a long client installation path and StartCLI URL) that alone
+   make the StartCLI command exceed the limit of FR-011, **When** `--check-config` runs and a
+   StartCLI-backed tool is called, **Then** `--check-config` warns, naming the setting, and the
+   call fails with `CLI_UNAVAILABLE` naming the setting before any process starts.
+8. **Given** a Windows client that does not read the password from standard input, **When** this
    is observed in the live check, **Then** the feature stops and is escalated to the person; the
    server never falls back to passing the password as an argument.
 
@@ -164,8 +197,8 @@ as on macOS.
 and add the private-file and roll-back requirements.
 
 **Independent Test**: on a Windows host with a development node, an `import_artifacts` preview and
-execution with the server-issued code succeeds, the backup is written with access for the user
-only (FR-007), `restore_backup` restores it, and the audit log has one record per call.
+execution with the server-issued code succeeds, the backup is written with the access of FR-007
+(the server's account and `SYSTEM` only), `restore_backup` restores it, and the audit log has one record per call.
 
 **Acceptance Scenarios**:
 
@@ -177,10 +210,10 @@ only (FR-007), `restore_backup` restores it, and the audit log has one record pe
    get packages with the access of FR-007.
 3. **Given** write access on a node, **When** `restart_process` or `kill_process` runs on Windows,
    **Then** the two-step confirmation and the audit record are the same as on macOS.
-4. **Given** an audit or workspace directory that an earlier version created on Windows without
-   restricted access, **When** the server starts or `--check-config` runs, **Then** a warning
-   names the directory and how to restrict it; the server does not change it, and every file it
-   creates there from now on has the access of FR-007.
+4. **Given** the default audit directory or audit log with broader access (e.g. created by an
+   earlier version on Windows), **When** the server starts or `--check-config` runs, **Then** a
+   warning names it and how to restrict it, and the server does not change it. An existing
+   workspace gets no warning, whoever created it.
 
 ---
 
@@ -200,15 +233,20 @@ alive and the temporary directory is gone or reported.
 
 1. **Given** a StartCLI call that exceeds its timeout on Windows, **When** the timeout elapses,
    **Then** the call fails with `TIMEOUT` and every process the call started (the command
-   interpreter, Java and their children) has ended within the grace period.
+   interpreter, Java and their children) has ended no later than one second after the grace
+   period (SC-004).
 2. **Given** a running StartCLI call, **When** the MCP client closes the connection, **Then** every
-   process of the call has ended within the grace period and its export directory is removed.
-3. **Given** a server killed during an export on Windows, **When** the same profile starts again,
+   process of the call has ended no later than one second after the grace period and its export
+   directory is removed.
+3. **Given** a running StartCLI call, **When** the server process is terminated forcibly, **Then**
+   every process of the call ends with it; the export directory left behind is removed at the next
+   start of the profile.
+4. **Given** a server killed during an export on Windows, **When** the same profile starts again,
    **Then** the export directories it left behind are removed, as on macOS.
-4. **Given** a temporary file that Windows cannot delete because another program holds it open,
+5. **Given** a temporary file that Windows cannot delete because another program holds it open,
    **When** the cleanup runs, **Then** the server retries (FR-008) and otherwise logs a warning
    naming the directory (never its contents) and removes it at the next start.
-5. **Given** a Windows client that waits at its password prompt, **When** the call times out,
+6. **Given** a Windows client that waits at its password prompt, **When** the call times out,
    **Then** the `TIMEOUT` error says that StartCLI was still waiting for the password and names the
    live check (FR-015), not "raise `cliTimeout`".
 
@@ -265,14 +303,15 @@ without the "not supported" statements.
   or with characters outside ASCII (refused for StartCLI, FR-002); a workspace path with spaces or
   non-ASCII characters (works as on macOS; it is never passed to StartCLI); a UNC path
   (`\\server\share\…`: refused for paths inside the StartCLI command, FR-009; allowed for the
-  separately passed paths if they otherwise pass FR-002); longer than 259 characters (refused
+  separately passed paths if they otherwise pass FR-002, except the client installation, which is
+  refused); longer than 259 characters (refused
   inside the StartCLI command, FR-009); an 8.3 short name in `java.io.tmpdir`
   (`C:\Users\ABCDEF~1\…`: expanded to the long name first, FR-009).
 - **Output:** CRLF line endings; output in code page 850, 1252 or 65001 (umlauts in diagram, module
   or user names); a byte-order mark; log lines of the Windows client that differ from the macOS
   client (FR-006).
 - **Password prompt:** the Windows client waits for the password on the console instead of reading
-  the redirected standard input: the call ends with `TIMEOUT` and the cause of US4 AS5; never a
+  the redirected standard input: the call ends with `TIMEOUT` and the cause of US4 AS6 (FR-005); never a
   hang, never a fallback to `-p` (FR-003).
 - **Password characters:** a password with characters outside ASCII (FR-003).
 - **Command length:** a command longer than Windows allows (FR-011).
@@ -303,10 +342,13 @@ without the "not supported" statements.
 
 - **FR-001**: On Windows, every StartCLI-backed capability that is available on macOS and Linux
   MUST be available with the same inputs, results, error codes and next steps. Allowed
-  differences, and only these: the refusals of FR-002, FR-003, FR-009 and FR-011; next steps and
-  messages that name the client script, file access or path syntax are adapted to Windows
-  (`bin\startcli.bat`, access lists, drive-letter paths); fixed Windows-only Java runtime settings
-  (FR-004).
+  differences, and only these: the refusals of FR-002, FR-003, FR-009 and FR-011; the cause and
+  next step of a timeout at the password prompt (FR-005); the access handling of FR-007, which
+  fails where POSIX systems without permission support fall back, and warns about an existing
+  private directory or file where macOS tightens its permissions (deliberately: the server does
+  not rewrite access lists it did not set); next steps and messages that name the client script,
+  file access or path syntax are adapted to Windows (`bin\startcli.bat`, access lists, drive-letter
+  paths); fixed Windows-only Java runtime settings (FR-004).
 - **FR-002**: No configured value, tool input or value derived from INUBIT output MAY make Windows
   run any program other than the StartCLI client, or change the command StartCLI receives:
   - Values inside the StartCLI command keep today's rules (letters, digits, `_`, `.`, `-`, space;
@@ -323,8 +365,10 @@ without the "not supported" statements.
       when it is read for a StartCLI call, before any process starts, with `AUTH_FAILED` naming
       the entry (never the value) and without counting as a failed login; `--check-config` reports
       the entry as invalid on Windows.
-  - Every other character, in particular space, `'`, `(`, `)`, `;`, `,` and `=`, MUST reach
-    StartCLI unchanged.
+  - Every other character in a value passed outside the command, in particular space, `'`, `(`,
+    `)`, `;`, `,`, `=`, `\`, `*` and `?`, MUST reach StartCLI unchanged.
+  - A client installation on a UNC path is refused on Windows like the values above
+    (`CLI_UNAVAILABLE` naming `cli.home`, warning at startup and in `--check-config`).
   - The command interpreter (if one is used) and the Java runtime MUST be started from absolute
     paths (the system's own interpreter, the configured or the server's Java runtime), never
     resolved through the working directory or `PATH`.
@@ -345,9 +389,9 @@ without the "not supported" statements.
   `JAVA_HOME` and fixed Java runtime settings — today's, and fixed Windows-only ones (e.g. for the
   output encoding) that the plan names. No credential and no other variable of the server's
   environment MUST reach StartCLI.
-- **FR-005**: When a StartCLI call times out, is interrupted or the server stops on Windows, every
-  process it started (the command interpreter, Java and their descendants) MUST be ended, forcibly
-  after the existing grace period; a timed-out call fails with `TIMEOUT` as today, and one that was
+- **FR-005**: When a StartCLI call times out, is interrupted or the server stops on Windows —
+  also when the server process is terminated forcibly — every process it started (the command
+  interpreter, Java and their descendants) MUST be ended, forcibly after the existing grace period; a timed-out call fails with `TIMEOUT` as today, and one that was
   still waiting at the password prompt says so in its cause and next step.
 - **FR-006**: Parsed results of StartCLI output on Windows MUST be identical to those of the same
   content on macOS, for line endings CRLF and LF and characters outside ASCII, regardless of the
@@ -363,17 +407,22 @@ without the "not supported" statements.
   the StartCLI substitute writes into the temporary export directory. If that access cannot be
   set, the operation MUST fail before anything is written (unlike the fallback that creates the
   workspace and audit directory without restricted access on POSIX systems without permission
-  support, which stays unchanged). An existing private directory or file (audit log, history,
-  ledger) with broader access is not changed: the server warns at startup and in `--check-config`,
-  naming it and how to restrict it, and gives everything it creates there the access above.
+  support, which stays unchanged): a tool call fails with the error code it uses today when its
+  directory cannot be created, with a next step that names the directory and the required access;
+  at startup the outcome is the one of today for a directory that cannot be created (the audit
+  directory: the server does not start; the workspace: the workspace tools are unavailable). The
+  default audit directory and the files the server keeps at fixed paths (audit log, deployment
+  ledger and lock) are checked when they exist with broader access: they are not changed, the
+  server warns at startup and in `--check-config`, naming them and how to restrict them. An
+  existing workspace (with its history) is used as is, without a check, whoever created it.
 - **FR-008**: Temporary export data MUST be removed after each call on Windows, and directories
   left behind by a stopped server of the same profile MUST be removed at its next start, as on
   macOS and Linux. A file Windows cannot delete because it is open elsewhere MUST be retried up to
   5 times within at most 2 s and otherwise reported in the log by directory name only.
 - **FR-009**: A file path inside the StartCLI command MUST on Windows be an absolute drive-letter
   path of ASCII letters `A`–`Z`, `a`–`z`, digits, `_`, `.`, `-` and spaces, whose separators are
-  `\` or `/` (whichever the live check shows StartCLI's command parser takes literally; the plan
-  fixes one), without `.` or `..` segments and at most 259 characters; an 8.3 short name is expanded to the long name before the check; a UNC
+  `/` (the default; `\` only if the live check shows that StartCLI's command parser takes it
+  literally and the plan is changed accordingly), without `.` or `..` segments and at most 259 characters; an 8.3 short name is expanded to the long name before the check; a UNC
   path is refused. The `java.io.tmpdir` check of `--check-config` MUST run on Windows with this
   rule and name the remedy, as on macOS. The separately passed paths (client installation, Java
   runtime, trust store) MUST work with spaces and follow FR-002 otherwise.
@@ -383,9 +432,12 @@ without the "not supported" statements.
   client is launched (through `startcli.bat` or by starting its Java runtime directly) is decided
   in the plan; a launch that does not go through `startcli.bat` MUST use the same Java runtime,
   class path and runtime options as the `startcli.bat` of the supported client versions, verified
-  against those files.
+  against those files; until they have been examined (FR-014), the launch goes through
+  `startcli.bat`.
 - **FR-011**: A StartCLI command line that would exceed the limit of the chosen launch mechanism
-  (8 191 characters through the command interpreter, 32 767 otherwise) MUST be refused before any
+  (8 191 characters through the command interpreter, 32 767 otherwise, counted for the longest
+  line the mechanism builds, including what `startcli.bat` adds; the plan derives the margin from
+  the batch files of the supported client versions) MUST be refused before any
   process starts: with `INVALID_INPUT` when a tool input makes it too long, with `CLI_UNAVAILABLE`
   naming the setting when the configuration does (reported per call, and as a warning in
   `--check-config` when the configured values alone exceed the limit).
@@ -396,7 +448,8 @@ without the "not supported" statements.
   not part of its acceptance; a task for the Windows 6.1 path is then added to feature 012's
   tasks, and the Windows CI job of FR-013 enforces it.
 - **FR-013**: The offline test suite MUST run on Windows in CI with a Windows StartCLI substitute
-  that forwards its arguments the same way as the `startcli.bat` of the supported client versions.
+  that forwards its arguments the same way as the `startcli.bat` of the supported client versions
+  (until the recordings of FR-014 exist: like a batch file that passes `%*` to Java).
   Every StartCLI-backed, safety and secret test (Constitution III) MUST run on Windows; a test of
   POSIX-only behaviour (e.g. permission bits) MAY be replaced by a Windows equivalent, listed in the
   plan. No test is skipped on Windows otherwise.
@@ -411,7 +464,7 @@ without the "not supported" statements.
   only read-only commands and MUST happen only with the person's approval on a non-production node.
 - **FR-015**: The opt-in live tests MUST run on Windows. A Windows user runs the read-only checks
   first — including the unknowns of the Context (password from standard input and its encoding,
-  argument forwarding, output encoding) — and the write checks only on a development node with the
+  argument forwarding, `\` inside a quoted command value, output encoding) — and the write checks only on a development node with the
   person's approval. The outcomes (Windows version, client version, code page, step, outcome kind)
   MUST be recorded without customer data.
 - **FR-016**: README and setup guide MUST describe the Windows client setup (installation path,
@@ -444,8 +497,10 @@ without the "not supported" statements.
   offline tests pass on the Windows CI job, and the Windows live check passes the read-only steps
   (client check, module list, export of a test diagram group) with no failure.
 - **SC-002**: For each of `"`, `%`, `!`, `^`, `&`, `|`, `<`, `>`, tab, line break and a non-ASCII
-  character (refused) and space, `'`, `(`, `)`, `;`, `,`, `=` (reach StartCLI unchanged), in every
-  value FR-002 names, a test shows the outcome FR-002 requires; in 0 cases is a second program
+  character (refused) and space, `'`, `(`, `)`, `;`, `,`, `=`, `\`, a value ending in `\`, `*`
+  and `?` (reach StartCLI unchanged), in every
+  value FR-002 names that is passed outside the StartCLI command (values inside the command keep
+  today's refusals), a test shows the outcome FR-002 requires; in 0 cases is a second program
   started or the StartCLI command changed.
 - **SC-003**: In every StartCLI call of the Windows test suite and the live check, 0 credential
   values appear in process arguments, environment or files written outside the private locations.
