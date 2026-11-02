@@ -68,7 +68,8 @@ final class SecretPaths {
     private static final Set<String> DEMUX_OUTPUT_SUFFIXES =
         Set.of("@@@DeMuxInput", "@@@ProcessingOrder", "@@@Description");
     /** Demultiplexer structure that is likewise never a secret ({@code namespacesMap} is a Map). */
-    private static final Set<String> DEMUX_STRUCTURE_NAMES = Set.of("DefaultOutput", "namespacesMap");
+    private static final Set<String> DEMUX_STRUCTURE_NAMES =
+        Set.of("DefaultOutput", "namespacesMap");
     private static final Pattern UNSAFE_PATH_CHARACTERS = Pattern.compile("[{}\\p{Cntrl}]");
     /** The namespace of the variable types ({@code is:password}). */
     static final String VARIABLE_TYPES = "http://inubit.com/variables/types";
