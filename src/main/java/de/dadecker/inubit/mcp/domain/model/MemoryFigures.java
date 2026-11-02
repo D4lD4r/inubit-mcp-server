@@ -4,7 +4,7 @@ import java.util.Optional;
 
 /**
  * JVM memory of an INUBIT 6.1 node in MB, from {@code free -m} in the StartCLI health session
- * (feature 011, FR-008).
+ * (feature 012, FR-008).
  */
 public record MemoryFigures(long usedMb, long freeMb, long maxMb) {
 

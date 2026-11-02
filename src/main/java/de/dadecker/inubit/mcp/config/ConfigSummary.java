@@ -71,7 +71,7 @@ public final class ConfigSummary {
      * @param clients the StartCLI client of each node whose probe succeeded (feature 009); a
      *                failed probe is among the warnings of {@code report}
      * @param options the StartCLI client options of each node pinned to a CLI-only version
-     *                (feature 011); shown only for a node in {@code clients}
+     *                (feature 012); shown only for a node in {@code clients}
      * @param parameters the Parameter Store check of the AWS nodes (feature 010); its findings
      *                are among those of {@code report}
      * @param entries the credential store check (feature 011); its findings are among those of
@@ -241,7 +241,7 @@ public final class ConfigSummary {
      * client declares none), then {@code , client vs pin: match | mismatch | not comparable}
      * for a concrete pin, followed by {@code , pin outside client range} if the client's range
      * excludes the pin (FR-011), else {@code , server version: determined at runtime}. Feature
-     * 011 (FR-012a): with client options, {@code ; options: [no ]trust-store option, [no
+     * 012 (FR-012a): with client options, {@code ; options: [no ]trust-store option, [no
      * ]host-name option} closes the parentheses ({@code (options: …)} without range).
      */
     private static String client(VersionSetting setting, ClientVersion client,
@@ -265,7 +265,7 @@ public final class ConfigSummary {
     }
 
     /**
-     * Feature 011 (FR-014, research D-13): {@code  (INUBIT 6.1, StartCLI only; available: <names>
+     * Feature 012 (FR-014, research D-13): {@code  (INUBIT 6.1, StartCLI only; available: <names>
      * | none; refused: <names> | none)} for a setting pinned to a CLI-only version, else empty.
      * Judged on the pin as the version gate and {@code list_nodes} do: on a CLI-only version a
      * capability runs only if the matrix declares it {@code SUPPORTED}.

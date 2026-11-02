@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * At most {@link #PERMITS} concurrent StartCLI runs that contact the node, per node pinned to a
- * {@linkplain CapabilityMatrix#isCliOnly CLI-only} version (feature 011, research D-9, FR-015).
+ * {@linkplain CapabilityMatrix#isCliOnly CLI-only} version (feature 012, research D-9, FR-015).
  * A further run waits up to the node's {@code cliTimeout}, then fails with {@code TIMEOUT}. Other
  * nodes get no limit. The local client probes ({@link CliVersionProbe}, {@link CliClientProbe})
  * take no permit; the {@link de.dadecker.inubit.mcp.adapter.CredentialGuard} applies on top.

@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * Feature 011 T011: the {@code AUTO} detection marks an HTTP 404 of {@code /system/info} as
+ * Feature 012 T011: the {@code AUTO} detection marks an HTTP 404 of {@code /system/info} as
  * {@link InubitHttpClient.EndpointMissing} (FR-003, research D-11); every other failure keeps
  * the client's error.
  */

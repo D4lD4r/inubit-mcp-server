@@ -1,4 +1,4 @@
-FEATURE: /Users/dadecker/Development/Privat/inubit-mcp-server/specs/011-inubit-61-cli-reads  ROUND: 1
+FEATURE: /Users/dadecker/Development/Privat/inubit-mcp-server/specs/012-inubit-61-cli-reads  ROUND: 1
 
 Read spec.md, plan.md, tasks.md, research.md, data-model.md, both contracts, quickstart.md and constitution v1.1.0, and checked the plan against VersionGate, HealthService, DiagnosisService, CliRunner, CliVersionProbe, CapabilityMatrix, PortSetRegistry, AdapterGatewayFactory, Wiring and ConfigValidator. Coverage is complete at the requirement/scenario level, but four major findings remain.
 

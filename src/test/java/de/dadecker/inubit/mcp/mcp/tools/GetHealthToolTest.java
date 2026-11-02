@@ -78,7 +78,7 @@ import tools.jackson.databind.json.JsonMapper;
  * §2, quickstart V2/V3): {@code dev/node1} is healthy, both {@code qa} servers are in maintenance
  * mode, not ready and unlicensed for metrics, and {@code staging/bogus} is unreachable.
  *
- * <p>Feature 011 (T028, US1): {@code get_health} on an INUBIT 6.1 node through the production
+ * <p>Feature 012 (T028, US1): {@code get_health} on an INUBIT 6.1 node through the production
  * wiring, see {@link #startWith61}.
  */
 @Timeout(60)
@@ -105,7 +105,7 @@ class GetHealthToolTest {
     };
     private AdapterGatewayFactory gateways;
     private McpTestClient client;
-    /** Feature 011: the production wiring of {@link #startWith61}, if started. */
+    /** Feature 012: the production wiring of {@link #startWith61}, if started. */
     private TestWiring wiring;
 
     @TempDir
@@ -592,7 +592,7 @@ class GetHealthToolTest {
         assertThat(result.toString()).doesNotContain(PASSWORD, "jdoe", "Authorization");
     }
 
-    // --- feature 011, T028: get_health on a 6.1 node end to end (US1) -----------------------
+    // --- feature 012, T028: get_health on a 6.1 node end to end (US1) -----------------------
 
     private static final String LEGACY_81 = "legacy/node1";
     private static final String LEGACY_61 = "legacy/node2";

@@ -230,7 +230,7 @@ final class Launcher {
      * Feature 009 (FR-011a, research D-13): runs {@code startcli -v} for every node with a
      * StartCLI installation, bounded by the node's {@code cliTimeout}, and puts the successes into
      * {@code clients}. No credentials, no server URL, no INUBIT contact. A failed probe is a
-     * warning. Feature 011 (FR-012a, research D-8): a node pinned to a CLI-only version (6.1)
+     * warning. Feature 012 (FR-012a, research D-8): a node pinned to a CLI-only version (6.1)
      * also gets {@code startcli -h} and its runtime's {@code release} read ({@link
      * CliClientProbe}); its options go into {@code options}, and what its client cannot do
      * becomes the warnings of {@link ConfigValidator#clientOptionWarnings}.

@@ -23,18 +23,18 @@ public record UnavailablePart(String part, String reason, Optional<String> likel
     public static final String LOAD = "load";
     /** The StartCLI client probe (feature 009, FR-002). */
     public static final String CLIENT = "client";
-    /** Threads in use, licensed threads and maximum threads (feature 011, FR-008). */
+    /** Threads in use, licensed threads and maximum threads (feature 012, FR-008). */
     public static final String THREADS = "threads";
-    /** Blocking queue entries, maximum size and percentage (feature 011, FR-008). */
+    /** Blocking queue entries, maximum size and percentage (feature 012, FR-008). */
     public static final String BLOCKING_QUEUE = "blockingQueue";
-    /** The process counts per state of an INUBIT 6.1 node (feature 011, FR-008). */
+    /** The process counts per state of an INUBIT 6.1 node (feature 012, FR-008). */
     public static final String PROCESS_COUNTS = "processCounts";
     public static final Set<String> PARTS = Set.of(STATUS, READY, VERSION, SYSTEM_INFO, LOAD,
         CLIENT, THREADS, BLOCKING_QUEUE, PROCESS_COUNTS);
 
     /** Reason code of a {@code /metrics} failure that indicates a missing license (R-10). */
     public static final String METRICS_NOT_LICENSED = "METRICS_NOT_LICENSED";
-    /** Reason code of a part INUBIT 6.1 does not offer (feature 011, FR-008). */
+    /** Reason code of a part INUBIT 6.1 does not offer (feature 012, FR-008). */
     public static final String NOT_AVAILABLE_ON_6_1 = "NOT_AVAILABLE_ON_6_1";
 
     public UnavailablePart {

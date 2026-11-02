@@ -207,7 +207,7 @@ class NodeVersionsTest {
         assertThat(versions.writableVersion(AUTO)).contains(V_8_1_17);
     }
 
-    /** Feature 011 T011: a detection answered with HTTP 404 keeps that flag (FR-003). */
+    /** Feature 012 T011: a detection answered with HTTP 404 keeps that flag (FR-003). */
     @Test
     void aFailedDetectionKeepsWhetherTheEndpointWasMissingUntilADetectionSucceeds() {
         versions.detectionFailed(AUTO, ErrorCode.UNEXPECTED_RESPONSE, true);

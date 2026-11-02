@@ -781,7 +781,7 @@ class ConfigValidatorTest {
 
         @Test
         void aV61NodeWithoutCliHomeIsAWarningOnly() {
-            // feature 011 (FR-014): the server starts, the node answers CLI_UNAVAILABLE
+            // feature 012 (FR-014): the server starts, the node answers CLI_UNAVAILABLE
             for (String line : List.of("V6_1", "\"6.1.0\"", "\"6.1.0.89-HF1\"")) {
                 ValidationReport report = validate(server("versionLine: " + line + "\n"));
 
@@ -821,7 +821,7 @@ class ConfigValidatorTest {
 
         @Test
         void aV61NodeWithAnHttpStartCliUrlFollowsTheExistingRule() {
-            // feature 011 (US5-8, FR-012): the rule applies to the effective StartCLI URL
+            // feature 012 (US5-8, FR-012): the rule applies to the effective StartCLI URL
             String http = """
                 profile:
                   name: acme
@@ -858,7 +858,7 @@ class ConfigValidatorTest {
 
         @Test
         void aV61NodeHasNoClientOptionFindingWithoutTheProbeOfCheckConfig() {
-            // feature 011 (FR-012a): the client options are read by --check-config only
+            // feature 012 (FR-012a): the client options are read by --check-config only
             ValidationReport report = validate(server("""
                 versionLine: V6_1
                 tls:
@@ -878,7 +878,7 @@ class ConfigValidatorTest {
 
         @Test
         void aClientWithoutHostNameOptionIsAWarningWhenHostNamesAreSkippedWithAPin() {
-            // feature 011 (FR-012a, US5-4): an option that could not be read counts as absent
+            // feature 012 (FR-012a, US5-4): an option that could not be read counts as absent
             EffectiveNodeConfig node = node("versionLine: V6_1\ntls:\n"
                 + "  disableHostnameVerification: true\n  pinnedCertificateSha256: '" + PIN + "'\n");
 

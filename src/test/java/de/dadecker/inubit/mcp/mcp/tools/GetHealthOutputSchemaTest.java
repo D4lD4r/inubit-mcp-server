@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * {@code schemas/get_health.output.json} against the serialized reports: the 8.1 report as before
- * and the 6.1 report of contracts/mcp-tools-delta.md (feature 011, FR-008).
+ * and the 6.1 report of contracts/mcp-tools-delta.md (feature 012, FR-008).
  */
 class GetHealthOutputSchemaTest {
 

@@ -75,7 +75,7 @@ class CapabilityMatrixTest {
                 Capability.E2E_TEST, Capability.PROCESS_CONTROL);
     }
 
-    /** Feature 011 (FR-004): both halves of the former "diagnosis" keep its state. */
+    /** Feature 012 (FR-004): both halves of the former "diagnosis" keep its state. */
     @ParameterizedTest
     @EnumSource(value = Capability.class, names = {"PROCESS_DIAGNOSIS", "LOG_DIAGNOSIS"})
     void bothDiagnosisCapabilitiesKeepTheFormerDiagnosisState(Capability capability) {
@@ -106,7 +106,7 @@ class CapabilityMatrixTest {
             .containsExactlyInAnyOrder(Channel.REST, Channel.CLI);
     }
 
-    /** Feature 011 (FR-005, research D-3): 6.1 is CLI-only and nothing runs until recorded. */
+    /** Feature 012 (FR-005, research D-3): 6.1 is CLI-only and nothing runs until recorded. */
     @ParameterizedTest
     @EnumSource(Capability.class)
     void everyCapabilityIsUnsupportedOn61(Capability capability) {

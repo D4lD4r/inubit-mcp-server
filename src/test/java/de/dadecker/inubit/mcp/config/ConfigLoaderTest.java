@@ -866,7 +866,7 @@ class ConfigLoaderTest {
 
     /**
      * Feature 009 (T005, research D-2, contracts/configuration-delta.md): {@code versionLine}
-     * accepts {@code AUTO}, {@code V8_1}, {@code V9_X} or a full version as a string; feature 011
+     * accepts {@code AUTO}, {@code V8_1}, {@code V9_X} or a full version as a string; feature 012
      * (T003, FR-002) adds {@code V6_1}.
      */
     @Nested

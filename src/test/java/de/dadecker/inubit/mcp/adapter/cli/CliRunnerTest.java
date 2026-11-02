@@ -162,7 +162,7 @@ class CliRunnerTest {
     @Test
     void onlyTheGuardedRunIsAccessibleOutsideTheRunner() {
         // Phase 3 re-review N1: tools cannot bypass the credential guard
-        // feature 011 (T016): also the 6.1 session
+        // feature 012 (T016): also the 6.1 session
         List<Method> runs = Arrays.stream(CliRunner.class.getDeclaredMethods())
             .filter(method -> method.getName().equals("run")
                 || method.getName().equals("runSession"))
@@ -474,7 +474,7 @@ class CliRunnerTest {
         assertThat(launcher.launchCount()).isZero();
     }
 
-    // --- interactive session on INUBIT 6.1 (feature 011, T016, research D-5) ---------------
+    // --- interactive session on INUBIT 6.1 (feature 012, T016, research D-5) ---------------
 
     private static final String SESSION_OK = "Password: \nuname output\n";
     private static final String SESSION_LOGIN_FAILED = "Password: \n"
@@ -615,7 +615,7 @@ class CliRunnerTest {
             });
     }
 
-    // --- output bound per session (feature 011, T046, research D-10) ----------------------
+    // --- output bound per session (feature 012, T046, research D-10) ----------------------
 
     private CliResult runSession(FakeProcessLauncher launcher, int maxOutputBytes) {
         return runner(launcher).runSession(server().build(), USER, Secret.of(PASSWORD),
@@ -677,7 +677,7 @@ class CliRunnerTest {
             .isEqualTo(PASSWORD + "\n");
     }
 
-    // --- client trust arguments on INUBIT 6.1 (feature 011, T018, research D-8) -----------
+    // --- client trust arguments on INUBIT 6.1 (feature 012, T018, research D-8) -----------
 
     private static final String PIN = "AB".repeat(32);
     private static final String URL =

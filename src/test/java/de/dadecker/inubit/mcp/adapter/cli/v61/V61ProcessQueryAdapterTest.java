@@ -50,7 +50,7 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * T032 (feature 011, FR-010, research D-10): {@code find_processes} on a 6.1 node over the
+ * T032 (feature 012, FR-010, research D-10): {@code find_processes} on a 6.1 node over the
  * reconstructed T029 {@code ps} session fixtures (US2-1 … US2-7). Every call that reaches the node
  * runs exactly one StartCLI session; the local {@code startcli.sh -h} run of the client probe is
  * not a session and is counted apart.

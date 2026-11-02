@@ -81,7 +81,7 @@ import org.slf4j.LoggerFactory;
  * with its REST client. Production registers the 8.1 port set as default for every version
  * ({@link PortSetRegistry#v81Default()}) and the CLI-only 6.1 range.
  *
- * <p>CLI-only ranges (feature 011, research D-4): for a node whose effective version selects a
+ * <p>CLI-only ranges (feature 012, research D-4): for a node whose effective version selects a
  * range registered with a {@link PortSetRegistry.CliHealthFactory}, the port set and the
  * {@link #cliHealth} port are built from the held credentials and a credential guard bound to
  * them, without REST client; {@link #access} answers {@link NodeAccess#CLI_ONLY}. Every other

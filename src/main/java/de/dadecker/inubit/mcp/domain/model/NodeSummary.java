@@ -43,7 +43,7 @@ public record NodeSummary(
      * usable on it (data-model.md → NodeSummary, contracts/mcp-tools-delta.md).
      *
      * @param setting      the configured {@code versionLine} text
-     * @param access       feature 011 (research D-13): {@code rest_and_cli}, or {@code cli_only}
+     * @param access       feature 012 (research D-13): {@code rest_and_cli}, or {@code cli_only}
      *                     for a node pinned to a CLI-only version ({@link NodeAccess})
      * @param status       {@code supported}, {@code partially_supported}, {@code unsupported} or
      *                     {@code unknown}

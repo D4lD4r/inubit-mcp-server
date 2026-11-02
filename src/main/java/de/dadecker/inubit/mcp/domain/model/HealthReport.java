@@ -13,7 +13,7 @@ import java.util.Optional;
  *                    none
  * @param reachable   true if {@code /healthcheck} gave any HTTP response
  * @param processCounts the process instances per state, reported for INUBIT 6.1 only
- *                    (feature 011, FR-008)
+ *                    (feature 012, FR-008)
  * @param client      the node's StartCLI client (feature 009, FR-002); empty while it is not
  *                    known, the part {@code client} in {@code unavailable} then says why
  * @param unavailable parts that could not be obtained, with the reason (FR-008)

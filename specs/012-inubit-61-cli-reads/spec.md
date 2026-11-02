@@ -1,6 +1,6 @@
 # Feature Specification: Read-Only INUBIT 6.1 Support via StartCLI Only
 
-**Feature Branch**: `011-inubit-61-cli-reads`
+**Feature Branch**: `012-inubit-61-cli-reads`
 
 **Created**: 2026-10-31
 

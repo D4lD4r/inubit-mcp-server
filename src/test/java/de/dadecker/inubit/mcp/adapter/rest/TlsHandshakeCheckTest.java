@@ -24,7 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-/** T015: the server's TLS handshake before StartCLI (feature 011 FR-012, research D-7). */
+/** T015: the server's TLS handshake before StartCLI (feature 012 FR-012, research D-7). */
 @Timeout(30)
 class TlsHandshakeCheckTest {
 

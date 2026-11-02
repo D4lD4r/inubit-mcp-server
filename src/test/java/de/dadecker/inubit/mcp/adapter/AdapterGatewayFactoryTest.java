@@ -314,7 +314,7 @@ class AdapterGatewayFactoryTest {
         }
     }
 
-    /** Feature 011 T011 (FR-003): both detection paths report a 404 as a missing endpoint. */
+    /** Feature 012 T011 (FR-003): both detection paths report a 404 as a missing endpoint. */
     @Test
     void aDetectionAnswered404IsReportedWithTheEndpointMissing() {
         systemInfo(404, "<html>Not Found</html>");
@@ -330,7 +330,7 @@ class AdapterGatewayFactoryTest {
     }
 
     /**
-     * Feature 011 T011 (FR-003): the health call's {@code /system/info} reports a 404 as a
+     * Feature 012 T011 (FR-003): the health call's {@code /system/info} reports a 404 as a
      * missing endpoint too, so get_health after the detection keeps the flag.
      */
     @Test
@@ -1099,7 +1099,7 @@ class AdapterGatewayFactoryTest {
         }
     }
 
-    // --- feature 011 T025: the 6.1 selection builds no REST client (research D-4) ------------
+    // --- feature 012 T025: the 6.1 selection builds no REST client (research D-4) ------------
 
     /** The shared 6.1 client probe as {@code Wiring} builds it; it never runs here. */
     private static final CliClientProbe V61_PROBE = new CliClientProbe(new CliRunner(spec -> {

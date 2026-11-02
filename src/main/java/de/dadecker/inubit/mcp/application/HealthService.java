@@ -58,7 +58,7 @@ import org.slf4j.LoggerFactory;
  *   <li>The target is resolved first (unknown → {@code TARGET_UNKNOWN}); no target means all
  *       servers. Servers are checked in parallel ({@link FanOut}), reports come in config order,
  *       one per server, also for servers that failed.
- *   <li>Access (feature 011, FR-001, research D-11): first, before any contact,
+ *   <li>Access (feature 012, FR-001, research D-11): first, before any contact,
  *       {@link VersionGate#monitoringAccess} decides how the server is reached. A node pinned to
  *       a CLI-only version (INUBIT 6.1) whose monitoring the matrix does not support gets a
  *       failed report with the {@code UNSUPPORTED_VERSION} refusal as its error: no credentials,
@@ -485,7 +485,7 @@ public final class HealthService {
 
     /**
      * As above; for a node read through StartCLI ({@code cliOnly}) a contradiction refuses every
-     * tool except {@code get_health} (feature 011, FR-006) and the node has no writes.
+     * tool except {@code get_health} (feature 012, FR-006) and the node has no writes.
      */
     static Optional<String> pinWarning(NodeId server, VersionSetting setting,
         InubitVersion read, boolean cliOnly) {

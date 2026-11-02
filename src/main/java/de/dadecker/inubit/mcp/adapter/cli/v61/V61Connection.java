@@ -22,7 +22,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * The connection sequence of one StartCLI session on an INUBIT 6.1 node (feature 011, FR-012,
+ * The connection sequence of one StartCLI session on an INUBIT 6.1 node (feature 012, FR-012,
  * FR-012a, research D-7, D-8), run once per tool call and node by {@link #session}:
  *
  * <ol>

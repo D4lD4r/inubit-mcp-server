@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * T019 (feature 011, research D-9, FR-015): at most two concurrent StartCLI runs per node pinned
+ * T019 (feature 012, research D-9, FR-015): at most two concurrent StartCLI runs per node pinned
  * to a CLI-only version; a further run waits up to {@code cliTimeout}, then {@code TIMEOUT}.
  */
 @Timeout(30)

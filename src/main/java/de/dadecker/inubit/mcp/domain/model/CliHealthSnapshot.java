@@ -5,7 +5,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * What one StartCLI health session read on an INUBIT 6.1 node (feature 011, research D-6).
+ * What one StartCLI health session read on an INUBIT 6.1 node (feature 012, research D-6).
  *
  * @param alive           the alive check succeeded (login and {@code uptime})
  * @param versionText     the version StartCLI reported

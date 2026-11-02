@@ -9,7 +9,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 
 /**
- * The INUBIT 6.1 port set (feature 011, research D-4), registered as CLI-only for {@link #RANGE}:
+ * The INUBIT 6.1 port set (feature 012, research D-4), registered as CLI-only for {@link #RANGE}:
  * built without REST client. The process query port is the {@link V61ProcessQueryAdapter}, the
  * health port the {@link V61HealthAdapter}; every other port is a {@link RefusingPorts} stub.
  * Both StartCLI adapters of a node use the same shared client probe and concurrency limiter

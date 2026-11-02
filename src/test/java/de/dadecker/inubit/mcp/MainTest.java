@@ -645,7 +645,7 @@ class MainTest {
 
     @Test
     void checkConfigShowsAV61NodeAsStartCliOnlyWithoutContactingInubit() throws IOException {
-        // feature 011 (FR-014, research D-13)
+        // feature 012 (FR-014, research D-13)
         credentials();
         Path cliHome = fakeStartCli("""
             echo "$@" >> "$(dirname "$0")/arguments"
@@ -692,7 +692,7 @@ class MainTest {
 
     @Test
     void checkConfigWarnsAboutWhatTheStartCliClientOfAV61NodeCannotDo() throws IOException {
-        // feature 011 (FR-012a, contracts/configuration-delta.md → Validation): the warnings name
+        // feature 012 (FR-012a, contracts/configuration-delta.md → Validation): the warnings name
         // the refusals of V61Connection; local probes only, the server is not contacted
         credentials();
         Path cliHome = fakeStartCli("""

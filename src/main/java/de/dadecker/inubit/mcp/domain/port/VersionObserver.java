@@ -22,7 +22,7 @@ public interface VersionObserver {
 
     /**
      * As {@link #detectionFailed(NodeId, ErrorCode)}; {@code endpointMissing} if the detection
-     * request was answered with HTTP 404 (feature 011 FR-003).
+     * request was answered with HTTP 404 (feature 012 FR-003).
      */
     void detectionFailed(NodeId node, ErrorCode code, boolean endpointMissing);
 

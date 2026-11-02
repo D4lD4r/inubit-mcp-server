@@ -33,7 +33,7 @@ import java.util.Optional;
 
 /**
  * An INUBIT 6.1 node behind the real {@link V61HealthAdapter} (T026) with a fake StartCLI, for
- * the {@code get_health} tests of feature 011 (T027): the reconstructed {@code -h} answers the
+ * the {@code get_health} tests of feature 012 (T027): the reconstructed {@code -h} answers the
  * client-option probe, {@link #session} every other launch (a StartCLI session). StartCLI runs
  * over http with {@code allowInsecureHttp}, so no TLS handshake precedes a session.
  */

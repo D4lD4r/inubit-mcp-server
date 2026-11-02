@@ -17,7 +17,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * Feature 011 T025: the ports INUBIT 6.1 does not offer refuse with {@code UNSUPPORTED_VERSION}
+ * Feature 012 T025: the ports INUBIT 6.1 does not offer refuse with {@code UNSUPPORTED_VERSION}
  * without contact (research D-4, second line of defence behind the version gate).
  */
 class RefusingPortsTest {

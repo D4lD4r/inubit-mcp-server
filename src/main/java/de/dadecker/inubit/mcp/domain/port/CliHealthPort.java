@@ -4,7 +4,7 @@ import de.dadecker.inubit.mcp.domain.model.CliHealthSnapshot;
 import java.time.Duration;
 
 /**
- * Reads the health of a node reached through StartCLI only (feature 011, research D-6): one
+ * Reads the health of a node reached through StartCLI only (feature 012, research D-6): one
  * StartCLI session per call. Handed out by {@link GatewayFactory#cliHealth} for a node whose
  * effective version selects it.
  */

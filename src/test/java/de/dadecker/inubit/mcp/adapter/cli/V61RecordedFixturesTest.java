@@ -13,7 +13,7 @@ import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
 
 /**
- * T034 (feature 011, FR-005, research D-15): a capability that
+ * T034 (feature 012, FR-005, research D-15): a capability that
  * {@link CapabilityMatrix#production()} declares {@code SUPPORTED} on 6.1 has no case left in
  * {@code fixtures/v6_1/cli/RECONSTRUCTED.txt}: its fixtures are recordings of a real 6.1 node, not
  * reconstructions.

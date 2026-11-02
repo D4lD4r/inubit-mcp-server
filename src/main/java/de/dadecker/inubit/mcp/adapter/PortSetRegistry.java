@@ -22,7 +22,7 @@ import java.util.Optional;
  * an unknown version. Ranges are matched in registration order. Immutable: {@link #register}
  * returns a new registry.
  *
- * <p>A range registered with a {@link CliHealthFactory} is CLI-only (feature 011, research D-4,
+ * <p>A range registered with a {@link CliHealthFactory} is CLI-only (feature 012, research D-4,
  * {@link NodeAccess#CLI_ONLY}): its server is reached through StartCLI only, so its factories get
  * no REST client and {@code AdapterGatewayFactory} builds none for it.
  *

@@ -298,7 +298,7 @@ class ArtifactCheckServiceTest {
         assertThat(server.calls).isEmpty();
     }
 
-    // --- T010 (feature 011, FR-006, FR-006a): no module lookup on a 6.1 node --------------------
+    // --- T010 (feature 012, FR-006, FR-006a): no module lookup on a 6.1 node --------------------
 
     /**
      * Two missing modules of {@code jdoe} and, of {@code asmith}, a dangling edge that only the

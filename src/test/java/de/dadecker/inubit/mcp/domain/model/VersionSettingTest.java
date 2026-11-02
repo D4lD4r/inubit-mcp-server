@@ -9,7 +9,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * Feature 009 (T005, research D-2, data-model.md → VersionSetting); feature 011 (T003, FR-002,
+ * Feature 009 (T005, research D-2, data-model.md → VersionSetting); feature 012 (T003, FR-002,
  * research D-1): {@code V6_1} and concrete 6.1 pins.
  */
 class VersionSettingTest {

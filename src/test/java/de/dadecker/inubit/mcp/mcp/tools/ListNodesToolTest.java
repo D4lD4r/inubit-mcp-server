@@ -332,7 +332,7 @@ class ListNodesToolTest {
      * dev/node1 ({@code AUTO}, StartCLI, {@link #DEVELOPMENT}), dev/node2 ({@code AUTO}, no
      * StartCLI, reads), qa/node1 ({@code V8_1}, StartCLI, {@link #DEVELOPMENT}), qa/node2
      * (pinned {@code 8.1.17}, no StartCLI, reads) and qa/node3 ({@code V9_X}, StartCLI,
-     * {@link #DEVELOPMENT}), all at the WireMock server; feature 011: qa/node4 ({@code V6_1},
+     * {@link #DEVELOPMENT}), all at the WireMock server; feature 012: qa/node4 ({@code V6_1},
      * StartCLI, {@link #DEVELOPMENT}).
      */
     @BeforeEach
@@ -687,7 +687,7 @@ class ListNodesToolTest {
             CLI_HOME.toString());
     }
 
-    // --- 011-T013: a 6.1 node (US3-5, research D-13) ---------------------------------------
+    // --- 012-T013: a 6.1 node (US3-5, research D-13) ---------------------------------------
 
     @Test
     void aV61NodeIsCliOnlyAndNoCapabilityIsUsableWithoutContactingIt() {

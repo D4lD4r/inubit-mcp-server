@@ -1,4 +1,4 @@
-SPEC: /Users/dadecker/Development/Privat/inubit-mcp-server/specs/011-inubit-61-cli-reads/spec.md  ROUND: 2
+SPEC: /Users/dadecker/Development/Privat/inubit-mcp-server/specs/012-inubit-61-cli-reads/spec.md  ROUND: 2
 
 All 23 round-1 findings are addressed (health status rule, time budgets, state mapping, `since` semantics, truncation marker, error codes, pin check by own handshake, conditional 404 hint, contradiction behaviour, recordings, export scope, safety-rule scenarios, Out of Scope, Preconditions); no `[NEEDS CLARIFICATION]` markers remain. Three new major findings concern the TLS path of FR-012/FR-014 (core safety story US5), checked against `src/main/java/de/dadecker/inubit/mcp/adapter/cli/CliRunner.java`, `src/main/java/de/dadecker/inubit/mcp/config/EffectiveNodeConfig.java`, `src/main/java/de/dadecker/inubit/mcp/config/ConfigValidator.java`.
 

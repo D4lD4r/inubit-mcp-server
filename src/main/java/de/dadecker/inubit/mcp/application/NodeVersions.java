@@ -81,7 +81,7 @@ public final class NodeVersions implements VersionObserver {
         update(node, state -> state.withDetected(version, clock.instant()));
     }
 
-    /** A failed detection; {@code endpointMissing} after an HTTP 404 (feature 011 FR-003). */
+    /** A failed detection; {@code endpointMissing} after an HTTP 404 (feature 012 FR-003). */
     @Override
     public void detectionFailed(NodeId node, ErrorCode code, boolean endpointMissing) {
         DetectionFailure failure = new DetectionFailure(code, endpointMissing);

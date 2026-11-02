@@ -399,7 +399,7 @@ class InubitHttpClientTest {
         assertThat(post.message()).contains("POST /ibis/rest/log/queueLog");
     }
 
-    /** Feature 011 T011 (FR-003): only a 404 of an endpoint request is a missing endpoint. */
+    /** Feature 012 T011 (FR-003): only a 404 of an endpoint request is a missing endpoint. */
     @Test
     void onlyNotFoundOfAnEndpointRequestIsMarkedAsAMissingEndpoint() {
         stubStatus(404, "text/html", "<html>not found</html>");

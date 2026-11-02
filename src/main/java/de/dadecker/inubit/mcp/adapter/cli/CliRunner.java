@@ -35,7 +35,7 @@ import java.util.function.Supplier;
  *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <p12>],
  *       [--disableHostNameVerification], --execCommand, <command>, <cliUrl>]}. There is never a
  *       {@code -p}; the password plus {@code \n} is written to stdin, which is then closed.
- *   <li>An interactive session on INUBIT 6.1 ({@link #runSession}, feature 011, research D-5):
+ *   <li>An interactive session on INUBIT 6.1 ({@link #runSession}, feature 012, research D-5):
  *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <path>],
  *       [--disableHostNameVerification], <cliUrl>]}; stdin receives the password line, one line
  *       per {@link CliSessionCommand} and {@code exit}, and is then closed. Environment,
@@ -141,12 +141,12 @@ public final class CliRunner {
     }
 
     /**
-     * Logs in as {@code username} in StartCLI's interactive mode (INUBIT 6.1, feature 011,
+     * Logs in as {@code username} in StartCLI's interactive mode (INUBIT 6.1, feature 012,
      * research D-5) and runs {@code commands}, then {@code exit}, in one process, guarded like
      * {@link #run(EffectiveNodeConfig, String, Secret, CliCommand, Duration, CredentialGuard)}.
      * Neither the password nor a command appears in the argument array. The trust store and the
      * host-name option are passed as {@code options} allow (research D-8); every refusal is
-     * made by the caller before (feature 011, {@code V61Connection}). stdout and stderr are
+     * made by the caller before (feature 012, {@code V61Connection}). stdout and stderr are
      * kept up to {@code maxOutputBytes} each (research D-10: {@link #MAX_OUTPUT_BYTES} for
      * health, more for process listings).
      *

@@ -57,7 +57,7 @@ import tools.jackson.databind.JsonNode;
  * (contracts/mcp-tools.md §3, quickstart V4). Feature 009 (T012): the version warning of a node
  * is in its entry.
  *
- * <p>Feature 011 (T033, US2): {@code find_processes} on an INUBIT 6.1 node through the production
+ * <p>Feature 012 (T033, US2): {@code find_processes} on an INUBIT 6.1 node through the production
  * wiring, see {@link #startWith61}.
  */
 @Timeout(60)
@@ -73,7 +73,7 @@ class FindProcessesToolTest {
     private static WireMockServer legacy;
 
     private DiagnosisToolFixture fixture;
-    /** Feature 011: the production wiring of {@link #startWith61} and its client, if started. */
+    /** Feature 012: the production wiring of {@link #startWith61} and its client, if started. */
     private TestWiring wiring;
     private McpTestClient client61;
 
@@ -286,7 +286,7 @@ class FindProcessesToolTest {
             "Authorization", "jdoe");
     }
 
-    // --- feature 011, T033: find_processes on a 6.1 node end to end (US2) -------------------
+    // --- feature 012, T033: find_processes on a 6.1 node end to end (US2) -------------------
 
     private static final String LEGACY_81 = "legacy/node1";
     private static final String LEGACY_61 = "legacy/node2";

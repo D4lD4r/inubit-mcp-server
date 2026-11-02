@@ -30,7 +30,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 
 /**
- * The process query port of an INUBIT 6.1 node (feature 011, FR-010, research D-10): one StartCLI
+ * The process query port of an INUBIT 6.1 node (feature 012, FR-010, research D-10): one StartCLI
  * session through {@link V61Connection} per {@link #find}, with the {@code ps} listings read by
  * {@link V61PsParser}; every filter, the sort and the paging are applied here.
  *

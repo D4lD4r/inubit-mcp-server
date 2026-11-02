@@ -6,7 +6,7 @@ import java.util.Optional;
  * Load of an INUBIT server from {@code /metrics} (data-model.md → LoadFigures). The percentages
  * are derived, rounded to one decimal, and empty if the maximum is not positive. The thread and
  * blocking queue figures are always present on 8.1 and absent on 6.1, which reports memory only
- * (feature 011, FR-008).
+ * (feature 012, FR-008).
  */
 public record LoadFigures(
     double usedMemoryMb,

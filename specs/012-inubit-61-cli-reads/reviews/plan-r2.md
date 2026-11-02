@@ -1,4 +1,4 @@
-FEATURE: /Users/dadecker/Development/Privat/inubit-mcp-server/specs/011-inubit-61-cli-reads  ROUND: 2
+FEATURE: /Users/dadecker/Development/Privat/inubit-mcp-server/specs/012-inubit-61-cli-reads  ROUND: 2
 
 Read spec.md, plan.md, tasks.md, research.md, data-model.md, both contracts, quickstart.md, constitution v1.1.0 and the round-1 review, and checked the plan against Wiring, CapabilityMatrix, VersionGate, NodeVersions/NodeVersionState, HealthService, DiagnosisService, ResultLimiter, CliRunner, CliVersionProbe, ClientVersionPort, ConfigValidator and EffectiveNodeConfig/Defaults. All four round-1 majors are fixed (T007 monitoring admission before contact; T033 per-node `tag` refusal incl. held credentials; D-8/T016/T017/T021 scoped to `cliOnly` with an 8.1 argument-array regression test; T035 split into T037–T040 with the D-5 alternative requiring a plan update); nearly all round-1 minors are fixed. Three new majors came out of the code check.
 

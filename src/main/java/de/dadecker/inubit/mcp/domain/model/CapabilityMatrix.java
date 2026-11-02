@@ -20,7 +20,7 @@ import java.util.Set;
  *
  * <p>An entry may declare channels per capability that replace the capability's own
  * {@link Capability#channels()}, and may be {@code cliOnly}: the node is reached through StartCLI
- * only (feature 011, research D-3).
+ * only (feature 012, research D-3).
  */
 public final class CapabilityMatrix {
 

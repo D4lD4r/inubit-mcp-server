@@ -1,8 +1,8 @@
 # Implementation Plan: Read-Only INUBIT 6.1 Support via StartCLI Only
 
-**Branch**: `011-inubit-61-cli-reads` | **Date**: 2026-10-31 | **Spec**: [spec.md](spec.md)
+**Branch**: `012-inubit-61-cli-reads` | **Date**: 2026-10-31 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/011-inubit-61-cli-reads/spec.md`
+**Input**: Feature specification from `/specs/012-inubit-61-cli-reads/spec.md`
 
 ## Summary
 
@@ -110,7 +110,7 @@ and one login per call and node (D-5).
 ### Documentation (this feature)
 
 ```text
-specs/011-inubit-61-cli-reads/
+specs/012-inubit-61-cli-reads/
 ├── plan.md
 ├── research.md                 # D-1…D-18
 ├── data-model.md

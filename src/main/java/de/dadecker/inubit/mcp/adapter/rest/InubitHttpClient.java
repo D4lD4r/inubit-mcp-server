@@ -107,7 +107,7 @@ public final class InubitHttpClient implements AutoCloseable {
 
     /**
      * The {@code UNEXPECTED_RESPONSE} of an HTTP 404 on a {@link ResourceKind#ENDPOINT} request.
-     * On the version detection's {@code /system/info} it gives the INUBIT 6.1 hint (feature 011
+     * On the version detection's {@code /system/info} it gives the INUBIT 6.1 hint (feature 012
      * FR-003, research D-11).
      */
     public static final class EndpointMissing extends ToolErrorException {

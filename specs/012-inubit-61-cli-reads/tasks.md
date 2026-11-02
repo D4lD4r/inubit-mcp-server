@@ -1,11 +1,11 @@
 ---
 
-description: "Task list for read-only INUBIT 6.1 support via StartCLI only (feature 011)"
+description: "Task list for read-only INUBIT 6.1 support via StartCLI only (feature 012)"
 ---
 
 # Tasks: Read-Only INUBIT 6.1 Support via StartCLI Only
 
-**Input**: Design documents from `/specs/011-inubit-61-cli-reads/`
+**Input**: Design documents from `/specs/012-inubit-61-cli-reads/`
 
 **Prerequisites**:
 - [plan.md](plan.md) and [spec.md](spec.md) (clarifications 2026-10-31, spec reviews r1–r3)
@@ -402,7 +402,7 @@ tasks with new tasks for the direct-option alternative before T037.
   `get_health` 6.1 example, `find_processes` 6.1 notes, announcement, `check_artifacts`),
   `README.md` (supported versions: 8.1; 6.1 read-only via StartCLI). Documentation-only; the docs
   reference tests (`DevelopmentToolsReferenceTest`, `DeploymentReferenceTest`) stay green.
-- [ ] T042 [P] `CHANGELOG.md` `[Unreleased]`: feature 011 with the deliberate changes of SC-005
+- [ ] T042 [P] `CHANGELOG.md` `[Unreleased]`: feature 012 with the deliberate changes of SC-005
   (capability names in `list_nodes`/`--check-config`; the 404 hint; read tools not announced when
   no node can run them).
 - [ ] T043 Quickstart validation: run the offline table of quickstart.md, record the results in

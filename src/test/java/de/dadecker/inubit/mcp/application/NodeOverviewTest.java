@@ -19,7 +19,7 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
- * Feature 011 (FR-004, research D-2): {@link NodeOverview} names the two halves of the former
+ * Feature 012 (FR-004, research D-2): {@link NodeOverview} names the two halves of the former
  * capability "diagnosis" as {@code process_diagnosis} and {@code log_diagnosis}.
  */
 class NodeOverviewTest {

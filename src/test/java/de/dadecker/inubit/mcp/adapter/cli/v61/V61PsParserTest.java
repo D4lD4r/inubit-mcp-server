@@ -23,7 +23,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * T031 (feature 011, FR-010, FR-017, research D-10): the {@code ps} listings of a StartCLI 6.1
+ * T031 (feature 012, FR-010, FR-017, research D-10): the {@code ps} listings of a StartCLI 6.1
  * process session, against the reconstructed T029 fixtures and malformed variants of them.
  */
 class V61PsParserTest {

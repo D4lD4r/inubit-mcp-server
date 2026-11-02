@@ -4,7 +4,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * What the local StartCLI client of a 6.1 node offers (feature 011, research D-8, data-model.md →
+ * What the local StartCLI client of a 6.1 node offers (feature 012, research D-8, data-model.md →
  * CliClientOptions), read locally from its help output and its Java runtime. An option that could
  * not be determined counts as absent (fail closed, FR-012a).
  *

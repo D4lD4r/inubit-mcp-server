@@ -466,7 +466,7 @@ class ConfigSummaryTest {
                 + " secrets: credentialStore (macOS Keychain), username ←");
     }
 
-    // --- feature 011 T014: a 6.1 node is StartCLI only (FR-014, research D-13) ----------------
+    // --- feature 012 T014: a 6.1 node is StartCLI only (FR-014, research D-13) ----------------
 
     private static final String V6_1 = """
         profile:
@@ -535,7 +535,7 @@ class ConfigSummaryTest {
             .contains("Result: OK");
     }
 
-    // --- feature 011 T021: the client options of a 6.1 node (FR-012a, research D-8) -----------
+    // --- feature 012 T021: the client options of a 6.1 node (FR-012a, research D-8) -----------
 
     @Test
     void aV61NodeShowsTheClientOptionsInsideItsClientPart() {

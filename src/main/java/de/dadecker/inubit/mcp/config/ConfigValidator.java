@@ -536,7 +536,7 @@ public final class ConfigValidator {
             checkCli(server, findings);
         } else if (CapabilityMatrix.production().isCliOnly(
             NodeVersionState.initial(server.versionLine()).effectiveVersion())) {
-            // feature 011 (FR-014): the server starts, the node answers CLI_UNAVAILABLE
+            // feature 012 (FR-014): the server starts, the node answers CLI_UNAVAILABLE
             findings.warning(id + ": INUBIT 6.1 is reached through StartCLI only, but no cliHome"
                 + " is configured; its capabilities report CLI_UNAVAILABLE");
         }
@@ -988,7 +988,7 @@ public final class ConfigValidator {
     }
 
     /**
-     * Feature 011 (FR-012a, contracts/configuration-delta.md → Validation): the warnings for a
+     * Feature 012 (FR-012a, contracts/configuration-delta.md → Validation): the warnings for a
      * node pinned to a CLI-only version (6.1) whose StartCLI client options were read by the local
      * probe of {@code --check-config}; each names a refusal {@code V61Connection} makes at
      * runtime. Not part of {@link #validate}, which runs no probes.

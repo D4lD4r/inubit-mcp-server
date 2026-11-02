@@ -23,7 +23,7 @@ import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocket;
 
 /**
- * The server's own certificate check of an HTTPS StartCLI URL before StartCLI runs (feature 011
+ * The server's own certificate check of an HTTPS StartCLI URL before StartCLI runs (feature 012
  * FR-012, research D-7): a TLS handshake with host and port of the URL, then the connection is
  * closed; no byte of HTTP is sent.
  *

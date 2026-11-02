@@ -46,7 +46,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * T026 (feature 011, research D-5, D-6): the 6.1 health port over the reconstructed T022 health
+ * T026 (feature 012, research D-5, D-6): the 6.1 health port over the reconstructed T022 health
  * session fixtures. StartCLI launches are counted by their argument array: the local
  * {@code startcli.sh -h} run of the client probe (cached per node) is not a session; every other
  * launch is a StartCLI session.

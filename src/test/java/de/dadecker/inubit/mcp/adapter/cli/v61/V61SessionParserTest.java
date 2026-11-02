@@ -12,7 +12,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * T024/T031 (feature 011, research D-5): a StartCLI 6.1 session split into one block per
+ * T024/T031 (feature 012, research D-5): a StartCLI 6.1 session split into one block per
  * command, here a process session with two listings.
  */
 class V61SessionParserTest {

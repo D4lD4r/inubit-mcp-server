@@ -14,7 +14,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * T024 (feature 011, FR-017, research D-5, D-6): the health session of StartCLI 6.1, split at
+ * T024 (feature 012, FR-017, research D-5, D-6): the health session of StartCLI 6.1, split at
  * the prompt and parsed, against the reconstructed T022 fixtures and malformed variants of them.
  */
 class V61HealthParserTest {

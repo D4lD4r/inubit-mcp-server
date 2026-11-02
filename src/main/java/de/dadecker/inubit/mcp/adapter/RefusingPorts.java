@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * The ports an INUBIT 6.1 node does not offer (feature 011, research D-4): every method throws
+ * The ports an INUBIT 6.1 node does not offer (feature 012, research D-4): every method throws
  * {@code UNSUPPORTED_VERSION} without contacting the node. The version gate refuses these calls
  * first; this is the second line of defence. One instance can serve as each port of a
  * {@link PortSet}.

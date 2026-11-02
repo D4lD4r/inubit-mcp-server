@@ -63,7 +63,7 @@ import org.junit.jupiter.api.Timeout;
  * T069: the use cases behind {@code find_processes} and {@code query_logs} with fake ports and a
  * fixed clock (FR-009 – FR-013, research R-8, R-9). Feature 009 (T012, FR-006, FR-009): the
  * version gate admits the tool's capability per node before its REST query; its warnings go into
- * that node's result, a refusal becomes that node's error. Feature 011 (FR-004): that capability
+ * that node's result, a refusal becomes that node's error. Feature 012 (FR-004): that capability
  * is {@code PROCESS_DIAGNOSIS} for {@code find_processes} and {@code LOG_DIAGNOSIS} for
  * {@code query_logs}.
  */
@@ -104,7 +104,7 @@ class DiagnosisServiceTest {
     private final Set<NodeId> pendingSecrets = ConcurrentHashMap.newKeySet();
     /** Feature 010: the first fetch of a pending node (default: succeeds at once). */
     private volatile Consumer<NodeId> fetch = pendingSecrets::remove;
-    /** Feature 011: the {@code cliTimeout} of every server. */
+    /** Feature 012: the {@code cliTimeout} of every server. */
     private Duration cliTimeout = Duration.ofSeconds(3);
     /** Feature 009: the nodes with a StartCLI installation, whose client the gate probes. */
     private final Set<NodeId> withClient = ConcurrentHashMap.newKeySet();
@@ -802,7 +802,7 @@ class DiagnosisServiceTest {
 
     @Test
     void eachToolIsAdmittedForItsOwnDiagnosisCapability() {
-        // feature 011 (FR-004): find_processes needs PROCESS_DIAGNOSIS, query_logs LOG_DIAGNOSIS
+        // feature 012 (FR-004): find_processes needs PROCESS_DIAGNOSIS, query_logs LOG_DIAGNOSIS
         matrix = new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
             new VersionRange(8, 1, 8, 1),
             Map.of(Capability.PROCESS_DIAGNOSIS, SupportState.SUPPORTED))), Map.of());
@@ -835,7 +835,7 @@ class DiagnosisServiceTest {
             new VersionRange(8, 1, 8, 1), supported)), Map.of());
     }
 
-    // --- feature 011, T033: find_processes on a 6.1 node (FR-007, FR-010, research D-10) ------
+    // --- feature 012, T033: find_processes on a 6.1 node (FR-007, FR-010, research D-10) ------
 
     /** The warning of a 6.1 entry, from the gate admission's version notes (FR-010, FR-016). */
     private static final String LOG_NOTE = "logs of INUBIT 6.1 cannot be read with query_logs;"

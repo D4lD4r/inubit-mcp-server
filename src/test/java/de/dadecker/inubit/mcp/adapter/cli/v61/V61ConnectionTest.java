@@ -55,7 +55,7 @@ import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * T020 (feature 011, FR-012, FR-012a, research D-7/D-8): the 6.1 connection sequence — StartCLI
+ * T020 (feature 012, FR-012, FR-012a, research D-7/D-8): the 6.1 connection sequence — StartCLI
  * available → client options → option and format refusals → concurrency permit → TLS handshake
  * with the effective StartCLI URL → session. The {@code -h} probe and the session are told apart
  * by their argument array; the INUBIT side is a {@link TlsTestServer} that counts connections.

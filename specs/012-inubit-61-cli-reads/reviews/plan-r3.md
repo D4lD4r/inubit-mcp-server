@@ -1,4 +1,4 @@
-FEATURE: /Users/dadecker/Development/Privat/inubit-mcp-server/specs/011-inubit-61-cli-reads  ROUND: 3
+FEATURE: /Users/dadecker/Development/Privat/inubit-mcp-server/specs/012-inubit-61-cli-reads  ROUND: 3
 
 Read spec.md, plan.md, tasks.md, research.md, data-model.md, both contracts, quickstart.md, the constitution and reviews/plan-r2.md; checked the new and changed tasks against DiagnosisService (validateHeld/validate, deadline :295-298, sort :204), ConfigValidator (`checkCli` only when `cliConfigured()`), CliRunner (`checkAvailable`, `JAVA_TOOL_OPTIONS`, trust arguments) and the use sites of CliVersionProbe/ClientVersionPort (Wiring, Launcher, HealthService, VersionGate).
 

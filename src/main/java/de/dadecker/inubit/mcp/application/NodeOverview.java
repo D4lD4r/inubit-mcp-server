@@ -36,7 +36,7 @@ import java.util.function.Function;
  * and is additionally listed as {@code "<name> (StartCLI parts)"} in {@code notUsable}; a write
  * is admitted for all its channels at once, so it is not usable at all.
  *
- * <p>Feature 011 (research D-13): the block names the node's access, {@code cli_only} for a node
+ * <p>Feature 012 (research D-13): the block names the node's access, {@code cli_only} for a node
  * pinned to a CLI-only version (6.1), whose capabilities are judged on its matrix entry and run
  * only if {@code SUPPORTED}.
  */
@@ -70,7 +70,7 @@ public final class NodeOverview {
         NodeId id = node.id();
         NodeVersionState state = versions.state(id);
         Optional<InubitVersion> version = state.effectiveVersion();
-        // feature 011 (FR-002): a node pinned to a CLI-only version is judged on its pin, as the
+        // feature 012 (FR-002): a node pinned to a CLI-only version is judged on its pin, as the
         // gate does, also while an observation contradicts the pin
         Optional<InubitVersion> pin = NodeVersionState.initial(state.setting()).effectiveVersion();
         boolean cliOnly = matrix.isCliOnly(pin);

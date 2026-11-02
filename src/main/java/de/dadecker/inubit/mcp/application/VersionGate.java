@@ -38,11 +38,11 @@ import org.slf4j.LoggerFactory;
  *       {@code MONITORING}, whose {@code get_health} read is the detection itself);</li>
  *   <li>refuse a write when a pin is contradicted by {@code get_health}; for a pin of a
  *       {@linkplain CapabilityMatrix#isCliOnly CLI-only} version every capability except
- *       {@code MONITORING} (feature 011, research D-11);</li>
+ *       {@code MONITORING} (feature 012, research D-11);</li>
  *   <li>look up the {@link CapabilityMatrix}: {@code SUPPORTED} admits, {@code UNVERIFIED} admits
  *       a read with a warning, anything else refuses ({@code MONITORING} is never refused and gets
  *       a warning instead); on a CLI-only version anything but {@code SUPPORTED} refuses,
- *       {@code MONITORING} and reads included (feature 011, research D-3);</li>
+ *       {@code MONITORING} and reads included (feature 012, research D-3);</li>
  *   <li>only when {@link Channel#CLI} is among the call's channels (on a CLI-only version the
  *       channels of its matrix entry): probe the StartCLI client of
  *       a node with a StartCLI installation when no client result is known and no failed probe
@@ -72,7 +72,7 @@ public final class VersionGate {
 
     /**
      * An admitted call (data-model.md → Admission): the warnings for the call's result, and the
-     * version notes of the node's version (feature 011, FR-010: what the version lacks next to the
+     * version notes of the node's version (feature 012, FR-010: what the version lacks next to the
      * admitted capability, e.g. "logs of INUBIT 6.1 cannot be read with query_logs; read them in
      * the Workbench"), which the caller adds to its result.
      */
@@ -222,7 +222,7 @@ public final class VersionGate {
      * The channels through which {@code capability} reaches {@code node}, decided on the pin
      * before any contact like {@link #monitoringAccess}: the matrix entry's channels of the
      * pinned version (StartCLI for process diagnosis on 6.1), else the capability's own. Callers
-     * size their deadlines by it (feature 011, research D-10). Never detects, never probes and
+     * size their deadlines by it (feature 012, research D-10). Never detects, never probes and
      * never refuses; the admission still decides.
      */
     public Set<Channel> channels(NodeId node, Capability capability) {
@@ -403,7 +403,7 @@ public final class VersionGate {
             + " run, but their results may be unreliable";
     }
 
-    /** On a pin of a CLI-only version the message carries the next step (feature 011, FR-006). */
+    /** On a pin of a CLI-only version the message carries the next step (feature 012, FR-006). */
     private Refusal refuseContradiction(NodeId node, Capability capability,
         NodeVersionState state) {
         Timed<InubitVersion> observed = state.observed().orElseThrow();
@@ -421,7 +421,7 @@ public final class VersionGate {
 
     /**
      * On a CLI-only version the message names the configured line and ends with the next step of
-     * the capability (feature 011, FR-007), e.g. "INUBIT 6.1 (versionLine V6_1) on old/node1 does
+     * the capability (feature 012, FR-007), e.g. "INUBIT 6.1 (versionLine V6_1) on old/node1 does
      * not support log diagnosis; read the logs of INUBIT 6.1 in the Workbench".
      *
      * @param version the version {@code name} was built from
@@ -479,7 +479,7 @@ public final class VersionGate {
     }
 
     /**
-     * The version notes of an admission (feature 011, FR-010): process diagnosis on a CLI-only
+     * The version notes of an admission (feature 012, FR-010): process diagnosis on a CLI-only
      * version that does not support log diagnosis notes where its logs can be read.
      */
     private List<String> notes(Capability capability, Optional<InubitVersion> version) {
@@ -527,7 +527,7 @@ public final class VersionGate {
     /**
      * "the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T08:00:00Z)"; after a
      * detection answered with HTTP 404 followed by "; if dev/node1 runs INUBIT 6.1, pin V6_1"
-     * (feature 011 FR-003).
+     * (feature 012 FR-003).
      */
     static String unknown(NodeId node, NodeVersionState state) {
         Optional<Timed<DetectionFailure>> failure = state.detectionFailure();

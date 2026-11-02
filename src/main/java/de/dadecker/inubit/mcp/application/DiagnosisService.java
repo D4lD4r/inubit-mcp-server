@@ -62,7 +62,7 @@ import java.util.regex.Pattern;
  *       asks the {@link VersionGate} for its capability ({@code READ}, {@code {REST}}), which
  *       detects the version of an {@code AUTO} node on first use; its warnings go into that
  *       server's {@link NodePage}, a refusal ({@code UNSUPPORTED_VERSION}) becomes that server's
- *       {@code error} and leaves the other servers' results untouched. Feature 011: so does an
+ *       {@code error} and leaves the other servers' results untouched. Feature 012: so does an
  *       {@code UNSUPPORTED_VERSION} of the process port's own input check (e.g. {@code tag} on
  *       6.1), before the gate is asked; the admission's version notes follow its warnings.
  *   <li>{@code timeInState} and {@code hanging} are computed here for every instance with the
@@ -150,7 +150,7 @@ public final class DiagnosisService {
 
     /**
      * @param timeouts          the REST timeout of each server
-     * @param cliTimeouts       feature 011: the StartCLI timeout of each server
+     * @param cliTimeouts       feature 012: the StartCLI timeout of each server
      * @param hangingThresholds the configured hanging threshold of each server ({@code null}:
      *                          {@link #DEFAULT_HANGING_THRESHOLD})
      * @param clock             "now" for durations, {@code timeInState} and {@code hanging}
@@ -267,9 +267,9 @@ public final class DiagnosisService {
 
     /**
      * The version gate's warnings for a diagnosis read on {@code server}, followed by the version
-     * notes of its admission (feature 011, FR-010: on 6.1 where the logs can be read):
+     * notes of its admission (feature 012, FR-010: on 6.1 where the logs can be read):
      * {@code PROCESS_DIAGNOSIS} for {@code find_processes}, {@code LOG_DIAGNOSIS} for
-     * {@code query_logs} (feature 011, FR-004). The call names REST; on a CLI-only version the
+     * {@code query_logs} (feature 012, FR-004). The call names REST; on a CLI-only version the
      * gate judges the channels of its matrix entry instead.
      */
     private List<String> admit(String tool, Capability capability, NodeId server) {

@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
 
-/** Feature 011 (T003, FR-002, research D-1): the effective version of a 6.1 setting. */
+/** Feature 012 (T003, FR-002, research D-1): the effective version of a 6.1 setting. */
 class NodeVersionStateTest {
 
     @Test

@@ -13,7 +13,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * T002 (feature 011, research D-15): {@code FakeProcessLauncher} and
+ * T002 (feature 012, research D-15): {@code FakeProcessLauncher} and
  * {@code ScriptedProcessLauncher} replay a case from the fixture folder of the given version
  * ({@code v8_1} by default, {@code v6_1}).
  */

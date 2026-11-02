@@ -61,7 +61,7 @@ class VersionGateTest {
     private static final NodeId AUTO = NodeId.parse("dev/node1");
     private static final NodeId PINNED = NodeId.parse("prod/node1");
     private static final NodeId V9_X = NodeId.parse("prod/node3");
-    /** Feature 011: a node on the 6.1 line and one pinned to a concrete 6.1 version. */
+    /** Feature 012: a node on the 6.1 line and one pinned to a concrete 6.1 version. */
     private static final NodeId V6_1 = NodeId.parse("old/node1");
     private static final NodeId V6_1_PINNED = NodeId.parse("old/node2");
     private static final Instant T0 = Instant.parse("2026-10-18T08:00:00Z");
@@ -156,7 +156,7 @@ class VersionGateTest {
     }
 
     /**
-     * Feature 011 (research D-3): the 6.1 entry of production with process diagnosis and
+     * Feature 012 (research D-3): the 6.1 entry of production with process diagnosis and
      * monitoring {@code SUPPORTED} (channel CLI) and inventory {@code UNVERIFIED}; every
      * capability is supported on 8.1 and on unknown versions, so only the 6.1 rules refuse.
      */
@@ -191,7 +191,7 @@ class VersionGateTest {
         Admission processes = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
         Admission logs = gate().admit(AUTO, Capability.LOG_DIAGNOSIS, Kind.READ, REST);
 
-        // feature 011 (FR-004): the former "diagnosis" is named per tool
+        // feature 012 (FR-004): the former "diagnosis" is named per tool
         assertThat(processes.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not"
             + " verified for process diagnosis; results may be incomplete");
         assertThat(logs.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not verified"
@@ -252,7 +252,7 @@ class VersionGateTest {
             .isEqualTo(1);
     }
 
-    /** Feature 011 T011 (FR-003): the 6.1 hint follows only a detection answered with 404. */
+    /** Feature 012 T011 (FR-003): the 6.1 hint follows only a detection answered with 404. */
     @Test
     void theUnknownVersionHintsAtV61OnlyAfterADetectionAnsweredWith404() {
         detection.failEndpointMissing(detectionError(ErrorCode.UNEXPECTED_RESPONSE));
@@ -592,7 +592,7 @@ class VersionGateTest {
         assertThat(versions.state(PINNED).clientFailure()).as("no back-off").isEmpty();
     }
 
-    // --- feature 011, T006: CLI-only versions (FR-005 to FR-007, FR-013, FR-019) -----------
+    // --- feature 012, T006: CLI-only versions (FR-005 to FR-007, FR-013, FR-019) -----------
 
     @Test
     void theProductionMatrixRefusesEveryCapabilityOf61BeforeAnyDetectionOrProbe() {
@@ -700,7 +700,7 @@ class VersionGateTest {
         assertThat(appender.list).hasSize(Capability.values().length - 1);
     }
 
-    // --- feature 011, T007: monitoring access before contact (FR-001, research D-11) --------
+    // --- feature 012, T007: monitoring access before contact (FR-001, research D-11) --------
 
     @Test
     void monitoringAccessIsRestForEveryNodeNotPinnedToACliOnlyVersion() {
@@ -754,7 +754,7 @@ class VersionGateTest {
                 .contains("MONITORING", "REFUSED", "UNSUPPORTED_VERSION", "INUBIT 6.1"));
     }
 
-    // --- feature 011, T033: the channels of a capability before contact (research D-10) ------
+    // --- feature 012, T033: the channels of a capability before contact (research D-10) ------
 
     @Test
     void theChannelsOfACapabilityAreDecidedOnThePinWithoutContact() {
@@ -779,7 +779,7 @@ class VersionGateTest {
         assertThat(appender.list).isEmpty();
     }
 
-    // --- feature 011, T008: refusal texts, next steps and version notes (FR-007) -------------
+    // --- feature 012, T008: refusal texts, next steps and version notes (FR-007) -------------
 
     @Test
     void a61RefusalNamesTheVersionLineTheCapabilityAndItsNextStep() {

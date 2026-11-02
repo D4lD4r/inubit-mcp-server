@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * T017 (feature 011, research D-8, FR-012a): the local {@code startcli.sh -h} probe and the Java
+ * T017 (feature 012, research D-8, FR-012a): the local {@code startcli.sh -h} probe and the Java
  * version of the client runtime, for {@code cliOnly} nodes only, with the per-node cache.
  */
 @Timeout(30)

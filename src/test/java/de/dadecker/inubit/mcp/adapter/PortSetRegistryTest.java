@@ -33,7 +33,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
- * Feature 011 T025: the 6.1 registration (research D-4). The registry is built as {@code Wiring}
+ * Feature 012 T025: the 6.1 registration (research D-4). The registry is built as {@code Wiring}
  * builds it: the 8.1 port set as default, the 6.1 port set and its StartCLI health port for
  * {@link V61PortSet#RANGE}, CLI-only.
  */

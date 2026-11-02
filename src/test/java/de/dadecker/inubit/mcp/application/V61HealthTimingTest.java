@@ -38,7 +38,7 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * T027 (feature 011, FR-009, research D-6): {@code get_health} for one 6.1 node returns within
+ * T027 (feature 012, FR-009, research D-6): {@code get_health} for one 6.1 node returns within
  * its budget, also when the StartCLI session hangs; the real {@code V61HealthAdapter} runs over
  * a fake StartCLI ({@link FakeV61Node}). The bound of a single CLI-only node is scaled from 15 s
  * to {@link #SINGLE} so that the test is quick; {@code HealthServiceTest} checks that the

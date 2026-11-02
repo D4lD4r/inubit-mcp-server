@@ -46,7 +46,7 @@ public record NodeVersionState(
 
     /**
      * A failed detection: its error code, and whether the detection request was answered with
-     * HTTP 404 ({@code endpointMissing}, as by a typical INUBIT 6.1 server; feature 011 FR-003).
+     * HTTP 404 ({@code endpointMissing}, as by a typical INUBIT 6.1 server; feature 012 FR-003).
      */
     public record DetectionFailure(ErrorCode code, boolean endpointMissing) {
         public DetectionFailure {

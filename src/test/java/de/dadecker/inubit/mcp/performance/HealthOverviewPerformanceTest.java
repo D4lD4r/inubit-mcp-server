@@ -48,7 +48,7 @@ import tools.jackson.databind.JsonNode;
  * endpoints of one server answer only after 30 s. {@code get_health} without {@code target}
  * must return within 10 s with nine healthy reports and one {@code TIMEOUT}.
  *
- * <p>Feature 011 (T027, FR-009): an eleventh node, pinned to INUBIT 6.1 and read through a fake
+ * <p>Feature 012 (T027, FR-009): an eleventh node, pinned to INUBIT 6.1 and read through a fake
  * StartCLI (monitoring supported for 6.1 by a test matrix), whose session hangs; it is reported
  * with {@code TIMEOUT} within the same 10 s, and its baseUrl (a WireMock server) gets no request.
  */
@@ -104,7 +104,7 @@ class HealthOverviewPerformanceTest {
             environment.put(prefix + "_USERNAME", "jdoe");
             environment.put(prefix + "_PASSWORD", "sc002-test-pw");
         }
-        // feature 011: a 6.1 node whose StartCLI session hangs
+        // feature 012: a 6.1 node whose StartCLI session hangs
         WireMockServer legacy = new WireMockServer(WireMockConfiguration.options().dynamicPort());
         legacy.start();
         servers.add(legacy);

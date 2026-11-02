@@ -99,7 +99,7 @@ public interface GatewayFactory {
 
     /**
      * The StartCLI health port of {@code server} if its effective version is reached through
-     * StartCLI only (feature 011, research D-4), else empty. Never detects and never contacts
+     * StartCLI only (feature 012, research D-4), else empty. Never detects and never contacts
      * the server. The default, for a factory without such versions, is empty.
      *
      * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException
@@ -111,7 +111,7 @@ public interface GatewayFactory {
     }
 
     /**
-     * How {@code server} is reached at its effective version (feature 011, research D-4); never
+     * How {@code server} is reached at its effective version (feature 012, research D-4); never
      * detects, never contacts the server and never waits for its credentials. The default, for a
      * factory without CLI-only versions, is {@link NodeAccess#REST_AND_CLI}.
      *

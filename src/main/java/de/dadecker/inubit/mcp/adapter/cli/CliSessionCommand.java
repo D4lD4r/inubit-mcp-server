@@ -3,7 +3,7 @@ package de.dadecker.inubit.mcp.adapter.cli;
 import java.util.Objects;
 
 /**
- * One line of an interactive StartCLI session on INUBIT 6.1 (feature 011, research D-5, D-10),
+ * One line of an interactive StartCLI session on INUBIT 6.1 (feature 012, research D-5, D-10),
  * from a fixed allowlist (Constitution I):
  *
  * <ul>

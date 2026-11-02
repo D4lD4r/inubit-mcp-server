@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 /**
- * T001 (feature 011, research D-15): the 6.1 fixture folder exists with its {@code README.md} and
+ * T001 (feature 012, research D-15): the 6.1 fixture folder exists with its {@code README.md} and
  * {@code RECONSTRUCTED.txt}, every line of {@code RECONSTRUCTED.txt} names a case and its
  * capability, and every case listed there has its three files.
  */

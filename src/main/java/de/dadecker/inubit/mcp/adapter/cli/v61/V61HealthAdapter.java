@@ -16,7 +16,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * The health port of an INUBIT 6.1 node (feature 011, research D-6): one StartCLI session with
+ * The health port of an INUBIT 6.1 node (feature 012, research D-6): one StartCLI session with
  * {@link V61HealthParser#COMMANDS} through {@link V61Connection}, read into a
  * {@link CliHealthSnapshot}. Readiness, threads and blocking queue are always missing
  * ({@link UnavailablePart#NOT_AVAILABLE_ON_6_1}).

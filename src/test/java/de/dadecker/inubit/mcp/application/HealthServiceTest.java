@@ -115,7 +115,7 @@ class HealthServiceTest {
     /** Feature 010: the bounds {@code prepareCredentials} was called with. */
     private final List<Duration> credentialBounds = java.util.Collections.synchronizedList(
         new ArrayList<>());
-    /** Feature 011: the StartCLI health port of each CLI-only node (none if absent). */
+    /** Feature 012: the StartCLI health port of each CLI-only node (none if absent). */
     private final Map<NodeId, CliHealthPort> cliPorts = new ConcurrentHashMap<>();
 
     private FakeMonitoring monitoring(NodeId server) {
@@ -612,7 +612,7 @@ class HealthServiceTest {
         assertThat(checkOne(DEV, false).warnings()).isEmpty();
     }
 
-    // --- feature 011, T007: monitoring access before contact (FR-001, research D-11) --------
+    // --- feature 012, T007: monitoring access before contact (FR-001, research D-11) --------
 
     @Test
     void a61NodeIsRefusedBeforeAnyContactWhileAutoAnd81NodesAreReadAsBefore() {
@@ -673,7 +673,7 @@ class HealthServiceTest {
         assertThat(credentialBounds).isEmpty();
     }
 
-    // --- feature 011, T027: get_health through StartCLI (FR-008, FR-009, research D-6) ------
+    // --- feature 012, T027: get_health through StartCLI (FR-008, FR-009, research D-6) ------
 
     /**
      * 6.1 reached through StartCLI only, with monitoring and process diagnosis supported (as

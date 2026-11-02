@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * T012 (feature 011, research D-12, US3-4): a read tool is announced only if some node may run
+ * T012 (feature 012, research D-12, US3-4): a read tool is announced only if some node may run
  * its capability; {@code list_nodes}, {@code get_health} and {@code check_artifacts} always.
  */
 class ToolAnnouncementTest {

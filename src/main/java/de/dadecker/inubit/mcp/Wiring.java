@@ -119,7 +119,7 @@ import java.util.stream.Collectors;
  * (US1: {@code list_nodes}, {@code get_health}; US2: {@code find_processes},
  * {@code query_logs}; US3: {@code list_inventory}, {@code get_inventory_item}; feature 003:
  * {@code export_artifacts}, only if a node has a CLI installation, and {@code check_artifacts}).
- * Feature 011 (research D-12): the read tools other than {@code list_nodes}, {@code get_health}
+ * Feature 012 (research D-12): the read tools other than {@code list_nodes}, {@code get_health}
  * and {@code check_artifacts} are announced only if some node may run their capability
  * ({@link #possiblyCapable}).
  * The write tools
@@ -143,7 +143,7 @@ import java.util.stream.Collectors;
 final class Wiring implements AutoCloseable {
 
     private final ProfileInfo profile;
-    /** Feature 011 (research D-12): the capability matrix, injectable for tests. */
+    /** Feature 012 (research D-12): the capability matrix, injectable for tests. */
     private final CapabilityMatrix matrix;
     private final SecretScrubber scrubber;
     private final List<EffectiveNodeConfig> servers;
@@ -459,7 +459,7 @@ final class Wiring implements AutoCloseable {
         List<ToolHandler> handlers = new ArrayList<>();
         handlers.add(new ListNodesTool(profile, overview::nodes));
         handlers.add(new GetHealthTool(health));
-        // feature 011 (research D-12): a read tool only if some node may run its capability
+        // feature 012 (research D-12): a read tool only if some node may run its capability
         if (anyPossiblyCapable(Capability.PROCESS_DIAGNOSIS)) {
             handlers.add(new FindProcessesTool(diagnosis));
         }

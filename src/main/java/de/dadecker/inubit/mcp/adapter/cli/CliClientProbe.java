@@ -22,7 +22,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Determines the {@link CliClientOptions} of a node's StartCLI client (feature 011, research D-8,
+ * Determines the {@link CliClientOptions} of a node's StartCLI client (feature 012, research D-8,
  * FR-012a), only for nodes pinned to a {@linkplain CapabilityMatrix#isCliOnly CLI-only} version:
  * {@code startcli.sh -h} without server, credentials or stdin, and the Java version from
  * {@code <runtime>/release} (runtime: {@code cli.javaHome}, else the server's {@code JAVA_HOME}).

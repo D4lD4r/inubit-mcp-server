@@ -38,7 +38,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Feature 011 (T009, SC-003, FR-007, US3): every tool on a node pinned to {@code V6_1}, through
+ * Feature 012 (T009, SC-003, FR-007, US3): every tool on a node pinned to {@code V6_1}, through
  * the production wiring and its production capability matrix, is refused with
  * {@code UNSUPPORTED_VERSION} before any contact. The 6.1 node {@code old/node2} has write,
  * development, deploy and end-to-end settings and a StartCLI installation, so that only the
