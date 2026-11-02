@@ -19,13 +19,15 @@ guide walks through it. All host names below are examples (`*.example.test`).
 | Maven 3.9+ (`mvn -v`) | only to build the JAR from source; a released JAR can be downloaded instead ([README](../README.md#installation-in-claude-code)) |
 | INUBIT 8.1.17 client installation (Workbench), e.g. `/opt/inubit/client` with `bin/startcli.sh` | CLI-backed tools only (process restart/kill, module list and version histories of the inventory, `export_artifacts`, every development tool except `run_e2e_test`, and `deploy_release`, which needs it on every node of a target group and of its source group); the INUBIT versions it declares must include the server's major.minor, and it should match the servers' patch level ([StartCLI client check](#startcli-client-check)) |
 | Temurin (or another) JDK **17** | StartCLI 8.1 runs on Java 17, not on the JDK of the server |
-| Only for INUBIT 6.1 nodes: a StartCLI client whose declared INUBIT range includes 6.1 (e.g. the INUBIT 6.1 client) and the Java runtime it runs on | 6.1 nodes are reached through StartCLI only ([INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)) |
+| Only for INUBIT 6.1 nodes: a StartCLI client whose declared INUBIT range includes 6.1 (e.g. the INUBIT 6.1 client) and the Java runtime it runs on | 6.1 nodes are reached through StartCLI only ([INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)); not on Windows, where StartCLI-backed tools are not supported |
 | An INUBIT account per group (or node) with rights to read logs, monitoring and models, plus "CLI login access" for CLI-backed tools, and rights to export, import and tag the owner's diagrams and modules where the development tools or deployments are used | REST and CLI access |
-| `openssl` and `keytool` (part of the JDK) | only for a self-signed server certificate (section 5) |
+| The credential store of the system: macOS Keychain and Windows Credential Manager are built in; on Linux `secret-tool` (package `libsecret-tools` on Debian/Ubuntu, `libsecret` on Fedora/Arch) and a running Secret Service (e.g. GNOME Keyring) in the desktop session | the INUBIT credentials (section 4); without a usable store (a container, a headless server) use AWS Parameter Store. Environment variables are not a credential source |
+| `keytool` (part of the JDK), on macOS and Linux also `openssl` | only for a self-signed server certificate (section 5) |
 | `git` 2.32 or newer on `PATH` (`git --version`) | only for the history of the artifact workspace (`export_artifacts`, `import_artifacts`, `restore_backup`, `set_active`, `deploy_release`; section 3); the history stays local |
 
 Without a client installation the REST-backed tools still work; CLI-backed parts report
-`CLI_UNAVAILABLE`. CLI-backed tools are not supported on Windows in this version.
+`CLI_UNAVAILABLE`. CLI-backed tools are not supported on Windows in this version: on Windows the
+server offers the REST-backed tools only.
 
 ## 2. Build
 
@@ -75,7 +77,13 @@ process serves exactly one profile; several customers mean several files and reg
 Create the directory once (owner-only, it will also hold trust stores):
 
 ```bash
+# macOS and Linux
 mkdir -p ~/.config/inubit-mcp && chmod 700 ~/.config/inubit-mcp
+```
+
+```powershell
+# Windows: %APPDATA% is already readable by you only
+New-Item -ItemType Directory -Force "$env:APPDATA\inubit-mcp" | Out-Null
 ```
 
 Save the profile as `~/.config/inubit-mcp/<name>.yaml`, named exactly like its `profile.name`
@@ -158,7 +166,9 @@ use REST tools only.
   node on first use. Write tools run only on a known, supported version (8.1); see
   [INUBIT version](#inubit-version-versionline). `V6_1` marks an INUBIT 6.1 node, which is
   reached through StartCLI only and never written to ([INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)).
-- Durations are ISO-8601 (`PT5S`, `PT10M`); `~` at the start of a path is your home directory.
+- Durations are ISO-8601 (`PT5S`, `PT10M`); `~` at the start of a path is your home directory
+  (on Windows `%USERPROFILE%`, so `~/.config/inubit-mcp/…` is not the profile directory there;
+  write such paths in full, e.g. `C:/Users/jdoe/AppData/Roaming/inubit-mcp/acme-truststore.p12`).
 - Other settings, each with a working default (details in the configuration contract):
 
   | Setting | Default | Meaning |
@@ -324,7 +334,8 @@ but the version detection is sent; see `UNSUPPORTED_VERSION` in [tools.md](tools
 A node runs as INUBIT 6.1 only when it is pinned to it: `versionLine: V6_1` or a concrete 6.1
 version such as `"6.1.0"` or `"6.1.0.89"` (feature 012). INUBIT 6.1 has none of the REST endpoints
 the server uses, so a 6.1 node is reached through **StartCLI only**: the server sends it no REST
-or SOAP request, also not for a version detection. It is never written to.
+or SOAP request, also not for a version detection. It is never written to. Because StartCLI-backed
+tools are not supported on Windows, a server running on Windows cannot serve 6.1 nodes.
 
 ```yaml
 groups:
@@ -901,11 +912,16 @@ security add-generic-password -U -s inubit-mcp -a INUBIT_ACME_DEV_PASSWORD -w
 security delete-generic-password -s inubit-mcp -a INUBIT_ACME_DEV_PASSWORD
 ```
 
-```bat
-:: Windows: create or change, /pass without a value prompts
+Windows (PowerShell or Command Prompt): create or change, `/pass` without a value prompts:
+
+```powershell
 cmdkey /generic:inubit-mcp:INUBIT_ACME_DEV_PASSWORD /user:INUBIT_ACME_DEV_PASSWORD /pass
 cmdkey /delete:inubit-mcp:INUBIT_ACME_DEV_PASSWORD
 ```
+
+Or in the Credential Manager (Control Panel → Credential Manager → Windows Credentials → "Add a
+generic credential"): internet or network address `inubit-mcp:INUBIT_ACME_DEV_PASSWORD`, any user
+name (it is ignored), the value as password.
 
 ```bash
 # Linux: create or change, the value is prompted
@@ -915,6 +931,15 @@ secret-tool clear service inubit-mcp account INUBIT_ACME_DEV_PASSWORD
 
 The server reads a value exactly as typed (the Windows tools store UTF-16, the others UTF-8; no
 line break is added or kept). A value that cannot be decoded is an invalid value.
+
+Do not keep credentials in environment variables, in a start script or in the MCP client's
+configuration: the server reads none of them (see the warning below and
+[migration-environment-variables.md](migration-environment-variables.md)).
+
+**Verification status (0.7.0).** The three readers are covered by the offline tests against
+simulated stores; the live check against the real stores ([live-tests.md](live-tests.md)) is
+still to be recorded, for Windows and Linux in particular. If a store behaves differently from
+this section, `--check-config` shows it per entry; please report it.
 
 **How the server reads the store.**
 
@@ -1205,7 +1230,8 @@ The server finds its AWS credentials like the AWS CLI and other AWS SDK tools on
   `AWS_SESSION_TOKEN`), a web identity token, the profile `AWS_PROFILE` (or `default`) of the
   shared files `~/.aws/config` and `~/.aws/credentials`, container credentials and the EC2
   instance role. Environment variables come from the MCP client; a
-  client started from the Dock does not see an `AWS_PROFILE` exported in `~/.zshrc`.
+  client started from the desktop does not see an `AWS_PROFILE` exported in `~/.zshrc`, so
+  prefer `awsProfile` in the profile.
 - **With `awsProfile: <name>`**: only that profile of the shared files, e.g. an IAM Identity
   Center (SSO) profile or a profile that assumes a role; `AWS_PROFILE` and the access-key
   variables are not consulted. A name that neither file defines is an error in
@@ -1231,12 +1257,25 @@ name and that has no subjectAltName), configure a dedicated trust store plus a c
      | openssl x509 -outform PEM > ~/.config/inubit-mcp/inubit-server.pem
    ```
 
+   Without `openssl` (e.g. on Windows) `keytool` of the JDK does the same; it prints the presented
+   chain, the server certificate first (keep only that block if there are several):
+
+   ```powershell
+   keytool -printcert -rfc -sslserver inubit01.dev.example.test:8443 |
+     Out-File -Encoding ascii "$env:APPDATA\inubit-mcp\inubit-server.pem"
+   ```
+
 2. Compare its SHA-256 fingerprint with the one the INUBIT operators publish, and note it
    (the `AA:BB:…` part after `=`; the pin accepts it with or without colons):
 
    ```bash
    openssl x509 -in ~/.config/inubit-mcp/inubit-server.pem -noout -fingerprint -sha256
    ```
+
+   With `keytool`: `keytool -printcert -file <file>` shows it as `SHA256:`.
+
+   The commands below use the macOS and Linux paths; on Windows use `%APPDATA%\inubit-mcp\…`
+   instead (in the profile as a full path, see section 3).
 
 3. Import it into a **password-less** PKCS12 trust store. StartCLI could only receive a trust-store
    password as a process argument, so CLI-enabled servers need a store without one:
@@ -1327,10 +1366,18 @@ x-cert-check:
   serverJar: ~/lib/inubit-mcp-server-0.6.3.jar
 ```
 
-Update `serverJar` together with the JAR the launcher runs, and `java` when the JDK changes.
-`--java` and `--server-jar` override both for a single run.
+Update `serverJar` together with the JAR the registration (or the start script below) runs, and
+`java` when the JDK changes. `--java` and `--server-jar` override both for a single run.
 
-**Install** (the tool needs only the system Python 3.9+, `/usr/bin/openssl` and the JDK above):
+**Systems.** The tool is built for **macOS** (all commands, including the start-up dialog). On
+**Linux** the commands without dialog (`--check`, `--accept`, `--prune`, `--forget`) need only
+Python, `openssl` and the JDK, but are not tested there; the dialog and notifications need macOS.
+It does not run on **Windows**: there, check a changed certificate by hand with steps 1 and 2 of
+this section, add it with step 3 (a new `-alias`), replace `pinnedCertificateSha256` and remove the
+old entry with `keytool -delete -alias <old alias> -keystore <trust store>` once the new one works.
+
+**Install** (macOS and Linux; the tool needs only Python 3.9+ at `/usr/bin/python3`, `openssl`
+and the JDK above):
 
 ```bash
 cp tools/inubit-cert-check.py ~/.local/bin/inubit-cert-check
@@ -1351,13 +1398,28 @@ for example a test copy; `--state-dir DIR` overrides `~/.inubit-mcp/acme`):
 Usage errors end with exit status 2, unexpected errors with 1. Fingerprints are accepted with or
 without colons, in any case.
 
-**Start-up check in the launcher.** Add one line to the launcher after the credentials are loaded
-and before `exec`. The MCP channel is the launcher's stdout, so the check must never write to it:
+**Start-up check (optional, macOS).** The server itself is registered without a start script
+(section 7). To check the certificates at every start, register a small start script instead,
+which runs the check and then starts the server. It holds **no credentials** (the server reads
+them from the credential store or Parameter Store as usual). The MCP channel is the script's
+stdout, so the check must never write to it:
 
 ```zsh
+#!/bin/zsh
+# ~/.local/bin/inubit-acme-mcp: starts the MCP server for acme; holds no credentials.
 # Certificate check: never blocks the start, never writes to stdout (stdout is the MCP channel).
 "$HOME/.local/bin/inubit-cert-check" --interactive --profile acme </dev/null >&2 || true
+exec "$(/usr/libexec/java_home -v 21)/bin/java" -jar "$HOME/.local/lib/inubit-mcp-server-<version>.jar" --profile acme
 ```
+
+```bash
+chmod 700 ~/.local/bin/inubit-acme-mcp
+claude mcp remove --scope user inubit-acme
+claude mcp add --scope user inubit-acme -- "$HOME/.local/bin/inubit-acme-mcp"
+```
+
+Without the start script (on Linux, or if you prefer the plain registration) run
+`inubit-cert-check --profile acme --check` when a tool reports `TLS_ERROR`.
 
 `--interactive` always ends with exit status 0 and never reads stdin. Without a change it delays the
 start by at most about 6 seconds. For a stage whose servers all present the same new certificate it
@@ -1598,15 +1660,30 @@ claude mcp add --scope user inubit-acme -- /absolute/path/to/java -jar \
   /absolute/path/to/target/inubit-mcp-server-<version>.jar --profile acme
 ```
 
-Use the absolute path of `java` (on macOS e.g. `$(/usr/libexec/java_home -v 21)/bin/java`, or
-`/opt/homebrew/opt/openjdk/bin/java`): a client started from the Dock, Finder or Start menu does
-not see your shell's `PATH`, and on macOS `/usr/bin/java` is only a stub without a registered JDK.
+Use the absolute path of a Java 21 `java`: a client started from the desktop (Dock, Finder,
+Start menu, an application launcher) does not see your shell's `PATH`.
 
-`--profile acme` reads `~/.config/inubit-mcp/acme.yaml`; `--config <path>` works for a file
-elsewhere. Without either, the server reads `~/.config/inubit-mcp/config.yaml`. Do not add
-`-e …` (see the warning in section 4): the server reads the credentials from the credential store
-or Parameter Store, not from the environment. With the absolute path of `java`, the registration
-works for a client started from a terminal or from the Dock; no start script is needed.
+| System | Absolute path of `java` |
+|---|---|
+| macOS | `$(/usr/libexec/java_home -v 21)/bin/java`, or `/opt/homebrew/opt/openjdk/bin/java`; `/usr/bin/java` is only a stub without a registered JDK |
+| Linux | `$(readlink -f "$(command -v java)")`, e.g. `/usr/lib/jvm/java-21-openjdk-amd64/bin/java` |
+| Windows | `(Get-Command java).Source` in PowerShell (`where java` in the Command Prompt), e.g. `C:\Program Files\Eclipse Adoptium\jdk-21…\bin\java.exe` |
+
+On Windows, in PowerShell:
+
+```powershell
+claude mcp add --scope user inubit-acme -- (Get-Command java).Source -jar "$env:LOCALAPPDATA\inubit-mcp\inubit-mcp-server-<version>.jar" --profile acme
+```
+
+`claude mcp get inubit-acme` shows the registered command and arguments; check that the path of
+`java` is absolute.
+
+`--profile acme` reads `~/.config/inubit-mcp/acme.yaml` (Windows: `%APPDATA%\inubit-mcp\acme.yaml`);
+`--config <path>` works for a file elsewhere. Without either, the server reads `config.yaml` in
+that directory. Do not add `-e …` (see the warning in section 4): the server reads the
+credentials from the credential store or Parameter Store, not from the environment. With the
+absolute path of `java`, the registration works for a client started from a terminal or from the
+desktop; no start script is needed (only for the optional certificate check on macOS, section 5).
 
 1. Create the credential store entries (section 4) and run `--check-config` once. For a profile
    whose nodes read Parameter Store, log in to AWS (e.g. `aws sso login --profile prod-account`,
@@ -1641,10 +1718,10 @@ configuration file and one MCP client registration per profile**, each with its 
 name. With the files in `~/.config/inubit-mcp/<name>.yaml`, `--profile` selects them:
 
 ```bash
-claude mcp add --scope user inubit-acme -- java -jar /absolute/path/to/inubit-mcp-server-<version>.jar \
-  --profile acme
-claude mcp add --scope user inubit-globex -- java -jar /absolute/path/to/inubit-mcp-server-<version>.jar \
-  --profile globex
+claude mcp add --scope user inubit-acme -- /absolute/path/to/java -jar \
+  /absolute/path/to/inubit-mcp-server-<version>.jar --profile acme
+claude mcp add --scope user inubit-globex -- /absolute/path/to/java -jar \
+  /absolute/path/to/inubit-mcp-server-<version>.jar --profile globex
 ```
 
 Both profiles may use the same group and node names (e.g. both have `test/node1`); nothing of one

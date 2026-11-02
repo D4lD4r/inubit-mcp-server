@@ -134,7 +134,8 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
   of `check_artifacts` is still refused on 6.1 (`UNSUPPORTED_VERSION`); health and the process
   listing (`get_health`, `find_processes`) become available once they have been verified against
   recorded outputs of a real 6.1 node. Such nodes need a StartCLI client that supports INUBIT 6.1
-  and its Java runtime ([INUBIT 6.1 nodes](docs/setup.md#inubit-61-nodes-v6_1)).
+  and its Java runtime ([INUBIT 6.1 nodes](docs/setup.md#inubit-61-nodes-v6_1)); like every
+  StartCLI-backed part, not on Windows.
 - Only for the CLI-based parts (`restart_process`, `kill_process`, the module list and version
   histories of the inventory tools, and every tool that exports, imports or tags artifacts —
   `export_artifacts`, the development tools and `deploy_release`, which needs it for the nodes of
@@ -142,13 +143,15 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
   StartCLI (`bin/startcli.sh`) matching the servers' patch level, a Java 17 runtime for StartCLI,
   and "CLI login access" for the account. The INUBIT client is **not included** in this project.
   Without it, the REST-based tools work and CLI-based parts report `CLI_UNAVAILABLE`. CLI-based
-  tools are not supported on Windows in this version.
+  tools are not supported on Windows in this version: on Windows the server offers the REST-based
+  tools only.
 - Only for the artifact workspace (`export_artifacts`, the development tools and
   `deploy_release`): **git 2.32** or newer on `PATH`.
 - For the credentials: the credential store of the system — the macOS Keychain and the Windows
   Credential Manager are built in; on Linux `secret-tool` (package `libsecret-tools` or
   `libsecret`) and a running Secret Service (e.g. GNOME Keyring) in the desktop session.
-  Otherwise, AWS Parameter Store ([details](docs/setup.md#4-credentials-sources)).
+  Otherwise, AWS Parameter Store ([details](docs/setup.md#4-credentials-sources)). Environment
+  variables are not a credential source.
 
 ## Installation in Claude Code
 
@@ -156,7 +159,9 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
    the [latest release](https://github.com/D4lD4r/inubit-mcp-server/releases/latest).
 
 2. **Verify** the checksum (both files in the same directory) and place the JAR, for example in
-   `~/.local/lib`:
+   `~/.local/lib` (Windows: `%LOCALAPPDATA%\inubit-mcp`).
+
+   macOS and Linux:
 
    ```bash
    VERSION=<version>   # 0.7.0 or later reads the credential store; earlier releases read variables
@@ -164,19 +169,34 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
    mkdir -p ~/.local/lib && mv "inubit-mcp-server-$VERSION.jar" ~/.local/lib/
    ```
 
+   Windows (PowerShell; the comparison must print `True`):
+
+   ```powershell
+   $VERSION = '<version>'
+   (Get-FileHash "inubit-mcp-server-$VERSION.jar" -Algorithm SHA256).Hash -eq (Get-Content "inubit-mcp-server-$VERSION.jar.sha256").Split(' ')[0]
+   New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\inubit-mcp" | Out-Null
+   Move-Item "inubit-mcp-server-$VERSION.jar" "$env:LOCALAPPDATA\inubit-mcp\"
+   ```
+
    Release JARs also carry a build provenance attestation, which the GitHub CLI can check:
-   `gh attestation verify ~/.local/lib/inubit-mcp-server-$VERSION.jar --repo D4lD4r/inubit-mcp-server`.
+   `gh attestation verify <path to the JAR> --repo D4lD4r/inubit-mcp-server`.
 
 3. **Create the profile** `~/.config/inubit-mcp/<profile>.yaml` (Windows:
    `%APPDATA%\inubit-mcp\<profile>.yaml`). Minimal read-only example for a profile `acme` with one
    non-production node:
 
    ```bash
+   # macOS and Linux: the directory is readable by you only
    mkdir -p ~/.config/inubit-mcp && chmod 700 ~/.config/inubit-mcp
    ```
 
+   ```powershell
+   # Windows: %APPDATA% is already readable by you only
+   New-Item -ItemType Directory -Force "$env:APPDATA\inubit-mcp" | Out-Null
+   ```
+
    ```yaml
-   # ~/.config/inubit-mcp/acme.yaml
+   # acme.yaml in that directory
    profile:
      name: acme
 
@@ -193,19 +213,34 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
 
 4. **Store the credentials** in the credential store of your system: one entry per value, service
    `inubit-mcp`, account `INUBIT_<PROFILE>_<GROUP>[_<NODE>]_USERNAME` / `_PASSWORD`
-   ([details](docs/setup.md#4-credentials-credential-store)). The commands prompt for the value:
+   ([details](docs/setup.md#4-credentials-credential-store)). The commands prompt for the value,
+   so it never appears on a command line or in the shell history.
+
+   macOS (Keychain):
 
    ```bash
-   # macOS (Keychain)
    security add-generic-password -U -s inubit-mcp -a INUBIT_ACME_DEV_USERNAME -w
    security add-generic-password -U -s inubit-mcp -a INUBIT_ACME_DEV_PASSWORD -w
    ```
 
-   On Windows use `cmdkey /generic:inubit-mcp:<ACCOUNT> /user:<ACCOUNT> /pass`, on Linux
-   `secret-tool store --label='inubit-mcp <ACCOUNT>' service inubit-mcp account <ACCOUNT>`.
-   Do not pass credentials with `claude mcp add -e …`: that stores them in plain text in the client
-   configuration, and the server does not read environment variables (since 0.7.0; upgrading:
-   [migration-environment-variables.md](docs/migration-environment-variables.md)).
+   Windows (Credential Manager; PowerShell or Command Prompt, the target name is
+   `inubit-mcp:<ACCOUNT>`):
+
+   ```powershell
+   cmdkey /generic:inubit-mcp:INUBIT_ACME_DEV_USERNAME /user:INUBIT_ACME_DEV_USERNAME /pass
+   cmdkey /generic:inubit-mcp:INUBIT_ACME_DEV_PASSWORD /user:INUBIT_ACME_DEV_PASSWORD /pass
+   ```
+
+   Linux (Secret Service, needs `secret-tool`):
+
+   ```bash
+   secret-tool store --label='inubit-mcp INUBIT_ACME_DEV_USERNAME' service inubit-mcp account INUBIT_ACME_DEV_USERNAME
+   secret-tool store --label='inubit-mcp INUBIT_ACME_DEV_PASSWORD' service inubit-mcp account INUBIT_ACME_DEV_PASSWORD
+   ```
+
+   Do not put credentials into environment variables, a start script or
+   `claude mcp add -e …` (which stores them in plain text in the client configuration): since
+   0.7.0 the server does not read them ([migration-environment-variables.md](docs/migration-environment-variables.md)).
 
    Instead, a profile, group or node can read its credentials from AWS Systems Manager Parameter
    Store (`credentials.source`, [details](docs/setup.md#aws-systems-manager-parameter-store)); it
@@ -218,17 +253,40 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
    java -jar ~/.local/lib/inubit-mcp-server-$VERSION.jar --profile acme --check-config
    ```
 
-6. **Register** the server with Claude Code (once per profile), with the absolute path of `java`:
-   a client started from the Dock, Finder or Start menu does not see your shell's `PATH` (on macOS
-   e.g. `$(/usr/libexec/java_home -v 21)/bin/java`):
+   ```powershell
+   java -jar "$env:LOCALAPPDATA\inubit-mcp\inubit-mcp-server-$VERSION.jar" --profile acme --check-config
+   ```
+
+6. **Register** the server with Claude Code (once per profile), with the **absolute path** of a
+   Java 21 `java`: a client started from the desktop (Dock, Finder, Start menu, an application
+   launcher) does not see your shell's `PATH`.
+
+   macOS:
 
    ```bash
    claude mcp add --scope user inubit-acme -- \
      "$(/usr/libexec/java_home -v 21)/bin/java" -jar "$HOME/.local/lib/inubit-mcp-server-$VERSION.jar" --profile acme
    ```
 
-   No environment variable and no start script are needed, so the same command works for a client
-   started from a terminal or from the Dock.
+   Linux (with a Java 21 `java` on `PATH`; `readlink -f` resolves it to its real path, e.g.
+   `/usr/lib/jvm/java-21-openjdk-amd64/bin/java`):
+
+   ```bash
+   claude mcp add --scope user inubit-acme -- \
+     "$(readlink -f "$(command -v java)")" -jar "$HOME/.local/lib/inubit-mcp-server-$VERSION.jar" --profile acme
+   ```
+
+   Windows (PowerShell; `(Get-Command java).Source` shows the path of the `java.exe` on `PATH`,
+   e.g. `C:\Program Files\Eclipse Adoptium\jdk-21…\bin\java.exe`):
+
+   ```powershell
+   claude mcp add --scope user inubit-acme -- (Get-Command java).Source -jar "$env:LOCALAPPDATA\inubit-mcp\inubit-mcp-server-$VERSION.jar" --profile acme
+   ```
+
+   No environment variable and no start script are needed, so the same registration works for a
+   client started from a terminal or from the desktop. (The optional start-up check for changed
+   server certificates on macOS uses a small start script without credentials, see
+   [docs/setup.md](docs/setup.md#certificate-changes).)
 
 7. **Start Claude Code** (for Parameter Store log in to AWS first, see
    [AWS credentials](docs/setup.md#aws-credentials-and-aws-profiles)). `/mcp` shows
