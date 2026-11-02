@@ -404,7 +404,7 @@ tasks with new tasks for the direct-option alternative before T037.
   `get_health` 6.1 example, `find_processes` 6.1 notes, announcement, `check_artifacts`),
   `README.md` (supported versions: 8.1; 6.1 read-only via StartCLI). Documentation-only; the docs
   reference tests (`DevelopmentToolsReferenceTest`, `DeploymentReferenceTest`) stay green.
-- [ ] T042 [P] `CHANGELOG.md` `[Unreleased]`: feature 012 with the deliberate changes of SC-005
+- [X] T042 [P] `CHANGELOG.md` `[Unreleased]`: feature 012 with the deliberate changes of SC-005
   (capability names in `list_nodes`/`--check-config`; the 404 hint; read tools not announced when
   no node can run them).
 - [ ] T043 Quickstart validation: run the offline table of quickstart.md, record the results in
