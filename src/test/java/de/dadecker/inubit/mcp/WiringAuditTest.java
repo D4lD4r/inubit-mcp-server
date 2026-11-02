@@ -15,7 +15,6 @@ import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.application.ImportHarness;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
@@ -23,6 +22,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -49,8 +49,9 @@ import tools.jackson.databind.json.JsonMapper;
  * and in the check-in comment of an import, through the production wiring. An AWS node's records
  * carry the username fetched from Parameter Store, also when the fetch happens during the audited
  * call; a record written before any fetch carries {@code (Parameter Store <username parameter>)};
- * an environment node carries its startup username. INUBIT is an HTTPS WireMock (REST) plus the
- * scripted StartCLI and fake server of {@link ImportHarness}.
+ * feature 011 (research R-17): a credential store node carries {@code (credential store <node
+ * entry> or <group entry>)} until it is read, then the read username. INUBIT is an HTTPS WireMock
+ * (REST) plus the scripted StartCLI and fake server of {@link ImportHarness}.
  */
 @Timeout(120)
 class WiringAuditTest {
@@ -143,9 +144,7 @@ class WiringAuditTest {
         Map<String, String> environment = new HashMap<>(variables);
         // the workspace history runs the system git
         environment.put("PATH", System.getenv().getOrDefault("PATH", "/usr/bin"));
-        wiring = new Wiring(config, new CredentialResolver(environment, scrubber,
-                config.terminology().effectiveOrDefault(), config.credentialPrefix(),
-                config.secretPlans()).resolve(config.nodeIds()), scrubber,
+        wiring = new Wiring(config, TestSecrets.store(environment), scrubber,
             new ClockProvider(clock), Files::exists, false, startCli(), environment,
             () -> store);
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
@@ -291,7 +290,8 @@ class WiringAuditTest {
     }
 
     @Test
-    void anEnvironmentNodeCarriesItsStartupUsername() throws IOException {
+    void aCredentialStoreNodeCarriesItsEntryNameUntilReadThenTheUsername() throws IOException {
+        // feature 011 (research R-17): before the first read the audit names the entries
         startEnvironmentServer();
 
         JsonNode refused = call("restart_process", Map.of("node", "dev/node2",
@@ -301,8 +301,9 @@ class WiringAuditTest {
         assertExecuted(importGroup());
 
         assertThat(store.calls()).isZero();
-        assertThat(accounts(audit("restart_process"))).containsExactly(ENV_USER, ENV_USER,
-            ENV_USER);
+        assertThat(accounts(audit("restart_process"))).containsExactly(
+            "(credential store INUBIT_ACME_DEV_NODE2_USERNAME or INUBIT_ACME_DEV_USERNAME)",
+            ENV_USER, ENV_USER);
         assertThat(accounts(audit("import_artifacts"))).containsOnly(ENV_USER);
         assertThat(importedWorkflows()).contains("Deploying User: " + ENV_USER + "@@@");
     }

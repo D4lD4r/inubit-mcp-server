@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.cli;
 
-import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -64,7 +64,7 @@ class CliExportRunnerTest {
 
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-01T08:00:00Z"));
     private final CredentialGuard guard =
-        new CredentialGuard(environmentLabels("INUBIT", DEV), clock);
+        new CredentialGuard(storeLabels("INUBIT", DEV), clock);
     /** What the fake StartCLI saw at launch: the export directory and its permissions. */
     private final List<Set<PosixFilePermission>> launchPermissions = new CopyOnWriteArrayList<>();
 

@@ -75,7 +75,8 @@ class V61HealthTimingTest {
         HealthService service = new HealthService(gateways, new TargetResolver(List.of(LEGACY)),
             new FanOut(), id -> Duration.ofSeconds(5), clock,
             gateWithoutClients(versions, gateways, WITH_61), versions,
-            (id, timeout) -> CLIENT_610, id -> true, SINGLE, Duration.ofSeconds(1));
+            (id, timeout) -> CLIENT_610, id -> true, id -> Optional.empty(), SINGLE,
+            Duration.ofSeconds(1));
         List<HealthReport> reports = service.check(Optional.of(LEGACY.value()), false);
         assertThat(reports).hasSize(1);
         return reports.get(0);

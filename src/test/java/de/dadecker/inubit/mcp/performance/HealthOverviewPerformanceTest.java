@@ -13,8 +13,7 @@ import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
-import de.dadecker.inubit.mcp.config.CredentialResolution;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
@@ -23,6 +22,7 @@ import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -130,19 +130,16 @@ class HealthOverviewPerformanceTest {
             default -> session.launch(spec);
         };
         Path file = Files.writeString(home.resolve("config.yaml"), yaml);
-        LoadedConfig loaded = new ConfigLoader(environment, home, false).loadFile(file);
+        LoadedConfig loaded = new ConfigLoader(Map.of(), home, false).loadFile(file);
         SecretScrubber scrubber = new SecretScrubber();
-        CredentialResolution credentials = new CredentialResolver(environment, scrubber,
-            loaded.config().credentialPrefix())
-            .resolve(loaded.config().nodeIds());
-        assertThat(ConfigValidator.forSystem().validate(loaded, credentials).errors())
+        assertThat(ConfigValidator.forSystem().validate(loaded).errors())
             .isEmpty();
         assertThat(loaded.config().effectiveNodes()).hasSize(11)
             .allSatisfy(server -> assertThat(server.timeout()).as("default timeout")
                 .isEqualTo(Duration.ofSeconds(5)));
 
-        try (TestWiring wiring = TestWiring.of(loaded.config(), credentials, scrubber,
-                Files::exists, false, launcher, Map.of("PATH", "/usr/bin"), WITH_61);
+        try (TestWiring wiring = TestWiring.of(loaded.config(), TestSecrets.store(environment),
+                scrubber, Files::exists, false, launcher, Map.of("PATH", "/usr/bin"), WITH_61);
             McpTestClient client = McpTestClient.start(wiring.toolHandlers(), scrubber)) {
             client.initialize();
 

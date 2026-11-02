@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.mcp.tools;
 
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyUrl;
@@ -22,8 +23,6 @@ import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
-import de.dadecker.inubit.mcp.config.CredentialResolution;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
@@ -349,18 +348,15 @@ class FindProcessesToolTest {
         LoadedConfig loaded = new ConfigLoader(environment, temp, false)
             .parse(yaml, temp.resolve("config.yaml"));
         SecretScrubber scrubber = new SecretScrubber();
-        CredentialResolution credentials = new CredentialResolver(environment, scrubber,
-            loaded.config().credentialPrefix()).resolve(loaded.config().nodeIds());
-        assertThat(ConfigValidator.forSystem().validate(loaded, credentials).errors())
-            .isEmpty();
+        assertThat(ConfigValidator.forSystem().validate(loaded).errors()).isEmpty();
         ProcessLauncher launcher = spec -> switch (spec.command().size() == 2
             ? spec.command().get(1) : "") {
             case "-h" -> help.launch(spec);
             case "-v" -> clientVersion.launch(spec);
             default -> session.launch(spec);
         };
-        wiring = TestWiring.of(loaded.config(), credentials, scrubber, Files::exists, false,
-            launcher, Map.of("PATH", "/usr/bin"), WITH_61);
+        wiring = TestWiring.of(loaded.config(), TestSecrets.store(environment), scrubber,
+            Files::exists, false, launcher, Map.of("PATH", "/usr/bin"), WITH_61);
         client61 = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client61.initialize();
     }
@@ -430,8 +426,7 @@ class FindProcessesToolTest {
             .isEqualTo("UNSUPPORTED_VERSION");
         assertThat(refused.path("error").path("node").asString()).isEqualTo(LEGACY_61);
         assertThat(refused.path("error").path("message").asString()).isEqualTo(
-            "find_processes: INUBIT 6.1 on legacy/node2 does not support the input tag;"
-                + " nothing was sent");
+            "find_processes: INUBIT 6.1 does not support the input tag; nothing was sent");
         assertThat(session.launchCount()).as("no StartCLI session").isZero();
         assertThat(help.launchCount()).as("no option probe").isZero();
         assertThat(clientVersion.launchCount()).as("no client probe").isZero();

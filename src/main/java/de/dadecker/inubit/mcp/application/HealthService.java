@@ -95,12 +95,12 @@ import org.slf4j.LoggerFactory;
  *       warning; a failed or timed-out probe is the part
  *       {@code client} in {@code unavailable} ({@code not yet detected (timeout)} or the cause).
  *       A node without a StartCLI installation reports the client as {@code not_available}.
- *   <li>Credentials (feature 010, research R-9): before any request the server's credentials
- *       are prepared within what is left of the budget. A first fetch from AWS Parameter Store
- *       that is still running then gives a failed report with {@code TIMEOUT} and sends nothing
- *       to the server (its client needs the secrets); the fetch continues for the next call. A
- *       failed fetch gives a failed report with its error.
- *   <li>StartCLI (feature 011, FR-008, FR-009, research D-6): a node with CLI access gets, after
+ *   <li>Credentials (feature 010, research R-9): before anything else the server's credentials
+ *       are prepared within what is left of the budget. A first read from AWS Parameter Store
+ *       or (feature 011) the credential store that is still running then gives a failed report
+ *       with {@code TIMEOUT} and sends nothing to the server (its client needs the secrets); the
+ *       read continues for the next call. A failed read gives a failed report with its error.
+ *   <li>StartCLI (feature 012, FR-008, FR-009, research D-6): a node with CLI access gets, after
  *       its credentials as above, one {@link CliHealthPort#snapshot} (the session's connection
  *       reads the client options and checks TLS first) in parallel with the client probe.
  *       {@code reachable} means StartCLI connected and logged in; {@code status} is {@code OK}
@@ -141,8 +141,17 @@ public final class HealthService {
     private final NodeVersions versions;
     private final ClientVersionPort clients;
     private final Predicate<NodeId> withClient;
+    private final Function<NodeId, Optional<String>> credentialStores;
     private final Duration singleCliBudget;
     private final Duration overviewBudget;
+
+    /** As below; every node reads its secrets from AWS Parameter Store (feature 010 texts). */
+    public HealthService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
+        Function<NodeId, Duration> timeouts, Clock clock, VersionGate gate,
+        NodeVersions versions, ClientVersionPort clients, Predicate<NodeId> withClient) {
+        this(gateways, targets, fanOut, timeouts, clock, gate, versions, clients, withClient,
+            server -> Optional.empty());
+    }
 
     /**
      * @param timeouts the REST timeout of each server
@@ -152,19 +161,24 @@ public final class HealthService {
      *                 and the client probe results
      * @param clients  the StartCLI client probe
      * @param withClient whether a node has a StartCLI installation (only those are probed)
+     * @param credentialStores the display name of the credential store a node reads its secrets
+     *                 from (feature 011, e.g. {@code macOS Keychain}); empty for AWS Parameter
+     *                 Store
      */
     public HealthService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
         Function<NodeId, Duration> timeouts, Clock clock, VersionGate gate,
-        NodeVersions versions, ClientVersionPort clients, Predicate<NodeId> withClient) {
+        NodeVersions versions, ClientVersionPort clients, Predicate<NodeId> withClient,
+        Function<NodeId, Optional<String>> credentialStores) {
         this(gateways, targets, fanOut, timeouts, clock, gate, versions, clients, withClient,
-            CLI_ONLY_SINGLE_NODE_BUDGET, OVERVIEW_BUDGET);
+            credentialStores, CLI_ONLY_SINGLE_NODE_BUDGET, OVERVIEW_BUDGET);
     }
 
     /** As above, with other budgets for CLI-only nodes (tests scale them down). */
     HealthService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
         Function<NodeId, Duration> timeouts, Clock clock, VersionGate gate,
         NodeVersions versions, ClientVersionPort clients, Predicate<NodeId> withClient,
-        Duration singleCliBudget, Duration overviewBudget) {
+        Function<NodeId, Optional<String>> credentialStores, Duration singleCliBudget,
+        Duration overviewBudget) {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.fanOut = Objects.requireNonNull(fanOut, "fanOut");
@@ -174,6 +188,7 @@ public final class HealthService {
         this.versions = Objects.requireNonNull(versions, "versions");
         this.clients = Objects.requireNonNull(clients, "clients");
         this.withClient = Objects.requireNonNull(withClient, "withClient");
+        this.credentialStores = Objects.requireNonNull(credentialStores, "credentialStores");
         this.singleCliBudget = Objects.requireNonNull(singleCliBudget, "singleCliBudget");
         this.overviewBudget = Objects.requireNonNull(overviewBudget, "overviewBudget");
     }
@@ -245,7 +260,9 @@ public final class HealthService {
                 return failed(server, credentials.error());
             }
             if (credentials.value() == CredentialState.PENDING) {
-                return failed(server, credentialsPending(server, timeout));
+                return failed(server, credentialStores.apply(server)
+                    .map(store -> credentialsReading(server, timeout, store))
+                    .orElseGet(() -> credentialsPending(server, timeout)));
             }
             // never waits for a version detection (Phase 3 review H1)
             Outcome<MonitoringPort> port = await(executor.submit(() ->
@@ -409,6 +426,21 @@ public final class HealthService {
                 + " takes longer than its health budget of " + Durations.human(timeout),
             "Call get_health again shortly; the fetch continues and the next call uses its"
                 + " result")
+            .withNode(server);
+    }
+
+    /**
+     * The TIMEOUT of a server whose credentials are still being read from its credential store
+     * (feature 011, research R-8), which may wait for an access dialog.
+     */
+    private static ToolError credentialsReading(NodeId server, Duration timeout, String store) {
+        return ToolError.of(ErrorCode.TIMEOUT, server + ": credentials not yet available (still"
+                + " reading from the " + store + "); call get_health again shortly",
+            "The first read of the credentials of " + server + " from the " + store
+                + " takes longer than its health budget of " + Durations.human(timeout)
+                + "; it may be waiting for an access dialog",
+            "Answer the access dialog if one is open, then call get_health again; the read"
+                + " continues and the next call uses its result")
             .withNode(server);
     }
 

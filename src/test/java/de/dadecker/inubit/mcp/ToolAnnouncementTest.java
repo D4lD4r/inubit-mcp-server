@@ -1,10 +1,10 @@
 package de.dadecker.inubit.mcp;
 
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
@@ -74,8 +74,7 @@ class ToolAnnouncementTest {
         ProcessLauncher failing = spec -> {
             throw new IOException("StartCLI must not be launched in this test");
         };
-        try (Wiring wiring = new Wiring(config, new CredentialResolver(Map.of(), scrubber,
-                config.credentialPrefix()).resolve(config.nodeIds()), scrubber,
+        try (Wiring wiring = new Wiring(config, TestSecrets.store(Map.of()), scrubber,
             ClockProvider.system(), path -> false, false, failing, Map.of(), () -> {
                 throw new AssertionError("no node reads from the Parameter Store");
             }, matrix)) {

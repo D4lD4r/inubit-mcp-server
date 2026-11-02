@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.cli.v61;
 
-import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
@@ -68,7 +68,7 @@ class V61HealthAdapterTest {
 
     private final MutableClock clock = new MutableClock(Instant.parse("2026-11-01T10:00:00Z"));
     private final CredentialGuard guard =
-        new CredentialGuard(environmentLabels("INUBIT", ID), clock);
+        new CredentialGuard(storeLabels("INUBIT", ID), clock);
 
     @BeforeEach
     void install() throws IOException {

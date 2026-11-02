@@ -10,9 +10,11 @@ import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61HealthAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61ProcessQueryAdapter;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
+import de.dadecker.inubit.mcp.adapter.rest.v81.V81QueryRules;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
+import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
@@ -22,6 +24,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
+import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.time.Clock;
 import java.util.List;
@@ -43,7 +46,7 @@ class PortSetRegistryTest {
         new CliConcurrencyLimiter(CapabilityMatrix.production());
 
     private final PortSetRegistry registry = PortSetRegistry.v81Default()
-        .register(V61PortSet.RANGE, V61PortSet.factory(PROBE, LIMITER),
+        .register(V61PortSet.RANGE, V61PortSet.factory(PROBE, LIMITER), V61QueryRules.INSTANCE,
             V61PortSet.cliHealth(PROBE, LIMITER));
 
     private static Optional<InubitVersion> effective(VersionSetting setting) {
@@ -82,7 +85,7 @@ class PortSetRegistryTest {
         PortSetRegistry.Factory factory = node -> {
             throw new AssertionError("not built");
         };
-        PortSetRegistry.Selection selection = registry.register(v79, factory)
+        PortSetRegistry.Selection selection = registry.register(v79, factory, V81QueryRules.INSTANCE)
             .select(InubitVersion.parse("7.9.3"));
 
         assertThat(selection.range()).contains(v79);
@@ -121,9 +124,10 @@ class PortSetRegistryTest {
         SecretScrubber scrubber = new SecretScrubber();
         EffectiveNodeConfig server = TestNodeConfig.node().versionLine(VersionSetting.V6_1)
             .build();
-        NodeCredentials credentials = new CredentialResolver(
-            Map.of("INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", "registry-test-pw"),
-            scrubber, "INUBIT").resolve(List.of(server.id())).credentials(server.id());
+        NodeCredentials credentials = new NodeCredentials(server.id(),
+            Optional.of(new SourcedValue<>("jdoe", "INUBIT_DEV_USERNAME")),
+            Optional.of(new SourcedValue<>(Secret.of("registry-test-pw"), "INUBIT_DEV_PASSWORD")),
+            Optional.empty(), Optional.empty());
         return new PortSetRegistry.NodeResources(server, credentials,
             new CredentialGuard(server.secretLabels(), Clock.systemUTC()), null, noStartCli(),
             scrubber);

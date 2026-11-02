@@ -63,9 +63,9 @@ final class Format001Detector {
             message.append("\n  - profile (missing): add a profile block at the top,"
                 + " profile: {name: <name>}, the name matching ").append(ProfileInfo.NAME_RULE);
         }
-        message.append("\nTo keep the credential variables of feature 001"
-                + " (INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD), add"
-                + " credentials.envPrefix: INUBIT; without it the variables start with"
+        message.append("\nTo keep the credential names of feature 001"
+                + " (INUBIT_<STAGE>[_<SERVER>]_USERNAME / _PASSWORD, now credential store"
+                + " entries), add credentials.prefix: INUBIT; without it the names start with"
                 + " INUBIT_<PROFILE>.")
             .append("\nAudit records of feature 001 stay in their directory (default ")
             .append(OLD_AUDIT_DIRECTORY).append("); new records go to"

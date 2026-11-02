@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
-import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -169,7 +169,7 @@ public final class ImportHarness {
     }
 
     public ImportService service() {
-        CredentialGuard guard = new CredentialGuard(environmentLabels("INUBIT", DEV),
+        CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", DEV),
             clock);
         CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
             new CliResources("acme"));
@@ -212,7 +212,7 @@ public final class ImportHarness {
      * {@link #service()} (feature 008: {@link RepositoryStep} tests).
      */
     public ArtifactPort artifacts() {
-        CredentialGuard guard = new CredentialGuard(environmentLabels("INUBIT", DEV),
+        CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", DEV),
             clock);
         CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
             new CliResources("acme"));

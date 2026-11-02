@@ -74,7 +74,7 @@ class Format001DetectorTest {
         String message = refusal(FORMAT_001);
 
         assertThat(message)
-            .contains("credentials.envPrefix: INUBIT")
+            .contains("credentials.prefix: INUBIT")
             .contains("INUBIT_<STAGE>[_<SERVER>]_")
             .contains("~/.inubit-mcp/audit")
             .contains("~/.inubit-mcp/<profile.name>/audit")
@@ -142,7 +142,7 @@ class Format001DetectorTest {
             """);
 
         assertThat(message).contains("profile", "missing", "profile: {name: <name>}",
-                "credentials.envPrefix: INUBIT", "docs/migration-001-to-002.md")
+                "credentials.prefix: INUBIT", "docs/migration-001-to-002.md")
             .doesNotContain("stages").doesNotContain("servers");
     }
 

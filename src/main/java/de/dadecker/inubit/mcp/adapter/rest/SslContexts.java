@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.rest;
 
-import de.dadecker.inubit.mcp.config.CredentialVariables;
+import de.dadecker.inubit.mcp.config.CredentialNames;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig.Tls;
 import de.dadecker.inubit.mcp.config.SecretLabels;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -61,7 +61,7 @@ public final class SslContexts {
      * (feature 010 research R-15).
      */
     static KeyStore loadTrustStore(Path path, Optional<Secret> password, SecretLabels labels) {
-        String source = labels.label(CredentialVariables.TRUSTSTORE_PASSWORD);
+        String source = labels.label(CredentialNames.TRUSTSTORE_PASSWORD);
         char[] chars = password.map(secret -> secret.reveal().toCharArray()).orElse(null);
         try (InputStream in = Files.newInputStream(path)) {
             KeyStore store = KeyStore.getInstance("PKCS12");

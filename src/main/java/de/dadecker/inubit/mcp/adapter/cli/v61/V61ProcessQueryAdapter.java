@@ -86,25 +86,19 @@ public final class V61ProcessQueryAdapter implements ProcessQueryPort {
     }
 
     /**
-     * Without contact: {@code INVALID_INPUT} (without node) for {@code offset + limit} above
-     * {@link CliSessionCommand#MAX_ROWS}, {@code UNSUPPORTED_VERSION} (with node) for {@code tag}.
+     * Without contact, the checks of {@link V61QueryRules}: {@code INVALID_INPUT} (without node)
+     * for {@code offset + limit} above {@link CliSessionCommand#MAX_ROWS},
+     * {@code UNSUPPORTED_VERSION} (with node) for {@code tag}.
      */
     @Override
     public void validate(ProcessQuery query) {
-        if ((long) query.offset() + query.limit() > CliSessionCommand.MAX_ROWS) {
-            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
-                "offset + limit must be at most " + CliSessionCommand.MAX_ROWS + ", got "
-                    + query.offset() + " + " + query.limit(),
-                "Paging deeper than " + CliSessionCommand.MAX_ROWS + " entries is not supported",
-                "Narrow the query with states, workflow or since/until instead of paging"
-                    + " further"));
-        }
-        if (query.tag().isPresent()) {
-            throw new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
-                "find_processes: INUBIT 6.1 on " + node + " does not support the input tag;"
-                    + " nothing was sent",
-                "The process listing of StartCLI 6.1 has no tag column",
-                "Omit tag for this node, or filter by workflow").withNode(node));
+        try {
+            V61QueryRules.INSTANCE.validate(query);
+        } catch (ToolErrorException e) {
+            if (e.error().code() == ErrorCode.UNSUPPORTED_VERSION) {
+                throw new ToolErrorException(e.error().withNode(node));
+            }
+            throw e;
         }
     }
 

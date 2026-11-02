@@ -15,14 +15,15 @@ import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
-import de.dadecker.inubit.mcp.config.CredentialResolution;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
+import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
+import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.ValidationReport;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -30,6 +31,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -155,18 +157,17 @@ class TwoProfilesTest {
         LoadedConfig loaded = loader.load(null, name);
         ProfileConfig config = loaded.config();
         SecretScrubber scrubber = new SecretScrubber();
-        CredentialResolution credentials = new CredentialResolver(environment, scrubber,
-            config.terminology().effectiveOrDefault(), config.credentialPrefix())
-            .resolve(config.nodeIds());
-        ValidationReport report = new ConfigValidator(Files::exists, environment, false,
+        // feature 011: the values are credential store entries, not environment variables
+        ValidationReport report = new ConfigValidator(Files::exists, Map.of(), false,
             Path.of(System.getProperty("java.io.tmpdir")), loader::otherProfiles)
-            .validate(loaded, credentials);
+            .validate(loaded);
         assertThat(report.errors()).as(name).isEmpty();
         assertThat(report.warnings()).as(name + ": nothing shared with the other profile")
             .isEmpty();
         List<Path> exportFiles = new CopyOnWriteArrayList<>();
         FakeProcessLauncher startCli = exportingStartCli(exportFiles);
-        TestWiring wiring = TestWiring.of(config, credentials, scrubber, Files::exists, false,
+        TestWiring wiring = TestWiring.of(config, TestSecrets.store(environment), scrubber,
+            Files::exists, false,
             startCli, Map.of("PATH", "/usr/bin"));
         closeables.add(wiring);
         McpTestClient client = McpTestClient.start(wiring.serverFactory("test"));
@@ -265,8 +266,8 @@ class TwoProfilesTest {
     }
 
     @Test
-    void oneSharedEnvironmentStillGivesEachProfileOnlyItsOwnVariables() throws IOException {
-        // a shell that exports both profiles' variables and the unprefixed 001 names
+    void oneSharedCredentialStoreStillGivesEachProfileOnlyItsOwnEntries() throws IOException {
+        // one credential store with both profiles' entries and the unprefixed 001 names
         Map<String, String> shared = Map.of(
             "INUBIT_ACME_TEST_USERNAME", "acme-user", "INUBIT_ACME_TEST_PASSWORD", "acme-pw-1",
             "INUBIT_GLOBEX_TEST_USERNAME", "globex-user",
@@ -278,13 +279,11 @@ class TwoProfilesTest {
 
         for (String name : List.of("acme", "globex")) {
             ProfileConfig config = loader.load(null, name).config();
-            CredentialResolution resolution = new CredentialResolver(shared,
-                new SecretScrubber(), config.credentialPrefix()).resolve(config.nodeIds());
+            NodeCredentials read = TestSecrets.credentialStore(config.effectiveNodes(), shared,
+                new SecretScrubber()).get(NODE).current(Duration.ofSeconds(5));
 
-            assertThat(resolution.errors()).as(name).isEmpty();
-            assertThat(resolution.credentials(NODE).username().orElseThrow().value())
-                .isEqualTo(name + "-user");
-            assertThat(resolution.credentials(NODE).password().orElseThrow().sourceVariable())
+            assertThat(read.username().orElseThrow().value()).isEqualTo(name + "-user");
+            assertThat(read.password().orElseThrow().sourceVariable())
                 .startsWith("INUBIT_" + name.toUpperCase() + "_TEST_");
         }
     }

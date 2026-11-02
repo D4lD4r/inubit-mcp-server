@@ -122,22 +122,8 @@ class HealthServiceTest {
         return monitorings.computeIfAbsent(server, s -> new FakeMonitoring());
     }
 
-    private HealthService service() {
-        return service(CapabilityMatrix.production());
-    }
-
-    private HealthService service(CapabilityMatrix matrix) {
-        return service(matrix, null, null);
-    }
-
-    /**
-     * @param singleCliBudget  the bound of a call for one CLI-only node; {@code null} for the
-     *                         production budgets of the public constructor
-     * @param overviewBudget   the bound of a call for several nodes
-     */
-    private HealthService service(CapabilityMatrix matrix, Duration singleCliBudget,
-        Duration overviewBudget) {
-        GatewayFactory gateways = new GatewayFactory() {
+    private GatewayFactory gatewaysForTest() {
+        return new GatewayFactory() {
             @Override
             public Gateway forServer(NodeId server) {
                 detections.incrementAndGet(); // a blocking detection: health must not wait for it
@@ -201,6 +187,24 @@ class HealthServiceTest {
                         List.of()), HealthServiceTest.this.monitoring(server)));
             }
         };
+    }
+
+    private HealthService service() {
+        return service(CapabilityMatrix.production());
+    }
+
+    private HealthService service(CapabilityMatrix matrix) {
+        return service(matrix, null, null);
+    }
+
+    /**
+     * @param singleCliBudget  the bound of a call for one CLI-only node; {@code null} for the
+     *                         production budgets of the public constructor
+     * @param overviewBudget   the bound of a call for several nodes
+     */
+    private HealthService service(CapabilityMatrix matrix, Duration singleCliBudget,
+        Duration overviewBudget) {
+        GatewayFactory gateways = gatewaysForTest();
         ClientVersionPort probe = (server, timeout) -> {
             probeTimeouts.add(timeout);
             return clients.getOrDefault(server, () -> CLIENT_8117).get();
@@ -212,7 +216,8 @@ class HealthServiceTest {
                 withClient::contains)
             : new HealthService(gateways, new TargetResolver(SERVERS), new FanOut(),
                 server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC), gate, versions, probe,
-                withClient::contains, singleCliBudget, overviewBudget);
+                withClient::contains, server -> Optional.empty(), singleCliBudget,
+                overviewBudget);
     }
 
     private HealthReport checkOne(NodeId server, boolean includeSystemInfo) {
@@ -1540,6 +1545,26 @@ class HealthServiceTest {
         assertThat(credentialBounds).as("each bound is what is left of the 1 s budget")
             .hasSize(3).allSatisfy(bound -> assertThat(bound)
                 .isLessThanOrEqualTo(TIMEOUT).isGreaterThan(TIMEOUT.minusMillis(500)));
+    }
+
+    @Test
+    void aPendingCredentialStoreReadNamesTheStoreAndTheAccessDialog() {
+        // feature 011 (T015, research R-8): the pending text names the node's credential store
+        credentials.put(QA1, HealthServiceTest::pendingAfter);
+        HealthService service = new HealthService(gatewaysForTest(), new TargetResolver(SERVERS),
+            new FanOut(), server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC),
+            gateWithoutClients(versions, gatewaysForTest(), CapabilityMatrix.production()),
+            versions, (server, timeout) -> CLIENT_8117, withClient::contains,
+            server -> server.equals(QA1) ? Optional.of("macOS Keychain") : Optional.empty());
+
+        HealthReport pending = service.check(Optional.of(QA1.value()), false).get(0);
+
+        assertThat(pending.error()).get().satisfies(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+            assertThat(error.message()).isEqualTo("qa/node1: credentials not yet available"
+                + " (still reading from the macOS Keychain); call get_health again shortly");
+            assertThat(error.likelyCause()).contains("macOS Keychain", "access dialog");
+        });
     }
 
     @Test

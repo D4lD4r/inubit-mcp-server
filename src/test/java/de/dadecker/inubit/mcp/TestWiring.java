@@ -1,7 +1,7 @@
 package de.dadecker.inubit.mcp;
 
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
-import de.dadecker.inubit.mcp.config.CredentialResolution;
+import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.ParameterStore;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * Test-visible access to the package-private composition root {@link Wiring}, so that tests in
@@ -27,14 +28,14 @@ public final class TestWiring implements AutoCloseable {
     }
 
     /** @param config a configuration that {@code ConfigValidator} reported no errors for */
-    public static TestWiring of(ProfileConfig config, CredentialResolution credentials,
+    public static TestWiring of(ProfileConfig config, CredentialStore credentials,
         SecretScrubber scrubber, Predicate<Path> exists, boolean windows) {
         return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
             exists, windows));
     }
 
     /** As above, with a fake StartCLI ({@code launcher}) and its parent environment. */
-    public static TestWiring of(ProfileConfig config, CredentialResolution credentials,
+    public static TestWiring of(ProfileConfig config, CredentialStore credentials,
         SecretScrubber scrubber, Predicate<Path> exists, boolean windows,
         ProcessLauncher launcher, Map<String, String> environment) {
         return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
@@ -42,15 +43,27 @@ public final class TestWiring implements AutoCloseable {
     }
 
     /** As above, with the Parameter Store of the AWS nodes. */
-    public static TestWiring of(ProfileConfig config, CredentialResolution credentials,
+    public static TestWiring of(ProfileConfig config, CredentialStore credentials,
         SecretScrubber scrubber, Predicate<Path> exists, boolean windows,
         ProcessLauncher launcher, Map<String, String> environment, ParameterStore store) {
         return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
             exists, windows, launcher, environment, () -> store));
     }
 
+    /**
+     * As above, with a supplier of the Parameter Store, called only if a node reads it (feature
+     * 011, research R-14: the live tests pass the real AWS client this way, as the server does).
+     */
+    public static TestWiring withParameterStoreSupplier(ProfileConfig config,
+        CredentialStore credentials, SecretScrubber scrubber, Predicate<Path> exists,
+        boolean windows, ProcessLauncher launcher, Map<String, String> environment,
+        Supplier<ParameterStore> parameterStore) {
+        return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
+            exists, windows, launcher, environment, parameterStore));
+    }
+
     /** As the launcher variant, with a capability matrix other than the production one. */
-    public static TestWiring of(ProfileConfig config, CredentialResolution credentials,
+    public static TestWiring of(ProfileConfig config, CredentialStore credentials,
         SecretScrubber scrubber, Predicate<Path> exists, boolean windows,
         ProcessLauncher launcher, Map<String, String> environment, CapabilityMatrix matrix) {
         return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),

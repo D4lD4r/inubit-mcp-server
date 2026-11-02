@@ -2,12 +2,14 @@ package de.dadecker.inubit.mcp.adapter;
 
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
+import de.dadecker.inubit.mcp.adapter.rest.v81.V81QueryRules;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeAccess;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
+import de.dadecker.inubit.mcp.domain.port.QueryRules;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,10 +55,11 @@ public final class PortSetRegistry {
     }
 
     /**
-     * The factories chosen for a version; {@code range} is empty for the default, {@code cliHealth}
-     * is present for a CLI-only range.
+     * The factories chosen for a version and its credential-free query checks (feature 011);
+     * {@code range} is empty for the default, {@code cliHealth} is present for a CLI-only range
+     * (feature 012).
      */
-    record Selection(Optional<VersionRange> range, Factory factory,
+    record Selection(Optional<VersionRange> range, Factory factory, QueryRules rules,
         Optional<CliHealthFactory> cliHealth) {
 
         NodeAccess access() {
@@ -64,20 +67,23 @@ public final class PortSetRegistry {
         }
     }
 
-    private record Entry(VersionRange range, Factory factory,
+    private record Entry(VersionRange range, Factory factory, QueryRules rules,
         Optional<CliHealthFactory> cliHealth) {
     }
 
     private final Factory defaultFactory;
+    private final QueryRules defaultRules;
     private final List<Entry> entries;
 
-    /** A registry without ranges: {@code defaultFactory} serves every version. */
+    /** A registry without ranges: {@code defaultFactory} serves every version, with 8.1 checks. */
     public PortSetRegistry(Factory defaultFactory) {
-        this(defaultFactory, List.of());
+        this(defaultFactory, V81QueryRules.INSTANCE, List.of());
     }
 
-    private PortSetRegistry(Factory defaultFactory, List<Entry> entries) {
+    private PortSetRegistry(Factory defaultFactory, QueryRules defaultRules,
+        List<Entry> entries) {
         this.defaultFactory = Objects.requireNonNull(defaultFactory, "defaultFactory");
+        this.defaultRules = Objects.requireNonNull(defaultRules, "defaultRules");
         this.entries = List.copyOf(entries);
     }
 
@@ -86,28 +92,32 @@ public final class PortSetRegistry {
         return new PortSetRegistry(V81PortSet::create);
     }
 
-    /** A copy of this registry in which {@code factory} serves the versions in {@code range}. */
-    public PortSetRegistry register(VersionRange range, Factory factory) {
-        return register(range, factory, Optional.empty());
+    /**
+     * A copy of this registry in which {@code factory} serves the versions in {@code range}, with
+     * the credential-free query checks {@code rules} of that port set (feature 011; explicit, so
+     * that a new port set never checks its queries with the rules of another version).
+     */
+    public PortSetRegistry register(VersionRange range, Factory factory, QueryRules rules) {
+        return register(range, factory, rules, Optional.empty());
     }
 
     /**
-     * A copy of this registry in which the versions in {@code range} are CLI-only: {@code factory}
-     * builds their port set and {@code cliHealth} their StartCLI health port, both without REST
-     * client.
+     * As above, with the versions in {@code range} CLI-only (feature 012): {@code factory} builds
+     * their port set and {@code cliHealth} their StartCLI health port, both without REST client.
      */
-    public PortSetRegistry register(VersionRange range, Factory factory,
+    public PortSetRegistry register(VersionRange range, Factory factory, QueryRules rules,
         CliHealthFactory cliHealth) {
-        return register(range, factory,
+        return register(range, factory, rules,
             Optional.of(Objects.requireNonNull(cliHealth, "cliHealth")));
     }
 
-    private PortSetRegistry register(VersionRange range, Factory factory,
+    private PortSetRegistry register(VersionRange range, Factory factory, QueryRules rules,
         Optional<CliHealthFactory> cliHealth) {
         List<Entry> extended = new ArrayList<>(entries);
         extended.add(new Entry(Objects.requireNonNull(range, "range"),
-            Objects.requireNonNull(factory, "factory"), cliHealth));
-        return new PortSetRegistry(defaultFactory, extended);
+            Objects.requireNonNull(factory, "factory"), Objects.requireNonNull(rules, "rules"),
+            cliHealth));
+        return new PortSetRegistry(defaultFactory, defaultRules, extended);
     }
 
     /** The first registered range containing {@code version}, else the default. */
@@ -116,10 +126,11 @@ public final class PortSetRegistry {
             for (Entry entry : entries) {
                 if (entry.range().contains(version.get())) {
                     return new Selection(Optional.of(entry.range()), entry.factory(),
-                        entry.cliHealth());
+                        entry.rules(), entry.cliHealth());
                 }
             }
         }
-        return new Selection(Optional.empty(), defaultFactory, Optional.empty());
+        return new Selection(Optional.empty(), defaultFactory, defaultRules,
+            Optional.empty());
     }
 }

@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
  */
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
 @JsonSubTypes({
-    @JsonSubTypes.Type(value = SecretSourceConfig.Environment.class, name = "environment"),
+    @JsonSubTypes.Type(value = SecretSourceConfig.SystemStore.class, name = "credentialStore"),
     @JsonSubTypes.Type(value = SecretSourceConfig.AwsParameterStore.class,
         name = "awsParameterStore")})
 public sealed interface SecretSourceConfig {
@@ -47,13 +47,14 @@ public sealed interface SecretSourceConfig {
     }
 
     /**
-     * Environment variables.
+     * The credential store of the running system (feature 011, research R-6; YAML
+     * {@code type: credentialStore}); replaces the environment variables of feature 010.
      *
-     * @param prefix the variable prefix; empty = {@code credentials.envPrefix} or the default
+     * @param prefix the prefix of the entry names; empty = the profile-wide prefix or the default
      */
-    record Environment(Optional<String> prefix) implements SecretSourceConfig {
+    record SystemStore(Optional<String> prefix) implements SecretSourceConfig {
 
-        public Environment {
+        public SystemStore {
             prefix = Optionals.orEmpty(prefix);
             if (prefix.isPresent() && !ProfileInfo.isValidPrefix(prefix.get())) {
                 throw new IllegalArgumentException("Invalid prefix: expected "

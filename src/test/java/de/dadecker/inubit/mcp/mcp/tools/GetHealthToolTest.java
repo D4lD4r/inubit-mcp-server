@@ -25,8 +25,6 @@ import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
-import de.dadecker.inubit.mcp.config.CredentialResolution;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.ParameterNames;
@@ -174,13 +172,12 @@ class GetHealthToolTest {
             EffectiveNodeConfig::id, Function.identity()));
         NodeVersions versions = new NodeVersions(Clock.systemUTC(),
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
-        Map<NodeId, NodeSecrets> secrets = new HashMap<>(TestSecrets.environment(
-            new CredentialResolver(Map.of(
+        // feature 011: the credential store nodes; awsSecrets adds the Parameter Store nodes
+        Map<NodeId, NodeSecrets> secrets = new HashMap<>(TestSecrets.credentialStore(
+            servers.stream().filter(server -> !server.secretPlan().aws()).toList(), Map.of(
                 "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
                 "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD,
-                "INUBIT_STAGING_USERNAME", "jdoe", "INUBIT_STAGING_PASSWORD", PASSWORD), scrubber,
-                "INUBIT")
-            .resolve(ids)));
+                "INUBIT_STAGING_USERNAME", "jdoe", "INUBIT_STAGING_PASSWORD", PASSWORD), scrubber));
         secrets.putAll(awsSecrets.apply(scrubber));
         gateways = new AdapterGatewayFactory(servers, secrets, scrubber, Clock.systemUTC(),
             new CliRunner(new SystemProcessLauncher(), Map.of(), false,
@@ -529,7 +526,7 @@ class GetHealthToolTest {
         assertThat(second.path("unavailable").path(0).path("reason").asString())
             .contains("avoid account lockout");
         assertThat(second.path("unavailable").path(0).path("nextStep").asString())
-            .contains("INUBIT_STAGING_LOCKED_PASSWORD", "restart the MCP client");
+            .contains("INUBIT_STAGING_LOCKED_PASSWORD", "no restart is needed");
     }
 
     @Test
@@ -659,18 +656,15 @@ class GetHealthToolTest {
         LoadedConfig loaded = new ConfigLoader(environment, temp, false)
             .parse(yaml, temp.resolve("config.yaml"));
         scrubber = new SecretScrubber();
-        CredentialResolution credentials = new CredentialResolver(environment, scrubber,
-            loaded.config().credentialPrefix()).resolve(loaded.config().nodeIds());
-        assertThat(ConfigValidator.forSystem().validate(loaded, credentials).errors())
-            .isEmpty();
+        assertThat(ConfigValidator.forSystem().validate(loaded).errors()).isEmpty();
         ProcessLauncher launcher = spec -> switch (spec.command().size() == 2
             ? spec.command().get(1) : "") {
             case "-h" -> help.launch(spec);
             case "-v" -> clientVersion.launch(spec);
             default -> session.launch(spec);
         };
-        wiring = TestWiring.of(loaded.config(), credentials, scrubber, Files::exists, false,
-            launcher, Map.of("PATH", "/usr/bin"), WITH_61);
+        wiring = TestWiring.of(loaded.config(), TestSecrets.store(environment), scrubber,
+            Files::exists, false, launcher, Map.of("PATH", "/usr/bin"), WITH_61);
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
     }

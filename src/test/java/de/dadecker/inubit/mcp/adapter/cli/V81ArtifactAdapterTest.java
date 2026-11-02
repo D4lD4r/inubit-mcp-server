@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.cli;
 
-import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -60,7 +60,7 @@ class V81ArtifactAdapterTest {
             Optional.empty(), Optional.empty());
         return new V81ArtifactAdapter(new CliExportRunner(TestNodeConfig.node()
             .cliHome(cliHome).cliJavaHome(Path.of("/opt/jdk-17")).build(), credentials,
-            new CredentialGuard(environmentLabels("INUBIT", DEV),
+            new CredentialGuard(storeLabels("INUBIT", DEV),
                 new MutableClock(Instant.parse("2026-10-06T08:00:00Z"))),
             runner, new CliOutputClassifier(new SecretScrubber()), tempRoot),
             () -> events.add("confirm"));

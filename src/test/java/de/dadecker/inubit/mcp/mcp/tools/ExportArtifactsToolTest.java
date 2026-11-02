@@ -196,10 +196,9 @@ class ExportArtifactsToolTest {
             var config = new de.dadecker.inubit.mcp.config.ConfigLoader(Map.of(), root, false)
                 .parse(yaml, root.resolve("acme.yaml")).config();
             var scrubber = new de.dadecker.inubit.mcp.infra.SecretScrubber();
-            var credentials = new de.dadecker.inubit.mcp.config.CredentialResolver(Map.of(
+            var credentials = de.dadecker.inubit.mcp.testing.TestSecrets.store(Map.of(
                 "INUBIT_ACME_PROD_USERNAME", "jdoe", "INUBIT_ACME_PROD_PASSWORD",
-                "prod-fixture-pw"), scrubber, config.credentialPrefix())
-                .resolve(config.nodeIds());
+                "prod-fixture-pw"));
             java.util.regex.Pattern exportFile =
                 java.util.regex.Pattern.compile("--exportFile '([^']+)'");
             var startCli = de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher.of(

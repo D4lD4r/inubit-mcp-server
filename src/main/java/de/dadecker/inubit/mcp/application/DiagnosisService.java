@@ -25,7 +25,6 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -33,7 +32,6 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.ToIntFunction;
 import java.util.regex.Pattern;
@@ -47,21 +45,19 @@ import java.util.regex.Pattern;
  *       ({@code TARGET_UNKNOWN}), {@code since}/{@code until} (ISO-8601 with offset, or a
  *       duration such as {@code PT24H} meaning "now minus the duration"), {@code offset + limit
  *       <= 10000}, the {@code processId} pattern, and the log filters of every resolved server
- *       ({@code LogPort.validate}); a failure fails the whole call. Feature 010 (R-8): a server
- *       whose credentials are not held yet (first fetch from AWS Parameter Store pending) is
- *       checked at the start of its own branch instead, so that no wait for a fetch happens
- *       outside its deadline; a failure there is that server's {@code error}.
+ *       ({@code GatewayFactory.queryRules}, which needs no credentials, so a refused request
+ *       reads no secret; feature 011); a failure fails the whole call.
  *   <li>Servers are queried in parallel ({@link FanOut}); results come in config order, one per
  *       server, a failed server only gets its {@code error}. The ports are taken without waiting
  *       for the adapter selection's version detection, and only REST is used (no CLI home
  *       needed), except on 6.1, whose ports read through StartCLI. The per-server deadline is
  *       three times the server timeout plus {@link #FAN_OUT_GRACE}: while the credentials are
  *       unconfirmed the first request runs alone (credential guard), the others after it; then
- *       the version gate's detection (feature 009) and the query. A node whose secrets come
- *       from AWS Parameter Store adds the {@link SecretTiming} allowance for their first fetch
- *       (feature 010). Feature 011: a node whose process diagnosis runs over StartCLI (6.1)
- *       gets a deadline from its {@code cliTimeout} instead
- *       ({@link #deadline(NodeId, Capability)}).
+ *       the version gate's detection (feature 009) and the query. A node whose credentials are
+ *       not held yet adds the {@link SecretTiming} allowance for their first read (feature 010,
+ *       feature 011); a branch that times out while that read is pending says so. Feature 012:
+ *       a node whose process diagnosis runs over StartCLI (6.1) gets a deadline from its
+ *       {@code cliTimeout} instead ({@link #deadline(NodeId, Capability)}).
  *   <li>Feature 009 (research D-5, D-6, FR-006, FR-009): before its query, each server's call
  *       asks the {@link VersionGate} for its capability ({@code READ}, {@code {REST}}), which
  *       detects the version of an {@code AUTO} node on first use; its warnings go into that
@@ -195,14 +191,24 @@ public final class DiagnosisService {
         Function<NodeId, ProcessQuery> queryOf = server -> new ProcessQuery(request.states(),
             request.hangingOnly(), threshold(request, server), request.workflow(),
             request.tag(), since, until, request.offset(), request.limit(), now);
-        Validation validation = validateHeld(servers,
-            server -> gateways.processes(server).validate(queryOf.apply(server)), true);
+        // feature 011 (review T013-T014 r1): checked for every node without its credentials;
+        // feature 012 (research D-10): an input the node's version cannot serve (tag on 6.1)
+        // becomes that node's entry
+        Map<NodeId, ToolErrorException> refused = new HashMap<>();
+        servers.forEach(server -> validate(
+            () -> gateways.queryRules(server).validate(queryOf.apply(server)))
+            .ifPresent(refusal -> refused.put(server,
+                new ToolErrorException(refusal.error().withNode(server)))));
         ResultLimiter shared = limiter.share(servers.size());
+        Set<NodeId> pending = secretTiming.pending(servers);
         Function<NodeId, Duration> deadline =
             server -> deadline(server, Capability.PROCESS_DIAGNOSIS);
-        return fanOut.run(servers, deadline, server -> {
-            validation.atBranchStart(server,
-                () -> gateways.processes(server).validate(queryOf.apply(server)));
+        return secretTiming.explainTimeouts(fanOut.run(servers, deadline, server -> {
+            // thrown before the version gate is asked (feature 012, FR-007: nothing is launched)
+            ToolErrorException refusal = refused.get(server);
+            if (refusal != null) {
+                throw refusal;
+            }
             List<String> warnings = admit("find_processes", Capability.PROCESS_DIAGNOSIS, server);
             ProcessQuery query = queryOf.apply(server);
             Duration threshold = query.hangingThreshold();
@@ -215,7 +221,7 @@ public final class DiagnosisService {
             items.sort(Comparator.comparing(ProcessInstance::since).reversed());
             return new NodePage<>(bound(shared, page, items, request.offset(), request.limit()),
                 warnings);
-        });
+        }), pending);
     }
 
     /**
@@ -239,12 +245,13 @@ public final class DiagnosisService {
         LogQuery query = new LogQuery(request.logType(), since, until, request.workflow(),
             request.processId(), request.severities(), request.text(), request.offset(),
             request.limit());
-        Validation validation = validateHeld(servers,
-            server -> gateways.logs(server).validate(query), false);
+        // feature 011 (review T013-T014 r1): checked for every node without its credentials; a
+        // refusal of log diagnosis is left to the version gate, which names the next step
+        servers.forEach(server -> validate(() -> gateways.queryRules(server).validate(query)));
         ResultLimiter shared = limiter.share(servers.size());
+        Set<NodeId> pending = secretTiming.pending(servers);
         Function<NodeId, Duration> deadline = server -> deadline(server, Capability.LOG_DIAGNOSIS);
-        return fanOut.run(servers, deadline, server -> {
-            validation.atBranchStart(server, () -> gateways.logs(server).validate(query));
+        return secretTiming.explainTimeouts(fanOut.run(servers, deadline, server -> {
             List<String> warnings = admit("query_logs", Capability.LOG_DIAGNOSIS, server);
             Page<LogEntry> page = gateways.logs(server).query(query);
             List<LogEntry> items = new ArrayList<>(page.items());
@@ -255,7 +262,7 @@ public final class DiagnosisService {
             }
             return new NodePage<>(bound(shared, page, items, request.offset(), request.limit()),
                 warnings);
-        });
+        }), pending);
     }
 
     /**
@@ -274,56 +281,8 @@ public final class DiagnosisService {
     }
 
     /**
-     * The outcome of {@link #validateHeld}: the servers to check in their own branch, and the
-     * refusals ({@code UNSUPPORTED_VERSION}) of the servers checked up front.
-     */
-    private record Validation(Set<NodeId> unchecked, Map<NodeId, ToolErrorException> refused) {
-
-        /**
-         * At the start of {@code server}'s fan-out branch: throws its kept refusal, so that it
-         * becomes that server's entry before the version gate is asked (feature 011, FR-007:
-         * nothing is launched), or runs {@code check} if the server was not checked up front.
-         */
-        void atBranchStart(NodeId server, Runnable check) {
-            ToolErrorException refusal = refused.get(server);
-            if (refusal != null) {
-                throw refusal;
-            }
-            if (unchecked.contains(server)) {
-                check.run();
-            }
-        }
-    }
-
-    /**
-     * Runs {@code check} now for every server whose credentials are held; the others stay
-     * unchecked: taking their port would wait for their first fetch, so they are checked at the
-     * start of their own fan-out branch, within their deadline (feature 010, R-8).
-     *
-     * @param keepRefusals whether an {@code UNSUPPORTED_VERSION} of the check is kept as the
-     *     server's entry: for {@code find_processes}, whose 6.1 port refuses an input such as
-     *     {@code tag} (feature 011, research D-10); not for {@code query_logs}, whose 6.1 port
-     *     refuses everything and is preceded by the gate's refusal of log diagnosis with its
-     *     next step
-     */
-    private Validation validateHeld(List<NodeId> servers, Consumer<NodeId> check,
-        boolean keepRefusals) {
-        Set<NodeId> unchecked = new HashSet<>();
-        Map<NodeId, ToolErrorException> refused = new HashMap<>();
-        for (NodeId server : servers) {
-            if (gateways.credentialsHeld(server)) {
-                validate(() -> check.accept(server)).filter(refusal -> keepRefusals)
-                    .ifPresent(refusal -> refused.put(server, refusal));
-            } else {
-                unchecked.add(server);
-            }
-        }
-        return new Validation(unchecked, refused);
-    }
-
-    /**
      * A port's check without network: {@code INVALID_INPUT} fails the whole call; an
-     * {@code UNSUPPORTED_VERSION} (an input the node's version cannot serve, feature 011
+     * {@code UNSUPPORTED_VERSION} (an input the node's version cannot serve, feature 012
      * research D-10) is returned to become that server's entry; other failures (e.g. an
      * unusable trust store) are reported per server by the fan-out.
      */
@@ -343,7 +302,7 @@ public final class DiagnosisService {
 
     /**
      * The fan-out deadline of {@code server} for {@code capability}, by the channel the version
-     * gate gives the capability on that node (feature 011, research D-10), plus
+     * gate gives the capability on that node (feature 012, research D-10), plus
      * {@link #FAN_OUT_GRACE}:
      * <ul>
      *   <li>REST: {@code 3 × timeout} (guard wait, the version gate's detection, the query);
@@ -353,9 +312,9 @@ public final class DiagnosisService {
      *       and {@code cliTimeout} for the session.
      * </ul>
      * The detection and the option probe are always counted: whether they run is only known
-     * inside the call (first use, a stale version, the end of the back-off). Feature 010: plus
-     * the {@link SecretTiming#allowance fetch allowance} of an AWS node, always, for the same
-     * reason.
+     * inside the call (first use, a stale version, the end of the back-off). Feature 010,
+     * feature 011 (FR-008): plus the {@link SecretTiming#allowance read allowance} of a node
+     * whose credentials are not held yet.
      */
     Duration deadline(NodeId server, Capability capability) {
         Duration timeout = timeouts.apply(server);

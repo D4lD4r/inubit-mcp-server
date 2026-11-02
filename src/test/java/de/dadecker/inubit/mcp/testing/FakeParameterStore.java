@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -21,7 +22,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * The {@code timeout} is recorded but never enforced, so a long delay stands for a store call that
  * never returns; bounding the call is the caller's job ({@code NodeSecrets} does it). A caller
  * interrupted during the delay gets {@code CallFailed(UNREACHABLE, "interrupted")} with its
- * interrupt flag set again.
+ * interrupt flag set again. {@link #release} ends every call still waiting out its delay, so that a
+ * test's background fetches end (and log) before the next test starts.
  */
 public final class FakeParameterStore implements ParameterStore {
 
@@ -37,6 +39,9 @@ public final class FakeParameterStore implements ParameterStore {
     private final Map<StoreLocation, Duration> locationDelays = new ConcurrentHashMap<>();
     private final Map<StoreLocation, Fetched.Failure> callFailures = new ConcurrentHashMap<>();
     private final List<Request> requests = new CopyOnWriteArrayList<>();
+    /** The threads inside {@link #get}, for {@link #release}. */
+    private final Set<Thread> inside = ConcurrentHashMap.newKeySet();
+    private volatile boolean released;
 
     /** Stores {@code value} as a {@code SecureString}, replacing any earlier script for it. */
     public FakeParameterStore put(StoreLocation location, String name, String value) {
@@ -94,12 +99,17 @@ public final class FakeParameterStore implements ParameterStore {
     @Override
     public Fetched get(StoreLocation location, List<String> names, Duration timeout) {
         requests.add(new Request(location, List.copyOf(names), timeout));
+        inside.add(Thread.currentThread());
         try {
-            Thread.sleep(delayOf(location, names));
+            if (!released) {
+                Thread.sleep(delayOf(location, names));
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return new Fetched.CallFailed(
                 new Fetched.Failure(FailureKind.UNREACHABLE, "interrupted"));
+        } finally {
+            inside.remove(Thread.currentThread());
         }
         Fetched.Failure callFailure = callFailures.get(location);
         if (callFailure != null) {
@@ -111,6 +121,25 @@ public final class FakeParameterStore implements ParameterStore {
                 new Fetched.Failure(FailureKind.NOT_FOUND, "no such parameter: " + name)));
         }
         return new Fetched.PerName(answer);
+    }
+
+    /**
+     * Ends every call still waiting out its delay (it answers {@code UNREACHABLE}
+     * "interrupted") and waits up to {@code wait} until the callers have returned; later calls
+     * answer at once. For {@code @AfterEach}: the background fetch of a test then ends, and logs,
+     * before the next test captures the log.
+     */
+    public void release(Duration wait) throws InterruptedException {
+        released = true;
+        List<Thread> threads = List.copyOf(inside);
+        threads.forEach(Thread::interrupt);
+        long deadline = System.nanoTime() + wait.toNanos();
+        for (Thread thread : threads) {
+            long left = deadline - System.nanoTime();
+            if (left > 0) {
+                thread.join(Duration.ofNanos(left));
+            }
+        }
     }
 
     private Duration delayOf(StoreLocation location, List<String> names) {

@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.security;
 
-import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import ch.qos.logback.classic.Level;
@@ -115,7 +115,7 @@ class SecretLeakTest {
             Optional.empty(), Optional.empty());
         ArtifactPort artifacts = new V81ArtifactAdapter(new CliExportRunner(TestNodeConfig.node()
             .cliHome(cliHome).cliJavaHome(Path.of("/opt/jdk-17")).build(), credentials,
-            new CredentialGuard(environmentLabels("INUBIT", DEV),
+            new CredentialGuard(storeLabels("INUBIT", DEV),
                 new MutableClock(Instant.parse("2026-10-06T08:00:00Z"))),
             new CliRunner(startCli, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
             new CliOutputClassifier(new SecretScrubber())), () -> { });

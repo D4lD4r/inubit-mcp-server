@@ -1,5 +1,7 @@
 package de.dadecker.inubit.mcp.application;
 
+import de.dadecker.inubit.mcp.testing.TestSecrets;
+import de.dadecker.inubit.mcp.config.CredentialStore;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyUrl;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
@@ -14,8 +16,6 @@ import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
-import de.dadecker.inubit.mcp.config.CredentialResolution;
-import de.dadecker.inubit.mcp.config.CredentialResolver;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -135,13 +135,12 @@ class V61RefusalTest {
             .parse(yaml, temp.resolve("config.yaml"));
         ProfileConfig config = loaded.config();
         SecretScrubber scrubber = new SecretScrubber();
-        CredentialResolution credentials = new CredentialResolver(Map.of(
+        CredentialStore credentials = TestSecrets.store(Map.of(
             "INUBIT_ACME_LAB_USERNAME", "jdoe", "INUBIT_ACME_LAB_PASSWORD", "v61-refusal-pw",
-            "INUBIT_ACME_OLD_USERNAME", "jdoe", "INUBIT_ACME_OLD_PASSWORD", "v61-refusal-pw"),
-            scrubber, config.credentialPrefix()).resolve(config.nodeIds());
+            "INUBIT_ACME_OLD_USERNAME", "jdoe", "INUBIT_ACME_OLD_PASSWORD", "v61-refusal-pw"));
         // a configuration the server starts with: only the version keeps the tools from running
         assertThat(new ConfigValidator(path -> true, Map.of(), false)
-            .validate(loaded, credentials).errors()).isEmpty();
+            .validate(loaded).errors()).isEmpty();
         ProcessLauncher failing = spec -> {
             launches.add(spec);
             throw new IOException("StartCLI must not be launched in this test");

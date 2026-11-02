@@ -1,6 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
-import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.environmentLabels;
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
@@ -77,7 +77,7 @@ final class FakeV61Node {
         CliRunner runner = new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false,
             new CliResources("acme"));
         this.adapter = new V61HealthAdapter(id, new V61Connection(server, credentials,
-                new CredentialGuard(environmentLabels("INUBIT", id), clock), runner,
+                new CredentialGuard(storeLabels("INUBIT", id), clock), runner,
                 new CliClientProbe(runner, node -> server, CapabilityMatrix.production(), clock),
                 new CliConcurrencyLimiter(CapabilityMatrix.production())),
             new CliOutputClassifier(new SecretScrubber(), server.secretLabels()));
