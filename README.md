@@ -144,7 +144,7 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
    `~/.local/lib`:
 
    ```bash
-   VERSION=0.4.0
+   VERSION=0.6.3
    shasum -a 256 -c "inubit-mcp-server-$VERSION.jar.sha256"   # Linux: sha256sum -c …
    mkdir -p ~/.local/lib && mv "inubit-mcp-server-$VERSION.jar" ~/.local/lib/
    ```
