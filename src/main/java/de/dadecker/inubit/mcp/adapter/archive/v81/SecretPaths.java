@@ -57,6 +57,19 @@ final class SecretPaths {
     private static final Pattern SUSPICIOUS =
         Pattern.compile("password|secret|keystore|token", Pattern.CASE_INSENSITIVE);
     private static final Set<String> SCALAR_TYPES = Set.of("Boolean", "Integer");
+    /**
+     * Demultiplexer per-output settings and structure (feature 034). A demultiplexer names each of
+     * its outputs by the target module, so these property names embed a module name — e.g.
+     * {@code GetCertificate(693)@@@DeMuxInput} — which makes the certificate name heuristic in
+     * {@link #kind} redact the routing condition, the processing order and the branch description
+     * as if they were a private key. A demultiplexer output setting is routing configuration,
+     * never a secret, and is emitted verbatim.
+     */
+    private static final Set<String> DEMUX_OUTPUT_SUFFIXES =
+        Set.of("@@@DeMuxInput", "@@@ProcessingOrder", "@@@Description");
+    /** Demultiplexer structure that is likewise never a secret ({@code namespacesMap} is a Map). */
+    private static final Set<String> DEMUX_STRUCTURE_NAMES =
+        Set.of("DefaultOutput", "namespacesMap");
     private static final Pattern UNSAFE_PATH_CHARACTERS = Pattern.compile("[{}\\p{Cntrl}]");
     /** The namespace of the variable types ({@code is:password}). */
     static final String VARIABLE_TYPES = "http://inubit.com/variables/types";
@@ -108,6 +121,13 @@ final class SecretPaths {
         Counts counts) {
         String name = property.attribute("name").orElse("");
         String path = prefix + name;
+        // A demultiplexer routing/structure property is never a secret; emit it (and, for
+        // namespacesMap, its whole subtree) verbatim before any secret heuristic can match the
+        // target-module name embedded in its own name. Inside xslt.sourceVariables everything
+        // stays a secret (fail-closed), so the exemption does not apply there.
+        if (!inSourceVariables && isDemuxStructure(name)) {
+            return property;
+        }
         if (property.hasElements()) {
             boolean variables = inSourceVariables || name.equals(SOURCE_VARIABLES);
             return property.withChildren(map(property, child -> child.localName().equals(
@@ -131,6 +151,19 @@ final class SecretPaths {
         }
         counts.add(kind);
         return property.withText(replace(path, kind, value));
+    }
+
+    /** A demultiplexer routing/structure property, which is never a secret (feature 034). */
+    private static boolean isDemuxStructure(String name) {
+        if (DEMUX_STRUCTURE_NAMES.contains(name)) {
+            return true;
+        }
+        for (String suffix : DEMUX_OUTPUT_SUFFIXES) {
+            if (name.endsWith(suffix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The kind of secret a property holds, or {@code null}. */
