@@ -56,5 +56,5 @@ POSIX: today's permissions and fallbacks, unchanged.
 
 ## DecodedOutput (adapter/cli)
 
-Windows: per line, strict UTF-8, else the host's `native.encoding`; CRLF → LF before
+Windows: per line, strict UTF-8, else the console OEM code page (`GetOEMCP`); CRLF → LF before
 `CliOutputClassifier`. POSIX: unchanged (`toString(UTF_8)`).

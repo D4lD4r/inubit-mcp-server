@@ -96,6 +96,10 @@ not only the 6.1 reads.
 - Q (spec review r4): A client installation on a UNC path? → A (decided by the creator): refused
   on Windows with `CLI_UNAVAILABLE` naming `cli.home` and a `--check-config` warning, because the
   command interpreter does not accept a UNC working directory.
+- Q (plan review r2): Can the server tell a client waiting at its password prompt from a slow
+  server? → A (decided by the creator): no; the client always prints its prompt first. A timeout
+  whose last output is the prompt names both possibilities and keeps the "raise `cliTimeout`" next
+  step, adding the live check (FR-005, US4 AS6).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -246,9 +250,10 @@ alive and the temporary directory is gone or reported.
 5. **Given** a temporary file that Windows cannot delete because another program holds it open,
    **When** the cleanup runs, **Then** the server retries (FR-008) and otherwise logs a warning
    naming the directory (never its contents) and removes it at the next start.
-6. **Given** a Windows client that waits at its password prompt, **When** the call times out,
-   **Then** the `TIMEOUT` error says that StartCLI was still waiting for the password and names the
-   live check (FR-015), not "raise `cliTimeout`".
+6. **Given** a call on Windows whose last output is the client's password prompt, **When** it
+   times out, **Then** the `TIMEOUT` error names both possibilities (StartCLI may be waiting for the
+   password on its console, or the server is slow), keeps the next step "raise `cliTimeout`" and
+   adds the live check (FR-015).
 
 ---
 
@@ -391,8 +396,9 @@ without the "not supported" statements.
   environment MUST reach StartCLI.
 - **FR-005**: When a StartCLI call times out, is interrupted or the server stops on Windows —
   also when the server process is terminated forcibly — every process it started (the command
-  interpreter, Java and their descendants) MUST be ended, forcibly after the existing grace period; a timed-out call fails with `TIMEOUT` as today, and one that was
-  still waiting at the password prompt says so in its cause and next step.
+  interpreter, Java and their descendants) MUST be ended, forcibly after the existing grace period; a timed-out call fails with `TIMEOUT` as today; on Windows, one whose last output
+  is the client's password prompt names both possibilities (waiting for the password, or a slow
+  server) in its cause and keeps the `cliTimeout` next step, adding the live check.
 - **FR-006**: Parsed results of StartCLI output on Windows MUST be identical to those of the same
   content on macOS, for line endings CRLF and LF and characters outside ASCII, regardless of the
   Windows display language and console code page of the host (at least code pages 850, 1252 and

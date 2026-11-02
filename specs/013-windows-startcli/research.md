@@ -69,7 +69,7 @@ confirm. Code references are to `main` at `18344e2`.
 - **Rationale**: clarification default `/`; Java and the INUBIT client accept forward slashes in
   Windows paths.
 - **To confirm in R-13**: that StartCLI takes `C:/…` in a quoted `--execCommand` value
-  (`win_modules`, `win_export`), and how it treats `\` there (`win_backslash`).
+  (`win_modules`), and how it treats `\` there (`win_backslash`).
 
 ## R-4 Command-line length
 
@@ -77,7 +77,7 @@ confirm. Code references are to `main` at `18344e2`.
   characters before start. `CliRunner` maps the typed failure: `INVALID_INPUT` when tool input
   (diagram groups, paths) makes it long, `CLI_UNAVAILABLE` naming the setting when the configured
   parts alone exceed it (also a `--check-config` warning). The 2 048-character margin for what
-  `startcli.bat` adds (class path and options) is a clarification default, revisited in T030 when
+  `startcli.bat` adds (class path and options) is a clarification default, revisited in T031 when
   the batch files of the supported clients have been examined.
 
 ## R-5 Child environment on Windows
@@ -90,7 +90,10 @@ confirm. Code references are to `main` at `18344e2`.
   `-Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8` (R-6), and two
   values the server sets instead of copying:
   - `PATH` = `<JAVA_HOME>\bin;<system dir>` (not the server's `PATH`), so an unqualified `java` in
-    `startcli.bat` finds only the configured runtime;
+    `startcli.bat` finds only the configured runtime; the effective Java home (`cli.javaHome`, else
+    the server's `JAVA_HOME`) is checked with the characters of R-2 plus `;` (the `PATH`
+    separator) — at validation (warning naming `cli.javaHome` or `JAVA_HOME`) and per call
+    (`CLI_UNAVAILABLE`);
   - `NoDefaultCurrentDirectoryInExePath=1`, so the interpreter does not search the working
     directory (`cli.home`) for programs.
   Windows variable names are matched case-insensitively. A Windows test places decoy `java.exe`
@@ -104,13 +107,13 @@ confirm. Code references are to `main` at `18344e2`.
 - **Decision**: The Windows-only runtime settings of R-5 make the client's `System.out`,
   `System.err` and its default charset UTF-8, regardless of the console code page. On Windows the
   server decodes StartCLI output **per line**: strictly as UTF-8, and only a line that is not valid
-  UTF-8 (a line the batch file itself prints) in the host's native code page (`native.encoding`);
+  UTF-8 (a line the batch file itself prints) in the console OEM code page (`GetOEMCP`, e.g. 850, which `cmd.exe` uses for its own output);
   CRLF is normalised to LF before classification and parsing. On macOS and Linux decoding stays
   exactly as today (`toString(UTF_8)`, no normalisation; FR-017). Standard input: UTF-8 and `\n`
   as today (clarification default); with `file.encoding=UTF-8` the client's default reader decodes
   UTF-8 as well.
 - **Tests (SC-005)**: recorded outputs transcoded into code pages 850, 1252 and 65001 (decoder
-  configured with the matching native code page) parse to the same results as the macOS
+  configured with the matching OEM code page) parse to the same results as the macOS
   recordings.
 - **To confirm in R-13**: that the client honours the settings (output of a module list with
   umlauts), and that it reads the password from redirected stdin.
@@ -123,7 +126,8 @@ confirm. Code references are to `main` at `18344e2`.
   Windows the server creates a job object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and assigns
   itself to it; every child started afterwards (interpreter, Java, their descendants) inherits the
   job, and Windows ends them when the server's last handle closes, also on a forced termination.
-  If the job cannot be set up (e.g. an outer job forbids nesting), StartCLI-backed capabilities
+  The job handle is created non-inheritable (else a child holding it would keep the job open). If
+  the job cannot be set up (e.g. an outer job forbids nesting), StartCLI-backed capabilities
   report `CLI_UNAVAILABLE` "processes of StartCLI could not be bound to the server" and
   `--check-config` warns (FR-005 is a MUST).
 - **Rationale**: Windows has no process groups or `PR_SET_PDEATHSIG`; a job object is the only
@@ -144,7 +148,7 @@ confirm. Code references are to `main` at `18344e2`.
   - **Windows**: the object is created empty, then a **protected** DACL is applied before anything
     is written into it: `SetNamedSecurityInfoW` with
     `DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION` (JNA, `advapi32`), two
-    entries — the user SID of the process token (`GetTokenInformation(TokenUser)`, not
+    entries (and the owner set to the same SID, `OWNER_SECURITY_INFORMATION`) — the user SID of the process token (`GetTokenInformation(TokenUser)`, not
     `Files.getOwner`, which can be `BUILTIN\Administrators` on an elevated account) and `SYSTEM` —
     full control, with `OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE` on directories. Everything
     StartCLI and git create below inherits these two entries. Between creation and protection the
@@ -173,15 +177,16 @@ confirm. Code references are to `main` at `18344e2`.
 
 ## R-10 Cleanup and file locks
 
-- **Decision**: `CliResources.sweepStale` runs on Windows too: the owner check compares with the
-  process token's user (R-8) instead of `Files.getOwner` of a new probe file, the process check
+- **Decision**: `CliResources.sweepStale` runs on Windows too: the owner check uses
+  `PrivateFileSystem.ownedByCurrentUser` (the server sets the owner of its private objects to the
+  token user, R-8, so this also holds on an elevated account), the process check
   uses `ProcessHandle`, no links are followed (the reason it was skipped was the POSIX-only owner
   lookup). Deletion retries up to 5 times within 2 s on `AccessDeniedException` /
   `FileSystemException` (a file held open), then logs the directory name.
-- **Password-prompt timeout (FR-005, Windows only)**: on Windows `CliOutputClassifier` recognises
-  the client's password prompt as the last output line; a `TIMEOUT` then says "StartCLI was still
-  waiting for the password" with the next step pointing to the live check, not to `cliTimeout`.
-  macOS and Linux keep today's message (FR-001 lists it as a Windows difference).
+- **Timeout after the password prompt (FR-005 as amended, Windows only)**: the client always prints
+  `Password: ` first, so a prompt as the last output cannot tell a client waiting at its console
+  from a slow server. On Windows such a `TIMEOUT` names both possibilities and keeps the
+  "raise `cliTimeout`" next step, adding the live check; macOS and Linux keep today's message.
 
 ## R-11 Configuration checks and messages
 
@@ -207,15 +212,15 @@ confirm. Code references are to `main` at `18344e2`.
 
     | Test class (POSIX assertion) | Windows equivalent |
     |---|---|
-    | `BackupStoreTest`, `PackageWriterTest`, `DeployLockTest`, `DeploymentLedgerTest` (owner-only files and directories) | DACL read-back (T024) |
-    | `AuditLogTest` (`assumeTrue(posix)`), `MainTest` audit directory (`assumeTrue(posix)`) | DACL read-back (T023) |
-    | `GitCliTest` hooks directory, `ConfigValidatorTest` workspace directory | DACL read-back (T025) |
-    | `CliExportRunnerTest`, `CliImportRunnerTest`, `ExportShutdownProcessTest` (temporary directories) | DACL read-back and inheritance (T018) |
-    | `SystemProcessLauncherTest` (class-level `@DisabledOnOs(WINDOWS)`; signals and process tree) | class-level guard lifted; POSIX signal cases guarded per method; Windows tree cases (T005, T021) |
+    | `BackupStoreTest`, `PackageWriterTest`, `DeployLockTest`, `DeploymentLedgerTest` (owner-only files and directories) | DACL read-back (T025) |
+    | `AuditLogTest` (`assumeTrue(posix)`), `MainTest` audit directory (`assumeTrue(posix)`) | DACL read-back (T024) |
+    | `GitCliTest` hooks directory, `ConfigValidatorTest` workspace directory | DACL read-back (T026) |
+    | `CliExportRunnerTest`, `CliImportRunnerTest`, `ExportShutdownProcessTest` (temporary directories) | DACL read-back and inheritance (T019) |
+    | `SystemProcessLauncherTest` (class-level `@DisabledOnOs(WINDOWS)`; signals and process tree) | class-level guard lifted; POSIX signal cases guarded per method; Windows tree cases (T005, T022) |
     | `MainTest` cases that make `startcli.sh` executable | `FakeStartCli` (T004) |
 
   - CI: a `windows` job runs `mvn -B verify` with `continue-on-error: true` until the porting and
-    the Windows launch are done (T020 makes it required); a task with Windows tests is done when
+    the Windows launch are done (T021 makes it required); a task with Windows tests is done when
     its own test classes pass in that job's report.
 
 ## R-13 Recordings and live check on Windows

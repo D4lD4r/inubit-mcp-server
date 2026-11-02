@@ -50,7 +50,9 @@ decoder, allowlist) on every platform; Windows-only tests (`@EnabledOnOs(WINDOWS
 substitute `startcli.bat` that records `%CMDCMDLINE%` and runs a test-classpath `ArgvRecorder`
 main. The existing suite is ported first (`FakeStartCli` writes the platform's script; POSIX
 permission assertions get Windows equivalents, see "Replaced POSIX tests"). New CI job
-`windows` on `windows-latest` (`mvn -B verify`), non-required until T020. The PowerShell recorder
+`windows` on `windows-latest` (`mvn -B verify`), `continue-on-error` until T021. The `CliPaths`
+rule and the script name follow the injected `windows` flag; tests pass the host OS through
+`test/testing/Platform`. The PowerShell recorder
 is checked by a text test like `RecordFixturesCatalogueTest` of feature 012.
 
 **Target Platform**: macOS, Linux (unchanged), Windows 10/11 and Server 2019+ x64 (new for
@@ -67,7 +69,7 @@ gain no measurable overhead.
 - macOS and Linux behaviour unchanged (FR-017); every POSIX code path stays as it is.
 - JNA only in `adapter/os` (`PackageBoundaryTest`); natives loaded only on Windows.
 - Offline default build.
-- Defaults of the Clarifications until the Windows live check (T030): `/` in paths inside the
+- Defaults of the Clarifications until the Windows live check (T031): `/` in paths inside the
   command, UTF-8 and `\n` on stdin, the launch through `startcli.bat`, and a 2 048-character
   margin for what `startcli.bat` adds to the command line (R-4).
 
@@ -124,7 +126,7 @@ src/main/java/de/dadecker/inubit/mcp/
 │                  CliRunner, SystemProcessLauncher, ProcessLauncher, CliResources,
 │                  CliExportRunner, CliImportRunner, CliOutputClassifier (changed)
 ├── adapter/os/    WindowsJob, NoJob, WindowsSystem, OsPrivateFileSystem (JNA kernel32/advapi32)
-├── adapter/git/   GitCli (hooks directory via PrivateFiles)
+├── adapter/git/   GitCli (hooks directory via the PrivateFileSystem port)
 ├── application/   BackupStore, PackageWriter, DeployLock, DeploymentLedger (PrivateFileSystem port)
 ├── config/        WindowsArguments, CliPaths, ConfigValidator, EntryCheck, WorkspaceDirectory
 ├── domain/port/   PrivateFileSystem
@@ -152,11 +154,14 @@ No test is skipped on Windows; POSIX-only assertions stay for POSIX and get a Wi
 | Test class (POSIX assertion) | Windows equivalent | Task |
 |---|---|---|
 | every test that writes its own `startcli.sh` (adapter/cli, Main, application harnesses, mcp tools, security, isolation, config, live) | `FakeStartCli.install` writes the platform's script | T003, T004 |
-| `SystemProcessLauncherTest` (class-level `@DisabledOnOs(WINDOWS)`; signals) | guard per POSIX method; Windows launch and tree cases | T005, T008, T021 |
-| `CliExportRunnerTest`, `CliImportRunnerTest`, `ExportShutdownProcessTest` (owner-only temporary directories) | DACL read-back and inheritance | T018 |
-| `AuditLogTest`, `MainTest` audit directory (`assumeTrue(posix)`) | DACL read-back | T023 |
-| `BackupStoreTest`, `PackageWriterTest`, `DeployLockTest`, `DeploymentLedgerTest` | DACL read-back | T024 |
-| `GitCliTest` hooks directory, `ConfigValidatorTest` workspace directory | DACL read-back | T025 |
+| `SystemProcessLauncherTest` (class-level `@DisabledOnOs(WINDOWS)`; signals) | guard per POSIX method; Windows launch and tree cases | T005, T008, T022 |
+| ~35 `new CliRunner(…, false, …)` test sites | `Platform.windows()` (host OS) and a platform `PATH` | T003, T004 |
+| `/bin/sh -c "exit 0"` dead-PID helpers (`CliResourcesTest`, `ExportShutdownProcessTest`) | `Platform` helper with a short `java -version` process | T003, T004 |
+| SIGTERM cases of `ExportShutdownProcessTest` (shutdown hook) | Windows: job kill (T012) and the sweep at the next start | T019 |
+| `CliExportRunnerTest`, `CliImportRunnerTest`, `ExportShutdownProcessTest` (owner-only temporary directories) | DACL read-back and inheritance | T019 |
+| `AuditLogTest`, `MainTest` audit directory (`assumeTrue(posix)`) | DACL read-back | T024 |
+| `BackupStoreTest`, `PackageWriterTest`, `DeployLockTest`, `DeploymentLedgerTest` | DACL read-back | T025 |
+| `GitCliTest` hooks directory, `ConfigValidatorTest` workspace directory | DACL read-back | T026 |
 
 ## Complexity Tracking
 

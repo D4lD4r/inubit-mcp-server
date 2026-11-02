@@ -24,7 +24,7 @@ and its command, the StartCLI URL. Never `-p`.
 
 | Character in a value passed outside the command | Outcome |
 |---|---|
-| `"` `%` `!` `^` `&` `|` `<` `>`, control characters (tab, line breaks), non-ASCII | refused (configuration: node `CLI_UNAVAILABLE` + warning; username: `AUTH_FAILED` at read time) |
+| `"` `%` `!` `^` `&` `|` `<` `>`, control characters (tab, line breaks), non-ASCII; in the Java home also `;` | refused (configuration: node `CLI_UNAVAILABLE` + warning; username: `AUTH_FAILED` at read time) |
 | space `'` `(` `)` `;` `,` `=` `\` `*` `?` | reaches StartCLI unchanged |
 | trailing `\` | doubled by the builder, reaches StartCLI as one `\` |
 
@@ -35,7 +35,7 @@ space); file paths inside it follow the Windows path rule
 ## Limits
 
 - Inner line ≤ 6 143 characters (8 191 minus a 2 048 margin for `startcli.bat`, a default revisited
-  in T030): longer →
+  in T031): longer →
   `INVALID_INPUT` (tool input) or `CLI_UNAVAILABLE` naming the setting (configuration), before start.
 - Timeout: `cliTimeout` as today; then the tree is ended, forcibly after 2 s; at most one second
   later no process of the call is alive (SC-004).
@@ -50,5 +50,7 @@ receives (`win_argv`). A second recording (`win_backslash`) runs a read-only com
 ## Output
 
 stdout/stderr: UTF-8 (forced by `JAVA_TOOL_OPTIONS`), decoded per line strictly as UTF-8, else in the
-host's native code page; CRLF normalised to LF before classification (Windows only; POSIX unchanged).
-On Windows a `TIMEOUT` whose last output line is the client's password prompt says so (FR-005).
+console OEM code page; CRLF normalised to LF before classification (Windows only; POSIX unchanged).
+On Windows a `TIMEOUT` whose last output line is the client's password prompt names both
+possibilities (waiting for the password, or a slow server) and keeps the `cliTimeout` next step
+(FR-005).

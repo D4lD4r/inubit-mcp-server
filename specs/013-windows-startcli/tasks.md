@@ -19,9 +19,13 @@ description: "Task list for StartCLI-backed tools on Windows (feature 013)"
 **Tests**: REQUIRED (Constitution III, TDD). Every task starts with the test(s) it names, observed
 failing on an assertion before the production code exists, and ends with `mvn -q -o verify` green
 on macOS. Tests marked **(Windows)** are `@EnabledOnOs(OS.WINDOWS)`: skipped locally, run in the
-`windows` CI job of the draft pull request #53. A task with Windows tests is done when its own test
-classes pass in that job's report (the whole job is required only from T020 on). Pushing the branch
-needs the person's OK in the chat (given for the draft PR on 2026-11-02; ask again if in doubt).
+`windows` CI job of the draft pull request #53. For a Windows test, Red is observed by pushing the
+failing test first and seeing it fail in that job, then pushing the implementation. A task with
+Windows tests is done when its own test classes pass in that job's report (`continue-on-error` is
+removed from the job in T021; making the check required in branch protection is the person's
+setting). Pushing the branch needs the person's OK in the chat (given for the draft PR on
+2026-11-02; ask again if in doubt). Tests take the platform from `test/testing/Platform` (the host
+OS), never a hard-wired `false`.
 "(new)" marks a test class that does not exist yet.
 
 **Organization**: setup, then porting the existing suite to Windows, then the Windows building
@@ -47,7 +51,7 @@ recordings and the live check (manual, approved, by a Windows user).
 
 - **While developing**: no INUBIT command and no network call against any INUBIT server; all tests
   offline (`ScriptedProcessLauncher`, the substitute `startcli.bat`/`startcli.sh` with
-  `ArgvRecorder`). The only live steps are T030, run by a Windows user after the person's approval
+  `ArgvRecorder`). The only live steps are T031, run by a Windows user after the person's approval
   in the chat.
 - **Fixtures**: Windows recordings are neutralised with `tools/neutralize.py`; never the vendor's
   batch file, only what the client receives. The identifier hooks must pass; never `--no-verify`.
@@ -61,7 +65,7 @@ recordings and the live check (manual, approved, by a Windows user).
 
 - [ ] T001 [P] Windows CI job (FR-013, research R-12): add a `windows` job to
   `.github/workflows/ci.yml` (`runs-on: windows-latest`, Temurin 21, `mvn -B -ntp clean verify`,
-  `continue-on-error: true` until T020; the Python tool tests stay on Linux) and a
+  `continue-on-error: true` until T021; the Python tool tests stay on Linux) and a
   `workflow_dispatch` trigger. Test first: `test/release/CiWorkflowTest` (new) reads the workflow
   and asserts both jobs run `verify` on Java 21 and the Windows job uses `windows-latest`.
 - [ ] T002 [P] Test helpers (R-12): `test/testing/ArgvRecorder` (new; a main that writes its
@@ -69,7 +73,9 @@ recordings and the live check (manual, approved, by a Windows user).
   property, optionally sleeps, starts a child or writes a file into a given directory) and
   `test/testing/FakeStartCli` (new; `install(cliHome)` writes `bin/startcli.sh` on POSIX or
   `bin\startcli.bat` on Windows; the Windows script first writes `%CMDCMDLINE%` to a file, then runs
-  `ArgvRecorder` with the test classpath and `%*`; a `replaying` variant prints recorded outputs).
+  `ArgvRecorder` with the test classpath and `%*`; a `replaying` variant prints recorded outputs),
+  and `test/testing/Platform` (new; `windows()` from the host OS, a dead-PID helper that starts and
+  waits for a short `java -version` process instead of `/bin/sh -c "exit 0"`).
   Test first: `test/testing/FakeStartCliTest` (new) runs the substitute through
   `SystemProcessLauncher` with plain arguments and reads the record (POSIX now; Windows in CI).
 
@@ -80,21 +86,27 @@ recordings and the live check (manual, approved, by a Windows user).
   `CliExportRunnerTest`, `CliImportRunnerTest`, `CliRepositoryImportTest`, `CliResourcesTest`,
   `CliRunnerTest`, `CliTagRunnerTest`, `CliVersionProbeTest`, `ScriptedProcessLauncherTest`,
   `V81ArtifactAdapterTest`, `V81ImportAdapterTest`, `V81ProcessControlAdapterTest`,
-  `V81TagAdapterTest`) uses `FakeStartCli.install`; POSIX-permission assertions are guarded for
-  POSIX (their Windows equivalents follow in T018). Verification task: the suite stays green on
-  macOS with unchanged assertions.
+  `V81TagAdapterTest`) uses `FakeStartCli.install`, and every `new CliRunner(…, false, …)` there
+  passes `Platform.windows()` and a platform `PATH`; `CliResourcesTest` uses the `Platform`
+  dead-PID helper; POSIX-permission assertions are guarded for POSIX (their Windows equivalents
+  follow in T019). Verification task: the suite stays green on macOS with unchanged assertions.
 - [ ] T004 [P] Port the remaining tests that write a `startcli.sh`: `MainTest`,
   `MessageTerminologyTest`, `ExportShutdownProcessTest`, `adapter/AdapterGatewayFactoryTest`,
   `adapter/V81InventoryAdapterTest`, `application/DeployHarness`, `application/ImportHarness`,
   `config/ConfigSummaryTest`, `config/ConfigValidatorTest`, `isolation/TwoProfilesTest`,
   `live/LiveTargetTest`, `mcp/ProcessControlToolsTest`, `mcp/tools/ExportArtifactsToolTest`,
   `mcp/tools/InventoryToolFixture`, `mcp/tools/ListNodesToolTest`,
-  `security/NoEnvironmentCredentialsTest`, `security/NoSecretLeakTest`, `security/SecretLeakTest`;
+  `security/NoEnvironmentCredentialsTest`, `security/NoSecretLeakTest`, `security/SecretLeakTest`,
+  and the other `new CliRunner(` sites (`application/CapabilityExtensionTest`,
+  `mcp/tools/DiagnosisToolFixture`, `mcp/tools/GetHealthToolTest`) with `Platform.windows()`;
+  `ExportShutdownProcessTest` uses the dead-PID helper, and its SIGTERM cases
+  (`sigtermStopsTheExportAndDeletesItsDirectory`, `eofAndSigterm…`) are guarded for POSIX (Windows
+  equivalent: T012 job kill and the sweep at the next start, T019);
   POSIX-permission assertions in `MainTest`, `BackupStoreTest`, `PackageWriterTest`,
   `DeployLockTest`, `DeploymentLedgerTest`, `GitCliTest`, `ConfigValidatorTest` and `AuditLogTest`
-  are guarded for POSIX (Windows equivalents in T023–T025). Verification task.
+  are guarded for POSIX (Windows equivalents in T024–T026). Verification task.
 - [ ] T005 `SystemProcessLauncherTest`: lift the class-level `@DisabledOnOs(WINDOWS)`; guard only
-  the POSIX signal methods; the Windows cases follow in T008 and T021. Verification task.
+  the POSIX signal methods; the Windows cases follow in T008 and T022. Verification task.
 
 ## Phase 3: Foundational (blocks every user story)
 
@@ -111,14 +123,15 @@ recordings and the live check (manual, approved, by a Windows user).
   from configuration. Pure. Test first: `test/adapter/cli/WindowsCommandLineTest` (new): quoting,
   trailing `\`, `''`, the longest allowed line, one character over the limit, the guard.
 - [ ] T008 Windows launch in `SystemProcessLauncher` and system queries (R-1, R-8):
-  `main/adapter/os/WindowsSystem` (JNA: `GetSystemDirectoryW`, the token user SID) and the Windows
+  `main/adapter/os/WindowsSystem` (JNA: `GetSystemDirectoryW`, `GetOEMCP`, the token user SID) and the Windows
   path of `SystemProcessLauncher`, which starts the argument list of T007 unchanged (no `.bat`
   passed to the JDK). Test first: **(Windows)** `SystemProcessLauncherTest` cases: for the plain
   values and the contract's test values, `%CMDCMDLINE%` equals the expected interpreter line and
   `ArgvRecorder` receives the expected `args` (this pins the JDK behaviour of R-1; if it fails,
-  switch to the `CreateProcessW` fallback of R-1 in this task); `WindowsSystemTest` (new,
+  stop and add a separate task for the `CreateProcessW` fallback of R-1, with its
+  `PackageBoundaryTest` handling recorded in the plan's Complexity Tracking); `WindowsSystemTest` (new,
   Windows) reads a system directory that contains `cmd.exe` and a user SID.
-- [ ] T009 `StartCliEnvironment` (FR-002, FR-004, R-5): extract today's POSIX allowlist from
+- [ ] T009 `StartCliEnvironment` (FR-002, FR-004, R-5), after T008: extract today's POSIX allowlist from
   `CliRunner` into `main/adapter/cli/StartCliEnvironment` (unchanged) and add the Windows allowlist
   (case-insensitive names, `ComSpec`, `PATH` = `<JAVA_HOME>\bin;<system dir>`,
   `NoDefaultCurrentDirectoryInExePath=1`, the Windows-only `JAVA_TOOL_OPTIONS`). Test first:
@@ -127,16 +140,17 @@ recordings and the live check (manual, approved, by a Windows user).
   a directory of the server's `PATH`; the substitute calls `java` unqualified and reaches the
   configured runtime.
 - [ ] T010 `OutputDecoder` (FR-006, R-6), after T009: `main/adapter/cli/OutputDecoder` — on Windows
-  per line strict UTF-8, else the given native charset, CRLF → LF; on POSIX exactly today's
+  per line strict UTF-8, else the console OEM code page (`GetOEMCP`, T008), CRLF → LF; on POSIX exactly today's
   `toString(UTF_8)`. `CliRunner` decodes through it. Test first:
-  `test/adapter/cli/OutputDecoderTest` (new): UTF-8, 850, 1252, a mixed buffer (one native line
-  among UTF-8 lines), CRLF, BOM; the POSIX path byte-for-byte as today.
+  `test/adapter/cli/OutputDecoderTest` (new): UTF-8, 850, 1252 as OEM code page, a mixed buffer
+  (one OEM line among UTF-8 lines), CRLF, BOM; the POSIX path byte-for-byte as today.
 - [ ] T011 `PrivateFileSystem` (FR-007, R-8): port `main/domain/port/PrivateFileSystem`
   (`createDirectory`, `createDirectories`, `createTempDirectory`, `createFile`, `check`) and
   `main/adapter/os/OsPrivateFileSystem`: POSIX today's permissions exactly (incl. the existing
-  fallbacks); Windows creates the object empty, applies a protected DACL (token user + `SYSTEM`,
-  inheritable on directories) with `SetNamedSecurityInfoW`, deletes it and fails if that fails;
-  `check` reports other principals. No caller changes yet. Test first:
+  fallbacks); Windows creates the object empty, sets the owner to the token user and applies a
+  protected DACL (token user + `SYSTEM`, inheritable on directories) with `SetNamedSecurityInfoW`,
+  deletes it and fails if that fails; `check` reports other principals; `ownedByCurrentUser(Path)`
+  (used by the sweep). No caller changes yet. Test first:
   `test/adapter/os/OsPrivateFileSystemTest` (new; POSIX permissions) and **(Windows)**
   `OsPrivateFileSystemAclTest` (new): read-back DACL is protected with exactly two entries; a file a
   child process writes into the directory inherits them. `PackageBoundaryTest` stays green.
@@ -144,9 +158,10 @@ recordings and the live check (manual, approved, by a Windows user).
   (`state()`: `BOUND` | `UNAVAILABLE(reason)`), `main/adapter/os/NoJob` (POSIX) and
   `main/adapter/os/WindowsJob` (JNA `kernel32`: `CreateJobObjectW`, `SetInformationJobObject` with
   `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, `AssignProcessToJobObject(GetCurrentProcess())`), set up
-  once in `Launcher`/`Wiring` on Windows. Test first: **(Windows)** `WindowsJobTest` (new): a helper
-  JVM binds itself, starts the substitute that starts a sleeping child, is killed with
-  `destroyForcibly`; the child is gone within 2 s.
+  once in `Launcher`/`Wiring` on Windows; the job handle is created non-inheritable. Test first:
+  **(Windows)** `WindowsJobTest` (new): a helper JVM binds itself, starts the substitute that starts
+  a sleeping child, is killed with `destroyForcibly`; the child is gone within 2 s; the handle's
+  `HANDLE_FLAG_INHERIT` is not set.
 
 **Checkpoint**: the Windows building blocks exist and are unused; macOS behaviour unchanged.
 
@@ -160,31 +175,39 @@ Windows CI job.
 
 - [ ] T013 [US2] Windows launch in `CliRunner` (FR-001, FR-002, FR-004, FR-011): remove the
   `WINDOWS_UNSUPPORTED` refusal; on Windows build the call with `WindowsCommandLine`,
-  `StartCliEnvironment` and `bin\startcli.bat`; map the length failure to `INVALID_INPUT` (tool
-  input) or `CLI_UNAVAILABLE` naming the setting (configuration) before any process starts; refuse
-  `ProcessContainment` `UNAVAILABLE` and an unreadable system directory with `CLI_UNAVAILABLE`;
-  Windows variants of next steps that name `bin/startcli.sh` or permissions (e.g. in
-  `launchAndWait`). Test first: `CliRunnerTest` cases with a fake launcher and the Windows flag
-  (expected argument list and environment; both length outcomes with no launch; the longest
-  allowed command runs; Windows next-step texts) and **(Windows)**
-  `WindowsCommandLineInjectionTest` (new): every character of SC-002 in the username, trust-store
-  path, StartCLI URL, `cli.home` and `cli.javaHome` (refused or unchanged as the contract says;
+  `StartCliEnvironment` and `bin\startcli.bat`; check the effective Java home (`cli.javaHome`, else
+  the server's `JAVA_HOME`) with `WindowsArguments` plus `;` (it goes into `PATH`); map the length
+  failure to `INVALID_INPUT` (tool input) or `CLI_UNAVAILABLE` naming the setting (configuration)
+  before any process starts; refuse `ProcessContainment` `UNAVAILABLE` and an unreadable system
+  directory with `CLI_UNAVAILABLE`; Windows variants of next steps that name `bin/startcli.sh` or
+  permissions (e.g. in `launchAndWait`). The containment and system queries come in through a new
+  constructor; the existing constructor stays and delegates with `NoJob` and the POSIX defaults,
+  so the test sites of T003/T004 keep compiling. Test first: `CliRunnerTest` cases with a fake
+  launcher and the Windows flag (expected argument list and environment; both length outcomes with
+  no launch; the longest allowed command runs; a refused `JAVA_HOME`; Windows next-step texts).
+- [ ] T014 [US2] Injection matrix (SC-002, US1 AS5): **(Windows)** `WindowsCommandLineInjectionTest`
+  (new): every character of SC-002 in the username, trust-store path, StartCLI URL, `cli.home`,
+  `cli.javaHome` and the server's `JAVA_HOME` (refused or unchanged as the contract says;
   `ArgvRecorder` sees no second program and the exact `args`), and US1 AS5: an installation path
-  with spaces, `(` and `)`, made read-only, works and nothing is written into it.
-- [ ] T014 [US2] Configured values on Windows (FR-002, FR-011, contracts/configuration-delta.md):
+  with spaces, `(` and `)`, made read-only, works and nothing is written into it. Verification
+  task.
+- [ ] T015 [US2] Configured values on Windows (FR-002, FR-011, contracts/configuration-delta.md):
   `ConfigValidator.checkCli` loses its Windows early return; on Windows it checks
-  `bin\startcli.bat`, `WindowsArguments` for `cli.home`, `cli.javaHome`, `tls.trustStore` and the
-  StartCLI URL, a UNC `cli.home`, the configured line length and the containment state, each as a
-  warning with the node's StartCLI-backed capabilities reporting `CLI_UNAVAILABLE` naming the
-  setting. Test first: `ConfigValidatorTest` Windows cases (each warning text of the contract; the
-  node's REST tools stay available; the old Windows warning is gone).
-- [ ] T015 [US2] Credentials on Windows (FR-002, FR-003, R-9): before a StartCLI call on Windows,
+  `bin\startcli.bat`, `WindowsArguments` for `cli.home`, the effective Java home (`cli.javaHome`,
+  else `JAVA_HOME`, also `;`), `tls.trustStore` and the StartCLI URL, a UNC `cli.home`, the
+  configured line length and the containment state, each as a warning with the node's
+  StartCLI-backed capabilities reporting `CLI_UNAVAILABLE` naming the setting. The line length is
+  computed by `config/WindowsArguments.lineLength(…)` (the same arithmetic `WindowsCommandLine`
+  uses), and the containment state is passed in by `Launcher`, so `config` does not depend on
+  `adapter`. Test first: `ConfigValidatorTest` Windows cases (each warning text of the contract;
+  the node's REST tools stay available; the old Windows warning is gone).
+- [ ] T016 [US2] Credentials on Windows (FR-002, FR-003, R-9): before a StartCLI call on Windows,
   `CliRunner` refuses a username with a refused character and a password with a non-ASCII
   character with `AUTH_FAILED` naming the entry and cause, before the `CredentialGuard` login step
   (no failed-login count); `EntryCheck` shows `invalid value (Windows: <class>)` for such a
   username on nodes with a StartCLI installation. Test first: `CliRunnerTest` (no launch, guard
   untouched, message without value), `EntryCheckTest` Windows cases, a `SecretLeakTest` case.
-- [ ] T016 [US2] Secret inspection (SC-003, FR-003): **(Windows)** `WindowsSecretInspectionTest`
+- [ ] T017 [US2] Secret inspection (SC-003, FR-003): **(Windows)** `WindowsSecretInspectionTest`
   (new) runs export, import and history calls of `CliExportRunner`/`CliImportRunner` against the
   substitute and asserts that no credential occurs in `args`, `%CMDCMDLINE%` or the environment,
   the environment holds only the allowlist, and the password arrived on stdin as UTF-8 plus `\n`.
@@ -197,9 +220,9 @@ Windows CI job.
 ## Phase 5: User Story 1 - Read-only StartCLI tools on Windows (Priority: P1)
 
 **Goal**: client check, module list, history and export work on Windows as on macOS.
-**Independent test**: the tool tests on the Windows CI job; later the live check (T030).
+**Independent test**: the tool tests on the Windows CI job; later the live check (T031).
 
-- [ ] T017 [US1] Paths inside the command (FR-009, R-3): `CliPaths` platform-aware (Windows rule
+- [ ] T018 [US1] Paths inside the command (FR-009, R-3): `CliPaths` platform-aware (Windows rule
   `^[A-Za-z]:/[A-Za-z0-9_.\- /]{1,256}$`, no `.`/`..`), `CliCommand.Builder.path` renders `/` on
   Windows and checks the platform rule, `CliExportRunner`/`CliImportRunner` messages print the
   platform's rule, temporary paths go through `toRealPath()` (the parent for files not yet
@@ -207,63 +230,74 @@ Windows CI job.
   `-Djava.io.tmpdir` remedy. Test first: `CliPathsTest` (new; accepted and refused Windows paths,
   8.3 expansion via a stubbed resolver, UNC refused, 259/260 characters), `CliCommandTest` Windows
   rendering, `ConfigValidatorTest` Windows tmpdir warning.
-- [ ] T018 [US1] Private temporary data (FR-007, FR-008, R-10): `CliExportRunner`,
+- [ ] T019 [US1] Private temporary data (FR-007, FR-008, R-10): `CliExportRunner`,
   `CliImportRunner` and `CliResources` create their directories through `PrivateFileSystem`;
   `CliResources.sweepStale` runs on Windows (`Launcher` drops the `!windows` condition; owner
   compared with the token user), with 5 deletion attempts within 2 s for held files, then a log
-  line with the directory name only. Test first: `CliResourcesTest` (sweep on a simulated Windows
-  root; retry bound with an injected deleter) and **(Windows)** cases in `CliExportRunnerTest`,
-  `CliImportRunnerTest` and `ExportShutdownProcessTest`: DACL of the temporary directory, and of a
-  file the substitute writes into it, as in T011.
-- [ ] T019 [US1] Client check and announcement (FR-010): the client probe (`-v`) runs on Windows
+  line with the directory name only; the owner check uses `PrivateFileSystem.ownedByCurrentUser`.
+  Test first: `CliResourcesTest` (sweep on a simulated Windows root; retry bound with an injected
+  deleter), a failing `PrivateFileSystem` stub (export and import fail with their existing code
+  and a next step naming the directory and the required access; no launch) and **(Windows)** cases
+  in `CliExportRunnerTest`, `CliImportRunnerTest` and `ExportShutdownProcessTest`: DACL of the
+  temporary directory and of a file the substitute writes into it, as in T011; a server killed
+  during an export leaves no StartCLI process (job, T012) and the next start sweeps its
+  directory.
+- [ ] T020 [US1] Client check and announcement (FR-010): the client probe (`-v`) runs on Windows
   in `--check-config` and `get_health` through the Windows launch; `list_nodes` shows `cli: true`
   and the StartCLI-backed tools are announced for a Windows client installation. Test first:
   `ConfigSummaryTest`/`MainTest` Windows node line with client version, `ListNodesToolTest` and the
   tool-announcement cases of `WiringE2eTest` with the Windows flag.
-- [ ] T020 [US1] Read-only tools end to end (FR-001, FR-006): **(Windows)**
+- [ ] T021 [US1] Read-only tools end to end (FR-001, FR-006): **(Windows)**
   `WindowsReadOnlyToolsTest` (new) runs `list_inventory` (modules), `get_inventory_item` (history)
   and `export_artifacts` through the Windows launch with the substitute replaying the macOS
   recordings of `fixtures/v8_1/cli/` as UTF-8 with CRLF; results equal the macOS results; no
   temporary data remains. Then remove `continue-on-error` from the `windows` job (T001): the whole
-  suite is green on Windows. Verification task.
+  suite is green on Windows (making the check required in branch protection is the person's
+  setting). Verification task.
 
-**Checkpoint**: the read-only StartCLI tools work on Windows offline; the Windows job is required.
+**Checkpoint**: the read-only StartCLI tools work on Windows offline; the Windows job is green.
 
 ---
 
 ## Phase 6: User Story 4 - Timeouts and cleanup (Priority: P2)
 
-- [ ] T021 [US4] Process tree on Windows (FR-005, SC-004): **(Windows)** `WindowsProcessTreeTest`
+- [ ] T022 [US4] Process tree on Windows (FR-005, SC-004): **(Windows)** `WindowsProcessTreeTest`
   (new) and `SystemProcessLauncherTest` Windows cases — the substitute hangs and starts a child;
   after `cliTimeout` the call fails with `TIMEOUT` and no process of the tree is alive one second
   after the grace period, 20 runs; the same for a closed MCP connection (orderly stop) with the
   export directory removed. Fix the tree handling of `SystemProcessLauncher` if the interpreter
   exits before Java. Verification task where it passes.
-- [ ] T022 [US4] Password-prompt timeout on Windows (FR-005, R-10): on Windows
-  `CliOutputClassifier` recognises the client's password prompt as the last output; the `TIMEOUT`
-  cause says StartCLI was still waiting for the password and the next step names the live check;
-  macOS and Linux keep today's message. Test first: `CliOutputClassifierTest`, `CliRunnerTest`
-  timeout cases for both platforms.
+- [ ] T023 [US4] Timeout after the password prompt on Windows (FR-005 as amended after plan review
+  r2, R-10): on Windows, when the last output of a timed-out call is the client's password prompt,
+  the `TIMEOUT` cause names both possibilities (the client may be waiting for the password on its
+  console, or the server is slow) and the next step keeps "raise `cliTimeout`" and adds the live
+  check; macOS and Linux keep today's message. Test first: `CliOutputClassifierTest`,
+  `CliRunnerTest` timeout cases for both platforms, with and without the prompt as last output.
 
 ---
 
 ## Phase 7: User Story 3 - Write tools with the same safety (Priority: P2)
 
-- [ ] T023 [US3] Audit (FR-007): `AuditLog` and `Launcher.createAuditDirectory` use
+- [ ] T024 [US3] Audit (FR-007): `AuditLog` and `Launcher.createAuditDirectory` use
   `PrivateFileSystem`; at startup and in `--check-config`, `check` on the default audit directory
   and the audit log warns with the `icacls` remedy when another principal has access; nothing is
-  changed; POSIX behaviour unchanged. Test first: `AuditLogTest`/`MainTest` POSIX cases unchanged;
-  **(Windows)** DACL read-back and the warning for a directory with an inherited `Users` entry.
-- [ ] T024 [US3] Deployment files (FR-007): `BackupStore`, `PackageWriter`, `DeployLock` and
+  changed; POSIX behaviour unchanged. This task wires `OsPrivateFileSystem` through `Launcher` and
+  `Wiring` for T024–T026 as well. Test first: `AuditLogTest`/`MainTest` POSIX cases unchanged; a
+  failing `PrivateFileSystem` stub makes the server refuse to start (as today when the audit
+  directory cannot be created); **(Windows)** DACL read-back and the warning for a directory with
+  an inherited `Users` entry.
+- [ ] T025 [US3] Deployment files (FR-007): `BackupStore`, `PackageWriter`, `DeployLock` and
   `DeploymentLedger` use `PrivateFileSystem` (injected; `PackageBoundaryTest` green); the existing
   deployment ledger and lock are checked like the audit log. Test first: their POSIX tests
   unchanged; **(Windows)** DACL read-back per class; a failing DACL fails with the caller's existing
   error.
-- [ ] T025 [US3] Workspace and git (FR-007): `WorkspaceDirectory` (when it creates the workspace)
+- [ ] T026 [US3] Workspace and git (FR-007): `WorkspaceDirectory` (when it creates the workspace)
   and `GitCli` (hooks directory) use `PrivateFileSystem`; an existing workspace is not checked.
-  Test first: `GitCliTest`/`ConfigValidatorTest` POSIX cases unchanged; **(Windows)** DACL
-  read-back of a new workspace and of the hooks directory; an existing workspace gives no warning.
-- [ ] T026 [US3] Write tools end to end (FR-001): **(Windows)** `WindowsWriteToolsTest` (new) runs
+  Test first: `GitCliTest`/`ConfigValidatorTest` POSIX cases unchanged; a failing
+  `PrivateFileSystem` stub makes the workspace tools unavailable (as today when the workspace cannot
+  be created); **(Windows)** DACL read-back of a new workspace and of the hooks directory; an
+  existing workspace gives no warning.
+- [ ] T027 [US3] Write tools end to end (FR-001): **(Windows)** `WindowsWriteToolsTest` (new) runs
   `import_artifacts` (preview and execution with the code), `restore_backup`, `set_active`,
   `tag_artifacts`, `restart_process`, `kill_process` and a real `deploy_release` against the
   substitute with recorded outputs — one node succeeding, one failing with roll-back from its
@@ -274,7 +308,7 @@ Windows CI job.
 
 ## Phase 8: User Story 5 - INUBIT 6.1 on Windows (Priority: P2, conditional)
 
-- [ ] T027 [US5] (FR-012, R-14) Only if feature 012 is on `main` when this phase starts: merge
+- [ ] T028 [US5] (FR-012, R-14) Only if feature 012 is on `main` when this phase starts: merge
   `main`, route the 6.1 session through the Windows launch and add **(Windows)** variants of the
   012 session tests (`V61ConnectionTest`, `V61SessionTest` or their successors). Otherwise: add a
   task to `specs/012-inubit-61-cli-reads/tasks.md` on its branch ("Windows variants of the 6.1
@@ -284,10 +318,10 @@ Windows CI job.
 
 ## Phase 9: User Story 6 - Documentation (Priority: P3)
 
-- [ ] T028 [P] [US6] Docs (FR-016): README (requirements: StartCLI on Windows with
+- [ ] T029 [P] [US6] Docs (FR-016): README (requirements: StartCLI on Windows with
   `bin\startcli.bat`, Java 17 runtime; remove "not supported on Windows"), `docs/setup.md`
   (Windows client setup, refused characters, path rule and `-Djava.io.tmpdir`, job and DACL notes,
-  6.1 on Windows per T027), `docs/tools.md` (error texts), `docs/live-tests.md` (Windows section:
+  6.1 on Windows per T028), `docs/tools.md` (error texts), `docs/live-tests.md` (Windows section:
   which live tests run on Windows and their opt-in variables), CHANGELOG `[Unreleased]`. Test
   first: the docs reference tests stay green; `DocsWindowsStatementsTest` (new) fails while a "not
   supported on Windows" statement about StartCLI remains.
@@ -297,24 +331,24 @@ Windows CI job.
 **Blocked on**: a Windows user with a non-production INUBIT 8.1 node and the person's approval in
 the chat for each step.
 
-- [ ] T029 [US6] Recorder (FR-014, R-13): `tools/record-fixtures.ps1` with the read-only cases
+- [ ] T030 [US6] Recorder (FR-014, R-13): `tools/record-fixtures.ps1` with the read-only cases
   `win_version`, `win_help`, `win_modules`, `win_failure`, `win_argv`, `win_backslash`, same stdin
   and allowlist rules as the server, no password on the command line; `.gitattributes` gets
   `src/test/resources/fixtures/windows/** -text`. Test first: `test/tools/RecordFixturesPs1Test`
   (new) reads the script (no `-p`, password only through the child's stdin, allowlist, the group
   allowlist check before each case, all six cases listed).
-- [ ] T030 [US6] Record and live-check (FR-014, FR-015; by the Windows user, after approval): run
-  T029's cases, neutralise, add them under `fixtures/windows/`, run `NoCustomerIdentifiersTest`;
+- [ ] T031 [US6] Record and live-check (FR-014, FR-015; by the Windows user, after approval): run
+  T030's cases, neutralise, add them under `fixtures/windows/`, run `NoCustomerIdentifiersTest`;
   run the opt-in JUnit live tests on Windows (read-only first: `InventoryLiveTest`,
   `ArtifactExportLiveTest`, `CredentialStoreLiveTest`; then, on a development node or approved
   target, `DevelopmentLiveTest` and `DeploymentLiveTest`) and the manual steps of quickstart.md;
   fill its "Validation record". If the client does not read the password from redirected stdin:
   stop and ask the person (FR-003). If separator, `\` handling, encoding or the R-4 margin differ
   from the defaults: update spec, research R-3/R-4/R-6 and the code in a follow-up task.
-- [ ] T031 [US6] Windows recordings in the offline suite (SC-005): parse tests over the Windows
+- [ ] T032 [US6] Windows recordings in the offline suite (SC-005): parse tests over the Windows
   recordings, transcoded into 850, 1252 and 65001, equal the macOS results; the substitute of T002
   is adjusted to the recorded argument forwarding. Test first: `WindowsRecordingsTest` (new).
-- [ ] T032 Quickstart validation: offline table of quickstart.md, full `mvn -q -o clean verify`
+- [ ] T033 Quickstart validation: offline table of quickstart.md, full `mvn -q -o clean verify`
   green on macOS, `NoCustomerIdentifiersTest` run (20 tests, 0 skipped), Windows CI job green;
   record in quickstart.md.
 
@@ -323,19 +357,18 @@ the chat for each step.
 ## Dependencies & Execution Order
 
 - Phase 1 (T001, T002) → Phase 2 (T003, T004 [P] after T002; T005) → Phase 3 (T006 → T007 →
-  T008; T009 → T010; T011 after T008; T012 after T008) → US2 (T013 → T014, T015 → T016) → US1
-  (T017 → T018 → T019 → T020) → US4 (T021, T022) → US3 (T023, T024, T025 → T026) → US5 (T027) →
-  docs (T028 any time after T020) → Phase 10 (T029 → T030 → T031) → T032.
+  T008 → T009 → T010; T011 and T012 after T008) → US2 (T013 → T014; T015, T016 after T013 → T017)
+  → US1 (T018 → T019 → T020 → T021) → US4 (T022, T023) → US3 (T024 → T025 → T026 → T027) → US5
+  (T028) → docs (T029 any time after T021) → Phase 10 (T030 → T031 → T032) → T033.
 - Windows-only tests need the `windows` CI job (T001) on the pushed branch of draft PR #53.
 
 ## Parallel Opportunities
 
-- T001 and T002; T003 and T004; T023, T024 and T025 (different classes); T028 alongside
-  Phases 6–8.
+- T001 and T002; T003 and T004; T011 and T012; T029 alongside Phases 6–8.
 
 ## Implementation Strategy
 
 - **MVP**: Phases 1–5 (porting, building blocks, US2, US1): read-only StartCLI tools on Windows
-  with the safety property, the Windows job required and green; then the live check T030 with a
+  with the safety property, the Windows job required and green; then the live check T031 with a
   Windows user.
-- **Then**: US4, US3, US5, docs; the defaults of the Clarifications are revisited after T030.
+- **Then**: US4, US3, US5, docs; the defaults of the Clarifications are revisited after T031.
