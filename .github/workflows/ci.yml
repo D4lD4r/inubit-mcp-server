@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -30,3 +31,22 @@ jobs:
       # Offline tests of tools/inubit-cert-check.py; tests that need macOS binaries or keytool skip themselves.
       - name: Test operator tools
         run: python3 -I -m unittest discover -s tools/tests -v
+
+  # Feature 013 (FR-013): the offline suite on Windows. continue-on-error until T021, when the
+  # porting and the Windows launch are done. The operator-tool tests stay on Linux.
+  windows:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build and test
+        run: mvn -B -ntp clean verify

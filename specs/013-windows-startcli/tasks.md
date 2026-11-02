@@ -63,7 +63,7 @@ recordings and the live check (manual, approved, by a Windows user).
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] Windows CI job (FR-013, research R-12): add a `windows` job to
+- [X] T001 [P] Windows CI job (FR-013, research R-12): add a `windows` job to
   `.github/workflows/ci.yml` (`runs-on: windows-latest`, Temurin 21, `mvn -B -ntp clean verify`,
   `continue-on-error: true` until T021; the Python tool tests stay on Linux) and a
   `workflow_dispatch` trigger. Test first: `test/release/CiWorkflowTest` (new) reads the workflow
