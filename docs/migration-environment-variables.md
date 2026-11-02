@@ -40,8 +40,9 @@ If you followed the Keychain how-to of 0.6.x, your entries already have the righ
    did, so an earlier "Always Allow" still applies and normally no dialog appears; otherwise
    choose "Always Allow" once per entry.
 
-If the script did more (for example the certificate check of setup.md section 5), keep that as a
-separate step; it is no longer needed to start the server.
+If the script did more (for example the certificate check of setup.md section 5), keep only that
+part in a start script without credentials ([setup.md, Certificate changes](setup.md#certificate-changes));
+it is no longer needed to start the server.
 
 ## From exported shell variables
 
@@ -55,8 +56,9 @@ security add-generic-password -U -s inubit-mcp -a INUBIT_ACME_DEV_USERNAME -w
 security add-generic-password -U -s inubit-mcp -a INUBIT_ACME_DEV_PASSWORD -w
 ```
 
-```bat
-:: Windows
+Windows (PowerShell or Command Prompt):
+
+```powershell
 cmdkey /generic:inubit-mcp:INUBIT_ACME_DEV_USERNAME /user:INUBIT_ACME_DEV_USERNAME /pass
 cmdkey /generic:inubit-mcp:INUBIT_ACME_DEV_PASSWORD /user:INUBIT_ACME_DEV_PASSWORD /pass
 ```
