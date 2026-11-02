@@ -14,7 +14,10 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -53,8 +56,7 @@ class CliDeployExportsTest {
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        Files.writeString(Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh"),
-            "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
     }
 
     @AfterEach
@@ -63,7 +65,7 @@ class CliDeployExportsTest {
     }
 
     private CliExportRunner exports() {
-        CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
+        CliRunner runner = TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
             new CliResources("acme"));
         NodeCredentials credentials = new NodeCredentials(DEV,
             Optional.of(new SourcedValue<>("jdoe", "INUBIT_DEV_USERNAME")),

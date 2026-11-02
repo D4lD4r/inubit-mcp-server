@@ -19,10 +19,12 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -59,8 +61,7 @@ class V81ProcessControlAdapterTest {
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
         scrubber.register(PASSWORD);
     }
 
@@ -77,18 +78,23 @@ class V81ProcessControlAdapterTest {
     }
 
     private V81ProcessControlAdapter adapter(FakeProcessLauncher launcher) {
-        return adapter(launcher, config(), credentials(), false);
+        return adapter(launcher, config(), credentials());
     }
 
     private V81ProcessControlAdapter adapter(FakeProcessLauncher launcher,
-        EffectiveNodeConfig config, NodeCredentials credentials, boolean windows) {
-        return new V81ProcessControlAdapter(config, credentials, guard,
-            new CliRunner(launcher, Map.of("PATH", "/usr/bin"), windows, new CliResources("acme")),
+        EffectiveNodeConfig config, NodeCredentials credentials) {
+        return adapter(config, credentials, TestCliRunners.forHost(launcher,
+            Map.of("PATH", Platform.searchPath()), new CliResources("acme")));
+    }
+
+    private V81ProcessControlAdapter adapter(EffectiveNodeConfig config,
+        NodeCredentials credentials, CliRunner runner) {
+        return new V81ProcessControlAdapter(config, credentials, guard, runner,
             new CliOutputClassifier(scrubber));
     }
 
     private static String execCommand(FakeProcessLauncher launcher) {
-        List<String> command = launcher.last().spec().command();
+        List<String> command = launcher.last().spec().startCliArguments();
         return command.get(command.indexOf("--execCommand") + 1);
     }
 
@@ -133,8 +139,9 @@ class V81ProcessControlAdapterTest {
 
         adapter(launcher).restart("110190387");
 
-        assertThat(launcher.last().spec().command()).noneMatch(arg -> arg.contains(PASSWORD))
-            .containsSequence("-u", "jdoe").doesNotContain("-p");
+        assertThat(launcher.last().spec().command()).noneMatch(arg -> arg.contains(PASSWORD));
+        assertThat(launcher.last().spec().startCliArguments()).containsSequence("-u", "jdoe")
+            .doesNotContain("-p");
         assertThat(new String(launcher.last().stdinBytes(), StandardCharsets.UTF_8))
             .isEqualTo(PASSWORD + "\n");
         assertThat(launcher.last().spec().environment()).doesNotContainKeys(
@@ -148,7 +155,7 @@ class V81ProcessControlAdapterTest {
         EffectiveNodeConfig fast = TestNodeConfig.node().cliHome(cliHome)
             .cliJavaHome(Path.of("/opt/jdk-17")).cliTimeout(Duration.ofMillis(200)).build();
 
-        ToolError error = errorOf(() -> adapter(launcher, fast, credentials(), false)
+        ToolError error = errorOf(() -> adapter(launcher, fast, credentials())
             .restart("110190387"));
 
         assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
@@ -226,7 +233,7 @@ class V81ProcessControlAdapterTest {
     void withoutCliHomeTheActionsAreCliUnavailable() {
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
         EffectiveNodeConfig noCli = TestNodeConfig.node().build();
-        V81ProcessControlAdapter adapter = adapter(launcher, noCli, credentials(), false);
+        V81ProcessControlAdapter adapter = adapter(launcher, noCli, credentials());
 
         assertThat(errorOf(adapter::checkAvailable).code())
             .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
@@ -239,7 +246,10 @@ class V81ProcessControlAdapterTest {
     void onWindowsTheActionsAreCliUnavailable() {
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("kill_ok");
 
-        assertThat(errorOf(() -> adapter(launcher, config(), credentials(), true).kill("1"))
+        CliRunner windows = new CliRunner(launcher, Map.of("PATH", Platform.searchPath()), true,
+            new CliResources("acme"));
+
+        assertThat(errorOf(() -> adapter(config(), credentials(), windows).kill("1"))
             .code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
         assertThat(launcher.launchCount()).isZero();
     }
@@ -249,7 +259,7 @@ class V81ProcessControlAdapterTest {
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("kill_ok");
         NodeCredentials none = new NodeCredentials(DEV, Optional.empty(), Optional.empty(),
             Optional.empty(), Optional.empty());
-        V81ProcessControlAdapter adapter = adapter(launcher, config(), none, false);
+        V81ProcessControlAdapter adapter = adapter(launcher, config(), none);
 
         ToolError check = errorOf(adapter::checkAvailable);
         ToolError kill = errorOf(() -> adapter.kill("1"));

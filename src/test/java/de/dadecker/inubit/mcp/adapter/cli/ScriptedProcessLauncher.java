@@ -199,9 +199,9 @@ public final class ScriptedProcessLauncher implements ProcessLauncher {
         }
     }
 
-    /** The {@code --execCommand} value of a launch. */
+    /** The {@code --execCommand} value of a launch, from its StartCLI arguments. */
     public static String execCommand(LaunchSpec spec) {
-        List<String> command = spec.command();
+        List<String> command = spec.startCliArguments();
         int index = command.indexOf("--execCommand");
         if (index < 0 || index + 1 >= command.size()) {
             throw new AssertionError("launch without --execCommand: " + spec);

@@ -147,7 +147,7 @@ public final class CliRunner {
         command.add(target.script().toString());
         command.addAll(arguments);
         LaunchSpec spec = new LaunchSpec(command, childEnvironment(target.javaHome()),
-            target.home());
+            target.home(), arguments);
         return launchAndWait(server, spec, stdinSecret, timeout, timeoutSetting);
     }
 

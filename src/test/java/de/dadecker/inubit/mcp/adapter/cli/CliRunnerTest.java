@@ -10,7 +10,10 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -27,6 +30,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 /** T022: the StartCLI process layer with {@link FakeProcessLauncher} (research R-6, R-12). */
@@ -45,9 +50,8 @@ class CliRunnerTest {
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
-        parentEnv.put("PATH", "/usr/bin:/bin");
+        script = FakeStartCli.install(cliHome).script();
+        parentEnv.put("PATH", Platform.searchPath());
         parentEnv.put("HOME", "/Users/jdoe");
         parentEnv.put("TMPDIR", "/var/tmp/");
         parentEnv.put("LANG", "de_DE.UTF-8");
@@ -63,7 +67,7 @@ class CliRunnerTest {
     }
 
     private CliRunner runner(FakeProcessLauncher launcher) {
-        return new CliRunner(launcher, parentEnv, false, new CliResources("acme"));
+        return TestCliRunners.forHost(launcher, parentEnv, new CliResources("acme"));
     }
 
     private CliResult run(FakeProcessLauncher launcher, EffectiveNodeConfig config) {
@@ -119,7 +123,7 @@ class CliRunnerTest {
         CliResources resources = new CliResources("acme");
         resources.close();
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
-        CliRunner runner = new CliRunner(launcher, parentEnv, false, resources);
+        CliRunner runner = TestCliRunners.forHost(launcher, parentEnv, resources);
 
         ToolError error = errorOf(() -> runner.run(server().build(), USER, Secret.of(PASSWORD),
             CliCommand.processErrorStart("110190387"), Duration.ofSeconds(5), guard()));
@@ -174,12 +178,35 @@ class CliRunnerTest {
         run(launcher, server().trustStore(trustStore).disableHostnameVerification("AB".repeat(32))
             .build());
 
-        assertThat(launcher.last().spec().command()).containsExactly(
-            script.toString(), "-u", USER,
+        assertThat(launcher.last().spec().startCliArguments()).containsExactly(
+            "-u", USER,
             "--trustStoreFilePath", trustStore.toString(),
             "--disableHostNameVerification",
             "--execCommand", "processErrorStart 110190387",
             "https://inubit-dev-1.example.test:8443/ibis/servlet/IBISSoapServlet");
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void onPosixTheCommandIsTheScriptFollowedByTheStartCliArguments() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+
+        run(launcher, server().build());
+
+        List<String> command = launcher.last().spec().command();
+        assertThat(command.get(0)).isEqualTo(script.toString());
+        assertThat(command.subList(1, command.size()))
+            .isEqualTo(launcher.last().spec().startCliArguments());
+    }
+
+    @Test
+    void theLaunchSpecDescriptionShowsNoStartCliArgument() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+
+        run(launcher, server().build());
+
+        assertThat(launcher.last().spec().toString()).doesNotContain(USER)
+            .doesNotContain("processErrorStart").doesNotContain("inubit-dev-1");
     }
 
     @Test
@@ -201,8 +228,8 @@ class CliRunnerTest {
         run(launcher, server().cliUrl("https://cli.example.test/ibis/servlet/IBISSoapServlet")
             .build());
 
-        assertThat(launcher.last().spec().command()).containsExactly(
-            script.toString(), "-u", USER, "--execCommand", "processErrorStart 110190387",
+        assertThat(launcher.last().spec().startCliArguments()).containsExactly(
+            "-u", USER, "--execCommand", "processErrorStart 110190387",
             "https://cli.example.test/ibis/servlet/IBISSoapServlet");
     }
 
@@ -213,7 +240,7 @@ class CliRunnerTest {
 
         run(launcher, server().trustStore(trustStore).build());
 
-        assertThat(launcher.last().spec().command())
+        assertThat(launcher.last().spec().startCliArguments())
             .containsSubsequence("--trustStoreFilePath", trustStore.toString())
             .doesNotContain("--disableHostNameVerification");
     }
@@ -291,7 +318,7 @@ class CliRunnerTest {
         Map<String, String> env = launcher.last().spec().environment();
         assertThat(env.keySet()).containsExactlyInAnyOrder("PATH", "HOME", "TMPDIR", "LANG",
             "LC_ALL", "USER", "JAVA_HOME", "JAVA_TOOL_OPTIONS");
-        assertThat(env).containsEntry("PATH", "/usr/bin:/bin").containsEntry("USER", "jdoe")
+        assertThat(env).containsEntry("PATH", Platform.searchPath()).containsEntry("USER", "jdoe")
             .containsEntry("LANG", "de_DE.UTF-8");
         assertThat(env.values()).doesNotContain("dev-secret", "qa-secret", "db-secret",
             "ghp_token", "/evil", "/evil.dylib");
@@ -413,7 +440,7 @@ class CliRunnerTest {
         ToolError error = errorOf(() -> run(launcher, server().build()));
 
         assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
-        assertThat(error.toString()).contains("startcli.sh");
+        assertThat(error.toString()).contains(script.getFileName().toString());
         assertThat(launcher.launchCount()).isZero();
     }
 

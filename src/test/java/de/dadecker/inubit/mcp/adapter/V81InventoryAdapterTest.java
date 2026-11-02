@@ -128,7 +128,7 @@ class V81InventoryAdapterTest {
     private static FakeProcessLauncher exporting(String fixtureCase) {
         byte[] zip = FakeProcessLauncher.fixture(fixtureCase + ".zip");
         return FakeProcessLauncher.replaying(fixtureCase).onLaunch(spec -> {
-            Matcher matcher = EXPORT_FILE.matcher(execCommand(spec.command()));
+            Matcher matcher = EXPORT_FILE.matcher(execCommand(spec.startCliArguments()));
             if (matcher.find()) {
                 try {
                     Files.write(Path.of(matcher.group(1)), zip);
@@ -201,7 +201,7 @@ class V81InventoryAdapterTest {
 
         assertThat(history.workflows()).containsKey("Workflow-0101");
         assertThat(history.modules()).containsKey("Module-0028");
-        assertThat(execCommand(launcher.last().spec().command())).startsWith(
+        assertThat(execCommand(launcher.last().spec().startCliArguments())).startsWith(
             "export --exportWorkflowUser 'OWNERS' --exportWorkflowType 'technical'"
                 + " --exportWorkflowGroup 'GRP-41' --includeHistory --exportFile '");
         assertThat(launcher.last().spec().command()).doesNotContain(PASSWORD);
@@ -228,7 +228,7 @@ class V81InventoryAdapterTest {
 
         assertThat(modules).hasSize(20);
         assertThat(modules.get(0).item().owner()).isEqualTo("OWNERS");
-        assertThat(execCommand(launcher.last().spec().command())).startsWith(
+        assertThat(execCommand(launcher.last().spec().startCliArguments())).startsWith(
             "export --exportModule '' --exportModuleGroup '' --exportModuleUser 'OWNERS'");
     }
 

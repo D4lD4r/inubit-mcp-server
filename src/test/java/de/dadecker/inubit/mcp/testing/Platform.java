@@ -28,6 +28,11 @@ public final class Platform {
         return process.pid();
     }
 
+    /** A {@code PATH} of the host's syntax for a test's parent environment. */
+    public static String searchPath() {
+        return windows() ? "C:\\Windows\\System32;C:\\Windows" : "/usr/bin:/bin";
+    }
+
     /**
      * {@code path} as it appears inside a StartCLI command on the host: unchanged on POSIX, with
      * {@code /} separators on Windows (research R-3).

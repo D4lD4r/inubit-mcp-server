@@ -84,7 +84,7 @@ recordings and the live check (manual, approved, by a Windows user).
 
 ## Phase 2: Port the existing suite (FR-013)
 
-- [ ] T003 [P] Port the adapter/cli tests: every class in `test/adapter/cli/` and
+- [X] T003 [P] Port the adapter/cli tests: every class in `test/adapter/cli/` and
   `test/adapter/cli/v81/` that writes its own `startcli.sh` (`CliDeployExportsTest`,
   `CliExportRunnerTest`, `CliImportRunnerTest`, `CliRepositoryImportTest`, `CliResourcesTest`,
   `CliRunnerTest`, `CliTagRunnerTest`, `CliVersionProbeTest`, `ScriptedProcessLauncherTest`,

@@ -13,6 +13,9 @@ import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -44,8 +47,7 @@ class CliVersionProbeTest {
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        script = FakeStartCli.install(cliHome).script();
         server = TestNodeConfig.node().cliHome(cliHome).cliJavaHome(Path.of("/opt/jdk-17"))
             .trustStore(Path.of("/etc/trust.p12")).disableHostnameVerification("AB".repeat(32))
             .build();
@@ -56,8 +58,8 @@ class CliVersionProbeTest {
     }
 
     private CliVersionProbe probe(FakeProcessLauncher launcher, SecretScrubber scrubber) {
-        return new CliVersionProbe(new CliRunner(launcher,
-            Map.of("PATH", "/usr/bin", "INUBIT_DEV_PASSWORD", "never-passed"), false,
+        return new CliVersionProbe(TestCliRunners.forHost(launcher,
+            Map.of("PATH", Platform.searchPath(), "INUBIT_DEV_PASSWORD", "never-passed"),
                 new CliResources("acme")), id -> server, scrubber);
     }
 
@@ -144,7 +146,7 @@ class CliVersionProbeTest {
 
         probe(launcher).probe(ID, TIMEOUT);
 
-        assertThat(launcher.last().spec().command()).containsExactly(script.toString(), "-v");
+        assertThat(launcher.last().spec().startCliArguments()).containsExactly("-v");
         assertThat(launcher.last().stdinBytes()).isEmpty();
         assertThat(launcher.last().stdinClosed()).isTrue();
         assertThat(launcher.last().spec().environment())

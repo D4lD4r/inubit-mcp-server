@@ -13,10 +13,12 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -48,8 +50,7 @@ class CliTagRunnerTest {
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
     }
 
     private CliTagRunner runner(ScriptedProcessLauncher cli) {
@@ -59,7 +60,7 @@ class CliTagRunnerTest {
             Optional.empty(), Optional.empty());
         return new CliTagRunner(TestNodeConfig.node().cliHome(cliHome)
             .cliJavaHome(Path.of("/opt/jdk-17")).cliExportTimeout(Duration.ofMillis(500)).build(),
-            credentials, guard, new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
+            credentials, guard, TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
                 new CliResources("acme")), new CliOutputClassifier(new SecretScrubber()));
     }
 

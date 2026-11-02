@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher.FakeProcess;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.testing.Platform;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -53,9 +54,7 @@ class CliResourcesTest {
     }
 
     private static long deadPid() throws Exception {
-        Process process = new ProcessBuilder("/bin/sh", "-c", "exit 0").start();
-        process.waitFor();
-        long pid = process.pid();
+        long pid = Platform.deadPid();
         assertThat(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)).isFalse();
         return pid;
     }

@@ -13,13 +13,17 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -43,10 +47,11 @@ class ScriptedProcessLauncherTest {
     @TempDir
     Path work;
 
+    private Path script;
+
     @BeforeEach
     void installFakeCli() throws IOException {
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        script = FakeStartCli.install(cliHome).script();
     }
 
     @Test
@@ -215,7 +220,7 @@ class ScriptedProcessLauncherTest {
 
         ScriptedProcessLauncher.Launch launch = cli.launches().get(0);
         assertThat(launch.execCommand()).isEqualTo("export --includeHistory");
-        assertThat(launch.spec().command()).contains("-u", "jdoe");
+        assertThat(launch.spec().startCliArguments()).contains("-u", "jdoe");
         assertThat(new String(launch.process().stdinBytes(), StandardCharsets.UTF_8))
             .isEqualTo("pw-123\n");
     }
@@ -232,13 +237,16 @@ class ScriptedProcessLauncherTest {
     }
 
     private LaunchSpec spec(String execCommand) {
-        return new LaunchSpec(List.of(cliHome.resolve("bin/startcli.sh").toString(), "-u",
-            "jdoe", "--execCommand", execCommand, "https://inubit-dev.example.test:8443/ibis"),
-            Map.of(), cliHome);
+        List<String> arguments = List.of("-u", "jdoe", "--execCommand", execCommand,
+            "https://inubit-dev.example.test:8443/ibis");
+        List<String> command = new ArrayList<>(List.of(script.toString()));
+        command.addAll(arguments);
+        return new LaunchSpec(command, Map.of(), cliHome, arguments);
     }
 
     private CliRunner runner(ScriptedProcessLauncher cli) {
-        return new CliRunner(cli, Map.of("PATH", "/usr/bin"), false, new CliResources("acme"));
+        return TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
+            new CliResources("acme"));
     }
 
     private EffectiveNodeConfig server() {

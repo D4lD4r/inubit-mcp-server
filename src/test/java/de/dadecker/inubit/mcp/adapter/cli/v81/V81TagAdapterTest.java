@@ -19,7 +19,10 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -61,8 +64,7 @@ class V81TagAdapterTest {
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
     }
 
     private TagPort adapter() {
@@ -74,7 +76,7 @@ class V81TagAdapterTest {
             Optional.empty(), Optional.empty());
         CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", DEV),
             new MutableClock(Instant.parse("2026-10-07T08:00:00Z")));
-        CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
+        CliRunner runner = TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
             new CliResources("acme"));
         CliOutputClassifier classifier = new CliOutputClassifier(new SecretScrubber());
         return new V81TagAdapter(DEV, new CliExportRunner(server, credentials, guard, runner,

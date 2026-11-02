@@ -16,12 +16,16 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
@@ -56,6 +60,9 @@ class CliExportRunnerTest {
     private static final NodeId DEV = NodeId.parse("dev/node1");
     private static final String PASSWORD = "S3cr3t-export-pw";
     private static final Pattern EXPORT_FILE = Pattern.compile("--exportFile '([^']+)'");
+    /** Owner-only permissions are checked on POSIX; the Windows equivalent follows in T019. */
+    private static final boolean POSIX =
+        FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
 
     @TempDir
     Path cliHome;
@@ -65,13 +72,12 @@ class CliExportRunnerTest {
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-01T08:00:00Z"));
     private final CredentialGuard guard =
         new CredentialGuard(storeLabels("INUBIT", DEV), clock);
-    /** What the fake StartCLI saw at launch: the export directory and its permissions. */
+    /** What the fake StartCLI saw at launch: the export directory and its permissions (POSIX). */
     private final List<Set<PosixFilePermission>> launchPermissions = new CopyOnWriteArrayList<>();
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
     }
 
     private TestNodeConfig server() {
@@ -86,13 +92,17 @@ class CliExportRunnerTest {
     }
 
     private CliExportRunner exports(FakeProcessLauncher launcher, EffectiveNodeConfig config) {
-        return exports(launcher, config, credentials(), false);
+        return exports(launcher, config, credentials());
     }
 
     private CliExportRunner exports(FakeProcessLauncher launcher, EffectiveNodeConfig config,
-        NodeCredentials credentials, boolean windows) {
-        CliRunner runner = new CliRunner(launcher, Map.of("PATH", "/usr/bin"), windows,
-            new CliResources("acme"));
+        NodeCredentials credentials) {
+        return exports(config, credentials, TestCliRunners.forHost(launcher,
+            Map.of("PATH", Platform.searchPath()), new CliResources("acme")));
+    }
+
+    private CliExportRunner exports(EffectiveNodeConfig config, NodeCredentials credentials,
+        CliRunner runner) {
         return new CliExportRunner(config, credentials, guard, runner,
             new CliOutputClassifier(new SecretScrubber()), tempRoot);
     }
@@ -102,7 +112,9 @@ class CliExportRunnerTest {
         return FakeProcessLauncher.replaying(fixtureCase).onLaunch(spec -> {
             Path file = exportFile(spec);
             try {
-                launchPermissions.add(Files.getPosixFilePermissions(file.getParent()));
+                if (POSIX) {
+                    launchPermissions.add(Files.getPosixFilePermissions(file.getParent()));
+                }
                 Files.write(file, zip);
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
@@ -111,7 +123,7 @@ class CliExportRunnerTest {
     }
 
     private static String execCommand(LaunchSpec spec) {
-        List<String> command = spec.command();
+        List<String> command = spec.startCliArguments();
         return command.get(command.indexOf("--execCommand") + 1);
     }
 
@@ -174,8 +186,10 @@ class CliExportRunnerTest {
         return FakeProcessLauncher.of(stdout, "Picked up JAVA_TOOL_OPTIONS: -Duser.language=en"
             + " -Duser.country=US\n", 0).onLaunch(spec -> {
                 try {
-                    launchPermissions.add(Files.getPosixFilePermissions(exportFile(spec)
-                        .getParent()));
+                    if (POSIX) {
+                        launchPermissions.add(Files.getPosixFilePermissions(exportFile(spec)
+                            .getParent()));
+                    }
                     Files.write(exportFile(spec), zip);
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
@@ -203,10 +217,12 @@ class CliExportRunnerTest {
         Path file = exportFile(launcher.last().spec());
         assertThat(execCommand(launcher.last().spec())).isEqualTo("export --exportWorkflowUser"
             + " 'jdoe' --exportWorkflowType 'technical' --exportWorkflowGroup 'GRP-01'"
-            + " --exportFile '" + file + "'");
+            + " --exportFile '" + Platform.commandPath(file) + "'");
         assertThat(file.getFileName()).hasToString("export.zip");
-        assertThat(launchPermissions).containsExactly(PosixFilePermissions.fromString(
-            "rwx------"));
+        if (POSIX) {
+            assertThat(launchPermissions).containsExactly(PosixFilePermissions.fromString(
+                "rwx------"));
+        }
         assertThat(leftovers()).isEmpty();
     }
 
@@ -223,7 +239,7 @@ class CliExportRunnerTest {
         Path file = exportFile(launcher.last().spec());
         assertThat(execCommand(launcher.last().spec())).isEqualTo("export --exportModule"
             + " 'Module-0023' --exportModuleGroup 'XSLT Converter' --exportModuleUser 'OWNERS'"
-            + " --exportFile '" + file + "'");
+            + " --exportFile '" + Platform.commandPath(file) + "'");
         assertThat(file.getFileName()).hasToString("module.zip");
         assertThat(leftovers()).isEmpty();
     }
@@ -279,7 +295,7 @@ class CliExportRunnerTest {
     @Test
     void anArchiveAboveTheCapIsAnUnexpectedResponse() throws IOException {
         FakeProcessLauncher launcher = exporting(WORKFLOW_GROUP_OK, new byte[2048]);
-        CliRunner runner = new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false,
+        CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
             new CliResources("acme"));
         CliExportRunner small = new CliExportRunner(server().build(), credentials(), guard,
             runner, new CliOutputClassifier(new SecretScrubber()), tempRoot, 1024);
@@ -318,7 +334,7 @@ class CliExportRunnerTest {
         Path file = exportFile(launcher.last().spec());
         assertThat(command).isEqualTo("export --exportWorkflowUser 'OWNERS' --exportWorkflowType"
             + " 'technical' --exportWorkflowGroup 'GRP-41' --includeHistory --exportFile '"
-            + file + "'");
+            + Platform.commandPath(file) + "'");
         assertThat(file.getFileName()).hasToString("history.zip");
         assertThat(file.getParent().getParent()).isEqualTo(tempRoot);
         // 002 research D-8: the runner's profile and this process's pid
@@ -339,9 +355,11 @@ class CliExportRunnerTest {
         assertThat(xml).isEqualTo(entry(zip, "module/module.xml"));
         Path file = exportFile(launcher.last().spec());
         assertThat(execCommand(launcher.last().spec())).isEqualTo("export --exportModule ''"
-            + " --exportModuleGroup '' --exportModuleUser 'OWNERS' --exportFile '" + file + "'");
+            + " --exportModuleGroup '' --exportModuleUser 'OWNERS' --exportFile '"
+            + Platform.commandPath(file) + "'");
         assertThat(file.getFileName()).hasToString("modules.zip");
-        assertThat(launcher.last().spec().command()).filteredOn(argument -> argument.equals("''"))
+        assertThat(launcher.last().spec().startCliArguments())
+            .filteredOn(argument -> argument.equals("''"))
             .as("'' is part of the single --execCommand argument").isEmpty();
     }
 
@@ -352,8 +370,10 @@ class CliExportRunnerTest {
 
         exports(launcher, server().build()).exportModules("OWNERS");
 
-        assertThat(launchPermissions).containsExactly(PosixFilePermissions.fromString(
-            "rwx------"));
+        if (POSIX) {
+            assertThat(launchPermissions).containsExactly(PosixFilePermissions.fromString(
+                "rwx------"));
+        }
         assertThat(leftovers()).isEmpty();
     }
 
@@ -498,8 +518,9 @@ class CliExportRunnerTest {
         EffectiveNodeConfig noHome = TestNodeConfig.node().build();
 
         ToolError missingHome = errorOf(() -> exports(launcher, noHome).exportModules("OWNERS"));
-        ToolError windows = errorOf(() -> exports(launcher, server().build(), credentials(),
-            true).exportModules("OWNERS"));
+        ToolError windows = errorOf(() -> exports(server().build(), credentials(),
+            new CliRunner(launcher, Map.of("PATH", Platform.searchPath()), true,
+                new CliResources("acme"))).exportModules("OWNERS"));
 
         assertThat(missingHome.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
         assertThat(windows.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
@@ -513,7 +534,7 @@ class CliExportRunnerTest {
         NodeCredentials none = new NodeCredentials(DEV, Optional.empty(), Optional.empty(),
             Optional.empty(), Optional.empty());
 
-        ToolError error = errorOf(() -> exports(launcher, server().build(), none, false)
+        ToolError error = errorOf(() -> exports(launcher, server().build(), none)
             .exportModules("OWNERS"));
 
         assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
@@ -553,7 +574,7 @@ class CliExportRunnerTest {
         throws IOException {
         Path odd = Files.createDirectories(tempRoot.resolve("tmp~dir"));
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("export_modules_sample");
-        CliRunner runner = new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false,
+        CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
             new CliResources("acme"));
         CliExportRunner exports = new CliExportRunner(server().build(), credentials(), guard,
             runner, new CliOutputClassifier(new SecretScrubber()), odd);
@@ -574,7 +595,8 @@ class CliExportRunnerTest {
         FakeProcessLauncher launcher = writing("export_modules_sample", new byte[] {1})
             .hanging();
         CliResources resources = new CliResources("acme");
-        CliRunner runner = new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, resources);
+        CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
+            resources);
         CliExportRunner exports = new CliExportRunner(server().build(), credentials(), guard,
             runner, new CliOutputClassifier(new SecretScrubber()), tempRoot);
         AtomicReference<ToolError> error = new AtomicReference<>();

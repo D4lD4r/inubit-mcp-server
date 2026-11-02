@@ -15,8 +15,12 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ImportPort.Mode;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -44,6 +48,9 @@ class CliImportRunnerTest {
     private static final String PASSWORD = "S3cr3t-import-pw";
     private static final byte[] ARCHIVE = {'P', 'K', 3, 4, 'i', 'm', 'p'};
     private static final Pattern IMPORT_FILE = Pattern.compile("--importFile '([^']+)'");
+    /** Owner-only permissions are checked on POSIX; the Windows equivalent follows in T019. */
+    private static final boolean POSIX =
+        FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
 
     @TempDir
     Path cliHome;
@@ -55,8 +62,7 @@ class CliImportRunnerTest {
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
     }
 
     private CliImportRunner runner(ScriptedProcessLauncher cli) {
@@ -66,7 +72,7 @@ class CliImportRunnerTest {
             Optional.empty(), Optional.empty());
         return new CliImportRunner(TestNodeConfig.node().cliHome(cliHome)
             .cliJavaHome(Path.of("/opt/jdk-17")).cliExportTimeout(Duration.ofMillis(500)).build(),
-            credentials, guard, new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
+            credentials, guard, TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
                 new CliResources("acme")), new CliOutputClassifier(new SecretScrubber()),
             tempRoot);
     }
@@ -107,13 +113,16 @@ class CliImportRunnerTest {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher().expect("import ")
             .replying("import_workflow_only").then(spec -> {
                 Path file = importFile(ScriptedProcessLauncher.execCommand(spec));
-                try {
-                    assertThat(java.nio.file.attribute.PosixFilePermissions.toString(
-                        Files.getPosixFilePermissions(file.getParent()))).isEqualTo("rwx------");
-                    assertThat(java.nio.file.attribute.PosixFilePermissions.toString(
-                        Files.getPosixFilePermissions(file))).isEqualTo("rw-------");
-                } catch (IOException e) {
-                    throw new java.io.UncheckedIOException(e);
+                if (POSIX) {
+                    try {
+                        assertThat(java.nio.file.attribute.PosixFilePermissions.toString(
+                            Files.getPosixFilePermissions(file.getParent())))
+                            .isEqualTo("rwx------");
+                        assertThat(java.nio.file.attribute.PosixFilePermissions.toString(
+                            Files.getPosixFilePermissions(file))).isEqualTo("rw-------");
+                    } catch (IOException e) {
+                        throw new java.io.UncheckedIOException(e);
+                    }
                 }
             });
 
