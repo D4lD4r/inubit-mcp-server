@@ -6,12 +6,14 @@ Linux are unchanged.
 ## Process
 
 ```text
-program:      <SystemRoot>\System32\cmd.exe            (absolute; SystemRoot validated, else C:\Windows)
-command line: "<program>" /d /v:off /s /c ""<cli.home>\bin\startcli.bat" "<arg1>" … "<argN>""
+program:      <system dir>\cmd.exe                     (GetSystemDirectoryW; unreadable → CLI_UNAVAILABLE)
+argument list: [program, /d, /v:off, /s, /c, ""<cli.home>\bin\startcli.bat" "<arg1>" … "<argN>""]
+              (the last element starts and ends with ", so the JDK passes it unchanged; pinned by a Windows test)
 working dir:  <cli.home>                                (never UNC)
 stdin:        <password> "\n" (UTF-8), then closed      (8.1 --execCommand runs)
               <password> "\n" <session commands> "\n"…  (6.1 sessions, feature 012)
-environment:  allowlist of research R-5 only
+environment:  allowlist of research R-5 only; PATH = <JAVA_HOME>\bin;<system dir>;
+              NoDefaultCurrentDirectoryInExePath=1
 job:          the server's kill-on-close job (R-7)
 ```
 
@@ -28,11 +30,12 @@ and its command, the StartCLI URL. Never `-p`.
 
 Values inside `--execCommand` keep today's rule (`CliCommand.VALUE`: letters, digits, `_ . -`
 space); file paths inside it follow the Windows path rule
-`^[A-Za-z]:/[A-Za-z0-9_.\- /]{1,255}$` (data-model.md).
+`^[A-Za-z]:/[A-Za-z0-9_.\- /]{1,256}$` (data-model.md).
 
 ## Limits
 
-- Command line ≤ 6 143 characters (8 191 minus a 2 048 margin for `startcli.bat`): longer →
+- Inner line ≤ 6 143 characters (8 191 minus a 2 048 margin for `startcli.bat`, a default revisited
+  in T030): longer →
   `INVALID_INPUT` (tool input) or `CLI_UNAVAILABLE` naming the setting (configuration), before start.
 - Timeout: `cliTimeout` as today; then the tree is ended, forcibly after 2 s; at most one second
   later no process of the call is alive (SC-004).
@@ -41,10 +44,11 @@ space); file paths inside it follow the Windows path rule
 
 `plain`, `with space`, `''`, `a'b`, `(x)`, `a;b`, `a,b`, `a=b`, `C:\dir\`, `C:/dir/x`, `*`, `a?b` —
 each as the username and as a trust-store path; the recording lists what the client's Java main
-receives.
+receives (`win_argv`). A second recording (`win_backslash`) runs a read-only command with a
+`C:\…` path inside a quoted `--execCommand` value and shows how StartCLI's parser treats `\`.
 
 ## Output
 
-stdout/stderr: UTF-8 (forced by `JAVA_TOOL_OPTIONS`), decoded strictly as UTF-8, else in the host's
-native code page; CRLF normalised to LF before classification. A `TIMEOUT` whose last output line is
-the client's password prompt says so (FR-005).
+stdout/stderr: UTF-8 (forced by `JAVA_TOOL_OPTIONS`), decoded per line strictly as UTF-8, else in the
+host's native code page; CRLF normalised to LF before classification (Windows only; POSIX unchanged).
+On Windows a `TIMEOUT` whose last output line is the client's password prompt says so (FR-005).

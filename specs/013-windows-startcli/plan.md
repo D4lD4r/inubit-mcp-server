@@ -18,14 +18,18 @@ list for the server's account and `SYSTEM` only. A Windows CI job, Windows recor
 check by a Windows user verify it; the defaults of the spec's Clarifications apply until then.
 
 - **Launch** (research R-1, R-2, R-4): `WindowsCommandLine` (quoting, trailing backslashes, length
-  limit), `WindowsArguments` (refused characters, UNC), raw command line in
-  `ProcessLauncher.LaunchSpec`.
-- **Paths inside the command** (R-3): Windows rule in `CliPaths`, `toRealPath()` and `/`.
-- **Environment and encoding** (R-5, R-6): Windows allowlist, Windows-only `JAVA_TOOL_OPTIONS`,
-  UTF-8-first decoder with native fallback, CRLF normalisation.
+  limit), `WindowsArguments` (refused characters, UNC); `SystemProcessLauncher` passes the
+  interpreter and one pre-quoted inner argument (JDK behaviour pinned by a Windows test; JNA
+  `CreateProcessW` as fallback).
+- **Paths inside the command** (R-3): platform-aware `CliPaths` and `CliCommand.Builder.path`,
+  `toRealPath()` (parent for files not yet written) and `/`.
+- **Environment and encoding** (R-5, R-6): Windows allowlist with a fixed `PATH` and
+  `NoDefaultCurrentDirectoryInExePath`, Windows-only `JAVA_TOOL_OPTIONS`, per-line UTF-8-first
+  decoder with native fallback and CRLF normalisation on Windows only.
 - **Process lifetime** (R-7): kill-on-close job in `adapter/os` behind a `ProcessContainment` port.
-- **Private files** (R-8): `infra.PrivateFiles` for POSIX permissions (unchanged) and Windows ACLs;
-  checks of existing audit and deployment objects.
+- **Private files** (R-8): port `domain.port.PrivateFileSystem`, implemented in `adapter.os`
+  (POSIX permissions unchanged; Windows protected DACL for the token user and `SYSTEM`), injected
+  into application, adapters, config and infra; checks of existing audit and deployment objects.
 - **Credentials** (R-9): Windows username and non-ASCII password refusals before the guard.
 - **Cleanup, messages, `--check-config`** (R-10, R-11).
 - **Tests and CI** (R-12), **recordings and live check** (R-13), **feature 012** (R-14).
@@ -36,15 +40,18 @@ check by a Windows user verify it; the defaults of the spec's Clarifications app
 8.1; the 6.1 client's runtime).
 
 **Primary Dependencies**: unchanged. JNA 5.17.0 core (already present since feature 011, Apache-2.0
-option) is additionally used for `kernel32` job objects in `adapter/os`. No new dependency.
+option) is additionally used in `adapter/os` for `kernel32` (job object, `GetSystemDirectoryW`) and
+`advapi32` (token user, protected DACL). No new dependency.
 
 **Storage**: none new. Private files as today, with Windows ACLs.
 
 **Testing**: JUnit 5, AssertJ. Pure units (command-line builder, argument rules, path rule,
 decoder, allowlist) on every platform; Windows-only tests (`@EnabledOnOs(WINDOWS)`) with a
-substitute `startcli.bat` that calls a test-classpath `ArgvRecorder` main; POSIX tests unchanged.
-New CI job `windows-latest` (`mvn -B verify`). Python tests of `tools/` unchanged; a Pester-free
-PowerShell recorder is checked by `RecordFixturesCatalogueTest`-style text tests.
+substitute `startcli.bat` that records `%CMDCMDLINE%` and runs a test-classpath `ArgvRecorder`
+main. The existing suite is ported first (`FakeStartCli` writes the platform's script; POSIX
+permission assertions get Windows equivalents, see "Replaced POSIX tests"). New CI job
+`windows` on `windows-latest` (`mvn -B verify`), non-required until T020. The PowerShell recorder
+is checked by a text test like `RecordFixturesCatalogueTest` of feature 012.
 
 **Target Platform**: macOS, Linux (unchanged), Windows 10/11 and Server 2019+ x64 (new for
 StartCLI-backed tools).
@@ -60,14 +67,19 @@ gain no measurable overhead.
 - macOS and Linux behaviour unchanged (FR-017); every POSIX code path stays as it is.
 - JNA only in `adapter/os` (`PackageBoundaryTest`); natives loaded only on Windows.
 - Offline default build.
+- Defaults of the Clarifications until the Windows live check (T030): `/` in paths inside the
+  command, UTF-8 and `\n` on stdin, the launch through `startcli.bat`, and a 2 048-character
+  margin for what `startcli.bat` adds to the command line (R-4).
 
 **Scale/Scope**: no new tool or configuration key. Changed: `CliRunner`, `SystemProcessLauncher`,
-`ProcessLauncher.LaunchSpec`, `CliPaths`, `CliResources`, `CliExportRunner`, `CliImportRunner`,
+`CliCommand`, `CliPaths`, `CliResources`, `CliExportRunner`, `CliImportRunner`,
 `CliOutputClassifier`, `ConfigValidator`, `EntryCheck`, `Launcher`, `Wiring`, `AuditLog`,
 `BackupStore`, `PackageWriter`, `DeployLock`, `DeploymentLedger`, `GitCli`,
 `WorkspaceDirectory`; docs (README, setup, tools, live-tests, CHANGELOG). New: `WindowsCommandLine`,
-`WindowsArguments`, `StartCliEnvironment`, `OutputDecoder`, `ProcessContainment` (+ `WindowsJob`
-in `adapter/os`), `PrivateFiles`, `tools/record-fixtures.ps1`, Windows test helpers, CI job.
+`WindowsArguments`, `StartCliEnvironment`, `OutputDecoder`, `ProcessContainment` (+ `WindowsJob`,
+`NoJob`), `domain.port.PrivateFileSystem` (+ `OsPrivateFileSystem`), `WindowsSystem` (system
+directory, token user), `tools/record-fixtures.ps1`, Windows test helpers, CI job, a `-text` rule
+for `fixtures/windows/` in `.gitattributes`.
 
 ## Constitution Check
 
@@ -111,17 +123,17 @@ src/main/java/de/dadecker/inubit/mcp/
 ├── adapter/cli/   WindowsCommandLine, StartCliEnvironment, OutputDecoder, ProcessContainment (port);
 │                  CliRunner, SystemProcessLauncher, ProcessLauncher, CliResources,
 │                  CliExportRunner, CliImportRunner, CliOutputClassifier (changed)
-├── adapter/os/    WindowsJob (JNA kernel32), NoJob (POSIX)
+├── adapter/os/    WindowsJob, NoJob, WindowsSystem, OsPrivateFileSystem (JNA kernel32/advapi32)
 ├── adapter/git/   GitCli (hooks directory via PrivateFiles)
-├── application/   BackupStore, PackageWriter, DeployLock, DeploymentLedger (PrivateFiles)
+├── application/   BackupStore, PackageWriter, DeployLock, DeploymentLedger (PrivateFileSystem port)
 ├── config/        WindowsArguments, CliPaths, ConfigValidator, EntryCheck, WorkspaceDirectory
-├── infra/         PrivateFiles, AuditLog
+├── domain/port/   PrivateFileSystem
+├── infra/         AuditLog
 ├── Launcher.java, Wiring.java
 src/test/java/de/dadecker/inubit/mcp/
 ├── adapter/cli/   WindowsCommandLineTest, WindowsCommandLineInjectionTest (Windows),
 │                  WindowsProcessTreeTest (Windows), OutputDecoderTest, StartCliEnvironmentTest
-├── adapter/os/    WindowsJobTest (Windows)
-├── infra/         PrivateFilesTest, PrivateFilesAclTest (Windows)
+├── adapter/os/    WindowsJobTest (Windows), OsPrivateFileSystemTest, OsPrivateFileSystemAclTest (Windows)
 ├── testing/       ArgvRecorder, FakeStartCli (writes .sh or .bat)
 tools/record-fixtures.ps1
 src/test/resources/fixtures/windows/   recordings (neutralised)
@@ -129,11 +141,26 @@ src/test/resources/fixtures/windows/   recordings (neutralised)
 ```
 
 **Structure Decision**: existing single module; Windows parts sit next to their POSIX counterparts
-and are selected by the `windows` flag the code already passes around.
+and are selected by the `windows` flag the code already passes around. `PackageBoundaryTest` stays
+green: application and workspace adapters use only the `domain.port.PrivateFileSystem` port; JNA
+stays in `adapter.os`.
+
+### Replaced POSIX tests (FR-013)
+
+No test is skipped on Windows; POSIX-only assertions stay for POSIX and get a Windows equivalent:
+
+| Test class (POSIX assertion) | Windows equivalent | Task |
+|---|---|---|
+| every test that writes its own `startcli.sh` (adapter/cli, Main, application harnesses, mcp tools, security, isolation, config, live) | `FakeStartCli.install` writes the platform's script | T003, T004 |
+| `SystemProcessLauncherTest` (class-level `@DisabledOnOs(WINDOWS)`; signals) | guard per POSIX method; Windows launch and tree cases | T005, T008, T021 |
+| `CliExportRunnerTest`, `CliImportRunnerTest`, `ExportShutdownProcessTest` (owner-only temporary directories) | DACL read-back and inheritance | T018 |
+| `AuditLogTest`, `MainTest` audit directory (`assumeTrue(posix)`) | DACL read-back | T023 |
+| `BackupStoreTest`, `PackageWriterTest`, `DeployLockTest`, `DeploymentLedgerTest` | DACL read-back | T024 |
+| `GitCliTest` hooks directory, `ConfigValidatorTest` workspace directory | DACL read-back | T025 |
 
 ## Complexity Tracking
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |---|---|---|
 | Principle V "argument arrays (no shell interpolation)" on Windows: `startcli.bat` always runs in `cmd.exe` | The INUBIT client for Windows is started through its batch file (the clarification fixes this until the batch files are examined); a batch file has no argument array. | Starting the client's Java directly avoids the interpreter but needs each client version's class path and options, unknown until R-13; refusing Windows keeps today's gap. The deviation is bounded: absolute interpreter with `/d /v:off`, every argument quoted, the interpreting characters refused, proven by SC-002 on the Windows CI job. |
-| A job object through JNA (`kernel32`) | FR-005 requires ending StartCLI on a forced termination of the server; Windows offers no other mechanism. | Shutdown hooks do not run on forced termination; a watchdog process adds a process to manage. JNA is already a dependency. |
+| JNA calls in `adapter/os` (`kernel32` job object and system directory, `advapi32` token user and protected DACL) | FR-005 requires ending StartCLI on a forced termination; FR-007 requires a DACL with no inherited entries, which the JDK cannot set (it never sets `SE_DACL_PROTECTED`); the token user avoids `BUILTIN\Administrators` as owner. | Shutdown hooks do not run on forced termination; the JDK's `acl:acl` attribute merges inherited entries; `Files.getOwner` can name the Administrators group. JNA is already a dependency and confined to `adapter/os`. |
