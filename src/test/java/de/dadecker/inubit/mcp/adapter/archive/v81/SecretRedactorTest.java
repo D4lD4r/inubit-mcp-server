@@ -192,6 +192,45 @@ class SecretRedactorTest {
     }
 
     @Test
+    void demultiplexerRoutingAndStructureStayVerbatim() {
+        // feature 034: a demultiplexer names each output by its target module, so a routing
+        // condition sits under a property name that embeds that module name. When the target is a
+        // GetCertificate module the name contains "certificate", which must not make the routing
+        // condition (or the processing order / branch description / default output / namespace map)
+        // a secret. A genuine Password alongside them is still redacted.
+        RedactedArchive archive = redactModule("""
+            <?xml version='1.0' encoding='UTF-8'?>
+            <Properties version="4.1">
+            \t<Property name="DefaultOutput">Fixture-TimeoutThrow(686)</Property>
+            \t<Property name="Fixture-GetCertificate(693)@@@DeMuxInput">\
+            X509SSLCode@@@WFSPExists</Property>
+            \t<Property name="Fixture-GetCertificate(693)@@@ProcessingOrder">2</Property>
+            \t<Property name="Fixture-GetCertificate(693)@@@Description">has certificate</Property>
+            \t<Property name="namespacesMap" type="Map">
+            \t\t<Property name="ns-certificate">urn:example:fixture:certificate</Property>
+            \t</Property>
+            \t<Property name="Password" type="Password">synthetic-secret-0001</Property>
+            </Properties>
+            """);
+        Element module = module(archive, "Module-0023").element();
+
+        assertThat(property(module, "Fixture-GetCertificate(693)@@@DeMuxInput"))
+            .as("routing condition").isEqualTo("X509SSLCode@@@WFSPExists");
+        assertThat(property(module, "Fixture-GetCertificate(693)@@@ProcessingOrder"))
+            .as("processing order").isEqualTo("2");
+        assertThat(property(module, "Fixture-GetCertificate(693)@@@Description"))
+            .as("branch description").isEqualTo("has certificate");
+        assertThat(property(module, "DefaultOutput")).as("default output")
+            .isEqualTo("Fixture-TimeoutThrow(686)");
+        assertThat(property(module, "ns-certificate")).as("namespace mapping")
+            .isEqualTo("urn:example:fixture:certificate");
+        assertThat(property(module, "Password")).as("a genuine password is still redacted")
+            .isEqualTo("${secret:Password}");
+        assertThat(archive.report().counts()).containsEntry(Kind.PASSWORD, 1)
+            .doesNotContainKey(Kind.PRIVATE_KEY_CERTIFICATE);
+    }
+
+    @Test
     void thePlaceholderDoesNotDependOnTheValue() {
         String template = """
             <?xml version='1.0' encoding='UTF-8'?>
