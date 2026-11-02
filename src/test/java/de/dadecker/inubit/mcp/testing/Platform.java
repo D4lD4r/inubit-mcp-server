@@ -1,0 +1,44 @@
+package de.dadecker.inubit.mcp.testing;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Locale;
+
+/** The host platform for tests (research R-12): tests never hard-wire {@code windows = false}. */
+public final class Platform {
+
+    private Platform() {
+    }
+
+    /** True on Windows; decided like {@code Launcher} does from {@code os.name}. */
+    public static boolean windows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows");
+    }
+
+    /**
+     * The PID of a process that has already exited: a short {@code java -version} of the test
+     * runtime, which exists on every platform (unlike {@code /bin/sh}).
+     */
+    public static long deadPid() throws IOException, InterruptedException {
+        Process process = new ProcessBuilder(javaExecutable().toString(), "-version")
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+            .redirectError(ProcessBuilder.Redirect.DISCARD)
+            .start();
+        process.waitFor();
+        return process.pid();
+    }
+
+    /**
+     * {@code path} as it appears inside a StartCLI command on the host: unchanged on POSIX, with
+     * {@code /} separators on Windows (research R-3).
+     */
+    public static String commandPath(Path path) {
+        return windows() ? path.toString().replace('\\', '/') : path.toString();
+    }
+
+    /** The {@code java} executable of the runtime running the tests. */
+    static Path javaExecutable() {
+        return Path.of(System.getProperty("java.home"), "bin",
+            windows() ? "java.exe" : "java");
+    }
+}

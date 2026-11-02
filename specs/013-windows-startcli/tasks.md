@@ -68,7 +68,7 @@ recordings and the live check (manual, approved, by a Windows user).
   `continue-on-error: true` until T021; the Python tool tests stay on Linux) and a
   `workflow_dispatch` trigger. Test first: `test/release/CiWorkflowTest` (new) reads the workflow
   and asserts both jobs run `verify` on Java 21 and the Windows job uses `windows-latest`.
-- [ ] T002 [P] Test helpers (R-12): `test/testing/ArgvRecorder` (new; a main that writes its
+- [X] T002 [P] Test helpers (R-12): `test/testing/ArgvRecorder` (new; a main that writes its
   `args`, `System.getenv()` and the bytes read from stdin as JSON to the file named by a system
   property, optionally sleeps, starts a child or writes a file into a given directory) and
   `test/testing/FakeStartCli` (new; `install(cliHome)` writes `bin/startcli.sh` on POSIX or

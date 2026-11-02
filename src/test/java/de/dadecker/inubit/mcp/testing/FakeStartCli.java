@@ -1,0 +1,136 @@
+package de.dadecker.inubit.mcp.testing;
+
+import java.io.IOException;
+import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * A substitute StartCLI for the host platform (research R-12): {@code <cliHome>/bin/startcli.sh}
+ * on POSIX, {@code <cliHome>\bin\startcli.bat} on Windows. The script runs {@link ArgvRecorder}
+ * with the test JVM and the arguments it received ({@code "$@"} / {@code %*}); the Windows script
+ * first writes {@code %CMDCMDLINE%}, the line the interpreter received, to
+ * {@link #commandLineFile()}. Each run overwrites the record of the previous one.
+ */
+public final class FakeStartCli {
+
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+
+    private final Path script;
+    private final Path recordFile;
+    private final Path commandLineFile;
+
+    private FakeStartCli(Path script, Path recordFile, Path commandLineFile) {
+        this.script = script;
+        this.recordFile = recordFile;
+        this.commandLineFile = commandLineFile;
+    }
+
+    /** What one run of the substitute received. */
+    public record Recorded(long pid, Long childPid, List<String> args,
+        Map<String, String> environment, byte[] stdin) {
+    }
+
+    /** Installs a substitute that only records. */
+    public static FakeStartCli install(Path cliHome) throws IOException {
+        return install(cliHome, Map.of());
+    }
+
+    /**
+     * Installs a substitute whose {@link ArgvRecorder} also gets {@code options}, keyed by the
+     * {@code ArgvRecorder} property names (e.g. {@link ArgvRecorder#SLEEP_MILLIS}).
+     */
+    public static FakeStartCli install(Path cliHome, Map<String, String> options)
+        throws IOException {
+        boolean windows = Platform.windows();
+        Path bin = Files.createDirectories(cliHome.resolve("bin"));
+        FakeStartCli cli = new FakeStartCli(bin.resolve(windows ? "startcli.bat" : "startcli.sh"),
+            cliHome.resolve("argv-record.json"), cliHome.resolve("cmdcmdline.txt"));
+        Map<String, String> properties = new TreeMap<>(options);
+        properties.put(ArgvRecorder.RECORD, cli.recordFile.toString());
+        List<String> java = new ArrayList<>(List.of(Platform.javaExecutable().toString(), "-cp",
+            testClasses().toString()));
+        properties.forEach((name, value) -> java.add("-D" + name + "=" + value));
+        java.add(ArgvRecorder.class.getName());
+        if (windows) {
+            Files.writeString(cli.script, String.join("\r\n",
+                "@echo off",
+                "setlocal EnableDelayedExpansion",
+                ">" + batchQuote(cli.commandLineFile.toString()) + " echo(!CMDCMDLINE!",
+                "endlocal",
+                String.join(" ", java.stream().map(FakeStartCli::batchQuote).toList()) + " %*",
+                "exit /b %ERRORLEVEL%", ""), StandardCharsets.US_ASCII);
+        } else {
+            Files.writeString(cli.script, "#!/bin/sh\n"
+                + String.join(" ", java.stream().map(FakeStartCli::shellQuote).toList())
+                + " \"$@\"\n", StandardCharsets.UTF_8);
+            Files.setPosixFilePermissions(cli.script,
+                PosixFilePermissions.fromString("rwx------"));
+        }
+        return cli;
+    }
+
+    /**
+     * Installs a substitute that records and then prints the recorded StartCLI run
+     * {@code fixtures/v8_1/cli/<fixtureCase>.{stdout,stderr}} and exits with its {@code .exit}.
+     */
+    public static FakeStartCli replaying(Path cliHome, String fixtureCase) throws IOException {
+        return install(cliHome, Map.of(ArgvRecorder.REPLAY, fixtureCase));
+    }
+
+    public Path script() {
+        return script;
+    }
+
+    /** Where the last run's record is written; absent until a run got that far. */
+    public Path recordFile() {
+        return recordFile;
+    }
+
+    /** Windows only: where the script writes {@code %CMDCMDLINE%}. */
+    public Path commandLineFile() {
+        return commandLineFile;
+    }
+
+    /** The record of the last run. */
+    public Recorded record() throws IOException {
+        return JSON.readValue(Files.readAllBytes(recordFile), Recorded.class);
+    }
+
+    /**
+     * Windows only: the interpreter's command line of the last run. ISO-8859-1 maps the bytes
+     * one to one; the values the server passes on Windows are ASCII (research R-2).
+     */
+    public String commandLine() throws IOException {
+        return Files.readString(commandLineFile, StandardCharsets.ISO_8859_1).strip();
+    }
+
+    /**
+     * Only the directory holding the test classes (and fixtures): the full test class path could
+     * exceed the interpreter's line limit on Windows, and {@link ArgvRecorder} needs no library.
+     */
+    private static Path testClasses() {
+        try {
+            return Path.of(ArgvRecorder.class.getProtectionDomain().getCodeSource().getLocation()
+                .toURI());
+        } catch (URISyntaxException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static String shellQuote(String value) {
+        return "'" + value.replace("'", "'\\''") + "'";
+    }
+
+    /** Test paths contain no {@code "}; {@code %} is doubled so the batch file keeps it. */
+    private static String batchQuote(String value) {
+        return "\"" + value.replace("%", "%%") + "\"";
+    }
+}
