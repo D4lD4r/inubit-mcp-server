@@ -63,6 +63,20 @@ the release; Windows and Linux where available, `docs/live-tests.md`) has not be
 - `SECURITY.md` names AWS Systems Manager Parameter Store as a credential source (feature 010)
   and its bound of two failed logins per node per 60 s.
 
+## [0.6.3] - 2026-11-02
+
+Bug fix release from the 0.6.x line (branch `release/0.6.x`, based on 0.6.2); it does not contain
+the credential store changes planned for 0.7.0. Live checks are unchanged since 0.6.1.
+
+### Fixed
+
+- Secret redaction of exported modules no longer replaces the routing settings of a
+  demultiplexer. A demultiplexer names each output by its target module, so for a target whose
+  name contains "certificate" (e.g. a `GetCertificate` module) the properties ending in
+  `@@@DeMuxInput`, `@@@ProcessingOrder` and `@@@Description` were redacted as a private key. They,
+  `DefaultOutput` and the `namespacesMap` subtree are now emitted verbatim; inside
+  `xslt.sourceVariables` everything is still treated as a secret.
+
 ## [0.6.2] - 2026-10-28
 
 Dependency update; no change to tools, configuration or output. Live checks are unchanged since
@@ -591,6 +605,7 @@ First public release.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
 [Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.2...HEAD
+[0.6.3]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.5.3...v0.6.0
