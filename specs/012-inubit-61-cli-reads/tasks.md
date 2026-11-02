@@ -362,7 +362,7 @@ production also the person's confirmation of node and classification. If the rec
 that the interactive mode cannot be driven through stdin (research D-5), stop and update plan and
 tasks with new tasks for the direct-option alternative before T037.
 
-- [ ] T035 Catalogue cases (research D-16): add `v61_help`, `v61_version`, `v61_health_session`,
+- [X] T035 Catalogue cases (research D-16): add `v61_help`, `v61_version`, `v61_health_session`,
   `v61_ps_all`, `v61_ps_error`, `v61_ps_waiting`, `v61_ps_queued`, `v61_ps_limit5` to
   `tools/record-fixtures.sh` — StartCLI only, no curl/REST step, session commands from the
   allowlist, password via stdin, allowlisted environment. Test first: new

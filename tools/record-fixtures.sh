@@ -13,7 +13,10 @@
 # Only catalogued cases can be recorded. All of them are read-only; the CLI cases that name a
 # write command (processErrorStart, kill) use the process id 999999999, and the script first
 # checks through REST that no Queue Manager entry with this id exists. The export cases only
-# write a ZIP into the private temporary directory.
+# write a ZIP into the private temporary directory. The v61_* cases (INUBIT 6.1, feature 012,
+# research D-16) use StartCLI only, without any REST step: local runs (-h, -v) or one
+# interactive session per case (research D-5) whose commands come from the allowlist of
+# CliSessionCommand.
 #
 # Inputs:
 #   config      ${INUBIT_MCP_CONFIG:-~/.config/inubit-mcp/config.yaml}: baseUrl of the node,
@@ -27,8 +30,9 @@
 #               (default INUBIT, the credentials.envPrefix of the profile).
 #               Never printed, never passed as a process argument: curl reads them from stdin
 #               (-K -), StartCLI reads the password from stdin (the username is not a secret and
-#               goes to -u). StartCLI gets an allowlisted environment only: PATH, HOME, TMPDIR,
-#               LANG, LC_ALL, USER, JAVA_HOME, JAVA_TOOL_OPTIONS (research R-6).
+#               goes to -u; a 6.1 session reads the password line, then its commands).
+#               StartCLI gets an allowlisted environment only: PATH, HOME, TMPDIR, LANG, LC_ALL,
+#               USER, JAVA_HOME, JAVA_TOOL_OPTIONS (research R-6).
 #   optional    RECORD_TRUSTSTORE     StartCLI trust store (default: tls.trustStore of the config)
 #               RECORD_CLI_LOCALE     "en" (default) forces English StartCLI messages through
 #                                     JAVA_TOOL_OPTIONS; "default" keeps the JVM default locale
@@ -39,6 +43,7 @@
 #   REST  src/test/resources/fixtures/v8_1/rest/<case>.{json|xml|html|txt}, <case>.http
 #         (status and content type), <case>.request.xml for POST requests
 #   CLI   src/test/resources/fixtures/v8_1/cli/<case>.stdout, <case>.stderr, <case>.exit
+#         (v61_* cases: src/test/resources/fixtures/v6_1/cli/)
 #   ZIP   <case>.zip (REST download or CLI export) with only the allow-listed entries, trimmed
 #         to a few elements
 #   sample objects (no defaults; required by the cases that use them, see --list):
@@ -53,6 +58,7 @@ set -euo pipefail
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly FIXTURE_DIR="${PROJECT_DIR}/src/test/resources/fixtures/v8_1"
+readonly V61_FIXTURE_DIR="${PROJECT_DIR}/src/test/resources/fixtures/v6_1"
 readonly ANONYMIZE="${SCRIPT_DIR}/anonymize.py"
 readonly CONFIG_FILE="${INUBIT_MCP_CONFIG:-${HOME}/.config/inubit-mcp/config.yaml}"
 readonly PINNED_PUBKEY="${RECORD_PINNED_PUBKEY:-}"
@@ -68,8 +74,10 @@ die() { printf 'record-fixtures: %s\n' "$*" >&2; exit 1; }
 info() { printf 'record-fixtures: %s\n' "$*" >&2; }
 
 # ----- case catalogue -------------------------------------------------------------------------
-# Sets: kind (rest|cli); rest: method, path, body; cli: command, cli_url, password_mode, locale;
-# zip_entries (keep only these ZIP entries) and anon_extra (extra anonymize.py options).
+# Sets: kind (rest|cli|cli_local|cli_session); rest: method, path, body; cli: command, cli_url,
+# password_mode, locale; cli_local: local_option; cli_session: session (the commands after the
+# password line); fixture_dir; zip_entries (keep only these ZIP entries) and anon_extra (extra
+# anonymize.py options).
 
 # Sample objects used by the read-only cases: no defaults (they name objects of a customer),
 # required by the cases that use them, validated like CLI values (R-11).
@@ -114,6 +122,15 @@ list_cases() {
     printf '%-42s CLI  ps -csv -l 5 (no state selector)\n' ps_no_selector
     printf "%-42s CLI  ps -csv -e -l 5 -f 'workflow=%s'\n" ps_filter_workflow "${workflow}"
     printf "%-42s CLI  ps -csv -e -l 5 -f 'workflow=No Such Workflow'\n" ps_filter_space
+    printf '%-42s 6.1 CLI startcli.sh -h (no server, no credentials)\n' v61_help
+    printf '%-42s 6.1 CLI startcli.sh -v (no server, no credentials)\n' v61_version
+    printf '%-42s 6.1 CLI session: uname, uptime, maintenance, free -m, ps -c -e|-w|-q|-a\n' \
+        v61_health_session
+    printf '%-42s 6.1 CLI session: ps -a -l 10000\n' v61_ps_all
+    printf '%-42s 6.1 CLI session: ps -e -l 10000\n' v61_ps_error
+    printf '%-42s 6.1 CLI session: ps -w -l 10000\n' v61_ps_waiting
+    printf '%-42s 6.1 CLI session: ps -q -l 10000\n' v61_ps_queued
+    printf '%-42s 6.1 CLI session: ps -a -l 5\n' v61_ps_limit5
     printf '%-42s CLI  export group %s --includeHistory (versionHistory.xml, 3 workflows)\n' \
         export_history_sample "${group}"
     printf '%-42s CLI  export of all modules of %s (module/module.xml, 20 modules)\n' \
@@ -174,6 +191,7 @@ error_queue_log_request() {
 define_case() {
     local case_name="$1"
     kind='' method='GET' path='' body='' command='' cli_url='' password_mode='real'
+    local_option='' session=() fixture_dir="${FIXTURE_DIR}"
     locale="${RECORD_CLI_LOCALE:-en}"
     zip_entries=() anon_extra=() auth=basic preflight_unknown_pid=no
     local sel
@@ -197,7 +215,7 @@ define_case() {
         system_info)
             kind=rest path='/ibis/rest/system/info' ;;
         version)
-            kind=cli_version ;;
+            kind=cli_local local_option=-v ;;
         model_models_owner)
             require_sample RECORD_OWNER "${OWNER}"
             kind=rest path="/ibis/rest/model/models?user=${OWNER}" ;;
@@ -247,9 +265,30 @@ define_case() {
             command+=" --exportFile '${EXPORT_FILE_TOKEN}'"
             zip_entries=(module/module.xml)
             anon_extra=(--xml-limit Module=20) ;;
+        v61_help)
+            kind=cli_local local_option=-h ;;
+        v61_version)
+            kind=cli_local local_option=-v ;;
+        v61_health_session)
+            kind=cli_session
+            session=(uname uptime maintenance 'free -m' 'ps -c -e' 'ps -c -w' 'ps -c -q'
+                     'ps -c -a') ;;
+        v61_ps_all)
+            kind=cli_session session=('ps -a -l 10000') ;;
+        v61_ps_error)
+            kind=cli_session session=('ps -e -l 10000') ;;
+        v61_ps_waiting)
+            kind=cli_session session=('ps -w -l 10000') ;;
+        v61_ps_queued)
+            kind=cli_session session=('ps -q -l 10000') ;;
+        v61_ps_limit5)
+            kind=cli_session session=('ps -a -l 5') ;;
         *)
             die "unknown case '${case_name}' (see --list)" ;;
     esac
+    if [[ "${case_name}" == v61_* ]]; then
+        fixture_dir="${V61_FIXTURE_DIR}"
+    fi
 }
 
 # ----- configuration --------------------------------------------------------------------------
@@ -370,9 +409,10 @@ require_unknown_pid_absent() {
         || die "process id ${UNKNOWN_PID} exists in the Queue Manager (or unexpected response); refused"
 }
 
-# Sets child_env: the allowlisted environment for StartCLI (research R-6).
+# Sets child_env: the allowlisted environment for StartCLI (research R-6); the optional second
+# argument is appended to JAVA_TOOL_OPTIONS.
 build_cli_env() {
-    local java_home="$1" name
+    local java_home="$1" tool_options="${2:-}" name
     child_env=(env -i)
     for name in PATH HOME TMPDIR LANG LC_ALL USER; do
         if [[ -n "${!name:-}" ]]; then
@@ -381,23 +421,27 @@ build_cli_env() {
     done
     child_env+=("JAVA_HOME=${java_home}")
     if [[ "${locale}" == en ]]; then
-        child_env+=("JAVA_TOOL_OPTIONS=-Duser.language=en -Duser.country=US")
+        tool_options="-Duser.language=en -Duser.country=US${tool_options:+ ${tool_options}}"
+    fi
+    if [[ -n "${tool_options}" ]]; then
+        child_env+=("JAVA_TOOL_OPTIONS=${tool_options}")
     fi
 }
 
-record_cli_version() {
+# A local StartCLI run with one option (-h, -v): no server, no credentials, no stdin.
+record_cli_local() {
     local cli_home java_home exit_code
     cli_home="$(config_value cli_home)"
     java_home="$(config_value cli_java_home)"
     [[ -x "${cli_home}/bin/startcli.sh" ]] || die "no bin/startcli.sh under cliHome '${cli_home}'"
     build_cli_env "${java_home}"
     set +e
-    (cd "${cli_home}" && "${child_env[@]}" ./bin/startcli.sh -v < /dev/null \
+    (cd "${cli_home}" && "${child_env[@]}" ./bin/startcli.sh "${local_option}" < /dev/null \
         > "${work_dir}/stdout" 2> "${work_dir}/stderr")
     exit_code=$?
     set -e
-    mkdir -p "${FIXTURE_DIR}/cli"
-    local prefix="${FIXTURE_DIR}/cli/${case_name}"
+    mkdir -p "${fixture_dir}/cli"
+    local prefix="${fixture_dir}/cli/${case_name}"
     anonymize --format text "${work_dir}/stdout" "${prefix}.stdout"
     anonymize --format text "${work_dir}/stderr" "${prefix}.stderr"
     printf '%s\n' "${exit_code}" > "${prefix}.exit"
@@ -436,8 +480,8 @@ record_rest() {
         *) extension=txt ;;
     esac
 
-    mkdir -p "${FIXTURE_DIR}/rest"
-    local prefix="${FIXTURE_DIR}/rest/${case_name}"
+    mkdir -p "${fixture_dir}/rest"
+    local prefix="${fixture_dir}/rest/${case_name}"
     rm -f "${prefix}".{json,html,xml,txt,zip,http,request.xml}
     if [[ ${#zip_entries[@]} -gt 0 && "${extension}" != zip ]]; then
         die "${case_name}: expected a ZIP, got ${content_type} (HTTP ${http_code})"
@@ -492,8 +536,8 @@ record_cli() {
     exit_code=$?
     set -e
 
-    mkdir -p "${FIXTURE_DIR}/cli"
-    local prefix="${FIXTURE_DIR}/cli/${case_name}"
+    mkdir -p "${fixture_dir}/cli"
+    local prefix="${fixture_dir}/cli/${case_name}"
     anonymize --format text "${work_dir}/stdout" "${prefix}.stdout"
     anonymize --format text "${work_dir}/stderr" "${prefix}.stderr"
     printf '%s\n' "${exit_code}" > "${prefix}.exit"
@@ -504,6 +548,66 @@ record_cli() {
         anonymize_case_output "${export_file}" "${prefix}.zip"
         outputs+=("${prefix}.zip")
     fi
+    info "${case_name}: exit code ${exit_code}"
+}
+
+# JKS for a file that starts with the JKS magic number, else PKCS12 (CliRunner.trustStoreType).
+trust_store_type() {
+    if [[ "$(head -c 4 "$1" | od -An -tx1 | tr -d ' \n')" == feedfeed ]]; then
+        printf 'JKS'
+    else
+        printf 'PKCS12'
+    fi
+}
+
+# An interactive StartCLI session of INUBIT 6.1 (research D-5) with the arguments and the trust
+# handling of CliRunner.runSession (research D-8): stdin gets the secret line, the session
+# commands and exit; no --execCommand, no REST step. The client options come from a local -h run.
+record_cli_session() {
+    local cli_home java_home trust_store base_url url help exit_code tool_options=''
+    cli_home="$(config_value cli_home)"
+    java_home="$(config_value cli_java_home)"
+    trust_store="${RECORD_TRUSTSTORE:-$(config_value trust_store)}"
+    [[ -x "${cli_home}/bin/startcli.sh" ]] || die "no bin/startcli.sh under cliHome '${cli_home}'"
+    [[ -d "${java_home}" ]] || die "cliJavaHome '${java_home}' not found"
+    if [[ -n "${trust_store}" && ! -f "${trust_store}" ]]; then
+        die "trust store '${trust_store}' not found (set RECORD_TRUSTSTORE)"
+    fi
+    base_url="$(config_value base_url "${stage}" "${server}")"
+    [[ -n "${base_url}" ]] || die "no baseUrl for ${stage}/${server} in ${CONFIG_FILE}"
+    url="${base_url%/}/ibis/servlet/IBISSoapServlet"
+    build_cli_env "${java_home}"
+    help="$(cd "${cli_home}" && "${child_env[@]}" ./bin/startcli.sh -h < /dev/null 2>&1)" || true
+
+    local -a tls_args=()
+    if [[ -n "${trust_store}" && "${help}" == *--trustStoreFilePath* ]]; then
+        tls_args+=(--trustStoreFilePath "${trust_store}")
+    elif [[ -n "${trust_store}" ]]; then
+        [[ "${trust_store}" != *[[:space:]]* ]] \
+            || die "trust store path with whitespace cannot be passed in JAVA_TOOL_OPTIONS"
+        tool_options="-Djavax.net.ssl.trustStore=${trust_store}"
+        tool_options+=" -Djavax.net.ssl.trustStoreType=$(trust_store_type "${trust_store}")"
+    fi
+    if [[ "$(config_value disable_hostname_verification)" == true ]]; then
+        [[ "${help}" == *--disableHostNameVerification* ]] \
+            || die "the client has no --disableHostNameVerification (see v61_help)"
+        tls_args+=(--disableHostNameVerification)
+    fi
+    build_cli_env "${java_home}" "${tool_options}"
+
+    set +e
+    (cd "${cli_home}" && printf '%s\n' "${password}" "${session[@]}" exit | "${child_env[@]}" \
+        ./bin/startcli.sh -u "${username}" ${tls_args[@]+"${tls_args[@]}"} "${url}" \
+        > "${work_dir}/stdout" 2> "${work_dir}/stderr")
+    exit_code=$?
+    set -e
+
+    mkdir -p "${fixture_dir}/cli"
+    local prefix="${fixture_dir}/cli/${case_name}"
+    anonymize --format text "${work_dir}/stdout" "${prefix}.stdout"
+    anonymize --format text "${work_dir}/stderr" "${prefix}.stderr"
+    printf '%s\n' "${exit_code}" > "${prefix}.exit"
+    outputs=("${prefix}.stdout" "${prefix}.stderr" "${prefix}.exit")
     info "${case_name}: exit code ${exit_code}"
 }
 
