@@ -40,7 +40,7 @@ import java.util.Optional;
  *   <li>Windows is not supported in this version (known limitation, research R-6):
  *       {@code CLI_UNAVAILABLE}.
  *   <li>stdout and stderr are drained completely but kept only up to
- *       {@link #MAX_OUTPUT_BYTES} each.
+ *       {@link #MAX_OUTPUT_BYTES} each, then decoded by {@link OutputDecoder}.
  * </ul>
  */
 public final class CliRunner {
@@ -55,6 +55,7 @@ public final class CliRunner {
     private final Map<String, String> parentEnvironment;
     private final boolean windows;
     private final CliResources resources;
+    private final OutputDecoder decoder;
 
     /** @param resources registry of the running StartCLI processes, stopped on shutdown */
     public CliRunner(ProcessLauncher launcher, Map<String, String> parentEnvironment,
@@ -63,6 +64,9 @@ public final class CliRunner {
         this.launcher = launcher;
         this.parentEnvironment = Map.copyOf(parentEnvironment);
         this.windows = windows;
+        // Windows is refused before any launch, so only the POSIX decoding is reachable; the
+        // Windows decoding needs the OEM code page of CliSystem, which T013's constructor brings
+        this.decoder = OutputDecoder.posix();
     }
 
     /** The registry of running StartCLI processes (and export directories). */
@@ -249,7 +253,7 @@ public final class CliRunner {
         }
         stdout.await(KILL_GRACE);
         stderr.await(KILL_GRACE);
-        return new CliResult(process.exitValue(), stdout.text(), stderr.text(),
+        return new CliResult(process.exitValue(), stdout.text(decoder), stderr.text(decoder),
             Duration.ofNanos(System.nanoTime() - start), stdout.truncated() || stderr.truncated());
     }
 
@@ -355,8 +359,8 @@ public final class CliRunner {
             }
         }
 
-        synchronized String text() {
-            return kept.toString(StandardCharsets.UTF_8);
+        synchronized String text(OutputDecoder decoder) {
+            return decoder.decode(kept.toByteArray());
         }
 
         synchronized boolean truncated() {

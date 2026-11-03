@@ -181,7 +181,7 @@ recordings and the live check (manual, approved, by a Windows user).
   no other variable copied) and **(Windows)** a decoy test: `java.exe` decoys in `cli.home` and in
   a directory of the server's `PATH`; the substitute calls `java` unqualified and reaches the
   configured runtime.
-- [ ] T010 `OutputDecoder` (FR-006, R-6), after T009: `main/adapter/cli/OutputDecoder` — on Windows
+- [X] T010 `OutputDecoder` (FR-006, R-6), after T009: `main/adapter/cli/OutputDecoder` — on Windows
   per line strict UTF-8, else the console OEM code page (`GetOEMCP`, T008), CRLF → LF; on POSIX exactly today's
   `toString(UTF_8)`. `CliRunner` decodes through it. Test first:
   `test/adapter/cli/OutputDecoderTest` (new): UTF-8, 850, 1252 as OEM code page, a mixed buffer
