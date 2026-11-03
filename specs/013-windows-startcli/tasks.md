@@ -173,7 +173,7 @@ recordings and the live check (manual, approved, by a Windows user).
   (no system directory needed); `adapter/cli` never references `adapter/os`. Also the Windows
   equivalents of the guarded `SystemProcessLauncherTest` cases (environment, working directory,
   stdin via `ArgvRecorder`).
-- [ ] T009 `StartCliEnvironment` (FR-002, FR-004, R-5), after T008: extract today's POSIX allowlist from
+- [X] T009 `StartCliEnvironment` (FR-002, FR-004, R-5), after T008: extract today's POSIX allowlist from
   `CliRunner` into `main/adapter/cli/StartCliEnvironment` (unchanged) and add the Windows allowlist
   (case-insensitive names, `ComSpec`, `PATH` = `<JAVA_HOME>\bin;<system dir>`,
   `NoDefaultCurrentDirectoryInExePath=1`, the Windows-only `JAVA_TOOL_OPTIONS`). Test first:
@@ -186,7 +186,7 @@ recordings and the live check (manual, approved, by a Windows user).
   `toString(UTF_8)`. `CliRunner` decodes through it. Test first:
   `test/adapter/cli/OutputDecoderTest` (new): UTF-8, 850, 1252 as OEM code page, a mixed buffer
   (one OEM line among UTF-8 lines), CRLF, BOM; the POSIX path byte-for-byte as today.
-- [ ] T011 `PrivateFileSystem` (FR-007, R-8): port `main/domain/port/PrivateFileSystem`
+- [X] T011 `PrivateFileSystem` (FR-007, R-8): port `main/domain/port/PrivateFileSystem`
   (`createDirectory`, `createDirectories`, `createTempDirectory`, `createFile`, `check`) and
   `main/adapter/os/OsPrivateFileSystem`: POSIX today's permissions exactly (incl. the existing
   fallbacks); Windows creates the object empty, sets the owner to the token user and applies a
