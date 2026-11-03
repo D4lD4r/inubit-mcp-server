@@ -11,8 +11,10 @@ import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.os.NoJob;
 import de.dadecker.inubit.mcp.adapter.soap.SoapE2eClient;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
 import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
@@ -99,6 +101,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -196,11 +199,26 @@ final class Wiring implements AutoCloseable {
 
     /**
      * As above, with the Parameter Store of the AWS nodes (feature 010), created only if a node
-     * reads its secrets from it; nothing is fetched here (FR-006a).
+     * reads its secrets from it; nothing is fetched here (FR-006a). StartCLI's processes count as
+     * contained ({@link NoJob}): tests never bind their JVM to a job.
      */
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment, Supplier<ParameterStore> parameterStore) {
+        this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
+            parameterStore, new NoJob());
+    }
+
+    /**
+     * As above, with the containment of StartCLI's processes that {@code Launcher} set up once for
+     * the process (feature 013, research R-7). Not read yet: task T013 hands it to the StartCLI
+     * runner, which then refuses to start StartCLI on Windows while it is unavailable.
+     */
+    Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
+        ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
+        Map<String, String> environment, Supplier<ParameterStore> parameterStore,
+        ProcessContainment containment) {
+        Objects.requireNonNull(containment, "containment");
         this.profile = config.profileInfo();
         this.scrubber = scrubber;
         // 002 research D-8: the export directories carry the profile name

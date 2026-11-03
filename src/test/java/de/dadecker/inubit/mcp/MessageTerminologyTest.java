@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
+import de.dadecker.inubit.mcp.adapter.os.NoJob;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
@@ -293,7 +294,7 @@ class MessageTerminologyTest {
         Launcher.Context context = new Launcher.Context(env, Path.of("/home/test"), false,
             InputStream.nullInputStream(), new PrintStream(out, true, StandardCharsets.UTF_8),
             new PrintStream(err, true, StandardCharsets.UTF_8), new SecretScrubber(),
-            path -> true, FakeParameterStore::new, FakeCredentialStore::new);
+            path -> true, FakeParameterStore::new, FakeCredentialStore::new, NoJob::new);
 
         int exit = new Launcher(context).run("--config", file.toString(), "--check-config");
 

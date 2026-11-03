@@ -6,7 +6,9 @@
  * available. Feature 013 adds the system queries of the {@code adapter.cli} port {@code CliSystem}
  * ({@code WindowsSystem}: system directory, OEM code page and token user through JNA;
  * {@code PosixSystem}) and the {@code domain.port} port {@code PrivateFileSystem}
- * ({@code OsPrivateFileSystem}: POSIX permissions, Windows access lists through JNA). The only
+ * ({@code OsPrivateFileSystem}: POSIX permissions, Windows access lists through JNA) and the
+ * {@code adapter.cli} port {@code ProcessContainment} ({@code WindowsJob}: the kill-on-close job
+ * through JNA; {@code NoJob}). The only
  * package that uses JNA; it starts processes only through the
  * {@code ProcessLauncher} interface. Values are wrapped in {@code infra.Secret} as soon as they are
  * read and never appear in a process argument or a log.

@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.adapter.os.NoJob;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.ParameterType;
 import de.dadecker.inubit.mcp.config.StoreLocation;
@@ -42,6 +43,8 @@ import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -73,6 +76,8 @@ class MainTest {
     private final AtomicInteger storesCreated = new AtomicInteger();
     /** The credential store the launcher created last (feature 011). */
     private final AtomicReference<FakeCredentialStore> credentialStore = new AtomicReference<>();
+    /** How often the launcher set up the containment of StartCLI's processes (feature 013). */
+    private final AtomicInteger containments = new AtomicInteger();
     /** The store the launcher gets instead of one built from {@link #entries}, if set. */
     private FakeCredentialStore scriptedStore;
     /**
@@ -104,6 +109,9 @@ class MainTest {
                     : TestSecrets.store(entries);
                 credentialStore.set(created);
                 return created;
+            }, () -> {
+                containments.incrementAndGet();
+                return new NoJob();
             }), handlers);
     }
 
@@ -1029,6 +1037,28 @@ class MainTest {
             assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(audit)))
                 .isEqualTo("rwx------");
         }
+    }
+
+    // --- feature 013 T012: the containment of StartCLI's processes (FR-005, research R-7) ------
+
+    @Test
+    void theServerSetsUpTheProcessContainmentOnceAndVersionDoesNot() throws IOException {
+        credentials();
+        Path file = validConfig();
+
+        assertThat(run("--version")).isZero();
+        assertThat(containments).hasValue(0);
+
+        assertThat(run("--config", file.toString())).as(err()).isZero(); // empty stdin
+        assertThat(containments).hasValue(1);
+    }
+
+    /** Never on Windows: there the system context binds the process (this test JVM) to a job. */
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void onMacOsAndLinuxTheSystemContextNeedsNoJob() {
+        assertThat(Launcher.Context.system(System.out).containment().get())
+            .isInstanceOf(NoJob.class);
     }
 
     @Test

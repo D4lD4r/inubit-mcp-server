@@ -4,8 +4,11 @@ import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.os.CredentialStores;
+import de.dadecker.inubit.mcp.adapter.os.NoJob;
+import de.dadecker.inubit.mcp.adapter.os.WindowsJob;
 import de.dadecker.inubit.mcp.config.ConfigException;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigSummary;
@@ -57,7 +60,8 @@ import org.slf4j.LoggerFactory;
 /**
  * The command line behind {@link Main} (contracts/configuration.md → Command-line arguments).
  *
- * <p>Order: arguments, config file, validation (all errors on stderr, exit 1), log level, audit
+ * <p>Order: arguments, config file, validation (all errors on stderr, exit 1), containment of
+ * StartCLI's processes (feature 013: the kill-on-close job on Windows), log level, audit
  * directory (owner-only), wiring, MCP server. The server runs until stdin is closed.
  * {@link Main} has already set the locale and installed the stdout guard before this class (and
  * with it Logback) is initialized.
@@ -96,11 +100,14 @@ final class Launcher {
      *     called only if a node reads its secrets from it
      * @param credentialStore creates the credential store of the running system (feature 011);
      *     building it reads nothing
+     * @param containment sets up the containment of StartCLI's processes (feature 013, research
+     *     R-7): on Windows it binds this process to a kill-on-close job; called once, when the
+     *     server starts, before it starts any process (tests pass a fixed state)
      */
     record Context(Map<String, String> environment, Path userHome, boolean windows,
         InputStream in, PrintStream out, PrintStream err, SecretScrubber scrubber,
         Predicate<Path> exists, Supplier<ParameterStore> parameterStore,
-        Supplier<CredentialStore> credentialStore) {
+        Supplier<CredentialStore> credentialStore, Supplier<ProcessContainment> containment) {
 
         Context {
             environment = Map.copyOf(environment);
@@ -112,16 +119,18 @@ final class Launcher {
             Objects.requireNonNull(exists, "exists");
             Objects.requireNonNull(parameterStore, "parameterStore");
             Objects.requireNonNull(credentialStore, "credentialStore");
+            Objects.requireNonNull(containment, "containment");
         }
 
         static Context system(PrintStream protocolOut) {
             Path home = Path.of(System.getProperty("user.home"));
-            return new Context(System.getenv(), home,
-                System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows"),
-                System.in, protocolOut, System.err, SecretScrubber.global(), Files::exists,
-                SsmParameterStore::new, () -> CredentialStores.forOs(
-                    System.getProperty("os.name"), new SystemProcessLauncher(), System.getenv(),
-                    home));
+            boolean windows =
+                System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows");
+            return new Context(System.getenv(), home, windows, System.in, protocolOut,
+                System.err, SecretScrubber.global(), Files::exists, SsmParameterStore::new,
+                () -> CredentialStores.forOs(System.getProperty("os.name"),
+                    new SystemProcessLauncher(), System.getenv(), home),
+                windows ? WindowsJob::bindCurrentProcess : NoJob::new);
         }
     }
 
@@ -256,6 +265,8 @@ final class Launcher {
     }
 
     private int serve(ProfileConfig config, List<String> warnings) {
+        // feature 013 (research R-7): first, so that every process the server starts is bound
+        ProcessContainment containment = context.containment().get();
         LogLevels.apply(config.logLevel().name());
         warnings.forEach(warning -> LOG.warn("Configuration: {}", warning));
         try {
@@ -276,7 +287,8 @@ final class Launcher {
         }
         try (Wiring wiring = new Wiring(config, context.credentialStore().get(), context.scrubber(),
             ClockProvider.system(), context.exists(), context.windows(),
-            new SystemProcessLauncher(), System.getenv(), context.parameterStore())) {
+            new SystemProcessLauncher(), System.getenv(), context.parameterStore(),
+            containment)) {
             McpServerFactory factory = wiring.serverFactory(BuildInfo.version(),
                 toolHandlers.apply(wiring));
             try (McpServerFactory.RunningServer server = factory.start(context.in(),
