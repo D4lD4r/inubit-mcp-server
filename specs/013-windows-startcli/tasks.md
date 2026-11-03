@@ -196,11 +196,12 @@ recordings and the live check (manual, approved, by a Windows user).
   `test/adapter/os/OsPrivateFileSystemTest` (new; POSIX permissions) and **(Windows)**
   `OsPrivateFileSystemAclTest` (new): read-back DACL is protected with exactly two entries; a file a
   child process writes into the directory inherits them. `PackageBoundaryTest` stays green.
-- [ ] T012 `ProcessContainment` (FR-005, R-7): port `main/adapter/cli/ProcessContainment`
+- [X] T012 `ProcessContainment` (FR-005, R-7): port `main/adapter/cli/ProcessContainment`
   (`state()`: `BOUND` | `UNAVAILABLE(reason)`), `main/adapter/os/NoJob` (POSIX) and
   `main/adapter/os/WindowsJob` (JNA `kernel32`: `CreateJobObjectW`, `SetInformationJobObject` with
   `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, `AssignProcessToJobObject(GetCurrentProcess())`), set up
-  once per process in `Launcher` (main path only) and passed as a state to `Wiring` (tests build
+  once per process in the production `Launcher` (server start, and `--check-config` before the
+  client probe — changed in T013; never in the test JVM) and passed as a state to `Wiring` (tests build
   `Wiring` with a given state, so the test JVM is never bound); the job handle is created
   non-inheritable. Test first:
   **(Windows)** `WindowsJobTest` (new): a helper JVM binds itself, starts the substitute that starts
