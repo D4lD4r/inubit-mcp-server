@@ -69,6 +69,10 @@ import org.junit.jupiter.api.Test;
  * <p>Feature 011 (T001, research R-2): JNA ({@code com.sun.jna}) is used only in the credential
  * store adapters {@code adapter.os}. The process rule is unchanged: {@code adapter.os} starts its
  * tools through the {@code ProcessLauncher} interface of {@code adapter.cli}.
+ *
+ * <p>Feature 013 (T008, plan "Project Structure"): {@code adapter.os} also holds the Windows
+ * system queries (JNA), which reach {@code adapter.cli} through its port {@code CliSystem};
+ * {@code adapter.cli} never references {@code adapter.os}.
  */
 class PackageBoundaryTest {
 
@@ -180,6 +184,12 @@ class PackageBoundaryTest {
     }
 
     @Test
+    void theCliAdapterDoesNotReachTheOsAdapter() {
+        assertThat(violations(inPackage("adapter/cli"), forbidden(BASE + OS_ADAPTER + "/")))
+            .as("adapter.cli → adapter.os (use the CliSystem port)").isEmpty();
+    }
+
+    @Test
     void theOsAdapterReachesNeitherTheMcpLayerNorTheApplication() {
         assertThat(violations(inPackage(OS_ADAPTER), forbidden(BASE + "mcp/",
             BASE + "application/")))
@@ -243,6 +253,8 @@ class PackageBoundaryTest {
         assertThat(types(BASE + "adapter/aws/SsmParameterStore"))
             .anyMatch(t -> t.startsWith(AWS_SDK));
         assertThat(types(BASE + "adapter/os/JnaCredApi")).anyMatch(t -> t.startsWith(JNA));
+        assertThat(types(BASE + "adapter/os/WindowsSystem"))
+            .contains(BASE + "adapter/cli/CliSystem");
         assertThat(types(BASE + "application/FanOut")).anyMatch(t -> t.startsWith("org/slf4j/"));
         assertThat(classes.get(BASE + "Wiring").members())
             .contains("java/lang/Runtime.getRuntime");

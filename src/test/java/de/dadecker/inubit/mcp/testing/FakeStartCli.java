@@ -26,16 +26,19 @@ public final class FakeStartCli {
     private final Path script;
     private final Path recordFile;
     private final Path commandLineFile;
+    private final List<String> recorderCommand;
 
-    private FakeStartCli(Path script, Path recordFile, Path commandLineFile) {
+    private FakeStartCli(Path script, Path recordFile, Path commandLineFile,
+        List<String> recorderCommand) {
         this.script = script;
         this.recordFile = recordFile;
         this.commandLineFile = commandLineFile;
+        this.recorderCommand = List.copyOf(recorderCommand);
     }
 
-    /** What one run of the substitute received. */
+    /** What one run of the substitute received; {@code workingDirectory} is its {@code user.dir}. */
     public record Recorded(long pid, Long childPid, List<String> args,
-        Map<String, String> environment, byte[] stdin) {
+        Map<String, String> environment, byte[] stdin, String workingDirectory) {
     }
 
     /** Installs a substitute that only records. */
@@ -51,14 +54,15 @@ public final class FakeStartCli {
         throws IOException {
         boolean windows = Platform.windows();
         Path bin = Files.createDirectories(cliHome.resolve("bin"));
-        FakeStartCli cli = new FakeStartCli(bin.resolve(windows ? "startcli.bat" : "startcli.sh"),
-            cliHome.resolve("argv-record.json"), cliHome.resolve("cmdcmdline.txt"));
+        Path recordFile = cliHome.resolve("argv-record.json");
         Map<String, String> properties = new TreeMap<>(options);
-        properties.put(ArgvRecorder.RECORD, cli.recordFile.toString());
+        properties.put(ArgvRecorder.RECORD, recordFile.toString());
         List<String> java = new ArrayList<>(List.of(Platform.javaExecutable().toString(), "-cp",
             testClasses().toString()));
         properties.forEach((name, value) -> java.add("-D" + name + "=" + value));
         java.add(ArgvRecorder.class.getName());
+        FakeStartCli cli = new FakeStartCli(bin.resolve(windows ? "startcli.bat" : "startcli.sh"),
+            recordFile, cliHome.resolve("cmdcmdline.txt"), java);
         if (windows) {
             Files.writeString(cli.script, String.join("\r\n",
                 "@echo off",
@@ -87,6 +91,15 @@ public final class FakeStartCli {
 
     public Path script() {
         return script;
+    }
+
+    /**
+     * The program the script runs, without the script and without arguments: launched directly,
+     * it records into {@link #recordFile()} like a run of the script, with no interpreter or
+     * shell in between.
+     */
+    public List<String> recorderCommand() {
+        return recorderCommand;
     }
 
     /** Where the last run's record is written; absent until a run got that far. */

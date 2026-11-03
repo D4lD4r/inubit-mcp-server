@@ -3,7 +3,9 @@
  * {@code config} port {@code CredentialStore} per operating system — macOS Keychain through
  * {@code /usr/bin/security}, Windows Credential Manager through {@code CredReadW} (JNA), Linux Secret
  * Service through {@code secret-tool} — and a store for every other system that is never
- * available. The only package that uses JNA; it starts processes only through the
+ * available. Feature 013 adds the system queries of the {@code adapter.cli} port {@code CliSystem}
+ * ({@code WindowsSystem}: system directory, OEM code page and token user through JNA;
+ * {@code PosixSystem}). The only package that uses JNA; it starts processes only through the
  * {@code ProcessLauncher} interface. Values are wrapped in {@code infra.Secret} as soon as they are
  * read and never appear in a process argument or a log.
  */

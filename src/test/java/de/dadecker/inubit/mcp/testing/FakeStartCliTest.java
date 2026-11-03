@@ -91,6 +91,22 @@ class FakeStartCliTest {
         assertThat(new String(record.stdin(), StandardCharsets.UTF_8)).isEqualTo("secret\n");
         assertThat(record.pid()).isPositive();
         assertThat(record.childPid()).isNull();
+        assertThat(Path.of(record.workingDirectory()).toRealPath())
+            .isEqualTo(cliHome.toRealPath());
+    }
+
+    @Test
+    void theRecorderCommandRecordsWithoutTheScript() throws Exception {
+        FakeStartCli cli = FakeStartCli.install(cliHome);
+        List<String> command = new ArrayList<>(cli.recorderCommand());
+        command.add("direct");
+
+        LaunchedProcess process = launcher.launch(new LaunchSpec(command, Map.of(), cliHome));
+        process.stdin().close();
+
+        assertThat(exitOf(process)).isZero();
+        assertThat(cli.recorderCommand()).doesNotContain(cli.script().toString());
+        assertThat(cli.record().args()).containsExactly("direct");
     }
 
     @Test
