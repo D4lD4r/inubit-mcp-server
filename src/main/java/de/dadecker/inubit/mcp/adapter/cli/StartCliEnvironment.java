@@ -96,7 +96,11 @@ public final class StartCliEnvironment {
         return environment;
     }
 
-    private static String valueIgnoringCase(Map<String, String> parent, String name) {
+    /**
+     * The value of {@code name} in {@code parent}, whose names are matched case-insensitively as
+     * on Windows: the exact spelling, else the first in {@code String} order; null if unset.
+     */
+    static String valueIgnoringCase(Map<String, String> parent, String name) {
         String exact = parent.get(name);
         if (exact != null) {
             return exact;

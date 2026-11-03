@@ -21,7 +21,10 @@ import java.util.Optional;
  *       so it is an {@link IllegalStateException}, never the user-facing refusal.
  *   <li>The inner line may have at most {@link #MAX_INNER_LENGTH} characters; a longer one is
  *       {@link TooLong}, caused by the tool input if the line would fit with an empty
- *       {@code --execCommand} value, else by the configuration.
+ *       {@code --execCommand} value, else by the configuration. The {@code --execCommand} value
+ *       is found by position, as {@code CliRunner} places it: the last argument but one, after
+ *       {@code --execCommand} and before the StartCLI URL (a username that is literally
+ *       {@code --execCommand} is configuration).
  * </ul>
  *
  * <p>Pure: Windows paths are plain strings, so the class behaves the same on every host.
@@ -86,14 +89,11 @@ public final class WindowsCommandLine {
         }
         List<String> parts = new ArrayList<>(arguments.size() + 1);
         parts.add('"' + script + '"');
-        int toolInput = 0;
-        for (int i = 0; i < arguments.size(); i++) {
-            String quoted = quote(arguments.get(i));
-            parts.add(quoted);
-            if (i > 0 && arguments.get(i - 1).equals(EXEC_COMMAND)) {
-                toolInput += quoted.length() - 2;
-            }
-        }
+        arguments.forEach(argument -> parts.add(quote(argument)));
+        int command = arguments.size() - 2;
+        boolean hasCommand = command > 0 && arguments.get(command - 1).equals(EXEC_COMMAND);
+        // without its quotes; parts.get(0) is the script
+        int toolInput = hasCommand ? parts.get(command + 1).length() - 2 : 0;
         String inner = '"' + String.join(" ", parts) + '"';
         if (inner.length() > MAX_INNER_LENGTH) {
             Cause cause = inner.length() - toolInput > MAX_INNER_LENGTH

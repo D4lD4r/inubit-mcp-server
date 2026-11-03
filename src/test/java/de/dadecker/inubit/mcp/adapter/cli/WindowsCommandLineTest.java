@@ -117,6 +117,26 @@ class WindowsCommandLineTest {
                 WindowsCommandLine.MAX_INNER_LENGTH + commandLength));
     }
 
+    /**
+     * The tool input is the value before the StartCLI URL, as {@code CliRunner} places it, not
+     * whatever follows a literal {@code --execCommand}: here the username, which would add
+     * {@code --trustStoreFilePath} to the tool input's share.
+     */
+    @Test
+    void aUsernameThatIsLiterallyExecCommandDoesNotCountAsToolInput() {
+        List<String> arguments = new ArrayList<>(List.of("-u", "--execCommand",
+            "--trustStoreFilePath", "", "--execCommand", "", URL));
+        int configured = 4 + SCRIPT.length()
+            + arguments.stream().mapToInt(argument -> 3 + argument.length()).sum();
+        // with an empty command one character over the limit; the command adds one more
+        arguments.set(3, "C:\\" + "t".repeat(WindowsCommandLine.MAX_INNER_LENGTH + 1
+            - configured - 3));
+        arguments.set(5, "x");
+
+        assertThat(WindowsCommandLine.build(SYSTEM, SCRIPT, arguments))
+            .isEqualTo(new TooLong(Cause.CONFIGURATION, WindowsCommandLine.MAX_INNER_LENGTH + 2));
+    }
+
     @Test
     void aTooLongLineWithoutCommandIsConfiguration() {
         String home = "C:\\" + "h".repeat(6200);

@@ -150,8 +150,10 @@ class CliVersionProbeTest {
         assertThat(launcher.last().stdinBytes()).isEmpty();
         assertThat(launcher.last().stdinClosed()).isTrue();
         assertThat(launcher.last().spec().environment())
-            .containsEntry("JAVA_HOME", "/opt/jdk-17")
-            .containsEntry("JAVA_TOOL_OPTIONS", "-Duser.language=en -Duser.country=US")
+            .containsEntry("JAVA_HOME", Path.of("/opt/jdk-17").toString())
+            .containsEntry("JAVA_TOOL_OPTIONS", Platform.windows()
+                ? StartCliEnvironment.WINDOWS_JAVA_TOOL_OPTIONS
+                : "-Duser.language=en -Duser.country=US")
             .doesNotContainKey("INUBIT_DEV_PASSWORD");
         assertThat(launcher.last().spec().workingDirectory()).isEqualTo(cliHome);
     }
@@ -184,6 +186,22 @@ class CliVersionProbeTest {
                 assertThat(e.error().node()).contains(ID);
             });
         assertThat(launcher.launchCount()).isZero();
+    }
+
+    /** Feature 013 T013: the next step names the script of the platform. */
+    @Test
+    void onWindowsAFailedProbeNamesTheBatchFileInItsNextStep() throws IOException {
+        Files.writeString(cliHome.resolve("bin").resolve("startcli.bat"), "@echo off\r\n");
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("unknown_command");
+        CliVersionProbe probe = new CliVersionProbe(TestCliRunners.simulatedWindows(launcher,
+            Map.of(), new ProcessContainment.Bound(), new CliResources("acme")), id -> server,
+            new SecretScrubber());
+
+        assertThatThrownBy(() -> probe.probe(ID, TIMEOUT))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(e.error()
+                .nextStep()).isEqualTo("Run bin\\startcli.bat -v in cliHome with that JDK and"
+                    + " check the output"));
+        assertThat(launcher.launchCount()).isOne();
     }
 
     @Test

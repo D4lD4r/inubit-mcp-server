@@ -512,14 +512,18 @@ class CliExportRunnerTest {
             .contains("--exportWorkflowGroup 'OWNERS Group 1' --includeHistory");
     }
 
+    /** Feature 013 T013: Windows without bound StartCLI processes replaces "on Windows". */
     @Test
-    void withoutCliHomeOrOnWindowsTheCliIsUnavailableAndNothingIsLaunched() throws IOException {
+    void withoutCliHomeOrUnboundOnWindowsTheCliIsUnavailableAndNothingIsLaunched()
+        throws IOException {
+        Files.writeString(cliHome.resolve("bin").resolve("startcli.bat"), "@echo off\r\n");
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("export_modules_sample");
         EffectiveNodeConfig noHome = TestNodeConfig.node().build();
 
         ToolError missingHome = errorOf(() -> exports(launcher, noHome).exportModules("OWNERS"));
         ToolError windows = errorOf(() -> exports(server().build(), credentials(),
-            new CliRunner(launcher, Map.of("PATH", Platform.searchPath()), true,
+            TestCliRunners.simulatedWindows(launcher, Map.of("PATH", Platform.searchPath()),
+                new ProcessContainment.Unavailable("CreateJobObjectW failed (Windows error 5)"),
                 new CliResources("acme"))).exportModules("OWNERS"));
 
         assertThat(missingHome.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);

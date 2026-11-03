@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.os.NoJob;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.ParameterType;
@@ -78,6 +79,8 @@ class MainTest {
     private final AtomicReference<FakeCredentialStore> credentialStore = new AtomicReference<>();
     /** How often the launcher set up the containment of StartCLI's processes (feature 013). */
     private final AtomicInteger containments = new AtomicInteger();
+    /** The containment the launcher sets up. */
+    private ProcessContainment containment = new NoJob();
     /** The store the launcher gets instead of one built from {@link #entries}, if set. */
     private FakeCredentialStore scriptedStore;
     /**
@@ -111,7 +114,7 @@ class MainTest {
                 return created;
             }, () -> {
                 containments.incrementAndGet();
-                return new NoJob();
+                return containment;
             }), handlers);
     }
 
@@ -1051,6 +1054,43 @@ class MainTest {
 
         assertThat(run("--config", file.toString())).as(err()).isZero(); // empty stdin
         assertThat(containments).hasValue(1);
+    }
+
+    /**
+     * T013: {@code --check-config} sets up the containment before the client probe (on Windows
+     * the kill-on-close job, so a forced end of the check also ends the probe), and an unavailable
+     * one fails the probe without starting StartCLI.
+     */
+    @Test
+    void checkConfigProbesTheClientOnlyWithItsProcessesContained() throws IOException {
+        credentials();
+        windows = Platform.windows();
+        Path cliHome = home.resolve("client");
+        FakeStartCli cli = FakeStartCli.replaying(cliHome, "version");
+        containment = () -> new ProcessContainment.Unavailable(
+            "CreateJobObjectW failed (Windows error 5)");
+        Path file = config("""
+            profile:
+              name: acme
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: "8.1.17"
+                    cli:
+                      home: %s
+                      javaHome: %s
+            """.formatted(cliHome, home));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        assertThat(containments).hasValue(1);
+        assertThat(out()).contains("  - dev/node1: StartCLI client probe failed: StartCLI"
+            + " cannot be used for dev/node1: StartCLI processes could not be bound to the"
+            + " server (CreateJobObjectW failed (Windows error 5))");
+        assertThat(cli.recordFile()).doesNotExist();
     }
 
     /** Never on Windows: there the system context binds the process (this test JVM) to a job. */

@@ -10,6 +10,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
@@ -25,6 +26,7 @@ import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -242,15 +244,20 @@ class V81ProcessControlAdapterTest {
         assertThat(launcher.launchCount()).isZero();
     }
 
+    /** Feature 013 T013: replaces "on Windows the actions are CLI_UNAVAILABLE". */
     @Test
-    void onWindowsTheActionsAreCliUnavailable() {
+    void onWindowsWithoutBoundStartCliProcessesTheActionsAreCliUnavailable() throws IOException {
+        Files.writeString(cliHome.resolve("bin").resolve("startcli.bat"), "@echo off\r\n");
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("kill_ok");
 
-        CliRunner windows = new CliRunner(launcher, Map.of("PATH", Platform.searchPath()), true,
+        CliRunner windows = TestCliRunners.simulatedWindows(launcher,
+            Map.of("PATH", Platform.searchPath()),
+            new ProcessContainment.Unavailable("CreateJobObjectW failed (Windows error 5)"),
             new CliResources("acme"));
+        V81ProcessControlAdapter adapter = adapter(config(), credentials(), windows);
 
-        assertThat(errorOf(() -> adapter(config(), credentials(), windows).kill("1"))
-            .code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(errorOf(adapter::checkAvailable).code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(errorOf(() -> adapter.kill("1")).code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
         assertThat(launcher.launchCount()).isZero();
     }
 

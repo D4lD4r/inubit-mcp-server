@@ -15,6 +15,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.http.Fault;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81QueryRules;
@@ -60,6 +61,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -432,6 +434,32 @@ class AdapterGatewayFactoryTest {
             assertThat(factory.forServer(DEV).inventory()).isNotNull()
                 .isSameAs(factory.inventory(DEV));
             assertThat(wireMock.getAllServeEvents()).isEmpty();
+        }
+    }
+
+    /** Feature 013 T013: the node's classifier names the client script of the runner's platform. */
+    @Test
+    void theStartCliNextStepsOfAWindowsRunnerNameTheBatchFile(@TempDir Path cliHome)
+        throws IOException {
+        Files.writeString(Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.bat"),
+            "@echo off\r\n");
+        EffectiveNodeConfig config = TestNodeConfig.node().id(DEV.value())
+            .baseUrl("https://localhost:" + wireMock.httpsPort()).cliHome(cliHome)
+            .cliJavaHome(Path.of("/opt/jdk-17")).build();
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("unknown_command");
+        try (AdapterGatewayFactory factory = new AdapterGatewayFactory(List.of(config),
+            TestSecrets.credentialStore(List.of(config), Map.of("INUBIT_DEV_USERNAME", "jdoe",
+                "INUBIT_DEV_PASSWORD", "gateway-test-pw"), scrubber), scrubber, clock,
+            TestCliRunners.simulatedWindows(launcher, Map.of(), new ProcessContainment.Bound(),
+                new CliResources("acme")),
+            versions, PortSetRegistry.v81Default())) {
+
+            assertThatThrownBy(() -> factory.processControl(DEV).kill("1"))
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.INTERNAL);
+                    assertThat(e.error().nextStep()).contains("(bin\\startcli.bat -v)");
+                });
+            assertThat(launcher.launchCount()).isOne();
         }
     }
 

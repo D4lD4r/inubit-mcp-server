@@ -8,7 +8,9 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.os.CredentialStores;
 import de.dadecker.inubit.mcp.adapter.os.NoJob;
+import de.dadecker.inubit.mcp.adapter.os.PosixSystem;
 import de.dadecker.inubit.mcp.adapter.os.WindowsJob;
+import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
 import de.dadecker.inubit.mcp.config.ConfigException;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigSummary;
@@ -101,8 +103,9 @@ final class Launcher {
      * @param credentialStore creates the credential store of the running system (feature 011);
      *     building it reads nothing
      * @param containment sets up the containment of StartCLI's processes (feature 013, research
-     *     R-7): on Windows it binds this process to a kill-on-close job; called once, when the
-     *     server starts, before it starts any process (tests pass a fixed state)
+     *     R-7): on Windows it binds this process to a kill-on-close job; called once, before the
+     *     process starts StartCLI: when the server starts, or for {@code --check-config} before
+     *     the client probe (tests pass a fixed state)
      */
     record Context(Map<String, String> environment, Path userHome, boolean windows,
         InputStream in, PrintStream out, PrintStream err, SecretScrubber scrubber,
@@ -233,7 +236,8 @@ final class Launcher {
      * Feature 009 (FR-011a, research D-13): runs {@code startcli -v} for every node with a
      * StartCLI installation, bounded by the node's {@code cliTimeout}, and puts the successes into
      * {@code clients}. No credentials, no server URL, no INUBIT contact. A failed probe is a
-     * warning.
+     * warning. Feature 013 (research R-7): the containment is set up first, so that on Windows the
+     * probe's processes end with this process too; while it is unavailable no probe starts.
      *
      * @return {@code report} with a warning per failed probe
      */
@@ -251,7 +255,9 @@ final class Launcher {
         // directories, which the probe never creates
         try (CliResources resources = new CliResources("check-config")) {
             CliVersionProbe probe = new CliVersionProbe(new CliRunner(new SystemProcessLauncher(),
-                context.environment(), context.windows(), resources), byId::get);
+                context.environment(), context.windows(),
+                context.windows() ? new WindowsSystem() : new PosixSystem(),
+                context.containment().get(), resources), byId::get);
             for (EffectiveNodeConfig server : withClient) {
                 try {
                     clients.put(server.id(), probe.probe(server.id(), server.cliTimeout()));

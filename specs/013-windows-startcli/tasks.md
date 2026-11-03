@@ -218,7 +218,7 @@ recordings and the live check (manual, approved, by a Windows user).
 **Independent test**: the injection matrix (SC-002) and the credential inspection (SC-003) on the
 Windows CI job.
 
-- [ ] T013 [US2] Windows launch in `CliRunner` (FR-001, FR-002, FR-004, FR-011): remove the
+- [X] T013 [US2] Windows launch in `CliRunner` (FR-001, FR-002, FR-004, FR-011): remove the
   `WINDOWS_UNSUPPORTED` refusal; on Windows build the call with `WindowsCommandLine`,
   `StartCliEnvironment` and `bin\startcli.bat`; check the effective Java home (`cli.javaHome`, else
   the server's `JAVA_HOME`) with `WindowsArguments` plus `;` (it goes into `PATH`); map the length
@@ -251,6 +251,10 @@ Windows CI job.
   the node's REST tools stay available; the old Windows warning is gone).
   The configured-length warning assumes a 64-character username (the username is a credential,
   read on use); the per-call check uses the real one.
+  Open from T013 (review r1/r2): the contract's system-directory warning names a `(<reason>)`,
+  but `CliSystem.systemDirectory()` returns an `Optional`; either the port carries the reason
+  or the contract row drops it. `Launcher.probeClients` sets up the containment only when a
+  node has a client; T015 needs the state for every Windows `--check-config`.
 - [ ] T016 [US2] Credentials on Windows (FR-002, FR-003, R-9): before a StartCLI call on Windows,
   `CliRunner` refuses a username with a refused character and a password with a non-ASCII
   character with `AUTH_FAILED` naming the entry and cause, before the `CredentialGuard` login step

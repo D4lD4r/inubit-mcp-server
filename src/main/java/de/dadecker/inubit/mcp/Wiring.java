@@ -15,6 +15,8 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.os.NoJob;
+import de.dadecker.inubit.mcp.adapter.os.PosixSystem;
+import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
 import de.dadecker.inubit.mcp.adapter.soap.SoapE2eClient;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
 import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
@@ -211,8 +213,8 @@ final class Wiring implements AutoCloseable {
 
     /**
      * As above, with the containment of StartCLI's processes that {@code Launcher} set up once for
-     * the process (feature 013, research R-7). Not read yet: task T013 hands it to the StartCLI
-     * runner, which then refuses to start StartCLI on Windows while it is unavailable.
+     * the process (feature 013, research R-7): the StartCLI runner refuses to start StartCLI while
+     * it is unavailable. The runner's system queries are those of the platform ({@code windows}).
      */
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
@@ -237,7 +239,8 @@ final class Wiring implements AutoCloseable {
         // feature 009 (research D-4): the per-node version state, fed by the adapters
         NodeVersions versions = new NodeVersions(clock.clock(),
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
-        CliRunner cliRunner = new CliRunner(launcher, environment, windows, cliResources);
+        CliRunner cliRunner = new CliRunner(launcher, environment, windows,
+            windows ? new WindowsSystem() : new PosixSystem(), containment, cliResources);
         // feature 009 (research D-16): only the 8.1 port set, as default for every version
         Map<NodeId, NodeSecrets> secrets = secrets(servers, credentialStore, scrubber, clock,
             parameterStore);

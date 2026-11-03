@@ -3,7 +3,11 @@ package de.dadecker.inubit.mcp.adapter.cli;
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchedProcess;
+import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Built;
+import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Cause;
+import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.TooLong;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.config.WindowsArguments;
 import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -19,6 +23,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -28,17 +33,26 @@ import java.util.Optional;
  * Runs StartCLI for one server (research R-6, R-12; Constitution I, II, V).
  *
  * <ul>
- *   <li>Argument array, never a shell:
+ *   <li>Argument array, never a shell (macOS, Linux):
  *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <p12>],
  *       [--disableHostNameVerification], --execCommand, <command>, <cliUrl>]}. There is never a
  *       {@code -p}; the password plus {@code \n} is written to stdin, which is then closed.
- *   <li>The child environment is the allowlist of {@link StartCliEnvironment#posix}, with
- *       {@code JAVA_HOME} from {@code cli.javaHome}, else the server's own. No credential
- *       variable ever reaches StartCLI.
+ *   <li>Windows (feature 013, contracts/windows-invocation.md): the same StartCLI arguments reach
+ *       {@code bin\startcli.bat} through the interpreter call of {@link WindowsCommandLine}.
+ *       Before anything starts, each call refuses with {@code CLI_UNAVAILABLE} (naming the
+ *       setting and the character class, never the value): a character
+ *       {@link WindowsArguments#refusal} refuses in {@code cli.home}, {@code tls.trustStore} or
+ *       {@code cli.url}, such a character or a {@code ;} in the effective Java home (it goes into
+ *       {@code PATH}), a network {@code cli.home}, an unreadable system directory and a command
+ *       line the configured values alone make too long; a command line the tool input makes too
+ *       long is {@code INVALID_INPUT}.
+ *   <li>Every platform: while the {@link ProcessContainment} is {@code Unavailable}, StartCLI is
+ *       {@code CLI_UNAVAILABLE} (only possible on Windows).
+ *   <li>The child environment is the allowlist of {@link StartCliEnvironment}, with
+ *       {@code JAVA_HOME} from {@code cli.javaHome}, else the server's own (on Windows in any
+ *       spelling). No credential variable ever reaches StartCLI.
  *   <li>The working directory is the CLI home. On timeout (or interruption) the process tree is
  *       destroyed; any member still alive after {@link #KILL_GRACE} is killed forcibly.
- *   <li>Windows is not supported in this version (known limitation, research R-6):
- *       {@code CLI_UNAVAILABLE}.
  *   <li>stdout and stderr are drained completely but kept only up to
  *       {@link #MAX_OUTPUT_BYTES} each, then decoded by {@link OutputDecoder}.
  * </ul>
@@ -47,26 +61,36 @@ public final class CliRunner {
 
     public static final int MAX_OUTPUT_BYTES = 1 << 20;
     public static final Duration KILL_GRACE = Duration.ofSeconds(2);
-    static final String WINDOWS_UNSUPPORTED =
-        "CLI tools are not supported on Windows in this version";
     private static final Duration POLL = Duration.ofMillis(20);
+    /** The characters a value passed outside the command must not contain on Windows (R-2). */
+    private static final String REFUSED_CHARACTERS =
+        "\" % ! ^ & | < >, control characters or non-ASCII characters";
 
     private final ProcessLauncher launcher;
     private final Map<String, String> parentEnvironment;
     private final boolean windows;
+    private final CliSystem system;
+    private final ProcessContainment containment;
     private final CliResources resources;
     private final OutputDecoder decoder;
 
-    /** @param resources registry of the running StartCLI processes, stopped on shutdown */
+    /**
+     * @param windows whether StartCLI runs on Windows ({@code bin\startcli.bat} through the
+     *     interpreter of {@code system}'s system directory)
+     * @param system the system directory and OEM code page (Windows)
+     * @param containment whether StartCLI's processes end with the server; read on each call
+     * @param resources registry of the running StartCLI processes, stopped on shutdown
+     */
     public CliRunner(ProcessLauncher launcher, Map<String, String> parentEnvironment,
-        boolean windows, CliResources resources) {
+        boolean windows, CliSystem system, ProcessContainment containment,
+        CliResources resources) {
         this.resources = Objects.requireNonNull(resources, "resources");
         this.launcher = launcher;
         this.parentEnvironment = Map.copyOf(parentEnvironment);
         this.windows = windows;
-        // Windows is refused before any launch, so only the POSIX decoding is reachable; the
-        // Windows decoding needs the OEM code page of CliSystem, which T013's constructor brings
-        this.decoder = OutputDecoder.posix();
+        this.system = Objects.requireNonNull(system, "system");
+        this.containment = Objects.requireNonNull(containment, "containment");
+        this.decoder = windows ? OutputDecoder.windows(system.oemCharset()) : OutputDecoder.posix();
     }
 
     /** The registry of running StartCLI processes (and export directories). */
@@ -139,52 +163,169 @@ public final class CliRunner {
     private CliResult execute(EffectiveNodeConfig server, List<String> arguments,
         Optional<Secret> stdinSecret, Duration timeout, String timeoutSetting) {
         LaunchTarget target = launchTarget(server);
+        LaunchSpec spec = windows ? windowsSpec(server, target, arguments)
+            : posixSpec(target, arguments);
+        return launchAndWait(server, spec, stdinSecret, timeout, timeoutSetting);
+    }
+
+    private LaunchSpec posixSpec(LaunchTarget target, List<String> arguments) {
         List<String> command = new ArrayList<>(arguments.size() + 1);
         command.add(target.script().toString());
         command.addAll(arguments);
-        LaunchSpec spec = new LaunchSpec(command,
+        return new LaunchSpec(command,
             StartCliEnvironment.posix(parentEnvironment, target.javaHome()), target.home(),
             arguments);
-        return launchAndWait(server, spec, stdinSecret, timeout, timeoutSetting);
+    }
+
+    /** The interpreter call; a line over the limit is refused before anything starts (R-4). */
+    private LaunchSpec windowsSpec(EffectiveNodeConfig server, LaunchTarget target,
+        List<String> arguments) {
+        String systemDirectory = target.systemDirectory().orElseThrow();
+        return switch (WindowsCommandLine.build(systemDirectory, target.script().toString(),
+            arguments)) {
+            case Built built -> new LaunchSpec(built.command(),
+                StartCliEnvironment.windows(parentEnvironment, target.javaHome(),
+                    systemDirectory), target.home(), arguments);
+            case TooLong(Cause cause, int length) when cause == Cause.TOOL_INPUT ->
+                throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
+                    "The StartCLI command line for " + server.id() + " would have " + length
+                        + " characters; Windows allows at most "
+                        + WindowsCommandLine.MAX_INNER_LENGTH,
+                    "The tool input makes the command too long for the Windows command"
+                        + " interpreter",
+                    "Pass fewer or shorter values in one call").withNode(server.id()));
+            case TooLong tooLong -> {
+                String setting = longestSetting(server, arguments);
+                throw unavailable(server, "StartCLI cannot be used for " + server.id()
+                        + ": the StartCLI command line would exceed "
+                        + WindowsCommandLine.MAX_INNER_LENGTH + " characters (" + setting + ")",
+                    "The configured values alone make the command line longer than the Windows"
+                        + " command interpreter allows",
+                    "Shorten " + setting);
+            }
+        };
+    }
+
+    /**
+     * The longest of the configured values in the command line: {@code cli.home} (in the script
+     * path), {@code tls.trustStore}, {@code cli.url} and the username, which {@link
+     * #runUnguarded} passes after {@code -u} as the first two arguments.
+     */
+    private static String longestSetting(EffectiveNodeConfig server, List<String> arguments) {
+        Map<String, Integer> lengths = new LinkedHashMap<>();
+        lengths.put("cli.home", server.cli().home().map(home -> home.toString().length())
+            .orElse(0));
+        lengths.put("tls.trustStore", server.tls().trustStore()
+            .map(trustStore -> trustStore.toString().length()).orElse(0));
+        lengths.put("cli.url", server.cli().url().toString().length());
+        if (arguments.size() > 1 && arguments.get(0).equals("-u")) {
+            lengths.put("the username", arguments.get(1).length());
+        }
+        return lengths.entrySet().stream().max(Map.Entry.comparingByValue())
+            .map(Map.Entry::getKey).orElseThrow();
     }
 
     /**
      * Checks that StartCLI can be used for {@code server} without launching anything, e.g.
      * before preparing an export directory.
      *
-     * @throws ToolErrorException {@code CLI_UNAVAILABLE} on Windows, without CLI home, without
-     *     {@code bin/startcli.sh} or without a JDK for StartCLI
+     * @throws ToolErrorException {@code CLI_UNAVAILABLE} without CLI home, without
+     *     {@code bin/startcli.sh} ({@code bin\startcli.bat}) or without a JDK for StartCLI, while
+     *     the containment is unavailable, and on Windows for the refusals of the class comment
+     *     except the line length, which needs the call
      */
     public void checkAvailable(EffectiveNodeConfig server) {
         launchTarget(server);
     }
 
-    /** Where and with which JDK StartCLI runs for one server. */
-    private record LaunchTarget(Path home, Path script, String javaHome) {
+    /**
+     * Where and with which JDK StartCLI runs for one server; {@code systemDirectory} only on
+     * Windows.
+     */
+    private record LaunchTarget(Path home, Path script, String javaHome,
+        Optional<String> systemDirectory) {
     }
 
     private LaunchTarget launchTarget(EffectiveNodeConfig server) {
-        if (windows) {
-            throw unavailable(server, "StartCLI cannot be used for " + server.id(),
-                WINDOWS_UNSUPPORTED, "Run the CLI-backed tools from macOS or Linux; the REST"
-                    + " tools work on Windows");
-        }
         Path home = server.cli().home().orElseThrow(() -> unavailable(server,
             "No CLI home is configured for " + server.id(),
             "cliHome / cli.home is not set", "Set cliHome to the INUBIT client directory"));
+        if (windows) {
+            if (WindowsArguments.isUnc(home)) {
+                throw unavailable(server, "StartCLI cannot be used for " + server.id()
+                        + ": cli.home is a network path (\\\\…)",
+                    "The Windows command interpreter does not accept a network path as its"
+                        + " working directory",
+                    "StartCLI needs a local drive path on Windows; install the INUBIT client on"
+                        + " a local drive and set cli.home to it");
+            }
+            refuseOnWindows(server, "cli.home", WindowsArguments.refusal(home.toString()), "");
+        }
         Path script = server.startCliScript(windows).orElseThrow();
         if (!Files.isRegularFile(script)) {
             throw unavailable(server, "StartCLI not found: " + script,
                 "cliHome does not point to an INUBIT client installation",
-                "Set cliHome to the client directory that contains bin/" + script.getFileName());
+                "Set cliHome to the client directory that contains " + scriptName());
         }
         String javaHome = server.cli().javaHome().map(Path::toString)
-            .or(() -> Optional.ofNullable(parentEnvironment.get("JAVA_HOME"))
+            .or(() -> Optional.ofNullable(windows
+                    ? StartCliEnvironment.valueIgnoringCase(parentEnvironment, "JAVA_HOME")
+                    : parentEnvironment.get("JAVA_HOME"))
                 .filter(value -> !value.isBlank()))
             .orElseThrow(() -> unavailable(server, "No JDK for StartCLI on " + server.id(),
                 "Neither cli.javaHome (cliJavaHome) nor JAVA_HOME is set",
                 "Set cli.javaHome to the JDK the INUBIT client needs (8.1: JDK 17)"));
-        return new LaunchTarget(home, script, javaHome);
+        if (containment.state() instanceof ProcessContainment.Unavailable(String reason)) {
+            throw unavailable(server, "StartCLI cannot be used for " + server.id()
+                    + ": StartCLI processes could not be bound to the server (" + reason + ")",
+                "Windows refused the job that ends StartCLI's processes with the MCP server",
+                "Start the MCP server outside a job that forbids nested jobs; the REST tools"
+                    + " work meanwhile");
+        }
+        if (!windows) {
+            return new LaunchTarget(home, script, javaHome, Optional.empty());
+        }
+        refuseOnWindows(server, server.cli().javaHome().isPresent() ? "cli.javaHome"
+            : "JAVA_HOME", WindowsArguments.refusal(javaHome)
+                .or(() -> javaHome.indexOf(';') >= 0 ? Optional.of("semicolon")
+                    : Optional.empty()), " or ;");
+        server.tls().trustStore().ifPresent(trustStore -> refuseOnWindows(server,
+            "tls.trustStore", WindowsArguments.refusal(trustStore.toString()), ""));
+        refuseOnWindows(server, "cli.url",
+            WindowsArguments.refusal(server.cli().url().toString()), "");
+        Optional<String> systemDirectory = system.systemDirectory();
+        if (systemDirectory.isEmpty()) {
+            throw unavailable(server, "StartCLI cannot be used for " + server.id()
+                    + ": the Windows system directory could not be read",
+                "GetSystemDirectoryW failed, so the command interpreter cannot be located",
+                "Restart the MCP server; the REST tools work meanwhile");
+        }
+        return new LaunchTarget(home, script, javaHome, systemDirectory);
+    }
+
+    /**
+     * Throws {@code CLI_UNAVAILABLE} naming {@code setting} and the class of {@code refusal};
+     * {@code alsoRefused} extends the list of refused characters in the next step.
+     */
+    private static void refuseOnWindows(EffectiveNodeConfig server, String setting,
+        Optional<String> refusal, String alsoRefused) {
+        if (refusal.isPresent()) {
+            throw unavailable(server, "StartCLI cannot be used for " + server.id() + ": "
+                    + setting + " contains a character the Windows command interpreter"
+                    + " interprets (" + refusal.get() + ")",
+                "The command interpreter that starts bin\\startcli.bat would change the value",
+                "Use a " + setting + " without " + REFUSED_CHARACTERS + alsoRefused);
+        }
+    }
+
+    /** Whether StartCLI runs on Windows ({@code bin\startcli.bat} through the interpreter). */
+    public boolean windows() {
+        return windows;
+    }
+
+    /** The StartCLI script below the CLI home as the next steps name it. */
+    String scriptName() {
+        return windows ? "bin\\startcli.bat" : "bin/startcli.sh";
     }
 
     private CliResult launchAndWait(EffectiveNodeConfig server, LaunchSpec spec,
@@ -205,8 +346,12 @@ public final class CliRunner {
             reservation.close();
             throw unavailable(server, "StartCLI could not be started ("
                     + e.getClass().getSimpleName() + ")",
-                "The script is not executable or the JDK is missing",
-                "Check cliHome, cli.javaHome and the file permissions of bin/startcli.sh");
+                windows ? "The Windows command interpreter " + spec.command().get(0)
+                    + " could not be started with cli.home as its working directory"
+                    : "The script is not executable or the JDK is missing",
+                windows ? "Check that cli.home is an existing local directory your account can"
+                    + " access"
+                    : "Check cliHome, cli.javaHome and the file permissions of bin/startcli.sh");
         } catch (RuntimeException | Error e) {
             reservation.close();
             throw e;

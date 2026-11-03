@@ -13,6 +13,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -139,7 +140,7 @@ class SystemProcessLauncherTest {
         // 0.13 s typically, up to 1.8 s), a later one a few milliseconds. Pay that cost before
         // the timed call, so the grandchild is running when the timeout fires.
         assertThat(new ProcessBuilder(script.toString(), "warm-up").start().waitFor()).isZero();
-        CliRunner runner = new CliRunner(launcher, Map.of("PATH", "/bin:/usr/bin"), false,
+        CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", "/bin:/usr/bin"),
             new CliResources("acme"));
         EffectiveNodeConfig server = TestNodeConfig.node().cliHome(directory)
             .cliJavaHome(Path.of("/no-jdk-needed")).build();
