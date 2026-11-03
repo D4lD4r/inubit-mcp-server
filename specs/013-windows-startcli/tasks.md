@@ -145,7 +145,7 @@ recordings and the live check (manual, approved, by a Windows user).
 
 ## Phase 3: Foundational (blocks every user story)
 
-- [ ] T006 `WindowsArguments` (FR-002, R-2): `main/config/WindowsArguments` with
+- [X] T006 `WindowsArguments` (FR-002, R-2): `main/config/WindowsArguments` with
   `refusal(String value)` → `Optional<String>` character class (`"` `%` `!` `^` `&` `|` `<` `>`,
   control characters incl. tab and line breaks, non-ASCII) and `isUnc(Path)`. Pure, every platform.
   Test first: `test/config/WindowsArgumentsTest` (new) with every character of SC-002, both
