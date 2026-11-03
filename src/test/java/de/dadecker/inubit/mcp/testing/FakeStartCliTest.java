@@ -44,7 +44,14 @@ class FakeStartCliTest {
      */
     private LaunchedProcess launch(FakeStartCli cli, List<String> arguments, String stdin)
         throws IOException {
+        return launch(cli, arguments, stdin, Map.of());
+    }
+
+    /** As above, with {@code variables} added to the environment. */
+    private LaunchedProcess launch(FakeStartCli cli, List<String> arguments, String stdin,
+        Map<String, String> variables) throws IOException {
         Map<String, String> environment = new HashMap<>(Map.of("INUBIT_TEST", "value"));
+        environment.putAll(variables);
         List<String> command = new ArrayList<>();
         if (Platform.windows()) {
             environment.put("SystemRoot", System.getenv("SystemRoot"));
@@ -93,6 +100,37 @@ class FakeStartCliTest {
         assertThat(record.childPid()).isNull();
         assertThat(Path.of(record.workingDirectory()).toRealPath())
             .isEqualTo(cliHome.toRealPath());
+        assertThat(Path.of(record.javaHome()).toRealPath())
+            .isEqualTo(Path.of(System.getProperty("java.home")).toRealPath());
+    }
+
+    /** {@code PATH} alone decides which {@code java} the unqualified variant runs (R-5). */
+    @Test
+    void theUnqualifiedVariantRunsTheJavaOnTheSearchPath() throws Exception {
+        FakeStartCli cli = FakeStartCli.installCallingJavaUnqualified(cliHome);
+        Path javaBin = Path.of(System.getProperty("java.home"), "bin");
+        String path = Platform.windows()
+            ? javaBin + ";" + Path.of(System.getenv("SystemRoot"), "System32") : javaBin.toString();
+
+        LaunchedProcess process = launch(cli, PLAIN, "", Map.of("PATH", path));
+
+        assertThat(exitOf(process)).as(new String(process.stderr().readAllBytes(),
+            StandardCharsets.UTF_8)).isZero();
+        assertThat(Files.readString(cli.script())).doesNotContain(Platform.javaExecutable()
+            .toString());
+        assertThat(cli.record().args()).containsExactlyElementsOf(PLAIN);
+        assertThat(Path.of(cli.record().javaHome()).toRealPath())
+            .isEqualTo(Path.of(System.getProperty("java.home")).toRealPath());
+    }
+
+    @Test
+    void theUnqualifiedVariantFailsWithoutAJavaOnTheSearchPath() throws Exception {
+        FakeStartCli cli = FakeStartCli.installCallingJavaUnqualified(cliHome);
+        Path empty = Files.createDirectory(cliHome.resolve("empty"));
+
+        assertThat(exitOf(launch(cli, PLAIN, "", Map.of("PATH", empty.toString()))))
+            .isNotZero();
+        assertThat(cli.recordFile()).doesNotExist();
     }
 
     @Test

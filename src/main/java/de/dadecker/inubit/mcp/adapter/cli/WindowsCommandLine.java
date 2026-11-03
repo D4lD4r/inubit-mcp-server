@@ -100,9 +100,14 @@ public final class WindowsCommandLine {
                 ? Cause.CONFIGURATION : Cause.TOOL_INPUT;
             return new TooLong(cause, inner.length());
         }
+        return new Built(List.of(interpreter(systemDirectory), "/d", "/v:off", "/s", "/c",
+            inner));
+    }
+
+    /** {@code <system dir>\cmd.exe}; a directory ending in {@code \} (a root) gets none added. */
+    static String interpreter(String systemDirectory) {
         String separator = systemDirectory.endsWith("\\") ? "" : "\\";
-        return new Built(List.of(systemDirectory + separator + "cmd.exe", "/d", "/v:off", "/s",
-            "/c", inner));
+        return systemDirectory + separator + "cmd.exe";
     }
 
     /** {@code "<value>"} with the trailing backslashes of {@code value} doubled. */

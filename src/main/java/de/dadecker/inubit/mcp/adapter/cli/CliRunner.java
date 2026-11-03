@@ -19,7 +19,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -33,11 +32,9 @@ import java.util.Optional;
  *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <p12>],
  *       [--disableHostNameVerification], --execCommand, <command>, <cliUrl>]}. There is never a
  *       {@code -p}; the password plus {@code \n} is written to stdin, which is then closed.
- *   <li>The child environment is an allowlist: {@code PATH}, {@code HOME}, {@code TMPDIR},
- *       {@code LANG}, {@code LC_ALL}, {@code USER} (copied if set), {@code JAVA_HOME} (from
- *       {@code cli.javaHome}, else the server's own) and
- *       {@code JAVA_TOOL_OPTIONS=-Duser.language=en -Duser.country=US}. No credential variable
- *       ever reaches StartCLI.
+ *   <li>The child environment is the allowlist of {@link StartCliEnvironment#posix}, with
+ *       {@code JAVA_HOME} from {@code cli.javaHome}, else the server's own. No credential
+ *       variable ever reaches StartCLI.
  *   <li>The working directory is the CLI home. On timeout (or interruption) the process tree is
  *       destroyed; any member still alive after {@link #KILL_GRACE} is killed forcibly.
  *   <li>Windows is not supported in this version (known limitation, research R-6):
@@ -50,14 +47,9 @@ public final class CliRunner {
 
     public static final int MAX_OUTPUT_BYTES = 1 << 20;
     public static final Duration KILL_GRACE = Duration.ofSeconds(2);
-    public static final String JAVA_TOOL_OPTIONS = "-Duser.language=en -Duser.country=US";
     static final String WINDOWS_UNSUPPORTED =
         "CLI tools are not supported on Windows in this version";
     private static final Duration POLL = Duration.ofMillis(20);
-
-    /** Variables copied from the server's own environment, if set. */
-    static final List<String> INHERITED_VARIABLES =
-        List.of("PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "USER");
 
     private final ProcessLauncher launcher;
     private final Map<String, String> parentEnvironment;
@@ -146,8 +138,9 @@ public final class CliRunner {
         List<String> command = new ArrayList<>(arguments.size() + 1);
         command.add(target.script().toString());
         command.addAll(arguments);
-        LaunchSpec spec = new LaunchSpec(command, childEnvironment(target.javaHome()),
-            target.home(), arguments);
+        LaunchSpec spec = new LaunchSpec(command,
+            StartCliEnvironment.posix(parentEnvironment, target.javaHome()), target.home(),
+            arguments);
         return launchAndWait(server, spec, stdinSecret, timeout, timeoutSetting);
     }
 
@@ -188,19 +181,6 @@ public final class CliRunner {
                 "Neither cli.javaHome (cliJavaHome) nor JAVA_HOME is set",
                 "Set cli.javaHome to the JDK the INUBIT client needs (8.1: JDK 17)"));
         return new LaunchTarget(home, script, javaHome);
-    }
-
-    private Map<String, String> childEnvironment(String javaHome) {
-        Map<String, String> environment = new LinkedHashMap<>();
-        for (String name : INHERITED_VARIABLES) {
-            String value = parentEnvironment.get(name);
-            if (value != null) {
-                environment.put(name, value);
-            }
-        }
-        environment.put("JAVA_HOME", javaHome);
-        environment.put("JAVA_TOOL_OPTIONS", JAVA_TOOL_OPTIONS);
-        return environment;
     }
 
     private CliResult launchAndWait(EffectiveNodeConfig server, LaunchSpec spec,

@@ -22,7 +22,8 @@ import java.util.TreeMap;
  * <ol>
  *   <li>{@link #RECORD} set: reads stdin to its end, starts a child if {@link #CHILD_SLEEP_MILLIS}
  *       is set, writes {@link #WRITTEN_FILE} into {@link #WRITE_INTO} if set, then writes
- *       {@code {"pid", "childPid", "args", "environment", "stdin" (Base64), "workingDirectory"}} as
+ *       {@code {"pid", "childPid", "args", "environment", "stdin" (Base64), "workingDirectory",
+ *       "javaHome"}} as
  *       JSON to the file named by {@link #RECORD} (atomically, so a poller never reads half a
  *       record);
  *   <li>{@link #REPLAY} set: prints {@code fixtures/v8_1/cli/<case>.stdout} and {@code .stderr};
@@ -109,7 +110,8 @@ public final class ArgvRecorder {
             + ",\"args\":[" + String.join(",", quotedArgs) + "]"
             + ",\"environment\":{" + String.join(",", entries) + "}"
             + ",\"stdin\":" + quote(Base64.getEncoder().encodeToString(stdin))
-            + ",\"workingDirectory\":" + quote(System.getProperty("user.dir")) + "}";
+            + ",\"workingDirectory\":" + quote(System.getProperty("user.dir"))
+            + ",\"javaHome\":" + quote(System.getProperty("java.home")) + "}";
     }
 
     /** A JSON string; everything outside printable ASCII as {@code \}{@code uXXXX}. */
