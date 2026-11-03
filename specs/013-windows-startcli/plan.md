@@ -166,6 +166,7 @@ No test is skipped on Windows; POSIX-only assertions stay for POSIX and get a Wi
 | `AuditLogTest`, `MainTest` audit directory (`assumeTrue(posix)`) | DACL read-back | T024 |
 | `BackupStoreTest`, `PackageWriterTest`, `DeployLockTest`, `DeploymentLedgerTest` | DACL read-back | T025 |
 | `GitCliTest` hooks directory, `ConfigValidatorTest` workspace directory | DACL read-back | T026 |
+| fake home `/home/test` (`ConfigValidatorTest`, `ConfigSummaryTest`, `ProfileSectionTest`, `MigrationGuideExampleTest`); Windows paths in double-quoted test YAML (`TwoProfilesTest`, `ExportArtifactsToolTest`, `HealthOverviewPerformanceTest`); `/` in path assertions (`TemplateGrammarTest`, `XsltRunnerTest`); `SecretServiceStoreTest` PATH fallback | host-absolute fake home, single-quoted YAML, host-independent path forms | T005a |
 
 ## Complexity Tracking
 

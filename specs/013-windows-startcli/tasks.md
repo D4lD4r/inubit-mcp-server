@@ -119,6 +119,29 @@ recordings and the live check (manual, approved, by a Windows user).
   method that uses POSIX binaries (`/usr/bin/env`, `/bin/pwd`, `/bin/echo`, `/bin/cat`, `/bin/sh`)
   or signals for POSIX; their Windows equivalents with `ArgvRecorder` (environment, working
   directory, stdin) follow in T008, the tree cases in T022. Verification task.
+- [ ] T005a Port the remaining POSIX path assumptions of the suite that no later task covers (found
+  by the Windows CI run on cfb5b5b; inserted after T005 so that the IDs named in code and docs stay
+  valid): (1) fake POSIX home — `config/ConfigValidatorTest`, `config/ConfigSummaryTest`,
+  `config/ProfileSectionTest` and `config/MigrationGuideExampleTest` use `Path.of("/home/test")`,
+  which is not absolute on Windows (`workspace \home\test\.inubit-mcp\acme\workspace must be
+  absolute after expansion of ~`); a `Platform` helper gives a host-absolute fake home
+  (`/home/test` on POSIX, a drive path on Windows) and expected texts render paths for the host;
+  `MigrationGuideExampleTest`'s verbatim comparison with the guide normalises the rendered home or
+  is guarded for POSIX with a reason; (2) Windows paths inside double-quoted YAML —
+  `isolation/TwoProfilesTest`, `mcp/tools/ExportArtifactsToolTest` and
+  `performance/HealthOverviewPerformanceTest` write a temporary path into a `"…"` scalar, where `\U`/`\a`… are
+  escapes (`Invalid YAML … at line 14, column 17`); use single quotes or forward slashes;
+  (3) separator assumptions in assertions — `architecture/TemplateGrammarTest` (scan keys
+  `de\dadecker\…`) and `adapter/xslt/XsltRunnerTest` (`.tests\dev\…` against a `/` predicate)
+  compare host-independent forms; (4) `adapter/os/SecretServiceStoreTest
+  .fallsBackToTheFirstExecutableOnPath` (`no process was launched`): port it to the host's
+  `File.pathSeparator` and path form, or guard it for Linux if `SecretServiceStore` is Linux-only
+  by design. Out of scope (the causes stay until their tasks): `CLI_UNAVAILABLE: StartCLI cannot be
+  used` (T013), `--exportFile`/`--importFile` path refused (T018), the `java.io.tmpdir` warning
+  (T015), the sweep in `CliResourcesTest` (T019), interrupt timeouts (T012, T022), node line and
+  client probe (T020), `No private empty directory for git hooks`, deploy lock, ledger and
+  `posix:permissions` (T024–T026). Verification task: the suite stays green on macOS with
+  unchanged assertions (`NoCustomerIdentifiersTest` 20 tests, 0 skipped); no production change.
 
 ## Phase 3: Foundational (blocks every user story)
 
