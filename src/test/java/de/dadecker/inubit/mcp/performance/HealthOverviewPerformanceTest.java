@@ -58,8 +58,8 @@ class HealthOverviewPerformanceTest {
     @Test
     void anOverviewOfTenServersWithOneHangingReturnsWithinTenSeconds() throws Exception {
         StringBuilder yaml = new StringBuilder("profile:\n  name: acme\n")
-            .append("x-tls: &tls\n  trustStore: \"")
-            .append(TestCertificates.get().trustStore()).append("\"\ngroups:\n");
+            .append("x-tls: &tls\n  trustStore: '")
+            .append(TestCertificates.get().trustStore()).append("'\ngroups:\n");
         Map<String, String> environment = new HashMap<>();
         for (String stage : STAGES) {
             yaml.append("  - name: ").append(stage).append('\n');

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.Platform;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -26,7 +27,7 @@ import org.junit.jupiter.api.io.TempDir;
  */
 class ConfigValidatorTest {
 
-    private static final Path HOME = Path.of("/home/test");
+    private static final Path HOME = Platform.absolutePath("/home/test");
     private static final String PIN =
         "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89";
     private static final String CLI_HOME = "/opt/client";
@@ -482,7 +483,7 @@ class ConfigValidatorTest {
             ValidationReport report = validate(server("tls:\n  trustStore: /missing.p12\n"));
 
             assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
-                .contains("dev/node1", "/missing.p12"));
+                .contains("dev/node1", Path.of("/missing.p12").toString()));
         }
 
         @Test
@@ -767,7 +768,7 @@ class ConfigValidatorTest {
                 validate(server("cli:\n  home: /opt/client\n  javaHome: /nope\n"));
 
             assertThat(report.warnings()).singleElement().satisfies(w -> assertThat(w)
-                .contains("dev/node1", "/nope"));
+                .contains("dev/node1", Path.of("/nope").toString()));
         }
 
         @Test
@@ -1237,20 +1238,22 @@ class ConfigValidatorTest {
             ValidationReport report = validate("workspace: relative/ws\n" + server(""));
 
             assertThat(report.errors()).singleElement().asString()
-                .contains("workspace", "relative/ws", "must be absolute after expansion");
+                .contains("workspace", Path.of("relative/ws").toString(),
+                    "must be absolute after expansion");
             assertThat(prepared).isEmpty();
             assertThat(report.workspace()).isEmpty();
         }
 
         @Test
         void anUnusableWorkspaceIsAnError() {
+            Path workspace = Platform.absolutePath("/srv/ws");
             workspaceResult = new WorkspaceDirectory.Unusable(
-                "The workspace /srv/ws must be readable and writable");
+                "The workspace " + workspace + " must be readable and writable");
 
-            ValidationReport report = validate("workspace: /srv/ws\n" + server(""));
+            ValidationReport report = validate("workspace: " + workspace + "\n" + server(""));
 
             assertThat(report.errors()).containsExactly(
-                "The workspace /srv/ws must be readable and writable");
+                "The workspace " + workspace + " must be readable and writable");
             assertThat(report.workspace()).contains(workspaceResult);
         }
 

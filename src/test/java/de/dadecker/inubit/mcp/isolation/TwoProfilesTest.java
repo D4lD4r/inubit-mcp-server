@@ -138,7 +138,7 @@ class TwoProfilesTest {
                 write:
                   enabled: true
                 tls:
-                  trustStore: "%s"
+                  trustStore: '%s'
                 nodes:
                   - name: node1
                     baseUrl: https://localhost:%d

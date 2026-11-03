@@ -119,7 +119,7 @@ recordings and the live check (manual, approved, by a Windows user).
   method that uses POSIX binaries (`/usr/bin/env`, `/bin/pwd`, `/bin/echo`, `/bin/cat`, `/bin/sh`)
   or signals for POSIX; their Windows equivalents with `ArgvRecorder` (environment, working
   directory, stdin) follow in T008, the tree cases in T022. Verification task.
-- [ ] T005a Port the remaining POSIX path assumptions of the suite that no later task covers (found
+- [X] T005a Port the remaining POSIX path assumptions of the suite that no later task covers (found
   by the Windows CI run on cfb5b5b; inserted after T005 so that the IDs named in code and docs stay
   valid): (1) fake POSIX home — `config/ConfigValidatorTest`, `config/ConfigSummaryTest`,
   `config/ProfileSectionTest` and `config/MigrationGuideExampleTest` use `Path.of("/home/test")`,

@@ -186,7 +186,7 @@ class ExportArtifactsToolTest {
                     inventory:
                       owner: jdoe
                     tls:
-                      trustStore: "%s"
+                      trustStore: '%s'
                     nodes:
                       - name: node1
                         baseUrl: https://localhost:%d

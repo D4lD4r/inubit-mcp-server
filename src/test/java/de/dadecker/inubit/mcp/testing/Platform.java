@@ -41,6 +41,15 @@ public final class Platform {
         return windows() ? path.toString().replace('\\', '/') : path.toString();
     }
 
+    /**
+     * The fictitious absolute path {@code posixPath} (e.g. a fake home {@code /home/test}) in a
+     * form that is absolute on the host: unchanged on POSIX, on drive {@code C:} on Windows, where
+     * a path without a drive is not absolute.
+     */
+    public static Path absolutePath(String posixPath) {
+        return Path.of(windows() ? "C:" + posixPath : posixPath);
+    }
+
     /** The {@code java} executable of the runtime running the tests. */
     static Path javaExecutable() {
         return Path.of(System.getProperty("java.home"), "bin",

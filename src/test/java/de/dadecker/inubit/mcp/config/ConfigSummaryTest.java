@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
+import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -28,7 +30,7 @@ class ConfigSummaryTest {
     private static final WorkspaceDirectory.Preparer NO_DISK =
         workspace -> new WorkspaceDirectory.Usable(false);
 
-    private static final Path HOME = Path.of("/home/test");
+    private static final Path HOME = Platform.absolutePath("/home/test");
     private static final Path SOURCE = HOME.resolve(".config/inubit-mcp/config.yaml");
 
     /** Feature 011: no credential comes from the environment; the summary names the entries. */
@@ -203,7 +205,8 @@ class ConfigSummaryTest {
                 + workspace + " is not writable)\n");
         assertThat(render(CONFIG.replace("profile:\n  name: acme\n",
             "profile:\n  name: acme\nworkspace: relative/dir\n")))
-            .containsPattern("Workspace: .*relative/dir \\(not usable: see the errors\\)\n");
+            .containsPattern("Workspace: .*" + Pattern.quote(Path.of("relative/dir").toString())
+                + " \\(not usable: see the errors\\)\n");
     }
 
     @Test

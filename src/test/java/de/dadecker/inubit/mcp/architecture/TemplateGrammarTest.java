@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.architecture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -62,7 +63,9 @@ class TemplateGrammarTest {
                         text.append(one.group(1));
                     }
                     if (PLACEHOLDER.matcher(text).find()) {
-                        templates.add(SOURCES.relativize(file) + ": " + text);
+                        // the key names the file with "/" on every host
+                        templates.add(SOURCES.relativize(file).toString()
+                            .replace(File.separatorChar, '/') + ": " + text);
                     }
                 }
             }

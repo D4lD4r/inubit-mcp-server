@@ -35,4 +35,22 @@ class PlatformTest {
         assertThat(Platform.commandPath(Path.of("C:\\Temp\\a b\\x.zip")))
             .isEqualTo("C:/Temp/a b/x.zip");
     }
+
+    @Test
+    void absolutePathIsAbsoluteOnTheHost() {
+        assertThat(Platform.absolutePath("/home/test")).isAbsolute()
+            .endsWithRaw(Path.of("home", "test"));
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void absolutePathIsThePathOnPosix() {
+        assertThat(Platform.absolutePath("/home/test")).isEqualTo(Path.of("/home/test"));
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void absolutePathIsOnDriveCOnWindows() {
+        assertThat(Platform.absolutePath("/home/test")).isEqualTo(Path.of("C:\\home\\test"));
+    }
 }

@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
 /**
  * Feature 011 T005 (research R-5, quickstart Q7): the Secret Service adapter against recorded
@@ -160,6 +162,8 @@ class SecretServiceStoreTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "the Secret Service store is Linux-only"
+        + " by design: it splits PATH at ':' and needs POSIX absolute directories")
     void fallsBackToTheFirstExecutableOnPath() {
         FakeProcessLauncher launcher = FakeProcessLauncher.of("value-1", "", 0);
 
