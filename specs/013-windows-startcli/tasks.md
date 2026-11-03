@@ -159,7 +159,7 @@ recordings and the live check (manual, approved, by a Windows user).
   trailing `\`, `''`, the longest allowed line, one character over the limit, the guard.
   The guard raises `IllegalStateException` (a value that should have been refused earlier by
   T013/T015); it is never the user-facing refusal.
-- [ ] T008 Windows launch in `SystemProcessLauncher` and system queries (R-1, R-8):
+- [X] T008 Windows launch in `SystemProcessLauncher` and system queries (R-1, R-8):
   `main/adapter/os/WindowsSystem` (JNA: `GetSystemDirectoryW`, `GetOEMCP`, the token user SID) and the Windows
   path of `SystemProcessLauncher`, which starts the argument list of T007 unchanged (no `.bat`
   passed to the JDK). Test first: **(Windows)** `SystemProcessLauncherTest` cases: for the plain
