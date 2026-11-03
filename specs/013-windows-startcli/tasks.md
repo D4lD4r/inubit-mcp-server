@@ -150,7 +150,7 @@ recordings and the live check (manual, approved, by a Windows user).
   control characters incl. tab and line breaks, non-ASCII) and `isUnc(Path)`. Pure, every platform.
   Test first: `test/config/WindowsArgumentsTest` (new) with every character of SC-002, both
   outcomes.
-- [ ] T007 `WindowsCommandLine` (R-1, R-2, R-4, contracts/windows-invocation.md):
+- [X] T007 `WindowsCommandLine` (R-1, R-2, R-4, contracts/windows-invocation.md):
   `main/adapter/cli/WindowsCommandLine` builds the JDK argument list
   `[<system dir>\cmd.exe, /d, /v:off, /s, /c, ""<script>" "<arg>" …"]` (every StartCLI argument
   quoted, trailing backslashes doubled, `WindowsArguments` re-checked as a guard) from a given
