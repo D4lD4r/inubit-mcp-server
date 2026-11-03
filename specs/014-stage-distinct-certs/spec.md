@@ -78,6 +78,13 @@ checks succeed, and the certificate check reports `int` as `ok` with no conflict
    **Then** the behaviour of feature 006 is unchanged: conflict, no offer, refusal of adoption.
 5. **Given** a marked stage in which an https server has no expected certificate, **When** the
    configuration check runs, **Then** it fails and names the stage and the server.
+6. **Given** any one of these configurations — the setting on `defaults`, the setting on a server,
+   a trust store on a server of a marked stage, an expected fingerprint in the marked stage's
+   `tls` (directly or through an alias), or a marked stage without any trust store — **When** the
+   configuration check runs, **Then** it fails and names the stage and, where it applies, the
+   server (FR-004).
+7. **Given** a profile with the marked stage `int`, **When** the MCP server starts, **Then** its log
+   says that `int` is marked (FR-005).
 
 ---
 
@@ -106,7 +113,8 @@ one entry, and one log line records the adoption with the server named.
    entries are kept), `int/a` and `dev` are unchanged, the configuration check passes, and the
    change log gains one line naming stage `int` and server `int/b`.
 3. **Given** the operator adopts F for `int/b` but `int/b` no longer presents F or is unreachable,
-   **When** adoption runs, **Then** it aborts without changing any file and says so.
+   **When** adoption runs, **Then** it aborts without changing any file, says so, and logs the
+   attempt with outcome `failed` (006 FR-015).
 4. **Given** `int/b` presents F and `int/a` is unreachable, **When** the operator adopts F for
    `int/b`, **Then** the adoption succeeds; `int/a` is neither contacted for the decision nor
    changed.
@@ -114,6 +122,17 @@ one entry, and one log line records the adoption with the server named.
    only, **Then** `int/a` keeps its old expected fingerprint and is still reported as `changed`.
 6. **Given** a step after the backup fails, **When** adoption runs, **Then** configuration and trust
    store are restored and the failure is reported and logged.
+7. **Given** any one of these requests — adoption for marked stage `int` without a server, adoption
+   for a server of an unmarked stage, adoption for an http server, adoption for a server whose
+   expected fingerprint is reached through an alias, or adoption in a marked stage whose trust
+   store is not its own — **When** adoption runs, **Then** it is refused without changing any file
+   and the message names the reason (FR-012).
+8. **Given** `int/a` expects certificate A and `int/b` was just moved from B to F, so the trust store
+   of `int` holds A, B and F, **When** the operator lists or prunes superseded entries of `int`,
+   **Then** only B is listed for removal; A and F are kept (FR-013).
+9. **Given** a late dialog "Accept" for `int/b` and a command-line adoption for `int/a` start at the
+   same time, **When** both run, **Then** they run one after another and both changes are in the
+   final configuration and trust store (FR-009).
 
 ---
 
@@ -156,18 +175,29 @@ all files unchanged and remember the rejection for `int/b` only. In a Claude ses
   separate decision.
 - **Marking removed while server-level pins stay**: the stage falls back to the behaviour of
   feature 006 (shared TLS settings, no offer) — no silent change of pins.
-- **Server-level pin or trust store inherited from a shared anchor or `defaults`** inside a marked
-  stage: reported, but no adoption for that server, because adopting would change more than that
-  server; the report says which setting is shared.
-- **Trust store of the marked stage used by another stage**: no adoption for the stage (as in
-  006 FR-016).
-- **http servers** in a marked stage: skipped as in feature 006; they need no expected certificate.
-- **Pruning**: a trust-store entry is superseded only if no server of the stage currently expects
-  it; an entry still expected by any server is never listed for removal.
+- **Server fingerprint reached through an alias** (the server's own `tls` refers to a shared
+  anchor): valid for connections and reported normally, but no adoption for that server, because
+  changing the anchor would change more than that server; the report says so (FR-012).
+- **Trust store of the marked stage not its own** (inherited from `defaults`, set through an alias,
+  or used by another stage): valid for connections, but no adoption for any server of the stage;
+  the report says so (FR-003, FR-012).
+- **http servers** in a marked stage: skipped as in feature 006; they need no expected certificate
+  and cannot be named for adoption.
+- **Pruning and the check's list of superseded entries**: a trust-store entry is superseded only if
+  no server of the stage currently expects it; an entry still expected by any server is never
+  listed for removal (FR-013).
 - **Remembered rejections**: kept per server for marked stages; cleared when that server presents
-  its expected certificate again or when the operator forgets it explicitly.
+  its expected certificate again, when the remembered fingerprint is adopted for that server, or
+  when the operator forgets it explicitly (FR-015).
+- **Several servers of one stage changed at start-up**: their dialogs are shown one after another
+  within the same start budget; adoptions confirmed for them run one after another, each on the
+  result of the previous one (FR-014).
+- **Two MCP server instances start at the same time**: at most one dialog per server and
+  fingerprint is shown at a time (per-server form of the 006 edge case).
 - **Old state and log files of feature 006** (keyed by stage only) remain readable; existing entries
-  of unmarked stages keep their meaning.
+  of unmarked stages keep their meaning. A stage-keyed rejection entry for a stage that is now
+  marked is ignored and removed by the next check; it never suppresses a per-server dialog
+  (FR-015).
 
 ## Requirements *(mandatory)*
 
@@ -182,15 +212,26 @@ all files unchanged and remember the rejection for `int/b` only. In a Claude ses
   its own, recorded for that server; a server accepts only its own expected certificate, never one
   expected for another server of the stage. The stage itself has no stage-wide expected
   fingerprint.
-- **FR-003**: The marked stage MUST keep exactly one trust store of its own that holds the
-  certificates of all its servers; the chain of every server is validated against it, and the
-  expected fingerprint(s) decide which certificate is accepted.
-- **FR-004**: The configuration check MUST reject: the setting outside a stage (on `defaults` or a
-  server), a marked stage with an https server that has no expected fingerprint of its own (also
-  when one would be inherited from the stage or `defaults`), a stage-wide expected fingerprint on a
-  marked stage, a server-level trust store in a marked stage, a malformed fingerprint, and
-  hostname verification disabled without an expected fingerprint for that server. Each error names
-  stage and server.
+- **FR-003**: A marked stage MUST use exactly one trust store for all its servers, taken from the
+  stage's `tls` or inherited from `defaults`, never set on a server; it holds the certificates of
+  all its servers; the chain of every server is validated against it, and each
+  server's expected fingerprint decides which certificate is accepted. The trust store counts as
+  the stage's *own* when it is written in the stage's own `tls` block (not inherited from
+  `defaults`, not set through an alias) and no other stage uses the same file — the rule of
+  feature 006. Only a stage with its own trust store can adopt (FR-012).
+- **FR-004**: The configuration check MUST reject:
+  - the setting outside a stage (on `defaults` or on a server);
+  - a marked stage without any effective trust store;
+  - a trust store set on a server of a marked stage;
+  - an expected fingerprint in the marked stage's `tls`, written directly or reached through an
+    alias (a fingerprint in `defaults` is allowed, because every server of the marked stage
+    overrides it with its own);
+  - an https server of a marked stage whose expected fingerprint is not set in that server's own
+    `tls` (directly or through an alias the server's `tls` refers to);
+  - a malformed fingerprint.
+  Each error names stage and server. A fingerprint reached through an alias on the server's own
+  `tls` and a stage trust store that is not the stage's own are valid; they only restrict adoption
+  (FR-012).
 - **FR-005**: At runtime the MCP server MUST accept, for each server of a marked stage, only that
   server's expected certificate (FR-002), and MUST log at start which stages are marked.
 
@@ -200,8 +241,22 @@ all files unchanged and remember the rejection for `int/b` only. In a Claude ses
   different certificates; each server is judged against its own expected fingerprint with the
   statuses `ok | changed | unreachable` of feature 006.
 - **FR-007**: The human-readable and the JSON report MUST show for a marked stage that it is marked
-  and, per changed server, the offer (old and new fingerprint, subject, issuer, validity, IP). The
-  JSON fields of feature 006 MUST keep their names and meaning; new information is added only.
+  and, per changed server, the offer (old and new fingerprint, subject, issuer, validity, IP) and
+  whether it was rejected earlier. For unmarked stages the JSON document of feature 006 is
+  unchanged. For a marked stage the existing stage fields have these values, and new fields are
+  only added:
+  - a new stage field states that the stage is marked;
+  - `pin` is null, because the stage has no stage-wide expected fingerprint;
+  - `pinSource` is `server`;
+  - `conflict` is false;
+  - the stage-level `offer` and `rejected` are null; offers and rejections are given per server,
+    in new fields of each server object;
+  - `status` is derived from the servers as in feature 006 (the worst server status wins:
+    `changed` before `unreachable` before `ok`);
+  - `ownTls` is true exactly when the stage has its own trust store (FR-003);
+  - each server object gains a field naming the server(s) of the stage that expect the presented
+    certificate, if any (FR-010a), and a field saying why that server cannot be adopted, if it
+    cannot (FR-012).
 - **FR-008**: The exit statuses of feature 006 (0, 10, 20, distinct internal-error status) MUST keep
   their meaning; a marked stage with a changed server counts as "at least one change".
 
@@ -210,32 +265,54 @@ all files unchanged and remember the rejection for `int/b` only. In a Claude ses
 - **FR-009**: Adoption for a marked stage MUST follow 006 FR-011 to FR-015 (verify at that moment,
   backup with owner-only permissions, change only what is in scope, add the verified certificate to
   the stage's trust store, keep existing entries, validate with the configuration check, restore on
-  failure, log every decision).
+  failure, log every decision). Any two adoptions or prunes that touch the same configuration or
+  trust store, whatever their actor (`dialog`, `cli`, `claude`), MUST run one after another, each
+  on the result of the previous one.
 - **FR-010**: In a marked stage one adoption decision MUST cover exactly one server: the operator
   names stage, server and fingerprint; adoption verifies only that server (it must be reachable and
   present exactly that fingerprint at that moment) and changes only that server's expected
   fingerprint plus the stage's trust store. Other servers of the stage need not be reachable and
   are not changed. For unmarked stages the stage-level adoption of feature 006 stays as it is.
 - **FR-010a**: When the presented certificate of a server is the one expected for another server of
-  the same stage, the check MUST say so in the server's details; the offer and the adoption rules
-  are otherwise unchanged.
-- **FR-011**: Every change-log line about a marked stage MUST name the server concerned in addition
-  to the fields of 006 FR-015.
-- **FR-012**: Adoption MUST be refused for an unknown stage, an unknown server or a server of
-  another stage, a server named for an unmarked stage, a stage named without a server for a marked
-  stage, a malformed fingerprint, a server whose expected fingerprint is not recorded on the server
-  itself (for example taken from a shared anchor), and a stage whose trust store is shared with
-  another stage.
-- **FR-013**: Pruning MUST list as superseded only trust-store entries that no server of the marked
-  stage currently expects; removal stays an explicit operator action.
+  the same stage, the check MUST say so in the server's details, and the start-up dialog and
+  Claude's question MUST show the same note; the offer and the adoption rules are otherwise
+  unchanged.
+- **FR-011**: Every change-log line about a server of a marked stage (`adopted`, `rejected`,
+  `timed-out`, `dialog-failed`, `failed`) MUST name that server in addition to the fields of
+  006 FR-015. `pruned` lines concern the stage's trust store and name the stage only. Lines about
+  unmarked stages keep the exact format of feature 006.
+- **FR-012**: Adoption MUST be refused, with a message naming the reason, for: an unknown stage; an
+  unknown server or a server of another stage; an http server; a server named for an unmarked
+  stage; a marked stage named without a server; a malformed fingerprint; a server whose expected
+  fingerprint is reached through an alias (FR-004); and a marked stage without its own trust store
+  (FR-003).
+- **FR-013**: For a marked stage, both the check's list of superseded trust-store entries
+  (006 FR-013a) and pruning MUST treat an entry as superseded only if no server of the stage
+  currently expects it; removal stays an explicit operator action.
 
 **Start-up dialog and in-session rule**
 
 - **FR-014**: The start-up dialog of feature 006 MUST offer each changed server of a marked stage as
-  its own decision, with stage and server named, within the same time limits (006 FR-021,
-  FR-021a), and only "Accept" may adopt; an "Accept" adopts that one server only.
-- **FR-015**: Remembered rejections for a marked stage MUST be kept per server and fingerprint and
-  suppress only the dialog for that server and fingerprint.
+  its own decision, with stage and server named, and only "Accept" may adopt; an "Accept" adopts
+  that one server only. Dialogs for several servers (of one or several stages) are shown one after
+  another, as feature 006 does for several stages. The start waits at most about 20 seconds in
+  total, measured from the start of the check (006 FR-021a); each dialog closes itself after its
+  60 seconds, and late answers are handled as in 006 FR-021a. Adoptions confirmed for servers of
+  the same stage run one after another, each starting from the configuration and trust store the
+  previous one left, so none undoes another. At most one dialog per server and fingerprint is shown
+  at a time, also across MCP server instances that start at the same time.
+- **FR-015**: Remembered rejections for a marked stage MUST be kept per server and fingerprint
+  (per-server form of 006 FR-019a and FR-019b):
+  - a remembered fingerprint suppresses only the dialog for that server and fingerprint; a warning
+    goes to standard error and the log instead;
+  - the check marks such a server as rejected; its status stays `changed` and the exit status is
+    unchanged;
+  - adopting the remembered fingerprint for that server via command line or Claude clears that
+    server's entry, and so does the server presenting its expected certificate again;
+  - explicit forgetting can be given a stage and a server and then clears only that server's entry;
+    given only a marked stage, it clears the entries of all servers of that stage;
+  - a stage-keyed entry written by feature 006 for a stage that is now marked is ignored and removed
+    by the next check.
 - **FR-016**: The operator's in-session rule and the documentation of the check MUST be updated so
   that Claude presents server-level details for marked stages and uses the adoption form of FR-010;
   Claude still never adopts without an explicit "yes" ("Ja").
@@ -292,8 +369,13 @@ all files unchanged and remember the rejection for `int/b` only. In a Claude ses
 - **Command-line form.** Adoption, forgetting and the in-session rule need a way to name a server
   (for example its server id `int/b`); the exact form is decided in the plan, and the operator's
   global Claude instructions are updated accordingly (FR-016).
-- **One trust store per stage** stays the rule (006 clarification); per-server trust stores are not
-  introduced.
+- **One trust store per stage** stays the rule (006 clarification).
+- **Out of scope:**
+  - tool support for converting an existing uniform stage into a marked one (the operator edits the
+    configuration by hand and runs the configuration check);
+  - per-server trust stores;
+  - automatic detection of stages that should be marked;
+  - changes to the MCP server's TLS check at connection time.
 - **Backward compatibility.** Existing profiles without the setting load and behave exactly as
   before; state and log files written by feature 006 stay valid.
 - **The tooling constraints of feature 006 apply** (no new packages beyond the JDK and the system

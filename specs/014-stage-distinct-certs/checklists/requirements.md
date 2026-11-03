@@ -38,6 +38,11 @@
   Q2: A (one server per adoption decision); recorded under Clarifications, FR-002, FR-004, FR-005,
   FR-010, FR-010a (new), FR-012, FR-014, Story 2/3 scenarios, Edge Cases, Key Entities, SC-003,
   SC-004 and Assumptions updated. All items pass.
+- Review loop (`/speckit-duo:review-spec`): round 1 CHANGES_REQUESTED (4 major, 8 minor, all
+  resolved), round 2 APPROVED with 7 minor points; those were resolved afterwards (FR-003, FR-004,
+  FR-007 `status`, FR-009 serialization, FR-015 forgetting and old stage-keyed entries, new
+  acceptance scenarios Story 1 AS 6–7 and Story 2 AS 7–9). See `reviews/spec-r1.md`,
+  `reviews/spec-r2.md`.
 - Content quality: the "Context & Findings" section names existing components
   (`inubit-cert-check`, `PinningTrustManager`, data model 001) as verified facts about the current
   system, following the precedent of spec 006; requirements and success criteria themselves stay
