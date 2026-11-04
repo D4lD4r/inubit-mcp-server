@@ -62,6 +62,11 @@ the release; Windows and Linux where available, `docs/live-tests.md`) has not be
   cannot be scrubbed reliably (since 0.7.0 checked when the entry is read).
 - `SECURITY.md` names AWS Systems Manager Parameter Store as a credential source (feature 010)
   and its bound of two failed logins per node per 60 s.
+- `import_artifacts` (and the import step of `deploy_release`) no longer rolls back a successful
+  import of an artifact that has a Workbench user comment. The export appends the user comment to
+  the check-in comment as one more `###` segment; the verification read it as part of the
+  check-in comment and reported `VERIFY_MISMATCH` ("the check-in comment does not carry exactly
+  the reason"). The appended user comment is now removed before the reason is compared.
 
 ## [0.6.3] - 2026-11-02
 
