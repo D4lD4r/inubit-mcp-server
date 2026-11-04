@@ -6,7 +6,7 @@
 
     <groupId>de.dadecker</groupId>
     <artifactId>inubit-mcp-server</artifactId>
-    <version>0.6.3</version>
+    <version>0.6.4</version>
     <packaging>jar</packaging>
 
     <name>INUBIT MCP Server</name>
