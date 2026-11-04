@@ -87,6 +87,23 @@ class V81ImportArchivesTest {
     }
 
     @Test
+    void theUserCommentThatTheExportAppendsIsNotPartOfTheCheckinComment() {
+        // An artifact with a Workbench user comment: the export appends it as a last ### segment.
+        assertThat(archives.checkinComment(bytes("<Module><CheckinComment>Default"
+            + "CommitCommentImport###DefaultCommitCommentImport###r######TICKET-1 note"
+            + "</CheckinComment><UserComment>TICKET-1 note</UserComment></Module>")))
+            .contains("DefaultCommitCommentImport###DefaultCommitCommentImport###r######");
+        // Only a whole last segment equal to the user comment goes, nothing else.
+        assertThat(archives.checkinComment(bytes("<Module><CheckinComment>Default"
+            + "CommitCommentImport###r: TICKET-1 note</CheckinComment>"
+            + "<UserComment>TICKET-1 note</UserComment></Module>")))
+            .contains("DefaultCommitCommentImport###r: TICKET-1 note");
+        assertThat(archives.checkinComment(bytes("<Module><CheckinComment>Default"
+            + "CommitCommentImport###r######</CheckinComment><UserComment/></Module>")))
+            .contains("DefaultCommitCommentImport###r######");
+    }
+
+    @Test
     void theActiveFlagOfAWorkflowFileIsReadAndSet() {
         // T020 (research D-15): set_active changes only IsActive of the server's workflow
         byte[] inactive = bytes("<Workflow>\n  <WorkflowName>W</WorkflowName>\n"

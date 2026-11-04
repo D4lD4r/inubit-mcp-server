@@ -7,6 +7,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `import_artifacts` (and the import step of `deploy_release`) no longer rolls back a successful
+  import of an artifact that has a Workbench user comment. The export appends the user comment to
+  the check-in comment as one more `###` segment; the verification read it as part of the
+  check-in comment and reported `VERIFY_MISMATCH` ("the check-in comment does not carry exactly
+  the reason"). The appended user comment is now removed before the reason is compared.
+
 ## [0.6.3] - 2026-11-02
 
 Bug fix release from the 0.6.x line (branch `release/0.6.x`, based on 0.6.2); it does not contain
