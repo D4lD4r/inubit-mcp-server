@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-11-04
+
+Bug fix release from the 0.6.x line (branch `release/0.6.x`, based on 0.6.3); it does not contain
+the credential store changes planned for 0.7.0. Live checks are unchanged since 0.6.1.
+
 ### Fixed
 
 - `import_artifacts` (and the import step of `deploy_release`) no longer rolls back a successful
@@ -556,7 +561,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.3...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.4...HEAD
+[0.6.4]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.0...v0.6.1
