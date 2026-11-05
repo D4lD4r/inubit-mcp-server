@@ -926,6 +926,155 @@ class PruneTest(AcceptTestCase):
         self.assertEqual(4, code, err)
         self.assertEqual(before, self.snapshot())
 
+    # --- marked stage (feature 014, T018, FR-013, research R-13, contract C-5′) ---------------
+    # int is marked: int/a pins A, int/b pins F (moved from B = OTHER); the store holds A, B, F.
+
+    def marked(self, int_extra=None, dev_store=None, more=()):
+        int_stage = {"name": "int", "pin_per_server": True, "store": self.stores["int"],
+                     "servers": [("a", "https://int-a.example.test:8443", {"pin": self.fp_a}),
+                                 ("b", "https://int-b.example.test:8443", {"pin": self.fp_b})]
+                     + list(more)}
+        int_stage.update(int_extra or {})
+        support.write_profile(self.profile, [
+            {"name": "dev", "pin": self.fp_a, "store": dev_store or self.stores["dev"],
+             "servers": [("node1", "https://dev-host.example.test:8443")]},
+            int_stage])
+        self.keytool.entries[self.stores["int"]] = [
+            self.tool.TrustEntry("int-a-aaaaaaaa-20250101", self.fp_a),
+            self.tool.TrustEntry("int-b-cc334455-20240101", OTHER),
+            self.tool.TrustEntry("int-b-ffffffff-20251105", self.fp_b)]
+
+    def prune_int(self, *extra):
+        return self.run_tool("--prune", "int", *extra)
+
+    def assertIntPruneRefused(self, *extra):
+        before = self.snapshot()
+        code, _out, err = self.prune_int(*extra)
+        self.assertEqual(3, code, err)
+        self.assertEqual(before, self.snapshot())
+        self.assertEqual([], self.backups())
+        self.assertEqual([], self.change_log())
+        self.assertFalse(any(call[0] == "delete" for call in self.keytool.calls))
+        return err
+
+    def int_fingerprints(self):
+        return [entry.fingerprint for entry in self.keytool.entries[self.stores["int"]]]
+
+    def test_marked_list_only_lists_entries_no_server_pins(self):
+        self.marked()
+        before = self.snapshot()
+        code, out, err = self.prune_int()
+        self.assertEqual(0, code, err)
+        self.assertIn("int-b-cc334455-20240101", out)
+        self.assertIn(OTHER, out)
+        self.assertNotIn("int-a-aaaaaaaa-20250101", out)
+        self.assertNotIn("int-b-ffffffff-20251105", out)
+        self.assertIn("--prune int --yes", out)
+        self.assertEqual(before, self.snapshot())
+        self.assertEqual([], self.backups())
+        self.assertEqual([], self.change_log())
+        self.assertEqual(["list"], [call[0] for call in self.keytool.calls])
+
+    def test_marked_list_only_nothing_superseded(self):
+        self.marked()
+        self.keytool.entries[self.stores["int"]].pop(1)
+        code, out, err = self.prune_int()
+        self.assertEqual(0, code, err)
+        self.assertIn("superseded entries: none", out)
+        self.assertNotIn("--yes", out)
+
+    def test_marked_yes_removes_only_entries_no_server_pins(self):
+        self.marked()
+        code, out, err = self.prune_int("--yes")
+        self.assertEqual(0, code, err)
+        deleted = [call[2] for call in self.keytool.calls if call[0] == "delete"]
+        self.assertEqual(["int-b-cc334455-20240101"], deleted)
+        self.assertEqual([self.fp_a, self.fp_b], self.int_fingerprints())
+        [backup] = self.backups()
+        self.assertEqual(0o600, mode_of(backup))
+        self.assertIn(backup, out)
+        [line] = self.change_log()
+        self.assertIn(f"stage=int outcome=pruned old={OTHER} new=- ", line)
+        self.assertNotIn("server=", line)
+
+    def test_marked_yes_refuses_without_every_server_pin(self):
+        for missing in (self.fp_a, self.fp_b):
+            with self.subTest(missing=missing):
+                self.marked()
+                self.keytool.entries[self.stores["int"]] = [
+                    entry for entry in self.keytool.entries[self.stores["int"]]
+                    if entry.fingerprint != missing]
+                self.keytool.calls.clear()
+                err = self.assertIntPruneRefused("--yes")
+                self.assertIn(missing, err)
+                self.assertIn("nothing removed", err)
+
+    def test_marked_yes_restores_when_a_server_pin_is_gone(self):
+        self.marked()
+        before = self.snapshot()
+        keytool = self.keytool
+        real_delete = keytool.delete_entry
+
+        def delete_too_much(store, alias):
+            real_delete(store, alias)
+            keytool.entries[store] = [entry for entry in keytool.entries[store]
+                                      if entry.fingerprint != self.fp_b]
+
+        keytool.delete_entry = delete_too_much
+        code, _out, err = self.prune_int("--yes")
+        self.assertEqual(4, code, err)
+        self.assertEqual(before, self.snapshot())
+        self.assertIn("stage=int outcome=failed", self.change_log()[-1])
+        self.assertNotIn("server=", self.change_log()[-1])
+        self.assertEqual([], [line for line in self.change_log() if "outcome=pruned" in line])
+
+    def test_marked_yes_restores_when_the_check_after_deleting_fails(self):
+        self.marked()
+        before = self.snapshot()
+        self.keytool.fail_on.add("list-after-change")
+        code, _out, err = self.prune_int("--yes")
+        self.assertEqual(4, code, err)
+        self.assertEqual(before, self.snapshot())
+        self.assertIn("stage=int outcome=failed", self.change_log()[-1])
+
+    def test_marked_refuses_without_own_trust_store(self):
+        self.marked(dev_store=self.stores["int"])
+        for extra in ((), ("--yes",)):
+            with self.subTest(extra=extra):
+                self.assertIn("stage int: trust store not the stage's own",
+                              self.assertIntPruneRefused(*extra))
+
+    def test_marked_refuses_with_problem(self):
+        self.marked(more=[("c", "https://int-c.example.test:8443")])
+        for extra in ((), ("--yes",)):
+            with self.subTest(extra=extra):
+                self.assertIn("configuration not valid for tls.pinPerServer: int/c: "
+                              "tls.pinPerServer on stage 'int' needs "
+                              "tls.pinnedCertificateSha256 on this server",
+                              self.assertIntPruneRefused(*extra))
+
+    def test_marked_refuses_with_only_http_servers(self):
+        self.marked(int_extra={"servers": [("c", "http://int-c.example.test:8080")]})
+        fingerprints = self.int_fingerprints()
+        for extra in ((), ("--yes",)):
+            with self.subTest(extra=extra):
+                err = self.assertIntPruneRefused(*extra)
+                self.assertIn("stage int: no pin configured; nothing removed", err)
+                self.assertEqual(fingerprints, self.int_fingerprints())
+
+    def test_marked_ignores_http_server(self):
+        self.marked(more=[("c", "http://int-c.example.test:8080")])
+        code, out, err = self.prune_int()
+        self.assertEqual(0, code, err)
+        self.assertIn("int-b-cc334455-20240101", out)
+        self.assertNotIn("int-a-aaaaaaaa-20250101", out)
+        self.assertNotIn("int-b-ffffffff-20251105", out)
+        code, _out, err = self.prune_int("--yes")
+        self.assertEqual(0, code, err)
+        deleted = [call[2] for call in self.keytool.calls if call[0] == "delete"]
+        self.assertEqual(["int-b-cc334455-20240101"], deleted)
+        self.assertEqual([self.fp_a, self.fp_b], self.int_fingerprints())
+
 
 class PinPerServerRefusalTest(AcceptTestCase):
     """Refusals of --accept STAGE/SERVER (feature 014, T016, FR-010, FR-012, contract C-2′

@@ -1704,11 +1704,17 @@ def evaluate_stage(stage, presented, rejection=None, superseded=None, not_inspec
                        not_inspected=not_inspected)
 
 
+def kept_fingerprints(stage):
+    """The fingerprints the stage's trust store must keep: the stage pin, or for a marked stage
+    the pins of its https servers (research R-13); empty when nothing is pinned."""
+    return stage.expected if stage.pin_per_server else frozenset({stage.pin} - {None})
+
+
 def superseded_entries(profile, stage):
     """(entries of the stage's trust store whose fingerprint differs from the pin, None) or
     (None, reason) when the store cannot be inspected. For a marked stage an entry is superseded
     when no server of the stage expects it (research R-13)."""
-    expected = stage.expected if stage.pin_per_server else {stage.pin} - {None}
+    expected = kept_fingerprints(stage)
     if not expected:
         return None, "no pin configured"
     if profile.java is None:
@@ -2562,9 +2568,12 @@ def cmd_prune(args):
     stage, problem = _usable_stage(profile, args.prune, "prune")
     if problem:
         return _refuse(problem)
+    if not kept_fingerprints(stage):
+        return _refuse(_NO_PIN.format(stage=stage.name))
     if not args.yes:
         entries = make_keytool(profile.java).list_entries(stage.trust_store)
-        superseded = [entry for entry in entries if entry.fingerprint != stage.pin]
+        expected = kept_fingerprints(stage)
+        superseded = [entry for entry in entries if entry.fingerprint not in expected]
         emit(_prune_listing(stage, superseded)
              + (f"Remove them with: {PROG} {command_options(args)} --prune {stage.name} --yes\n"
                 if superseded else ""))
@@ -2578,12 +2587,39 @@ def cmd_prune(args):
         lock.release()
 
 
+_NO_PIN = "stage {stage}: no pin configured; nothing removed"
+
+
+def _prune_expected(stage):
+    """{server id: fingerprint} naming the pins of kept_fingerprints in messages: for a marked
+    stage the pin of every server (research R-13), else {None: the stage pin}."""
+    if stage.pin_per_server:
+        return {server.id: server.pin for server in stage.servers if server.pin is not None}
+    return {None: stage.pin}
+
+
+def _pinned_certificate(server_id):
+    return "the pinned certificate" if server_id is None \
+        else f"the certificate pinned for server {server_id}"
+
+
 def _prune_listing(stage, superseded):
-    head = f"Stage {stage.name} trust store {stage.trust_store} (pin {stage.pin}):\n"
+    if stage.pin_per_server:
+        pins = ", ".join(f"{server_id} {fingerprint}"
+                         for server_id, fingerprint in _prune_expected(stage).items())
+        head = f"Stage {stage.name} trust store {stage.trust_store} (server pins {pins}):\n"
+    else:
+        head = f"Stage {stage.name} trust store {stage.trust_store} (pin {stage.pin}):\n"
     if not superseded:
         return head + "  superseded entries: none\n"
     return head + "  superseded entries:\n" + "".join(
         f"    {entry.alias}  {entry.fingerprint}\n" for entry in superseded)
+
+
+def _missing_pins(pins, entries):
+    present = {entry.fingerprint for entry in entries}
+    return [(server_id, fingerprint) for server_id, fingerprint in pins.items()
+            if fingerprint not in present]
 
 
 def _prune_locked(args, stage_name, state):
@@ -2591,12 +2627,18 @@ def _prune_locked(args, stage_name, state):
     stage, problem = _usable_stage(profile, stage_name, "prune")
     if problem:
         return _refuse(problem)
+    expected = kept_fingerprints(stage)
+    if not expected:
+        return _refuse(_NO_PIN.format(stage=stage_name))
     keytool = make_keytool(profile.java)
     entries = keytool.list_entries(stage.trust_store)
-    if stage.pin not in {entry.fingerprint for entry in entries}:
-        return _refuse(f"stage {stage_name}: the pinned certificate {stage.pin} is not in the "
-                       f"trust store {stage.trust_store}; nothing removed")
-    superseded = [entry for entry in entries if entry.fingerprint != stage.pin]
+    pins = _prune_expected(stage)
+    missing = _missing_pins(pins, entries)
+    if missing:
+        server_id, fingerprint = missing[0]
+        return _refuse(f"stage {stage_name}: {_pinned_certificate(server_id)} {fingerprint} is "
+                       f"not in the trust store {stage.trust_store}; nothing removed")
+    superseded = [entry for entry in entries if entry.fingerprint not in expected]
     if not superseded:
         emit(_prune_listing(stage, superseded))
         return OK
@@ -2615,8 +2657,10 @@ def _prune_locked(args, stage_name, state):
             for entry in superseded:
                 keytool.delete_entry(stage.trust_store, entry.alias)
             remaining = keytool.list_entries(stage.trust_store)
-            if stage.pin not in {entry.fingerprint for entry in remaining}:
-                raise VerificationFailed("the pinned certificate is no longer in the trust store")
+            missing = _missing_pins(pins, remaining)
+            if missing:
+                raise VerificationFailed(f"{_pinned_certificate(missing[0][0])} is no longer in "
+                                         "the trust store")
             if {entry.alias for entry in remaining} & {entry.alias for entry in superseded}:
                 raise VerificationFailed("a superseded entry is still in the trust store")
     except BaseException as e:  # noqa: BLE001 - every failure after the backup is rolled back

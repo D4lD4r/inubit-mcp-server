@@ -463,7 +463,7 @@ line names `server=int/b` (spec US2 Independent Test, Q4 steps b–g).
   server's pin is new, every other pin (servers and stages) and every server id is unchanged, and
   the store lists F; log lines carry `server=`; the summary and reconnect hint stay as in 006.
   Uniform-stage adoption is untouched.
-- [ ] T018 [US2] Prune and superseded entries (FR-013, research R-13, contract C-5′). Write the
+- [X] T018 [US2] Prune and superseded entries (FR-013, research R-13, contract C-5′). Write the
   failing tests first in `tools/tests/test_accept.py` `PruneTest` and see them fail: `--prune int`
   with A, B, F (`int/a`→A, `int/b`→F) lists only B (Story 2 AS 8); `--prune int --yes` removes only B
   and logs one `pruned` line per removed entry with `new=-` and no `server=`; refuses with exit 3
