@@ -1472,5 +1472,312 @@ class PinPerServerRollbackTest(PinPerServerAdoption, AcceptTestCase):
         self.assertIn("trust store", self.assertRolledBack())
 
 
+SERIAL_DRIVER = r"""
+import json, os, sys, time
+sys.path.insert(0, sys.argv[1])
+import run_with_fakes
+import support
+with open(sys.argv[2], encoding="utf-8") as handle:
+    spec = json.load(handle)
+tool = run_with_fakes.install_fakes(support.load_tool(), spec.get("fakes", {}))
+record = run_with_fakes.recorder(spec["events"])
+
+
+def event(call, **fields):
+    record(dict(fields, call=call, time=time.time(), pid=os.getpid()))
+
+
+def wait_for(path):
+    deadline = time.monotonic() + 30
+    while not os.path.exists(path) and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+
+class FileKeytool:
+    # The entries live in the store file ("entry ALIAS FINGERPRINT" lines), so every process
+    # sees what the previous one left, and a restore of the file restores them as well.
+
+    def list_entries(self, store, timeout=None):
+        with open(store, encoding="utf-8") as handle:
+            return [tool.TrustEntry(*line.split()[1:3]) for line in handle
+                    if line.startswith("entry ")]
+
+    def import_cert(self, store, pem, alias):
+        info = tool.parse_x509_output(support._x509_text(pem))
+        with open(store, "a", encoding="utf-8") as handle:
+            handle.write(f"entry {alias} {info['fingerprint']}\n")
+
+    def delete_entry(self, store, alias):
+        with open(store, encoding="utf-8") as handle:
+            lines = handle.readlines()
+        with open(store, "w", encoding="utf-8") as handle:
+            handle.writelines(line for line in lines if not line.startswith(f"entry {alias} "))
+
+
+keytool = FileKeytool()
+tool.make_keytool = lambda java: keytool
+if "lock_timeout" in spec:
+    tool.LOCK_TIMEOUT = float(spec["lock_timeout"])
+real_acquire = tool.State.acquire_lock
+
+
+def acquire_lock(state, timeout=tool.LOCK_TIMEOUT):
+    event("waiting")
+    lock = real_acquire(state, timeout)
+    event("locked" if lock is not None else "busy")
+    if lock is not None and spec.get("hold"):
+        wait_for(spec["hold"])
+    return lock
+
+
+tool.State.acquire_lock = acquire_lock
+real_read = tool._read_bytes
+
+
+def read_bytes(path):
+    data = real_read(path)
+    event("read", path=path, found=[fp for fp in spec.get("watch", []) if fp.encode() in data])
+    return data
+
+
+tool._read_bytes = read_bytes
+if spec.get("worker"):
+    # takes cert-check.lock exactly as cmd_dialog_worker does: adopt_lock on the descriptor the
+    # parent handed over, then the dialog (held open until the hold file exists), then the
+    # adoption under the held lock, then release
+    worker = spec["worker"]
+    args = tool.parse_args(spec["argv"])
+    state = tool.use_state(tool.State(args.state_dir, "acme"))
+    lock = state.adopt_lock(int(worker["lockFd"]))
+    event("holding")
+    wait_for(worker["hold"])
+    answer = tool.show_dialog({"stage": args.target.stage})
+    code = tool.REFUSED
+    if answer == "accept":
+        code = tool.accept_locked(args, args.target, tool.normalize_fingerprint(args.fingerprint),
+                                  "dialog", state)
+    lock.release()
+    event("released", code=code)
+    sys.exit(code)
+sys.exit(tool.main(spec["argv"]))
+"""
+
+OLD_B = "DD:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:32:42:52:62:72:82:92:A2:B2:C2:D2:E2:" \
+        "F2:02:06:07"
+SUPERSEDED = "EE:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:43:53:63:73:83:93:A3:B3:C3:D3:E3:" \
+             "F3:03:07:08"
+
+
+class PinPerServerSerialTest(AcceptTestCase):
+    """Adoptions and prunes of a marked stage run one after the other under cert-check.lock; each
+    re-reads the profile after taking the lock (feature 014, T019, FR-009, Story 2 AS 9, research
+    R-12). The processes run through run_with_fakes.install_fakes with a trust store kept in the
+    store file, so they share it as the real keytool would."""
+
+    WAIT = 20.0
+
+    def setUp(self):
+        super().setUp()
+        self.marked = support.marked_stage(self)
+        self.driver = os.path.join(self.tmp.name, "serial_driver.py")
+        with open(self.driver, "w", encoding="utf-8") as handle:
+            handle.write(SERIAL_DRIVER)
+        self.started = 0
+
+    def fp(self, node):
+        return self.marked[node].fingerprint
+
+    def url(self, node):
+        return f"https://int-{node}.example.test:{self.marked[node].port}"
+
+    def write_marked(self, a_pin, b_pin, entries):
+        support.write_profile(self.profile, [
+            {"name": "dev", "pin": self.fp_a, "store": self.stores["dev"],
+             "servers": [("node1", "https://dev-host.example.test:8443")]},
+            {"name": "int", "pin_per_server": True, "store": self.stores["int"],
+             "servers": [("a", self.url("a"), {"pin": a_pin}),
+                         ("b", self.url("b"), {"pin": b_pin})]}])
+        with open(self.stores["int"], "w", encoding="utf-8") as handle:
+            handle.write("store int v1\n" + "".join(f"entry {alias} {fingerprint}\n"
+                                                    for alias, fingerprint in entries))
+
+    def start(self, *argv, hold=None, worker=None, lock_timeout=None, pass_fds=()):
+        self.started += 1
+        name = f"p{self.started}"
+        spec = {"argv": ["--config", self.profile, "--state-dir", self.state_dir] + list(argv),
+                "events": os.path.join(self.tmp.name, f"{name}.events.jsonl"),
+                "watch": [self.fp("a"), self.fp("b"), SUPERSEDED],
+                "fakes": {"dialog": {"int": {"answer": "accept"}}}}
+        if hold:
+            spec["hold"] = hold
+        if worker:
+            spec["worker"] = worker
+        if lock_timeout is not None:
+            spec["lock_timeout"] = lock_timeout
+        spec_file = os.path.join(self.tmp.name, f"{name}.json")
+        with open(spec_file, "w", encoding="utf-8") as handle:
+            json.dump(spec, handle)
+        process = subprocess.Popen(
+            [sys.executable, "-I", self.driver, str(support.TESTS_DIR), spec_file],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, pass_fds=pass_fds)
+        process.events_file = spec["events"]
+
+        def stop():
+            if process.poll() is None:
+                process.kill()
+            process.communicate()
+
+        self.addCleanup(stop)
+        return process
+
+    def events(self, process, call=None):
+        try:
+            with open(process.events_file, encoding="utf-8") as handle:
+                found = [json.loads(line) for line in handle]
+        except FileNotFoundError:
+            return []
+        return [entry for entry in found if call is None or entry["call"] == call]
+
+    def await_event(self, process, call):
+        deadline = time.monotonic() + self.WAIT
+        while time.monotonic() < deadline:
+            found = self.events(process, call)
+            if found:
+                return found[0]
+            if process.poll() is not None:
+                break
+            time.sleep(0.02)
+        _out, err = process.communicate()
+        self.fail(f"no {call!r} event (exit {process.returncode}): {err}")
+
+    def assertWaits(self, process):
+        """process has asked for the lock and still waits for it a while later."""
+        self.await_event(process, "waiting")
+        time.sleep(0.3)
+        self.assertIsNone(process.poll(), "waits while the lock is held")
+        self.assertEqual([], self.events(process, "locked"))
+
+    def finish(self, process, code=0):
+        out, err = process.communicate(timeout=60)
+        self.assertEqual(code, process.returncode, err)
+        return out, err
+
+    def release(self, hold):
+        open(hold, "w").close()
+
+    def hold_file(self, name):
+        return os.path.join(self.tmp.name, name)
+
+    def read_after_lock(self, process):
+        """What the first profile read after taking the lock contained."""
+        events = self.events(process)
+        index = next(i for i, entry in enumerate(events) if entry["call"] == "locked")
+        path = os.path.realpath(self.profile)
+        return next(entry["found"] for entry in events[index:]
+                    if entry["call"] == "read" and entry["path"] == path)
+
+    def store_fingerprints(self):
+        with open(self.stores["int"], encoding="utf-8") as handle:
+            return {line.split()[2] for line in handle if line.startswith("entry ")}
+
+    def pins(self):
+        profile = self.tool.read_profile(self.profile)
+        return {server.id: server.pin for server in profile.stage("int").servers}
+
+    def outcomes(self):
+        return [re.search(r"(?: server=(\S+))? outcome=(\S+)", line).groups()
+                for line in self.change_log()]
+
+    def hand_lock_to_worker(self, target, fingerprint, hold):
+        """A dialog worker for target: this process takes the lock and hands the descriptor over
+        like --interactive does (contract C-3 step 5)."""
+        lock = self.state.try_lock()
+        self.assertIsNotNone(lock)
+        fd = lock.fileno()
+        worker = self.start("--accept", target, fingerprint,
+                            worker={"lockFd": fd, "hold": hold}, pass_fds=[fd])
+        lock.detach()
+        self.await_event(worker, "holding")
+        return worker
+
+    def test_two_accepts_both_land(self):
+        self.write_marked(OTHER, OLD_B, [("int-a-cc334455-20250101", OTHER),
+                                         ("int-b-dd445566-20250101", OLD_B)])
+        hold = self.hold_file("first-holds")
+        first = self.start("--accept", "int/a", self.fp("a"), hold=hold)
+        self.await_event(first, "locked")
+        second = self.start("--accept", "int/b", self.fp("b"))
+        self.assertWaits(second)
+        self.release(hold)
+        self.finish(first)
+        self.finish(second)
+        self.assertEqual([self.fp("a")], self.read_after_lock(second),
+                         "the second run re-reads the first run's profile after the lock")
+        self.assertEqual({"int/a": self.fp("a"), "int/b": self.fp("b")}, self.pins())
+        self.assertEqual({OTHER, OLD_B, self.fp("a"), self.fp("b")}, self.store_fingerprints())
+        self.assertEqual([("int/a", "adopted"), ("int/b", "adopted")], self.outcomes())
+        self.assertIsNotNone(self.state.try_lock(), "the lock is free again")
+
+    def test_accept_waits_for_a_running_prune(self):
+        self.write_marked(self.fp("a"), OTHER, [("int-a-aaaaaaaa-20250101", self.fp("a")),
+                                                ("int-b-cc334455-20250101", OTHER),
+                                                ("int-b-ee556677-20240101", SUPERSEDED)])
+        hold = self.hold_file("prune-holds")
+        prune = self.start("--prune", "int", "--yes", hold=hold)
+        self.await_event(prune, "locked")
+        accept = self.start("--accept", "int/b", self.fp("b"))
+        self.assertWaits(accept)
+        self.release(hold)
+        self.finish(prune)
+        self.finish(accept)
+        self.assertEqual({"int/a": self.fp("a"), "int/b": self.fp("b")}, self.pins())
+        self.assertEqual({self.fp("a"), OTHER, self.fp("b")}, self.store_fingerprints())
+        self.assertEqual([(None, "pruned"), ("int/b", "adopted")], self.outcomes())
+
+    def test_accept_waits_for_the_dialog_worker(self):
+        self.write_marked(OTHER, OLD_B, [("int-a-cc334455-20250101", OTHER),
+                                         ("int-b-dd445566-20250101", OLD_B)])
+        hold = self.hold_file("dialog-open")
+        worker = self.hand_lock_to_worker("int/b", self.fp("b"), hold)
+        accept = self.start("--accept", "int/a", self.fp("a"))
+        self.assertWaits(accept)
+        self.assertEqual({"int/a": OTHER, "int/b": OLD_B}, self.pins(), "nothing changed yet")
+        self.release(hold)
+        self.finish(worker)
+        self.finish(accept)
+        self.assertEqual(0, self.events(worker, "released")[0]["code"])
+        self.assertEqual([self.fp("b")], self.read_after_lock(accept),
+                         "--accept lands on the worker's result")
+        self.assertEqual({"int/a": self.fp("a"), "int/b": self.fp("b")}, self.pins())
+        self.assertEqual({OTHER, OLD_B, self.fp("a"), self.fp("b")}, self.store_fingerprints())
+        self.assertEqual([("int/b", "adopted"), ("int/a", "adopted")], self.outcomes())
+        log = self.change_log()
+        self.assertTrue(log[0].endswith(" by=dialog"), log[0])
+        self.assertTrue(log[1].endswith(" by=cli"), log[1])
+
+    def test_lock_held_too_long_then_repeat(self):
+        self.write_marked(OTHER, OLD_B, [("int-a-cc334455-20250101", OTHER),
+                                         ("int-b-dd445566-20250101", OLD_B)])
+        hold = self.hold_file("dialog-open")
+        worker = self.hand_lock_to_worker("int/b", self.fp("b"), hold)
+        before = self.snapshot()
+        started = time.monotonic()
+        refused = self.start("--accept", "int/a", self.fp("a"), lock_timeout=0.5)
+        _out, err = self.finish(refused, code=3)
+        self.assertGreaterEqual(time.monotonic() - started, 0.5)
+        self.assertIn("profile lock is held by another process", err)
+        self.assertEqual([], self.events(refused, "locked"))
+        self.assertEqual(before, self.snapshot(), "nothing changed")
+        self.assertEqual([], self.backups())
+        self.assertEqual([], self.change_log())
+        self.release(hold)
+        self.finish(worker)
+        repeated = self.start("--accept", "int/a", self.fp("a"), lock_timeout=0.5)
+        self.finish(repeated)
+        self.assertEqual({"int/a": self.fp("a"), "int/b": self.fp("b")}, self.pins())
+        self.assertEqual({OTHER, OLD_B, self.fp("a"), self.fp("b")}, self.store_fingerprints())
+        self.assertEqual([("int/b", "adopted"), ("int/a", "adopted")], self.outcomes())
+
+
 if __name__ == "__main__":
     unittest.main()

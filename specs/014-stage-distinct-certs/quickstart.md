@@ -117,7 +117,7 @@ Expected:
 While a dialog for `int/b` is open, run `--accept int/a <fp>` from a terminal.
 
 Expected: the terminal waits for the lock. After "Accept" in the dialog both adoptions are in the
-profile, or the terminal run is refused with "profile lock busy" after 30 s and succeeds when
+profile, or the terminal run is refused with "the profile lock is held by another process … for more than 30 s" and succeeds when
 repeated (research R-12).
 
 ## 7. Regression for uniform stages

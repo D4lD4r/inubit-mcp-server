@@ -245,7 +245,7 @@ Every decision was checked against `main` (18344e2) — server code under
 - **Decision**: no new mechanism. Every write runs under that lock, and each run reads the profile
   bytes afresh after taking it (006 C-2 step 2), so it works on the previous run's result.
   - A CLI or Claude adoption that meets an open dialog waits up to 30 s. If the dialog is still
-    open after that, the adoption is refused (exit 3, "profile lock busy"), as in 006, and can be
+    open after that, the adoption is refused (exit 3, "the profile lock is held by another process … for more than 30 s"), as in 006, and can be
     repeated.
   - The quickstart covers both orders.
 

@@ -71,7 +71,8 @@ The reviewed spec governs; the other documents were aligned in the same change.
   data-model.md and contracts/cli.md now say `null` too. T013 tests `null`.
 - **Concurrent adoption (Story 2 AS 9)**: AS 9 now states the R-12 behaviour explicitly — the two
   adoptions run one after another and both land; a command-line adoption that waits longer than
-  30 s for an open dialog is refused with "profile lock busy", changes nothing and succeeds when
+  30 s for an open dialog is refused with
+  "the profile lock is held by another process … for more than 30 s", changes nothing and succeeds when
   repeated. T019 tests both orders.
 - **Flow-mapping server `tls`**: the tool keeps failing closed on a server `tls` that is not a
   block mapping or an alias (`tools/inubit-cert-check.py`); research.md's example now uses the block
@@ -471,7 +472,7 @@ line names `server=int/b` (spec US2 Independent Test, Q4 steps b–g).
   (`FakeKeytool(fail_on=…)`) → restore and exit 4; a stage without `ownTls` or with a `problem` →
   refusal naming the reason; every 006 prune test unchanged. Then implement in `_prune_listing` /
   `_prune_locked` of `tools/inubit-cert-check.py` with `stage.expected`.
-- [ ] T019 [US2] **Regression** — serialization (FR-009, Story 2 AS 9, research R-12). The lock
+- [X] T019 [US2] **Regression** — serialization (FR-009, Story 2 AS 9, research R-12). The lock
   behaviour exists (R-12); the tests are expected to pass at once, there is no red step; if one
   fails, stop and report before changing `accept_locked` / `_prune_locked`. New class
   `PinPerServerSerialTest(AcceptTestCase)` in `tools/tests/test_accept.py`:
@@ -485,7 +486,7 @@ line names `server=int/b` (spec US2 Independent Test, Q4 steps b–g).
     `--accept int/a` runs →
     `--accept` waits; after the worker adopts for `int/b` and releases the lock, `--accept int/a`
     lands on the worker's result (both new pins present);
-  - the lock held longer than the (patched, short) lock timeout → exit 3 "profile lock busy" and
+  - the lock held longer than the (patched, short) lock timeout → exit 3 "the profile lock is held by another process …" and
     nothing changed; repeating after the release succeeds.
 
 **Checkpoint**: US1 + US2 — a marked stage can be rotated from the command line without editing a
