@@ -119,7 +119,7 @@ only on purpose, P1 — must ship together with US1), US3 (traceable and bounded
   `RepositoryClosure.of`) and make `WorkspaceWriter` call it with its own serialized elements (no
   behaviour change).
 
-- [ ] T006 Audit records of the tool (research R-12): test first
+- [X] T006 Audit records of the tool (research R-12): test first
   `test/application/ArchiveExportAuditTest.java` against an in-memory `AuditPort`: `refused(error)`
   appends one record with `capability` `export_archives`, `step` `EXECUTE`, outcome `REFUSED`,
   reason `<CODE>: <message>`; `pending()` then `outcome(EXECUTED|REFUSED|FAILED|PARTIALLY_COMPLETED,
