@@ -100,6 +100,17 @@ public interface ReleaseArchivePort {
     boolean equivalent(String path, byte[] release, byte[] target);
 
     /**
+     * True if {@code target}, the rendered file {@code path} as a re-export after an import
+     * shows it, is what the target makes of {@code release} on that import: {@link #equivalent},
+     * or different only in what INUBIT rewrites on the import of that file. Only for the
+     * verification of a deployment and of its rollback or restore; the default rewrites
+     * nothing.
+     */
+    default boolean importedAs(String path, byte[] release, byte[] target) {
+        return equivalent(path, release, target);
+    }
+
+    /**
      * True if the rendered workflow files differ only in layout ({@code StyleSheet}), with the
      * connections of each workflow module in one order.
      */

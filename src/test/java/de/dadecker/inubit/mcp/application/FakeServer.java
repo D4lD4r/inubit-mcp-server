@@ -102,6 +102,11 @@ public final class FakeServer {
     public volatile boolean partialNextImport;
     /** After the next import, this text of the stored workflow and module files is replaced. */
     public volatile String[] tamperNextImport;
+    /**
+     * Like INUBIT 8.1.17 (issue #55): every module import stores an {@code xslt.transformer}
+     * that names the plain Saxon factory as this factory instead (null: as sent).
+     */
+    public volatile String saxonFactoryOnImport;
 
     /** A server with the diagram groups and modules of {@code exports}. */
     public static FakeServer of(byte[]... exports) {
@@ -340,6 +345,13 @@ public final class FakeServer {
         throw new IllegalStateException("no workflow " + name);
     }
 
+    private byte[] transformer(byte[] moduleFile) {
+        String factory = saxonFactoryOnImport;
+        return factory == null ? moduleFile : new String(moduleFile, StandardCharsets.UTF_8)
+            .replace(">net.sf.saxon.TransformerFactoryImpl<", ">" + factory + "<")
+            .getBytes(StandardCharsets.UTF_8);
+    }
+
     /** A person publishes module {@code name}: its module file changes, next version. */
     public synchronized void publishModule(String name, UnaryOperator<String> change) {
         Module module = modules.get(name);
@@ -450,7 +462,7 @@ public final class FakeServer {
                     }
                     byte[] file = archive.get(file(name));
                     modules.put(name, new Module(pluginType, withValue(entry, "ModuleUId",
-                        "-fake:" + ++uid), file != null ? file : old.file(),
+                        "-fake:" + ++uid), file != null ? transformer(file) : old.file(),
                         old == null ? 1 : old.version() + 1));
                 }
             }
