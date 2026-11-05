@@ -275,7 +275,7 @@ reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, AS 8, Q1,
   pattern). Then in `main/Launcher.java` `serve(...)`, right after the "started for profile" line,
   `LOG.info("Stages with one pinned certificate per server (tls.pinPerServer): {}", names)` with the
   marked stage names in file order, comma-separated, only when at least one stage is marked.
-- [ ] T010 [P] [US1] **Regression** — REST runtime pin per server (FR-002, FR-005, SC-001, SC-004,
+- [X] T010 [P] [US1] **Regression** — REST runtime pin per server (FR-002, FR-005, SC-001, SC-004,
   research R-4). The behaviour exists; the tests pass at once, there is no red step. In
   `test/adapter/rest/InubitHttpClientTest.java`: two WireMock HTTPS servers with
   `TestCertificates.localhostKeyStore()` and `selfsignedKeyStore()`, one shared
