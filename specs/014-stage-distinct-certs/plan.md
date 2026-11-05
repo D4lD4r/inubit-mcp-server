@@ -79,7 +79,7 @@ concurrent Claude sessions starting the launcher.
 | II. Secrets out of the conversation | ✅ No credential is read or passed. Output holds fingerprints, subjects, IPs and server ids only. |
 | III. Test-First | ✅ Java validation rules, the StartCLI probe and every new tool behaviour get failing tests first, inside the task that implements them (outline steps 1–2). Regression tests for behaviour that exists already are marked as such. Dedicated tests cover the safety rules: other servers untouched, refusal cases, rejection memory per server, no stdout in `--interactive`, a server refusing the certificate of another server (REST), and StartCLI never launched after a refused probe. |
 | IV. Use-case-oriented tools | n/a. No MCP tool is added or changed. |
-| V. Adapter isolation | ✅ The REST and SOAP adapters (`PinningTrustManager`, `SslContexts`, `InubitHttpClient`, `SoapE2eClient`) are unchanged. The probe lives in the CLI adapter (`adapter/cli/StartCliPinProbe`, called from `CliRunner.run`) and reuses `SslContexts` the way the SOAP adapter already does; no domain or tool code learns about TLS. Configuration rules sit in `config/`. |
+| V. Adapter isolation | ✅ The REST and SOAP adapters (`PinningTrustManager`, `SslContexts`, `InubitHttpClient`, `SoapE2eClient`) are unchanged. The probe lives in the CLI adapter (interface `adapter/cli/StartCliPinProbe` with the real `HandshakeStartCliPinProbe`, called from `CliRunner.run` before the credential guard) and reuses `SslContexts` the way the SOAP adapter already does; no domain or tool code learns about TLS. Configuration rules sit in `config/`. |
 | VI. Bounded, structured output | ✅ The `--json` shape is extended only by added fields (contract C-1′). Errors are short reasons. |
 | VII. Observability & auditability | ✅ A start-up log line names the marked stages (FR-005). Every server decision is one audit line with `server=` (FR-011). Diagnostics go to stderr and the log; stdout stays reserved. |
 | Language: Java | ⚠️ The operator tool stays Python. This is the existing deviation of 006, recorded again in Complexity Tracking. |
@@ -120,14 +120,15 @@ src/main/java/de/dadecker/inubit/mcp/
 │   ├── EffectiveNodeConfig.java       # + Tls.pinPerServer (group value; old constructor kept)
 │   └── ConfigValidator.java           # + checkPinPerServer (FR-004, V-1…V-11), on the written group/node values
 ├── adapter/cli/
-│   ├── StartCliPinProbe.java          # new: TLS handshake to the StartCLI address before StartCLI (FR-005a)
-│   ├── CliRunner.java                 # run(): probe for marked servers before launch; + trustStorePassword
-│   ├── CliTagRunner.java              # pass credentials.trustStorePassword() to run()
+│   ├── StartCliPinProbe.java          # new interface: check(server, trustStorePassword) (FR-005a)
+│   ├── HandshakeStartCliPinProbe.java # new: real probe, TLS handshake to the StartCLI address before StartCLI
+│   ├── CliRunner.java                 # 4-arg constructor kept (real probe) + 5-arg with probe; new run overload with trustStorePassword, probe before guard.acquire()
+│   ├── CliTagRunner.java              # call the new run overload with credentials.trustStorePassword()
 │   ├── CliExportRunner.java           # same
 │   ├── CliImportRunner.java           # same
 │   └── v81/V81ProcessControlAdapter.java  # same
-├── Wiring.java                        # CliRunner gets the probe
-└── Launcher.java                      # + one start-up log line (FR-005); CliRunner of the -v probe gets the probe
+├── Wiring.java                        # unchanged: the 4-arg CliRunner constructor uses the real probe
+└── Launcher.java                      # + one start-up log line (FR-005); -v runner unchanged (no probe)
 
 src/test/java/de/dadecker/inubit/mcp/
 ├── MainTest.java                      # start-up log line names the marked stages (FR-005)
@@ -135,9 +136,9 @@ src/test/java/de/dadecker/inubit/mcp/
 ├── config/ConfigValidatorTest.java    # every FR-004 rule (V-1…V-11), names stage and server
 ├── config/EffectiveNodeConfigTest.java# node pin wins, no stage pin; Tls.pinPerServer per node
 ├── adapter/rest/InubitHttpClientTest.java  # server A refuses server B's certificate, cause CertificateException (SC-004)
-├── adapter/rest/TlsTestServer.java    # made usable from adapter/cli tests (visibility only)
-├── adapter/cli/StartCliPinProbeTest.java   # new: swap refused, unreachable, http not probed, error texts
-└── adapter/cli/CliRunnerTest.java     # refused probe → StartCLI never launched; unmarked not probed
+├── adapter/rest/TlsTestServer.java    # usable from adapter/cli tests; + handshake counter, silent mode
+├── adapter/cli/StartCliPinProbeTest.java   # new: swap refused, unreachable, timeout, http not probed, error texts
+└── adapter/cli/CliRunnerTest.java     # new methods only: refused probe → no launch, guard untouched; unmarked not probed
 
 src/test/resources/config/
 └── pin-per-server.yaml                # customer-agnostic example (acme / int / a, b)
@@ -177,9 +178,11 @@ profile-specific enters the repository.
    - `InubitHttpClientTest` (regression): two local TLS servers, each pinned to its own
      certificate, one shared trust store; each refuses the other's certificate with the cause
      `CertificateException` (SC-004).
-   - StartCLI probe (FR-005a, research R-15): `StartCliPinProbe` against two local TLS servers,
-     then wired into `CliRunner.run` for marked servers only; StartCLI is never launched after a
-     refused probe; unmarked servers are never probed.
+   - StartCLI probe (FR-005a, research R-15): `HandshakeStartCliPinProbe` against two local TLS
+     servers, then wired into `CliRunner.run` for marked servers only, before the credential guard
+     is entered; StartCLI is never launched after a refused probe; unmarked servers are never
+     probed. The existing `CliRunner` constructor and `run` signatures stay, so existing callers
+     and tests are not edited.
 2. **Tool, tests first** (contract cli.md):
    - Profile reader: `pinPerServer`, per-server pin line and pin source, the stage's own trust
      store without a pin, and configuration problems as a stage note (research R-7).
@@ -195,8 +198,8 @@ profile-specific enters the repository.
    - Change log: the `server=` field.
 3. **Regression**: every existing 006 test passes unchanged (SC-005); `NoCustomerIdentifiersTest`
    passes.
-4. **Docs, CI, CHANGELOG**: `docs/setup.md` §3 and §5, the C-8′ rule text (both `TLS_ERROR`
-   causes), the StartCLI probe with its remaining window and the SAN recommendation, per-node
+4. **Docs, CI, CHANGELOG**: `docs/setup.md` §3 and §5, the C-8′ rule text (`TLS_ERROR` from
+   `CertPathValidatorException`, `SunCertPathBuilderException` or a pin mismatch; prune hint kept), the StartCLI probe with its remaining window and the SAN recommendation, per-node
    `cli.url` / `e2e.soap.baseUrl` in a marked stage, and the CHANGELOG.
    CI already runs both suites; check that the new test files are discovered.
 5. **Local validation** (quickstart): reinstall the tool, then run the scenarios on a configuration

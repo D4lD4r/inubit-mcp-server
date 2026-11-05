@@ -366,9 +366,11 @@ all files unchanged and remember the rejection for `int/b` only. In a Claude ses
 - **FR-016**: The operator's in-session rule and the documentation of the check MUST be updated so
   that Claude presents server-level details for marked stages and uses the adoption form of FR-010;
   the rule MUST apply to a `TLS_ERROR` whose cause is a failed certificate path
-  (`CertPathValidatorException`) and to one whose cause is a pin mismatch (`CertificateException`),
-  because a server presenting another server's certificate of a marked stage passes the shared
-  trust store and fails only the pin. Claude still never adopts without an explicit "yes" ("Ja").
+  (`CertPathValidatorException`), a certificate whose subject the trust store does not know
+  (`SunCertPathBuilderException`) or a pin mismatch (`CertificateException`), because a server
+  presenting another server's certificate of a marked stage passes the shared trust store and fails
+  only the pin. The rule keeps pointing to `--prune <stage>` (first without `--yes`) after an
+  adoption. Claude still never adopts without an explicit "yes" ("Ja").
 
 **General**
 

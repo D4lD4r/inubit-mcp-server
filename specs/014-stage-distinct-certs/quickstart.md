@@ -27,7 +27,7 @@ Expected:
   - configuration contract V-1 … V-11;
   - the SC-004 swap test for REST (cause `CertificateException`);
   - the StartCLI probe (FR-005a): a swapped certificate at the StartCLI address is refused and
-    StartCLI is never launched; unmarked stages are not probed; the error texts match the REST
+    StartCLI is never launched; unmarked stages are not probed; the `TLS_ERROR` texts match the REST
     path. No real StartCLI or INUBIT is needed (fake process launcher, local TLS servers);
   - tool contracts C-1′ … C-5′.
 
@@ -42,7 +42,8 @@ java -jar target/inubit-mcp-server-*.jar --config /path/to/acme-copy.yaml --chec
 
 Expected:
 - **Valid profile**: exit 0 and `Result: OK`; no error names `int/a` or `int/b` (the summary
-  prints no TLS values; the start-up log line of FR-005 names the marked stage).
+  prints no TLS values). `--check-config` writes no FR-005 log line: that line is written only at
+  server start (`Launcher.serve`), see §3.
 - **Broken copies, one rule each (V-1, V-3, V-4, V-5, V-6, V-10, V-11, and `defaults.tls`)**:
   exit 1, and the message names stage and server as in the contract table.
 
@@ -52,6 +53,30 @@ Start the server with the valid copy (credentials as in `docs/setup.md`).
 
 Expected: one stderr line `Stages with one pinned certificate per server (tls.pinPerServer): int`,
 and nothing but MCP traffic on stdout.
+
+## 3a. StartCLI probe without INUBIT (FR-005a, SC-004)
+
+Use the valid copy with `int` marked and `versionLine: V8_1` on `int`, plus:
+
+- three local TLS endpoints with the throw-away certificates A and B of §4, all trusted by the
+  stage trust store: an HTTPS stub with certificate A as `int/a`'s `baseUrl` that answers every
+  `GET` with `200` and `{}` (it only has to confirm the credentials; if the REST login needs more,
+  record what it needed and report it), and two bare TLS listeners (e.g. `openssl s_server`) as
+  the `cli.url` of `int/a` and `int/b`, **swapped**: the listener at `int/a`'s `cli.url` presents
+  B, the one at `int/b`'s presents A;
+- `cli.home` of both servers pointing to a stub client directory whose `bin/startcli.sh` only
+  creates a marker file and exits 0.
+
+Start the server with this copy and call a CLI-backed tool for `int/a` through an MCP client, e.g.
+`export_artifacts` (8.1 exports run through StartCLI).
+
+Expected:
+- the reply is `TLS_ERROR`, the message names `int/a`, the host and port of its `cli.url`, the cause
+  `(CertificateException)` and "StartCLI was not started";
+- the marker file does not exist (StartCLI was not started);
+- the same for `int/b`; after swapping the listeners back (each `cli.url` presents its own
+  server's certificate), the call reaches the stub (the marker file exists) and fails only because
+  the stub produces no export.
 
 ## 4. Check, adoption and prune with two local TLS servers (Stories 1–2)
 

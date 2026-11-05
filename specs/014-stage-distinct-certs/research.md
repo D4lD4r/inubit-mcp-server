@@ -108,11 +108,14 @@ Every decision was checked against `main` (18344e2) — server code under
   |---|---|---|
   | new certificate not in the trust store (uniform stage after a redeploy) | PKIX chain validation of the delegate trust manager | `CertPathValidatorException` (the case the 006 rule was written for) |
   | certificate in the store but not the server's pin: another server's certificate in a marked stage, or a replaced but not yet pruned certificate | `PinningTrustManager.checkPin` | `CertificateException` ("does not match the pinned SHA-256 fingerprint") |
+  | certificate with a subject the trust store does not know (no path to any trusted entry, e.g. a new self-signed certificate; 002 quickstart A5) | PKIX path building of the delegate trust manager | `SunCertPathBuilderException` |
   | host name does not match (hostname verification on) | session-aware delegate check | `CertificateException` |
 
-  So a swapped certificate in a marked stage never produces a `CertPathValidatorException`. The
-  C-8′ rule (contracts/cli.md) and `docs/setup.md` therefore name both causes (plan review r1
-  finding 1).
+  So a swapped certificate in a marked stage never produces a `CertPathValidatorException`, and a
+  new certificate whose subject the store does not know produces a `SunCertPathBuilderException`.
+  The C-8′ rule (contracts/cli.md) and `docs/setup.md` therefore name all three causes:
+  `CertPathValidatorException`, `SunCertPathBuilderException` and the pin mismatch
+  (`CertificateException`) (plan review r1 finding 1, plan review r2 finding 7).
 - **Finding (StartCLI)**: `CliRunner.runUnguarded` passes only `--trustStoreFilePath` and
   `--disableHostNameVerification` to StartCLI; StartCLI has no pin option. In a uniform stage this
   is the documented residual risk, reduced by pruning. In a marked stage the shared store always
@@ -182,7 +185,8 @@ Every decision was checked against `main` (18344e2) — server code under
     Otherwise `noOfferReason` names why:
     - `pin through alias`;
     - `trust store not the stage's own`;
-    - `configuration problem: …`;
+    - `configuration problem` (exactly this string, no suffix; the problem itself is reported in
+      the stage's `problem`; plan review r2 finding 9);
     - `unreachable`.
   - **`expectedBy`**: the ids of other servers of the stage whose pin equals this server's
     presented fingerprint (FR-010a).
@@ -273,11 +277,21 @@ Every decision was checked against `main` (18344e2) — server code under
   only with `allowInsecureHttp`. `CliVersionProbe` runs `startcli -v` through
   `CliRunner.execute`, which does not log in and does not contact the server.
 - **Decision**:
-  - New class `adapter/cli/StartCliPinProbe`. `CliRunner.run` calls it after the credential
-    guard's permit is taken and before `runUnguarded` starts StartCLI, only for a server of a
-    marked stage. `EffectiveNodeConfig.Tls` gains `boolean pinPerServer`, resolved from the group's
+  - New interface `adapter/cli/StartCliPinProbe` (one method `check(EffectiveNodeConfig server,
+    Optional<Secret> trustStorePassword)`) with the real implementation in its own class
+    `adapter/cli/HandshakeStartCliPinProbe`, so `CliRunnerTest` can use a counting fake.
+    `CliRunner` keeps its four-argument constructor, which delegates to a new five-argument
+    constructor with a `HandshakeStartCliPinProbe`; tests pass their own probe to the
+    five-argument constructor (plan review r2 finding 1). `CliRunner.run` calls the probe
+    **before** `guard.acquire()`, only for a server of a marked stage: the probe contacts the
+    network, and doing that inside the permit (the exclusive `CredentialGuard` probe semaphore
+    while credentials are not yet confirmed) would let a slow StartCLI address block the first
+    logins of other calls to that node (plan review r2 finding 3). A refused probe therefore
+    never touches the guard.
+  - `EffectiveNodeConfig.Tls` gains `boolean pinPerServer`, resolved from the group's
     `tls.pinPerServer` (a node value is invalid, V-1); a constructor with the old three arguments
-    keeps every existing call site unchanged. `CliRunner.execute` (the `-v` probe) never probes.
+    keeps every existing call site unchanged. `CliRunner.execute` (the `-v` probe) never probes,
+    and `Launcher`'s `-v` runner keeps the four-argument constructor.
   - Address: host and port of `server.cli().url()` — exactly the address StartCLI connects to;
     port `-1` means 443. An `http` address has no certificate and is not probed.
   - Handshake: `SslContexts.forServer(server.secretLabels(), server.tls(), trustStorePassword)`,
@@ -286,20 +300,28 @@ Every decision was checked against `main` (18344e2) — server code under
     timeout, sets SNI to the host and, unless `disableHostnameVerification` is set, the endpoint
     identification algorithm `HTTPS`, so the host-name rule matches the REST client; then
     `startHandshake()` and close. No HTTP request and no credential are sent.
-  - Trust-store password: the four callers of `CliRunner.run` (`CliTagRunner`, `CliExportRunner`,
-    `CliImportRunner`, `V81ProcessControlAdapter`) already hold the node's `NodeCredentials`; `run`
-    gains `Optional<Secret> trustStorePassword` from `credentials.trustStorePassword()`.
-  - Errors, mirroring `InubitHttpClient.transportError` (same codes, same likely-cause and
-    next-step texts):
+  - Trust-store password: the four production callers of `CliRunner.run` (`CliTagRunner`,
+    `CliExportRunner`, `CliImportRunner`, `V81ProcessControlAdapter`) already hold the node's
+    `NodeCredentials`, and each of them may run against a marked stage, so all four switch to a
+    new `run` overload with an additional `Optional<Secret> trustStorePassword` (from
+    `credentials.trustStorePassword()`). The two existing `run` signatures stay and delegate with
+    `Optional.empty()`, so the existing `run(` calls in `CliRunnerTest` stay unchanged.
+  - Errors, mirroring `InubitHttpClient.transportError` (same codes; likely-cause and next-step
+    texts as there, except the `UNREACHABLE` next step):
     - `SSLException` or `CertificateException` in the cause chain → `TLS_ERROR`, message
       `The TLS connection to int/a failed for the StartCLI address int-a.example.test:8443
       (<root cause simple name>); StartCLI was not started` — `(CertificateException)` for a pin
       mismatch;
-    - connect timeout or handshake timeout → `TIMEOUT`;
+    - connect timeout or handshake timeout (`SocketTimeoutException`, e.g. a listener that
+      accepts but never answers the handshake) → `TIMEOUT`, message `The StartCLI address
+      int-a.example.test:8443 of int/a did not complete the TLS handshake within <timeout>;
+      StartCLI was not started`, likely cause and next step as the REST `TIMEOUT`;
     - `ConnectException`, unknown host, no route → `UNREACHABLE`, message `Cannot connect to int/a
-      for the StartCLI address …; StartCLI was not started`.
-    The permit is neither accepted nor rejected (no login took place), so a refused probe never
-    triggers the credential pause.
+      for the StartCLI address …; StartCLI was not started`; the next step names the effective
+      StartCLI URL, not `baseUrl`: `Check cli.url (<effective cli.url>), DNS and the VPN, then
+      retry` (plan review r2 finding 4).
+    The probe runs before the permit is taken, so the guard is neither accepted nor rejected and a
+    refused probe never triggers the credential pause.
   - Unmarked stages: never probed; arguments, environment and timing of StartCLI unchanged
     (FR-017).
   - Cost: one TCP connect and TLS handshake per StartCLI call to a marked stage, milliseconds next
@@ -324,7 +346,8 @@ Every decision was checked against `main` (18344e2) — server code under
   - A local TLS-terminating proxy that pins and forwards. Far more moving parts than the gain.
 - **Tests**: `StartCliPinProbeTest` with two local TLS endpoints (`TlsTestServer`, made usable
   from `adapter/cli`) and one shared trust store: matching pin passes, swapped certificate →
-  `TLS_ERROR` with `(CertificateException)`, closed port → `UNREACHABLE`, http address → no probe,
-  likely-cause and next-step texts equal the REST ones. `CliRunnerTest` with `FakeProcessLauncher`:
+  `TLS_ERROR` with `(CertificateException)`, closed port → `UNREACHABLE` naming `cli.url`,
+  silent listener → `TIMEOUT`, http address → no handshake (the `TlsTestServer` handshake counter
+  stays 0), likely-cause and next-step texts of `TLS_ERROR` equal the REST ones. `CliRunnerTest` with `FakeProcessLauncher`:
   refused probe → StartCLI never launched; matching certificate → launched with unchanged
   arguments; unmarked server → probe never called.

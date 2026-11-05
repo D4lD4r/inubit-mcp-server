@@ -89,11 +89,15 @@ stages only (research R-3). A marked stage with one node may set both addresses 
   |---|---|---|
   | pin mismatch | `TLS_ERROR` | `The TLS connection to int/a failed for the StartCLI address int-a.example.test:8443 (CertificateException); StartCLI was not started` |
   | other TLS failure | `TLS_ERROR` | same form, with the root cause's class name |
-  | timeout | `TIMEOUT` | as the REST path reports it, naming the StartCLI address |
+  | timeout (also a listener that accepts but never answers the handshake) | `TIMEOUT` | `The StartCLI address int-a.example.test:8443 of int/a did not complete the TLS handshake within <timeout>; StartCLI was not started` |
   | unreachable | `UNREACHABLE` | `Cannot connect to int/a for the StartCLI address int-a.example.test:8443 (ConnectException); StartCLI was not started` |
 
-  Likely cause and next step are the texts of the REST path for the same code. An `http`
-  `cli.url` is not probed. Servers of unmarked stages are never probed.
+  Likely cause and next step are the texts of the REST path for the same code, except the
+  `UNREACHABLE` next step, which names the effective `cli.url` instead of `baseUrl`
+  (`Check cli.url (https://int-a.example.test:8443/ibis/servlet/IBISSoapServlet), DNS and the VPN,
+  then retry`). The probe runs before the credential guard is entered, so it never holds a login
+  permit and a refused probe never counts as a failed login. An `http` `cli.url` is not probed.
+  Servers of unmarked stages are never probed.
 - **Remaining window**: StartCLI's own connection follows the probe by about the start time of its
   JVM; a certificate switch exactly in that window is not caught, because StartCLI checks only the
   stage's trust store (and the host name, unless disabled). Certificates whose subjectAltNames

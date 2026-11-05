@@ -9,7 +9,7 @@ description: "Task list for stages whose servers present different certificates 
 
 **Prerequisites**:
 - [plan.md](plan.md) and [spec.md](spec.md) (clarifications 2026-11-03 and 2026-11-05, spec reviews
-  r1–r2, plan review r1)
+  r1–r2, plan reviews r1–r2)
 - [research.md](research.md) (R-1…R-15) and [data-model.md](data-model.md)
 - [contracts/configuration.md](contracts/configuration.md) (V-1…V-11, runtime behaviour) and
   [contracts/cli.md](contracts/cli.md) (C-1′…C-5′, C-8′, delta to
@@ -99,6 +99,28 @@ The reviewed spec governs; the other documents were aligned in the same change.
   Dependencies section.
 - **Leftover stage-keyed rejection under `--interactive` (finding 10)**: kept as in data-model
   R-9 and tested in T022.
+
+### Decisions after plan review r2 (2026-11-05, `reviews/plan-r2.md`)
+
+- **`CliRunner` API (finding 1)**: the four-argument constructor stays and delegates to a
+  five-argument one with the real `HandshakeStartCliPinProbe`; `StartCliPinProbe` is an interface so
+  `CliRunnerTest` can pass a counting fake. The trust-store password comes through a new `run`
+  overload used by the four production callers; the old `run` signatures stay, so existing tests
+  are not edited. `Launcher` is not touched by T012; T030 allows changes only to the test files
+  T011 and T012 name. T011, T012, T030.
+- **T009/T012 (finding 2)**: independent, since T012 no longer edits `Launcher.java`.
+- **Probe before the guard (finding 3)**: the probe runs before `guard.acquire()` (research R-15,
+  data-model). T011, T012.
+- **Error texts (findings 4, 5)**: the `UNREACHABLE` next step names the effective `cli.url`;
+  equality with the REST texts is asserted for `TLS_ERROR` only; a silent listener yields
+  `TIMEOUT`. T011.
+- **Test helper (finding 6)**: `TlsTestServer` gains a handshake counter and a silent mode. T011.
+- **C-8′ (findings 7, 8)**: trigger also on `SunCertPathBuilderException`; the prune hint stays
+  (`--prune <stage>`, the stage part of a `stage/server` target). Spec FR-016, research R-4,
+  contracts/cli.md; T024, T025, T028, T032.
+- **`noOfferReason` (finding 9)**: exactly `configuration problem`, no suffix (research R-8).
+- **Quickstart (finding 10)**: the FR-005 log line appears at server start only (Q3); new Q3a
+  exercises FR-005a without INUBIT, run by T031.
 
 ---
 
@@ -249,51 +271,79 @@ reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, AS 8, Q1,
   report.
 - [ ] T011 [P] [US1] StartCLI pin probe (FR-005a, SC-004, research R-15, data-model "StartCLI pin
   probe", contract configuration.md "Runtime behaviour"). Write the failing tests first in the new
-  `test/adapter/cli/StartCliPinProbeTest.java` and see them fail; make
-  `test/adapter/rest/TlsTestServer.java` usable from `adapter/cli` (visibility only). Two
-  `TlsTestServer`s with `TestCertificates.localhostKeyStore()` and `selfsignedKeyStore()`, one shared
-  `TestCertificates.trustStore()`, an `EffectiveNodeConfig` per server whose `cli.url` points to its
-  `TlsTestServer`:
+  `test/adapter/cli/StartCliPinProbeTest.java` and see them fail. Test support (plan review r2
+  finding 6): `test/adapter/rest/TlsTestServer.java` becomes usable from `adapter/cli` (public class
+  and the members the new test uses) and gains a handshake counter (`handshakes()`: number of
+  completed or attempted TLS handshakes, counted per accepted connection) and a "silent" mode (the
+  listener accepts the TCP connection but never answers the handshake); existing users of
+  `TlsTestServer` stay unchanged. Two `TlsTestServer`s with `TestCertificates.localhostKeyStore()`
+  and `selfsignedKeyStore()`, one shared `TestCertificates.trustStore()`, an `EffectiveNodeConfig`
+  per server whose `cli.url` points to its `TlsTestServer`:
   - pin = the certificate the address presents → the probe returns normally;
   - swapped certificate (address of `int/a` presents `int/b`'s certificate) → `ToolErrorException`
     with `TLS_ERROR`, the message names `int/a`, the StartCLI address `<host>:<port>`, the cause
     `(CertificateException)` and "StartCLI was not started";
-  - error text: likely cause and next step equal the texts of `InubitHttpClient`'s `TLS_ERROR`
-    (string comparison against the REST error for the same swap);
-  - closed port → `UNREACHABLE`, message naming the StartCLI address;
-  - `cli.url` with `http://` → no connection attempt (the `TlsTestServer` recorded no handshake);
+  - `TLS_ERROR` text: likely cause and next step equal the texts of `InubitHttpClient`'s
+    `TLS_ERROR` (string comparison against the REST error for the same swap); this equality is
+    asserted for `TLS_ERROR` only (plan review r2 finding 4);
+  - closed port → `UNREACHABLE`, message naming the StartCLI address, next step naming the
+    effective `cli.url` (`Check cli.url (<url>), DNS and the VPN, then retry`), not `baseUrl`;
+  - silent listener (accepts, never answers the handshake) with a short `server.timeout()` →
+    `TIMEOUT`, message naming the StartCLI address and "StartCLI was not started", returned within
+    the timeout plus a margin (plan review r2 finding 5);
+  - `cli.url` with `http://` → no connection attempt (the `TlsTestServer`'s handshake counter stays
+    0);
   - with hostname verification on, the endpoint identification algorithm is set (a certificate
     whose subjectAltNames do not match the address is refused with `TLS_ERROR`).
-  Then add `main/adapter/cli/StartCliPinProbe.java`: host and port of `server.cli().url()` (port
-  `-1` → 443), `SslContexts.forServer(server.secretLabels(), server.tls(), trustStorePassword)`,
-  `SSLSocket` with SNI, endpoint identification `HTTPS` unless `disableHostnameVerification`,
-  connect and read timeout `server.timeout()`, `startHandshake()`, close; errors mapped as research
-  R-15 (`TLS_ERROR` / `TIMEOUT` / `UNREACHABLE`, texts as the REST path).
+  Then add the interface `main/adapter/cli/StartCliPinProbe.java`
+  (`void check(EffectiveNodeConfig server, Optional<Secret> trustStorePassword)`) and its real
+  implementation `main/adapter/cli/HandshakeStartCliPinProbe.java` (the test exercises this class):
+  host and port of `server.cli().url()` (port `-1` → 443), `http` → return without contact,
+  `SslContexts.forServer(server.secretLabels(), server.tls(), trustStorePassword)`, `SSLSocket` with
+  SNI, endpoint identification `HTTPS` unless `disableHostnameVerification`, connect and read
+  timeout `server.timeout()`, `startHandshake()`, close; errors mapped as research R-15
+  (`TLS_ERROR` / `TIMEOUT` / `UNREACHABLE`; `TLS_ERROR` texts as the REST path, `UNREACHABLE` next
+  step naming `cli.url`).
 - [ ] T012 [US1] Wire the probe into StartCLI calls (FR-005a, FR-017, SC-004, research R-15; after
   T005, T006 and T011). Write the failing tests first and see them fail:
   - `test/config/EffectiveNodeConfigTest.java`: `Tls.pinPerServer()` is `true` for both nodes of
     `int` and `false` for `dev` in `pin-per-server.yaml`; the three-argument `Tls` constructor yields
     `false`;
-  - `test/adapter/cli/CliRunnerTest.java` with `FakeProcessLauncher` and two `TlsTestServer`s:
+  - `test/adapter/cli/CliRunnerTest.java` (new test methods only; the existing 8 `run(` calls and
+    the existing `new CliRunner(` calls stay as they are) with `FakeProcessLauncher`, the real
+    `HandshakeStartCliPinProbe` passed to the new five-argument constructor and two `TlsTestServer`s:
     a server of a marked stage whose StartCLI address presents the other server's certificate →
-    `run(...)` throws `TLS_ERROR` naming the pin mismatch and the launcher recorded **no** launch;
-    the same for an unreachable address (`UNREACHABLE`, no launch); a matching certificate → StartCLI
-    is launched once with exactly the arguments it got before this feature; after a refused probe
-    the credential guard is neither rejected nor accepted (a following call is not answered with a
-    cached `AUTH_FAILED`);
-  - unmarked stage: a counting fake probe is never called, and the launched arguments, environment
-    and stdin are byte-identical to today's (FR-017); `execute(... "-v" ...)` (the client version
-    probe) never calls the probe, for marked servers too.
+    the new `run(...)` overload throws `TLS_ERROR` naming the pin mismatch and the launcher recorded
+    **no** launch; the same for an unreachable address (`UNREACHABLE`, no launch); a matching
+    certificate → StartCLI is launched once with exactly the arguments it got before this feature;
+    the probe runs before `guard.acquire()` (plan review r2 finding 3): while the test holds the
+    permit of an unconfirmed guard (first login in progress), a call to a marked server whose
+    address presents the wrong certificate still fails at once with `TLS_ERROR`
+    (`assertTimeoutPreemptively`, it does not wait for the permit); a refused probe leaves the guard
+    unconfirmed and not paused (a following call is not answered with a cached `AUTH_FAILED`);
+  - with a counting fake `StartCliPinProbe` (five-argument constructor): unmarked stage → the probe
+    is never called, and the launched arguments, environment and stdin are byte-identical to
+    today's (FR-017); `execute(... "-v" ...)` (the client version probe) never calls the probe, for
+    marked servers too; the old `run` signatures (without the trust-store password) call the probe
+    with `Optional.empty()` for a marked server;
+  - the four-argument constructor still exists and uses `HandshakeStartCliPinProbe` (a marked
+    server whose address presents the wrong certificate is refused through it).
   Then: `EffectiveNodeConfig.Tls` gains `boolean pinPerServer` from the group's
   `tls.pinPerServer` (a constructor with the old three arguments sets `false`) in
-  `main/config/EffectiveNodeConfig.java`; `CliRunner` takes a `StartCliPinProbe` in its constructor
-  and `CliRunner.run(...)` gains `Optional<Secret> trustStorePassword` and calls the probe after the
-  permit is taken and before `runUnguarded`, only when `server.tls().pinPerServer()` is true, in
-  `main/adapter/cli/CliRunner.java`; the callers `main/adapter/cli/CliTagRunner.java`,
+  `main/config/EffectiveNodeConfig.java`. In `main/adapter/cli/CliRunner.java`: the existing
+  four-argument constructor stays and delegates to a new five-argument constructor that takes a
+  `StartCliPinProbe` (default `new HandshakeStartCliPinProbe()`); a new `run` overload adds
+  `Optional<Secret> trustStorePassword` and calls the probe **before** `guard.acquire()`, only when
+  `server.tls().pinPerServer()` is true; the two existing `run` signatures stay and delegate with
+  `Optional.empty()`. The four production callers of `run`, which can all reach a marked stage and
+  must pass the password, switch to the new overload with
+  `credentials.trustStorePassword().map(SourcedValue::value)`: `main/adapter/cli/CliTagRunner.java`,
   `main/adapter/cli/CliExportRunner.java`, `main/adapter/cli/CliImportRunner.java` and
-  `main/adapter/cli/v81/V81ProcessControlAdapter.java` pass
-  `credentials.trustStorePassword().map(SourcedValue::value)`; `main/Wiring.java` and
-  `main/Launcher.java` construct `CliRunner` with the probe. Every existing CLI test stays green.
+  `main/adapter/cli/v81/V81ProcessControlAdapter.java`. `main/Wiring.java` keeps the four-argument
+  constructor (real probe); `main/Launcher.java` is not touched (its `-v` runner only calls
+  `execute`). Test files changed by this task: `test/config/EffectiveNodeConfigTest.java` and
+  `test/adapter/cli/CliRunnerTest.java` (additions only). Every existing CLI test stays green
+  unchanged.
 - [ ] T013 [US1] Check evaluation and JSON for marked stages (FR-006, FR-007, FR-008, FR-010a,
   FR-015, FR-017, SC-001, SC-004, SC-005, contract C-1′, research R-8; after T004). Write the
   failing tests first with `support.marked_stage` (T002) in `tools/tests/test_check.py`, new class
@@ -489,9 +539,11 @@ brings the dialog back (Q5).
 - [ ] T024 [P] [US3] In-session rule (FR-010a, FR-016, Story 3 AS 3, contract C-8′; any time after
   T015): replace the rule block "INUBIT certificate changes (inubit-acme)" in `docs/setup.md` §5
   "Certificate changes" with the C-8′ text — trigger `TLS_ERROR` caused by
-  `CertPathValidatorException` **or** by a pin mismatch (`CertificateException`), target `<stage>`
-  or `<stage>/<server>`, `expectedBy` note, `--accept <target> <fingerprint> --by claude`, never
-  adopt without an explicit "yes". `acme` names only. The operator's own `~/.claude/CLAUDE.md` is
+  `CertPathValidatorException`, `SunCertPathBuilderException` **or** a pin mismatch
+  (`CertificateException`), target `<stage>` or `<stage>/<server>`, `expectedBy` note,
+  `--accept <target> <fingerprint> --by claude`, the prune hint kept from 006 ("point me to
+  `inubit-cert-check --profile acme --prune <stage>`, first without `--yes`", the stage part of a
+  `<stage>/<server>` target), never adopt without an explicit "yes". `acme` names only. The operator's own `~/.claude/CLAUDE.md` is
   changed only in T032.
 
 **Checkpoint**: all three stories done; nothing has been adopted on a real stage.
@@ -515,15 +567,18 @@ brings the dialog back (Q5).
     misrouting or man-in-the-middle; check before accepting), removing the marking falls back to the
     006 behaviour;
   - §5 "Certificate changes": the sentence that the refusal is always a `CertPathValidatorException`
-    names both causes — `CertPathValidatorException` for a certificate missing from the trust store,
-    `CertificateException` for a certificate in the store that does not match the pin (research R-4).
+    names all three causes — `CertPathValidatorException` for a certificate missing from the trust
+    store, `SunCertPathBuilderException` for a certificate whose subject the trust store does not
+    know, `CertificateException` for a certificate in the store that does not match the pin
+    (research R-4).
   Every quoted message and command checked against the code.
 - [ ] T026 Documentation of the StartCLI probe and its remaining window (FR-005a, FR-018, research
   R-15; after T012 and T025, same file) in `docs/setup.md` §5 next to the existing paragraph "StartCLI
   cannot pin a certificate …": in a marked stage every StartCLI call is preceded by a TLS handshake to
   the StartCLI address (`cli.url`, default derived from `baseUrl`) with the server's own pin, and a
-  mismatch or failure refuses the call with `TLS_ERROR` / `UNREACHABLE` before StartCLI starts
-  (quote the message of contract configuration.md); unmarked stages keep the existing residual risk
+  mismatch or failure refuses the call with `TLS_ERROR` / `TIMEOUT` / `UNREACHABLE` before StartCLI
+  starts and before the credential guard is entered (quote the messages of contract
+  configuration.md; the `UNREACHABLE` next step names `cli.url`); unmarked stages keep the existing residual risk
   unchanged; the remaining window — a certificate switch between the probe and StartCLI's own
   connection is not caught, because StartCLI checks only the stage trust store, which in a marked
   stage holds every server's certificate, and skips the host name with `disableHostnameVerification`;
@@ -540,10 +595,12 @@ brings the dialog back (Q5).
   and the per-server workflow of `inubit-cert-check` (`--accept STAGE/SERVER`,
   `--forget STAGE[/SERVER]`, one dialog per server, `expectedBy` note); Changed: change-log lines of
   marked stages carry `server=`, rejections of marked stages are kept per server, the in-session rule
-  also fires on a pin mismatch (`CertificateException`); unchanged for stages without the setting.
+  also fires on a pin mismatch (`CertificateException`) and on `SunCertPathBuilderException`;
+  unchanged for stages without the setting.
 - [ ] T029 Review `tools/inubit-cert-check.py`, `main/config/ConfigValidator.java`,
   `main/config/EffectiveNodeConfig.java`, `main/adapter/cli/StartCliPinProbe.java`,
-  `main/adapter/cli/CliRunner.java` and `main/Launcher.java` against FR-001…FR-018 (with FR-005a and
+  `main/adapter/cli/HandshakeStartCliPinProbe.java`, `main/adapter/cli/CliRunner.java` and its four
+  production callers (T012), and `main/Launcher.java` (T009) against FR-001…FR-018 (with FR-005a and
   FR-010a), SC-001…SC-006 and the clarifications (2026-11-03 Q1, Q2; 2026-11-05) using the coverage
   table below; list any gap as a new task here before continuing.
 - [ ] T030 Validate offline (SC-005, FR-018, plan outline step 3):
@@ -552,30 +609,38 @@ brings the dialog back (Q5).
     `/usr/bin/python3 -I`);
   - `mvn -q -o -Dtest=NoCustomerIdentifiersTest test` with the local identifier lists present — it
     must run, not skip (the surefire report shows the test executed, 0 skipped);
-  - `git diff main -- tools/tests src/test` shows no changed assertion in an existing 006 test or
-    existing CLI test (only additions, the helper extension of T002, the `TlsTestServer` visibility
-    of T011 and the new `CliRunner` constructor/`run` arguments of T012);
+  - `git diff main -- tools/tests src/test` shows no changed line in an existing 006 test or an
+    existing CLI test; the only changed existing test files are `tools/tests/support.py` (helper
+    extension of T002), `test/adapter/rest/TlsTestServer.java` (visibility, handshake counter and
+    silent mode of T011), and `test/config/EffectiveNodeConfigTest.java` and
+    `test/adapter/cli/CliRunnerTest.java` (new test methods of T012, no existing line changed);
+    every other diff under `src/test` and `tools/tests` is a new file;
   - record the outcome (counts only) in `specs/014-stage-distinct-certs/quickstart.md`.
-- [ ] T031 Local validation on a configuration copy (quickstart Q2–Q7, SC-001–SC-004): with the
-  operator's OK, reinstall the tool to `~/.local/bin/inubit-cert-check`; run the Q2 configuration
-  checks (valid copy exit 0 and `Result: OK` without errors; each broken copy, V-10 and V-11
-  included, exit 1 naming stage and server), Q3 start-up log, Q4 steps a–g with two local TLS servers
+- [ ] T031 Local validation on a configuration copy (quickstart Q2–Q7 with Q3a, SC-001–SC-004,
+  FR-005a): with the operator's OK, reinstall the tool to `~/.local/bin/inubit-cert-check`; run the
+  Q2 configuration checks (valid copy exit 0 and `Result: OK` without errors and without the FR-005
+  log line; each broken copy, V-10 and V-11 included, exit 1 naming stage and server), Q3 start-up
+  log (server start), Q3a StartCLI probe without INUBIT (a CLI-backed tool for `int/a` and `int/b`
+  with swapped certificates at the StartCLI addresses → `TLS_ERROR … (CertificateException);
+  StartCLI was not started`, no marker file from the stub `startcli.sh`), Q4 steps a–g with two local TLS servers
   (time step d from seeing the error to the restored check: under 2 minutes, SC-002), Q5 dialogs and
   rejection memory (the operator clicks), Q6 concurrency, Q7 uniform-stage regression. Uses copies
   only; record the outcome without real names in `quickstart.md`.
 - [ ] T032 Manual live step — operator only, needs the operator's explicit approval, never automated
   (FR-016, FR-017, SC-006, Story 3 AS 3):
   - show the C-8′ diff for the operator's `~/.claude/CLAUDE.md` (back it up first; the trigger now
-    names `CertPathValidatorException` or a pin mismatch `CertificateException`) and apply it only
-    after the operator's "yes";
+    names `CertPathValidatorException`, `SunCertPathBuilderException` or a pin mismatch
+    `CertificateException`; the prune hint "`--prune <stage>`, first without `--yes`" stays, with
+    the stage part of a `stage/server` target) and apply it only after the operator's "yes";
   - if, and only if, the operator decides to mark a real stage: the operator edits
     `~/.config/inubit-mcp/<profile>.yaml` by hand (per-node `cli.url` / `e2e.soap.baseUrl` where
     set), runs `--check-config` and `inubit-cert-check --profile <profile> --check`, and reconnects
     the MCP server;
-  - on a real `TLS_ERROR` in a session (either cause, REST or a refused StartCLI call): Claude runs
-    `--check --json`, shows target, old and new fingerprint, notBefore, IP and any `expectedBy` note,
-    asks, and runs `--accept <target> <fingerprint> --by claude` only after an explicit "Ja"; then
-    asks for the reconnect and checks `get_health`;
+  - on a real `TLS_ERROR` in a session (any of the three causes, REST or a refused StartCLI call):
+    Claude runs `--check --json`, shows target, old and new fingerprint, notBefore, IP and any
+    `expectedBy` note, asks, and runs `--accept <target> <fingerprint> --by claude` only after an
+    explicit "Ja"; then asks for the reconnect, checks `get_health` and points to
+    `--prune <stage>` (first without `--yes`);
   - record the outcome without real names; nothing is committed before the operator asks.
 
 ---
@@ -585,8 +650,10 @@ brings the dialog back (Q5).
 - Phase 1: T001 and T002 in parallel.
 - Phase 2: T003 → T004 (both in the tool file). Needs T002.
 - US1, Java track: T005 after T001; T006, T007 and T009 after T005, in parallel (different files);
-  T008 after T007 (same files); T010 and T011 any time (own test files; T011 adds a new main class);
-  T012 after T005, T006 (same test file `EffectiveNodeConfigTest`) and T011.
+  T008 after T007 (same files); T010 and T011 any time (own test files; T011 adds two new main
+  files and changes only the test helper `TlsTestServer`); T012 after T005, T006 (same test file
+  `EffectiveNodeConfigTest`) and T011 (uses the probe and `TlsTestServer`). T009 and T012 are
+  independent: T012 does not edit `Launcher.java` (plan review r2 finding 2).
 - US1, tool track: T013 → T014 after T004 (same tool and test files).
 - US2: needs T014 (offers come from the check). T015 → T016 → T017 → T018 → T019 (same tool file).
 - US3: needs T017 (the dialog's "Accept" runs C-2′). T020 → T021 → T022 → T023 (same tool file);
@@ -602,7 +669,7 @@ brings the dialog back (Q5).
 
 ```text
 Phase 1:  T001 Java fixture | T002 tool test helpers
-US1:      T005 → (T006 | T007 → T008 | T009) → T012   alongside   T010 | T011   and   T003 → T004 → T013 → T014
+US1:      T005 → (T006 | T007 → T008 | T009);  (T006, T011) → T012   alongside   T010 | T011   and   T003 → T004 → T013 → T014
 US3/Pol.: T024 docs rule (during US2/US3) → T025 → T026 (all docs/setup.md) | T027 tool usage text | T028 CHANGELOG
 ```
 
@@ -626,7 +693,7 @@ US3/Pol.: T024 docs rule (during US2/US3) → T025 → T026 (all docs/setup.md) 
 | FR-003 one stage trust store, "own" rule | T003, T006, T016 |
 | FR-004 configuration rules | T005 (V-2), T007 (V-1, V-3…V-9), T008 (V-10, V-11), T003 (`problem` in the tool), T025 |
 | FR-005 runtime per-server pin (REST, SOAP, StartCLI), start-up log | T009, T010, T011, T012 |
-| FR-005a check before every StartCLI call | T011, T012, T026 |
+| FR-005a check before every StartCLI call (before the credential guard; `TLS_ERROR`, `TIMEOUT`, `UNREACHABLE`) | T011, T012, T026, T031 (Q3a) |
 | FR-006 no conflict, per-server status | T013 |
 | FR-007 report and JSON fields | T013, T014 |
 | FR-008 exit codes | T013 |
@@ -638,12 +705,12 @@ US3/Pol.: T024 docs rule (during US2/US3) → T025 → T026 (all docs/setup.md) 
 | FR-013 superseded entries and prune | T014, T018 |
 | FR-014 dialog per server, limits, lock | T022, T023 |
 | FR-015 rejection memory per server | T013, T020, T021, T022, T023 |
-| FR-016 in-session rule (both `TLS_ERROR` causes) and check docs | T010, T024, T025, T027, T032 |
+| FR-016 in-session rule (`TLS_ERROR` from `CertPathValidatorException`, `SunCertPathBuilderException` or a pin mismatch; prune hint kept) and check docs | T010, T024, T025, T027, T032 |
 | FR-017 no adoption without decision, uniform unchanged | T012 (no probe), T013, T023, T030, T032 |
 | FR-018 docs and customer-agnostic examples | T001, T024, T025, T026, T027, T028, T030 |
 | SC-001 two certificates configured and healthy | T007, T010, T013, T031 |
 | SC-002 restore in under 2 minutes | T031 |
 | SC-003 adoption changes only the named server | T017, T031 |
-| SC-004 wrong certificate refused (REST, SOAP, StartCLI) and reported | T010, T011, T012, T013, T031 |
+| SC-004 wrong certificate refused (REST, SOAP, StartCLI) and reported | T010, T011, T012, T013, T031 (Q3a) |
 | SC-005 006 tests unchanged | T013, T014, T023, T030 |
 | SC-006 no adoption without operator action | T023, T032 |
