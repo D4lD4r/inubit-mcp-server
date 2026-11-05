@@ -571,7 +571,7 @@ brings the dialog back (Q5).
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T025 Documentation of the per-server workflow (FR-004, FR-016, FR-018, plan "Docs updated with
+- [X] T025 Documentation of the per-server workflow (FR-004, FR-016, FR-018, plan "Docs updated with
   behaviour"; after T024, same file) in `docs/setup.md`:
   - §3 configuration reference: key `tls.pinPerServer` (groups only, boolean, default `false`), the
     customer-agnostic example of contracts/configuration.md in block form, and the error messages

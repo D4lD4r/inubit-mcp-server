@@ -184,7 +184,9 @@ use REST tools only.
   (`deployConfirmationTtl` only in `defaults`, `deploy` only per group, see
   [Stage chain and deployments](#stage-chain-and-deployments));
   `versionLine`, `write`, `tls` and `cli` (`cli.home`, `cli.javaHome`, `cli.url`) per group or
-  per node; `cliHome` / `cliJavaHome` in `defaults`. The most specific value wins.
+  per node (`tls.pinPerServer` per group only, see
+  [One pinned certificate per server](#one-pinned-certificate-per-server-tlspinperserver));
+  `cliHome` / `cliJavaHome` in `defaults`. The most specific value wins.
 - Top-level keys starting with `x-` are ignored, so YAML anchors can share blocks
   (`x-tls: &tls {…}` and `tls: *tls`).
 
@@ -724,6 +726,84 @@ Group int:
   Node int/node1: read-only, development: off, e2e: CONFIRM (https://inubit-int-1.example.test:8443), cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, deploy: from dev (EXECUTE), secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_INT_USERNAME ok, password ← INUBIT_ACME_INT_PASSWORD ok
 ```
 
+### One pinned certificate per server (`tls.pinPerServer`)
+
+Normally all servers of a stage present the same certificate, and the stage has one pin
+(section 5). If each server of a stage creates its own certificate, mark the stage:
+
+| Key | Where | Type | Default | Meaning |
+|---|---|---|---|---|
+| `tls.pinPerServer` | group `tls` only (not a node, not `defaults`) | boolean | `false` | the servers of this group may present different certificates; each https node is pinned to its own |
+
+A marked stage keeps one trust store for the stage, holding the certificates of all its servers,
+and gives each server its own pin:
+
+```yaml
+profile:
+  name: acme
+
+groups:
+  - name: dev                        # uniform stage (section 5): one pin for the stage
+    tls:
+      trustStore: ~/.config/inubit-mcp/acme-dev-truststore.p12
+      pinnedCertificateSha256: "AA:11:…:01:02"
+      disableHostnameVerification: true
+    nodes:
+      - name: node1
+        baseUrl: https://dev-host.example.test:8443
+
+  - name: int                        # marked stage: one pin per server
+    tls:
+      pinPerServer: true
+      trustStore: ~/.config/inubit-mcp/acme-int-truststore.p12   # holds both certificates
+      disableHostnameVerification: true                          # inherited by both servers
+    nodes:
+      - name: a
+        baseUrl: https://int-a.example.test:8443
+        tls:
+          pinnedCertificateSha256: "BB:22:…:F0:03"
+      - name: b
+        baseUrl: https://int-b.example.test:8443
+        tls:
+          pinnedCertificateSha256: "CC:33:…:0E:04"
+```
+
+Write each `tls` in block form as above: `inubit-cert-check` (section 5) refuses a `tls` written
+as a flow mapping `{ … }` ("… tls must be a block mapping or an alias") and offers no adoption
+for a server pin reached through an alias.
+
+- Each server of a marked stage uses the stage's trust store and only its own pin, for REST, SOAP
+  and the check before every StartCLI call (section 5). A server presenting another server's
+  certificate is refused with `TLS_ERROR` (`CertificateException`), like any other pin mismatch.
+- **Addresses in a marked stage with several servers.** `cli.url` and `e2e.soap.baseUrl` are not
+  set on the stage: each server's own pin is checked at that address, so one shared address lets at
+  most one server pass. Either leave `cli.url` out (each server then uses the default derived from
+  its own `baseUrl`, `<baseUrl>/ibis/servlet/IBISSoapServlet`), or set `cli.url` and
+  `e2e.soap.baseUrl` in each node entry. A marked stage with one server may set both on the stage.
+- At start the server logs (stderr and the log file, never stdout)
+  `Stages with one pinned certificate per server (tls.pinPerServer): int`.
+- `pinPerServer: false` or no `pinPerServer` keeps every rule of an unmarked stage.
+
+`--check-config` and the start refuse these configurations (the messages use the profile's
+terminology; shown here with the default `group` / `node`):
+
+| # | Configuration | Error |
+|---|---|---|
+| V-1 | `pinPerServer` in a node's `tls` (inline or through an alias) | `int/b: tls.pinPerServer is only valid on the group` |
+| V-2 | a `tls` block in `defaults` (with or without `pinPerServer`) | `Unknown key 'tls' at defaults in <file>` |
+| V-3 | marked stage with `pinnedCertificateSha256` in its own `tls` (inline or alias) | `group 'int': tls.pinnedCertificateSha256 is not allowed with tls.pinPerServer; set it on each node` |
+| V-4 | marked stage without `tls.trustStore` | `group 'int': tls.pinPerServer needs tls.trustStore on the group` |
+| V-5 | node of a marked stage with its own `tls.trustStore` | `int/b: tls.trustStore is not allowed on this node of group 'int' with tls.pinPerServer; set it on the group` |
+| V-6 | https node of a marked stage without its own `tls.pinnedCertificateSha256` | `int/b: tls.pinPerServer on group 'int' needs tls.pinnedCertificateSha256 on this node` |
+| V-10 | marked stage with several nodes, `cli.url` on the stage, a node without its own `cli.url` (one error per such node) | `int/b: cli.url is inherited from group 'int' with tls.pinPerServer; set cli.url on each node` |
+| V-11 | marked stage with several nodes, `e2e.soap.baseUrl` on the stage, a node without its own (one error per such node) | `int/b: e2e.soap.baseUrl is inherited from group 'int' with tls.pinPerServer; set e2e.soap.baseUrl on each node` |
+
+An http node (`allowInsecureHttp`) of a marked stage needs no pin. The other TLS checks still
+apply to each server's effective values (pin format, the trust-store file exists,
+`disableHostnameVerification` only with a pin), and so does the warning for a stage-level
+`cli.url` with several nodes in any stage. How the certificate tool works with a marked stage:
+[Stages whose servers present different certificates](#stages-whose-servers-present-different-certificates).
+
 ## 4. Credentials: sources
 
 Every node needs a username and a password; a password-protected trust store (section 5) and the
@@ -1223,17 +1303,28 @@ With proper certificates (matching subjectAltNames) remove both settings; no cod
 ### Certificate changes
 
 When an INUBIT server is redeployed it often presents a new self-signed certificate. The MCP server
-then refuses every call to that stage with `TLS_ERROR` (`CertPathValidatorException`), because two
-things no longer match: the **trust store**, against which the chain is validated, does not contain
-the new certificate, and the **pin** names the old one. Both must change, and only after someone
-has confirmed that the change is expected. `tools/inubit-cert-check.py` does exactly that; the MCP
-server itself is unchanged.
+then refuses every call to that stage with `TLS_ERROR`; the cause in parentheses names what no
+longer matches:
+
+- `CertPathValidatorException`: the certificate is missing from the **trust store**, against
+  which the chain is validated;
+- `SunCertPathBuilderException`: the trust store does not know the certificate's subject (for
+  example a new self-signed certificate), so no chain can be built;
+- `CertificateException`: the certificate is in the trust store but does not match the **pin**,
+  for example a replaced but not yet pruned certificate, or in a stage with `tls.pinPerServer`
+  another server's certificate.
+
+After a redeploy the trust store does not contain the new certificate and the pin names the old
+one. Both must change, and only after someone has confirmed that the change is expected.
+`tools/inubit-cert-check.py` does exactly that; the MCP server itself is unchanged.
 
 **One `tls` block and one trust store per stage.** A pin shared through a YAML anchor or
 `defaults` would change for every stage at once, and a shared trust store cannot be cleaned up for
 one stage without risk for the other. The tool therefore adopts and prunes only for a stage with
 its own inline `tls` block, its own `pinnedCertificateSha256` line and its own `trustStore` (no
-other stage may use the same file):
+other stage may use the same file). A stage with `tls.pinPerServer` has no stage pin; there each
+server needs its own pin line in its own block-form `tls` (see
+[Stages whose servers present different certificates](#stages-whose-servers-present-different-certificates)):
 
 ```yaml
 groups:
@@ -1287,7 +1378,9 @@ for example a test copy; `--state-dir DIR` overrides `~/.inubit-mcp/acme`):
 | `… --forget dev` | forgets a rejected certificate so the start-up dialog asks again | 0 · 3 unknown stage |
 
 Usage errors end with exit status 2, unexpected errors with 1. Fingerprints are accepted with or
-without colons, in any case.
+without colons, in any case. In a stage with `tls.pinPerServer`, `--accept` and `--forget` take a
+server (`int/b`), see
+[Stages whose servers present different certificates](#stages-whose-servers-present-different-certificates).
 
 **Start-up check (optional, macOS).** The server itself is registered without a start script
 (section 7). To check the certificates at every start, register a small start script instead,
@@ -1325,7 +1418,8 @@ addresses, old and new fingerprint and validity, and the buttons **Reject** and 
   start a new session (in the desktop app's Code tab `/mcp` cannot reconnect).
 - **Reject** and a dialog that times out are remembered for exactly that certificate: later starts
   show no dialog for it, only a warning on stderr. `--forget dev` (or `--accept`) clears it; it is
-  also cleared when the stage presents its pin again.
+  also cleared when the stage (in a stage with `tls.pinPerServer`: that server) presents its pin
+  again.
 - An **Accept** that is refused (for example because a server meanwhile presents yet another
   certificate) or fails (the change is rolled back) ends with a notification "Accept for stage dev
   not adopted (refused|failed) - see cert-check.log"; the reason is in the diagnostic log.
@@ -1366,6 +1460,107 @@ adoption's summary says when there are any).
 | `~/.inubit-mcp/acme/cert-check.log` | diagnostics (rotated at 1 MiB) |
 | `~/.inubit-mcp/acme/cert-rejections.json` | remembered rejections |
 | `<file>.bak-YYYYmmdd-HHMMSS` next to the profile and the trust store | backups made before every change (mode 0600; never deleted by the tool, except the fresh backups of a run refused before any change) |
+
+### Stages whose servers present different certificates
+
+Some installations create a certificate on each server, so the servers of one stage present
+different certificates. In an unmarked stage the tool then reports a conflict and offers nothing
+(on purpose: there, a second certificate can mean a man-in-the-middle). Mark such a stage with
+`tls.pinPerServer: true` ([section 3](#one-pinned-certificate-per-server-tlspinperserver)); each
+server is then pinned to, checked against and adopted for its own certificate. Mark a stage only
+when its servers really create their own certificates.
+
+**Converting a stage.** The tool does not convert a stage; edit the profile by hand:
+
+1. In the stage's `tls`: add `pinPerServer: true`, keep `trustStore`, remove
+   `pinnedCertificateSha256`.
+2. In each https node: add a `tls` block (block form) with that server's
+   `pinnedCertificateSha256` (steps 1 and 2 of this section, per server).
+3. Import every server's certificate into the stage's one trust store (step 3, one `-alias` per
+   server, e.g. `int-a` and `int-b`). The store holds the certificates of all servers of the
+   stage; it must stay the stage's own (inline `trustStore`, used by no other stage).
+4. With more than one server: move a stage-level `cli.url` or `e2e.soap.baseUrl` into each node
+   (or remove `cli.url` to use the default derived from each `baseUrl`).
+5. Run `java -jar … --profile acme --check-config` ([section 6](#6-check-the-configuration)); it
+   must end with `Result: OK`. Then restart or reconnect the MCP server.
+
+**Check.** `--check` lists each server of a marked stage with its own status (fingerprints shortened
+here; the report prints them in full):
+
+```text
+Stage int  CHANGED  (one pin per server)
+  int/a        ok           203.0.113.21
+  int/b        changed      203.0.113.22
+      old  CC:33:…:0E:04
+      new  DD:44:…:2F:05
+      subject CN=int-b.selfsigned.test  issuer CN=int-b.selfsigned.test
+      valid 2026-11-03T08:00:00Z … 2036-10-31T08:00:00Z
+      offer: inubit-cert-check --profile acme --accept int/b DD:44:…:2F:05
+  superseded trust-store entries: none
+```
+
+- A changed server without an offer shows `no offer: pin through alias`,
+  `no offer: trust store not the stage's own` or `no offer: configuration problem`; a stage the
+  tool finds invalid also shows `configuration problem: <text> - run --check-config`.
+- A certificate rejected earlier in the dialog shows
+  `rejected earlier: <fingerprint> (offered again only after --forget int/b)`.
+- `--check --json` adds `"pinPerServer": true` and `problem` to a marked stage (its stage-level
+  `pin`, `offer` and `rejected` are `null`), and `expectedBy` and `noOfferReason` to each server;
+  every server carries its own `pinned`, `offer` and `rejected`. Exit statuses are unchanged.
+- Superseded trust-store entries of a marked stage are those whose fingerprint is no server's pin.
+
+**A certificate expected for another server.** If `int/a` presents the certificate pinned for
+`int/b`, the check reports `int/a` as changed and adds the line
+`note: this is the certificate expected for int/b` below its offer; the dialog says
+`WARNING: this is the certificate expected for server int/b.` Connections to `int/a` are refused
+meanwhile (`TLS_ERROR`, `CertificateException`). This usually means misrouting (a load balancer or
+DNS entry sending `int/a`'s address to `int/b`), but it can also be a man-in-the-middle. Check with
+the INUBIT operators which server answers at that address before accepting; accepting would pin
+`int/a` to `int/b`'s certificate.
+
+**Accept.** `inubit-cert-check --profile acme --accept int/b <fingerprint>` adopts for one server:
+
+- it contacts only `int/b`, refuses unless `int/b` presents exactly that fingerprint now (logged
+  as `failed`), imports the certificate into the stage's trust store under the alias
+  `int-b-<8 hex>-<yyyymmdd>` and replaces only `int/b`'s own `pinnedCertificateSha256` line; the
+  backup, `--check-config` validation, rollback and exit statuses are the same as for a stage;
+- the other servers' pins stay unchanged, and if `int/b` already pins the fingerprint it prints
+  `Server int/b already pins <fingerprint>; nothing changed.` and exits 0;
+- it refuses (exit status 3, nothing changed) a stage name of a marked stage
+  (`refused: stage int has one pin per server - name the server, e.g. int/a`), a server of an
+  unmarked stage (`refused: stage dev has one pin for the stage - use --accept dev`), an http
+  server, a server whose pin is reached through an alias or inherited, a stage whose trust store is
+  not its own, and a stage with a configuration problem;
+- two adoptions at the same time run one after another; one that waits more than 30 s for the
+  profile lock (for example behind an open dialog) is refused with
+  `the profile lock is held by another process (adoption, prune or dialog) for more than 30 s` and
+  succeeds when repeated.
+
+**Prune.** `--prune` takes the stage (`--prune int`, also after an adoption for `int/b`) and keeps
+every certificate any server of the stage still pins; it lists (and with `--yes` removes) only
+entries that are no server's pin. `--yes` refuses unless every server's pin is in the trust store,
+and restores the store if one went missing.
+
+**Forget.** `--forget int/b` forgets the rejected certificate of `int/b` only; `--forget int`
+forgets the rejections of all servers of the marked stage (and any rejection remembered for the
+stage before it was marked). A server of an unmarked stage is refused
+(`refused: stage dev has one pin for the stage - use --forget dev`).
+
+**Start-up dialog.** `--interactive` shows one dialog per changed server, one after another in the
+order of the check, within the same start budget of about 20 seconds; each dialog stays open for
+60 seconds. The title names the server, e.g.
+`INUBIT certificate changed - server int/b (stage int, profile acme)`. **Reject** and a timeout are
+remembered for that server and certificate (later starts warn on stderr: `WARNING: server int/b
+presents the certificate … that was rejected earlier; no dialog …`); the notifications name the
+server (`New certificate for server int/b adopted - reconnect inubit-acme …`, `Accept for server
+int/b not adopted (refused) - see cert-check.log`). Lines of `cert-changes.log` for a marked stage
+carry `server=int/b` after `stage=int`, and `cert-rejections.json` keys them by server id.
+
+**Removing the marking.** Without `pinPerServer` the stage falls back to the behaviour of an
+unmarked stage: connections still use the pins left on the nodes, but the check reports servers
+presenting different certificates as a conflict and offers no adoption (the pins are not in the
+stage's own `tls` block, so `--accept int` is refused as shared TLS settings), and `--accept` and
+`--forget` take only the stage name again. No pin is changed silently.
 
 ## 6. Check the configuration
 
