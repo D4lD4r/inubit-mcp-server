@@ -100,8 +100,8 @@ covered by tests with fakes only.
   `com.saxonica.config` (seen on 8.1.17, #55). The verification of the import or deployment, of
   its rollback and of `restore_backup` accept this rewrite and nothing else; after a successful
   import the workspace holds the server's value, as for every verified import. The preview of
-  `deploy_release` still lists such a module as `CHANGED` while the release names the plain
-  factory and the target the Saxon-EE one.
+  `deploy_release` lists a module that differs from the target only in this rewrite as
+  `UNCHANGED`, so redeploying such a release no longer imports it again.
 
 ## [0.6.3] - 2026-11-02
 
