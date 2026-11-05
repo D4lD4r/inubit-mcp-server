@@ -31,7 +31,7 @@ the release; Windows and Linux where available, `docs/live-tests.md`) has not be
 ### Added
 
 - Credential store adapters: `/usr/bin/security` on macOS, `CredReadW` on Windows (new dependency
-  JNA 5.17.0, Apache-2.0 option of its dual license, see `THIRD-PARTY-NOTICES.md`), `secret-tool`
+  JNA 5.19.1, Apache-2.0 option of its dual license, see `THIRD-PARTY-NOTICES.md`), `secret-tool`
   on Linux (needs `libsecret-tools`/`libsecret` and a Secret Service). One entry is read at a
   time (at most one access dialog), 60 s per node, 30 s back-off after a failure.
 - `credentials.prefix` as the name of the profile-wide entry prefix (`envPrefix` still works, with
@@ -54,6 +54,8 @@ the release; Windows and Linux where available, `docs/live-tests.md`) has not be
 - `query_logs` and `find_processes` check their input for every node before any node is contacted
   and without reading credentials.
 - The audit `account` of a node before its first read is `(credential store <entry> or <entry>)`.
+- AWS SDK for Java v2 2.57.3 → 2.57.7 (the same artifacts). `THIRD-PARTY-NOTICES.md` is
+  updated.
 
 ### Fixed
 
