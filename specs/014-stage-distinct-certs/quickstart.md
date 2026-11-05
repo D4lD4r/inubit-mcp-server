@@ -38,7 +38,8 @@ java -jar target/inubit-mcp-server-*.jar --config /path/to/acme-copy.yaml --chec
 ```
 
 Expected:
-- **Valid profile**: exit 0. The summary shows `int/a` and `int/b` with their own pins.
+- **Valid profile**: exit 0 and `Result: OK`; no error names `int/a` or `int/b` (the summary
+  prints no TLS values; the start-up log line of FR-005 names the marked stage).
 - **Broken copies, one rule each (V-1, V-3, V-4, V-5, V-6, and `defaults.tls`)**: exit 1, and the
   message names stage and server as in the contract table.
 

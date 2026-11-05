@@ -51,7 +51,7 @@ JSON, marked stage (existing fields keep their names; values per FR-007):
   "status": "changed",
   "conflict": false,
   "offer": null,
-  "rejected": false,
+  "rejected": null,
   "pinSource": "server",
   "ownTls": true,
   "problem": null,

@@ -75,7 +75,7 @@ Checked on the values as written (before inheritance). Jackson has already resol
 ### Stage result in a marked stage
 
 `status` = worst server status (changed > unreachable > ok); `conflict` = `false`; `offer` =
-`None`; `rejected` = `false`; `superseded` = trust-store entries whose fingerprint ∉ `expected`
+`None`; `rejected` = `None` (JSON `null`, spec FR-007); `superseded` = trust-store entries whose fingerprint ∉ `expected`
 (only by `--check` and `--prune`, as in 006).
 
 Overall exit code: unchanged (10 if any server `changed`, else 20 if any `unreachable`, else 0).

@@ -19,7 +19,8 @@ Every decision was checked against `main` (18344e2) — server code under
       nodes:
         - name: a
           baseUrl: https://int-a.example.test:8443
-          tls: { pinnedCertificateSha256: "AA:…" }   # or a block mapping
+          tls:
+            pinnedCertificateSha256: "AA:…"   # block mapping: the tool edits this one line
         - name: b
           baseUrl: https://int-b.example.test:8443
           tls:

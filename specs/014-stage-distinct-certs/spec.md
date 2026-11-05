@@ -132,7 +132,9 @@ one entry, and one log line records the adoption with the server named.
    **Then** only B is listed for removal; A and F are kept (FR-013).
 9. **Given** a late dialog "Accept" for `int/b` and a command-line adoption for `int/a` start at the
    same time, **When** both run, **Then** they run one after another and both changes are in the
-   final configuration and trust store (FR-009).
+   final configuration and trust store (FR-009). If the dialog stays open longer than the 30 s the
+   command-line adoption waits for the profile lock, that adoption is refused with "profile lock
+   busy" and changes nothing; repeated after the dialog, it succeeds (research R-12).
 
 ---
 
