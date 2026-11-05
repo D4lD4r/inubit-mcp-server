@@ -104,7 +104,7 @@ only on purpose, P1 — must ship together with US1), US3 (traceable and bounded
   write(List<RawEntry> entries, Optional<String> comment)` (`new ZipEntry(header)`, compressed size
   `-1` for `DEFLATED`); record `RawEntry(ZipEntry header, byte[] bytes)` with defensive copies.
 
-- [ ] T005 [P] Shared reference collection (research R-6): test first
+- [X] T005 [P] Shared reference collection (research R-6): test first
   `test/adapter/archive/v81/ArchiveReferencesTest.java`: for `fix/grp-b.zip` the references of
   `Workflow-0006` plus its modules include `/Root/OWNERS/xsd/msg.xsd`, the closure adds
   `/Root/OWNERS/xsd/core.xsd`; for `Workflow-0003` none of them; the references found inside a
