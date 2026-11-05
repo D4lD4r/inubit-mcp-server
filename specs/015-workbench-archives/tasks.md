@@ -64,7 +64,7 @@ only on purpose, P1 — must ship together with US1), US3 (traceable and bounded
   false, true)` with Javadoc ("writes local files only; read-only for INUBIT; clients ask before
   calling it") in `main/mcp/ToolHints.java`.
 
-- [ ] T002 [P] Audit outcome (research R-12): test first in `test/infra/AuditLogTest.java`
+- [X] T002 [P] Audit outcome (research R-12): test first in `test/infra/AuditLogTest.java`
   (a record with outcome `PARTIALLY_COMPLETED` is written as `"outcome":"PARTIALLY_COMPLETED"` and
   read back by the existing line parser of the test); then add `PARTIALLY_COMPLETED` (after
   `FAILED`) to `main/domain/model/AuditOutcome.java` with Javadoc ("feature 015: writing failed:
