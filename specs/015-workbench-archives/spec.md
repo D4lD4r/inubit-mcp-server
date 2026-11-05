@@ -148,7 +148,7 @@ and the outcome; the folder never holds a partial archive.
 4. **Given** a workflow whose nodes reference a module the diagram-group export does not contain
    (e.g. a module of another owner), **When** the tool runs, **Then** the archive of that workflow
    is still written, the result lists the module in that archive's `missingModules`
-   (`{name, pluginType}`) with a warning that the archive imports only where those modules exist,
+   (`{name}`) with a warning that the archive imports only where those modules exist,
    and the other archives are not affected (FR-005, FR-012).
 5. **Given** the audit record cannot be written (e.g. the audit directory is not writable),
    **When** the tool runs, **Then** it is refused with `INTERNAL` before StartCLI runs and nothing
@@ -273,8 +273,9 @@ and the outcome; the folder never holds a partial archive.
   `INVALID_INPUT` by the static input checks; for a target folder that does not exist, the same
   applies to its nearest existing ancestor (not a writable directory → `INVALID_INPUT`). A target
   folder that does not exist MUST be created,
-  with its missing parents, only right before the first archive is written, readable, writable and
-  searchable by the owner only. Every archive MUST be created readable and writable by the owner
+  with its missing parents, only right before the first archive is written; the target folder and
+  every parent folder the call creates MUST be readable, writable and searchable by the owner only.
+  A folder the call created stays, empty, if the first archive then fails. Every archive MUST be created readable and writable by the owner
   only. Permissions of an existing folder MUST NOT be changed.
 - **FR-011**: An archive MUST be written completely or not at all; no partial archive may remain in
   the target folder. Every per-workflow check (FR-002, FR-004, FR-009) MUST be decided before the
@@ -288,13 +289,15 @@ and the outcome; the folder never holds a partial archive.
   StartCLI, limits) MUST use the error codes and messages of `export_artifacts`.
 - **FR-012**: The result MUST list per archive: workflow, file path, size, modules as
   `{name, pluginType}`, repository paths, `moduleCount`, `repositoryFileCount`, `missingModules`
-  (`{name, pluginType}`, FR-005) and warnings; plus `failed[]` and `notWritten[]` (FR-011), node,
+  (`{name}` only: the export does not state the plug-in type of a module it does not contain,
+  FR-005) and warnings; plus `failed[]` and `notWritten[]` (FR-011), node,
   owner, diagram group, target folder, call-level warnings and a prominent statement that the
   files contain secrets in clear text and must not be shared or committed as they are. Warnings
   per archive: missing modules (the archive imports only where those modules exist) and a
-  Workflow Connector node in the workflow (the called workflow is not included); call-level: a
-  target below a cloud-sync root (FR-008). The listed modules and repository paths over all
-  archives together MUST be bounded by `resultLimits.maxItems`; when the lists are cut, the result
+  node whose module the export identifies as a Workflow Connector (the called workflow is not
+  included; a connector among `missingModules` cannot be detected); call-level: a
+  target below a cloud-sync root (FR-008). The listed modules, missing modules and repository
+  paths over all archives together MUST be bounded by `resultLimits.maxItems`; when the lists are cut, the result
   carries `truncated: true`, and `moduleCount` and `repositoryFileCount` are always given in full.
   The full lists are not written anywhere (no manifest file). The result MUST NOT contain any file
   content or secret value.
@@ -317,7 +320,9 @@ and the outcome; the folder never holds a partial archive.
 - **FR-016**: `docs/tools.md`, `SECURITY.md` and `CHANGELOG.md` MUST describe the tool, the clear-
   text secrets, the acknowledgement, the client confirmation (FR-001) and the folder rules in the
   same change, and state that on Windows the archives inherit the target folder's ACLs.
-  `SECURITY.md` MUST name the risk of a target folder that a cloud-sync client uploads (FR-008).
+  `SECURITY.md` MUST name the risk of a target folder that a cloud-sync client uploads (FR-008) and
+  say that only the listed sync roots are detected (not, e.g., iCloud "Desktop & Documents" or
+  sync folders outside those roots).
 - **FR-017**: The tool MUST check at two moments. The **static input checks** — acknowledgement
   (FR-007), path rules (FR-008, FR-010), production opt-in (FR-014), workflow-name syntax and the
   limits of the input (FR-002) — run before the StartCLI export. Every check that depends on the
@@ -372,14 +377,16 @@ and the outcome; the folder never holds a partial archive.
   export-dependent checks after the export and before the first file or folder is written
   (FR-017).
 - Q: What does "byte-identical" cover? → A: module and repository files byte-identical; the
-  workflow's element, its modules' index entries and `archive.properties` unchanged as XML;
+  workflow's element, its modules' index entries and `archive.properties` unchanged as XML
+  (replaced in round 2: `archive.properties` byte-identical, FR-006);
   `Repository.zip` rebuilt with only the referenced entries, bytes, timestamps and order unchanged
   (FR-006).
 - Q: A file that appears after the collision check? → A: never replaced; the archive is reported
   as failed naming the file; mechanism left to the plan (FR-009).
 - Q: File-name rule? → A: forbidden characters and control characters → `_`, trailing dots and
   spaces removed, Windows reserved base names prefixed with `_`, over 255 bytes refused,
-  collisions compared case-insensitively (FR-004, FR-009).
+  collisions compared case-insensitively (FR-004, FR-009; replaced in round 2: compared after NFC
+  normalization and Unicode case folding).
 - Q: Per-workflow refusals and partial results? → A: all per-workflow checks decided before the
   first write, any failure refuses the whole call; a write failure midway returns a result with
   `archives[]` and `failed[]`, audited as "partially completed" (FR-011, FR-013).
@@ -413,7 +420,7 @@ and the outcome; the folder never holds a partial archive.
 
 - Q: A workflow whose modules are partly missing from the diagram-group export (e.g. modules of
   another owner)? → A: normal, not an INUBIT defect; the archive is still written, the result
-  lists them per archive as `missingModules: [{name, pluginType}]` with a warning that the archive
+  lists them per archive as `missingModules: [{name}]` (replaced in round 3: the export gives no plug-in type for a module it does not contain) with a warning that the archive
   imports only where those modules exist; no refusal (FR-005, FR-012, FR-017; as
   `WorkspaceWriter` only warns).
 - Q: Workflow names in `workflows`? → A: 1–50 unique names, each 1–200 characters, no control
