@@ -533,7 +533,7 @@ public final class NodeDeployer {
                 byte[] other = actual.get(file.getKey());
                 equal &= artifact.kind() == Kind.REPOSITORY_FILE
                     ? Arrays.equals(file.getValue(), other)
-                    : d.releases().equivalent(file.getKey(), file.getValue(), other);
+                    : d.releases().importedAs(file.getKey(), file.getValue(), other);
             }
             if (!equal) {
                 differences.add(artifact.name() + ": content differs from the release");
@@ -947,10 +947,13 @@ public final class NodeDeployer {
         }
         for (Map.Entry<String, byte[]> file : left.entrySet()) {
             byte[] other = right.get(file.getKey());
+            // issue #55: a module re-imported from state a may come back rewritten in state b
             boolean equal = artifact.kind() == Kind.REPOSITORY_FILE
                 ? Arrays.equals(file.getValue(), other)
                 : Arrays.equals(d.releases().canonical(file.getKey(), file.getValue()),
-                    d.releases().canonical(file.getKey(), other));
+                    d.releases().canonical(file.getKey(), other))
+                    || artifact.kind() == Kind.MODULE && d.releases().importedAs(file.getKey(),
+                        file.getValue(), other);
             if (!equal) {
                 return false;
             }
