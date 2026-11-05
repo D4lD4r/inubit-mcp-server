@@ -389,7 +389,7 @@ reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, AS 8, Q1,
   worst server status (changed > unreachable > ok), `conflict` false, stage `offer` and `rejected`
   null; `check_json` adds the marked-only fields; exit codes of `run_check` unchanged (10 if any
   server `changed`, else 20 if any `unreachable`, else 0).
-- [ ] T014 [US1] Text report and superseded entries for marked stages (FR-007, FR-010a, FR-013,
+- [X] T014 [US1] Text report and superseded entries for marked stages (FR-007, FR-010a, FR-013,
   contract C-1′, research R-8, R-13; after T013, same files). Write the failing tests first and see
   them fail:
   - `tools/tests/test_check.py` `TrustStoreTest.test_marked_stage_superseded_entries`: store A, B, F

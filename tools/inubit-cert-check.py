@@ -1704,8 +1704,10 @@ def evaluate_stage(stage, presented, rejection=None, superseded=None, not_inspec
 
 def superseded_entries(profile, stage):
     """(entries of the stage's trust store whose fingerprint differs from the pin, None) or
-    (None, reason) when the store cannot be inspected."""
-    if stage.pin is None:
+    (None, reason) when the store cannot be inspected. For a marked stage an entry is superseded
+    when no server of the stage expects it (research R-13)."""
+    expected = stage.expected if stage.pin_per_server else {stage.pin} - {None}
+    if not expected:
         return None, "no pin configured"
     if profile.java is None:
         return None, "no x-cert-check.java configured"
@@ -1716,7 +1718,7 @@ def superseded_entries(profile, stage):
                                                           timeout=CHECK_LIST_TIMEOUT)
     except KeytoolError as e:
         return None, one_line(e)
-    return tuple(entry for entry in entries if entry.fingerprint != stage.pin), None
+    return tuple(entry for entry in entries if entry.fingerprint not in expected), None
 
 
 def superseded_all(profile):
@@ -1834,12 +1836,30 @@ def short_fingerprint(fingerprint):
     return f"{fingerprint[:11]}…{fingerprint[-8:]}" if fingerprint else "none"
 
 
+def marked_server_lines(server, profile_option):
+    """The offer lines of a changed server of a marked stage (contract C-1′)."""
+    out = []
+    if server.offer:
+        out.append(f"      offer: {PROG} {profile_option} --accept {server.server.id} "
+                   f"{server.offer}")
+    out.extend(f"      note: this is the certificate expected for {other}"
+               for other in server.expected_by)
+    if server.no_offer_reason:
+        out.append(f"      no offer: {server.no_offer_reason}")
+    if server.rejected:
+        out.append(f"      rejected earlier: {server.offer} (offered again only after --forget "
+                   f"{server.server.id})")
+    return out
+
+
 def check_text(result, profile_option):
     """The human-readable report of contract C-1; profile_option e.g. "--profile acme"."""
     out = []
     for stage_result in result.stages:
         stage = stage_result.stage
-        pin = f"pin {short_fingerprint(stage.pin)}" if stage.pin else "no pin configured"
+        marked = stage.pin_per_server
+        pin = "one pin per server" if marked else \
+            f"pin {short_fingerprint(stage.pin)}" if stage.pin else "no pin configured"
         out.append(f"Stage {stage.name}  {stage_result.status.upper()}  ({pin})")
         for server in stage_result.servers:
             presented = server.presented
@@ -1856,6 +1876,8 @@ def check_text(result, profile_option):
                     out.append("      WARNING: the new certificate has expired")
                 elif problem:
                     out.append("      WARNING: the new certificate is not yet valid")
+                if marked:
+                    out.extend(marked_server_lines(server, profile_option))
         for skipped in stage.skipped_servers:
             out.append(f"  {skipped.id:<12} skipped ({skipped.reason})")
         if not stage.servers:
@@ -1868,6 +1890,10 @@ def check_text(result, profile_option):
                        for entry in stage_result.superseded)
         else:
             out.append("  superseded trust-store entries: none")
+        if marked:
+            if stage.problem is not None:
+                out.append(f"  configuration problem: {stage.problem} - run --check-config")
+            continue
         if stage_result.conflict:
             out.append("  conflict: the servers of this stage present different certificates"
                        " — no offer")

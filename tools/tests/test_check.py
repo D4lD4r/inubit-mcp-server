@@ -345,6 +345,26 @@ class TrustStoreTest(CheckTestCase):
         self.assertEqual(0, result.exit_code)
         self.assertEqual([], self.keytool.calls, "no keytool on the start-up path")
 
+    def test_marked_stage_superseded_entries(self):
+        marked = support.marked_stage(self)
+        fp_a, fp_b = marked["a"].fingerprint, marked["b"].fingerprint
+        self.keytool.entries[self.stores["int"]] = [
+            self.tool.TrustEntry("int-a", fp_a), self.tool.TrustEntry("int-b-old", fp_b),
+            self.tool.TrustEntry("int-b-new", OTHER)]
+        self.write([{"name": "int", "pin_per_server": True, "store": self.stores["int"],
+                     "servers": [("a", f"https://int-a.example.test:{marked['a'].port}",
+                                  {"pin": fp_a}),
+                                 ("b", f"https://int-b.example.test:{marked['b'].port}",
+                                  {"pin": OTHER})]}])
+        code, report, _err = self.run_check()
+        self.assertEqual(10, code)
+        self.assertEqual([{"alias": "int-b-old", "fingerprint": fp_b}],
+                         self.stage(report, "int")["supersededTrustStoreEntries"])
+        _code, text, _err = self.run_check(json_output=False)
+        self.assertIn(f"      int-b-old  {fp_b}\n", text)
+        self.assertNotIn("int-b-new", text)
+        self.assertNotIn("      int-a  ", text)
+
 
 class OutputTest(CheckTestCase):
 
@@ -451,11 +471,150 @@ class OutputTest(CheckTestCase):
         self.assertEqual(0, code)
         self.assertTrue(os.path.isdir(os.path.join(self.home, ".inubit-mcp", "acme")))
 
+    def shown(self, server_id, ip, fingerprint, name):
+        return self.tool.Presented(server_id=server_id, ip=ip, fingerprint=fingerprint,
+                                   subject=f"CN={name}.selfsigned.test",
+                                   issuer=f"CN={name}.selfsigned.test",
+                                   not_before="2026-11-03T08:00:00Z",
+                                   not_after="2036-10-31T08:00:00Z", valid_now=True,
+                                   pem="-----BEGIN CERTIFICATE-----")
+
+    def marked_text(self, presented_b, b_tls=None, int_extra=None, dev_store=None, head="",
+                    rejections=None):
+        """check_text of a profile with a uniform stage dev and a marked stage int
+        (int/a ok, int/b presents presented_b); the lines of the int block."""
+        int_stage = {"name": "int", "pin_per_server": True, "store": self.stores["int"],
+                     "servers": [("a", "https://int-a.example.test:8443", {"pin": MARKED_A}),
+                                 ("b", "https://int-b.example.test:8443",
+                                  b_tls or {"pin": MARKED_C})]}
+        int_stage.update(int_extra or {})
+        self.write([{"name": "dev", "pin": self.fp_a, "store": dev_store or self.stores["dev"],
+                     "servers": [("node1", "https://dev-1.example.test:8443")]}, int_stage],
+                   head=head)
+        profile = self.tool.read_profile(self.profile)
+        presented = {"dev/node1": self.shown("dev/node1", "203.0.113.11", self.fp_a, "dev-1"),
+                     "int/a": self.shown("int/a", "203.0.113.21", MARKED_A, "int-a"),
+                     "int/b": self.shown("int/b", "203.0.113.22", presented_b, "int-b")}
+        stages = tuple(self.tool.evaluate_stage(stage, presented, None, (), None,
+                                                rejections=rejections or {})
+                       for stage in profile.stages)
+        result = self.tool.CheckResult(profile=profile, checked_at="2026-11-03T10:00:00Z",
+                                       stages=stages, exit_code=10)
+        text = self.tool.check_text(result, "--profile acme")
+        self.assertTrue(text.startswith("Stage dev  OK  (pin "), text)
+        return ("Stage int" + text.split("Stage int", 1)[1]).splitlines()
+
+    def test_marked_stage_text_report(self):
+        offer = f"      offer: inubit-cert-check --profile acme --accept int/b {MARKED_D}"
+        self.assertEqual([
+            "Stage int  CHANGED  (one pin per server)",
+            "  int/a        ok           203.0.113.21",
+            "  int/b        changed      203.0.113.22",
+            f"      old  {MARKED_C}",
+            f"      new  {MARKED_D}",
+            "      subject CN=int-b.selfsigned.test  issuer CN=int-b.selfsigned.test",
+            "      valid 2026-11-03T08:00:00Z … 2036-10-31T08:00:00Z",
+            offer,
+            "  superseded trust-store entries: none"], self.marked_text(MARKED_D))
+
+        lines = self.marked_text(MARKED_A)
+        self.assertEqual([f"      new  {MARKED_A}",
+                          "      subject CN=int-b.selfsigned.test  issuer CN=int-b.selfsigned.test",
+                          "      valid 2026-11-03T08:00:00Z … 2036-10-31T08:00:00Z",
+                          f"      offer: inubit-cert-check --profile acme --accept int/b {MARKED_A}",
+                          "      note: this is the certificate expected for int/a"], lines[4:9])
+
+        rejection = {"fingerprint": MARKED_D, "notBefore": None, "outcome": "rejected",
+                     "at": "2026-11-03T09:00:00Z"}
+        lines = self.marked_text(MARKED_D, rejections={"int/b": rejection})
+        self.assertEqual([offer, f"      rejected earlier: {MARKED_D} (offered again only after "
+                                 "--forget int/b)"], lines[7:9])
+
+        problem = ("stage 'int': tls.pinnedCertificateSha256 is not allowed with "
+                   "tls.pinPerServer; set it on each server")
+        cases = (
+            ("pin through alias", {"b_tls": {"alias": "pinB"},
+                                   "head": f"x-acme-pin-b: &pinB\n  pinnedCertificateSha256: "
+                                           f"{MARKED_C}\n"}),
+            ("trust store not the stage's own", {"dev_store": self.stores["int"]}),
+            ("configuration problem", {"int_extra": {"pin": MARKED_A}}))
+        for reason, options in cases:
+            with self.subTest(reason):
+                lines = self.marked_text(MARKED_D, **options)
+                self.assertEqual("Stage int  CHANGED  (one pin per server)", lines[0])
+                self.assertEqual(f"      no offer: {reason}", lines[7])
+                self.assertFalse([line for line in lines if "offer:" in line
+                                  and "no offer:" not in line], lines)
+                self.assertNotIn(SHARED_TEXT, "\n".join(lines))
+                self.assertNotIn("no pin configured", "\n".join(lines))
+                expected = [f"  configuration problem: {problem} - run --check-config"] \
+                    if reason == "configuration problem" else []
+                self.assertEqual(expected, [line for line in lines
+                                            if line.startswith("  configuration problem:")])
+
+    def test_uniform_stage_text_report_is_unchanged(self):
+        support.write_profile(self.profile, [
+            {"name": "dev", "pin": self.fp_a, "store": self.stores["dev"],
+             "servers": [("node1", "https://dev-1.example.test:8443")]},
+            {"name": "int", "pin": self.fp_a, "store": self.stores["int"],
+             "servers": [("node1", "https://int-1.example.test:8443"),
+                         ("node2", "https://int-2.example.test:8443"),
+                         ("node3", "http://int-3.example.test:8080")]},
+            {"name": "qa", "pin": self.fp_a, "store": self.stores["int"],
+             "servers": [("node1", "https://qa-1.example.test:8443")]}])
+        profile = self.tool.read_profile(self.profile)
+        tool = self.tool
+        presented = {
+            "dev/node1": self.shown("dev/node1", "203.0.113.11", OTHER, "dev-1"),
+            "int/node1": self.shown("int/node1", "203.0.113.21", self.fp_a, "int-1"),
+            "int/node2": tool.Presented(server_id="int/node2", ip=None, error="connect"),
+            "qa/node1": self.shown("qa/node1", "203.0.113.31", OTHER, "qa-1")}
+        dev = tool.evaluate_stage(profile.stage("dev"), presented,
+                                  {"fingerprint": OTHER, "notBefore": None,
+                                   "outcome": "rejected", "at": "2026-11-03T09:00:00Z"},
+                                  (tool.TrustEntry("dev-older", OTHER),), None)
+        int_ = tool.evaluate_stage(profile.stage("int"), presented, None, None, "keytool failed")
+        qa = tool.evaluate_stage(profile.stage("qa"), presented, None, (), None)
+        result = tool.CheckResult(profile=profile, checked_at="2026-11-03T10:00:00Z",
+                                  stages=(dev, int_, qa), exit_code=10)
+        self.assertEqual(GOLDEN_006_TEXT % {"pin": self.fp_a, "other": OTHER,
+                                            "short": tool.short_fingerprint(self.fp_a)},
+                         tool.check_text(result, "--profile acme"))
+
 
 MARKED_STAGE_KEYS = STAGE_KEYS | {"pinPerServer", "problem"}
 MARKED_SERVER_KEYS = SERVER_KEYS | {"offer", "rejected", "expectedBy", "noOfferReason"}
 NO_OFFER_REASONS = {"pin through alias", "trust store not the stage's own",
                     "configuration problem"}
+MARKED_A = ":".join(["AA"] * 31 + ["01"])
+MARKED_C = ":".join(["CC"] * 31 + ["03"])
+MARKED_D = ":".join(["DD"] * 31 + ["04"])
+
+# The --check text report of feature 006 for uniform stages, byte for byte (FR-007, SC-005).
+GOLDEN_006_TEXT = """\
+Stage dev  CHANGED  (pin %(short)s)
+  dev/node1    changed      203.0.113.11
+      old  %(pin)s
+      new  %(other)s
+      subject CN=dev-1.selfsigned.test  issuer CN=dev-1.selfsigned.test
+      valid 2026-11-03T08:00:00Z … 2036-10-31T08:00:00Z
+  superseded trust-store entries:
+      dev-older  %(other)s
+  offer: inubit-cert-check --profile acme --accept dev %(other)s  (rejected earlier in the dialog)
+Stage int  UNREACHABLE  (pin %(short)s)
+  int/node1    ok           203.0.113.21
+  int/node2    unreachable  -  (connect)
+  int/node3    skipped (no TLS)
+  trust store not inspected: keytool failed
+Stage qa  CHANGED  (pin %(short)s)
+  qa/node1     changed      203.0.113.31
+      old  %(pin)s
+      new  %(other)s
+      subject CN=qa-1.selfsigned.test  issuer CN=qa-1.selfsigned.test
+      valid 2026-11-03T08:00:00Z … 2036-10-31T08:00:00Z
+  superseded trust-store entries: none
+  shared TLS settings — give the stage its own tls block first
+"""
 
 # The --check --json document of feature 006 for uniform stages, byte for byte (FR-007, SC-005).
 GOLDEN_006_JSON = """{
