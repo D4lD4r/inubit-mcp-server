@@ -229,7 +229,7 @@ reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, AS 8, Q1,
   `Optional<Boolean> pinPerServer` to `main/config/TlsConfig.java` (`EMPTY`, compact constructor with
   `Optionals.orEmpty`) and a helper `boolean marksStage()` (`pinPerServer.orElse(false)`); adapt every
   `new TlsConfig(` call site.
-- [ ] T006 [P] [US1] **Regression** — effective TLS of a marked stage (FR-002, FR-003, research R-4;
+- [X] T006 [P] [US1] **Regression** — effective TLS of a marked stage (FR-002, FR-003, research R-4;
   after T005). The behaviour exists; the test passes at once, there is no red step. In
   `test/config/EffectiveNodeConfigTest.java`: for each node of `int` in `pin-per-server.yaml` the
   effective `Tls` has the group's trust store and that node's own pin, and no node gets another

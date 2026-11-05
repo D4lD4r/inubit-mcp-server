@@ -3,13 +3,19 @@ package de.dadecker.inubit.mcp.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Feature 008 (T009, research D-1, D-2): the effective {@code development.repository}. It is
@@ -18,6 +24,8 @@ import org.junit.jupiter.api.Test;
  *
  * <p>Feature 009 (T005, research D-2): the effective {@code versionLine}, node → group →
  * {@code AUTO}, and its configured text in the {@code list_nodes} summary.
+ *
+ * <p>Feature 014 (T006): the effective TLS of a stage marked with {@code tls.pinPerServer}.
  */
 class EffectiveNodeConfigTest {
 
@@ -159,5 +167,44 @@ class EffectiveNodeConfigTest {
                 .isEqualTo(setting.text());
         }
         assertThat(PINNED.text()).isEqualTo("9.0.7-HF1");
+    }
+
+    private static final String PIN_A =
+        "BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:F0:03";
+    private static final String PIN_B =
+        "CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:0E:04";
+
+    /**
+     * Feature 014 (T006, FR-002, FR-003, research R-4), regression: in a stage marked with
+     * {@code tls.pinPerServer} every server keeps the stage's one trust store and checks only its
+     * own pin. The existing node-before-group resolution already does this.
+     */
+    @Test
+    void aMarkedStageGivesEachServerTheStageTrustStoreAndItsOwnPin(@TempDir Path home)
+        throws URISyntaxException {
+        Path file = Path.of(
+            EffectiveNodeConfigTest.class.getResource("/config/pin-per-server.yaml").toURI());
+        ProfileConfig config = new ConfigLoader(Map.of(), home, false).loadFile(file).config();
+        GroupConfig stage = config.groups().stream()
+            .filter(g -> g.name().equals("int"))
+            .findFirst()
+            .orElseThrow();
+        Map<String, Optional<String>> effectivePins = new HashMap<>();
+
+        assertThat(stage.tls().trustStore()).isPresent();
+        assertThat(stage.tls().pinnedCertificateSha256()).isEmpty();
+        for (NodeConfig node : stage.nodes()) {
+            EffectiveNodeConfig.Tls tls = config.effectiveNodes().stream()
+                .filter(s -> s.id().equals(NodeId.of("int", node.name())))
+                .findFirst()
+                .orElseThrow()
+                .tls();
+
+            assertThat(tls.trustStore()).isEqualTo(stage.tls().trustStore());
+            effectivePins.put(node.name(), tls.pinnedCertificateSha256());
+        }
+        // Each server has exactly its own pin, so none has the other server's pin.
+        assertThat(effectivePins)
+            .isEqualTo(Map.of("a", Optional.of(PIN_A), "b", Optional.of(PIN_B)));
     }
 }
