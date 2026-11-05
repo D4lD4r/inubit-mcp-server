@@ -1408,7 +1408,8 @@ class State:
             os.close(fd)  # closing the only descriptor releases the flock
 
     def remember_rejection(self, stage, fingerprint, not_before, outcome, now=None):
-        """Remembers a rejected or timed-out fingerprint of a stage (FR-019a)."""
+        """Remembers a rejected or timed-out fingerprint of a target: a stage, or a server id of a
+        marked stage (FR-019a, 014 FR-015)."""
         if outcome not in REMEMBERED_OUTCOMES:
             raise ValueError(f"only {' and '.join(REMEMBERED_OUTCOMES)} are remembered")
         with self._rejections_locked():
@@ -2815,13 +2816,18 @@ def reconnect_hint(profile_name):
             "(desktop Code tab)")
 
 
-def notification_text(stage, profile_name):
-    return (f"New certificate for stage {stage} adopted - reconnect inubit-{profile_name} "
-            f"(/mcp -> Reconnect, or start a new session)")
+def target_label(target):
+    """"server int/b" for a server id of a marked stage, "stage dev" for a stage name."""
+    return f"server {target}" if "/" in target else f"stage {target}"
 
 
-def not_adopted_text(stage, outcome):
-    return f"Accept for stage {stage} not adopted ({outcome}) - see cert-check.log"
+def notification_text(target, profile_name):
+    return (f"New certificate for {target_label(target)} adopted - reconnect "
+            f"inubit-{profile_name} (/mcp -> Reconnect, or start a new session)")
+
+
+def not_adopted_text(target, outcome):
+    return f"Accept for {target_label(target)} not adopted ({outcome}) - see cert-check.log"
 
 
 def notify(text, runner=None):
@@ -3009,41 +3015,42 @@ def _log_dialog_failed(state, offers):
     """FR-019: a dialog that was never shown is logged (dialog-failed), but not remembered."""
     for offer in offers:
         _try_log(state, offer["stage"], "dialog-failed", offer["pin"], offer["fingerprint"],
-                 offer["notBefore"], "dialog")
+                 offer["notBefore"], "dialog", None, offer.get("server"))
 
 
 def _report_dialog_outcomes(offers, status, profile):
-    """One stderr line per offered stage: what happened before the start continues."""
+    """One stderr line per offered target: what happened before the start continues."""
     done = status.get("done", {})
     for offer in offers:
-        stage = offer["stage"]
-        outcome = done.get(stage)
+        target = offer["target"]
+        label = target_label(target)
+        outcome = done.get(target)
         if outcome == "adopted":
-            _report(f"stage {stage}: Accept given, certificate adopted")
+            _report(f"{label}: Accept given, certificate adopted")
         elif outcome in ("refused", "failed"):
-            _report(f"stage {stage}: Accept given, adoption {outcome} - see cert-check.log")
+            _report(f"{label}: Accept given, adoption {outcome} - see cert-check.log")
         elif outcome == "rejected":
-            _report(f"stage {stage}: rejected in the dialog (remembered)")
+            _report(f"{label}: rejected in the dialog (remembered)")
         elif outcome == "timed-out":
-            _report(f"stage {stage}: the dialog timed out (remembered)")
+            _report(f"{label}: the dialog timed out (remembered)")
         elif outcome == "dialog-failed":
-            _report(f"stage {stage}: the dialog could not be shown (see cert-check.log)")
+            _report(f"{label}: the dialog could not be shown (see cert-check.log)")
         elif outcome:
-            _report(f"stage {stage}: no dialog, decided in another session")
-        elif status.get("adopting") == stage:
-            _report(f"adoption for stage {stage} in progress - reconnect when notified "
+            _report(f"{label}: no dialog, decided in another session")
+        elif status.get("adopting") == target:
+            _report(f"adoption for {label} in progress - reconnect when notified "
                     f"({reconnect_hint(profile.name)})")
         else:
-            _report(f"stage {stage}: the dialog is still open; the start continues (a later "
+            _report(f"{label}: the dialog is still open; the start continues (a later "
                     f"'{BUTTON_ACCEPT}' is still adopted; then reconnect: "
                     f"{reconnect_hint(profile.name)})")
 
 
 def cmd_dialog_worker(args):
-    """The detached worker of contract C-3 step 5: holds the profile lock, asks one stage after
-    the other, adopts on "Accept" (FR-011 re-verification included), writes its status file
-    after every decision and removes its files at the end, also after a failure. Never writes to
-    stdout."""
+    """The detached worker of contract C-3 step 5 / C-3′: holds the profile lock, asks one
+    target (stage or server of a marked stage) after the other, adopts on "Accept" (FR-011
+    re-verification included), writes its status file after every decision and removes its files
+    at the end, also after a failure. Never writes to stdout."""
     status_file = os.path.abspath(args.dialog_worker)
     own_name = bool(_STATUS_FILE.fullmatch(os.path.basename(status_file)))
     offers_file = offers_path(status_file) if own_name else None
@@ -3061,19 +3068,19 @@ def cmd_dialog_worker(args):
         if not isinstance(spec, dict) or not isinstance(spec.get("offers"), list):
             raise StateError(f"no usable offers file {offers_file}")
         lock = state.adopt_lock(int(spec["lockFd"]))
-        status = {"pending": [offer["stage"] for offer in spec["offers"]], "done": {}}
+        status = {"pending": [offer["target"] for offer in spec["offers"]], "done": {}}
         _write_json(status_file, status)
         for offer in spec["offers"]:
             try:
                 outcome = _decide(args, state, profile, offer, float(spec["parentDeadline"]),
                                   status, status_file)
-            except Exception as e:  # noqa: BLE001 - one stage must not stop the others
-                state.diag(f"dialog worker: stage {offer.get('stage')}: {type(e).__name__}: "
-                           f"{one_line(e)}")
+            except Exception as e:  # noqa: BLE001 - one target must not stop the others
+                state.diag(f"dialog worker: {target_label(str(offer.get('target')))}: "
+                           f"{type(e).__name__}: {one_line(e)}")
                 outcome = "failed"
             status.pop("adopting", None)
-            status["pending"].remove(offer["stage"])
-            status["done"][offer["stage"]] = outcome
+            status["pending"].remove(offer["target"])
+            status["done"][offer["target"]] = outcome
             _write_json(status_file, status)
     except Exception as e:  # noqa: BLE001 - the worker has no one to report to but the log
         if state is not None:
@@ -3095,44 +3102,50 @@ def cmd_dialog_worker(args):
 
 def _decide(args, state, profile, offer, parent_deadline, status, status_file):
     """Shows the dialog for one offer and acts on the answer; returns the outcome. Under the
-    held lock it first re-reads what another session may have decided meanwhile."""
+    held lock it first re-reads what another session may have decided meanwhile about this
+    target (the stage, or the server of a marked stage, research R-11)."""
     stage, fingerprint = offer["stage"], offer["fingerprint"]
+    target, server = offer["target"], offer.get("server")
+    label = target_label(target)
     try:
-        remembered = state.load_rejections().get(stage)
+        remembered = state.load_rejections().get(target)
     except StateError:
         remembered = None
     if remembered and remembered.get("fingerprint") == fingerprint:
-        _report(f"stage {stage}: {fingerprint} was rejected meanwhile in another session; "
+        _report(f"{label}: {fingerprint} was rejected meanwhile in another session; "
                 "no dialog")
         return "skipped-rejected"
     current = load_profile(args).stage(stage)
+    if current is not None and server is not None:
+        current = next((each for each in current.servers if each.id == server), None)
     if current is not None and current.pin == fingerprint:
-        _report(f"stage {stage}: {fingerprint} is already pinned (adopted meanwhile in another "
+        _report(f"{label}: {fingerprint} is already pinned (adopted meanwhile in another "
                 "session); no dialog")
         return "skipped-pinned"
     answer = show_dialog(offer)
     if answer == "accept":
-        status["adopting"] = stage
+        status["adopting"] = target
         _write_json(status_file, status)
         try:
-            code = accept_locked(args, Target(stage, None), fingerprint, "dialog", state)
+            code = accept_locked(args, parse_target(target), fingerprint, "dialog", state)
         except Exception as e:  # noqa: BLE001 - reported like a failed adoption
-            _report(f"stage {stage}: adoption failed: {type(e).__name__}: {one_line(e)}")
+            _report(f"{label}: adoption failed: {type(e).__name__}: {one_line(e)}")
             code = INTERNAL
         if code == OK:
             if time.time() > parent_deadline:  # the start did not wait for it: reconnect
-                notify(notification_text(stage, profile.name))
+                notify(notification_text(target, profile.name))
             return "adopted"
         outcome = "refused" if code == REFUSED else "failed"
-        notify(not_adopted_text(stage, outcome))
+        notify(not_adopted_text(target, outcome))
         return outcome
     outcome = {"reject": "rejected", "timeout": "timed-out"}.get(answer, "dialog-failed")
-    _try_log(state, stage, outcome, offer["pin"], fingerprint, offer["notBefore"], "dialog")
+    _try_log(state, stage, outcome, offer["pin"], fingerprint, offer["notBefore"], "dialog",
+             None, server)
     if outcome in REMEMBERED_OUTCOMES:
         try:
-            state.remember_rejection(stage, fingerprint, offer["notBefore"], outcome)
+            state.remember_rejection(target, fingerprint, offer["notBefore"], outcome)
         except (StateError, OSError) as e:
-            state.diag(f"stage {stage}: rejection not remembered: {one_line(e)}")
+            state.diag(f"{label}: rejection not remembered: {one_line(e)}")
     return outcome
 
 

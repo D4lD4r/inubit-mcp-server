@@ -537,7 +537,7 @@ brings the dialog back (Q5).
   `_no_dialog_reason` and the offers file work on targets (server id for marked stages, stage name
   otherwise); `cmd_interactive` runs the same leftover housekeeping as `--check` (T020) before
   building the offers.
-- [ ] T023 [US3] Dialog worker, outcomes and status file (FR-011, FR-014, FR-015, FR-017, SC-006,
+- [X] T023 [US3] Dialog worker, outcomes and status file (FR-011, FR-014, FR-015, FR-017, SC-006,
   Story 3 AS 1, contract C-3′, research R-11; after T022, same files). Write the failing tests first
   in `tools/tests/test_interactive.py` and see them fail:
   - `DialogOutcomeTest`: two changed servers → two dialogs, one after another in check order

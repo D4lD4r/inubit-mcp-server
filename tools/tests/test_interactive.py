@@ -721,6 +721,126 @@ class DialogOutcomeTest(InteractiveTestCase):
         self.assertEqual([], self.worker_files(), "status and offers files are removed")
         self.assertIsNotNone(self.state.try_lock(), "the worker released the lock")
 
+    # T023: outcomes per server of a marked stage (contract C-3′, research R-10, R-11) ---------
+
+    def marked(self, pin_a, pin_b, url_b=None):
+        nodes = support.marked_stage(self)
+        NoDialogTest.write_marked_int(self, nodes, pin_a(nodes) if callable(pin_a) else pin_a,
+                                      pin_b(nodes) if callable(pin_b) else pin_b, url_b=url_b)
+        return nodes
+
+    def server_pins(self):
+        stage = self.tool.read_profile(self.profile).stage("int")
+        return {server.id: server.pin for server in stage.servers}
+
+    def dialog_targets(self):
+        return [entry["info"]["target"] for entry in self.calls("show_dialog")]
+
+    def test_marked_two_dialogs_in_check_order_each_accept_adopts_its_server(self):
+        nodes = self.marked(OTHER, PIN)  # both changed
+        err, _elapsed = self.interactive(dialog={"int/a": {"answer": "accept"},
+                                                 "int/b": {"answer": "accept"}})
+        self.wait_for_workers()
+        self.assertEqual(["int/a", "int/b"], self.dialog_targets(), "one after another (AS 1)")
+        line_a, line_b = self.change_log()
+        self.assertRegex(line_a, rf"stage=int server=int/a outcome=adopted old={OTHER} "
+                                 rf"new={nodes['a'].fingerprint} notBefore=\S+ by=dialog$")
+        self.assertRegex(line_b, rf"stage=int server=int/b outcome=adopted old={PIN} "
+                                 rf"new={nodes['b'].fingerprint} notBefore=\S+ by=dialog$")
+        self.assertEqual({"int/a": nodes["a"].fingerprint, "int/b": nodes["b"].fingerprint},
+                         self.server_pins(), "the second adoption starts from the first result")
+        self.assertIn("server int/a: Accept given, certificate adopted", err)
+        self.assertIn("server int/b: Accept given, certificate adopted", err)
+        self.assertNotIn("stage int", err)
+        self.assertEqual([], self.calls("notify"), "no notification when the start waited")
+
+    def test_marked_reject_is_remembered_under_the_server(self):
+        nodes = self.marked(lambda n: n["a"].fingerprint, OTHER)  # int/b changed
+        before = self.snapshot()
+        err, _elapsed = self.interactive(dialog={"int/b": {"answer": "reject"}})
+        self.wait_for_workers()
+        self.assertEqual(before, self.snapshot())
+        [line] = self.change_log()
+        self.assertRegex(line, rf"stage=int server=int/b outcome=rejected old={OTHER} "
+                               rf"new={nodes['b'].fingerprint} notBefore=\S+ by=dialog$")
+        rejections = self.state.load_rejections()
+        self.assertEqual(["int/b"], list(rejections))
+        self.assertEqual(("rejected", nodes["b"].fingerprint),
+                         (rejections["int/b"]["outcome"], rejections["int/b"]["fingerprint"]))
+        self.assertIn("server int/b: rejected in the dialog (remembered)", err)
+
+    def test_marked_reject_of_one_server_does_not_skip_another_with_the_same_certificate(self):
+        nodes = self.marked(OTHER, PIN)
+        NoDialogTest.write_marked_int(self, nodes, OTHER, PIN,
+                                      url_b=f"https://int-b.example.test:{nodes['a'].port}")
+        before = self.snapshot()
+        err, _elapsed = self.interactive(dialog={"int/a": {"answer": "reject"},
+                                                 "int/b": {"answer": "timeout"}})
+        self.wait_for_workers()
+        self.assertEqual(["int/a", "int/b"], self.dialog_targets())
+        self.assertEqual(before, self.snapshot())
+        line_a, line_b = self.change_log()
+        self.assertIn("stage=int server=int/a outcome=rejected", line_a)
+        self.assertIn("stage=int server=int/b outcome=timed-out", line_b)
+        rejections = self.state.load_rejections()
+        self.assertEqual({"int/a": ("rejected", nodes["a"].fingerprint),
+                          "int/b": ("timed-out", nodes["a"].fingerprint)},
+                         {key: (entry["outcome"], entry["fingerprint"])
+                          for key, entry in rejections.items()})
+        self.assertIn("server int/b: the dialog timed out (remembered)", err)
+
+    def test_marked_dialog_failed_is_logged_with_the_server_and_not_remembered(self):
+        self.marked(lambda n: n["a"].fingerprint, OTHER)
+        before = self.snapshot()
+        err, _elapsed = self.interactive(dialog={"int/b": {"answer": "dialog-failed"}})
+        self.wait_for_workers()
+        self.assertEqual(before, self.snapshot())
+        [line] = self.change_log()
+        self.assertIn("stage=int server=int/b outcome=dialog-failed", line)
+        self.assertEqual({}, self.state.load_rejections())
+        self.assertIn("server int/b: the dialog could not be shown (see cert-check.log)", err)
+
+    def test_marked_late_accept_names_the_server(self):
+        """The budget covers all dialogs together (budget 3 s here instead of 20 s)."""
+        nodes = self.marked(OTHER, PIN)
+        err, elapsed = self.interactive(dialog={"int/a": {"answer": "accept", "delay": 0.3},
+                                                "int/b": {"answer": "accept", "delay": 4.0}},
+                                        budget=3.0)
+        self.assertLess(elapsed, 4.5, "the start continues after the budget for all dialogs")
+        self.assertIn("server int/a: Accept given, certificate adopted", err)
+        self.assertIn("server int/b: the dialog is still open", err)
+        deadline = time.monotonic() + 20
+        while not self.calls("notify") and time.monotonic() < deadline:
+            time.sleep(0.2)
+        self.wait_for_workers()
+        [note] = self.calls("notify")
+        self.assertEqual("New certificate for server int/b adopted - reconnect inubit-acme "
+                         "(/mcp -> Reconnect, or start a new session)", note["text"])
+        self.assertEqual({"int/a": nodes["a"].fingerprint, "int/b": nodes["b"].fingerprint},
+                         self.server_pins())
+
+    def test_marked_failed_adoption_notifies_with_the_server(self):
+        self.marked(lambda n: n["a"].fingerprint, OTHER)
+        before = self.snapshot()
+        err, _elapsed = self.interactive(dialog={"int/b": {"answer": "accept"}},
+                                         check_config_returncode=1)
+        self.wait_for_workers()
+        self.assertEqual(before, self.snapshot())
+        self.assertIn("server int/b: Accept given, adoption failed - see cert-check.log", err)
+        [note] = self.calls("notify")
+        self.assertEqual("Accept for server int/b not adopted (failed) - see cert-check.log",
+                         note["text"])
+        [line] = self.change_log()
+        self.assertIn("stage=int server=int/b outcome=failed", line)
+
+    def test_marked_notification_texts(self):
+        self.assertEqual("New certificate for server int/b adopted - reconnect inubit-acme "
+                         "(/mcp -> Reconnect, or start a new session)",
+                         self.tool.notification_text("int/b", "acme"))
+        self.assertEqual("Accept for server int/b not adopted (refused) - see cert-check.log",
+                         self.tool.not_adopted_text("int/b", "refused"))
+        self.assertTrue(self.tool.notification_text("int/b", "acme").isascii())
+
 
 class WorkerTest(InteractiveTestCase):
     """Review 3: decisions of other sessions, robustness, process setup, notifications."""
@@ -901,6 +1021,88 @@ class WorkerTest(InteractiveTestCase):
         self.assertIsNotNone(lock, "the lock is released")
         lock.release()
         self.assertNoDialog()
+
+    # T023: the worker per target (contract C-3′, data-model "Dialog worker files") ------------
+
+    def statuses(self):
+        return [(entry["during"], json.loads(entry["content"])) for entry in self.calls("status")]
+
+    def test_marked_status_file_keyed_by_target(self):
+        nodes = support.marked_stage(self)
+        NoDialogTest.write_marked_int(self, nodes, OTHER, PIN)
+        self.interactive(dialog={"int/a": {"answer": "accept"}, "int/b": {"answer": "reject"}})
+        self.wait_for_workers()
+        self.assertEqual([
+            ("show_dialog", {"pending": ["int/a", "int/b"], "done": {}}),
+            ("check_config", {"pending": ["int/a", "int/b"], "done": {}, "adopting": "int/a"}),
+            ("show_dialog", {"pending": ["int/b"], "done": {"int/a": "adopted"}}),
+        ], self.statuses())
+
+    def test_uniform_status_file_as_in_006(self):
+        self.changed_dev()
+        self.interactive(dialog={"dev": {"answer": "accept"}})
+        self.wait_for_workers()
+        self.assertEqual([
+            ("show_dialog", '{\n  "pending": [\n    "dev"\n  ],\n  "done": {}\n}\n'),
+            ("check_config", '{\n  "pending": [\n    "dev"\n  ],\n  "done": {},\n'
+                             '  "adopting": "dev"\n}\n'),
+        ], [(entry["during"], entry["content"]) for entry in self.calls("status")])
+
+    def test_marked_two_sessions_one_dialog_per_server_and_fingerprint(self):
+        nodes = support.marked_stage(self)
+        NoDialogTest.write_marked_int(self, nodes, OTHER, PIN)
+        first = self.start_interactive(dialog={"int": {"answer": "reject", "delay": 2.0}})
+        time.sleep(0.3)
+        second = self.start_interactive(dialog={"int": {"answer": "accept"}}, lock_delay=8.0)
+        self.finish(first)
+        self.finish(second)
+        self.wait_for_workers()
+        self.assertEqual(["int/a", "int/b"],
+                         [entry["info"]["target"] for entry in self.calls("show_dialog")],
+                         "one dialog per server and fingerprint")
+        self.assertEqual(2, len(self.change_log()))
+        self.assertEqual({"int/a", "int/b"}, set(self.state.load_rejections()))
+        self.assertIn("server int/a: " + nodes["a"].fingerprint + " was rejected meanwhile",
+                      self.diag())
+        self.assertIn("server int/b: " + nodes["b"].fingerprint + " was rejected meanwhile",
+                      self.diag())
+
+    def test_marked_already_pinned_by_another_session(self):
+        nodes = support.marked_stage(self)
+        NoDialogTest.write_marked_int(self, nodes, OTHER, PIN)
+        handle = self.start_interactive(dialog={"int": {"answer": "reject"}}, lock_delay=3.0)
+        time.sleep(1.5)  # the check is done; another session adopts int/b before the lock
+        with open(self.profile, encoding="utf-8") as stream:
+            text = stream.read()
+        with open(self.profile, "w", encoding="utf-8") as stream:
+            stream.write(text.replace(PIN, nodes["b"].fingerprint, 1))
+        self.finish(handle)
+        self.wait_for_workers()
+        self.assertEqual(["int/a"],
+                         [entry["info"]["target"] for entry in self.calls("show_dialog")])
+        self.assertIn("server int/b: " + nodes["b"].fingerprint + " is already pinned",
+                      self.diag())
+        self.assertEqual(["int/a"], list(self.state.load_rejections()))
+
+    def test_marked_worker_never_starts(self):
+        nodes = support.marked_stage(self)
+        NoDialogTest.write_marked_int(self, nodes, nodes["a"].fingerprint, OTHER)
+        err, _elapsed = self.interactive(dialog={"int/b": {"answer": "accept"}},
+                                         break_worker=True)
+        self.assertIn("the dialog could not be shown (see cert-check.log)", err)
+        [line] = self.change_log()
+        self.assertRegex(line, rf"stage=int server=int/b outcome=dialog-failed old={OTHER} "
+                               rf"new={nodes['b'].fingerprint} notBefore=\S+ by=dialog$")
+        self.assertEqual({}, self.state.load_rejections(), "not remembered")
+
+    def test_limits_per_dialog_and_for_the_start(self):
+        self.assertEqual(20.0, self.tool.START_BUDGET, "the start waits about 20 s in total")
+        self.assertEqual(60, self.tool.DIALOG_GIVE_UP)
+        info = {"stage": "int", "profile": "acme", "pin": OTHER, "fingerprint": NEW,
+                "notBefore": "2026-10-08T13:06:26Z", "notAfter": "2036-10-05T13:06:26Z",
+                "validNow": True, "servers": [{"id": "int/b", "ip": "203.0.113.22"}],
+                "target": "int/b", "server": "int/b", "expectedBy": []}
+        self.assertIn("giving up after 60", self.tool.dialog_argv(info)[2])
 
 
 class ForgetTest(InteractiveTestCase):
