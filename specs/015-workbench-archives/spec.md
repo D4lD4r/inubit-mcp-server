@@ -42,7 +42,8 @@ manual Workbench exports.
 
 **Independent Test**: export a diagram group with three workflows from a fake INUBIT server into an
 empty temporary folder; three archives appear, each holds exactly its workflow, the modules that
-workflow's nodes reference and the repository files it references, with the module and repository
+workflow's nodes reference, the modules bound to it by `WorkflowName` in `module/module.xml` and
+the repository files it references, with the module and repository
 files byte-identical to the server's export; the files and the folders the call created are
 readable by the owner only.
 
@@ -57,7 +58,7 @@ readable by the owner only.
 2. **Given** `Workflow-0001` uses `Module-0002` and `Module-0005`, and `Module-0005` is also used by
    `Workflow-0002`, **When** the archives are written, **Then** the archive of `Workflow-0001`
    holds both modules, the archive of `Workflow-0002` holds `Module-0005` too, and neither holds a
-   module its workflow's nodes do not reference (FR-005).
+   module that FR-005 does not select (FR-005).
 3. **Given** a workflow whose modules reference repository files (directly or through other
    repository files), **When** its archive is written, **Then** the archive holds exactly those
    repository files of the owner's repository, and no other repository file (FR-005).
@@ -98,20 +99,25 @@ export and before the first file or folder is written. In every case nothing is 
    network path, **When** the tool runs, **Then** it is refused by the static input checks before
    the StartCLI export (FR-008).
 3. **Given** a target folder that already holds a file with the name an archive would get (compared
-   case-insensitively), **When** the tool runs, **Then** it is refused after the export and before
-   the first file or folder is written, the message names the colliding file(s), and no existing
-   file is changed or deleted (FR-009).
+   after NFC normalization and Unicode case folding, FR-004), **When** the tool runs, **Then** it
+   is refused after the export and before the first file or folder is written, the message names
+   the colliding file(s), and no existing file is changed or deleted (FR-009).
 4. **Given** a target folder that does not exist yet, **When** the tool runs, **Then** the folder
    (and missing parents) is created right before the first archive is written, readable by the
    owner only, and the archives inside are readable by the owner only (FR-010).
-5. **Given** a target path that exists and is a file, or a directory the server cannot write to,
-   **When** the tool runs, **Then** it is refused with `INVALID_INPUT` by the static input checks
-   before the StartCLI export (FR-010).
+5. **Given** a target path that exists and is a file, or a directory the server cannot write to, or
+   a target folder that does not exist and whose nearest existing ancestor is not a writable
+   directory, **When** the tool runs, **Then** it is refused with `INVALID_INPUT` by the static
+   input checks before the StartCLI export (FR-010).
 6. **Given** any successful call, **When** the result is shown, **Then** it states that the files
    contain secrets in clear text and must not be shared or committed as they are (FR-012).
 7. **Given** an MCP client lists the tools, **When** it reads this tool's annotations, **Then** the
    tool is not marked read-only (`readOnlyHint: false`, `destructiveHint: false`,
    `idempotentHint: false`, `openWorldHint: true`), so the client asks before calling it (FR-001).
+8. **Given** a target folder below a known cloud-sync root (e.g. `~/Library/CloudStorage/…` on
+   macOS or the folder named by `OneDrive` on Windows), **When** the tool runs, **Then** the call is
+   not refused and the result carries a warning that the archives will be synchronized to the cloud
+   (FR-008, FR-012).
 
 ---
 
@@ -136,12 +142,14 @@ and the outcome; the folder never holds a partial archive.
    audited (FR-011, FR-013).
 3. **Given** writing the second of three archives fails (e.g. the disk is full), **When** the tool
    returns, **Then** it returns a result (not an error) with the first archive in `archives[]` and
-   the second in `failed[]` (`{workflow, code, message}`), the third is not written, no partial
-   archive is left in the folder, and the audit outcome is "partially completed" (FR-011, FR-013).
-4. **Given** a workflow that references a module the diagram-group export does not contain,
-   **When** the tool runs, **Then** the whole call is refused after the export and before the first
-   file or folder is written, the message names the workflow and the missing module, and no
-   archive is written — also not those of the other workflows (FR-011, FR-017).
+   the second in `failed[]` (`{workflow, code, message}`, code `INTERNAL`), the third is not
+   written and listed in `notWritten[]`, no partial archive is left in the folder, and the audit
+   outcome is "partially completed" (FR-011, FR-013).
+4. **Given** a workflow whose nodes reference a module the diagram-group export does not contain
+   (e.g. a module of another owner), **When** the tool runs, **Then** the archive of that workflow
+   is still written, the result lists the module in that archive's `missingModules`
+   (`{name, pluginType}`) with a warning that the archive imports only where those modules exist,
+   and the other archives are not affected (FR-005, FR-012).
 5. **Given** the audit record cannot be written (e.g. the audit directory is not writable),
    **When** the tool runs, **Then** it is refused with `INTERNAL` before StartCLI runs and nothing
    is exported or written (FR-013).
@@ -156,20 +164,29 @@ and the outcome; the folder never holds a partial archive.
 - A named workflow that is not in the diagram group (names are matched case-sensitively): refused
   after the export and before the first file or folder is written, naming the unknown workflow(s).
 - A workflow name with characters that are not allowed in a file name on macOS, Linux or Windows,
-  trailing dots or spaces, or a Windows reserved base name: the file name is derived by the rules
-  of FR-004; a derived file name over 255 bytes is refused with `INVALID_INPUT` naming the workflow;
-  two workflows whose file names are equal when compared case-insensitively are refused as a
-  collision (FR-004, FR-009). Both refusals happen after the export and before the first file or
-  folder is written.
-- A workflow that references a module the diagram-group export does not contain (INUBIT exported it
-  inconsistently): the whole call is refused after the export and before the first file or folder
-  is written, naming the workflow and the missing module (FR-017).
+  trailing dots or spaces, a leading dot, only such characters, or a Windows reserved base name
+  (also with an extension, e.g. `CON.backup`): the file name is derived by the rules of FR-004; a
+  derived file name over 255 bytes is refused with `INVALID_INPUT` naming the workflow; two
+  workflows whose file names are equal after NFC normalization and Unicode case folding are
+  refused as a collision (FR-004, FR-009). Both refusals happen after the export and before the
+  first file or folder is written.
+- A workflow whose nodes reference modules the diagram-group export does not contain (normal for
+  modules of another owner, as the workspace export already warns): the archive is still written
+  and the result lists them in that archive's `missingModules` with a warning that the archive
+  imports only where those modules exist (FR-005, FR-012).
+- A workflow with a Workflow Connector node: the result warns for that archive that the called
+  workflow is not included (FR-012, Assumptions).
+- Creating the target folder or writing the first archive fails: the call returns a result with
+  an empty `archives[]`, the failure in `failed[]` and the remaining workflows in `notWritten[]`
+  (FR-011).
+- A target folder below a known cloud-sync root: not refused; the result warns (FR-008, FR-012).
 - Two concurrent calls write into the same folder: each checks for collisions after its export, but
   a file the other call creates later is never replaced; the archive that would replace it is
-  reported in `failed[]` naming the file, and the remaining workflows of that call are not written
-  (FR-009, FR-011).
-- A target path that exists and is not a writable directory: refused with `INVALID_INPUT` by the
-  static input checks before the StartCLI export (FR-010).
+  reported in `failed[]` naming the file, and the remaining workflows of that call are listed in
+  `notWritten[]` (FR-009, FR-011).
+- A target path that exists and is not a writable directory, or a target folder that does not
+  exist and whose nearest existing ancestor is not a writable directory: refused with
+  `INVALID_INPUT` by the static input checks before the StartCLI export (FR-010).
 - On Windows, a UNC path (`\\server\share\…`) or a mapped network drive (as far as detectable):
   refused by the static input checks before the StartCLI export (FR-008).
 - Key material in the owner's repository that a workflow references: it is included unchanged,
@@ -192,8 +209,9 @@ and the outcome; the folder never holds a partial archive.
   local files, its MCP annotations MUST be `readOnlyHint: false`, `destructiveHint: false`,
   `idempotentHint: false` and `openWorldHint: true`, so clients ask before calling it.
 - **FR-002**: The input MUST name exactly one diagram group (same name rules as `export_artifacts`)
-  and MAY name `workflows`: 1–50 unique workflow names, each following the character rules of
-  diagram group names, matched case-sensitively against the diagram group's technical workflows.
+  and MAY name `workflows`: 1–50 unique workflow names, each 1–200 characters without control
+  characters (any other character is allowed, as INUBIT allows it in workflow names), matched
+  case-sensitively against the diagram group's technical workflows.
   Without `workflows` every technical workflow of the diagram group is archived, at most 50; a
   diagram group with more technical workflows is refused with `INVALID_INPUT` naming the count and
   pointing to `workflows`. The input MAY carry a `reason` (one line, at most 500 characters).
@@ -203,11 +221,14 @@ and the outcome; the folder never holds a partial archive.
 - **FR-004**: The tool MUST write one archive per selected workflow, named
   `<file name>.diagram.zip`, in the layout of a single-workflow export of the INUBIT 8.1 Workbench
   (the layout INUBIT's own diagram-group export uses, restricted to that workflow). The file name
-  is derived from the workflow name deterministically: each of `<`, `>`, `:`, `"`, `/`, `\`, `|`,
-  `?`, `*` and each control character becomes `_`; trailing dots and spaces are removed; a Windows
-  reserved base name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, in any case) gets
-  the prefix `_`. A resulting file name (with `.diagram.zip`) over 255 bytes in UTF-8 MUST be
-  refused with `INVALID_INPUT` naming the workflow.
+  is derived from the workflow name deterministically, in this order: each of `<`, `>`, `:`, `"`,
+  `/`, `\`, `|`, `?`, `*` and each control character becomes `_`; trailing dots and spaces are
+  removed; an empty result becomes `_`; a leading `.` becomes `_`; a name whose part before the
+  first dot is a Windows reserved name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`,
+  in any case; e.g. `CON` or `con.backup`) gets the prefix `_`. A resulting file name (with
+  `.diagram.zip`) over 255 bytes in UTF-8 MUST be refused with `INVALID_INPUT` naming the
+  workflow. Wherever file names are compared (FR-009), they are compared after NFC normalization
+  and Unicode case folding.
 - **FR-005**: Each archive MUST contain exactly: the workflow; every module referenced by the
   workflow's nodes (also nested nodes); every module whose entry in `module/module.xml` binds it to
   the workflow by `WorkflowName` although it is not a node of it (e.g. a connector bound to the
@@ -215,13 +236,17 @@ and the outcome; the folder never holds a partial archive.
   and these modules reference directly or transitively (the closure the workspace export already
   computes). Modules used by several selected workflows MUST be in each of their archives, so every
   archive can be imported on its own. Modules referenced only by other modules and workflows the
-  workflow calls are not included (see Assumptions).
-- **FR-006**: Module files and repository files in an archive MUST be byte-identical to INUBIT's
-  export. The workflow's element in `workflow/workflow.xml`, its modules' entries in
-  `module/module.xml` and `archive.properties` MUST be unchanged as XML (equal after parsing);
-  only the other workflows and modules are removed. `Repository.zip` MUST be rebuilt with only the
-  referenced entries, each entry's bytes and metadata (timestamps) unchanged, in the original
-  order.
+  workflow calls are not included (see Assumptions). A module referenced by the workflow's nodes
+  that the diagram-group export does not contain (e.g. a module of another owner) MUST NOT refuse
+  the call or the workflow: the archive is written without it and the result lists it in that
+  archive's `missingModules` (FR-012), as the workspace export only warns about such modules.
+- **FR-006**: Module files, repository files and `archive.properties` in an archive MUST be
+  byte-identical to INUBIT's export. The workflow's element in `workflow/workflow.xml` and its
+  modules' entries in `module/module.xml` MUST be unchanged as XML (equal after parsing); only the
+  other workflows and modules are removed. `Repository.zip` MUST be rebuilt with, for each
+  referenced repository file, its `.xml` metadata entry and its `.dat` content entry, plus the
+  directory entries of their folders; each kept entry's bytes and metadata (timestamps) unchanged,
+  in the original order; no other entry.
 - **FR-007**: The archives MUST keep every secret exactly as INUBIT exported it (no placeholder,
   key material included). The call MUST be refused by the static input checks unless its input
   carries an explicit acknowledgement that the files will contain secrets in clear text. The
@@ -229,32 +254,50 @@ and the outcome; the folder never holds a partial archive.
 - **FR-008**: The target folder MUST be given in the call as an absolute path without `.`/`..`
   segments. It MUST NOT be, or lie inside, `~/.inubit-mcp` (of any profile), the configured
   `workspace` or `auditDirectory`, or any directory that has a `.git` entry in it or in an
-  ancestor — checked both on the path as given and after resolving symbolic links. On Windows, UNC
-  and network paths (`\\server\share`, mapped network drives as far as detectable) MUST be refused.
-  Violations are refused by the static input checks.
+  ancestor — checked both on the path as given and after resolving symbolic links. For a target
+  folder that does not exist yet, the symbolic-link resolution and the `.git` check apply to its
+  nearest existing ancestor. On Windows, UNC and network paths (`\\server\share`, mapped network
+  drives as far as detectable) MUST be refused. Violations are refused by the static input checks.
+  A target folder below a known cloud-sync root — on macOS `~/Library/CloudStorage` and
+  `~/Library/Mobile Documents`, on Windows the folders named by the environment variables
+  `OneDrive`, `OneDriveCommercial` and `OneDriveConsumer` — is not refused; the result MUST carry a
+  warning that the archives (with clear-text secrets) will be synchronized to the cloud (FR-012).
 - **FR-009**: An archive MUST never replace an existing file, also not one that appears after the
   collision check; the tool MUST NOT overwrite, change or delete any existing file. If any archive
   name already exists in the target folder, or two selected workflows map to the same file name
-  (both compared case-insensitively), the call MUST be refused after the export and before the
-  first file or folder is written, and the message MUST name the colliding names. A file that
-  appears after that check makes the archive fail (reported in `failed[]` naming the file,
-  FR-011). The mechanism is left to the plan.
+  (both compared after NFC normalization and Unicode case folding, FR-004), the call MUST be
+  refused after the export and before the first file or folder is written, and the message MUST
+  name the colliding names. A file that appears after that check makes the archive fail (reported
+  in `failed[]` naming the file, FR-011). The mechanism is left to the plan.
 - **FR-010**: A target path that exists and is not a writable directory MUST be refused with
-  `INVALID_INPUT` by the static input checks. A target folder that does not exist MUST be created,
+  `INVALID_INPUT` by the static input checks; for a target folder that does not exist, the same
+  applies to its nearest existing ancestor (not a writable directory → `INVALID_INPUT`). A target
+  folder that does not exist MUST be created,
   with its missing parents, only right before the first archive is written, readable, writable and
   searchable by the owner only. Every archive MUST be created readable and writable by the owner
   only. Permissions of an existing folder MUST NOT be changed.
 - **FR-011**: An archive MUST be written completely or not at all; no partial archive may remain in
-  the target folder. Every per-workflow check (FR-002, FR-004, FR-005, FR-009) MUST be decided
-  before the first write (FR-017); any failing check refuses the whole call and nothing is written.
-  If writing fails midway, the call MUST return a result (not an error) with `archives[]` (the
-  archives written completely) and `failed[]` (`{workflow, code, message}` of the archive that
-  failed); the remaining workflows are not written. Errors before the write (validation, StartCLI,
-  limits) MUST use the error codes and messages of `export_artifacts`.
+  the target folder. Every per-workflow check (FR-002, FR-004, FR-009) MUST be decided before the
+  first write (FR-017); any failing check refuses the whole call and nothing is written. If
+  writing fails — also while creating the target folder or on the first archive — the call MUST
+  return a result (not an error) with `archives[]` (the archives written completely, possibly
+  empty), `failed[]` (`{workflow, code, message}` of the archive that failed) and `notWritten[]`
+  (the workflows not attempted after the failure). A write failure has the code `INTERNAL` (the
+  error catalogue has no dedicated I/O code); a file that appears after the collision check
+  (FR-009) is reported the same way, naming the file. Errors before the write (validation,
+  StartCLI, limits) MUST use the error codes and messages of `export_artifacts`.
 - **FR-012**: The result MUST list per archive: workflow, file path, size, modules as
-  `{name, pluginType}` and repository paths; plus `failed[]` (FR-011), node, owner, diagram group,
-  target folder and a prominent statement that the files contain secrets in clear text and must
-  not be shared or committed as they are. It MUST NOT contain any file content or secret value.
+  `{name, pluginType}`, repository paths, `moduleCount`, `repositoryFileCount`, `missingModules`
+  (`{name, pluginType}`, FR-005) and warnings; plus `failed[]` and `notWritten[]` (FR-011), node,
+  owner, diagram group, target folder, call-level warnings and a prominent statement that the
+  files contain secrets in clear text and must not be shared or committed as they are. Warnings
+  per archive: missing modules (the archive imports only where those modules exist) and a
+  Workflow Connector node in the workflow (the called workflow is not included); call-level: a
+  target below a cloud-sync root (FR-008). The listed modules and repository paths over all
+  archives together MUST be bounded by `resultLimits.maxItems`; when the lists are cut, the result
+  carries `truncated: true`, and `moduleCount` and `repositoryFileCount` are always given in full.
+  The full lists are not written anywhere (no manifest file). The result MUST NOT contain any file
+  content or secret value.
 - **FR-013**: Every call that passes the input schema (refused, failed, partially completed or
   successful) MUST be recorded in the audit log with target, owner, account (as for the other
   tools), diagram group, workflow names, target folder, file names, `reason` and outcome — without
@@ -274,17 +317,19 @@ and the outcome; the folder never holds a partial archive.
 - **FR-016**: `docs/tools.md`, `SECURITY.md` and `CHANGELOG.md` MUST describe the tool, the clear-
   text secrets, the acknowledgement, the client confirmation (FR-001) and the folder rules in the
   same change, and state that on Windows the archives inherit the target folder's ACLs.
+  `SECURITY.md` MUST name the risk of a target folder that a cloud-sync client uploads (FR-008).
 - **FR-017**: The tool MUST check at two moments. The **static input checks** — acknowledgement
   (FR-007), path rules (FR-008, FR-010), production opt-in (FR-014), workflow-name syntax and the
   limits of the input (FR-002) — run before the StartCLI export. Every check that depends on the
-  export — unknown workflow names and the 50-workflow limit (FR-002), file names (FR-004), missing
-  modules (FR-005) and collisions (FR-009) — runs after the export and before the first file or
-  folder is written.
+  export — unknown workflow names and the 50-workflow limit (FR-002), file names (FR-004) and
+  collisions (FR-009) — runs after the export and before the first file or folder is written.
+  Missing modules (FR-005) are not a check; they are reported in the result.
 
 ### Key Entities
 
 - **Workflow archive**: one file per technical workflow; holds the workflow, the modules its nodes
-  reference and its referenced repository files as INUBIT exported them (FR-006); owner-only;
+  reference that the export contains, the modules bound to it by `WorkflowName` and its
+  referenced repository files as INUBIT exported them (FR-005, FR-006); owner-only;
   never in the workspace, the server's directories, a git working tree or a network path.
 - **Archive export record**: one audit record per call with names, paths, account, reason and
   outcome only.
@@ -364,6 +409,43 @@ and the outcome; the folder never holds a partial archive.
   StartCLI runtime.
 - Q: Module listing in the result? → A: `{name, pluginType}` (FR-012).
 
+### Review round 2 decisions
+
+- Q: A workflow whose modules are partly missing from the diagram-group export (e.g. modules of
+  another owner)? → A: normal, not an INUBIT defect; the archive is still written, the result
+  lists them per archive as `missingModules: [{name, pluginType}]` with a warning that the archive
+  imports only where those modules exist; no refusal (FR-005, FR-012, FR-017; as
+  `WorkspaceWriter` only warns).
+- Q: Workflow names in `workflows`? → A: 1–50 unique names, each 1–200 characters, no control
+  characters, matched case-sensitively against the diagram group's technical workflows; this
+  replaces the diagram-group character rules of round 1 (FR-002).
+- Q: Result size? → A: listed modules and repository paths over all archives bounded by
+  `resultLimits.maxItems`; when cut, `truncated: true`; `moduleCount` and `repositoryFileCount`
+  per archive always given; the full list is not written anywhere (no manifest file) (FR-012).
+- Q: `archive.properties` and `Repository.zip`? → A: `archive.properties` byte-identical;
+  `Repository.zip` keeps for each referenced repository file its `.xml` metadata entry and `.dat`
+  content entry plus the directory entries of their folders, each unchanged and in original order
+  (FR-006).
+- Q: Bound modules in the stories? → A: US1-2 says "neither holds a module that FR-005 does not
+  select"; the US1 independent test and the Key Entity name the modules bound by `WorkflowName`.
+- Q: File-name edge cases? → A: an empty result becomes `_`; a leading `.` becomes `_`; the
+  Windows reserved-name rule applies to the part before the first dot; names are compared after
+  NFC normalization and Unicode case folding (FR-004, FR-009).
+- Q: Write failures? → A: workflows not attempted after the failure are listed in `notWritten[]`;
+  the code is `INTERNAL` (`ErrorCode` has no I/O code); a failure while creating the target folder
+  or on the first archive is also a result, with an empty `archives[]` (FR-011).
+- Q: A target folder that does not exist yet? → A: the symbolic-link and `.git` checks apply to
+  its nearest existing ancestor; if that ancestor is not a writable directory, the call is refused
+  with `INVALID_INPUT` by the static input checks (FR-008, FR-010).
+- Q: Earlier archives? → A: never replaced; to archive the same workflow again, the operator names
+  a new folder or removes the old file (Assumptions).
+- Q: Workflow Connector nodes? → A: the result warns per archive that the called workflow is not
+  included (FR-012, Assumptions).
+- Q: Cloud-synced folders? → A: not refused; the result warns when the target lies below a known
+  sync root (macOS `~/Library/CloudStorage`, `~/Library/Mobile Documents`; Windows the folders
+  named by `OneDrive`, `OneDriveCommercial`, `OneDriveConsumer`); `SECURITY.md` names the risk
+  (FR-008, FR-012, FR-016).
+
 ## Assumptions
 
 - The Workbench of INUBIT 8.1 imports an archive that holds one workflow of a diagram group in the
@@ -377,10 +459,12 @@ and the outcome; the folder never holds a partial archive.
 - A workflow that calls another workflow (e.g. through a Workflow Connector node) does not name the
   called workflow in the data the server reads (the workflow file's nodes, or `WorkflowName` in
   `module/module.xml`, which is empty for Workflow Connectors); the Workflow Connector module is
-  included as a node of the calling workflow, the called workflow is not included and not listed
-  in the result. The operator archives called workflows separately.
-- A file name per workflow is enough to tell the archives apart within one call; the operator
-  chooses a new or empty folder per call when they want to keep earlier archives.
+  included as a node of the calling workflow, the called workflow is not included and not named
+  in the result; the result warns per archive whose workflow has a Workflow Connector node that
+  the called workflow is not included (FR-012). The operator archives called workflows separately.
+- A file name per workflow is enough to tell the archives apart within one call. Earlier archives
+  are never replaced (FR-009); to archive the same workflow again, the operator names a new folder
+  or removes the old file.
 - The limits of `export_artifacts` (one StartCLI export, 128 MiB archive) apply unchanged.
 - Windows file permissions are left to the folder's inherited ACLs (as for the other files the
   server writes on Windows), documented per FR-016; SC-005 covers macOS and Linux.
