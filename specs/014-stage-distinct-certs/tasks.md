@@ -424,7 +424,7 @@ line names `server=int/b` (spec US2 Independent Test, Q4 steps b–g).
   → usage error, exit 2 (`--prune` keeps taking a stage). Then update `build_parser` / `parse_args`
   in `tools/inubit-cert-check.py` (`--accept TARGET FINGERPRINT [--by cli|claude]`,
   `--forget TARGET`).
-- [ ] T016 [US2] Refusals of per-server adoption (FR-010, FR-012, Story 2 AS 3 and AS 7, contract
+- [X] T016 [US2] Refusals of per-server adoption (FR-010, FR-012, Story 2 AS 3 and AS 7, contract
   C-2′ step 1). Write the failing tests first in `tools/tests/test_accept.py`, new class
   `PinPerServerRefusalTest(AcceptTestCase)`, and see them fail; each case exits 3, leaves profile and
   trust store byte-identical (sha256), and names the reason on stderr and in the diagnostic log:

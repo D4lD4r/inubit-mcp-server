@@ -927,5 +927,159 @@ class PruneTest(AcceptTestCase):
         self.assertEqual(before, self.snapshot())
 
 
+class PinPerServerRefusalTest(AcceptTestCase):
+    """Refusals of --accept STAGE/SERVER (feature 014, T016, FR-010, FR-012, contract C-2′
+    step 1). int is marked: int/a pins and presents A; int/b pins OTHER and presents B."""
+
+    PER_SERVER = "stage int has one pin per server - name the server, e.g. int/a"
+    NOT_OWN = "stage int: trust store not the stage's own"
+    INVALID = "configuration not valid for tls.pinPerServer: "
+
+    def setUp(self):
+        super().setUp()
+        self.marked = support.marked_stage(self)
+
+    def url(self, node, port=None):
+        port = self.marked[node].port if port is None else port
+        return f"https://int-{node}.example.test:{port}"
+
+    def fp(self, node):
+        return self.marked[node].fingerprint
+
+    def write_marked(self, a=None, b=None, more=(), int_extra=None, dev_store=None, head=""):
+        int_stage = {"name": "int", "pin_per_server": True, "store": self.stores["int"],
+                     "servers": [a or ("a", self.url("a"), {"pin": self.fp("a")}),
+                                 b or ("b", self.url("b"), {"pin": OTHER})] + list(more)}
+        int_stage.update(int_extra or {})
+        support.write_profile(self.profile, [
+            {"name": "dev", "pin": self.fp_a, "store": dev_store or self.stores["dev"],
+             "servers": [("node1", self.serve(self.cert_a, self.key_a))]},
+            int_stage], head=head)
+
+    def accept_target(self, target, fingerprint=None, *extra):
+        return self.run_tool("--accept", target, fingerprint or self.fp("b"), *extra)
+
+    def diag(self):
+        try:
+            with open(self.state.diag_log, encoding="utf-8") as handle:
+                return handle.read()
+        except FileNotFoundError:
+            return ""
+
+    def assertServerRefused(self, result, before, *fragments):
+        _out, err = self.assertRefused(result, before, *fragments)
+        for fragment in fragments:
+            self.assertIn(fragment, self.diag())
+        self.assertEqual([], self.marked["a"].server.sni_names, "int/a is not contacted")
+        return err
+
+    def test_unknown_stage(self):
+        self.write_marked()
+        self.assertServerRefused(self.accept_target("qa/b"), self.snapshot(), "unknown stage 'qa'")
+
+    def test_unknown_server(self):
+        self.write_marked()
+        self.assertServerRefused(self.accept_target("int/z"), self.snapshot(),
+                                 "unknown server 'int/z'")
+
+    def test_marked_stage_without_server(self):
+        self.write_marked()
+        self.assertServerRefused(self.accept_target("int"), self.snapshot(), self.PER_SERVER)
+        self.assertEqual([], self.marked["b"].server.sni_names)
+
+    def test_server_of_uniform_stage(self):
+        self.write_marked()
+        self.assertServerRefused(self.accept_target("dev/node1", self.fp_b), self.snapshot(),
+                                 "stage dev has one pin for the stage - use --accept dev")
+
+    def test_http_server(self):
+        self.write_marked(more=[("c", "http://int-c.example.test:8080")])
+        self.assertServerRefused(self.accept_target("int/c"), self.snapshot(),
+                                 "server int/c is an http server")
+
+    def test_pin_through_alias(self):
+        head = f"x-acme-b: &bTls\n  pinnedCertificateSha256: {OTHER}\n"
+        self.write_marked(b=("b", self.url("b"), {"alias": "bTls"}), head=head)
+        self.assertServerRefused(self.accept_target("int/b"), self.snapshot(),
+                                 "server int/b: the pin is reached through an alias")
+
+    def test_inherited_pin(self):
+        head = f"defaults:\n  tls:\n    pinnedCertificateSha256: {OTHER}\n"
+        self.write_marked(b=("b", self.url("b")), head=head)
+        self.assertServerRefused(self.accept_target("int/b"), self.snapshot(),
+                                 "server int/b: the pin is inherited")
+
+    def test_trust_store_through_alias(self):
+        head = f"x-acme-int: &intTls\n  trustStore: {self.stores['int']}\n"
+        self.write_marked(int_extra={"tls": "*intTls"}, head=head)
+        self.assertServerRefused(self.accept_target("int/b"), self.snapshot(), self.NOT_OWN)
+
+    def test_trust_store_from_defaults(self):
+        head = f"defaults:\n  tls:\n    trustStore: {self.stores['int']}\n"
+        self.write_marked(int_extra={"store": None}, head=head)
+        self.assertServerRefused(self.accept_target("int/b"), self.snapshot(), self.NOT_OWN)
+
+    def test_trust_store_shared_with_another_stage(self):
+        self.write_marked(dev_store=self.stores["int"])
+        self.assertServerRefused(self.accept_target("int/b"), self.snapshot(), self.NOT_OWN)
+
+    def test_stage_with_problem(self):
+        self.write_marked(int_extra={"pin": OTHER})
+        self.assertServerRefused(
+            self.accept_target("int/b"), self.snapshot(),
+            self.INVALID + "stage 'int': tls.pinnedCertificateSha256 is not allowed with "
+            "tls.pinPerServer; set it on each server — run --check-config")
+
+    def test_problem_of_another_server(self):
+        self.write_marked(more=[("c", "https://int-c.example.test:9")])
+        self.assertServerRefused(self.accept_target("int/b"), self.snapshot(),
+                                 self.INVALID + "int/c: tls.pinPerServer on stage 'int' needs "
+                                 "tls.pinnedCertificateSha256 on this server")
+
+    def test_malformed_fingerprint(self):
+        self.write_marked()
+        before = self.snapshot()
+        for fingerprint in ("XYZ", self.fp("b")[:-1], self.fp("b") + ":00"):
+            with self.subTest(fingerprint=fingerprint):
+                self.assertServerRefused(self.accept_target("int/b", fingerprint), before,
+                                         "fingerprint")
+
+    def failed_lines(self):
+        return [line for line in self.change_log() if "outcome=failed" in line]
+
+    def test_server_unreachable(self):
+        self.write_marked(b=("b", f"https://int-b.example.test:{closed_port()}",
+                             {"pin": OTHER}))
+        self.assertServerRefused(self.accept_target("int/b"), self.snapshot(), "int/b",
+                                 "unreachable")
+        [line] = self.failed_lines()
+        self.assertIn("stage=int server=int/b outcome=failed", line)
+        self.assertIn(f"new={self.fp('b')}", line)
+
+    def test_server_presents_another_fingerprint(self):
+        self.write_marked()
+        self.assertServerRefused(self.accept_target("int/b", self.fp("a")), self.snapshot(),
+                                 f"int/b presents {self.fp('b')}")
+        [line] = self.failed_lines()
+        self.assertIn("stage=int server=int/b outcome=failed", line)
+        self.assertEqual(1, len(self.marked["b"].server.sni_names), "only int/b is fetched")
+
+    def test_server_already_pins_fingerprint(self):
+        self.write_marked(b=("b", self.url("b"), {"pin": self.fp("b")}))
+        before = self.snapshot()
+        code, out, err = self.accept_target("int/b")
+        self.assertEqual(0, code, err)
+        self.assertIn("already pins", out)
+        self.assertEqual(before, self.snapshot())
+        self.assertEqual([], self.backups())
+        self.assertEqual([], self.change_log())
+        self.assertEqual([], self.marked["a"].server.sni_names)
+
+    def test_uniform_stage_refusals_unchanged(self):
+        self.write_marked()
+        before = self.snapshot()
+        self.assertRefused(self.run_tool("--accept", "dev", OTHER), before, "dev/node1")
+
+
 if __name__ == "__main__":
     unittest.main()

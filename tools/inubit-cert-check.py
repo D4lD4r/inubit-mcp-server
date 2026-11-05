@@ -2236,12 +2236,48 @@ def _unwritable_directory(paths):
     return None
 
 
+def _resolve_target(profile, target):
+    """(stage, server, None) or (None, None, refusal message) for the target of --accept
+    (contract C-2′ step 1); server is None for a stage target."""
+    stage = profile.stage(target.stage)
+    if stage is None:
+        return None, None, f"unknown stage '{target.stage}'"
+    if target.node is None:
+        if stage.pin_per_server:
+            example = (stage.servers or stage.skipped_servers)[0].id
+            return None, None, (f"stage {stage.name} has one pin per server - name the server, "
+                                f"e.g. {example}")
+        return stage, None, None
+    if target.id not in stage.server_ids:
+        return None, None, f"unknown server '{target.id}'"
+    if not stage.pin_per_server:
+        return None, None, (f"stage {stage.name} has one pin for the stage - use --accept "
+                            f"{stage.name}")
+    server = next((server for server in stage.servers if server.id == target.id), None)
+    if server is None:
+        return None, None, f"server {target.id} is an http server - it has no certificate to pin"
+    if server.pin_source == "alias":
+        return None, None, (f"server {server.id}: the pin is reached through an alias - give "
+                            "the server its own tls block with tls.pinnedCertificateSha256")
+    if server.pin_source != "server" or server.pin_line is None:
+        return None, None, (f"server {server.id}: the pin is inherited - set "
+                            "tls.pinnedCertificateSha256 in the server's own tls block")
+    return stage, server, None
+
+
 def _usable_stage(profile, stage_name, command):
     """(stage, None) or (None, refusal message) for --accept / --prune."""
     stage = profile.stage(stage_name)
     if stage is None:
         return None, f"unknown stage '{stage_name}'"
-    if not stage.own_tls:
+    if stage.pin_per_server:
+        if stage.problem is not None:
+            return None, (f"configuration not valid for tls.pinPerServer: {stage.problem} — "
+                          "run --check-config")
+        if not stage.own_tls:
+            return None, (f"stage {stage_name}: trust store not the stage's own - set "
+                          "tls.trustStore in the stage's own tls block, used by no other stage")
+    elif not stage.own_tls:
         return None, f"stage {stage_name}: {SHARED_TLS}"
     if profile.java is None or (command == "accept" and profile.server_jar is None):
         needed = "x-cert-check.java and x-cert-check.serverJar" if command == "accept" \
@@ -2275,42 +2311,77 @@ def _read_bytes(path):
         return handle.read()
 
 
+def _accept_scope(profile, target):
+    """(stage, server, None) or (None, None, refusal message): every refusal of --accept that
+    needs only the profile (contracts C-2 and C-2′ step 1)."""
+    stage, server, problem = _resolve_target(profile, target)
+    if problem:
+        return None, None, problem
+    stage, problem = _usable_stage(profile, stage.name, "accept")
+    if problem:
+        return None, None, problem
+    return stage, server, None
+
+
 def cmd_accept(args):
-    stage_name, raw = args.accept
+    target = args.target
     profile = load_profile(args)
     state = state_for(args, profile)
     try:
-        fingerprint = normalize_fingerprint(raw)
+        fingerprint = normalize_fingerprint(args.fingerprint)
     except ValueError as e:
         return _refuse(f"malformed fingerprint: {e}")
-    _stage, problem = _usable_stage(profile, stage_name, "accept")
+    _stage, _server, problem = _accept_scope(profile, target)
     if problem:
         return _refuse(problem)
     lock, problem = _lock_profile(state)
     if problem:
         return _refuse(problem)
     try:
-        return accept_locked(args, stage_name, fingerprint, args.by or "cli", state)
+        return accept_locked(args, target, fingerprint, args.by or "cli", state)
     finally:
         lock.release()
 
 
-def accept_locked(args, stage_name, fingerprint, by, state):
-    """Contract C-2 steps 1-7; the caller holds the profile lock (--accept, dialog worker).
-    The profile bytes are read once here; parsing, backup, rollback and edit all use them."""
+def _fetch_server(state, stage, server, fingerprint, by):
+    """Contract C-2′ step 1 for one server of a marked stage: only this server is contacted.
+    (presented, None), or (None, refusal message) after logging `failed` with server=."""
+    presented = fetch_all([server], log=state.diag)[server.id]
+    if presented.reachable and presented.fingerprint == fingerprint:
+        return presented, None
+    detail = f"{server.id} presents {presented.fingerprint}" if presented.reachable \
+        else f"{server.id} unreachable ({presented.error})"
+    _try_log(state, stage.name, "failed", server.pin, fingerprint, None, by, None, server.id)
+    return None, f"server {server.id} does not present {fingerprint}: {detail}"
+
+
+def accept_locked(args, target, fingerprint, by, state):
+    """Contract C-2 / C-2′ steps 1-7; the caller holds the profile lock (--accept, dialog
+    worker). The profile bytes are read once here; parsing, backup, rollback and edit all use
+    them."""
     path = os.path.realpath(profile_file(args))
     try:
         data = _read_bytes(path)
     except OSError as e:
         raise ConfigError(f"cannot read the profile file {path}: {e.strerror or e}") from None
     profile = load_profile(args, data)
-    stage, problem = _usable_stage(profile, stage_name, "accept")
+    stage, server, problem = _accept_scope(profile, target)
     if problem:
         return _refuse(problem)
+    stage_name = stage.name
     try:
         state.check_appendable()
     except OSError as e:
         return _refuse(f"the change log {state.changes_log} is not writable: {e.strerror or e}")
+    if server is not None:
+        if server.pin == fingerprint:
+            emit(f"Server {server.id} already pins {fingerprint}; nothing changed.\n")
+            return OK
+        _leaf, problem = _fetch_server(state, stage, server, fingerprint, by)
+        if problem:
+            return _refuse(problem)
+        # T017: contract C-2′ steps 2-7 (backup, import, edit of server.pin_line, verify)
+        return _refuse(f"server {server.id}: adoption for one server is not implemented yet")
     if stage.pin == fingerprint:
         emit(f"Stage {stage_name} already pins {fingerprint}; nothing changed.\n")
         return OK
@@ -2882,7 +2953,7 @@ def _decide(args, state, profile, offer, parent_deadline, status, status_file):
         status["adopting"] = stage
         _write_json(status_file, status)
         try:
-            code = accept_locked(args, stage, fingerprint, "dialog", state)
+            code = accept_locked(args, Target(stage, None), fingerprint, "dialog", state)
         except Exception as e:  # noqa: BLE001 - reported like a failed adoption
             _report(f"stage {stage}: adoption failed: {type(e).__name__}: {one_line(e)}")
             code = INTERNAL
