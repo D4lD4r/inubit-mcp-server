@@ -1488,11 +1488,13 @@ class TrustEntry:
     fingerprint: str
 
 
-def trust_alias(stage, fingerprint, date=None):
+def trust_alias(stage, fingerprint, date=None, node=None):
     """The alias of an adopted certificate: <stage>-<first 8 hex digits, lower case>-<yyyymmdd>
-    (date in UTC, default today)."""
+    (date in UTC, default today); with node (a server of a marked stage, feature 014)
+    <stage>-<node>-<8 hex>-<yyyymmdd>."""
     day = date or utc_now().date()
-    return f"{stage}-{normalize_fingerprint(fingerprint).replace(':', '')[:8].lower()}-" \
+    prefix = stage if node is None else f"{stage}-{node}"
+    return f"{prefix}-{normalize_fingerprint(fingerprint).replace(':', '')[:8].lower()}-" \
            f"{day.strftime('%Y%m%d')}"
 
 
@@ -2102,9 +2104,10 @@ def signals_ignored():
             signal.signal(number, old)
 
 
-def replace_pin_line(text, line_number, old_pin, new_pin):
+def replace_pin_line(text, line_number, old_pin, new_pin, what="the stage's pin line"):
     """text with the value on line line_number replaced; indentation, the (quoted or plain) key,
-    the value's quotes and the trailing comment are kept. Refuses a line without old_pin."""
+    the value's quotes and the trailing comment are kept. Refuses a line without old_pin (the
+    message says the line is no longer `what`)."""
     lines = text.split("\n")
     if not 1 <= line_number <= len(lines):
         raise VerificationFailed(f"line {line_number} no longer exists")
@@ -2116,7 +2119,7 @@ def replace_pin_line(text, line_number, old_pin, new_pin):
     except ValueError:
         current = None
     if current is None or current != old_pin:
-        raise VerificationFailed(f"line {line_number} is no longer the stage's pin line")
+        raise VerificationFailed(f"line {line_number} is no longer {what}")
     lines[line_number - 1] = (match.group(1) + match.group(2) + new_pin + match.group(2)
                               + match.group(4) + ending)
     return "\n".join(lines)
@@ -2377,30 +2380,29 @@ def accept_locked(args, target, fingerprint, by, state):
         if server.pin == fingerprint:
             emit(f"Server {server.id} already pins {fingerprint}; nothing changed.\n")
             return OK
-        _leaf, problem = _fetch_server(state, stage, server, fingerprint, by)
+        leaf, problem = _fetch_server(state, stage, server, fingerprint, by)
         if problem:
             return _refuse(problem)
-        # T017: contract C-2′ steps 2-7 (backup, import, edit of server.pin_line, verify)
-        return _refuse(f"server {server.id}: adoption for one server is not implemented yet")
-    if stage.pin == fingerprint:
-        emit(f"Stage {stage_name} already pins {fingerprint}; nothing changed.\n")
-        return OK
-    if not stage.servers:
-        return _refuse(f"stage {stage_name} has no https server to verify")
+    else:
+        if stage.pin == fingerprint:
+            emit(f"Stage {stage_name} already pins {fingerprint}; nothing changed.\n")
+            return OK
+        if not stage.servers:
+            return _refuse(f"stage {stage_name} has no https server to verify")
 
-    # step 1: every server of the stage presents exactly that fingerprint right now
-    presented = fetch_all(stage.servers, log=state.diag)
-    deviating = []
-    for server in stage.servers:
-        result = presented[server.id]
-        if not result.reachable:
-            deviating.append(f"{server.id} unreachable ({result.error})")
-        elif result.fingerprint != fingerprint:
-            deviating.append(f"{server.id} presents {result.fingerprint}")
-    if deviating:
-        return _refuse(f"stage {stage_name}: not every server presents {fingerprint}: "
-                       + "; ".join(deviating))
-    leaf = presented[stage.servers[0].id]
+        # step 1: every server of the stage presents exactly that fingerprint right now
+        presented = fetch_all(stage.servers, log=state.diag)
+        deviating = []
+        for each in stage.servers:
+            result = presented[each.id]
+            if not result.reachable:
+                deviating.append(f"{each.id} unreachable ({result.error})")
+            elif result.fingerprint != fingerprint:
+                deviating.append(f"{each.id} presents {result.fingerprint}")
+        if deviating:
+            return _refuse(f"stage {stage_name}: not every server presents {fingerprint}: "
+                           + "; ".join(deviating))
+        leaf = presented[stage.servers[0].id]
 
     # step 2: backups next to the real files
     store = os.path.realpath(stage.trust_store)
@@ -2415,23 +2417,35 @@ def accept_locked(args, target, fingerprint, by, state):
 
     # steps 3-5, all-or-nothing (interruptions included). The trust store comes first: an
     # additional trusted certificate is harmless while the old pin still applies.
-    log_entry = (stage_name, "failed", stage.pin, fingerprint, leaf.not_before, by)
+    if server is None:
+        log_entry = (stage_name, "failed", stage.pin, fingerprint, leaf.not_before, by)
+        alias = trust_alias(stage_name, fingerprint)
+    else:
+        log_entry = (stage_name, "failed", server.pin, fingerprint, leaf.not_before, by, None,
+                     server.id)
+        alias = trust_alias(stage_name, fingerprint, node=server.name)
     keytool = make_keytool(profile.java)
-    alias = trust_alias(stage_name, fingerprint)
     expected = sha256_hex(data)
     guard = SignalGuard()
     try:
         return _change_and_report(args, state, profile, stage, change, leaf, keytool, alias,
                                   path, store, data, expected, fingerprint, by, guard,
-                                  log_entry)
+                                  log_entry, server)
     finally:
         guard.restore()
 
 
 def _change_and_report(args, state, profile, stage, change, leaf, keytool, alias, path, store,
-                       data, expected, fingerprint, by, guard, log_entry):
-    """Contract C-2 steps 3-7 for accept_locked (signals guarded by guard)."""
+                       data, expected, fingerprint, by, guard, log_entry, server=None):
+    """Contract C-2 / C-2′ steps 3-7 for accept_locked (signals guarded by guard); server is the
+    server of a marked stage, or None for a stage adoption."""
     stage_name = stage.name
+    if server is None:
+        pin_line, old_pin, what = stage.pin_line, stage.pin, "the stage's pin line"
+        key, subject = stage_name, f"Stage {stage_name}"
+    else:
+        pin_line, old_pin, what = server.pin_line, server.pin, f"the pin line of server {server.id}"
+        key, subject = server.id, f"Server {server.id}"
     try:
         with guard:
             if sha256_hex(_read_bytes(path)) != expected:
@@ -2440,11 +2454,12 @@ def _change_and_report(args, state, profile, stage, change, leaf, keytool, alias
             imported = fingerprint not in {entry.fingerprint for entry in entries}
             if imported:
                 keytool.import_cert(stage.trust_store, leaf.pem, alias)
-            edited = replace_pin_line(data.decode("utf-8"), stage.pin_line, stage.pin,
-                                      fingerprint)
+            edited = replace_pin_line(data.decode("utf-8"), pin_line, old_pin, fingerprint,
+                                      what=what)
             write_atomically(path, edited.encode("utf-8"), expect_sha256=expected)
             listed = verify_adoption(profile, args, stage_name, fingerprint, keytool,
-                                     stage.trust_store)
+                                     stage.trust_store,
+                                     server_id=None if server is None else server.id)
     except FileChanged:
         # Another program edited the profile: it is left as that program wrote it (no profile
         # restore), only the trust-store import is undone; a refusal, since nothing else changed.
@@ -2462,20 +2477,27 @@ def _change_and_report(args, state, profile, stage, change, leaf, keytool, alias
     except BaseException as e:  # noqa: BLE001 - every failure after the backup is rolled back
         with signals_ignored():
             return _rolled_back(state, change, e, "adoption", log_entry)
-    superseded = [entry for entry in listed if entry.fingerprint != fingerprint]
+    if server is None:
+        pinned = {fingerprint}
+    else:
+        # the re-read stage's expected pins (verified: the others unchanged), as superseded_entries
+        pinned = {other.pin for other in stage.servers
+                  if other.id != server.id and other.pin is not None} | {fingerprint}
+    superseded = [entry for entry in listed if entry.fingerprint not in pinned]
 
     # step 7
-    logged = _try_log(state, stage_name, "adopted", stage.pin, fingerprint, leaf.not_before, by)
+    logged = _try_log(state, stage_name, "adopted", old_pin, fingerprint, leaf.not_before, by,
+                      None, None if server is None else server.id)
     try:
-        if state.clear_rejection(stage_name):
-            state.diag(f"stage {stage_name}: remembered rejection cleared by the adoption")
+        if state.clear_rejection(key):
+            state.diag(f"{subject.lower()}: remembered rejection cleared by the adoption")
     except (StateError, OSError) as e:
-        _report(f"stage {stage_name}: remembered rejection not cleared: {one_line(e)}")
+        _report(f"{subject.lower()}: remembered rejection not cleared: {one_line(e)}")
     try:
-        state.diag(f"stage {stage_name}: adopted {fingerprint} (by {by})")
+        state.diag(f"{subject.lower()}: adopted {fingerprint} (by {by})")
     except OSError:
         pass
-    emit(f"Stage {stage_name}: adopted {fingerprint}\n"
+    emit(f"{subject}: adopted {fingerprint}\n"
          f"  profile      {profile.path}\n"
          f"               backup {change.backups[0]}\n"
          f"  trust store  {stage.trust_store}"
@@ -2490,14 +2512,16 @@ def _change_and_report(args, state, profile, stage, change, leaf, keytool, alias
     return OK
 
 
-def verify_adoption(before, args, stage_name, fingerprint, keytool, trust_store):
-    """Contract C-2 step 5: the server accepts the profile, the re-read profile has the new pin
-    for this stage only, the server ids match, the trust store holds the new certificate.
-    Returns the trust store's entries."""
+def verify_adoption(before, args, stage_name, fingerprint, keytool, trust_store, server_id=None):
+    """Contract C-2 / C-2′ step 5: the server accepts the profile, the re-read profile has the new
+    pin for this stage (or only for server_id of a marked stage) only, the server ids match, the
+    trust store holds the new certificate. Returns the trust store's entries."""
     ids = run_check_config(before, before.path)
     after = load_profile(args)
     stage = after.stage(stage_name)
-    if stage is None or stage.pin != fingerprint \
+    if server_id is not None:
+        _verify_server_pins(before, after, stage_name, server_id, fingerprint)
+    elif stage is None or stage.pin != fingerprint \
             or any(server.pin != fingerprint for server in stage.servers):
         raise VerificationFailed(f"the re-read profile does not pin {fingerprint} for stage "
                                  f"{stage_name}")
@@ -2514,6 +2538,22 @@ def verify_adoption(before, args, stage_name, fingerprint, keytool, trust_store)
     if fingerprint not in {entry.fingerprint for entry in listed}:
         raise VerificationFailed("the trust store does not list the new certificate")
     return listed
+
+
+def _verify_server_pins(before, after, stage_name, server_id, fingerprint):
+    """Contract C-2′ step 5 for the marked stage: server_id pins fingerprint, every other server
+    of the stage keeps its pin, and the server ids of the profile are unchanged."""
+    if after.server_ids() != before.server_ids():
+        raise VerificationFailed("the server ids of the re-read profile changed")
+    old_pins = {server.id: server.pin for server in before.stage(stage_name).servers}
+    stage = after.stage(stage_name)
+    new_pins = {} if stage is None else {server.id: server.pin for server in stage.servers}
+    if new_pins.get(server_id) != fingerprint:
+        raise VerificationFailed(f"the re-read profile does not pin {fingerprint} for server "
+                                 f"{server_id}")
+    for other, pin in old_pins.items():
+        if other != server_id and new_pins.get(other) != pin:
+            raise VerificationFailed(f"the pin of server {other} changed as well")
 
 
 def cmd_prune(args):

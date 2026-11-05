@@ -443,7 +443,7 @@ line names `server=int/b` (spec US2 Independent Test, Q4 steps b–g).
   Then implement the target resolution and refusals in `cmd_accept`, `accept_locked` and
   `_usable_stage` of `tools/inubit-cert-check.py` per C-2′ step 1: fetch only the named server; every
   uniform-stage refusal stays as in 006.
-- [ ] T017 [US2] Per-server adoption, success and rollback (FR-009, FR-010, FR-011, SC-002, SC-003,
+- [X] T017 [US2] Per-server adoption, success and rollback (FR-009, FR-010, FR-011, SC-002, SC-003,
   Story 2 AS 2, 4, 5, 6, contract C-2′ steps 2–7; after T016, same files). Write the failing tests
   first in `tools/tests/test_accept.py` and see them fail:
   - new class `PinPerServerSuccessTest(AcceptTestCase)`: the profile diff is exactly `int/b`'s pin
