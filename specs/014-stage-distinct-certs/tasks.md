@@ -150,7 +150,7 @@ The reviewed spec governs; the other documents were aligned in the same change.
   fingerprints, hosts `int-a.example.test` / `int-b.example.test`); no `cli.url` and no
   `e2e.soap.baseUrl` on the stage. Header comment "every name is fictitious". It is loaded by the
   tests of T005–T009 and T012; `NoCustomerIdentifiersTest` covers it.
-- [ ] T002 [P] Test helpers in `tools/tests/support.py` (research R-14): `write_profile` gains a
+- [X] T002 [P] Test helpers in `tools/tests/support.py` (research R-14): `write_profile` gains a
   per-stage `pin_per_server` flag (writes `pinPerServer: true` into the stage's inline `tls` block,
   or into the anchor when the stage uses `tls`), and per-server TLS: a server entry may be
   `(node, baseUrl, tls)` where `tls` is a dict `{pin, pin_raw, store, alias, pin_per_server}`
