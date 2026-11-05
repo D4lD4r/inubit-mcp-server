@@ -207,4 +207,34 @@ class EffectiveNodeConfigTest {
         assertThat(effectivePins)
             .isEqualTo(Map.of("a", Optional.of(PIN_A), "b", Optional.of(PIN_B)));
     }
+
+    /**
+     * Feature 014 (T012, FR-005a, research R-15): the effective {@code Tls.pinPerServer} is the
+     * stage's {@code tls.pinPerServer}; it decides whether StartCLI calls are probed first.
+     */
+    @Test
+    void pinPerServerIsTrueForTheServersOfAMarkedStageOnly(@TempDir Path home)
+        throws URISyntaxException {
+        Path file = Path.of(
+            EffectiveNodeConfigTest.class.getResource("/config/pin-per-server.yaml").toURI());
+        ProfileConfig config = new ConfigLoader(Map.of(), home, false).loadFile(file).config();
+        Map<NodeId, Boolean> pinPerServer = new HashMap<>();
+
+        for (EffectiveNodeConfig server : config.effectiveNodes()) {
+            pinPerServer.put(server.id(), server.tls().pinPerServer());
+        }
+
+        assertThat(pinPerServer).isEqualTo(Map.of(NodeId.parse("dev/node1"), false,
+            NodeId.parse("int/a"), true, NodeId.parse("int/b"), true));
+    }
+
+    @Test
+    void theThreeArgumentTlsConstructorIsNotPinPerServer() {
+        EffectiveNodeConfig.Tls tls = new EffectiveNodeConfig.Tls(Optional.empty(), true,
+            Optional.of(PIN_A));
+
+        assertThat(tls.pinPerServer()).isFalse();
+        assertThat(tls.disableHostnameVerification()).isTrue();
+        assertThat(tls.pinnedCertificateSha256()).contains(PIN_A);
+    }
 }

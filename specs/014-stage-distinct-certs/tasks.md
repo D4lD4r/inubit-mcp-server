@@ -323,7 +323,7 @@ reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, AS 8, Q1,
   `SSLException`, so a handshake read timeout wrapped in an `SSLException` is still `TIMEOUT`; then
   `TLS_ERROR` / `UNREACHABLE`; `TLS_ERROR` texts as the REST path, `UNREACHABLE` next step naming
   `cli.url`).
-- [ ] T012 [US1] Wire the probe into StartCLI calls (FR-005a, FR-017, SC-004, research R-15; after
+- [X] T012 [US1] Wire the probe into StartCLI calls (FR-005a, FR-017, SC-004, research R-15; after
   T005, T006 and T011). Write the failing tests first and see them fail:
   - `test/config/EffectiveNodeConfigTest.java`: `Tls.pinPerServer()` is `true` for both nodes of
     `int` and `false` for `dev` in `pin-per-server.yaml`; the three-argument `Tls` constructor yields
