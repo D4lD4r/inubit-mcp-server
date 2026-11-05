@@ -1300,6 +1300,35 @@ and produces a startup warning. StartCLI cannot pin a certificate, so it gets
 `--trustStoreFilePath` and `--disableHostNameVerification` only — a residual risk for CLI calls.
 With proper certificates (matching subjectAltNames) remove both settings; no code change is needed.
 
+**StartCLI in a stage with `tls.pinPerServer`.** There the shared trust store holds every server's
+certificate, so StartCLI alone would accept `int/b`'s certificate from `int/a`. Therefore every
+StartCLI call to a server of a marked stage is preceded by one TLS handshake to the host and port
+of that server's `cli.url` (default `<baseUrl>/ibis/servlet/IBISSoapServlet`), with the same trust
+store, the server's own pin and the same host-name rule as REST calls; no request and no
+credential is sent, and an `http` `cli.url` is not checked. If the handshake fails, the call is
+refused before StartCLI starts and before the credential guard is entered (so it never waits for,
+nor counts as, a login):
+
+| Result | Code | Message (example) |
+|---|---|---|
+| pin mismatch or other TLS failure | `TLS_ERROR` | `The TLS connection to int/a failed for the StartCLI address int-a.example.test:8443 (CertificateException); StartCLI was not started` |
+| no connection or handshake within the server's `timeout` | `TIMEOUT` | `The StartCLI address int-a.example.test:8443 of int/a did not complete the TLS handshake within 5 s; StartCLI was not started` |
+| unreachable | `UNREACHABLE` | `Cannot connect to int/a for the StartCLI address int-a.example.test:8443 (ConnectException); StartCLI was not started` |
+
+Likely cause and next step are those of REST calls; only the `UNREACHABLE` next step names
+`cli.url`: `Check cli.url (https://int-a.example.test:8443/ibis/servlet/IBISSoapServlet), DNS and
+the VPN, then retry`. Servers of unmarked stages are not checked; for them the residual risk above
+is unchanged.
+
+A short window remains: a certificate switch between this handshake and StartCLI's own connection
+(about the start time of its JVM) is not caught, because StartCLI checks only the stage's trust
+store — which in a marked stage holds every server's certificate — and, with
+`disableHostnameVerification`, skips the host name. Certificates whose subjectAltNames match each
+host, with `disableHostnameVerification` removed, are therefore still recommended: StartCLI itself
+then refuses another server's certificate, which closes the window. For the certificate tool in a
+marked stage see
+[Stages whose servers present different certificates](#stages-whose-servers-present-different-certificates).
+
 ### Certificate changes
 
 When an INUBIT server is redeployed it often presents a new self-signed certificate. The MCP server

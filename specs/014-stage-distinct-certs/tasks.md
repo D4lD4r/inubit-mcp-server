@@ -591,7 +591,7 @@ brings the dialog back (Q5).
     know, `CertificateException` for a certificate in the store that does not match the pin
     (research R-4).
   Every quoted message and command checked against the code.
-- [ ] T026 Documentation of the StartCLI probe and its remaining window (FR-005a, FR-018, research
+- [X] T026 Documentation of the StartCLI probe and its remaining window (FR-005a, FR-018, research
   R-15; after T012 and T025, same file) in `docs/setup.md` §5 next to the existing paragraph "StartCLI
   cannot pin a certificate …": in a marked stage every StartCLI call is preceded by a TLS handshake to
   the StartCLI address (`cli.url`, default derived from `baseUrl`) with the server's own pin, and a
