@@ -2472,5 +2472,139 @@ class ConfigValidatorTest {
                     "int/b: tls.pinPerServer on Umgebung 'int' needs"
                         + " tls.pinnedCertificateSha256 on this Knoten");
         }
+
+        private static final String UNMARKED_TLS = """
+                tls:
+                  trustStore: /opt/truststore.p12
+            """;
+        private static final String STAGE_CLI = """
+                cli:
+                  url: https://int.example.test:8443/ibis/servlet/IBISSoapServlet
+            """;
+        private static final String STAGE_SOAP = """
+                e2e:
+                  soap:
+                    baseUrl: https://int.example.test:8443
+            """;
+        private static final String CLI_INHERITED_B = "int/b: cli.url is inherited from group"
+            + " 'int' with tls.pinPerServer; set cli.url on each node";
+        private static final String SOAP_INHERITED_B = "int/b: e2e.soap.baseUrl is inherited from"
+            + " group 'int' with tls.pinPerServer; set e2e.soap.baseUrl on each node";
+
+        /**
+         * Stage {@code int} with the https servers {@code a} and {@code b}, each with its own pin;
+         * {@code stage} is added to the stage, {@code nodeA} and {@code nodeB} to each server.
+         */
+        private static String twoServers(String stageTls, String stage, String nodeA,
+            String nodeB) {
+            return "profile:\n  name: acme\ngroups:\n  - name: int\n" + stageTls + stage + """
+                    nodes:
+                      - name: a
+                        baseUrl: https://int-a.example.test:8443
+                        tls:
+                          pinnedCertificateSha256: "%s"
+                """.formatted(PIN) + nodeA + "      - name: b\n" + B_PINNED + nodeB;
+        }
+
+        private static String ownCli(String server) {
+            return "        cli:\n          url: https://int-" + server
+                + ".example.test:8443/ibis/servlet/IBISSoapServlet\n";
+        }
+
+        private static String ownSoap(String server) {
+            return "        e2e:\n          soap:\n            baseUrl: https://int-" + server
+                + ".example.test:8443\n";
+        }
+
+        @Test
+        void v10EachServerInheritingTheStagesCliUrlIsAnError() {
+            ValidationReport report = validate(twoServers(MARKED_TLS, STAGE_CLI, "", ""));
+
+            assertThat(report.errors()).containsExactly(
+                "int/a: cli.url is inherited from group 'int' with tls.pinPerServer; set cli.url"
+                    + " on each node",
+                CLI_INHERITED_B);
+        }
+
+        @Test
+        void v10OnlyTheServerWithoutItsOwnCliUrlIsReported() {
+            ValidationReport report = validate(
+                twoServers(MARKED_TLS, STAGE_CLI, ownCli("a"), ""));
+
+            assertThat(report.errors()).containsExactly(CLI_INHERITED_B);
+            // the existing stage-level warning stays for every stage (contract V-10)
+            assertThat(report.warnings()).contains("Group 'int': cli.url is set for 2 nodes, so"
+                + " all of them use the same StartCLI endpoint; set cli.url per node instead");
+        }
+
+        @Test
+        void v10EveryServerWithItsOwnCliUrlIsValid() {
+            assertThat(validate(twoServers(MARKED_TLS, STAGE_CLI, ownCli("a"), ownCli("b")))
+                .errors()).isEmpty();
+        }
+
+        @Test
+        void v11EachServerInheritingTheStagesSoapAddressIsAnError() {
+            ValidationReport report = validate(twoServers(MARKED_TLS, STAGE_SOAP, "", ""));
+
+            assertThat(report.errors()).containsExactly(
+                "int/a: e2e.soap.baseUrl is inherited from group 'int' with tls.pinPerServer;"
+                    + " set e2e.soap.baseUrl on each node",
+                SOAP_INHERITED_B);
+        }
+
+        @Test
+        void v11OnlyTheServerWithoutItsOwnSoapAddressIsReported() {
+            assertThat(validate(twoServers(MARKED_TLS, STAGE_SOAP, ownSoap("a"), "")).errors())
+                .containsExactly(SOAP_INHERITED_B);
+        }
+
+        @Test
+        void v11EveryServerWithItsOwnSoapAddressIsValid() {
+            assertThat(validate(twoServers(MARKED_TLS, STAGE_SOAP, ownSoap("a"), ownSoap("b")))
+                .errors()).isEmpty();
+        }
+
+        @Test
+        void v10V11AMarkedStageWithOneServerMaySetBothAddressesOnTheStage() {
+            String yaml = "profile:\n  name: acme\ngroups:\n  - name: int\n" + MARKED_TLS
+                + STAGE_CLI + STAGE_SOAP + """
+                    nodes:
+                      - name: a
+                        baseUrl: https://int-a.example.test:8443
+                        tls:
+                          pinnedCertificateSha256: "%s"
+                """.formatted(PIN);
+
+            assertThat(validate(yaml).errors()).isEmpty();
+        }
+
+        @Test
+        void v10V11AnUnmarkedStageMayShareBothAddressesAndKeepsTheWarning() {
+            ValidationReport report = validate(
+                twoServers(UNMARKED_TLS, STAGE_CLI + STAGE_SOAP, "", ""));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).contains("Group 'int': cli.url is set for 2 nodes, so"
+                + " all of them use the same StartCLI endpoint; set cli.url per node instead");
+        }
+
+        @Test
+        void v10V11TheMessagesUseTheProfilesTerminology() {
+            String yaml = twoServers(MARKED_TLS, STAGE_CLI + STAGE_SOAP, ownCli("a"), ownSoap("b"))
+                .replace("profile:\n  name: acme\n", """
+                    profile:
+                      name: acme
+                    terminology:
+                      group: { singular: Umgebung, plural: Umgebungen }
+                      node: { singular: Knoten, plural: Knoten }
+                    """);
+
+            assertThat(validate(yaml).errors()).containsExactlyInAnyOrder(
+                "int/a: e2e.soap.baseUrl is inherited from Umgebung 'int' with tls.pinPerServer;"
+                    + " set e2e.soap.baseUrl on each Knoten",
+                "int/b: cli.url is inherited from Umgebung 'int' with tls.pinPerServer; set"
+                    + " cli.url on each Knoten");
+        }
     }
 }

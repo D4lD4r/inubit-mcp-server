@@ -256,7 +256,7 @@ reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, AS 8, Q1,
   `main/config/ConfigValidator.java`, called from `validate` after `checkStructure`, walking
   `config.groups()` and `group.nodes()` on the written `GroupConfig.tls()` / `NodeConfig.tls()` values
   (not the effective ones), messages through `findings.termError`.
-- [ ] T008 [US1] Validation rules V-10/V-11 — one own StartCLI and SOAP address per server of a
+- [X] T008 [US1] Validation rules V-10/V-11 — one own StartCLI and SOAP address per server of a
   marked stage (FR-004, research R-3 "Note on the two address rules", R-4, contract V-10/V-11;
   after T007, same files). Write the failing tests first in `test/config/ConfigValidatorTest.java`
   `PinPerServer` and see them fail: a marked stage with nodes `a`, `b` and `cli.url` on the stage →

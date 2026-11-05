@@ -513,9 +513,10 @@ public final class ConfigValidator {
     }
 
     /**
-     * Feature 014 (FR-004, research R-3): {@code tls.pinPerServer} rules V-1, V-3 … V-6, checked
-     * on the values as written, not the effective ones, because the rules are about where a
-     * value is set. YAML aliases are resolved before binding, so an alias counts as written there.
+     * Feature 014 (FR-004, research R-3): {@code tls.pinPerServer} rules V-1, V-3 … V-6, V-10 and
+     * V-11, checked on the values as written, not the effective ones, because the rules are about
+     * where a value is set. YAML aliases are resolved before binding, so an alias counts as
+     * written there.
      */
     private static void checkPinPerServer(ProfileConfig config, Findings findings) {
         for (GroupConfig stage : config.groups()) {
@@ -547,6 +548,19 @@ public final class ConfigValidator {
                 if (https && serverTls.pinnedCertificateSha256().isEmpty()) {
                     findings.termError("%s: tls.pinPerServer on {group} '%s' needs"
                         + " tls.pinnedCertificateSha256 on this {node}", id, stage.name());
+                }
+                if (stage.nodes().size() < 2) {
+                    continue;
+                }
+                if (stage.cli().url().isPresent() && server.cli().url().isEmpty()) {
+                    findings.termError("%s: cli.url is inherited from {group} '%s' with"
+                        + " tls.pinPerServer; set cli.url on each {node}", id, stage.name());
+                }
+                if (stage.e2e().soap().baseUrl().isPresent()
+                    && server.e2e().soap().baseUrl().isEmpty()) {
+                    findings.termError("%s: e2e.soap.baseUrl is inherited from {group} '%s' with"
+                        + " tls.pinPerServer; set e2e.soap.baseUrl on each {node}", id,
+                        stage.name());
                 }
             }
         }
