@@ -197,6 +197,156 @@ class DialogTest(unittest.TestCase):
         self.assertFalse(self.tool.notify("x", runner=FakeRunner(error=OSError(2, "missing"))))
         self.assertFalse(self.tool.notify("x", runner=FakeRunner(returncode=1)))
 
+    # T022: one dialog per server of a marked stage (contract C-3′, research R-11) -------------
+
+    def marked_offer(self, expected_by=()):
+        return {"stage": "int", "profile": "acme", "pin": OTHER, "fingerprint": NEW,
+                "notBefore": "2026-10-08T13:06:26Z", "notAfter": "2036-10-05T13:06:26Z",
+                "validNow": True, "servers": [{"id": "int/b", "ip": "203.0.113.22"}],
+                "target": "int/b", "server": "int/b", "expectedBy": list(expected_by)}
+
+    def test_marked_title(self):
+        self.assertEqual("INUBIT certificate changed - server int/b (stage int, profile acme)",
+                         self.tool.dialog_title(self.marked_offer()))
+
+    def test_uniform_title_with_the_added_keys_as_in_006(self):
+        info = dict(offer(), target="dev", server=None, expectedBy=[])
+        self.assertEqual("INUBIT certificate changed - stage dev (profile acme)",
+                         self.tool.dialog_title(info))
+        self.assertEqual(self.tool.dialog_text(offer()), self.tool.dialog_text(info))
+
+    def test_marked_text(self):
+        self.assertEqual([
+            "Server int/b (203.0.113.22) presents a new certificate.",
+            "",
+            "Old (pin): CC:33:44:55...E1:F1:04:05",
+            "New:       BB:22:33:44...D0:E0:F0:03",
+            "valid from: 2026-10-08 13:06:26 UTC   until: 2036-10-05 13:06:26 UTC",
+            "",
+            "Old, full:",
+            "CC:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:",
+            "21:31:41:51:61:71:81:91:A1:B1:C1:D1:E1:F1:04:05",
+            "New, full:",
+            "BB:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:",
+            "10:20:30:40:50:60:70:80:90:A0:B0:C0:D0:E0:F0:03",
+            "",
+            "Accept only if the change is expected (e.g. a redeploy).",
+        ], self.tool.dialog_text(self.marked_offer()).split("\n"))
+
+    def test_marked_text_expected_by(self):
+        lines = self.tool.dialog_text(self.marked_offer(["int/a"])).split("\n")
+        self.assertEqual(["Server int/b (203.0.113.22) presents a new certificate.",
+                          "WARNING: this is the certificate expected for server int/a.",
+                          ""], lines[:3])
+        self.assertEqual(1, sum("WARNING" in line for line in lines))
+        self.assertEqual(self.tool.dialog_text(self.marked_offer()).split("\n")[1:],
+                         lines[2:], "otherwise the same text")
+
+    def test_marked_texts_are_ascii(self):
+        info = self.marked_offer(["int/a"])
+        for text in (self.tool.dialog_title(info), self.tool.dialog_text(info)):
+            self.assertTrue(text.isascii(), text)
+        runner = FakeRunner(stdout="button returned:Reject, gave up:false\n")
+        self.tool.show_dialog(info, runner=runner)
+        script = runner.calls[0]["argv"][2]
+        self.assertTrue(script.isascii(), script)
+        self.assertIn('with title "INUBIT certificate changed - server int/b (stage int, '
+                      'profile acme)"', script)
+
+    def check_result(self):
+        """dev: uniform, node1 and node2 present NEW instead of PIN; int: marked, int/a presents
+        its pin OTHER, int/b (pinned PIN) presents OTHER as well, so it is expected by int/a."""
+        tool = self.tool
+
+        def server(stage, node, pin=None):
+            return tool.Server(id=f"{stage}/{node}", stage=stage, name=node,
+                               base_url=f"https://{stage}-{node}.example.test:8443",
+                               host=f"{stage}-{node}.example.test", port=8443, pin=pin,
+                               trust_store=f"/stores/acme-{stage}-truststore.p12",
+                               pin_source="server" if pin else "stage",
+                               pin_line=20 if pin else None)
+
+        def presented(server_id, ip, fingerprint):
+            return tool.Presented(server_id=server_id, ip=ip, fingerprint=fingerprint,
+                                  not_before="2026-10-08T13:06:26Z",
+                                  not_after="2036-10-05T13:06:26Z", valid_now=True)
+
+        dev_servers = (server("dev", "node1"), server("dev", "node2"))
+        dev = tool.Stage(name="dev", pin=PIN, pin_source="stage", pin_line=10,
+                         trust_store="/stores/acme-dev-truststore.p12", own_tls=True,
+                         servers=dev_servers, server_ids=("dev/node1", "dev/node2"))
+        int_servers = (server("int", "a", OTHER), server("int", "b", PIN))
+        marked = tool.Stage(name="int", pin=None, pin_source="server", pin_line=None,
+                            trust_store="/stores/acme-int-truststore.p12", own_tls=True,
+                            servers=int_servers, server_ids=("int/a", "int/b"),
+                            pin_per_server=True, expected=frozenset({OTHER, PIN}))
+        profile = tool.Profile(path="/profiles/acme.yaml", name="acme", env_prefix="ACME",
+                               java=None, server_jar=None, stages=(dev, marked))
+        shown = {"dev/node1": presented("dev/node1", "203.0.113.10", NEW),
+                 "dev/node2": presented("dev/node2", "203.0.113.11", NEW),
+                 "int/a": presented("int/a", "203.0.113.21", OTHER),
+                 "int/b": presented("int/b", "203.0.113.22", OTHER)}
+        stages = (tool.evaluate_stage(dev, shown), tool.evaluate_stage(marked, shown,
+                                                                       rejections={}))
+        return profile, tool.CheckResult(profile=profile, checked_at="2026-11-05T10:00:00Z",
+                                         stages=stages, exit_code=tool.CHANGED)
+
+    def marked_info(self):
+        return {"stage": "int", "profile": "acme", "pin": PIN, "fingerprint": OTHER,
+                "notBefore": "2026-10-08T13:06:26Z", "notAfter": "2036-10-05T13:06:26Z",
+                "validNow": True, "servers": [{"id": "int/b", "ip": "203.0.113.22"}],
+                "target": "int/b", "server": "int/b", "expectedBy": ["int/a"]}
+
+    def test_offer_info(self):
+        profile, result = self.check_result()
+        dev, marked = result.stages
+        info = self.tool.offer_info(profile, dev)
+        self.assertEqual(list(offer()) + ["target", "server", "expectedBy"], list(info))
+        self.assertEqual(dict(offer(), target="dev", server=None, expectedBy=[]), info)
+        server_b = marked.servers[1]
+        self.assertEqual(self.marked_info(), self.tool.offer_info(profile, marked, server_b))
+        self.assertEqual(list(self.marked_info()),
+                         list(self.tool.offer_info(profile, marked, server_b)))
+
+    def test_offers_file(self):
+        """The offers file cmd_interactive writes: one entry per target, 006 bytes for the
+        uniform stage apart from the added keys (data-model "Dialog worker files")."""
+        profile, result = self.check_result()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        state_dir = os.path.join(tmp.name, "state")
+        args = self.tool.parse_args(["--config", profile.path, "--state-dir", state_dir,
+                                     "--interactive"])
+        written = []
+        real_write = self.tool.write_atomically
+
+        def recording_write(path, data, *rest, **kwargs):
+            written.append((path, data))
+            return real_write(path, data, *rest, **kwargs)
+
+        def no_worker(*_args, **_kwargs):
+            raise OSError(1, "no worker in this test")
+
+        err = io.StringIO()
+        with mock.patch.object(self.tool, "load_profile", return_value=profile), \
+                mock.patch.object(self.tool, "run_check", return_value=result), \
+                mock.patch.object(self.tool, "write_atomically", recording_write), \
+                mock.patch.object(self.tool.subprocess, "Popen", no_worker), \
+                mock.patch.object(self.tool, "_current_state", None), \
+                contextlib.redirect_stderr(err):
+            self.assertEqual(self.tool.OK, self.tool.cmd_interactive(args))
+        [data] = [data for path, data in written if path.endswith(".offers.json")]
+        entries = json.loads(data.decode("utf-8"))["offers"]
+        self.assertEqual(2, len(entries), data)
+        uniform, server_b = entries
+        self.assertEqual(list(offer()) + ["target", "server", "expectedBy"], list(uniform))
+        self.assertEqual(("dev", None, []), (uniform.pop("target"), uniform.pop("server"),
+                                             uniform.pop("expectedBy")))
+        self.assertEqual(json.dumps(offer(), indent=2), json.dumps(uniform, indent=2),
+                         "006 bytes apart from the added keys")
+        self.assertEqual(json.dumps(self.marked_info(), indent=2),
+                         json.dumps(server_b, indent=2))
+
 
 @unittest.skipIf(OPENSSL is None, "openssl not found")
 class InteractiveTestCase(unittest.TestCase):
@@ -405,6 +555,90 @@ class NoDialogTest(InteractiveTestCase):
     def test_usage_error(self):
         err, _elapsed = self.interactive(argv=["--interactive", "--profile", "Bad_Name"])
         self.assertEqual(1, len(err.splitlines()), err)
+
+    # T022: marked stages (FR-014, FR-015, Story 3 AS 2, research R-9) -------------------------
+
+    def write_marked_int(self, nodes, pin_a, pin_b, store=None, url_b=None):
+        """dev: uniform stage, ok (pins and presents A); int: marked stage with int/a and int/b,
+        each presenting its own certificate (int/b the one at url_b if given)."""
+        support.write_profile(self.profile, [
+            {"name": "dev", "pin": self.fp_a, "store": self.stores["dev"],
+             "servers": [("node1", self.serve_a())]},
+            {"name": "int", "pin_per_server": True, "store": store or self.stores["int"],
+             "servers": [
+                 ("a", f"https://int-a.example.test:{nodes['a'].port}", {"pin": pin_a}),
+                 ("b", url_b or f"https://int-b.example.test:{nodes['b'].port}",
+                  {"pin": pin_b})]}])
+
+    def the_dialog(self):
+        """The info of the only dialog shown."""
+        self.wait_for_workers()
+        dialogs = [entry["info"] for entry in self.calls("show_dialog")]
+        self.assertEqual(1, len(dialogs), dialogs)
+        return dialogs[0]
+
+    def test_marked_rejected_server_no_dialog_other_server_still_offered(self):
+        nodes = support.marked_stage(self)
+        self.write_marked_int(nodes, OTHER, PIN)  # both changed
+        self.state.remember_rejection("int/b", nodes["b"].fingerprint, None, "rejected")
+        before = self.snapshot()
+        err, _elapsed = self.interactive()
+        dialog = self.the_dialog()
+        self.assertEqual(("int/a", "int/a", nodes["a"].fingerprint, OTHER),
+                         (dialog["target"], dialog["server"], dialog["fingerprint"],
+                          dialog["pin"]))
+        [warning] = [line for line in err.splitlines() if "int/b" in line]
+        self.assertIn("rejected earlier", warning)
+        self.assertIn("--forget int/b", warning)
+        self.assertIn("server int/b", warning)
+        self.assertIn("int/b", self.diag())
+        self.assertIn("rejected earlier", self.diag())
+        self.assertEqual(before, self.snapshot())
+        self.assertIsNotNone(self.state.rejection("int/b"))
+
+    def test_marked_stage_keyed_leftover_never_suppresses_a_dialog(self):
+        nodes = support.marked_stage(self)
+        self.write_marked_int(nodes, nodes["a"].fingerprint, OTHER)  # int/b changed
+        self.state.remember_rejection("int", nodes["b"].fingerprint, None, "rejected")
+        err, _elapsed = self.interactive()
+        dialog = self.the_dialog()
+        self.assertEqual(("int/b", nodes["b"].fingerprint),
+                         (dialog["target"], dialog["fingerprint"]))
+        self.assertNotIn("rejected earlier", err)
+        self.assertNotIn("int", self.state.load_rejections(),
+                         "--interactive removes the leftover stage-keyed entry")
+
+    def test_marked_stage_keyed_leftover_removed_when_all_ok(self):
+        nodes = support.marked_stage(self)
+        self.write_marked_int(nodes, nodes["a"].fingerprint, nodes["b"].fingerprint)
+        self.state.remember_rejection("int", self.fp_b, None, "rejected")
+        self.interactive()
+        self.assertNoDialog()
+        self.assertEqual({}, self.state.load_rejections())
+        self.assertIn("stage int", self.diag())
+
+    def test_marked_offer_names_the_server_it_is_expected_for(self):
+        nodes = support.marked_stage(self)
+        url_b = f"https://int-b.example.test:{nodes['a'].port}"  # int/b presents int/a's cert
+        self.write_marked_int(nodes, nodes["a"].fingerprint, OTHER, url_b=url_b)
+        self.interactive()
+        dialog = self.the_dialog()
+        self.assertEqual(("int/b", "int", ["int/a"], ["int/b"]),
+                         (dialog["target"], dialog["stage"], dialog["expectedBy"],
+                          [server["id"] for server in dialog["servers"]]))
+
+    def test_marked_no_offer_reason_only_logged(self):
+        nodes = support.marked_stage(self)
+        self.write_marked_int(nodes, nodes["a"].fingerprint, OTHER,
+                              store=self.stores["dev"])  # shares dev's trust store
+        before = self.snapshot()
+        err, _elapsed = self.interactive()
+        self.assertNoDialog()
+        self.assertEqual("", err)
+        self.assertIn("int/b", self.diag())
+        self.assertIn("trust store not the stage's own", self.diag())
+        self.assertEqual(before, self.snapshot())
+        self.assertEqual([], self.change_log())
 
 
 class DialogOutcomeTest(InteractiveTestCase):

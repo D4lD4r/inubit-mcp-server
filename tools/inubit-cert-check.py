@@ -2752,6 +2752,9 @@ def ascii_fingerprint(fingerprint):
 
 
 def dialog_title(info):
+    if info.get("server"):
+        return (f"INUBIT certificate changed - server {info['server']} (stage {info['stage']}, "
+                f"profile {info['profile']})")
     return f"INUBIT certificate changed - stage {info['stage']} (profile {info['profile']})"
 
 
@@ -2761,6 +2764,9 @@ def dialog_text(info, now=None):
     established."""
     lines = [f"Server {server['id']} ({server['ip']}) presents a new certificate."
              for server in info["servers"]]
+    if info.get("expectedBy"):
+        lines.append("WARNING: this is the certificate expected for server "
+                     f"{', '.join(info['expectedBy'])}.")
     lines += ["", f"Old (pin): {ascii_fingerprint(info['pin'])}",
               f"New:       {ascii_fingerprint(info['fingerprint'])}",
               f"valid from: {_utc_text(info['notBefore'])}   until: {_utc_text(info['notAfter'])}"]
@@ -2830,15 +2836,26 @@ def notify(text, runner=None):
     return result.returncode == 0
 
 
-def offer_info(profile, stage_result):
-    """What the dialog worker asks about (the offers file holds a list of these)."""
-    first = stage_result.servers[0].presented
+def offer_info(profile, stage_result, server_result=None):
+    """What the dialog worker asks about (the offers file holds a list of these): the offer of
+    a uniform stage, or with server_result the offer of that server of a marked stage. target
+    is the stage name or the server id (research R-11)."""
+    if server_result is None:
+        first = stage_result.servers[0].presented
+        return {"stage": stage_result.stage.name, "profile": profile.name,
+                "pin": stage_result.stage.pin, "fingerprint": stage_result.offer,
+                "notBefore": first.not_before, "notAfter": first.not_after,
+                "validNow": all(server.presented.valid_now for server in stage_result.servers),
+                "servers": [{"id": server.server.id, "ip": server.presented.ip}
+                            for server in stage_result.servers],
+                "target": stage_result.stage.name, "server": None, "expectedBy": []}
+    shown, server_id = server_result.presented, server_result.server.id
     return {"stage": stage_result.stage.name, "profile": profile.name,
-            "pin": stage_result.stage.pin, "fingerprint": stage_result.offer,
-            "notBefore": first.not_before, "notAfter": first.not_after,
-            "validNow": all(server.presented.valid_now for server in stage_result.servers),
-            "servers": [{"id": server.server.id, "ip": server.presented.ip}
-                        for server in stage_result.servers]}
+            "pin": server_result.server.pin, "fingerprint": server_result.offer,
+            "notBefore": shown.not_before, "notAfter": shown.not_after,
+            "validNow": bool(shown.valid_now), "servers": [{"id": server_id, "ip": shown.ip}],
+            "target": server_id, "server": server_id,
+            "expectedBy": list(server_result.expected_by)}
 
 
 def offers_path(status_file):
@@ -2876,7 +2893,9 @@ def worker_options(args, state):
     return options
 
 
-def _no_dialog_reason(stage_result):
+def _no_dialog_reason(stage_result, server_result=None):
+    if server_result is not None:
+        return server_result.no_offer_reason
     if stage_result.stage.pin is None:
         return "no pin configured"
     if stage_result.conflict:
@@ -2896,7 +2915,9 @@ def cmd_interactive(args):
     offers = []
     for stage_result in result.stages:
         name = stage_result.stage.name
-        if stage_result.offer and stage_result.rejected:
+        if stage_result.stage.pin_per_server:
+            offers += _marked_offers(args, state, profile, stage_result)
+        elif stage_result.offer and stage_result.rejected:
             _report(f"WARNING: stage {name} presents the certificate {stage_result.offer} that "
                     f"was rejected earlier; no dialog (to be asked again: {PROG} "
                     f"{command_options(args)} --forget {name})")
@@ -2914,7 +2935,7 @@ def cmd_interactive(args):
     lock = state.try_lock()
     if lock is None:
         _report(f"dialog open in another session; no dialog for "
-                f"{', '.join(offer['stage'] for offer in offers)}")
+                f"{', '.join(offer['target'] for offer in offers)}")
         return OK
     status_file = state.dialog_status_file(os.getpid())
     offers_file = offers_path(status_file)
@@ -2960,6 +2981,28 @@ def cmd_interactive(args):
         return OK
     _report_dialog_outcomes(offers, status or {}, profile)
     return OK
+
+
+def _marked_offers(args, state, profile, stage_result):
+    """The offers of a marked stage, one per changed server, in check order (contract C-3′);
+    rejected ones get the warning, the others without an offer are only logged."""
+    offers = []
+    for server_result in stage_result.servers:
+        server_id = server_result.server.id
+        if server_result.offer and server_result.rejected:
+            _report(f"WARNING: server {server_id} presents the certificate "
+                    f"{server_result.offer} that was rejected earlier; no dialog (to be asked "
+                    f"again: {PROG} {command_options(args)} --forget {server_id})")
+        elif server_result.offer:
+            offers.append(offer_info(profile, stage_result, server_result))
+        elif server_result.status == "changed":
+            state.diag(f"server {server_id}: certificate changed, no dialog: "
+                       f"{_no_dialog_reason(stage_result, server_result)}")
+    down = [server.server.id for server in stage_result.servers
+            if not server.presented.reachable]
+    if down:
+        state.diag(f"stage {stage_result.stage.name}: unreachable: {', '.join(down)}")
+    return offers
 
 
 def _log_dialog_failed(state, offers):

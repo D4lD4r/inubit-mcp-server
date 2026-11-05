@@ -519,7 +519,7 @@ brings the dialog back (Q5).
   stage-keyed entry; `--forget dev` behaves as in 006; exit 0 also when nothing was remembered; exit
   3 for an unknown stage or server and for a server of a uniform stage (`--forget dev/node1`). Then
   update `cmd_forget` in `tools/inubit-cert-check.py`.
-- [ ] T022 [US3] Dialog text, offers and the no-dialog rules (FR-010a, FR-014, FR-015, Story 3 AS 2,
+- [X] T022 [US3] Dialog text, offers and the no-dialog rules (FR-010a, FR-014, FR-015, Story 3 AS 2,
   contract C-3′, research R-9, R-11, data-model "Dialog worker files"). Write the failing tests
   first in `tools/tests/test_interactive.py` and see them fail:
   - `DialogTest`: `dialog_title` = `INUBIT certificate changed - server int/b (stage int, profile
