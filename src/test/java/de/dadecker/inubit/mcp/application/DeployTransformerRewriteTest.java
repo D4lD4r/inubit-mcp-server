@@ -62,6 +62,37 @@ class DeployTransformerRewriteTest extends DeployExecution {
     }
 
     @Test
+    void aReleaseThatDiffersOnlyInTheRewrittenTransformerIsUnchanged() {
+        // the release keeps the plain factory, the targets hold the rewritten one: deploying
+        // it again would change nothing, so the preview must not list Module-0005 as CHANGED
+        DeploymentPreview first = plainPreview();
+        executeStart();
+        DeployHarness.TARGETS.forEach(this::deployed);
+        execute(first);
+        List<Integer> imports = DeployHarness.TARGETS.stream()
+            .map(node -> harness.servers.get(node).imported.size()).toList();
+
+        DeploymentPreview second = preview();
+        executeStart();
+        DeployHarness.TARGETS.forEach(node -> {
+            nodeExports(node);
+            harness.tagVerified(node, "GRP-01", TAG);
+        });
+        DeploymentResult result = execute(second);
+
+        assertThat(module(0)).contains(SAXONICA);
+        assertThat(result.outcome()).as(result.toString())
+            .isEqualTo(DeploymentResult.Outcome.EXECUTED);
+        assertThat(result.nodes()).allSatisfy(node -> {
+            assertThat(node.state()).isEqualTo(State.UNCHANGED);
+            assertThat(node.imported()).isEmpty();
+        });
+        assertThat(DeployHarness.TARGETS.stream().map(node -> harness.servers.get(node)
+            .imported.size()).toList()).isEqualTo(imports);
+        harness.verifyComplete();
+    }
+
+    @Test
     void theRollbackOfAModuleWhoseTransformerInubitRewritesSucceeds() {
         DeploymentPreview preview = plainPreview();
         executeStart();
