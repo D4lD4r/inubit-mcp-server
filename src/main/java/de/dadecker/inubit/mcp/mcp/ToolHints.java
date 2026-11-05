@@ -39,4 +39,13 @@ public record ToolHints(
     public static ToolHints destructive(String title) {
         return new ToolHints(title, false, true, false, true);
     }
+
+    /**
+     * A tool that writes local files only: read-only for INUBIT, but not read-only as a whole, so
+     * clients ask before calling it; not destructive, non-idempotent, open world (feature 015:
+     * {@code export_archives}).
+     */
+    public static ToolHints localWrite(String title) {
+        return new ToolHints(title, false, false, false, true);
+    }
 }

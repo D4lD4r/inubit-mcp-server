@@ -57,7 +57,7 @@ only on purpose, P1 — must ship together with US1), US3 (traceable and bounded
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] Annotation factory (research R-1): test first in `test/mcp/ToolHintsTest.java`
+- [X] T001 [P] Annotation factory (research R-1): test first in `test/mcp/ToolHintsTest.java`
   (`localWriteIsNeitherReadOnlyNorDestructiveNorIdempotentButOpenWorld`: `readOnly()==false`,
   `destructive()==false`, `idempotent()==false`, `openWorld()==true`, title kept); then add
   `public static ToolHints localWrite(String title)` returning `new ToolHints(title, false, false,
