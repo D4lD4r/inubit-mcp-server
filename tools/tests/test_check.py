@@ -292,6 +292,97 @@ class RejectionTest(CheckTestCase):
         with open(state.diag_log, encoding="utf-8") as handle:
             self.assertIn("rejection", handle.read())
 
+    def write_marked_int(self, nodes, pin_a, pin_b, dev_url=None):
+        """dev: uniform stage with one server (dev_url, else certificate A); int: marked stage
+        with int/a and int/b, each presenting its own certificate, pinned to pin_a / pin_b."""
+        int_servers = [(node, f"https://int-{node}.example.test:{nodes[node].port}", {"pin": pin})
+                       for node, pin in (("a", pin_a), ("b", pin_b))]
+        self.write([{"name": "dev", "pin": self.fp_a, "store": self.stores["dev"],
+                     "servers": [("node1", dev_url or self.serve_a())]},
+                    {"name": "int", "pin_per_server": True, "store": self.stores["int"],
+                     "servers": int_servers}])
+
+    def run_check_counting_writes(self):
+        with mock.patch.object(self.tool, "write_atomically",
+                               wraps=self.tool.write_atomically) as write:
+            code, report, err = self.run_check()
+        return code, report, err, [call[0][0] for call in write.call_args_list]
+
+    def test_marked_stage_drops_stage_keyed_entry(self):
+        nodes = support.marked_stage(self)
+        self.write_marked_int(nodes, nodes["a"].fingerprint, OTHER)
+        state = self.tool.State(self.state_dir, "acme")
+        state.remember_rejection("int", nodes["b"].fingerprint, None, "rejected")
+        code, report, _err, writes = self.run_check_counting_writes()
+        self.assertEqual(10, code, "int/b is still changed")
+        self.assertIsNone(state.rejection("int"), "a stage key never applies to a marked stage")
+        self.assertEqual([state.rejections_file], writes)
+        self.assertFalse(self.server_of(report, "int/b")["rejected"],
+                         "the leftover stage key never suppresses an offer")
+
+    def test_marked_server_entry_cleared_when_its_pin_is_presented(self):
+        nodes = support.marked_stage(self)
+        self.write_marked_int(nodes, nodes["a"].fingerprint, nodes["b"].fingerprint)
+        state = self.tool.State(self.state_dir, "acme")
+        state.remember_rejection("int/b", OTHER, None, "timed-out")
+        code, _report, _err, writes = self.run_check_counting_writes()
+        self.assertEqual(0, code)
+        self.assertIsNone(state.rejection("int/b"))
+        self.assertEqual([state.rejections_file], writes)
+
+    def test_marked_server_entry_kept_for_another_fingerprint(self):
+        nodes = support.marked_stage(self)
+        self.write_marked_int(nodes, nodes["a"].fingerprint, OTHER)
+        state = self.tool.State(self.state_dir, "acme")
+        state.remember_rejection("int/b", self.fp_b, None, "rejected")
+        before = state.load_rejections()
+        code, report, _err, writes = self.run_check_counting_writes()
+        self.assertEqual(10, code)
+        server_b = self.server_of(report, "int/b")
+        self.assertEqual((nodes["b"].fingerprint, False), (server_b["offer"],
+                                                           server_b["rejected"]))
+        self.assertEqual(before, state.load_rejections(), "F stays until G is decided")
+        self.assertEqual([], writes, "nothing to remove: no write")
+
+    def test_housekeeping_in_one_write_and_uniform_entries_untouched(self):
+        nodes = support.marked_stage(self)
+        self.write_marked_int(nodes, nodes["a"].fingerprint, OTHER, dev_url=self.serve_b())
+        state = self.tool.State(self.state_dir, "acme")
+        state.remember_rejection("dev", OTHER, None, "rejected")
+        state.remember_rejection("int", nodes["b"].fingerprint, None, "rejected")
+        state.remember_rejection("int/a", OTHER, None, "rejected")
+        state.remember_rejection("int/b", self.fp_b, None, "timed-out")
+        before = state.load_rejections()
+        state_files = sorted(os.listdir(self.state_dir))
+        code, _report, _err, writes = self.run_check_counting_writes()
+        self.assertEqual(10, code)
+        after = state.load_rejections()
+        self.assertEqual(["dev", "int/b"], sorted(after))
+        self.assertEqual(before["dev"], after["dev"], "a uniform stage's entry is not touched")
+        self.assertEqual(before["int/b"], after["int/b"])
+        self.assertEqual([state.rejections_file], writes, "one write for all removals")
+        self.assertFalse(os.path.exists(state.changes_log), "--check logs no decision")
+        self.assertEqual(state_files, sorted(name for name in os.listdir(self.state_dir)
+                                             if name != "cert-check.log"))
+
+    def test_uniform_stage_entries_untouched_next_to_marked_stage(self):
+        nodes = support.marked_stage(self)
+        self.write_marked_int(nodes, nodes["a"].fingerprint, nodes["b"].fingerprint,
+                              dev_url=self.serve_b())
+        state = self.tool.State(self.state_dir, "acme")
+        state.remember_rejection("dev", self.fp_b, None, "rejected")
+        state.remember_rejection("dev/node1", self.fp_b, None, "rejected")
+        before = state.load_rejections()
+        code, report, _err, writes = self.run_check_counting_writes()
+        self.assertEqual(10, code)
+        self.assertTrue(self.stage(report, "dev")["rejected"])
+        self.assertEqual(before, state.load_rejections())
+        self.assertEqual([], writes)
+
+    def server_of(self, report, server_id):
+        return next(server for stage in report["stages"] for server in stage["servers"]
+                    if server["id"] == server_id)
+
 
 class TrustStoreTest(CheckTestCase):
 

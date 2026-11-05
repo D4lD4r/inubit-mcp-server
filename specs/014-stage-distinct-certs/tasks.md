@@ -502,7 +502,7 @@ file by hand.
 dialogs one after another; "Reject" for `int/b` is remembered under `int/b` only; `--forget int/b`
 brings the dialog back (Q5).
 
-- [ ] T020 [US3] Rejection memory per server (FR-015, research R-9, data-model "Remembered
+- [X] T020 [US3] Rejection memory per server (FR-015, research R-9, data-model "Remembered
   rejection", contract C-1′ last rule). Write the failing tests first and see them fail:
   - `tools/tests/test_state.py` `RejectionTest`: keys containing `/` are stored, read and cleared
     without touching stage keys; new `State.clear_rejections(keys)` removes several keys under the

@@ -1427,6 +1427,18 @@ class State:
             self.save_rejections(rejections)
             return True
 
+    def clear_rejections(self, keys):
+        """Forgets the remembered rejections of several keys in one write under the rejections
+        lock; the keys that were there (no write when none was)."""
+        with self._rejections_locked():
+            rejections = self.load_rejections()
+            removed = [key for key in dict.fromkeys(keys) if key in rejections]
+            if removed:
+                for key in removed:
+                    del rejections[key]
+                self.save_rejections(rejections)
+            return removed
+
     # lock ----------------------------------------------------------------------------------------
 
     def _open_lock_file(self):
@@ -1750,6 +1762,24 @@ def superseded_all(profile):
             for stage in profile.stages}
 
 
+def stale_rejections(result, rejections):
+    """{key: (subject, why)} of the remembered rejections the check result makes obsolete
+    (FR-019b, research R-9): a stage presenting its pin again; for a marked stage a leftover
+    stage-keyed entry and each server presenting its own pin again."""
+    stage = result.stage
+    if not stage.pin_per_server:
+        if result.status == "ok" and stage.name in rejections:
+            return {stage.name: (f"stage {stage.name}", "presents its pin again")}
+        return {}
+    stale = {}
+    if stage.name in rejections:
+        stale[stage.name] = (f"stage {stage.name}", "has a pin per server")
+    for server in result.servers:
+        if server.status == "ok" and server.server.id in rejections:
+            stale[server.server.id] = (f"server {server.server.id}", "presents its pin again")
+    return stale
+
+
 def run_check(profile, state, list_store=True, started=None):
     """Contract C-1 without output: fetch, evaluate, forget rejections of stages that are ok
     again (FR-019b); the trust-store listing only with list_store (never on the start-up path)."""
@@ -1760,21 +1790,22 @@ def run_check(profile, state, list_store=True, started=None):
     except StateError as e:
         state.diag(f"remembered rejections ignored: {one_line(e)}")
         rejections = {}
-    results = []
+    results, stale = [], {}
     listings = superseded_all(profile) if list_store else {}
     for stage in profile.stages:
         superseded, reason = listings.get(stage.name, (None, "not inspected on start-up"))
         result = evaluate_stage(stage, presented, rejections.get(stage.name), superseded, reason,
                                 rejections=rejections)
-        if result.status == "ok" and stage.name in rejections:
-            try:
-                state.clear_rejection(stage.name)
-                state.diag(f"stage {stage.name} presents its pin again: remembered rejection "
-                           "cleared")
-            except StateError as e:
-                state.diag(f"stage {stage.name}: remembered rejection not cleared: "
-                           f"{one_line(e)}")
+        stale.update(stale_rejections(result, rejections))
         results.append(result)
+    if stale:
+        try:
+            state.clear_rejections(stale)
+            for subject, why in stale.values():
+                state.diag(f"{subject} {why}: remembered rejection cleared")
+        except StateError as e:
+            for subject, _why in stale.values():
+                state.diag(f"{subject}: remembered rejection not cleared: {one_line(e)}")
     statuses = [server.status for result in results for server in result.servers]
     exit_code = CHANGED if "changed" in statuses else UNREACHABLE \
         if "unreachable" in statuses else OK
