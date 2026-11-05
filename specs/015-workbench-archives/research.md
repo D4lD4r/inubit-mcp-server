@@ -118,7 +118,7 @@ with its error precedence (R-12, R-13).
   (`src/test/resources/fixtures/v8_1/rest/log_queueLog_error.json:10`), not from a recorded
   `module/module.xml` (no recorded export has a Workflow Connector); it is kept in one constant
   of `V81WorkflowArchives` and confirmed against a real export's `ModuleGroupName` in the manual
-  check T025 (a different string there is fixed before the release).
+  check T026 (a different string there is fixed before the release).
 - **Rationale**: FR-005 says "also nested nodes". The two existing helpers are narrower:
   `V81ReleaseArchives.modulesOf` reads only the root's direct children
   (`adapter/archive/v81/V81ReleaseArchives.java:153-162`) and `WorkspaceWriter.moduleNames` only
@@ -205,10 +205,13 @@ with its error precedence (R-12, R-13).
 
 - **Decision**: `application/TargetFolderRules.check(String targetFolder)` → `CheckedFolder(path,
   exists, nearestExisting, warnings)` or `INVALID_INPUT`, in this order:
-  1. `Path.of` succeeds, `isAbsolute()`, no `.`/`..` name element (checked on the string's
+  1. Windows flag set: UNC and drive roots are recognised from the raw string, before the
+     `isAbsolute` check (so the rule is the same on a non-Windows host, where `\\server\share\x`
+     and `Z:\x` are relative paths): a string starting with `\\` (UNC, also `\\?\UNC\`) → refused
+     (network-path rule, contracts/mcp-tools-delta.md "Folder rules" 2); a drive root `<X>:\`
+     whose drive the probe reports remote (R-10) → refused (same rule);
+  2. `Path.of` succeeds, `isAbsolute()`, no `.`/`..` name element (checked on the string's
      elements before any normalization);
-  2. Windows: root starts with `\\` (UNC, also `\\?\UNC\`) → refused; a drive whose type is remote
-     (R-10) → refused;
   3. nearest existing ancestor *A* (the folder itself if it exists); *A* must be a directory
      (`Files.isDirectory`, following links) and writable (`Files.isWritable`); an existing target
      that is not a directory → refused;
@@ -238,10 +241,14 @@ with its error precedence (R-12, R-13).
   `Launcher.java:214` passes `new ConfigLocation(loader.defaultDirectory(), loaded.source())` to
   `serve`, `serve` passes it to `new Wiring(…)` (`Launcher.java:277`), every `Wiring`
   constructor (`Wiring.java:180`, `:190`, `:201`) takes it as its last parameter, and `Wiring`
-  hands `roots()` to `TargetFolderRules`. Test callers: the four factories of `TestWiring`
-  (`TestWiring.java:32`, `:40`, `:48`, `:60`) keep their signatures and pass a fixed test
-  location below `java.io.tmpdir` (`inubit-mcp-test-config/config.yaml`), plus one new factory
-  overload taking a `ConfigLocation`; `WiringE2eTest.java:124`, `WiringAuditTest.java:147` and
+  hands `configLocation.roots()` to `TargetFolderRules` as `List<Path> configurationRoots`
+  (`application` may not depend on `config`: `PackageBoundaryTest` allows it only `java/`,
+  `domain/`, `application/`, `org/slf4j/`). Test callers: the four factories of `TestWiring`
+  (`TestWiring.java:32`, `:40`, `:48`, `:60`) keep their signatures and pass a fixed
+  `TEST_CONFIG_LOCATION` with `defaultDirectory` = `<tmpdir>/inubit-mcp-test-config` and
+  `source` = `<tmpdir>/inubit-mcp-test-config/config.yaml` (`<tmpdir>` = `java.io.tmpdir`), plus
+  one new factory with a distinct name, `TestWiring.withConfigLocation(…)` (an overload of `of`
+  would be ambiguous with `of(…, ParameterStore)`); `WiringE2eTest.java:124`, `WiringAuditTest.java:147` and
   `MessageTerminologyTest.java:125` pass a location below their temporary directory
   (`MessageTerminologyTest` its `loaded.source()`). Messages name the rule and the offending
   path element, never file contents.

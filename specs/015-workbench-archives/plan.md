@@ -38,10 +38,12 @@ directories, git working trees and network paths, and on production groups the n
   forbidden roots on the given and the resolved path — `~/.inubit-mcp`, `workspace`,
   `auditDirectory`, the default configuration directory of `ConfigLoader.defaultDirectory()` and
   the folder of the configuration file in use, plumbed as `ConfigLocation` from `Launcher` through
-  `Wiring`; `.git` in the folder or an ancestor; writable directory or nearest existing ancestor;
+  `Wiring`, which hands `configLocation.roots()` to `TargetFolderRules` as `List<Path>
+  configurationRoots` so that `application` does not depend on `config`; `.git` in the folder or an ancestor; writable directory or nearest existing ancestor;
   cloud-sync warning); network paths through the new port
   `NetworkPathProbe` (UNC by path; mapped drives by `GetDriveTypeW` in `adapter/os`, JNA already
-  present).
+  present); with the Windows flag, UNC and drive roots are recognised from the raw string before
+  the absolute check, so the network-path rule is tested on the Ubuntu CI host too.
 - **Placement** (R-11): `ArchiveFolderWriter` in `application`: temporary owner-only file in the
   target folder (`CREATE_NEW`), `force`, then `Files.createLink(final, temp)` (fails atomically if
   the name exists), temporary file deleted; fallback for file systems without hard links:
@@ -111,7 +113,8 @@ without StartCLI time (expected well below 1 s: one parse, ten slices of a few h
 `Launcher` (passes the `ConfigLocation`), `GroupConfig`,
 `EffectiveNodeConfig`, `ConfigValidator`, `ConfigSummary`, `AuditOutcome`, `ToolHints`
 (`localWrite` factory), `WorkspaceWriter` (uses `ArchiveReferences`), `Wiring` (constructors take
-the `ConfigLocation`), `TestWiring` and the other direct `new Wiring(` callers (`WiringE2eTest`,
+the `ConfigLocation`), `TestWiring` (`TEST_CONFIG_LOCATION` with `defaultDirectory`
+`<tmpdir>/inubit-mcp-test-config`, new factory `withConfigLocation(…)`) and the other direct `new Wiring(` callers (`WiringE2eTest`,
 `WiringAuditTest`, `MessageTerminologyTest`),
 docs (`docs/tools.md`, `docs/setup.md`, `SECURITY.md`, `CHANGELOG.md`, `README.md` tool list).
 
@@ -162,7 +165,8 @@ src/main/java/de/dadecker/inubit/mcp/
 │                  # V81WorkflowArchives (port impl), RawZip (raw entries + metadata + comment),
 │                  # ArchiveReferences (extracted from WorkspaceWriter.render, shared)
 ├── adapter/os/    # WindowsNetworkPaths (+ DriveTypeApi, JnaDriveTypeApi): GetDriveTypeW
-├── application/   # ArchiveExportService (flow, R-13), TargetFolderRules (R-9, R-10),
+├── application/   # ArchiveExportService (flow, R-13), TargetFolderRules (R-9, R-10;
+│                  # takes List<Path> configurationRoots, no config type),
 │                  # ArchiveFolderWriter (+ FileOps seam, R-11), ArchiveExportAudit (R-12)
 ├── config/        # ArchivesConfig; ConfigLocation (default directory + file in use, R-9);
 │                  # GroupConfig.archives; EffectiveNodeConfig.archivesProductionOptIn;
@@ -170,10 +174,12 @@ src/main/java/de/dadecker/inubit/mcp/
 ├── mcp/           # ToolHints.localWrite
 ├── mcp/tools/     # ExportArchivesTool (+ Result)
 ├── Launcher.java  # ConfigLocation from the loaded configuration into Wiring
-└── Wiring.java    # service, probe, folder rules and tool; announced with export_artifacts
+└── Wiring.java    # service, probe, folder rules (configLocation.roots()) and tool;
+                   # announced with export_artifacts
 src/main/resources/schemas/export_archives.input.json, export_archives.output.json
 src/test/…         # tests per quickstart table; security/ArchiveExportSecretLeakTest;
-                   # TestWiring (probe seam); fixtures built in test code from grp-a/grp-b
+                   # TestWiring (probe seam, TEST_CONFIG_LOCATION, withConfigLocation(…));
+                   # fixtures built in test code from grp-a/grp-b
 docs/tools.md, docs/setup.md, SECURITY.md, CHANGELOG.md, README.md (tool list)
 ```
 

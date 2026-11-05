@@ -26,7 +26,9 @@ The validated input of one call (from `ExportArchivesTool`).
 | `nearestExisting` | `Path` | the folder itself or its nearest existing ancestor (a writable directory) |
 | `warnings` | `List<String>` | the cloud-sync warning, if any |
 
-Refusals (`INVALID_INPUT`): relative; `.`/`..` element; UNC or remote drive (Windows); existing
+Refusals (`INVALID_INPUT`): UNC or remote drive (Windows; with the windows flag, UNC roots
+`\\server\share`, `\\?\UNC\…` and drive roots `X:\` are recognised from the raw string before
+the absolute check, so they are judged as Windows paths on any host); relative; `.`/`..` element; existing
 non-directory; not writable (folder or nearest ancestor); inside `~/.inubit-mcp`, `workspace`,
 `auditDirectory`, the default configuration directory (`ConfigLoader.defaultDirectory()`:
 `~/.config/inubit-mcp`, Windows `%APPDATA%\inubit-mcp`) or the folder of the configuration file in
@@ -42,7 +44,10 @@ the root as given and resolved; `.git` in the folder or an ancestor (given or re
 
 `roots()` = `defaultDirectory` and `source.toAbsolutePath().getParent()`, each once. Created in
 `Launcher` (`loader.defaultDirectory()`, `loaded.source()`), passed through `Launcher.serve` and
-every `Wiring` constructor to `TargetFolderRules`.
+every `Wiring` constructor; `Wiring` hands `configLocation.roots()` to `TargetFolderRules` as
+`List<Path> configurationRoots` (`application` must not depend on `config`,
+`PackageBoundaryTest`). Tests use `TEST_CONFIG_LOCATION` with `defaultDirectory` =
+`<tmpdir>/inubit-mcp-test-config` (`java.io.tmpdir`).
 
 ## WorkflowArchivePort (`domain/port`) [R-3]
 

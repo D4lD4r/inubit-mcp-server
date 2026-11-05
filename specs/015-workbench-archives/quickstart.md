@@ -28,7 +28,7 @@ mvn -q -o clean verify
 | Q7 | FR-006: byte identity | module files, `archive.properties` byte-identical; XML entries `XmlEquality`-equal | `V81WorkflowArchivesTest` |
 | Q8 | FR-005: nested nodes, bound modules, missing modules, Workflow Connector warning | as spec | `V81WorkflowArchivesTest` |
 | Q9 | US2-1: no acknowledgement | `INVALID_INPUT` before StartCLI, audited `REFUSED`, nothing written | `ArchiveExportServiceTest` |
-| Q10 | US2-2: folder rules (relative, `..`, `~/.inubit-mcp`, workspace, audit dir, default configuration directory in POSIX and `APPDATA` form, folder of a configuration file loaded from elsewhere, `.git`, each also via a symbolic link, UNC, remote drive) | `INVALID_INPUT` before StartCLI | `TargetFolderRulesTest`, `ConfigLocationTest`, `ArchiveExportServiceTest`, `ExportArchivesWiringTest`, `MainTest` |
+| Q10 | US2-2: folder rules (relative, `..`, `~/.inubit-mcp`, workspace, audit dir, default configuration directory in POSIX and `APPDATA` form, folder of a configuration file loaded from elsewhere, `.git`, each also via a symbolic link, UNC, remote drive — with the Windows flag recognised from the raw string before the absolute check, also on a non-Windows host) | `INVALID_INPUT` before StartCLI, message names the rule (UNC and remote drive: the network-path rule, not "relative") | `TargetFolderRulesTest`, `ConfigLocationTest`, `ArchiveExportServiceTest`, `ExportArchivesWiringTest`, `MainTest` |
 | Q11 | US2-3: collision with an existing file (NFC/case fold) | refused after export, before writing; message names the file; file unchanged | `ArchiveExportServiceTest` |
 | Q12 | US2-4: missing folder | created with missing parents `rwx------` right before the first archive; archives `rw-------` | `ArchiveFolderWriterTest` |
 | Q13 | US2-5: target is a file / not writable / ancestor not writable | `INVALID_INPUT` before StartCLI | `TargetFolderRulesTest` |
@@ -49,6 +49,7 @@ mvn -q -o clean verify
 | Q28 | FR-001/FR-003: workspace untouched, private export directory gone | no workspace file, no history entry | `security/ArchiveExportSecretLeakTest` |
 | Q29 | FR-016: docs | `docs/tools.md` section and tool table, `README.md`; `docs/setup.md`, `SECURITY.md`; `CHANGELOG.md` (client confirmation, folder rules, Windows ACLs) | `ArchiveToolReferenceTest`, `ArchiveSetupSecurityDocsTest`, `ArchiveChangelogTest` |
 | Q30 | SC-001: Workbench import (manual) | one archive from the development stage imports without error; workflow and modules equal; the `Workflow Connector` plug-in type string confirmed (R-5) | operator, with approval (`docs/live-tests.md`) |
+| Q31 | R-13 step 1: unknown target / no owner (no `owner`, no `inventory.owner`) | `TARGET_UNKNOWN` / `NOT_CONFIGURED` before StartCLI, exactly one `REFUSED` audit record, nothing written | `ArchiveExportServiceTest` |
 
 ## Manual check SC-001 (operator only)
 
