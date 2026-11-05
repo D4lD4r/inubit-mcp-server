@@ -193,7 +193,7 @@ public final class ArchiveReader {
      * Names must stay inside the archive (no "zip slip"): not absolute, no drive letter, and no
      * empty, {@code .} or {@code ..} segment, with {@code /} or {@code \} as separator.
      */
-    private static void checkName(String name, String archive) {
+    static void checkName(String name, String archive) {
         String path = name.endsWith("/") ? name.substring(0, name.length() - 1) : name;
         boolean bad = path.isEmpty() || path.startsWith("/") || path.startsWith("\\")
             || path.matches("^[A-Za-z]:.*") || path.indexOf('\0') >= 0;
@@ -400,7 +400,7 @@ public final class ArchiveReader {
             + maxBytes + " bytes in the entry or the whole export)");
     }
 
-    private static ToolErrorException unexpected(String message) {
+    static ToolErrorException unexpected(String message) {
         return new ToolErrorException(ToolError.of(ErrorCode.UNEXPECTED_RESPONSE, message,
             "StartCLI or the export format behaved differently than recorded for INUBIT 8.1",
             "Check the INUBIT client version (cliHome) and retry; the workspace was not"

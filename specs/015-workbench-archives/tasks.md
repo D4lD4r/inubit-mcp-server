@@ -90,10 +90,11 @@ only on purpose, P1 — must ship together with US1), US3 (traceable and bounded
   prefix `_`"; "over 255 bytes in UTF-8 MUST be refused with `INVALID_INPUT` naming the workflow";
   `key(String)` = `Normalizer.normalize(s, NFC).toUpperCase(Locale.ROOT).toLowerCase(Locale.ROOT)`.
 
-- [ ] T004 [P] Raw ZIP entries (research R-4): test first
+- [X] T004 [P] Raw ZIP entries (research R-4): test first
   `test/adapter/archive/v81/RawZipTest.java`: reading `fix/grp-b.zip` gives the 23 entries in archive
-  order with their bytes and times; reading its nested `Repository.zip` gives 6 entries and the
-  archive comment; `write` of the read entries reproduces every entry's name, bytes, time and order
+  order with their bytes and times; reading its nested `Repository.zip` gives 6 entries and no
+  archive comment (the comment "5.3" is read from `fix/grp-a.zip`'s nested `Repository.zip`, 0
+  entries — corrected after T004's review); `write` of the read entries reproduces every entry's name, bytes, time and order
   and the comment (read back with `RawZip`); an entry name with `..`, an absolute name or a drive
   letter, a duplicate name, and inflated content over the bound (test constructor with a small
   bound) → `UNEXPECTED_RESPONSE`. Then package-private `main/adapter/archive/v81/RawZip.java`:
@@ -177,7 +178,8 @@ archives whose content follows FR-005/FR-006.
   `WorkflowGroupName`) with only that `Workflow` element, `XmlEquality`-equal to the input element;
   `module/module.xml` holds only the selected entries, in original group and position order, without
   empty module groups; `Repository.zip` holds exactly `<path>.xml` and `<path>.dat` of each selected
-  file with unchanged bytes, times and order and the archive comment, and no other entry except
+  file with unchanged bytes, times and order and the original's archive comment (if any), and no
+  other entry except
   ancestor directory entries the original has (a workflow without repository files → a
   `Repository.zip` without entries); on the directory-entry variant the ancestor directory entry is
   kept with its unchanged header, time and position among the kept entries and the other directory
