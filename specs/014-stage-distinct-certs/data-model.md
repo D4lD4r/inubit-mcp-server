@@ -32,12 +32,28 @@ Checked on the values as written (before inheritance). Jackson has already resol
 | node of a marked group | `tls.trustStore` absent |
 | https node of a marked group | `tls.pinnedCertificateSha256` present (format: existing `checkTls`) |
 | http node of a marked group | no TLS rule (allowed with `allowInsecureHttp`, as today) |
+| node of a marked group with more than one node | `cli.url` set on the node, or not set on the group (V-10) |
+| node of a marked group with more than one node | `e2e.soap.baseUrl` set on the node, or not set on the group (V-11) |
 
-### Effective server TLS (unchanged, research R-4)
+### Effective server TLS (research R-4, R-15)
 
 `EffectiveNodeConfig.Tls` = node value, else group value. In a marked stage this yields
 `trustStore` from the group and `pinnedCertificateSha256` from the node, so each server's
 `PinningTrustManager` holds exactly its own pin.
+
+| Field | Rule |
+|---|---|
+| `trustStore`, `disableHostnameVerification`, `pinnedCertificateSha256` | unchanged |
+| `pinPerServer` | **new** `boolean`: the group's `tls.pinPerServer`, default `false` (a node value is invalid, V-1). A constructor with the three old arguments sets `false`, so existing call sites stay as they are |
+
+### StartCLI pin probe (server, `adapter/cli`, FR-005a, research R-15)
+
+| Item | Rule |
+|---|---|
+| when | in `CliRunner.run`, after the credential guard's permit is taken, before StartCLI is launched; only when `server.tls().pinPerServer()` is true; never in `CliRunner.execute` (`-v`) |
+| address | host and port of `server.cli().url()` (port `-1` → 443); `http` → no probe |
+| TLS | `SslContexts.forServer(server.secretLabels(), server.tls(), trustStorePassword)`; SNI = host; endpoint identification `HTTPS` unless `disableHostnameVerification`; connect and read timeout `server.timeout()` |
+| result | handshake completes → StartCLI runs as before; otherwise `ToolErrorException` with `TLS_ERROR` / `TIMEOUT` / `UNREACHABLE` as the REST path maps the same cause, the message naming the server, the StartCLI address and "StartCLI was not started"; the permit is neither accepted nor rejected |
 
 ## Profile view (tool, extends 006 "Profile view")
 

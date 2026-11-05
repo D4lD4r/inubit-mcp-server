@@ -24,8 +24,11 @@ python3 -I -m unittest discover -s tools/tests -v
 Expected:
 - Both suites are green, including every unchanged 006 test (SC-005) and `NoCustomerIdentifiersTest`.
 - The new cases cover:
-  - configuration contract V-1 … V-9;
-  - the SC-004 swap test;
+  - configuration contract V-1 … V-11;
+  - the SC-004 swap test for REST (cause `CertificateException`);
+  - the StartCLI probe (FR-005a): a swapped certificate at the StartCLI address is refused and
+    StartCLI is never launched; unmarked stages are not probed; the error texts match the REST
+    path. No real StartCLI or INUBIT is needed (fake process launcher, local TLS servers);
   - tool contracts C-1′ … C-5′.
 
 ## 2. Configuration check (Story 1 AS 1, 5, 6)
@@ -40,8 +43,8 @@ java -jar target/inubit-mcp-server-*.jar --config /path/to/acme-copy.yaml --chec
 Expected:
 - **Valid profile**: exit 0 and `Result: OK`; no error names `int/a` or `int/b` (the summary
   prints no TLS values; the start-up log line of FR-005 names the marked stage).
-- **Broken copies, one rule each (V-1, V-3, V-4, V-5, V-6, and `defaults.tls`)**: exit 1, and the
-  message names stage and server as in the contract table.
+- **Broken copies, one rule each (V-1, V-3, V-4, V-5, V-6, V-10, V-11, and `defaults.tls`)**:
+  exit 1, and the message names stage and server as in the contract table.
 
 ## 3. Start-up log (Story 1 AS 7)
 

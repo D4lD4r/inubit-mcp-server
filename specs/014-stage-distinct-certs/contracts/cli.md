@@ -187,14 +187,18 @@ No new files. `cert-rejections.json` keys and the change-log `server=` field fol
 
 Changes against 006 C-8:
 
+- the trigger is widened: `TLS_ERROR` caused by `CertPathValidatorException` **or** by a pin
+  mismatch (`CertificateException`). In a marked stage a server presenting another server's
+  certificate, and in any stage a replaced but not yet pruned certificate, pass the trust store and
+  fail only the pin (research R-4); a refused StartCLI call reports the same causes (FR-005a);
 - per stage, show the target (stage, or `stage/server` for marked stages);
 - show any `note: … expected for …` line;
 - adopt with `--accept <target> <fingerprint> --by claude`.
 
 ```markdown
 ## INUBIT certificate changes (inubit-acme)
-If a tool of `inubit-acme` reports `TLS_ERROR` with `CertPathValidatorException`: run
-`inubit-cert-check --profile acme --check --json` and show me per changed stage or, for stages with
+If a tool of `inubit-acme` reports `TLS_ERROR` caused by `CertPathValidatorException` or by a pin
+mismatch (`CertificateException`): run `inubit-cert-check --profile acme --check --json` and show me per changed stage or, for stages with
 `pinPerServer`, per changed server: target (`<stage>` or `<stage>/<server>`), old and new
 fingerprint, notBefore and IP, any `expectedBy` note, and any conflict or unreachable server. Ask
 whether to adopt. Only after my explicit "yes" run

@@ -43,6 +43,12 @@
   FR-007 `status`, FR-009 serialization, FR-015 forgetting and old stage-keyed entries, new
   acceptance scenarios Story 1 AS 6–7 and Story 2 AS 7–9). See `reviews/spec-r1.md`,
   `reviews/spec-r2.md`.
+- Plan review r1 (2026-11-05, `reviews/plan-r1.md`): operator decision on finding 2 recorded under
+  Clarifications (session 2026-11-05) — new FR-005a (certificate check before every StartCLI call
+  in a marked stage), FR-005 and SC-004 now cover REST, SOAP and StartCLI, Story 1 AS 8–9, new edge
+  cases, Assumptions adjusted. Finding 1: FR-016 names both `TLS_ERROR` causes. Finding 11: FR-004
+  rejects a stage-level `cli.url` / `e2e.soap.baseUrl` inherited by several servers of a marked
+  stage. All items still pass.
 - Content quality: the "Context & Findings" section names existing components
   (`inubit-cert-check`, `PinningTrustManager`, data model 001) as verified facts about the current
   system, following the precedent of spec 006; requirements and success criteria themselves stay

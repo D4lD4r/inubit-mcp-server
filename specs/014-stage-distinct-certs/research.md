@@ -3,8 +3,9 @@
 Feature: [spec.md](spec.md) · Plan: [plan.md](plan.md)
 
 Every decision was checked against `main` (18344e2) — server code under
-`src/main/java/de/dadecker/inubit/mcp/config/` and `adapter/rest/`, the tool
-`tools/inubit-cert-check.py`, and the 006 contract `specs/006-tls-pin-rotation/contracts/cli.md`.
+`src/main/java/de/dadecker/inubit/mcp/config/`, `adapter/rest/`, `adapter/soap/` and
+`adapter/cli/`, the tool `tools/inubit-cert-check.py`, and the 006 contract
+`specs/006-tls-pin-rotation/contracts/cli.md`.
 
 ## R-1 Where the setting lives: `tls.pinPerServer`
 
@@ -70,6 +71,8 @@ Every decision was checked against `main` (18344e2) — server code under
   | stage needs a trust store | `group.tls().trustStore()` present | `{group} 'int': tls.pinPerServer needs tls.trustStore on the {group}` |
   | no trust store on a server | `node.tls().trustStore()` empty | `int/b: tls.trustStore is not allowed on a {node} of a {group} with tls.pinPerServer; set it on the {group}` |
   | own pin on each https server | `node.tls().pinnedCertificateSha256()` present, unless `baseUrl` is `http` | `int/b: tls.pinPerServer on {group} 'int' needs tls.pinnedCertificateSha256 on this {node}` |
+  | own StartCLI address (more than one node) | `group.cli().url()` empty or `node.cli().url()` present | `int/b: cli.url is inherited from {group} 'int' with tls.pinPerServer; set cli.url on each {node}` |
+  | own SOAP address (more than one node) | `group.e2e().soap().baseUrl()` empty or `node.e2e().soap().baseUrl()` present | `int/b: e2e.soap.baseUrl is inherited from {group} 'int' with tls.pinPerServer; set e2e.soap.baseUrl on each {node}` |
 
   For every node (marked stage or not): `node.tls().pinPerServer()` present →
   `int/b: tls.pinPerServer is only valid on a {group}`. The existing per-server checks
@@ -82,18 +85,49 @@ Every decision was checked against `main` (18344e2) — server code under
   - a pin that reaches a server's own `tls` through an alias is valid (FR-004 last sentence).
 - **Note**: the 006 rule "hostname verification disabled without a pin" can no longer fire in a
   marked stage, because every https server has its own pin. It stays in `checkTls` unchanged.
+- **Note on the two address rules** (plan review r1 finding 11): `EffectiveNodeConfig.resolve`
+  inherits `cli.url` and `e2e.soap.baseUrl` node → group. A stage-level value makes every server of
+  the stage use the same address, but each server checks its own pin there (R-4, R-15), so at most
+  one server can pass. The existing warning "cli.url is set for N {nodes}" (`checkStructure`)
+  stays as it is for every stage; in a marked stage with more than one node the two rules above
+  are errors, named per inheriting node. A stage-level value that every node overrides is dead and
+  not reported. A marked stage with one node may set either address on the stage.
 
-## R-4 The TLS check at connection time is unchanged
+## R-4 The TLS check of REST and SOAP connections is unchanged; StartCLI is not covered by it
 
-- **Finding**: `EffectiveNodeConfig.resolve` takes the node pin before the group pin.
-  `SslContexts` builds one `PinningTrustManager` per server from the effective `Tls`. A marked
-  stage has no group pin, so each server's context holds exactly its own pin and the shared
-  stage trust store. A server presenting another server's certificate passes PKIX (same store)
-  but fails the pin. That is FR-002, FR-005 and SC-004.
-- **Decision**: no change in `adapter/rest`. A regression test in `InubitHttpClientTest` proves
-  SC-004. It uses two WireMock HTTPS servers with the existing `TestCertificates` key stores
-  (`localhost` and `selfsigned`, both trusted by `trustStore()`), pins each server to its own
-  certificate, and shows that a swap is refused.
+- **Finding (REST, SOAP)**: `EffectiveNodeConfig.resolve` takes the node pin before the group pin.
+  `SslContexts` builds one `PinningTrustManager` per server from the effective `Tls`; both
+  `InubitHttpClient` and `SoapE2eClient` use it. A marked stage has no group pin, so each server's
+  context holds exactly its own pin and the shared stage trust store. A server presenting another
+  server's certificate passes PKIX (same store) but fails the pin. That is FR-002, FR-005 and
+  SC-004 for REST and SOAP.
+- **Finding (which exception each case produces)** — `InubitHttpClient.transportError` reports
+  `TLS_ERROR` with the root cause's simple class name in parentheses:
+
+  | Case | Fails in | Reported cause |
+  |---|---|---|
+  | new certificate not in the trust store (uniform stage after a redeploy) | PKIX chain validation of the delegate trust manager | `CertPathValidatorException` (the case the 006 rule was written for) |
+  | certificate in the store but not the server's pin: another server's certificate in a marked stage, or a replaced but not yet pruned certificate | `PinningTrustManager.checkPin` | `CertificateException` ("does not match the pinned SHA-256 fingerprint") |
+  | host name does not match (hostname verification on) | session-aware delegate check | `CertificateException` |
+
+  So a swapped certificate in a marked stage never produces a `CertPathValidatorException`. The
+  C-8′ rule (contracts/cli.md) and `docs/setup.md` therefore name both causes (plan review r1
+  finding 1).
+- **Finding (StartCLI)**: `CliRunner.runUnguarded` passes only `--trustStoreFilePath` and
+  `--disableHostNameVerification` to StartCLI; StartCLI has no pin option. In a uniform stage this
+  is the documented residual risk, reduced by pruning. In a marked stage the shared store always
+  holds every server's certificate, so StartCLI alone would accept `int/b`'s certificate from
+  `int/a`, and pruning can never fix that. This is closed, up to a short window, by the check
+  before StartCLI (R-15, FR-005a).
+- **Finding (SOAP address)**: `SoapE2eClient` pins the node's own certificate against
+  `e2e.soap.baseUrl`, inherited node → group. One stage-level URL for several servers of a marked
+  stage lets at most one node pass; `e2e.soap.baseUrl` must be set per node (R-3, contract V-11).
+- **Decision**: no change in `adapter/rest` or `adapter/soap`. A regression test in
+  `InubitHttpClientTest` proves SC-004 for REST. It uses two WireMock HTTPS servers with the
+  existing `TestCertificates` key stores (`localhost` and `selfsigned`, both trusted by
+  `trustStore()`), pins each server to its own certificate, shows that a swap is refused, and
+  asserts that the reported cause is `CertificateException`. SOAP uses the same `SslContexts` and
+  needs no test of its own.
 
 ## R-5 Start-up log line (FR-005)
 
@@ -130,7 +164,10 @@ Every decision was checked against `main` (18344e2) — server code under
     gets a `problem` text. The check still compares and reports the servers, but no offer is made,
     and `--accept`/`--prune` refuse with "configuration not valid for tls.pinPerServer: <problem>
     — run --check-config". The rules are: a stage pin, a server trust store, an https server
-    without a pin, or a `pinPerServer` on a node.
+    without a pin, a `pinPerServer` on a node, or a marked stage without any effective trust store.
+    The two address rules of R-3 (`cli.url`, `e2e.soap.baseUrl`) are not repeated in the tool:
+    they do not affect pins or the trust store, and `--accept` runs `--check-config`, which
+    reports them.
 - **Rationale**: the reader stays fail-closed for *shapes* (006 R-7). Semantic errors stay
   reportable, so `--check` remains usable for diagnosis.
 
@@ -218,9 +255,76 @@ Every decision was checked against `main` (18344e2) — server code under
 ## R-14 Tests and CI
 
 - **Decision**:
-  - Java tests are added to the existing classes named in plan.md, plus one YAML fixture
+  - Java tests are added to the existing classes named in plan.md, plus the new
+    `StartCliPinProbeTest` (R-15) and one YAML fixture
     `src/test/resources/config/pin-per-server.yaml`, customer-agnostic.
   - Tool tests extend the existing modules. New cases build profiles with two local TLS servers
     that use distinct throw-away certificates (`tls_fixtures.py` already creates them per test).
   - CI is unchanged: `mvn verify` and `python3 -I -m unittest discover -s tools/tests` already run.
   - Every 006 test stays untouched as the regression net (SC-005).
+
+## R-15 Certificate check before every StartCLI call in a marked stage (FR-005a)
+
+- **Finding — where StartCLI connects**: `CliRunner.runUnguarded` passes
+  `server.cli().url()` as the last argument. `EffectiveNodeConfig.resolve` sets it to node
+  `cli.url`, else group `cli.url`, else `baseUrl` + `/ibis/servlet/IBISSoapServlet`
+  (`DEFAULT_CLI_PATH`). By default StartCLI therefore uses the host and port of `baseUrl`, but a
+  configured `cli.url` may name another host or port. `ConfigValidator.checkCliUrl` allows `http`
+  only with `allowInsecureHttp`. `CliVersionProbe` runs `startcli -v` through
+  `CliRunner.execute`, which does not log in and does not contact the server.
+- **Decision**:
+  - New class `adapter/cli/StartCliPinProbe`. `CliRunner.run` calls it after the credential
+    guard's permit is taken and before `runUnguarded` starts StartCLI, only for a server of a
+    marked stage. `EffectiveNodeConfig.Tls` gains `boolean pinPerServer`, resolved from the group's
+    `tls.pinPerServer` (a node value is invalid, V-1); a constructor with the old three arguments
+    keeps every existing call site unchanged. `CliRunner.execute` (the `-v` probe) never probes.
+  - Address: host and port of `server.cli().url()` — exactly the address StartCLI connects to;
+    port `-1` means 443. An `http` address has no certificate and is not probed.
+  - Handshake: `SslContexts.forServer(server.secretLabels(), server.tls(), trustStorePassword)`,
+    the same context the REST client builds (shared stage trust store and this server's own pin in
+    `PinningTrustManager`). An `SSLSocket` connects with `server.timeout()` as connect and read
+    timeout, sets SNI to the host and, unless `disableHostnameVerification` is set, the endpoint
+    identification algorithm `HTTPS`, so the host-name rule matches the REST client; then
+    `startHandshake()` and close. No HTTP request and no credential are sent.
+  - Trust-store password: the four callers of `CliRunner.run` (`CliTagRunner`, `CliExportRunner`,
+    `CliImportRunner`, `V81ProcessControlAdapter`) already hold the node's `NodeCredentials`; `run`
+    gains `Optional<Secret> trustStorePassword` from `credentials.trustStorePassword()`.
+  - Errors, mirroring `InubitHttpClient.transportError` (same codes, same likely-cause and
+    next-step texts):
+    - `SSLException` or `CertificateException` in the cause chain → `TLS_ERROR`, message
+      `The TLS connection to int/a failed for the StartCLI address int-a.example.test:8443
+      (<root cause simple name>); StartCLI was not started` — `(CertificateException)` for a pin
+      mismatch;
+    - connect timeout or handshake timeout → `TIMEOUT`;
+    - `ConnectException`, unknown host, no route → `UNREACHABLE`, message `Cannot connect to int/a
+      for the StartCLI address …; StartCLI was not started`.
+    The permit is neither accepted nor rejected (no login took place), so a refused probe never
+    triggers the credential pause.
+  - Unmarked stages: never probed; arguments, environment and timing of StartCLI unchanged
+    (FR-017).
+  - Cost: one TCP connect and TLS handshake per StartCLI call to a marked stage, milliseconds next
+    to the seconds StartCLI's JVM needs to start.
+- **Residual race (TOCTOU), stated honestly**: the probe checks one handshake; StartCLI then opens
+  its own connection(s) one to a few seconds later (JVM start). If in that window the address
+  starts presenting another certificate — a rotation, a DNS or load-balancer switch, or an
+  attacker who can redirect traffic selectively — StartCLI validates it only against the stage's
+  trust store, which in a marked stage holds every server's certificate, and with
+  `disableHostnameVerification` it skips the host-name check. So within that window StartCLI could
+  still accept another server's certificate. The probe narrows the exposure from "every StartCLI
+  call" to "a switch exactly between probe and StartCLI connect"; it cannot close it. The way out
+  is certificates whose subjectAltNames match each host and host-name verification left on (no
+  `disableHostnameVerification`): then StartCLI itself refuses `int/b`'s certificate at `int/a`'s
+  host. `docs/setup.md` states both.
+- **Alternatives considered**:
+  - Narrow FR-005 / SC-004 to REST and SOAP and only document or warn (plan review r1 finding 2,
+    first option). Rejected by the operator's decision of 2026-11-05.
+  - A temporary trust store per call holding only this server's certificate, passed to StartCLI.
+    It would close the window without SANs, but per-server trust stores are out of scope (spec
+    Assumptions), and it writes key material to a temporary file per call. May be revisited.
+  - A local TLS-terminating proxy that pins and forwards. Far more moving parts than the gain.
+- **Tests**: `StartCliPinProbeTest` with two local TLS endpoints (`TlsTestServer`, made usable
+  from `adapter/cli`) and one shared trust store: matching pin passes, swapped certificate →
+  `TLS_ERROR` with `(CertificateException)`, closed port → `UNREACHABLE`, http address → no probe,
+  likely-cause and next-step texts equal the REST ones. `CliRunnerTest` with `FakeProcessLauncher`:
+  refused probe → StartCLI never launched; matching certificate → launched with unchanged
+  arguments; unmarked server → probe never called.

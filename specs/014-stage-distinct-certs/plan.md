@@ -8,9 +8,12 @@
 
 A stage can be marked with `tls.pinPerServer: true` (research R-1). In a marked stage every https
 server carries its own `pinnedCertificateSha256` in its own `tls` block, the stage keeps one trust
-store, and the stage's `tls` carries no pin. The MCP server gains only configuration rules (FR-004)
-and one start-up log line (FR-005). The TLS check at connection time is unchanged, because it
-already enforces one pin per server (research R-4).
+store, and the stage's `tls` carries no pin. The MCP server gains configuration rules (FR-004,
+including one own StartCLI and SOAP address per server of a marked stage), one start-up log line
+(FR-005), and a certificate check before every StartCLI call to a server of a marked stage
+(FR-005a, research R-15): a TLS handshake to the address StartCLI connects to, through the existing
+pinning trust manager, that refuses the call before StartCLI starts. The TLS check of REST and SOAP
+connections is unchanged, because it already enforces one pin per server (research R-4).
 
 The certificate tool `inubit-cert-check` (feature 006) learns the per-server workflow:
 - **Check:** no conflict for a marked stage, offers and rejections per server, and a note when a
@@ -38,8 +41,11 @@ standard library only, run as `/usr/bin/python3 -I` (operator tool, unchanged fr
   (research R-9, R-10).
 
 **Testing**:
-- Server: JUnit 5 for `ConfigLoaderTest`, `ConfigValidatorTest`, `EffectiveNodeConfigTest` and
-  `InubitHttpClientTest`. The last one gets two servers with distinct self-signed certificates.
+- Server: JUnit 5 for `ConfigLoaderTest`, `ConfigValidatorTest`, `EffectiveNodeConfigTest`,
+  `MainTest`, `InubitHttpClientTest`, `CliRunnerTest` and the new `StartCliPinProbeTest`. The last
+  three use two local TLS servers with distinct self-signed certificates and one shared trust
+  store; `CliRunnerTest` uses `FakeProcessLauncher` to prove that StartCLI is never launched after a
+  refused probe.
 - Tool: `unittest` in `tools/tests` (local TLS servers, fakes for dialog, keytool and
   check-config), as in 006 R-12. CI runs both.
 
@@ -69,11 +75,11 @@ concurrent Claude sessions starting the launcher.
 
 | Principle / constraint | Assessment |
 |---|---|
-| I. Safe by Default | ✅ No INUBIT write path is touched. Pinning gets stricter where the setting applies: each server accepts only its own certificate (FR-002, SC-004). Unmarked stages are unchanged (FR-017). Adoption stays operator-confirmed and scoped to one server, with re-verification of that server, backup, `--check-config`, rollback and an audit line (FR-009–FR-012). There is still no switch that answers a dialog automatically. |
+| I. Safe by Default | ✅ No INUBIT write path is touched. Pinning gets stricter where the setting applies: each server accepts only its own certificate (FR-002, SC-004) — on REST and SOAP through `PinningTrustManager`, and for StartCLI, which cannot pin, through a TLS handshake with the same trust manager to the StartCLI address before every call; on a mismatch or failure StartCLI is not started (FR-005a, research R-15). The short window between that check and StartCLI's own connection is stated in research R-15 and `docs/setup.md`, with subjectAltNames plus host-name verification as the way to close it. Unmarked stages are unchanged and not probed (FR-017). Adoption stays operator-confirmed and scoped to one server, with re-verification of that server, backup, `--check-config`, rollback and an audit line (FR-009–FR-012). There is still no switch that answers a dialog automatically. |
 | II. Secrets out of the conversation | ✅ No credential is read or passed. Output holds fingerprints, subjects, IPs and server ids only. |
-| III. Test-First | ✅ Java validation rules and every new tool behaviour get failing tests first (outline step 2). Dedicated tests cover the safety rules: other servers untouched, refusal cases, rejection memory per server, no stdout in `--interactive`, and a server refusing the certificate of another server. |
+| III. Test-First | ✅ Java validation rules, the StartCLI probe and every new tool behaviour get failing tests first, inside the task that implements them (outline steps 1–2). Regression tests for behaviour that exists already are marked as such. Dedicated tests cover the safety rules: other servers untouched, refusal cases, rejection memory per server, no stdout in `--interactive`, a server refusing the certificate of another server (REST), and StartCLI never launched after a refused probe. |
 | IV. Use-case-oriented tools | n/a. No MCP tool is added or changed. |
-| V. Adapter isolation | ✅ The REST adapter (`PinningTrustManager`, `SslContexts`) is unchanged. The change sits in `config/`. |
+| V. Adapter isolation | ✅ The REST and SOAP adapters (`PinningTrustManager`, `SslContexts`, `InubitHttpClient`, `SoapE2eClient`) are unchanged. The probe lives in the CLI adapter (`adapter/cli/StartCliPinProbe`, called from `CliRunner.run`) and reuses `SslContexts` the way the SOAP adapter already does; no domain or tool code learns about TLS. Configuration rules sit in `config/`. |
 | VI. Bounded, structured output | ✅ The `--json` shape is extended only by added fields (contract C-1′). Errors are short reasons. |
 | VII. Observability & auditability | ✅ A start-up log line names the marked stages (FR-005). Every server decision is one audit line with `server=` (FR-011). Diagnostics go to stderr and the log; stdout stays reserved. |
 | Language: Java | ⚠️ The operator tool stays Python. This is the existing deviation of 006, recorded again in Complexity Tracking. |
@@ -82,8 +88,9 @@ concurrent Claude sessions starting the launcher.
 | SDD artifacts in English | ✅ |
 | Docs updated with behaviour | ✅ `docs/setup.md` §3 and §5, `CHANGELOG.md` and the C-8 rule text, all in the same change (FR-018). `docs/tools.md` does not mention the certificate tool. |
 
-Post-design re-check (after Phase 1): unchanged. All rows pass, with one recorded deviation. The
-design adds no new runtime component and no new file in the state directory.
+Post-design re-check (after Phase 1, revised after plan review r1): all rows pass, with one
+recorded deviation. The design adds one runtime component in the CLI adapter (the StartCLI pin
+probe, active for marked stages only) and no new file in the state directory.
 
 ## Project Structure
 
@@ -92,7 +99,7 @@ design adds no new runtime component and no new file in the state directory.
 ```text
 specs/014-stage-distinct-certs/
 ├── plan.md              # This file
-├── research.md          # Phase 0: R-1 … R-14
+├── research.md          # Phase 0: R-1 … R-15
 ├── data-model.md        # Phase 1: configuration, profile view, check result, rejections, log
 ├── quickstart.md        # Phase 1: offline tests + live validation on a configuration copy
 ├── contracts/
@@ -100,7 +107,7 @@ specs/014-stage-distinct-certs/
 │   └── cli.md           # Phase 1: delta to 006 contracts C-1…C-6, C-8
 ├── checklists/
 │   └── requirements.md
-├── reviews/             # spec reviews (r1, r2)
+├── reviews/             # spec reviews (r1, r2), plan review (r1)
 └── tasks.md             # Phase 2 (/speckit-tasks)
 ```
 
@@ -110,14 +117,27 @@ specs/014-stage-distinct-certs/
 src/main/java/de/dadecker/inubit/mcp/
 ├── config/
 │   ├── TlsConfig.java                 # + Optional<Boolean> pinPerServer
-│   └── ConfigValidator.java           # + checkPinPerServer (FR-004), on the written group/node values
-└── Launcher.java                      # + one start-up log line naming the marked stages (FR-005)
+│   ├── EffectiveNodeConfig.java       # + Tls.pinPerServer (group value; old constructor kept)
+│   └── ConfigValidator.java           # + checkPinPerServer (FR-004, V-1…V-11), on the written group/node values
+├── adapter/cli/
+│   ├── StartCliPinProbe.java          # new: TLS handshake to the StartCLI address before StartCLI (FR-005a)
+│   ├── CliRunner.java                 # run(): probe for marked servers before launch; + trustStorePassword
+│   ├── CliTagRunner.java              # pass credentials.trustStorePassword() to run()
+│   ├── CliExportRunner.java           # same
+│   ├── CliImportRunner.java           # same
+│   └── v81/V81ProcessControlAdapter.java  # same
+├── Wiring.java                        # CliRunner gets the probe
+└── Launcher.java                      # + one start-up log line (FR-005); CliRunner of the -v probe gets the probe
 
 src/test/java/de/dadecker/inubit/mcp/
+├── MainTest.java                      # start-up log line names the marked stages (FR-005)
 ├── config/ConfigLoaderTest.java       # binding of tls.pinPerServer; unknown on defaults
-├── config/ConfigValidatorTest.java    # every FR-004 rule, names stage and server
-├── config/EffectiveNodeConfigTest.java# node pin wins, no stage pin in a marked stage
-└── adapter/rest/InubitHttpClientTest.java  # server A refuses server B's certificate (SC-004)
+├── config/ConfigValidatorTest.java    # every FR-004 rule (V-1…V-11), names stage and server
+├── config/EffectiveNodeConfigTest.java# node pin wins, no stage pin; Tls.pinPerServer per node
+├── adapter/rest/InubitHttpClientTest.java  # server A refuses server B's certificate, cause CertificateException (SC-004)
+├── adapter/rest/TlsTestServer.java    # made usable from adapter/cli tests (visibility only)
+├── adapter/cli/StartCliPinProbeTest.java   # new: swap refused, unreachable, http not probed, error texts
+└── adapter/cli/CliRunnerTest.java     # refused probe → StartCLI never launched; unmarked not probed
 
 src/test/resources/config/
 └── pin-per-server.yaml                # customer-agnostic example (acme / int / a, b)
@@ -132,7 +152,7 @@ tools/
     ├── test_cli.py                    # argument forms, --forget STAGE/SERVER
     └── test_state.py                  # rejection keys, log line with server=
 
-docs/setup.md                          # §3 tls.pinPerServer; §5 per-server rotation, C-8 rule text
+docs/setup.md                          # §3 tls.pinPerServer; §5 per-server rotation, C-8′ rule text, StartCLI probe and its remaining window
 CHANGELOG.md                           # Unreleased: feature 014
 ```
 
@@ -152,10 +172,14 @@ profile-specific enters the repository.
 
 1. **Server, tests first** (contract configuration.md):
    - `tls.pinPerServer` is bound on group and node `tls`. `defaults.tls` stays an unknown key.
-   - `checkPinPerServer` covers every FR-004 rule, each message naming stage and server.
+   - `checkPinPerServer` covers every FR-004 rule (V-1…V-11), each message naming stage and server.
    - One start-up log line lists the marked stages (FR-005).
-   - `InubitHttpClientTest`: two local TLS servers, each pinned to its own certificate, one
-     shared trust store; each refuses the other's certificate (SC-004).
+   - `InubitHttpClientTest` (regression): two local TLS servers, each pinned to its own
+     certificate, one shared trust store; each refuses the other's certificate with the cause
+     `CertificateException` (SC-004).
+   - StartCLI probe (FR-005a, research R-15): `StartCliPinProbe` against two local TLS servers,
+     then wired into `CliRunner.run` for marked servers only; StartCLI is never launched after a
+     refused probe; unmarked servers are never probed.
 2. **Tool, tests first** (contract cli.md):
    - Profile reader: `pinPerServer`, per-server pin line and pin source, the stage's own trust
      store without a pin, and configuration problems as a stage note (research R-7).
@@ -171,7 +195,9 @@ profile-specific enters the repository.
    - Change log: the `server=` field.
 3. **Regression**: every existing 006 test passes unchanged (SC-005); `NoCustomerIdentifiersTest`
    passes.
-4. **Docs, CI, CHANGELOG**: `docs/setup.md` §3 and §5, the C-8′ rule text, and the CHANGELOG.
+4. **Docs, CI, CHANGELOG**: `docs/setup.md` §3 and §5, the C-8′ rule text (both `TLS_ERROR`
+   causes), the StartCLI probe with its remaining window and the SAN recommendation, per-node
+   `cli.url` / `e2e.soap.baseUrl` in a marked stage, and the CHANGELOG.
    CI already runs both suites; check that the new test files are discovered.
 5. **Local validation** (quickstart): reinstall the tool, then run the scenarios on a configuration
    copy with two local TLS servers.

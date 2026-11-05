@@ -8,24 +8,30 @@ description: "Task list for stages whose servers present different certificates 
 **Input**: Design documents from `/specs/014-stage-distinct-certs/`
 
 **Prerequisites**:
-- [plan.md](plan.md) and [spec.md](spec.md) (clarifications 2026-11-03, spec reviews r1–r2)
-- [research.md](research.md) (R-1…R-14) and [data-model.md](data-model.md)
-- [contracts/configuration.md](contracts/configuration.md) (V-1…V-9) and
+- [plan.md](plan.md) and [spec.md](spec.md) (clarifications 2026-11-03 and 2026-11-05, spec reviews
+  r1–r2, plan review r1)
+- [research.md](research.md) (R-1…R-15) and [data-model.md](data-model.md)
+- [contracts/configuration.md](contracts/configuration.md) (V-1…V-11, runtime behaviour) and
   [contracts/cli.md](contracts/cli.md) (C-1′…C-5′, C-8′, delta to
   [006 contracts/cli.md](../006-tls-pin-rotation/contracts/cli.md))
 - [quickstart.md](quickstart.md) (scenario numbers `Q<n>` below)
 - the code of features 001–011 (`main` after 0.7.0 work), in particular the tool of feature 006
-  (`tools/inubit-cert-check.py` and its suite `tools/tests/`)
+  (`tools/inubit-cert-check.py` and its suite `tools/tests/`) and the CLI adapter
+  (`src/main/java/de/dadecker/inubit/mcp/adapter/cli/CliRunner.java`)
 
-**Tests**: REQUIRED (Constitution III, TDD). Every behaviour gets a test that is observed failing on
-an assertion before the production code exists. Test tasks name the class (and where useful the
-method) they add; the implementation task that follows makes them pass. A task is done when
-`mvn -q -o verify` (Java tasks) or `/usr/bin/python3 -I -m unittest discover -s tools/tests -v`
-(tool tasks) is green. Every existing 006 test stays unchanged (SC-005).
+**Tests**: REQUIRED (Constitution III, TDD). Every task that adds behaviour contains its own tests
+and runs in this order: write the failing tests, run them and see them fail on an assertion, then
+implement until they pass. Test and implementation of one behaviour are one task, so every task
+ends green and every commit stays green. Tasks marked **Regression** cover behaviour that exists
+already: their tests pass at once, there is no red step, and a failing regression test means stop
+and report instead of changing production code. A task is done when `mvn -q -o verify` (Java tasks)
+or `/usr/bin/python3 -I -m unittest discover -s tools/tests -v` (tool tasks) is green. Every
+existing 006 test stays unchanged (SC-005).
 
 **Organization**: the tool's profile view and change-log field are the foundation (Phase 2). US1
-(configuration, validation, start-up log, conflict-free check) and US2 (per-server adoption, prune,
-serialization) are both P1; US3 (dialog per server, rejection memory, in-session rule) is P2.
+(configuration, validation, start-up log, runtime pin incl. the StartCLI probe, conflict-free check)
+and US2 (per-server adoption, prune, serialization) are both P1; US3 (dialog per server, rejection
+memory, in-session rule) is P2.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -48,8 +54,9 @@ serialization) are both P1; US3 (dialog per server, rejection memory, in-session
   (`~/.config/inubit-mcp/*`), their trust stores, their state directory (`~/.inubit-mcp/*`), their
   installed tool (`~/.local/bin/inubit-cert-check`) or their `~/.claude/CLAUDE.md`. Tool tests use
   local TLS servers with throw-away certificates (`tools/tests/tls_fixtures.py`), `FakeKeytool`,
-  `FakeCheckConfig` and temp directories; Java tests use WireMock and `TestCertificates`.
-- **Never adopt**: no task adopts a certificate on a real stage. Only the operator does, in T030.
+  `FakeCheckConfig` and temp directories; Java tests use WireMock, `TlsTestServer`,
+  `TestCertificates` and `FakeProcessLauncher` (no real StartCLI).
+- **Never adopt**: no task adopts a certificate on a real stage. Only the operator does, in T032.
 - **Public repository**: profile `acme`, stages `dev` / `int`, servers `int/a` / `int/b`, hosts under
   `example.test`, fictitious fingerprints only; no customer names in files, commit messages or PR
   descriptions; the identifier hooks must pass; never use `--no-verify`.
@@ -61,19 +68,37 @@ serialization) are both P1; US3 (dialog per server, rejection memory, in-session
 The reviewed spec governs; the other documents were aligned in the same change.
 
 - **Stage-level `rejected` of a marked stage** is `null` (spec FR-007, research R-8);
-  data-model.md and contracts/cli.md now say `null` too. T011/T012 test `null`.
+  data-model.md and contracts/cli.md now say `null` too. T013 tests `null`.
 - **Concurrent adoption (Story 2 AS 9)**: AS 9 now states the R-12 behaviour explicitly — the two
   adoptions run one after another and both land; a command-line adoption that waits longer than
   30 s for an open dialog is refused with "profile lock busy", changes nothing and succeeds when
-  repeated. T018 tests both orders.
+  repeated. T019 tests both orders.
 - **Flow-mapping server `tls`**: the tool keeps failing closed on a server `tls` that is not a
   block mapping or an alias (`tools/inubit-cert-check.py`); research.md's example now uses the block
-  form, and the documentation (T024) shows only the block form.
+  form, and the documentation (T025) shows only the block form.
 - **`--check-config` summary**: no TLS values in the summary (no plan change); quickstart.md now
-  expects exit 0 and `Result: OK`, and T029 checks that.
+  expects exit 0 and `Result: OK`, and T031 checks that.
 - **`noOfferReason` of an unchanged server**: stays absent (`None`) — an `ok` server offers nothing
   because nothing changed, so there is nothing to refuse (FR-012 refusal reasons apply to `changed`
   servers only, data-model.md).
+
+### Decisions after plan review r1 (2026-11-05, `reviews/plan-r1.md`)
+
+- **StartCLI (finding 2, operator decision)**: in a marked stage the MCP server checks the
+  certificate at the StartCLI address against the server's own pin before every StartCLI call and
+  refuses the call before StartCLI starts (spec FR-005a, clarification 2026-11-05, research R-15).
+  FR-005 and SC-004 now hold for REST, SOAP and StartCLI. The window between probe and StartCLI's
+  own connection is documented (T026). Tasks T011, T012, T026.
+- **C-8′ trigger (finding 1)**: `TLS_ERROR` caused by `CertPathValidatorException` or by a pin
+  mismatch (`CertificateException`) (spec FR-016, research R-4, contracts/cli.md). T010 asserts the
+  cause of the swapped-certificate case; T024, T025, T032 use the wider trigger.
+- **Shared addresses (finding 11)**: a server of a marked stage with more than one server must not
+  inherit `cli.url` or `e2e.soap.baseUrl` from the stage (spec FR-004, contract V-10, V-11). T008.
+- **Task shape (findings 3–7)**: test-only tasks merged with their implementation; T006, T010 and
+  T019 marked **Regression**; check, report, dialog and worker tasks split; `[P]` markers follow the
+  Dependencies section.
+- **Leftover stage-keyed rejection under `--interactive` (finding 10)**: kept as in data-model
+  R-9 and tested in T022.
 
 ---
 
@@ -84,8 +109,9 @@ The reviewed spec governs; the other documents were aligned in the same change.
   profile `acme`; uniform stage `dev` (stage pin, own trust store); marked stage `int` with
   `tls.pinPerServer: true`, `tls.trustStore` and `disableHostnameVerification: true` on the stage, and
   nodes `a` and `b` with their own block-form `tls.pinnedCertificateSha256` (distinct fictitious
-  fingerprints, hosts `int-a.example.test` / `int-b.example.test`). Header comment "every name is
-  fictitious". It is loaded by the tests of T006–T009; `NoCustomerIdentifiersTest` covers it.
+  fingerprints, hosts `int-a.example.test` / `int-b.example.test`); no `cli.url` and no
+  `e2e.soap.baseUrl` on the stage. Header comment "every name is fictitious". It is loaded by the
+  tests of T005–T009 and T012; `NoCustomerIdentifiersTest` covers it.
 - [ ] T002 [P] Test helpers in `tools/tests/support.py` (research R-14): `write_profile` gains a
   per-stage `pin_per_server` flag (writes `pinPerServer: true` into the stage's inline `tls` block,
   or into the anchor when the stage uses `tls`), and per-server TLS: a server entry may be
@@ -103,11 +129,12 @@ The reviewed spec governs; the other documents were aligned in the same change.
 **Purpose**: every tool behaviour of US1–US3 reads the marked stage through the profile view and
 writes `server=` lines.
 
-**⚠️ CRITICAL**: no tool task of US1–US3 starts before T005. The Java tasks of US1 (T006–T010) do not
+**⚠️ CRITICAL**: no tool task of US1–US3 starts before T004. The Java tasks of US1 (T005–T012) do not
 depend on this phase and may start after T001.
 
-- [ ] T003 Tests first: new class `PinPerServerTest(ReaderTestCase)` in
-  `tools/tests/test_profile_reader.py` against data-model "Profile view" and research R-7:
+- [ ] T003 Profile view for marked stages (FR-003, FR-004, research R-7, data-model "Profile view").
+  Write the failing tests first in `tools/tests/test_profile_reader.py`, new class
+  `PinPerServerTest(ReaderTestCase)`, and see them fail:
   - `pinPerServer: true` in the stage's inline `tls` → `Stage.pin_per_server` is `True`; also when the
     stage's `tls` is an alias to an anchor with `pinPerServer: true`; `false` or absent → `False`, and
     the `Stage` and `Server` objects of every existing reader test stay equal to 006;
@@ -125,14 +152,15 @@ depend on this phase and may start after T001.
     server of a marked stage needs no pin;
   - a server `tls` written as a flow mapping still fails closed with the 006 message, and a
     non-boolean `pinPerServer` value fails closed like any other malformed value (006 R-7).
-- [ ] T004 Implement in `tools/inubit-cert-check.py` (makes T003 pass): `TLS_KEYS` gains
-  `pinPerServer` (parsed as a boolean in `_tls_block`); dataclass `Server` gains `pin_source` and
-  `pin_line`; dataclass `Stage` gains `pin_per_server`, `expected` and `problem`, all with defaults so
-  every 006 construction and comparison is unchanged; `_read_stage` records each server's pin source
-  and pin line; `_finish_stages` computes `own_tls` for marked stages without the stage-pin condition
-  and sets `problem`. The reader does not duplicate the server's validation beyond the R-7 rules.
-- [ ] T005 Change-log field `server=` (FR-011, research R-10, data-model "Change log entry"). Tests
-  first in `tools/tests/test_state.py` `ChangeLogTest`: `log_change(..., server="int/b")` writes
+  Then implement in `tools/inubit-cert-check.py`: `TLS_KEYS` gains `pinPerServer` (parsed as a
+  boolean in `_tls_block`); dataclass `Server` gains `pin_source` and `pin_line`; dataclass `Stage`
+  gains `pin_per_server`, `expected` and `problem`, all with defaults so every 006 construction and
+  comparison is unchanged; `_read_stage` records each server's pin source and pin line;
+  `_finish_stages` computes `own_tls` for marked stages without the stage-pin condition and sets
+  `problem`. The reader does not duplicate the server's validation beyond the R-7 rules.
+- [ ] T004 Change-log field `server=` (FR-011, research R-10, data-model "Change log entry"). Write
+  the failing tests first in `tools/tests/test_state.py` `ChangeLogTest` and see them fail:
+  `log_change(..., server="int/b")` writes
   `… profile=acme stage=int server=int/b outcome=adopted old=… new=… notBefore=… by=cli` with
   `server=` right after `stage=`; without `server` the line is byte-identical to the 006 format (exact
   string assertion); a `pruned` line of a marked stage has `new=-` and no `server=`. Then extend
@@ -145,30 +173,35 @@ depend on this phase and may start after T001.
 
 ## Phase 3: User Story 1 — Declare and verify a stage with per-server certificates (Priority: P1) 🎯 MVP
 
-**Goal**: `tls.pinPerServer` is accepted and validated by the MCP server, logged at start, and the
-check reports a marked stage without a conflict.
+**Goal**: `tls.pinPerServer` is accepted and validated by the MCP server, logged at start, enforced
+per server on REST, SOAP and — through the probe — StartCLI, and the check reports a marked stage
+without a conflict.
 
 **Independent Test**: with `pin-per-server.yaml` and two local TLS servers presenting different
-certificates, `--check-config` passes, both servers connect, and `inubit-cert-check --check`
-reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, Q2, Q3, Q4 step a).
+certificates, `--check-config` passes, both servers connect, a CLI call to a server presenting the
+other server's certificate is refused before StartCLI starts, and `inubit-cert-check --check`
+reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, AS 8, Q1, Q2, Q3, Q4 step a).
 
-- [ ] T006 [P] [US1] Bind the key (FR-001, research R-1, R-2, contract V-2/V-9). Tests first in
-  `test/config/ConfigLoaderTest.java` (new `@Nested class PinPerServer`): `pin-per-server.yaml` loads
-  and `group.tls().pinPerServer()` is `Optional.of(true)` for `int` and empty for `dev`;
-  `pinPerServer` on a node's `tls` binds (it is refused by the validator in T008); `defaults.tls`
-  with `pinPerServer` is refused with `Unknown key 'tls'` (existing behaviour, asserted); `full.yaml`
-  and `anchors.yaml` load exactly as before. Then add `Optional<Boolean> pinPerServer` to
-  `main/config/TlsConfig.java` (`EMPTY`, compact constructor with `Optionals.orEmpty`) and a helper
-  `boolean marksStage()` (`pinPerServer.orElse(false)`); adapt every `new TlsConfig(` call site.
-- [ ] T007 [US1] Effective TLS of a marked stage (FR-002, FR-003, research R-4; after T006). Test
-  only, in `test/config/EffectiveNodeConfigTest.java`: for each node of `int` in
-  `pin-per-server.yaml` the effective `Tls` has the group's trust store and that node's own pin, and
-  no node gets another node's pin. `main/config/EffectiveNodeConfig.java` is expected to stay
-  unchanged; if the test fails, stop and report, because R-4 assumes it.
-- [ ] T008 [US1] Validation rules (FR-004, research R-3, contract V-1…V-9; after T006). Tests first in
-  `test/config/ConfigValidatorTest.java`, new `@Nested class PinPerServer`, one test per row, each
-  asserting the exact message of contracts/configuration.md with `{group}` / `{node}` rendered by the
-  profile's terminology (also once with custom terms):
+- [ ] T005 [P] [US1] Bind the key (FR-001, research R-1, R-2, contract V-2/V-9). Write the failing
+  tests first in `test/config/ConfigLoaderTest.java` (new `@Nested class PinPerServer`) and see them
+  fail: `pin-per-server.yaml` loads and `group.tls().pinPerServer()` is `Optional.of(true)` for `int`
+  and empty for `dev`; `pinPerServer` on a node's `tls` binds (it is refused by the validator in
+  T007); `defaults.tls` with `pinPerServer` is refused with `Unknown key 'tls'` (existing behaviour,
+  asserted); `full.yaml` and `anchors.yaml` load exactly as before. Then add
+  `Optional<Boolean> pinPerServer` to `main/config/TlsConfig.java` (`EMPTY`, compact constructor with
+  `Optionals.orEmpty`) and a helper `boolean marksStage()` (`pinPerServer.orElse(false)`); adapt every
+  `new TlsConfig(` call site.
+- [ ] T006 [P] [US1] **Regression** — effective TLS of a marked stage (FR-002, FR-003, research R-4;
+  after T005). The behaviour exists; the test passes at once, there is no red step. In
+  `test/config/EffectiveNodeConfigTest.java`: for each node of `int` in `pin-per-server.yaml` the
+  effective `Tls` has the group's trust store and that node's own pin, and no node gets another
+  node's pin. `main/config/EffectiveNodeConfig.java` stays unchanged in this task; if the test
+  fails, stop and report, because R-4 assumes it.
+- [ ] T007 [P] [US1] Validation rules V-1…V-9 (FR-004, research R-3, contract V-1…V-9; after T005).
+  Write the failing tests first in `test/config/ConfigValidatorTest.java`, new
+  `@Nested class PinPerServer`, one test per row, each asserting the exact message of
+  contracts/configuration.md with `{group}` / `{node}` rendered by the profile's terminology (also
+  once with custom terms), and see them fail:
   - V-1 `pinPerServer` on a node (inline and through an alias) → `int/b: tls.pinPerServer is only
     valid on a {group}`;
   - V-3 stage pin, inline and through an alias → `{group} 'int': tls.pinnedCertificateSha256 is not
@@ -185,25 +218,87 @@ reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, Q2, Q3, Q
   `main/config/ConfigValidator.java`, called from `validate` after `checkStructure`, walking
   `config.groups()` and `group.nodes()` on the written `GroupConfig.tls()` / `NodeConfig.tls()` values
   (not the effective ones), messages through `findings.termError`.
-- [ ] T009 [US1] Start-up log line (FR-005, research R-5; after T006). Tests first in
-  `test/MainTest.java`: starting with `pin-per-server.yaml` logs exactly
+- [ ] T008 [US1] Validation rules V-10/V-11 — one own StartCLI and SOAP address per server of a
+  marked stage (FR-004, research R-3 "Note on the two address rules", R-4, contract V-10/V-11;
+  after T007, same files). Write the failing tests first in `test/config/ConfigValidatorTest.java`
+  `PinPerServer` and see them fail: a marked stage with nodes `a`, `b` and `cli.url` on the stage →
+  one error per inheriting node, `int/b: cli.url is inherited from {group} 'int' with
+  tls.pinPerServer; set cli.url on each {node}`; the same for `e2e.soap.baseUrl` (V-11); no error
+  when every node sets its own value, when the marked stage has only one node, or for an unmarked
+  stage (where the existing "cli.url is set for 2 {nodes}" warning is unchanged, asserted). Then
+  extend `checkPinPerServer` in `main/config/ConfigValidator.java` on the written
+  `GroupConfig.cli()` / `NodeConfig.cli()` and `GroupConfig.e2e().soap()` /
+  `NodeConfig.e2e().soap()` values.
+- [ ] T009 [P] [US1] Start-up log line (FR-005, research R-5; after T005). Write the failing tests
+  first in `test/MainTest.java` and see them fail: starting with `pin-per-server.yaml` logs exactly
   `Stages with one pinned certificate per server (tls.pinPerServer): int` once (logback
   `ListAppender` on the `Launcher` logger, as in `test/security/SecretLeakTest.java`); a profile
   without a marked stage logs no such line; stdout carries only MCP traffic (existing assertion
   pattern). Then in `main/Launcher.java` `serve(...)`, right after the "started for profile" line,
   `LOG.info("Stages with one pinned certificate per server (tls.pinPerServer): {}", names)` with the
   marked stage names in file order, comma-separated, only when at least one stage is marked.
-- [ ] T010 [P] [US1] Runtime regression (FR-002, FR-005, SC-001, SC-004, research R-4). Test only, in
+- [ ] T010 [P] [US1] **Regression** — REST runtime pin per server (FR-002, FR-005, SC-001, SC-004,
+  research R-4). The behaviour exists; the tests pass at once, there is no red step. In
   `test/adapter/rest/InubitHttpClientTest.java`: two WireMock HTTPS servers with
   `TestCertificates.localhostKeyStore()` and `selfsignedKeyStore()`, one shared
   `TestCertificates.trustStore()`, each server pinned to its own certificate (group trust store, node
   pin) → both calls succeed; each server pinned to the *other* server's certificate → `TLS_ERROR` in
-  both directions. `PinningTrustManager` and `SslContexts` stay unchanged; if a test fails, stop and
+  both directions, and the error message reports the cause `(CertificateException)`, not
+  `CertPathValidatorException` (plan review r1 finding 1: the chain passes the shared store, only the
+  pin fails). `PinningTrustManager` and `SslContexts` stay unchanged; if a test fails, stop and
   report.
-- [ ] T011 [US1] Check tests first (FR-006, FR-007, FR-008, FR-010a, FR-013, FR-017, SC-001, SC-004,
-  SC-005, contract C-1′, research R-8), with `support.marked_stage` (T002):
-  - `tools/tests/test_check.py` new class `PinPerServerCheckTest(CheckTestCase)`:
-    `test_distinct_certificates_are_ok_without_conflict` (stage `ok`, `conflict` false, exit 0,
+- [ ] T011 [P] [US1] StartCLI pin probe (FR-005a, SC-004, research R-15, data-model "StartCLI pin
+  probe", contract configuration.md "Runtime behaviour"). Write the failing tests first in the new
+  `test/adapter/cli/StartCliPinProbeTest.java` and see them fail; make
+  `test/adapter/rest/TlsTestServer.java` usable from `adapter/cli` (visibility only). Two
+  `TlsTestServer`s with `TestCertificates.localhostKeyStore()` and `selfsignedKeyStore()`, one shared
+  `TestCertificates.trustStore()`, an `EffectiveNodeConfig` per server whose `cli.url` points to its
+  `TlsTestServer`:
+  - pin = the certificate the address presents → the probe returns normally;
+  - swapped certificate (address of `int/a` presents `int/b`'s certificate) → `ToolErrorException`
+    with `TLS_ERROR`, the message names `int/a`, the StartCLI address `<host>:<port>`, the cause
+    `(CertificateException)` and "StartCLI was not started";
+  - error text: likely cause and next step equal the texts of `InubitHttpClient`'s `TLS_ERROR`
+    (string comparison against the REST error for the same swap);
+  - closed port → `UNREACHABLE`, message naming the StartCLI address;
+  - `cli.url` with `http://` → no connection attempt (the `TlsTestServer` recorded no handshake);
+  - with hostname verification on, the endpoint identification algorithm is set (a certificate
+    whose subjectAltNames do not match the address is refused with `TLS_ERROR`).
+  Then add `main/adapter/cli/StartCliPinProbe.java`: host and port of `server.cli().url()` (port
+  `-1` → 443), `SslContexts.forServer(server.secretLabels(), server.tls(), trustStorePassword)`,
+  `SSLSocket` with SNI, endpoint identification `HTTPS` unless `disableHostnameVerification`,
+  connect and read timeout `server.timeout()`, `startHandshake()`, close; errors mapped as research
+  R-15 (`TLS_ERROR` / `TIMEOUT` / `UNREACHABLE`, texts as the REST path).
+- [ ] T012 [US1] Wire the probe into StartCLI calls (FR-005a, FR-017, SC-004, research R-15; after
+  T005, T006 and T011). Write the failing tests first and see them fail:
+  - `test/config/EffectiveNodeConfigTest.java`: `Tls.pinPerServer()` is `true` for both nodes of
+    `int` and `false` for `dev` in `pin-per-server.yaml`; the three-argument `Tls` constructor yields
+    `false`;
+  - `test/adapter/cli/CliRunnerTest.java` with `FakeProcessLauncher` and two `TlsTestServer`s:
+    a server of a marked stage whose StartCLI address presents the other server's certificate →
+    `run(...)` throws `TLS_ERROR` naming the pin mismatch and the launcher recorded **no** launch;
+    the same for an unreachable address (`UNREACHABLE`, no launch); a matching certificate → StartCLI
+    is launched once with exactly the arguments it got before this feature; after a refused probe
+    the credential guard is neither rejected nor accepted (a following call is not answered with a
+    cached `AUTH_FAILED`);
+  - unmarked stage: a counting fake probe is never called, and the launched arguments, environment
+    and stdin are byte-identical to today's (FR-017); `execute(... "-v" ...)` (the client version
+    probe) never calls the probe, for marked servers too.
+  Then: `EffectiveNodeConfig.Tls` gains `boolean pinPerServer` from the group's
+  `tls.pinPerServer` (a constructor with the old three arguments sets `false`) in
+  `main/config/EffectiveNodeConfig.java`; `CliRunner` takes a `StartCliPinProbe` in its constructor
+  and `CliRunner.run(...)` gains `Optional<Secret> trustStorePassword` and calls the probe after the
+  permit is taken and before `runUnguarded`, only when `server.tls().pinPerServer()` is true, in
+  `main/adapter/cli/CliRunner.java`; the callers `main/adapter/cli/CliTagRunner.java`,
+  `main/adapter/cli/CliExportRunner.java`, `main/adapter/cli/CliImportRunner.java` and
+  `main/adapter/cli/v81/V81ProcessControlAdapter.java` pass
+  `credentials.trustStorePassword().map(SourcedValue::value)`; `main/Wiring.java` and
+  `main/Launcher.java` construct `CliRunner` with the probe. Every existing CLI test stays green.
+- [ ] T013 [US1] Check evaluation and JSON for marked stages (FR-006, FR-007, FR-008, FR-010a,
+  FR-015, FR-017, SC-001, SC-004, SC-005, contract C-1′, research R-8; after T004). Write the
+  failing tests first with `support.marked_stage` (T002) in `tools/tests/test_check.py`, new class
+  `PinPerServerCheckTest(CheckTestCase)`, and see them fail:
+  - `test_distinct_certificates_are_ok_without_conflict` (stage `ok`, `conflict` false, exit 0,
     Story 1 AS 2); `test_one_server_marked_stage` and `test_all_servers_same_certificate` (no
     conflict, no warning); `test_server_presenting_other_servers_certificate_is_changed` (`int/a`
     `changed`, `expectedBy == ["int/b"]`, exit 10, Story 1 AS 3); `test_changed_server_gets_offer`
@@ -215,28 +310,33 @@ reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, Q2, Q3, Q
     (`state.rejection("int/b")` equals the offer → server `rejected` true, status `changed`, exit
     10); `test_check_never_changes_profile_or_store` (sha256 unchanged, FR-017);
     `test_unmarked_stage_with_two_certificates_still_conflicts` (conflict, no offer, Story 1 AS 4);
-  - JSON in the same class: a marked stage has exactly the C-1′ keys — `pinPerServer: true`,
-    `pin: null`, `pinSource: "server"`, `conflict: false`, stage `offer: null`, stage `rejected` (see
-    open points), `ownTls`, `problem`; each server has `offer`, `rejected`, `expectedBy` (list),
-    `noOfferReason` (string or null) and `pinned` = its own pin; none of these new keys appears on a
-    uniform stage, whose JSON is byte-identical to the 006 output (golden comparison);
-  - `TrustStoreTest.test_marked_stage_superseded_entries`: store A, B, F with `int/a`→A and
-    `int/b`→F → `supersededTrustStoreEntries` lists only B (Story 2 AS 8);
-  - `OutputTest.test_marked_stage_text_report`: the C-1′ lines `Stage int  CHANGED  (one pin per
-    server)`, per server `old`/`new`/`subject`/`valid`, `offer: inubit-cert-check --profile acme
-    --accept int/b <fp>`, `note: this is the certificate expected for int/a`, `no offer: …`,
-    `rejected earlier: … (offered again only after --forget int/b)`, `configuration problem: <text> -
-    run --check-config`.
-- [ ] T012 [US1] Implement in `tools/inubit-cert-check.py` (makes T011 pass): `evaluate_stage` branches
-  on `stage.pin_per_server`; `ServerResult` gains `offer`, `rejected`, `expected_by`,
-  `no_offer_reason` (offer only when `changed`, reachable, `pin_source == "server"` with a pin line,
-  stage `own_tls`, no `problem`); stage `status` = worst server status (changed > unreachable > ok),
-  `conflict` false, stage `offer` null; `superseded_entries` uses `stage.expected` for marked stages;
-  `check_json` and `check_text` add the marked-only fields and lines; exit codes of `run_check`
-  unchanged (10 if any server `changed`, else 20 if any `unreachable`, else 0).
+  - JSON: a marked stage has exactly the C-1′ keys — `pinPerServer: true`, `pin: null`,
+    `pinSource: "server"`, `conflict: false`, stage `offer: null`, stage `rejected: null`, `ownTls`,
+    `problem`; each server has `offer`, `rejected`, `expectedBy` (list), `noOfferReason` (string or
+    null) and `pinned` = its own pin; none of these new keys appears on a uniform stage, whose JSON is
+    byte-identical to the 006 output (golden comparison).
+  Then implement in `tools/inubit-cert-check.py`: `evaluate_stage` branches on
+  `stage.pin_per_server`; `ServerResult` gains `offer`, `rejected`, `expected_by`, `no_offer_reason`
+  (offer only when `changed`, reachable, `pin_source == "server"` with a pin line, stage `own_tls`, no
+  `problem`); stage `status` = worst server status (changed > unreachable > ok), `conflict` false,
+  stage `offer` and `rejected` null; `check_json` adds the marked-only fields; exit codes of
+  `run_check` unchanged (10 if any server `changed`, else 20 if any `unreachable`, else 0).
+- [ ] T014 [US1] Text report and superseded entries for marked stages (FR-007, FR-010a, FR-013,
+  contract C-1′, research R-8, R-13; after T013, same files). Write the failing tests first and see
+  them fail:
+  - `tools/tests/test_check.py` `TrustStoreTest.test_marked_stage_superseded_entries`: store A, B, F
+    with `int/a`→A and `int/b`→F → `supersededTrustStoreEntries` lists only B (Story 2 AS 8);
+  - `tools/tests/test_check.py` `OutputTest.test_marked_stage_text_report`: the C-1′ lines
+    `Stage int  CHANGED  (one pin per server)`, per server `old`/`new`/`subject`/`valid`,
+    `offer: inubit-cert-check --profile acme --accept int/b <fp>`, `note: this is the certificate
+    expected for int/a`, `no offer: …`, `rejected earlier: … (offered again only after --forget
+    int/b)`, `configuration problem: <text> - run --check-config`; the text report of a uniform stage
+    is unchanged (golden comparison).
+  Then implement in `tools/inubit-cert-check.py`: `superseded_entries` uses `stage.expected` for
+  marked stages; `check_text` adds the marked-only lines.
 
-**Checkpoint**: US1 complete — a marked stage is configured, validated, logged and checked without a
-conflict; uniform stages unchanged.
+**Checkpoint**: US1 complete — a marked stage is configured, validated, logged, enforced per server
+on REST, SOAP and StartCLI, and checked without a conflict; uniform stages unchanged.
 
 ---
 
@@ -249,16 +349,17 @@ certificate a server still expects; adoptions run one after another.
 `--accept int/b F` changes only `int/b`'s pin line, the store gains F, a backup exists, one `adopted`
 line names `server=int/b` (spec US2 Independent Test, Q4 steps b–g).
 
-- [ ] T013 [US2] Targets on the command line (research R-6, contract "Targets"). Tests first in
-  `tools/tests/test_cli.py` `UsageTest`: `--accept int/b FP`, `--accept dev FP`, `--forget int/b`
-  and `--forget int` parse into a target; each part must match `[a-z0-9][a-z0-9-]{0,31}`; `int/b/c`,
-  `/b`, `int/`, `INT/b` → usage error, exit 2; `--prune int/b` → usage error, exit 2 (`--prune` keeps
-  taking a stage). Then update `build_parser` / `parse_args` in `tools/inubit-cert-check.py`
-  (`--accept TARGET FINGERPRINT [--by cli|claude]`, `--forget TARGET`).
-- [ ] T014 [US2] Refusal tests first (FR-010, FR-012, Story 2 AS 3 and AS 7, contract C-2′ step 1):
-  new class `PinPerServerRefusalTest(AcceptTestCase)` in `tools/tests/test_accept.py`; each case exits
-  3, leaves profile and trust store byte-identical (sha256), and names the reason on stderr and in
-  the diagnostic log:
+- [ ] T015 [US2] Targets on the command line (research R-6, contract "Targets"). Write the failing
+  tests first in `tools/tests/test_cli.py` `UsageTest` and see them fail: `--accept int/b FP`,
+  `--accept dev FP`, `--forget int/b` and `--forget int` parse into a target; each part must match
+  `[a-z0-9][a-z0-9-]{0,31}`; `int/b/c`, `/b`, `int/`, `INT/b` → usage error, exit 2; `--prune int/b`
+  → usage error, exit 2 (`--prune` keeps taking a stage). Then update `build_parser` / `parse_args`
+  in `tools/inubit-cert-check.py` (`--accept TARGET FINGERPRINT [--by cli|claude]`,
+  `--forget TARGET`).
+- [ ] T016 [US2] Refusals of per-server adoption (FR-010, FR-012, Story 2 AS 3 and AS 7, contract
+  C-2′ step 1). Write the failing tests first in `tools/tests/test_accept.py`, new class
+  `PinPerServerRefusalTest(AcceptTestCase)`, and see them fail; each case exits 3, leaves profile and
+  trust store byte-identical (sha256), and names the reason on stderr and in the diagnostic log:
   - unknown stage; unknown server `int/z`;
   - the stage name of a marked stage → "stage int has one pin per server - name the server, e.g.
     int/b";
@@ -271,8 +372,12 @@ line names `server=int/b` (spec US2 Independent Test, Q4 steps b–g).
     `failed` line with `server=int/b` (006 FR-015);
   - in every case `int/a`'s `TlsServer` recorded no handshake (other servers are not contacted);
   - `int/b` already pins FINGERPRINT → "already pins", exit 0, nothing changed.
-- [ ] T015 [US2] Success and rollback tests first (FR-009, FR-010, FR-011, SC-002, SC-003, Story 2 AS
-  2, 4, 5, 6, contract C-2′ steps 2–7) in `tools/tests/test_accept.py`:
+  Then implement the target resolution and refusals in `cmd_accept`, `accept_locked` and
+  `_usable_stage` of `tools/inubit-cert-check.py` per C-2′ step 1: fetch only the named server; every
+  uniform-stage refusal stays as in 006.
+- [ ] T017 [US2] Per-server adoption, success and rollback (FR-009, FR-010, FR-011, SC-002, SC-003,
+  Story 2 AS 2, 4, 5, 6, contract C-2′ steps 2–7; after T016, same files). Write the failing tests
+  first in `tools/tests/test_accept.py` and see them fail:
   - new class `PinPerServerSuccessTest(AcceptTestCase)`: the profile diff is exactly `int/b`'s pin
     line (indentation, quotes and trailing comment kept); `int/a`, `dev` and the server ids are
     unchanged on re-read; the store gains F under the alias `int-b-<8 hex>-<yyyymmdd>` and keeps A and
@@ -284,30 +389,36 @@ line names `server=int/b` (spec US2 Independent Test, Q4 steps b–g).
   - new class `PinPerServerRollbackTest(AcceptTestCase)`: a failure after the backup at each step
     (keytool import, pin-line edit, `--check-config`, verification) → profile and store restored
     byte-identical, exit 4, one `failed` line with `server=int/b` (AS 6).
-- [ ] T016 [US2] Implement per-server adoption in `tools/inubit-cert-check.py` (makes T014, T015
-  pass): `cmd_accept`, `accept_locked`, `_usable_stage`, `_change_and_report` and `verify_adoption`
-  accept a server target of a marked stage per C-2′ — fetch only that server; `trust_alias` builds
-  `<stage>-<node>-<8 hex>-<yyyymmdd>`; `replace_pin_line` edits `Server.pin_line` (refusal message
-  names the server's pin line); verification checks that this server's pin is new, every other pin
-  (servers and stages) and every server id is unchanged, and the store lists F; log lines carry
-  `server=`; the summary and reconnect hint stay as in 006. Uniform-stage adoption is untouched.
-- [ ] T017 [US2] Prune and superseded entries (FR-013, research R-13, contract C-5′). Tests first in
-  `tools/tests/test_accept.py` `PruneTest`: `--prune int` with A, B, F (`int/a`→A, `int/b`→F) lists
-  only B (Story 2 AS 8); `--prune int --yes` removes only B and logs one `pruned` line per removed
-  entry with `new=-` and no `server=`; refuses with exit 3 unless every server's pin is in the store;
-  after deleting, a missing server pin (`FakeKeytool(fail_on=…)`) → restore and exit 4; a stage
-  without `ownTls` or with a `problem` → refusal naming the reason; every 006 prune test unchanged.
-  Then implement in `_prune_listing` / `_prune_locked` of `tools/inubit-cert-check.py` with
-  `stage.expected`.
-- [ ] T018 [US2] Serialization (FR-009, Story 2 AS 9, research R-12). Tests first: new class
-  `PinPerServerSerialTest(AcceptTestCase)` in `tools/tests/test_accept.py`: `--accept int/a` and
-  `--accept int/b` started concurrently against the same copy (two processes through
-  `tools/tests/run_with_fakes.py`) → the second waits for `cert-check.lock`, re-reads the profile
-  bytes after taking it, and the final profile and store contain both new pins and both new
-  certificates; the same for `--accept int/b` against a running `--prune int --yes`; with the lock
-  held longer than the (patched, short) lock timeout → exit 3 "profile lock busy" and nothing
-  changed. No production change is expected (R-12); fix `accept_locked` / `_prune_locked` only if a
-  test fails.
+  Then implement in `_change_and_report` and `verify_adoption` of `tools/inubit-cert-check.py`:
+  `trust_alias` builds `<stage>-<node>-<8 hex>-<yyyymmdd>`; `replace_pin_line` edits
+  `Server.pin_line` (refusal message names the server's pin line); verification checks that this
+  server's pin is new, every other pin (servers and stages) and every server id is unchanged, and
+  the store lists F; log lines carry `server=`; the summary and reconnect hint stay as in 006.
+  Uniform-stage adoption is untouched.
+- [ ] T018 [US2] Prune and superseded entries (FR-013, research R-13, contract C-5′). Write the
+  failing tests first in `tools/tests/test_accept.py` `PruneTest` and see them fail: `--prune int`
+  with A, B, F (`int/a`→A, `int/b`→F) lists only B (Story 2 AS 8); `--prune int --yes` removes only B
+  and logs one `pruned` line per removed entry with `new=-` and no `server=`; refuses with exit 3
+  unless every server's pin is in the store; after deleting, a missing server pin
+  (`FakeKeytool(fail_on=…)`) → restore and exit 4; a stage without `ownTls` or with a `problem` →
+  refusal naming the reason; every 006 prune test unchanged. Then implement in `_prune_listing` /
+  `_prune_locked` of `tools/inubit-cert-check.py` with `stage.expected`.
+- [ ] T019 [US2] **Regression** — serialization (FR-009, Story 2 AS 9, research R-12). The lock
+  behaviour exists (R-12); the tests are expected to pass at once, there is no red step; if one
+  fails, stop and report before changing `accept_locked` / `_prune_locked`. New class
+  `PinPerServerSerialTest(AcceptTestCase)` in `tools/tests/test_accept.py`:
+  - `--accept int/a` and `--accept int/b` started concurrently against the same copy (two processes
+    through `tools/tests/run_with_fakes.py`) → the second waits for `cert-check.lock`, re-reads the
+    profile bytes after taking it, and the final profile and store contain both new pins and both
+    new certificates; the same for `--accept int/b` against a running `--prune int --yes`;
+  - offline dialog case (plan review r1 finding 9): a dialog worker — the real worker
+    (`cmd_dialog_worker`) with the fake dialog of `test_interactive.py` held open, or a fake worker
+    process that takes `cert-check.lock` exactly as the worker does — holds the lock while
+    `--accept int/a` runs →
+    `--accept` waits; after the worker adopts for `int/b` and releases the lock, `--accept int/a`
+    lands on the worker's result (both new pins present);
+  - the lock held longer than the (patched, short) lock timeout → exit 3 "profile lock busy" and
+    nothing changed; repeating after the release succeeds.
 
 **Checkpoint**: US1 + US2 — a marked stage can be rotated from the command line without editing a
 file by hand.
@@ -322,8 +433,8 @@ file by hand.
 dialogs one after another; "Reject" for `int/b` is remembered under `int/b` only; `--forget int/b`
 brings the dialog back (Q5).
 
-- [ ] T019 [US3] Rejection memory per server (FR-015, research R-9, data-model "Remembered
-  rejection", contract C-1′ last rule). Tests first:
+- [ ] T020 [US3] Rejection memory per server (FR-015, research R-9, data-model "Remembered
+  rejection", contract C-1′ last rule). Write the failing tests first and see them fail:
   - `tools/tests/test_state.py` `RejectionTest`: keys containing `/` are stored, read and cleared
     without touching stage keys; new `State.clear_rejections(keys)` removes several keys under the
     rejections lock in one write;
@@ -333,22 +444,33 @@ brings the dialog back (Q5).
     writes of `--check`.
   Then implement `State.clear_rejections` and the housekeeping in `run_check` / `cmd_check` of
   `tools/inubit-cert-check.py`.
-- [ ] T020 [US3] `--forget TARGET` (FR-015, contract C-4′). Tests first in
-  `tools/tests/test_interactive.py` `ForgetTest`: `--forget int/b` removes only that entry;
-  `--forget int` on a marked stage removes the entries of all its servers and a leftover stage-keyed
-  entry; `--forget dev` behaves as in 006; exit 0 also when nothing was remembered; exit 3 for an
-  unknown stage or server and for a server of a uniform stage (`--forget dev/node1`). Then update
-  `cmd_forget` in `tools/inubit-cert-check.py`.
-- [ ] T021 [US3] Dialog tests first (FR-010a, FR-014, FR-015, FR-017, Story 3 AS 1–2, contract C-3′,
-  research R-11, data-model "Dialog worker files") in `tools/tests/test_interactive.py`:
+- [ ] T021 [US3] `--forget TARGET` (FR-015, contract C-4′). Write the failing tests first in
+  `tools/tests/test_interactive.py` `ForgetTest` and see them fail: `--forget int/b` removes only
+  that entry; `--forget int` on a marked stage removes the entries of all its servers and a leftover
+  stage-keyed entry; `--forget dev` behaves as in 006; exit 0 also when nothing was remembered; exit
+  3 for an unknown stage or server and for a server of a uniform stage (`--forget dev/node1`). Then
+  update `cmd_forget` in `tools/inubit-cert-check.py`.
+- [ ] T022 [US3] Dialog text, offers and the no-dialog rules (FR-010a, FR-014, FR-015, Story 3 AS 2,
+  contract C-3′, research R-9, R-11, data-model "Dialog worker files"). Write the failing tests
+  first in `tools/tests/test_interactive.py` and see them fail:
   - `DialogTest`: `dialog_title` = `INUBIT certificate changed - server int/b (stage int, profile
     acme)`; `dialog_text` shows only that server's line with its IP, old and new fingerprint,
     validity, and `WARNING: this is the certificate expected for server int/a.` only when
     `expectedBy` is not empty; plain ASCII; `offer_info` gains `target`, `server` and `expectedBy`;
+    the offers file entries carry `target`, `server` (id or `null`) and `expectedBy`, and for a
+    uniform stage they are byte-identical to 006 apart from the added keys;
   - `NoDialogTest`: remembered F for `int/b` and `int/b` presenting F → no dialog for `int/b`, a
     warning naming `int/b` on stderr and in the diagnostic log, while a change on `int/a` is still
-    offered (AS 2); a stage-keyed leftover `"int"` never suppresses a dialog; servers with a
-    `noOfferReason` are only logged;
+    offered (AS 2); a stage-keyed leftover `"int"` never suppresses a dialog **and is removed from
+    `cert-rejections.json` by `--interactive`** (data-model R-9, plan review r1 finding 10); servers
+    with a `noOfferReason` are only logged.
+  Then implement in `tools/inubit-cert-check.py`: `offer_info`, `dialog_title`, `dialog_text`,
+  `_no_dialog_reason` and the offers file work on targets (server id for marked stages, stage name
+  otherwise); `cmd_interactive` runs the same leftover housekeeping as `--check` (T020) before
+  building the offers.
+- [ ] T023 [US3] Dialog worker, outcomes and status file (FR-011, FR-014, FR-015, FR-017, SC-006,
+  Story 3 AS 1, contract C-3′, research R-11; after T022, same files). Write the failing tests first
+  in `tools/tests/test_interactive.py` and see them fail:
   - `DialogOutcomeTest`: two changed servers → two dialogs, one after another in check order
     (AS 1); "Accept" runs C-2′ for that server with `--by dialog`; "Reject" / timeout remember under
     the server id with `rejected` / `timed-out` lines carrying `server=`; `dialog-failed` carries
@@ -361,17 +483,16 @@ brings the dialog back (Q5).
     each dialog gives up after 60 s (fake clock); late answers as in 006; `--interactive` writes
     nothing to stdout and never reads stdin; two concurrent `--interactive` runs show at most one
     dialog per server and fingerprint.
-- [ ] T022 [US3] Implement in `tools/inubit-cert-check.py` (makes T021 pass): `offer_info`,
-  `dialog_title`, `dialog_text`, `notification_text`, `not_adopted_text`, `_no_dialog_reason`,
-  `cmd_interactive`, `_report_dialog_outcomes`, `cmd_dialog_worker` and `_decide` work on targets
-  (server id for marked stages, stage name otherwise); offers file entries gain `target`, `server`
-  (id or `null`) and `expectedBy`; same lock, same 20 s and 60 s limits. Every 006 interactive test
-  stays green.
-- [ ] T023 [P] [US3] In-session rule (FR-016, Story 3 AS 3, contract C-8′): replace the rule block
-  "INUBIT certificate changes (inubit-acme)" in `docs/setup.md` §5 "Certificate changes" with the
-  C-8′ text (target `<stage>` or `<stage>/<server>`, `expectedBy` note, `--accept <target>
-  <fingerprint> --by claude`, never adopt without an explicit "yes"). `acme` names only. The
-  operator's own `~/.claude/CLAUDE.md` is changed only in T030.
+  Then implement in `tools/inubit-cert-check.py`: `notification_text`, `not_adopted_text`,
+  `cmd_interactive`, `_report_dialog_outcomes`, `cmd_dialog_worker` and `_decide` work on targets;
+  same lock, same 20 s and 60 s limits. Every 006 interactive test stays green.
+- [ ] T024 [P] [US3] In-session rule (FR-010a, FR-016, Story 3 AS 3, contract C-8′; any time after
+  T015): replace the rule block "INUBIT certificate changes (inubit-acme)" in `docs/setup.md` §5
+  "Certificate changes" with the C-8′ text — trigger `TLS_ERROR` caused by
+  `CertPathValidatorException` **or** by a pin mismatch (`CertificateException`), target `<stage>`
+  or `<stage>/<server>`, `expectedBy` note, `--accept <target> <fingerprint> --by claude`, never
+  adopt without an explicit "yes". `acme` names only. The operator's own `~/.claude/CLAUDE.md` is
+  changed only in T032.
 
 **Checkpoint**: all three stories done; nothing has been adopted on a real stage.
 
@@ -379,56 +500,82 @@ brings the dialog back (Q5).
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T024 [P] Documentation (FR-018, plan "Docs updated with behaviour") in `docs/setup.md`:
+- [ ] T025 Documentation of the per-server workflow (FR-004, FR-016, FR-018, plan "Docs updated with
+  behaviour"; after T024, same file) in `docs/setup.md`:
   - §3 configuration reference: key `tls.pinPerServer` (groups only, boolean, default `false`), the
     customer-agnostic example of contracts/configuration.md in block form, and the error messages
-    V-1…V-6;
+    V-1…V-6, V-10 and V-11; in a marked stage with several servers `cli.url` and
+    `e2e.soap.baseUrl` are set per node, because each server's own pin is checked at that address
+    and one shared address lets at most one server pass;
   - §5 new subsection "Stages whose servers present different certificates": when to mark a stage
     (each node creates its own certificate), converting a uniform stage by hand followed by
     `--check-config`, one trust store holding the certificates of all servers, `--check` output per
     server, `--accept int/b`, `--prune int` keeps what any server expects, `--forget int/b` /
     `--forget int`, one dialog per server, what the "expected for server …" warning means (possible
     misrouting or man-in-the-middle; check before accepting), removing the marking falls back to the
-    006 behaviour. Every quoted message and command checked against the code.
-- [ ] T025 Usage text (FR-016, FR-018): tests first in `tools/tests/test_cli.py`
-  `UsageTest.test_help_names_server_targets` (`--help` shows `TARGET` as `<stage>` or
-  `<stage>/<server>` for `--accept` and `--forget`); then update the module docstring (contract
-  reference `specs/014-stage-distinct-certs/contracts/cli.md`) and the `--help` texts in
-  `tools/inubit-cert-check.py`.
-- [ ] T026 [P] `CHANGELOG.md` `[Unreleased]`: feature 014 — Added `tls.pinPerServer` and the
-  per-server workflow of `inubit-cert-check` (`--accept STAGE/SERVER`, `--forget STAGE[/SERVER]`, one
-  dialog per server, `expectedBy` note); Changed: change-log lines of marked stages carry `server=`,
-  rejections of marked stages are kept per server; unchanged for stages without the setting.
-- [ ] T027 Review `tools/inubit-cert-check.py`, `main/config/ConfigValidator.java` and
-  `main/Launcher.java` against FR-001…FR-018, SC-001…SC-006 and the clarifications (Q1, Q2) using the
-  coverage table below; list any gap as a new task here before continuing.
-- [ ] T028 Validate offline (SC-005, FR-018, plan outline step 3):
+    006 behaviour;
+  - §5 "Certificate changes": the sentence that the refusal is always a `CertPathValidatorException`
+    names both causes — `CertPathValidatorException` for a certificate missing from the trust store,
+    `CertificateException` for a certificate in the store that does not match the pin (research R-4).
+  Every quoted message and command checked against the code.
+- [ ] T026 Documentation of the StartCLI probe and its remaining window (FR-005a, FR-018, research
+  R-15; after T012 and T025, same file) in `docs/setup.md` §5 next to the existing paragraph "StartCLI
+  cannot pin a certificate …": in a marked stage every StartCLI call is preceded by a TLS handshake to
+  the StartCLI address (`cli.url`, default derived from `baseUrl`) with the server's own pin, and a
+  mismatch or failure refuses the call with `TLS_ERROR` / `UNREACHABLE` before StartCLI starts
+  (quote the message of contract configuration.md); unmarked stages keep the existing residual risk
+  unchanged; the remaining window — a certificate switch between the probe and StartCLI's own
+  connection is not caught, because StartCLI checks only the stage trust store, which in a marked
+  stage holds every server's certificate, and skips the host name with `disableHostnameVerification`;
+  therefore certificates whose subjectAltNames match each host, with `disableHostnameVerification`
+  removed, are still recommended — they close the window because StartCLI itself then refuses
+  another server's certificate.
+- [ ] T027 Usage text (FR-016, FR-018; after T023, tool file). Write the failing test first in
+  `tools/tests/test_cli.py` `UsageTest.test_help_names_server_targets` (`--help` shows `TARGET` as
+  `<stage>` or `<stage>/<server>` for `--accept` and `--forget`) and see it fail; then update the
+  module docstring (contract reference `specs/014-stage-distinct-certs/contracts/cli.md`) and the
+  `--help` texts in `tools/inubit-cert-check.py`.
+- [ ] T028 [P] `CHANGELOG.md` `[Unreleased]` (after T012 and T023): feature 014 — Added
+  `tls.pinPerServer`, the certificate check before every StartCLI call to a server of a marked stage,
+  and the per-server workflow of `inubit-cert-check` (`--accept STAGE/SERVER`,
+  `--forget STAGE[/SERVER]`, one dialog per server, `expectedBy` note); Changed: change-log lines of
+  marked stages carry `server=`, rejections of marked stages are kept per server, the in-session rule
+  also fires on a pin mismatch (`CertificateException`); unchanged for stages without the setting.
+- [ ] T029 Review `tools/inubit-cert-check.py`, `main/config/ConfigValidator.java`,
+  `main/config/EffectiveNodeConfig.java`, `main/adapter/cli/StartCliPinProbe.java`,
+  `main/adapter/cli/CliRunner.java` and `main/Launcher.java` against FR-001…FR-018 (with FR-005a and
+  FR-010a), SC-001…SC-006 and the clarifications (2026-11-03 Q1, Q2; 2026-11-05) using the coverage
+  table below; list any gap as a new task here before continuing.
+- [ ] T030 Validate offline (SC-005, FR-018, plan outline step 3):
   - `mvn -q -o clean verify`;
   - the tool suite as CI runs it: `python3 -I -m unittest discover -s tools/tests -v` (and once with
     `/usr/bin/python3 -I`);
   - `mvn -q -o -Dtest=NoCustomerIdentifiersTest test` with the local identifier lists present — it
     must run, not skip (the surefire report shows the test executed, 0 skipped);
-  - `git diff main -- tools/tests src/test` shows no changed assertion in an existing 006 test
-    (only additions and the helper extension of T002);
+  - `git diff main -- tools/tests src/test` shows no changed assertion in an existing 006 test or
+    existing CLI test (only additions, the helper extension of T002, the `TlsTestServer` visibility
+    of T011 and the new `CliRunner` constructor/`run` arguments of T012);
   - record the outcome (counts only) in `specs/014-stage-distinct-certs/quickstart.md`.
-- [ ] T029 Local validation on a configuration copy (quickstart Q2–Q7, SC-001–SC-004): with the
+- [ ] T031 Local validation on a configuration copy (quickstart Q2–Q7, SC-001–SC-004): with the
   operator's OK, reinstall the tool to `~/.local/bin/inubit-cert-check`; run the Q2 configuration
-  checks (valid copy exit 0 without errors; each broken copy exit 1 naming stage and server), Q3
-  start-up log, Q4 steps a–g with two local TLS servers (time step d from seeing the error to the
-  restored check: under 2 minutes, SC-002), Q5 dialogs and rejection memory (the operator clicks),
-  Q6 concurrency, Q7 uniform-stage regression. Uses copies only; record the outcome without real
-  names in `quickstart.md`.
-- [ ] T030 Manual live step — operator only, needs the operator's explicit approval, never automated
+  checks (valid copy exit 0 and `Result: OK` without errors; each broken copy, V-10 and V-11
+  included, exit 1 naming stage and server), Q3 start-up log, Q4 steps a–g with two local TLS servers
+  (time step d from seeing the error to the restored check: under 2 minutes, SC-002), Q5 dialogs and
+  rejection memory (the operator clicks), Q6 concurrency, Q7 uniform-stage regression. Uses copies
+  only; record the outcome without real names in `quickstart.md`.
+- [ ] T032 Manual live step — operator only, needs the operator's explicit approval, never automated
   (FR-016, FR-017, SC-006, Story 3 AS 3):
-  - show the C-8′ diff for the operator's `~/.claude/CLAUDE.md` (back it up first) and apply it only
+  - show the C-8′ diff for the operator's `~/.claude/CLAUDE.md` (back it up first; the trigger now
+    names `CertPathValidatorException` or a pin mismatch `CertificateException`) and apply it only
     after the operator's "yes";
   - if, and only if, the operator decides to mark a real stage: the operator edits
-    `~/.config/inubit-mcp/<profile>.yaml` by hand, runs `--check-config` and
-    `inubit-cert-check --profile <profile> --check`, and reconnects the MCP server;
-  - on a real `TLS_ERROR` in a session: Claude runs `--check --json`, shows target, old and new
-    fingerprint, notBefore, IP and any `expectedBy` note, asks, and runs `--accept <target>
-    <fingerprint> --by claude` only after an explicit "Ja"; then asks for the reconnect and checks
-    `get_health`;
+    `~/.config/inubit-mcp/<profile>.yaml` by hand (per-node `cli.url` / `e2e.soap.baseUrl` where
+    set), runs `--check-config` and `inubit-cert-check --profile <profile> --check`, and reconnects
+    the MCP server;
+  - on a real `TLS_ERROR` in a session (either cause, REST or a refused StartCLI call): Claude runs
+    `--check --json`, shows target, old and new fingerprint, notBefore, IP and any `expectedBy` note,
+    asks, and runs `--accept <target> <fingerprint> --by claude` only after an explicit "Ja"; then
+    asks for the reconnect and checks `get_health`;
   - record the outcome without real names; nothing is committed before the operator asks.
 
 ---
@@ -436,61 +583,67 @@ brings the dialog back (Q5).
 ## Dependencies & Execution Order
 
 - Phase 1: T001 and T002 in parallel.
-- Phase 2: T003 → T004 → T005 (all in the tool file). Needs T002.
-- US1: T006 after T001; T007, T008, T009 after T006 (T008 and T009 touch different files and may run
-  in parallel); T010 any time (test only). T011 → T012 after T005.
-- US2: needs T012 (offers come from the check). T013 → T014 → T015 → T016 → T017 → T018 (same tool
-  file).
-- US3: needs T016 (the dialog's "Accept" runs C-2′). T019 → T020 → T021 → T022; T023 any time after
-  T013 (it documents the target form).
-- Polish: T024 (after T023, same file) and T026 in parallel after T022; T025 after T022 (tool file); T027 after T025; T028
-  after T027; T029 after T028 and the operator's OK; T030 last, only with the operator.
-- The Java track (T006–T010) and the tool track (T003–T005, T011–T022) are independent until T028.
+- Phase 2: T003 → T004 (both in the tool file). Needs T002.
+- US1, Java track: T005 after T001; T006, T007 and T009 after T005, in parallel (different files);
+  T008 after T007 (same files); T010 and T011 any time (own test files; T011 adds a new main class);
+  T012 after T005, T006 (same test file `EffectiveNodeConfigTest`) and T011.
+- US1, tool track: T013 → T014 after T004 (same tool and test files).
+- US2: needs T014 (offers come from the check). T015 → T016 → T017 → T018 → T019 (same tool file).
+- US3: needs T017 (the dialog's "Accept" runs C-2′). T020 → T021 → T022 → T023 (same tool file);
+  T024 any time after T015 (it documents the target form; `docs/setup.md` only).
+- Polish: T025 after T024 and T008 (same file; documents V-10/V-11); T026 after T025 and T012 (same
+  file); T027 after T023 (tool file); T028 after T012 and T023, in parallel with T025–T027; T029
+  after T026, T027 and T028; T030 after T029; T031 after T030 and the operator's OK; T032 last, only
+  with the operator.
+- The Java track (T005–T012) and the tool track (T003–T004, T013–T023, T027) are independent until
+  T029.
 
 ## Parallel Example
 
 ```text
 Phase 1:  T001 Java fixture | T002 tool test helpers
-US1:      T006 → (T007 | T008 | T009)   alongside   T003 → T004 → T005 → T011 → T012   and   T010
-US3/Pol.: (T023 → T024, both docs/setup.md) | T025 tool usage text | T026 CHANGELOG
+US1:      T005 → (T006 | T007 → T008 | T009) → T012   alongside   T010 | T011   and   T003 → T004 → T013 → T014
+US3/Pol.: T024 docs rule (during US2/US3) → T025 → T026 (all docs/setup.md) | T027 tool usage text | T028 CHANGELOG
 ```
 
 ## Implementation Strategy
 
-- **MVP**: Phases 1–3 (US1). A marked stage is valid, connects, is logged and is checked without a
-  conflict. On its own it is not releasable for a real stage, because a rotation would still need a
-  hand edit; release together with US2.
+- **MVP**: Phases 1–3 (US1). A marked stage is valid, connects, is logged, is enforced per server on
+  REST, SOAP and StartCLI, and is checked without a conflict. On its own it is not releasable for a
+  real stage, because a rotation would still need a hand edit; release together with US2.
 - Then US2 (command-line rotation, prune, serialization), then US3 (dialog, rejection memory,
   in-session rule), then docs and validation.
-- Run each task through the implementer → reviewer loop; every commit stays green because each
-  implementation task follows its own failing tests.
+- Run each task through the implementer → reviewer loop; every task contains its own failing tests
+  and the implementation that makes them pass (regression tasks: tests only, green at once), so
+  every task ends green and every commit stays green.
 
 ## Coverage
 
 | Requirement | Tasks |
 |---|---|
-| FR-001 setting, off by default | T006, T011 (uniform unchanged), T024 |
-| FR-002 one own pin per server | T007, T008, T010 |
-| FR-003 one stage trust store, "own" rule | T003, T004, T007, T014 |
-| FR-004 configuration rules | T006 (V-2), T008, T003 (`problem` in the tool) |
-| FR-005 runtime per-server pin, start-up log | T009, T010 |
-| FR-006 no conflict, per-server status | T011, T012 |
-| FR-007 report and JSON fields | T011, T012 |
-| FR-008 exit codes | T011, T012 |
-| FR-009 adoption steps, serialization | T015, T016, T018 |
-| FR-010 one server per decision | T014, T015, T016 |
-| FR-010a expected-by note (check, dialog, Claude) | T011, T021, T023, T030 |
-| FR-011 `server=` in log lines | T005, T015, T017, T021 |
-| FR-012 refusals | T014, T016 |
-| FR-013 superseded entries and prune | T011, T017 |
-| FR-014 dialog per server, limits, lock | T021, T022 |
-| FR-015 rejection memory per server | T011, T019, T020, T021 |
-| FR-016 in-session rule and check docs | T023, T025, T030 |
-| FR-017 no adoption without decision, uniform unchanged | T011, T021, T028, T030 |
-| FR-018 docs and customer-agnostic examples | T001, T023, T024, T025, T026, T028 |
-| SC-001 two certificates configured and healthy | T008, T010, T011, T029 |
-| SC-002 restore in under 2 minutes | T029 |
-| SC-003 adoption changes only the named server | T015, T029 |
-| SC-004 wrong certificate refused and reported | T010, T011, T029 |
-| SC-005 006 tests unchanged | T011, T021, T028 |
-| SC-006 no adoption without operator action | T021, T030 |
+| FR-001 setting, off by default | T005, T013 (uniform unchanged), T025 |
+| FR-002 one own pin per server | T006, T007, T010, T011 |
+| FR-003 one stage trust store, "own" rule | T003, T006, T016 |
+| FR-004 configuration rules | T005 (V-2), T007 (V-1, V-3…V-9), T008 (V-10, V-11), T003 (`problem` in the tool), T025 |
+| FR-005 runtime per-server pin (REST, SOAP, StartCLI), start-up log | T009, T010, T011, T012 |
+| FR-005a check before every StartCLI call | T011, T012, T026 |
+| FR-006 no conflict, per-server status | T013 |
+| FR-007 report and JSON fields | T013, T014 |
+| FR-008 exit codes | T013 |
+| FR-009 adoption steps, serialization | T017, T019 |
+| FR-010 one server per decision | T016, T017 |
+| FR-010a expected-by note (check, dialog, Claude) | T013, T014, T022, T024, T032 |
+| FR-011 `server=` in log lines | T004, T017, T018, T023 |
+| FR-012 refusals | T016 |
+| FR-013 superseded entries and prune | T014, T018 |
+| FR-014 dialog per server, limits, lock | T022, T023 |
+| FR-015 rejection memory per server | T013, T020, T021, T022, T023 |
+| FR-016 in-session rule (both `TLS_ERROR` causes) and check docs | T010, T024, T025, T027, T032 |
+| FR-017 no adoption without decision, uniform unchanged | T012 (no probe), T013, T023, T030, T032 |
+| FR-018 docs and customer-agnostic examples | T001, T024, T025, T026, T027, T028, T030 |
+| SC-001 two certificates configured and healthy | T007, T010, T013, T031 |
+| SC-002 restore in under 2 minutes | T031 |
+| SC-003 adoption changes only the named server | T017, T031 |
+| SC-004 wrong certificate refused (REST, SOAP, StartCLI) and reported | T010, T011, T012, T013, T031 |
+| SC-005 006 tests unchanged | T013, T014, T023, T030 |
+| SC-006 no adoption without operator action | T023, T032 |

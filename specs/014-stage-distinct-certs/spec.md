@@ -48,6 +48,17 @@ Naming in this spec: the profile is `acme`, its stages `dev` (one server) and `i
   of the stage? → A: One server per decision; the operator names stage and server, and other
   servers of the stage need not be reachable.
 
+### Session 2026-11-05 (operator decision after plan review r1, finding 2)
+
+- Q: StartCLI cannot pin a certificate, and in a marked stage the shared trust store holds every
+  server's certificate. Must CLI-backed tools still enforce each server's own expected certificate?
+  → A: Yes. Before every StartCLI call to a server of a marked stage, the MCP server checks the
+  certificate presented at the address StartCLI connects to against that server's own expected
+  fingerprint, with a TLS handshake through the existing pin check, and refuses the call before
+  StartCLI starts if it does not match or cannot be checked (FR-005a). Unmarked stages stay
+  unchanged. The short window between that check and StartCLI's own connection remains and is
+  documented.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Declare and verify a stage with per-server certificates (Priority: P1)
@@ -80,11 +91,20 @@ checks succeed, and the certificate check reports `int` as `ok` with no conflict
    configuration check runs, **Then** it fails and names the stage and the server.
 6. **Given** any one of these configurations — the setting on `defaults`, the setting on a server,
    a trust store on a server of a marked stage, an expected fingerprint in the marked stage's
-   `tls` (directly or through an alias), or a marked stage without any trust store — **When** the
-   configuration check runs, **Then** it fails and names the stage and, where it applies, the
-   server (FR-004).
+   `tls` (directly or through an alias), a marked stage without any trust store, or a server of a
+   marked stage with several servers that inherits `cli.url` or `e2e.soap.baseUrl` from the stage —
+   **When** the configuration check runs, **Then** it fails and names the stage and, where it
+   applies, the server (FR-004).
 7. **Given** a profile with the marked stage `int`, **When** the MCP server starts, **Then** its log
    says that `int` is marked (FR-005).
+8. **Given** that configuration, **When** a CLI-backed tool (for example a deployment) is called for
+   `int/a` and the address StartCLI connects to for `int/a` presents the certificate expected for
+   `int/b`, or cannot be reached, **Then** the call is refused with the error code and cause the
+   REST path reports for the same failure (`TLS_ERROR` naming the pin mismatch, or `UNREACHABLE`),
+   and StartCLI is not started (FR-005a).
+9. **Given** a stage that is **not** marked, **When** a CLI-backed tool is called for one of its
+   servers, **Then** no certificate check runs before StartCLI and the call behaves exactly as
+   before (FR-005a, FR-017).
 
 ---
 
@@ -184,7 +204,20 @@ all files unchanged and remember the rejection for `int/b` only. In a Claude ses
   or used by another stage): valid for connections, but no adoption for any server of the stage;
   the report says so (FR-003, FR-012).
 - **http servers** in a marked stage: skipped as in feature 006; they need no expected certificate
-  and cannot be named for adoption.
+  and cannot be named for adoption. An http StartCLI address (only with `allowInsecureHttp`) has no
+  certificate and is not checked before StartCLI (FR-005a).
+- **StartCLI address differs from the REST address** (`cli.url` set for a server): the check before
+  StartCLI uses the StartCLI address, so that address must present the server's expected
+  certificate too (FR-005a).
+- **Certificate switches between the check and StartCLI's own connection**: StartCLI itself
+  validates only against the stage's trust store, which holds every server's certificate; in that
+  short window it could accept another server's certificate. The documentation states this window
+  and recommends certificates whose subjectAltNames match the host, with host-name verification
+  on, which closes it (FR-005a, FR-018).
+- **One stage-level address for several servers of a marked stage** (`cli.url` or
+  `e2e.soap.baseUrl` set on the stage and inherited): every server would be checked against its
+  own certificate at the same address, so at most one could pass; the configuration check rejects
+  it (FR-004).
 - **Pruning and the check's list of superseded entries**: a trust-store entry is superseded only if
   no server of the stage currently expects it; an entry still expected by any server is never
   listed for removal (FR-013).
@@ -230,12 +263,27 @@ all files unchanged and remember the rejection for `int/b` only. In a Claude ses
     overrides it with its own);
   - an https server of a marked stage whose expected fingerprint is not set in that server's own
     `tls` (directly or through an alias the server's `tls` refers to);
-  - a malformed fingerprint.
+  - a malformed fingerprint;
+  - in a marked stage with more than one server, a server that inherits `cli.url` or
+    `e2e.soap.baseUrl` from the stage instead of setting its own (each server is checked against
+    its own certificate, so the servers cannot share one address).
   Each error names stage and server. A fingerprint reached through an alias on the server's own
   `tls` and a stage trust store that is not the stage's own are valid; they only restrict adoption
   (FR-012).
 - **FR-005**: At runtime the MCP server MUST accept, for each server of a marked stage, only that
-  server's expected certificate (FR-002), and MUST log at start which stages are marked.
+  server's expected certificate (FR-002): on every REST and SOAP connection it makes itself, and
+  before every StartCLI call through the check of FR-005a. It MUST log at start which stages are
+  marked.
+- **FR-005a**: Before every StartCLI call that logs in to a server of a marked stage, the MCP server
+  MUST check the certificate that server presents at the host and port StartCLI connects to (the
+  server's effective `cli.url`) against that server's own expected fingerprint, with a TLS
+  handshake through the same trust store, pin check and host-name rule as its REST connections. On
+  a pin mismatch, any other TLS failure, or an unreachable address the call MUST be refused before
+  StartCLI starts, with the error code and cause the REST path reports for the same failure
+  (`TLS_ERROR` naming the cause — for a pin mismatch the `CertificateException` — or `UNREACHABLE`
+  / `TIMEOUT`), and StartCLI MUST NOT run. An http StartCLI address has no certificate and is not
+  checked. Servers of unmarked stages are not checked (FR-017). The documentation MUST state the
+  remaining window between this check and StartCLI's own connection (FR-018).
 
 **Check**
 
@@ -317,7 +365,10 @@ all files unchanged and remember the rejection for `int/b` only. In a Claude ses
     by the next check.
 - **FR-016**: The operator's in-session rule and the documentation of the check MUST be updated so
   that Claude presents server-level details for marked stages and uses the adoption form of FR-010;
-  Claude still never adopts without an explicit "yes" ("Ja").
+  the rule MUST apply to a `TLS_ERROR` whose cause is a failed certificate path
+  (`CertPathValidatorException`) and to one whose cause is a pin mismatch (`CertificateException`),
+  because a server presenting another server's certificate of a marked stage passes the shared
+  trust store and fails only the pin. Claude still never adopts without an explicit "yes" ("Ja").
 
 **General**
 
@@ -352,8 +403,9 @@ all files unchanged and remember the rejection for `int/b` only. In a Claude ses
 - **SC-003**: In 100 % of test runs, an adoption in a marked stage changes the expected fingerprint
   of the named server only and leaves every other server and stage unchanged.
 - **SC-004**: In 100 % of test runs with a server presenting a certificate it is not allowed to
-  present (including another server's certificate of the same stage), the connection is refused
-  and the check reports `changed`.
+  present (including another server's certificate of the same stage), the REST and SOAP connection
+  is refused, a StartCLI call to that server is refused before StartCLI starts (FR-005a), and the
+  check reports `changed`.
 - **SC-005**: Every existing check, adoption and dialog test of feature 006 passes unchanged for
   unmarked stages.
 - **SC-006**: No certificate is ever adopted without an explicit operator action.
@@ -365,9 +417,10 @@ all files unchanged and remember the rejection for `int/b` only. In a Claude ses
   stage keeps being reported as a conflict (possible man-in-the-middle).
 - **Scope** covers the MCP server's configuration loading and validation, the certificate tool
   (`inubit-cert-check`, check / accept / prune / interactive / forget), the launcher's dialog, the
-  documentation and the operator's in-session rule. The MCP server's TLS check itself is expected
-  to stay as it is, because it already enforces one pin per server; its configuration validation
-  gains the rules of FR-004.
+  documentation and the operator's in-session rule. The MCP server's TLS check of REST and SOAP
+  connections is expected to stay as it is, because it already enforces one pin per server; its
+  configuration validation gains the rules of FR-004, and its CLI adapter gains the check before
+  StartCLI (FR-005a).
 - **Command-line form.** Adoption, forgetting and the in-session rule need a way to name a server
   (for example its server id `int/b`); the exact form is decided in the plan, and the operator's
   global Claude instructions are updated accordingly (FR-016).
@@ -377,7 +430,8 @@ all files unchanged and remember the rejection for `int/b` only. In a Claude ses
     configuration by hand and runs the configuration check);
   - per-server trust stores;
   - automatic detection of stages that should be marked;
-  - changes to the MCP server's TLS check at connection time.
+  - changes to the MCP server's TLS check of REST and SOAP connections;
+  - pinning inside StartCLI itself (StartCLI offers no pin option; FR-005a checks before it runs).
 - **Backward compatibility.** Existing profiles without the setting load and behave exactly as
   before; state and log files written by feature 006 stay valid.
 - **The tooling constraints of feature 006 apply** (no new packages beyond the JDK and the system
