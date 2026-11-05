@@ -456,6 +456,35 @@ class TrustStoreTest(CheckTestCase):
         self.assertNotIn("int-b-new", text)
         self.assertNotIn("      int-a  ", text)
 
+    def test_marked_stage_keeps_the_pin_of_an_http_server(self):
+        # T029c: int/c is http with an https cli.url and pins D; it is still not contacted
+        pin_d = "DD:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:32:42:52:62:72:82:92:A2:B2:" \
+                "C2:D2:E2:F2:02:06:07"
+        marked = support.marked_stage(self)
+        fp_a, fp_b = marked["a"].fingerprint, marked["b"].fingerprint
+        self.keytool.entries[self.stores["int"]] = [
+            self.tool.TrustEntry("int-a", fp_a), self.tool.TrustEntry("int-b", fp_b),
+            self.tool.TrustEntry("int-c", pin_d), self.tool.TrustEntry("int-old", OTHER)]
+        self.write([{"name": "int", "pin_per_server": True, "store": self.stores["int"],
+                     "servers": [("a", f"https://int-a.example.test:{marked['a'].port}",
+                                  {"pin": fp_a}),
+                                 ("b", f"https://int-b.example.test:{marked['b'].port}",
+                                  {"pin": fp_b}),
+                                 ("c", "http://int-c.example.test:8080", {"pin": pin_d})]}])
+        support.insert_after(self.profile, "baseUrl: http://int-c.example.test:8080",
+                             f"        cli:\n          url: https://int-c.example.test:"
+                             f"{closed_port()}\n")
+        code, report, _err = self.run_check()
+        self.assertEqual(0, code)
+        int_ = self.stage(report, "int")
+        self.assertEqual([{"alias": "int-old", "fingerprint": OTHER}],
+                         int_["supersededTrustStoreEntries"])
+        self.assertEqual(["int/a", "int/b"], [server["id"] for server in int_["servers"]])
+        self.assertEqual([{"id": "int/c", "reason": "no TLS"}], report["skippedServers"])
+        _code, text, _err = self.run_check(json_output=False)
+        self.assertIn("int/c        skipped (no TLS)", text)
+        self.assertNotIn("      int-c  ", text)
+
 
 class OutputTest(CheckTestCase):
 
@@ -951,6 +980,24 @@ class PinPerServerCheckTest(CheckTestCase):
                 self.assertEqual(reason == "configuration problem", int_["problem"] is not None)
                 self.assertEqual(reason != "trust store not the stage's own", int_["ownTls"])
                 self.assertNoOfferFields(self.server(int_, "int/a"))
+
+    def test_unreadable_address_is_a_problem_of_the_stage_only(self):
+        # T029c r1: an alias as cli of int/b makes int unusable, not the profile unreadable
+        self.write_marked([("a", self.url("a"), {"pin": self.fp("a")}),
+                           ("b", self.url("b"), {"pin": OTHER})])
+        support.insert_after(self.profile, f"baseUrl: {self.url('b')}", "        cli: *nowhere\n")
+        code, report, err = self.run_check()
+        self.assertEqual(10, code, err)
+        self.assertEqual("ok", self.stage(report, "dev")["status"])
+        int_ = self.stage(report, "int")
+        self.assertTrue(int_["problem"].startswith("int/b: cannot read cli.url here (line "),
+                        int_["problem"])
+        server_b = self.server(int_, "int/b")
+        self.assertEqual(("changed", self.fp("b"), None, "configuration problem"),
+                         (server_b["status"], server_b["presented"], server_b["offer"],
+                          server_b["noOfferReason"]), "servers are still compared")
+        _code, text, _err = self.run_check(json_output=False)
+        self.assertIn(f"  configuration problem: {int_['problem']} - run --check-config", text)
 
     def test_problem_reported(self):
         self.write_marked([("a", self.url("a"), {"pin": OTHER, "store": self.stores["int"]}),

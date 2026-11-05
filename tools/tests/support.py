@@ -142,6 +142,18 @@ def marked_stage(testcase, nodes=("a", "b")):
     return result
 
 
+def insert_after(path, fragment, text):
+    """Inserts text (whole lines, ending with a newline) after the first line of the file at path
+    that contains fragment, e.g. a cli or e2e block that write_profile cannot write."""
+    with open(path, encoding="utf-8") as handle:
+        lines = handle.read().split("\n")
+    index = next(i for i, line in enumerate(lines) if fragment in line)
+    lines[index + 1:index + 1] = text.rstrip("\n").split("\n")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines))
+    return path
+
+
 def sha256_of(path):
     import hashlib
     with open(path, "rb") as handle:

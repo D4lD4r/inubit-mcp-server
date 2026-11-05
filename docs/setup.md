@@ -1568,9 +1568,25 @@ the INUBIT operators which server answers at that address before accepting; acce
   succeeds when repeated.
 
 **Prune.** `--prune` takes the stage (`--prune int`, also after an adoption for `int/b`) and keeps
-every certificate any server of the stage still pins; it lists (and with `--yes` removes) only
-entries that are no server's pin. `--yes` refuses unless every server's pin is in the trust store,
-and restores the store if one went missing.
+every certificate any server of the stage still pins, the pin of an http server included; it lists
+(and with `--yes` removes) only entries that are no server's pin. `--yes` refuses unless every
+server's pin is in the trust store, and restores the store if one went missing.
+
+**An http server with an https StartCLI or SOAP address.** The tool contacts only https
+`baseUrl`s: it neither checks nor adopts the certificate at the `cli.url` or `e2e.soap.baseUrl` of
+an http server (`--check` shows it as `skipped (no TLS)`, `--accept int/c` is refused as an http
+server). Set its pin by hand: read the fingerprint at that address, compare it with the one the
+INUBIT operators publish, import the certificate into the stage's trust store (section 5) and
+write it as the server's own `tls.pinnedCertificateSha256` (with or without colons), e.g.
+
+```bash
+openssl s_client -connect int-c.example.test:8443 -servername int-c.example.test </dev/null \
+  | openssl x509 -noout -fingerprint -sha256
+```
+
+prints `sha256 Fingerprint=AA:BB:…` (older versions `SHA256 Fingerprint=…`); the part after `=`
+is the pin. Without that pin the stage has a configuration problem (V-6): `--accept` and
+`--prune` refuse it, and the check offers no adoption for it.
 
 **Forget.** `--forget int/b` forgets the rejected certificate of `int/b` only; `--forget int`
 forgets the rejections of all servers of the marked stage (and any rejection remembered for the

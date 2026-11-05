@@ -163,6 +163,7 @@ DEFAULT_HTTPS_PORT = 443
 _KEY = re.compile(r"""([A-Za-z0-9_][A-Za-z0-9_.-]*|"[^"\\]*"|'[^']*')[ ]*:(?:[ ]+(.*))?$""")
 _ANCHOR = re.compile(r"&([^\s\[\]{},]+)(?:[ ]+(.*))?$")
 _ALIAS = re.compile(r"\*([^\s\[\]{},]+)$")
+_SCHEME = re.compile(r"\s*([A-Za-z][A-Za-z0-9+.-]*):")
 _ANCHOR_TOKEN = re.compile(r"(?:^|[\s\[{,])&([^\s\[\]{},]+)")
 _MERGE_KEY = re.compile(r"(?:^(?:-[ ]+)*|[{,][ ]*)<<[ ]*:")
 _ESCAPES = {"\\": "\\", '"': '"', "/": "/", "n": "\n", "t": "\t", "r": "\r", "0": "\0",
@@ -193,12 +194,14 @@ class Server:
 
 @dataclass(frozen=True)
 class SkippedServer:
-    """A server that is not contacted: an http:// server has no certificate (reason "no TLS")."""
+    """A server that is not contacted: an http:// server has no certificate (reason "no TLS").
+    pin is the server's own pin in a marked stage (kept by --prune, research R-13), else None."""
     id: str
     stage: str
     name: str
     base_url: str
     reason: str = "no TLS"
+    pin: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -207,8 +210,8 @@ class Stage:
     effective values (stage -> defaults); pin_line is the line of the pin in the stage's own
     inline tls block (pin_source "stage"), else None. servers are the https servers only.
     A marked stage (pin_per_server, tls.pinPerServer: true) has pin None, pin_source "server",
-    expected = the pins of its https servers, and problem = the first broken rule of research
-    R-7 or None."""
+    expected = the pins of its servers (http servers' own pins included), and problem = the
+    first broken rule of research R-7 or None."""
     name: str
     pin: Optional[str]
     pin_source: str  # stage | alias | defaults | server
@@ -546,43 +549,57 @@ def _scalar(number, text):
     return text
 
 
-def _split_flow(text, number):
-    """The comma-separated parts of a one-line flow mapping without nested collections."""
-    parts, current, quote = [], [], None
+def _split_flow(text, number, nested=False):
+    """The comma-separated parts of a one-line flow mapping; nested collections only when nested
+    (their commas do not split)."""
+    parts, current, quote, depth = [], [], None, 0
     for c in text:
         if quote:
             if c == quote:
                 quote = None
         elif c in "'\"":
             quote = c
-        elif c in "{}[]":
+        elif c in "{}[]" and not nested:
             _fail(number, "nested flow collections are not supported here")
-        elif c == ",":
+        elif c in "{[":
+            depth += 1
+        elif c in "}]":
+            depth -= 1
+            if depth < 0:
+                _fail(number, "unbalanced flow collection")
+        elif c == "," and depth == 0:
             parts.append("".join(current))
             current = []
             continue
         current.append(c)
     if quote:
         _fail(number, "unterminated quoted value")
+    if depth:
+        _fail(number, "unbalanced flow collection")
     parts.append("".join(current))
     return [part.strip() for part in parts if part.strip()]
 
 
-def _simple_flow_mapping(node):
-    """A one-line flow mapping of plain or quoted scalars, e.g. "profile: {name: acme}"."""
+def _simple_flow_mapping(node, nested=False):
+    """A one-line flow mapping of plain or quoted scalars, e.g. "profile: {name: acme}"; when
+    nested, a value may itself be a flow collection (kept as a one-line _Opaque)."""
     text = node.text.strip()
     if node.what != "flow collection on one line" or not (text.startswith("{")
                                                           and text.endswith("}")):
         _fail(node.number, "expected a block mapping or a one-line flow mapping")
     entries = {}
-    for part in _split_flow(text[1:-1], node.number):
+    for part in _split_flow(text[1:-1], node.number, nested):
         match = _KEY.match(part)
         if not match or not (match.group(2) or "").strip():
             _fail(node.number, "expected 'key: value' in the flow mapping")
         key = match.group(1).strip("'\"")
         if key in entries:
             _fail(node.number, f"duplicate key '{key}'")
-        entries[key] = _Scalar(node.number, _scalar(node.number, match.group(2).strip()))
+        value = match.group(2).strip()
+        if nested and value[0] in "{[":
+            entries[key] = _Opaque(node.number, "flow collection on one line", value)
+        else:
+            entries[key] = _Scalar(node.number, _scalar(node.number, value))
     return _Mapping(node.number, entries)
 
 
@@ -703,6 +720,42 @@ def _base_url(text, number, what):
     return text.rstrip("/"), scheme, parts.hostname, port or DEFAULT_HTTPS_PORT
 
 
+def _address_block(mapping, key, what):
+    """mapping[key] (a cli, e2e or soap block) as a mapping: a block mapping or a one-line flow
+    mapping, whose values may be one-line flow mappings (e2e: { soap: { baseUrl: ... } })."""
+    node = None if mapping is None else mapping.get(key)
+    if node is None or (isinstance(node, _Scalar) and node.value is None
+                        and node.anchor is None):
+        return None
+    if node.anchor is None:
+        if isinstance(node, _Mapping):
+            return node
+        if isinstance(node, _Opaque) and node.what == "flow collection on one line" \
+                and node.text.strip().startswith("{"):
+            return _simple_flow_mapping(node, nested=True)
+    _fail(node.number, f"{what}.{key} must be a block mapping or a one-line flow mapping")
+
+
+def _addresses(mapping, what, who):
+    """(cli.url, e2e.soap.baseUrl, problem) of a stage or server as written, None when absent.
+    An unreadable shape is a problem of the marked stage, not of the profile (T029c)."""
+    try:
+        cli = _string(_address_block(mapping, "cli", what), "url", f"{what}.cli")
+    except ConfigError as error:
+        return None, None, f"{who}: cannot read cli.url here ({error})"
+    try:
+        soap = _address_block(_address_block(mapping, "e2e", what), "soap", f"{what}.e2e")
+        soap_url = _string(soap, "baseUrl", f"{what}.e2e.soap")
+    except ConfigError as error:
+        return None, None, f"{who}: cannot read e2e.soap.baseUrl here ({error})"
+    return cli, soap_url, None
+
+
+def _is_https(url):
+    scheme = None if url is None else _SCHEME.match(url)
+    return scheme is not None and scheme.group(1).lower() == "https"
+
+
 def _same_file_key(path):
     return os.path.realpath(os.path.normpath(path))
 
@@ -812,6 +865,10 @@ def _read_stage(item, anchors, defaults_tls):
         _fail(item.number, f"stage name missing or invalid (expected {STAGE_NAME.pattern})")
     what = f"stage {stage_name}"
     group_tls = _tls_block(item.get("tls"), anchors, what)
+    marked = group_tls is not None and group_tls.get(PER_SERVER_KEY) is True
+    # cli.url and e2e.soap.baseUrl matter for a marked stage only (V-6, T029b)
+    stage_cli, stage_soap, address_problem = (_addresses(item, what, f"stage '{stage_name}'")
+                                              if marked else (None, None, None))
     nodes = item.get("nodes")
     if not isinstance(nodes, _Sequence) or not nodes.items:
         _fail(item.number, f"{what}: nodes must be a non-empty block sequence")
@@ -833,10 +890,18 @@ def _read_stage(item, anchors, defaults_tls):
         base_url, scheme, host, port = _base_url(_string(node, "baseUrl", server_what),
                                                  url_line, server_what)
         node_tls = _tls_block(node.get("tls"), anchors, server_what)
-        all_nodes.append((server_id, scheme, node_tls))
+        needs_pin = scheme == "https"
+        if marked:
+            # as ConfigValidator.checkPinPerServer: any https address, each node -> stage
+            cli_url, soap_url, problem = _addresses(node, server_what, server_id)
+            address_problem = address_problem or problem
+            needs_pin = needs_pin or _is_https(cli_url or stage_cli) \
+                or _is_https(soap_url or stage_soap)
+        all_nodes.append((server_id, needs_pin, node_tls))
         if scheme == "http":  # no certificate: not contacted, not part of the evaluation
             skipped.append(SkippedServer(id=server_id, stage=stage_name, name=node_name,
-                                         base_url=base_url))
+                                         base_url=base_url,
+                                         pin=_effective(PIN_KEY, node_tls) if marked else None))
             continue
         node_blocks.append(node_tls)
         if node_tls is not None and node_tls.kind == "alias":
@@ -853,7 +918,7 @@ def _read_stage(item, anchors, defaults_tls):
             pin_line=node_tls.lines[PIN_KEY] if server_pin_source == "server" else None))
 
     trust_store = _effective("trustStore", group_tls, defaults_tls)
-    if group_tls is not None and group_tls.get(PER_SERVER_KEY) is True:
+    if marked:
         return _StageDraft(
             name=stage_name, pin=None, pin_source="server", pin_line=None,
             trust_store=trust_store,
@@ -861,7 +926,8 @@ def _read_stage(item, anchors, defaults_tls):
             servers=servers, skipped=skipped,
             server_ids=[f"{stage_name}/{node_name}" for node_name in node_names],
             pin_per_server=True,
-            problem=_pin_per_server_problem(stage_name, group_tls, all_nodes, trust_store))
+            problem=address_problem
+            or _pin_per_server_problem(stage_name, group_tls, all_nodes, trust_store))
     if any(block is not None and (block.get(PIN_KEY) or block.get("trustStore"))
            for block in node_blocks):
         pin_source = "server"
@@ -884,8 +950,9 @@ def _read_stage(item, anchors, defaults_tls):
 
 def _pin_per_server_problem(stage_name, group_tls, nodes, trust_store):
     """The first rule of research R-7 that a marked stage breaks, as a short text, or None.
-    nodes: (server id, scheme, tls block) of every server of the stage, in file order. The
-    server's --check-config reports the full list."""
+    nodes: (server id, needs pin, tls block) of every server of the stage, in file order; needs
+    pin: baseUrl, cli.url or e2e.soap.baseUrl is https. The server's --check-config reports the
+    full list."""
     if group_tls.get(PIN_KEY) is not None:
         return f"stage '{stage_name}': tls.pinnedCertificateSha256 is not allowed with " \
                "tls.pinPerServer; set it on each server"
@@ -893,8 +960,8 @@ def _pin_per_server_problem(stage_name, group_tls, nodes, trust_store):
         if tls is not None and tls.get("trustStore") is not None:
             return f"{server_id}: tls.trustStore is not allowed on a server of a stage with " \
                    "tls.pinPerServer; set it on the stage"
-    for server_id, scheme, tls in nodes:
-        if scheme == "https" and (tls is None or tls.get(PIN_KEY) is None):
+    for server_id, needs_pin, tls in nodes:
+        if needs_pin and (tls is None or tls.get(PIN_KEY) is None):
             return f"{server_id}: tls.pinPerServer on stage '{stage_name}' needs " \
                    "tls.pinnedCertificateSha256 on this server"
     for server_id, _scheme, tls in nodes:
@@ -919,7 +986,7 @@ def _finish_stages(drafts):
         own_tls = (own_pin and draft.own_store
                    and stores.get(_same_file_key(draft.trust_store), {draft.name})
                    == {draft.name})
-        expected = frozenset(server.pin for server in draft.servers
+        expected = frozenset(server.pin for server in draft.servers + draft.skipped
                              if server.pin is not None) if draft.pin_per_server else frozenset()
         yield Stage(name=draft.name, pin=draft.pin, pin_source=draft.pin_source,
                     pin_line=draft.pin_line, trust_store=draft.trust_store, own_tls=own_tls,
@@ -1733,9 +1800,18 @@ def evaluate_stage(stage, presented, rejection=None, superseded=None, not_inspec
                        not_inspected=not_inspected)
 
 
+def server_pins(stage):
+    """{server id: own pin} of the servers of a marked stage that have one, http servers
+    included (research R-13), in file order."""
+    pins = {server.id: server.pin for server in stage.servers + stage.skipped_servers
+            if server.pin is not None}
+    return {server_id: pins[server_id] for server_id in stage.server_ids if server_id in pins}
+
+
 def kept_fingerprints(stage):
     """The fingerprints the stage's trust store must keep: the stage pin, or for a marked stage
-    the pins of its https servers (research R-13); empty when nothing is pinned."""
+    the pins of its servers, http servers included (research R-13); empty when nothing is
+    pinned."""
     return stage.expected if stage.pin_per_server else frozenset({stage.pin} - {None})
 
 
@@ -2535,8 +2611,8 @@ def _change_and_report(args, state, profile, stage, change, leaf, keytool, alias
         pinned = {fingerprint}
     else:
         # the re-read stage's expected pins (verified: the others unchanged), as superseded_entries
-        pinned = {other.pin for other in stage.servers
-                  if other.id != server.id and other.pin is not None} | {fingerprint}
+        pinned = {pin for other, pin in server_pins(stage).items()
+                  if other != server.id} | {fingerprint}
     superseded = [entry for entry in listed if entry.fingerprint not in pinned]
 
     # step 7
@@ -2599,9 +2675,12 @@ def _verify_server_pins(before, after, stage_name, server_id, fingerprint):
     of the stage keeps its pin, and the server ids of the profile are unchanged."""
     if after.server_ids() != before.server_ids():
         raise VerificationFailed("the server ids of the re-read profile changed")
-    old_pins = {server.id: server.pin for server in before.stage(stage_name).servers}
+    def pins(stage):
+        return {server.id: server.pin for server in stage.servers + stage.skipped_servers}
+
+    old_pins = pins(before.stage(stage_name))
     stage = after.stage(stage_name)
-    new_pins = {} if stage is None else {server.id: server.pin for server in stage.servers}
+    new_pins = {} if stage is None else pins(stage)
     if new_pins.get(server_id) != fingerprint:
         raise VerificationFailed(f"the re-read profile does not pin {fingerprint} for server "
                                  f"{server_id}")
@@ -2640,9 +2719,10 @@ _NO_PIN = "stage {stage}: no pin configured; nothing removed"
 
 def _prune_expected(stage):
     """{server id: fingerprint} naming the pins of kept_fingerprints in messages: for a marked
-    stage the pin of every server (research R-13), else {None: the stage pin}."""
+    stage the pin of every server, http servers included (research R-13), else {None: the stage
+    pin}."""
     if stage.pin_per_server:
-        return {server.id: server.pin for server in stage.servers if server.pin is not None}
+        return server_pins(stage)
     return {None: stage.pin}
 
 

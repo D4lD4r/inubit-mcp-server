@@ -636,7 +636,7 @@ brings the dialog back (Q5).
   or inherited); failing test first in `ConfigValidatorTest.PinPerServer` (additions only), `v7…`
   stays green; align contracts/configuration.md, spec FR-004 and its "http servers" edge case,
   `docs/setup.md`.
-- [ ] T029c [US1] Cert tool follows the extended V-6 (follow-up of `reviews/T029b-r1.md`; FR-004,
+- [X] T029c [US1] Cert tool follows the extended V-6 (follow-up of `reviews/T029b-r1.md`; FR-004,
   FR-013): write the failing tests first in `tools/tests` and see them fail (006 tests untouched):
   (a) in a marked stage `expected` and `_prune_expected` include the own pin of every server, http
   servers with an https `cli.url` / `e2e.soap.baseUrl` included; `--prune` keeps it and refuses

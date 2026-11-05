@@ -166,11 +166,16 @@ Every decision was checked against `main` (18344e2) — server code under
   - The reader does not duplicate the server's validation. A marked stage that breaks a rule of R-3
     gets a `problem` text. The check still compares and reports the servers, but no offer is made,
     and `--accept`/`--prune` refuse with "configuration not valid for tls.pinPerServer: <problem>
-    — run --check-config". The rules are: a stage pin, a server trust store, an https server
-    without a pin, a `pinPerServer` on a node, or a marked stage without any effective trust store.
-    The two address rules of R-3 (`cli.url`, `e2e.soap.baseUrl`) are not repeated in the tool:
-    they do not affect pins or the trust store, and `--accept` runs `--check-config`, which
-    reports them.
+    — run --check-config". The rules are: a stage pin, a server trust store, a server without
+    its own pin whose `baseUrl`, `cli.url` or `e2e.soap.baseUrl` (each node → stage, as V-6) is
+    https, a `pinPerServer` on a node, or a marked stage without any effective trust store. For
+    this the reader reads `cli.url` and `e2e.soap.baseUrl` of the nodes and the stage of a marked
+    stage only (block or one-line flow mapping, also nested as `e2e: { soap: { baseUrl: … } }`);
+    any other shape there (alias, multi-line flow, block scalar, list, …) is not a profile-wide
+    error but that stage's `problem` ("int/b: cannot read cli.url here (…)"), so the stage is
+    refused for adoption and prune and the other stages stay usable. Uniform stages are read
+    as in 006. The two inheritance rules of R-3 (V-10, V-11) are not repeated in the tool: they do
+    not affect pins or the trust store, and `--accept` runs `--check-config`, which reports them.
 - **Rationale**: the reader stays fail-closed for *shapes* (006 R-7). Semantic errors stay
   reportable, so `--check` remains usable for diagnosis.
 
@@ -251,8 +256,14 @@ Every decision was checked against `main` (18344e2) — server code under
 
 ## R-13 Prune and superseded entries for marked stages (FR-013)
 
-- **Decision**: the expected set is the pins of all https servers of the stage. An entry is
-  superseded when its fingerprint is not in that set.
+- **Decision**: the expected set is the own pins of all servers of the stage: every https server,
+  and every http server (`allowInsecureHttp`) that has its own pin — V-6 requires one when its
+  `cli.url` or `e2e.soap.baseUrl` is https (T029b, T029c). An entry is superseded when its
+  fingerprint is not in that set.
+  - `--check` still contacts only `baseUrl`s that are https: an http server stays `skipped (no
+    TLS)`, its pin is neither compared nor offered for adoption (`--accept int/c` is refused as an
+    http server); the operator sets it by hand (docs/setup.md). Its certificate is kept by
+    `--prune` and is not listed as superseded.
   - `--prune STAGE --yes` refuses (exit 3) unless every fingerprint of the expected set is in the
     store. After deleting, it verifies that all of them are still present (restore and exit 4
     otherwise).

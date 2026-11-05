@@ -66,8 +66,8 @@ Checked on the values as written (before inheritance). Jackson has already resol
 | `pin` | uniform stage: as in 006. Marked stage: `None` (no stage-wide expected fingerprint) |
 | `pinSource` | uniform stage: as in 006. Marked stage: `server` |
 | `ownTls` | uniform stage: as in 006. Marked stage: `trustStore` written in the stage's own inline `tls` block, and that file (real path) used by no other stage; no pin condition |
-| `expected` | **new**, marked stage only: the set of the pins of its https servers |
-| `problem` | **new**, marked stage only: `None`, or the first broken rule of the table above, as a short text (research R-7) |
+| `expected` | **new**, marked stage only: the set of the own pins of its servers — every https server, and every http server with its own pin (V-6 requires it when the server's `cli.url` or `e2e.soap.baseUrl` is https; research R-13) |
+| `problem` | **new**, marked stage only: `None`, or the first broken rule of the table above, as a short text (research R-7); an unreadable `cli`/`e2e` shape of the stage or a server comes first ("int/b: cannot read cli.url here (…)") |
 
 ### Server
 

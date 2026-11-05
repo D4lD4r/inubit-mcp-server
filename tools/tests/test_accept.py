@@ -1075,6 +1075,60 @@ class PruneTest(AcceptTestCase):
         self.assertEqual(["int-b-cc334455-20240101"], deleted)
         self.assertEqual([self.fp_a, self.fp_b], self.int_fingerprints())
 
+    # --- T029c: the own pin of an http server of a marked stage (V-6 extended by T029b) --------
+
+    C_URL = "baseUrl: http://int-c.example.test:8080"
+    C_CLI = "        cli:\n          url: https://int-c.example.test:8443\n"
+    PIN_D = "DD:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:32:42:52:62:72:82:92:A2:B2:C2:" \
+            "D2:E2:F2:02:06:07"
+
+    def marked_with_http(self, c_pin=None):
+        c_tls = ({"pin": c_pin},) if c_pin else ()
+        self.marked(more=[("c", "http://int-c.example.test:8080") + c_tls])
+        support.insert_after(self.profile, self.C_URL, self.C_CLI)
+
+    def test_marked_keeps_the_pin_of_an_http_server(self):
+        self.marked_with_http(c_pin=OTHER)
+        before = self.snapshot()
+        code, out, err = self.prune_int()
+        self.assertEqual(0, code, err)
+        self.assertIn(f"int/c {OTHER}", out)
+        self.assertIn("superseded entries: none", out)
+        code, out, err = self.prune_int("--yes")
+        self.assertEqual(0, code, err)
+        self.assertEqual(before, self.snapshot())
+        self.assertEqual([], self.backups())
+        self.assertFalse(any(call[0] == "delete" for call in self.keytool.calls))
+        self.assertEqual([self.fp_a, OTHER, self.fp_b], self.int_fingerprints())
+
+    def test_marked_yes_refuses_without_the_pin_of_an_http_server(self):
+        self.marked_with_http(c_pin=self.PIN_D)
+        err = self.assertIntPruneRefused("--yes")
+        self.assertIn(f"stage int: the certificate pinned for server int/c {self.PIN_D} is not "
+                      f"in the trust store {self.stores['int']}; nothing removed", err)
+
+    def test_marked_unreadable_address_refuses_int_but_not_dev(self):
+        # T029c r1: an alias as cli of int/c makes int unusable for --prune; dev stays usable
+        self.marked_with_http(c_pin=OTHER)
+        support.insert_after(self.profile, "url: https://int-c.example.test:8443",
+                             "        e2e: *nowhere\n")
+        for extra in ((), ("--yes",)):
+            with self.subTest(extra=extra):
+                self.assertIn("configuration not valid for tls.pinPerServer: int/c: cannot read "
+                              "e2e.soap.baseUrl here (line ", self.assertIntPruneRefused(*extra))
+        code, out, err = self.prune()
+        self.assertEqual(0, code, err)
+        self.assertIn("dev-cccccccc-20240101", out)
+
+    def test_marked_refuses_http_server_with_https_address_without_pin(self):
+        self.marked_with_http()
+        for extra in ((), ("--yes",)):
+            with self.subTest(extra=extra):
+                self.assertIn("configuration not valid for tls.pinPerServer: int/c: "
+                              "tls.pinPerServer on stage 'int' needs "
+                              "tls.pinnedCertificateSha256 on this server",
+                              self.assertIntPruneRefused(*extra))
+
 
 class PinPerServerRefusalTest(AcceptTestCase):
     """Refusals of --accept STAGE/SERVER (feature 014, T016, FR-010, FR-012, contract C-2′
@@ -1145,6 +1199,37 @@ class PinPerServerRefusalTest(AcceptTestCase):
         self.write_marked(more=[("c", "http://int-c.example.test:8080")])
         self.assertServerRefused(self.accept_target("int/c"), self.snapshot(),
                                  "server int/c is an http server")
+
+    def test_http_server_with_pin_and_https_cli_url(self):
+        # T029c: the tool neither checks nor adopts the certificate of cli.url / SOAP
+        self.write_marked(more=[("c", "http://int-c.example.test:8080", {"pin": OTHER})])
+        support.insert_after(self.profile, "baseUrl: http://int-c.example.test:8080",
+                             "        cli:\n          url: https://int-c.example.test:8443\n")
+        self.assertServerRefused(self.accept_target("int/c"), self.snapshot(),
+                                 "server int/c is an http server")
+
+    def test_http_server_with_https_address_without_pin(self):
+        self.write_marked(more=[("c", "http://int-c.example.test:8080")])
+        support.insert_after(self.profile, "baseUrl: http://int-c.example.test:8080",
+                             "        e2e:\n          soap:\n"
+                             "            baseUrl: https://int-c.example.test:8443/soap\n")
+        self.assertServerRefused(self.accept_target("int/b"), self.snapshot(),
+                                 self.INVALID + "int/c: tls.pinPerServer on stage 'int' needs "
+                                 "tls.pinnedCertificateSha256 on this server")
+        self.assertEqual([], self.marked["b"].server.sni_names, "int/b is not contacted")
+
+    def test_unreadable_address_refuses_the_stage_only(self):
+        # T029c r1: cli.url of int/b written on two lines; the stage int is refused, dev is not
+        self.write_marked()
+        support.insert_after(self.profile, f"baseUrl: {self.url('b')}",
+                             "        cli: { url: https://int-b.example.test:8443,\n"
+                             "               timeout: PT9S }\n")
+        self.assertServerRefused(self.accept_target("int/b"), self.snapshot(),
+                                 self.INVALID + "int/b: cannot read cli.url here (line ")
+        self.assertEqual([], self.marked["b"].server.sni_names, "int/b is not contacted")
+        code, out, err = self.run_tool("--check", "--json")
+        self.assertEqual(10, code, err)
+        self.assertIn('"stage": "dev"', out)
 
     def test_pin_through_alias(self):
         head = f"x-acme-b: &bTls\n  pinnedCertificateSha256: {OTHER}\n"
@@ -1398,6 +1483,24 @@ class PinPerServerSuccessTest(PinPerServerAdoption, AcceptTestCase):
         self.assertEqual(0, code, err)
         self.assertNotIn("superseded", out)
         self.assertNotIn("--prune", out)
+
+    def test_prune_hint_does_not_count_the_pin_of_an_http_server(self):
+        # T029c: int/c is http with an https cli.url and pins D; the store holds A, B and D
+        pin_d = "DD:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:32:42:52:62:72:82:92:A2:B2:" \
+                "C2:D2:E2:F2:02:06:07"
+        self.keytool.entries[self.stores["int"]].append(
+            self.tool.TrustEntry("int-c-dd445566-20250101", pin_d))
+        self.write_marked()
+        support.insert_after(self.profile, self.B_COMMENT,
+                             "      - name: c\n"
+                             "        baseUrl: http://int-c.example.test:8080\n"
+                             "        cli:\n          url: https://int-c.example.test:8443\n"
+                             f"        tls:\n          pinnedCertificateSha256: {pin_d}\n")
+        code, out, err = self.accept_b()
+        self.assertEqual(0, code, err)
+        self.assertIn("still holds 1 superseded certificate(s)", " ".join(out.split()))
+        self.assertEqual(pin_d, self.tool.read_profile(self.profile).stage("int")
+                         .skipped_servers[0].pin)
 
 
 class PinPerServerRollbackTest(PinPerServerAdoption, AcceptTestCase):
