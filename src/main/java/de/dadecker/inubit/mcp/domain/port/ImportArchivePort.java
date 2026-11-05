@@ -118,6 +118,16 @@ public interface ImportArchivePort {
     boolean equivalent(String path, byte[] expected, byte[] actual);
 
     /**
+     * True if {@code server}, the workspace file {@code path} as a re-export after an import
+     * shows it, is what the target makes of {@code sent} on that import: {@link #equivalent},
+     * or different only in what INUBIT rewrites on the import of that file. Only for the
+     * verification of an import and of its rollback; the default rewrites nothing.
+     */
+    default boolean importedAs(String path, byte[] sent, byte[] server) {
+        return equivalent(path, sent, server);
+    }
+
+    /**
      * The rendering of the workspace file {@code path} with only the order of the workflow
      * modules' connections normalized (feature 007, contract P-2): INUBIT writes the outgoing
      * connections of a module in a non-deterministic order. XML comes back normalized, with the

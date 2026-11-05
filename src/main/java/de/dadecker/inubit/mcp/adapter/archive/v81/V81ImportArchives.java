@@ -58,6 +58,16 @@ public final class V81ImportArchives implements ImportArchivePort {
         }
     }
 
+    /**
+     * {@link #equivalent}, or equivalent after the rewrite of {@link SaxonFactoryRewrite}
+     * (issue #55).
+     */
+    @Override
+    public boolean importedAs(String path, byte[] sent, byte[] server) {
+        return equivalent(path, sent, server) || SaxonFactoryRewrite.asImported(path, sent,
+            server).filter(imported -> equivalent(path, imported, server)).isPresent();
+    }
+
     @Override
     public byte[] connectionOrdered(String path, byte[] file) {
         if (!path.endsWith(".xml")) {

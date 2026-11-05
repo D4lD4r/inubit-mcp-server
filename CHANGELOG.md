@@ -67,6 +67,14 @@ the release; Windows and Linux where available, `docs/live-tests.md`) has not be
   the check-in comment as one more `###` segment; the verification read it as part of the
   check-in comment and reported `VERIFY_MISMATCH` ("the check-in comment does not carry exactly
   the reason"). The appended user comment is now removed before the reason is compared.
+- `import_artifacts` and `deploy_release` no longer report `VERIFY_MISMATCH` and a failed
+  rollback when INUBIT rewrites the `xslt.transformer` of an imported XSLT Converter module from
+  the plain Saxon factory (`net.sf.saxon.TransformerFactoryImpl`) to its Saxon-EE factory of
+  `com.saxonica.config` (seen on 8.1.17, #55). The verification of the import or deployment, of
+  its rollback and of `restore_backup` accept this rewrite and nothing else; after a successful
+  import the workspace holds the server's value, as for every verified import. The preview of
+  `deploy_release` still lists such a module as `CHANGED` while the release names the plain
+  factory and the target the Saxon-EE one.
 
 ## [0.6.3] - 2026-11-02
 

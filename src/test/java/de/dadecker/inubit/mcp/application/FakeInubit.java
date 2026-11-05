@@ -47,6 +47,11 @@ public final class FakeInubit {
      * (off by default, the fixtures hold every module).
      */
     public volatile boolean onlyUsedModules;
+    /**
+     * Like INUBIT 8.1.17 (issue #55): every module import stores an {@code xslt.transformer}
+     * that names the plain Saxon factory as this factory instead (null: as sent).
+     */
+    public volatile String saxonFactoryOnImport;
 
     public FakeInubit(byte[] export) {
         this.entries = new LinkedHashMap<>(ArtifactFixtures.entries(export));
@@ -161,7 +166,7 @@ public final class FakeInubit {
                             module, "ModuleUId", "-fake:" + ++uid), "LastUpdate",
                             "07.10.2026 12:00:00"), comments));
                         String file = "module/" + name.toLowerCase(Locale.ROOT) + ".xml";
-                        entries.put(file, stored(archive.get(file)));
+                        entries.put(file, transformer(stored(archive.get(file))));
                     }
                 }
             }
@@ -233,6 +238,13 @@ public final class FakeInubit {
     }
 
     /** A module file as INUBIT stores it: embedded XML documents without trailing whitespace. */
+    private byte[] transformer(byte[] moduleFile) {
+        String factory = saxonFactoryOnImport;
+        return factory == null ? moduleFile : new String(moduleFile, StandardCharsets.UTF_8)
+            .replace(">net.sf.saxon.TransformerFactoryImpl<", ">" + factory + "<")
+            .getBytes(StandardCharsets.UTF_8);
+    }
+
     private static byte[] stored(byte[] moduleFile) {
         Element properties = XmlTree.parse(moduleFile).root();
         return XmlNormalizer.normalize(properties.withChildren(properties.children().stream()
