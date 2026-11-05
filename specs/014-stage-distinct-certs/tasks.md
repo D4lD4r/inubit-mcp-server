@@ -609,7 +609,7 @@ brings the dialog back (Q5).
   `<stage>` or `<stage>/<server>` for `--accept` and `--forget`) and see it fail; then update the
   module docstring (contract reference `specs/014-stage-distinct-certs/contracts/cli.md`) and the
   `--help` texts in `tools/inubit-cert-check.py`.
-- [ ] T028 [P] `CHANGELOG.md` `[Unreleased]` (after T012 and T023): feature 014 — Added
+- [X] T028 [P] `CHANGELOG.md` `[Unreleased]` (after T012 and T023): feature 014 — Added
   `tls.pinPerServer`, the certificate check before every StartCLI call to a server of a marked stage,
   and the per-server workflow of `inubit-cert-check` (`--accept STAGE/SERVER`,
   `--forget STAGE[/SERVER]`, one dialog per server, `expectedBy` note); Changed: change-log lines of
