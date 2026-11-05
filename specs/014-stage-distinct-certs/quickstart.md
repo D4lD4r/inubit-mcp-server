@@ -31,6 +31,14 @@ Expected:
     path. No real StartCLI or INUBIT is needed (fake process launcher, local TLS servers);
   - tool contracts C-1′ … C-5′.
 
+Outcome (T030, offline, branch after merging `main`):
+- `mvn -q -o clean verify`: green; 3643 tests, 0 failures, 0 errors, 3 skipped (the corpus tests
+  `ArchiveCorpusTest`, `XsltCorpusTest`, `StructureCorpusTest`, which need a local corpus).
+- Tool suite: 411 tests OK with Homebrew `python3` 3.15 and with `/usr/bin/python3` 3.9 (`-I -v`).
+- `NoCustomerIdentifiersTest` with the local identifier lists present: 20 tests run, 0 skipped.
+- `git diff origin/main -- tools/tests src/test`: 18 files, 3901 lines added, 19 removed; removals only in
+  `tools/tests/support.py` (13, T002) and `TlsTestServer.java` (6, T011).
+
 ## 2. Configuration check (Story 1 AS 1, 5, 6)
 
 Use the example of [configuration.md](contracts/configuration.md) with a local copy of the trust

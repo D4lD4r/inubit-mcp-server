@@ -646,7 +646,7 @@ brings the dialog back (Q5).
   `--accept`, `--prune` and adoption (exit 3, same message as V-6); (c) update research R-13,
   data-model `expected` and `docs/setup.md` (prune paragraph; the tool neither checks nor adopts the
   certificate of an http server's https `cli.url` / SOAP address — its pin is set by hand).
-- [ ] T030 Validate offline (SC-005, FR-018, plan outline step 3):
+- [X] T030 Validate offline (SC-005, FR-018, plan outline step 3):
   - `mvn -q -o clean verify`;
   - the tool suite as CI runs it: `python3 -I -m unittest discover -s tools/tests -v` (and once with
     `/usr/bin/python3 -I`);
