@@ -555,7 +555,7 @@ brings the dialog back (Q5).
   Then implement in `tools/inubit-cert-check.py`: `notification_text`, `not_adopted_text`,
   `cmd_interactive`, `_report_dialog_outcomes`, `cmd_dialog_worker` and `_decide` work on targets;
   same lock, same 20 s and 60 s limits. Every 006 interactive test stays green.
-- [ ] T024 [P] [US3] In-session rule (FR-010a, FR-016, Story 3 AS 3, contract C-8′; any time after
+- [X] T024 [P] [US3] In-session rule (FR-010a, FR-016, Story 3 AS 3, contract C-8′; any time after
   T015): replace the rule block "INUBIT certificate changes (inubit-acme)" in `docs/setup.md` §5
   "Certificate changes" with the C-8′ text — trigger `TLS_ERROR` caused by
   `CertPathValidatorException`, `SunCertPathBuilderException` **or** a pin mismatch
