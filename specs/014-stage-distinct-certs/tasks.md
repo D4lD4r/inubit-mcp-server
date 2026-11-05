@@ -622,7 +622,7 @@ brings the dialog back (Q5).
   callers stay unchanged), and `main/Launcher.java` (T009) against FR-001…FR-018 (with FR-005a and
   FR-010a), SC-001…SC-006 and the clarifications (2026-11-03 Q1, Q2; 2026-11-05) using the coverage
   table below; list any gap as a new task here before continuing.
-- [ ] T029a [P] [US1] Regression, SOAP (gap 1 of `reviews/T029-r1.md`; SC-004, FR-005): in
+- [X] T029a [P] [US1] Regression, SOAP (gap 1 of `reviews/T029-r1.md`; SC-004, FR-005): in
   `src/test/java/de/dadecker/inubit/mcp/adapter/soap/SoapE2eClientTest.java` (additions only) two
   HTTPS WireMock servers with `localhostKeyStore()` and `selfsignedKeyStore()`, the shared
   `TestCertificates.trustStore()` and two `EffectiveNodeConfig`s of a marked stage, each pinned to
