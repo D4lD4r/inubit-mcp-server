@@ -1322,14 +1322,21 @@ class State:
 
     # change log ----------------------------------------------------------------------------------
 
-    def log_change(self, stage, outcome, old, new, not_before, by, now=None):
-        """Appends one decision line (contract C-6); values must not contain spaces."""
+    def log_change(self, stage, outcome, old, new, not_before, by, now=None, server=None):
+        """Appends one decision line (contract C-6); values must not contain spaces.
+
+        `server` (014 FR-011) names the server of a marked stage and goes right after `stage=`;
+        without it the line keeps the 006 format.
+        """
         if outcome not in OUTCOMES:
             raise ValueError(f"unknown outcome {outcome!r}")
         if by not in ACTORS:
             raise ValueError(f"unknown actor {by!r}")
-        values = [("profile", self.profile_name), ("stage", stage), ("outcome", outcome),
-                  ("old", old), ("new", new), ("notBefore", not_before), ("by", by)]
+        values = [("profile", self.profile_name), ("stage", stage)]
+        if server is not None:
+            values.append(("server", server))
+        values += [("outcome", outcome), ("old", old), ("new", new), ("notBefore", not_before),
+                   ("by", by)]
         fields = []
         for key, value in values:
             value = "-" if value is None else str(value)

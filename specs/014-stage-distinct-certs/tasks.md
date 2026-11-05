@@ -196,7 +196,7 @@ depend on this phase and may start after T001.
   comparison is unchanged; `_read_stage` records each server's pin source and pin line;
   `_finish_stages` computes `own_tls` for marked stages without the stage-pin condition and sets
   `problem`. The reader does not duplicate the server's validation beyond the R-7 rules.
-- [ ] T004 Change-log field `server=` (FR-011, research R-10, data-model "Change log entry"). Write
+- [X] T004 Change-log field `server=` (FR-011, research R-10, data-model "Change log entry"). Write
   the failing tests first in `tools/tests/test_state.py` `ChangeLogTest` and see them fail:
   `log_change(..., server="int/b")` writes
   `… profile=acme stage=int server=int/b outcome=adopted old=… new=… notBefore=… by=cli` with

@@ -152,6 +152,36 @@ class ChangeLogTest(StateTestCase):
                          f"old={FP_OLD} new=- notBefore=- by=cli\n",
                          self.read(self.state.changes_log))
 
+    def test_server_field_after_stage(self):
+        # FR-011, R-10: a decision about one server of a marked stage names that server.
+        self.state.log_change("int", "adopted", FP_OLD, FP_NEW, "2026-10-08T13:06:26Z", "cli",
+                              now=NOW, server="int/b")
+        self.assertEqual(
+            f"2026-10-08T15:31:10Z profile=acme stage=int server=int/b outcome=adopted "
+            f"old={FP_OLD} new={FP_NEW} notBefore=2026-10-08T13:06:26Z by=cli\n",
+            self.read(self.state.changes_log))
+
+    def test_without_server_line_is_006_format(self):
+        self.state.log_change("int", "rejected", FP_OLD, FP_NEW, "2026-10-08T13:06:26Z", "dialog",
+                              now=NOW)
+        self.state.log_change("int", "rejected", FP_OLD, FP_NEW, "2026-10-08T13:06:26Z", "dialog",
+                              now=NOW, server=None)
+        line = (f"2026-10-08T15:31:10Z profile=acme stage=int outcome=rejected old={FP_OLD} "
+                f"new={FP_NEW} notBefore=2026-10-08T13:06:26Z by=dialog\n")
+        self.assertEqual(line + line, self.read(self.state.changes_log))
+
+    def test_pruned_line_of_marked_stage(self):
+        # data-model "Change log entry": a marked stage has no single stage pin, so new=-.
+        self.state.log_change("int", "pruned", FP_OLD, None, None, "cli", now=NOW)
+        self.assertEqual("2026-10-08T15:31:10Z profile=acme stage=int outcome=pruned "
+                         f"old={FP_OLD} new=- notBefore=- by=cli\n",
+                         self.read(self.state.changes_log))
+
+    def test_server_value_must_be_one_word(self):
+        with self.assertRaises(ValueError):
+            self.state.log_change("int", "adopted", FP_OLD, FP_NEW, None, "cli", server="int/ b")
+        self.assertFalse(os.path.exists(self.state.changes_log))
+
     def test_appended_never_truncated(self):
         self.state.ensure()
         with open(self.state.changes_log, "w", encoding="utf-8") as handle:
