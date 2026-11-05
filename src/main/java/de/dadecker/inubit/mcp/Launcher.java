@@ -13,6 +13,7 @@ import de.dadecker.inubit.mcp.config.ConfigValidator;
 import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.EntryCheck;
+import de.dadecker.inubit.mcp.config.GroupConfig;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.ParameterCheck;
 import de.dadecker.inubit.mcp.config.ParameterStore;
@@ -51,6 +52,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -283,6 +285,12 @@ final class Launcher {
                 context.out())) {
                 LOG.info("INUBIT MCP server {} started for profile {} with {} node(s)",
                     BuildInfo.version(), config.profile().name(), config.nodeIds().size());
+                String marked = config.groups().stream().filter(group -> group.tls().marksStage())
+                    .map(GroupConfig::name).collect(Collectors.joining(", "));
+                if (!marked.isEmpty()) {
+                    LOG.info("Stages with one pinned certificate per server (tls.pinPerServer): {}",
+                        marked);
+                }
                 server.awaitInputClosed();
                 LOG.info("stdin closed; shutting down");
                 wiring.stopCliWork();

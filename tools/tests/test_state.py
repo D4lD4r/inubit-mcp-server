@@ -152,6 +152,36 @@ class ChangeLogTest(StateTestCase):
                          f"old={FP_OLD} new=- notBefore=- by=cli\n",
                          self.read(self.state.changes_log))
 
+    def test_server_field_after_stage(self):
+        # FR-011, R-10: a decision about one server of a marked stage names that server.
+        self.state.log_change("int", "adopted", FP_OLD, FP_NEW, "2026-10-08T13:06:26Z", "cli",
+                              now=NOW, server="int/b")
+        self.assertEqual(
+            f"2026-10-08T15:31:10Z profile=acme stage=int server=int/b outcome=adopted "
+            f"old={FP_OLD} new={FP_NEW} notBefore=2026-10-08T13:06:26Z by=cli\n",
+            self.read(self.state.changes_log))
+
+    def test_without_server_line_is_006_format(self):
+        self.state.log_change("int", "rejected", FP_OLD, FP_NEW, "2026-10-08T13:06:26Z", "dialog",
+                              now=NOW)
+        self.state.log_change("int", "rejected", FP_OLD, FP_NEW, "2026-10-08T13:06:26Z", "dialog",
+                              now=NOW, server=None)
+        line = (f"2026-10-08T15:31:10Z profile=acme stage=int outcome=rejected old={FP_OLD} "
+                f"new={FP_NEW} notBefore=2026-10-08T13:06:26Z by=dialog\n")
+        self.assertEqual(line + line, self.read(self.state.changes_log))
+
+    def test_pruned_line_of_marked_stage(self):
+        # data-model "Change log entry": a marked stage has no single stage pin, so new=-.
+        self.state.log_change("int", "pruned", FP_OLD, None, None, "cli", now=NOW)
+        self.assertEqual("2026-10-08T15:31:10Z profile=acme stage=int outcome=pruned "
+                         f"old={FP_OLD} new=- notBefore=- by=cli\n",
+                         self.read(self.state.changes_log))
+
+    def test_server_value_must_be_one_word(self):
+        with self.assertRaises(ValueError):
+            self.state.log_change("int", "adopted", FP_OLD, FP_NEW, None, "cli", server="int/ b")
+        self.assertFalse(os.path.exists(self.state.changes_log))
+
     def test_appended_never_truncated(self):
         self.state.ensure()
         with open(self.state.changes_log, "w", encoding="utf-8") as handle:
@@ -281,6 +311,70 @@ class RejectionTest(StateTestCase):
                     handle.write(content)
                 with self.assertRaises(self.tool.StateError):
                     self.state.load_rejections()
+
+    def remember_stage_and_servers(self):
+        self.state.remember_rejection("dev", FP_NEW, None, "rejected", now=NOW)
+        self.state.remember_rejection("int", FP_NEW, None, "rejected", now=NOW)
+        self.state.remember_rejection("int/a", FP_OLD, None, "timed-out", now=NOW)
+        self.state.remember_rejection("int/b", FP_NEW, "2026-10-08T13:06:26Z", "rejected",
+                                      now=NOW)
+
+    def test_server_keys_beside_stage_keys(self):
+        self.remember_stage_and_servers()
+        with open(self.state.rejections_file, encoding="utf-8") as handle:
+            stored = json.load(handle)
+        self.assertEqual(["dev", "int", "int/a", "int/b"], sorted(stored))
+        self.assertEqual({"fingerprint": FP_NEW, "notBefore": "2026-10-08T13:06:26Z",
+                          "outcome": "rejected", "at": "2026-10-08T15:31:10Z"},
+                         self.state.rejection("int/b"))
+        self.assertEqual(FP_NEW, self.state.rejection("int")["fingerprint"])
+        self.assertTrue(self.state.clear_rejection("int/b"))
+        self.assertEqual(["dev", "int", "int/a"], sorted(self.state.load_rejections()))
+        self.assertTrue(self.state.clear_rejection("int"))
+        self.assertEqual(["dev", "int/a"], sorted(self.state.load_rejections()))
+
+    def test_clear_several_in_one_write(self):
+        self.remember_stage_and_servers()
+        with mock.patch.object(self.tool, "write_atomically",
+                               wraps=self.tool.write_atomically) as write:
+            removed = self.state.clear_rejections(["int", "int/b", "int/x"])
+        self.assertEqual({"int", "int/b"}, set(removed))
+        self.assertEqual(1, write.call_count)
+        self.assertEqual(self.state.rejections_file, write.call_args[0][0])
+        self.assertEqual(["dev", "int/a"], sorted(self.state.load_rejections()))
+
+    def test_clear_several_without_match_writes_nothing(self):
+        self.remember_stage_and_servers()
+        before = self.read(self.state.rejections_file)
+        with mock.patch.object(self.tool, "write_atomically",
+                               wraps=self.tool.write_atomically) as write:
+            removed = self.state.clear_rejections(["int/x", "prod"])
+            self.assertEqual(set(), set(removed))
+            self.assertEqual(set(), set(self.state.clear_rejections([])))
+        self.assertEqual(0, write.call_count)
+        self.assertEqual(before, self.read(self.state.rejections_file))
+
+    def test_clear_several_keys_and_a_prefix_in_one_write(self):
+        self.remember_stage_and_servers()
+        self.state.remember_rejection("int/c", FP_NEW, None, "rejected", now=NOW)
+        self.state.remember_rejection("int2/a", FP_NEW, None, "rejected", now=NOW)
+        with mock.patch.object(self.tool, "write_atomically",
+                               wraps=self.tool.write_atomically) as write:
+            removed = self.state.clear_rejections(["int", "int/a"], prefix="int/")
+        self.assertEqual(["int", "int/a", "int/b", "int/c"], removed)
+        self.assertEqual(["dev", "int2/a"], sorted(self.state.load_rejections()))
+        self.assertEqual(1, write.call_count)
+        self.assertEqual([], self.state.clear_rejections([], prefix="int/"))
+        self.assertEqual(1, write.call_count, "no write when nothing was removed")
+
+    def test_clear_several_under_the_rejections_lock(self):
+        self.remember_stage_and_servers()
+        before = self.read(self.state.rejections_file)
+        LockTest.hold_lock(self, 60, self.state.rejections_lock_file)
+        self.tool.REJECTIONS_LOCK_TIMEOUT = 0.3
+        with self.assertRaises(self.tool.StateBusy):
+            self.state.clear_rejections(["int", "int/b"])
+        self.assertEqual(before, self.read(self.state.rejections_file))
 
 
 class AtomicWriteTest(StateTestCase):

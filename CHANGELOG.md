@@ -44,6 +44,23 @@ covered by tests with fakes only.
 - A warning names (never shows) environment variables that earlier versions read as credentials.
 - Opt-in live check of the credential store (`mvn verify -Plive-store` with
   `INUBIT_LIVE_STORE=1`).
+- Feature 014, stages whose servers present different certificates:
+  - `tls.pinPerServer: true` on a group marks a stage whose nodes each present their own
+    certificate. Each https node then needs its own `tls.pinnedCertificateSha256`, and REST calls
+    check that node's pin; `--check-config` refuses a marked stage with a stage-wide pin, without
+    a stage trust store, without a pin per https node, or, in a stage with more than one node, a
+    node that inherits `cli.url` / `e2e.soap.baseUrl` from the stage. Stages without the setting
+    are unchanged.
+  - In a marked stage every StartCLI call to an https `cli.url` is preceded by a TLS handshake to
+    that address that checks the server's own pin. A mismatch or failure refuses the call with
+    `TLS_ERROR`, `TIMEOUT` or `UNREACHABLE` before StartCLI starts and before credentials are
+    used.
+  - `inubit-cert-check` works per server in marked stages: `--check` reports each server,
+    `--accept STAGE/SERVER` adopts one server's new certificate, `--prune` keeps every
+    certificate a server of the stage expects, `--forget STAGE[/SERVER]` clears remembered
+    rejections, and `--interactive` shows one dialog per changed server. A certificate that
+    another server of the stage expects is flagged with an `expectedBy` note (dialog warning
+    "this is the certificate expected for server …").
 
 ### Changed
 
@@ -58,6 +75,12 @@ covered by tests with fakes only.
 - The audit `account` of a node before its first read is `(credential store <entry> or <entry>)`.
 - AWS SDK for Java v2 2.57.3 → 2.57.7 (the same artifacts). `THIRD-PARTY-NOTICES.md` is
   updated.
+- Feature 014, for marked stages (`tls.pinPerServer`) only: change-log lines of
+  `inubit-cert-check` carry `server=`, and rejections are remembered per server (a leftover
+  stage-wide entry is removed). For all stages, the rule for running Claude sessions in
+  `docs/setup.md` also fires on a pin mismatch (`CertificateException`) and on
+  `SunCertPathBuilderException`, and adopts with `--accept <target>`. Stages without the setting
+  otherwise behave as before.
 
 ### Fixed
 

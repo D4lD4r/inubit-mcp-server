@@ -1552,4 +1552,72 @@ class ConfigLoaderTest {
                 .orElseThrow().username()).contains("/inubit/dev/username");
         }
     }
+
+    /** Feature 014: {@code tls.pinPerServer} binds on stages and servers (FR-001, research R-1, R-2). */
+    @Nested
+    class PinPerServer {
+
+        private GroupConfig group(LoadedConfig loaded, String name) {
+            return loaded.config().groups().stream()
+                .filter(g -> g.name().equals(name))
+                .findFirst()
+                .orElseThrow();
+        }
+
+        @Test
+        void bindsOnTheMarkedStageOnly() {
+            LoadedConfig loaded = load("pin-per-server.yaml");
+
+            assertThat(group(loaded, "int").tls().pinPerServer()).contains(true);
+            assertThat(group(loaded, "int").tls().marksStage()).isTrue();
+            assertThat(group(loaded, "dev").tls().pinPerServer()).isEmpty();
+            assertThat(group(loaded, "dev").tls().marksStage()).isFalse();
+            assertThat(group(loaded, "int").nodes())
+                .allSatisfy(n -> assertThat(n.tls().pinPerServer()).isEmpty());
+        }
+
+        @Test
+        void falseBindsAndDoesNotMarkTheStage() {
+            String yaml = MINIMAL.replace("    nodes:\n",
+                "    tls:\n      pinPerServer: false\n    nodes:\n");
+
+            TlsConfig tls = loader().parse(yaml, home.resolve("false.yaml")).config()
+                .groups().get(0).tls();
+
+            assertThat(tls.pinPerServer()).contains(false);
+            assertThat(tls.marksStage()).isFalse();
+        }
+
+        @Test
+        void bindsOnAServerSoThatTheValidatorCanRefuseIt() {
+            String yaml = MINIMAL + "        tls:\n          pinPerServer: true\n";
+
+            NodeConfig node = loader().parse(yaml, home.resolve("node.yaml")).config()
+                .groups().get(0).nodes().get(0);
+
+            assertThat(node.tls().pinPerServer()).contains(true);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"  pinPerServer: true\n", "  trustStore: ~/ts.p12\n"})
+        void defaultsTlsIsRefusedAsAnUnknownKey(String entry) {
+            String yaml = MINIMAL + "defaults:\n  tls:\n  " + entry;
+
+            assertThatThrownBy(() -> loader().parse(yaml, home.resolve("defaults.yaml")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'tls'");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"full.yaml", "anchors.yaml"})
+        void existingProfilesHaveNoMarkedStage(String resourceName) {
+            ProfileConfig config = load(resourceName).config();
+
+            assertThat(config.groups()).allSatisfy(g -> {
+                assertThat(g.tls().pinPerServer()).isEmpty();
+                assertThat(g.tls().marksStage()).isFalse();
+                assertThat(g.nodes()).allSatisfy(n -> assertThat(n.tls().pinPerServer()).isEmpty());
+            });
+        }
+    }
 }
