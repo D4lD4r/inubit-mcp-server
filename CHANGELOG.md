@@ -8,8 +8,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 Planned as **0.7.0**: feature 011, credentials only from the credential store of the system or
-from AWS Parameter Store. The live check against the real credential stores (macOS required before
-the release; Windows and Linux where available, `docs/live-tests.md`) has not been executed yet.
+from AWS Parameter Store. The live check against the real credential store (`docs/live-tests.md`)
+ran on macOS: entries read, a value with non-ASCII characters decoded, a missing entry "not found",
+a denied access dialog `ACCESS_DENIED`. It has not run on Windows and Linux; there the adapters are
+covered by tests with fakes only.
 
 ### Breaking
 
