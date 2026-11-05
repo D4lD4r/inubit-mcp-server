@@ -94,7 +94,7 @@ export and before the first file or folder is written. In every case nothing is 
    refused by the static input checks before the StartCLI export, and the message names the
    missing acknowledgement and why it is needed (FR-007).
 2. **Given** a target folder that is relative, contains `.` or `..` segments, is or lies inside
-   `~/.inubit-mcp`, the configured `workspace` or `auditDirectory`, or a directory with a `.git`
+   `~/.inubit-mcp`, the configuration directory, the configured `workspace` or `auditDirectory`, or a directory with a `.git`
    entry in it or in an ancestor (also through a symbolic link), or (on Windows) is a UNC or
    network path, **When** the tool runs, **Then** it is refused by the static input checks before
    the StartCLI export (FR-008).
@@ -252,7 +252,8 @@ and the outcome; the folder never holds a partial archive.
   carries an explicit acknowledgement that the files will contain secrets in clear text. The
   acknowledgement documents intent; it does not replace the client's confirmation (FR-001).
 - **FR-008**: The target folder MUST be given in the call as an absolute path without `.`/`..`
-  segments. It MUST NOT be, or lie inside, `~/.inubit-mcp` (of any profile), the configured
+  segments. It MUST NOT be, or lie inside, `~/.inubit-mcp` (of any profile), the configuration directory (`~/.config/inubit-mcp`,
+  `%APPDATA%\inubit-mcp` on Windows, or the folder of the configuration file in use), the configured
   `workspace` or `auditDirectory`, or any directory that has a `.git` entry in it or in an
   ancestor — checked both on the path as given and after resolving symbolic links. For a target
   folder that does not exist yet, the symbolic-link resolution and the `.git` check apply to its
@@ -396,7 +397,8 @@ and the outcome; the folder never holds a partial archive.
 - Q: Modules referenced by modules, called workflows? → A: modules referenced by the workflow's
   nodes only; neither modules referenced only by other modules nor called workflows are included
   (FR-005, Assumptions).
-- Q: Forbidden target folders? → A: `~/.inubit-mcp` (any profile), the configured `workspace` and
+- Q: Forbidden target folders? → A: `~/.inubit-mcp` (any profile), the configuration directory
+  (added after planning), the configured `workspace` and
   `auditDirectory`, and any directory with a `.git` entry in it or an ancestor, also after
   resolving symbolic links (FR-008).
 - Q: Error code for other versions? → A: `UNSUPPORTED_VERSION` (FR-015).
