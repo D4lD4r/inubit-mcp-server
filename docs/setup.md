@@ -794,12 +794,14 @@ terminology; shown here with the default `group` / `node`):
 | V-3 | marked stage with `pinnedCertificateSha256` in its own `tls` (inline or alias) | `group 'int': tls.pinnedCertificateSha256 is not allowed with tls.pinPerServer; set it on each node` |
 | V-4 | marked stage without `tls.trustStore` | `group 'int': tls.pinPerServer needs tls.trustStore on the group` |
 | V-5 | node of a marked stage with its own `tls.trustStore` | `int/b: tls.trustStore is not allowed on this node of group 'int' with tls.pinPerServer; set it on the group` |
-| V-6 | https node of a marked stage without its own `tls.pinnedCertificateSha256` | `int/b: tls.pinPerServer on group 'int' needs tls.pinnedCertificateSha256 on this node` |
+| V-6 | node of a marked stage without its own `tls.pinnedCertificateSha256` whose `baseUrl`, effective `cli.url` or effective `e2e.soap.baseUrl` (own or inherited from the stage) is https | `int/b: tls.pinPerServer on group 'int' needs tls.pinnedCertificateSha256 on this node` |
 | V-10 | marked stage with several nodes, `cli.url` on the stage, a node without its own `cli.url` (one error per such node) | `int/b: cli.url is inherited from group 'int' with tls.pinPerServer; set cli.url on each node` |
 | V-11 | marked stage with several nodes, `e2e.soap.baseUrl` on the stage, a node without its own (one error per such node) | `int/b: e2e.soap.baseUrl is inherited from group 'int' with tls.pinPerServer; set e2e.soap.baseUrl on each node` |
 
-An http node (`allowInsecureHttp`) of a marked stage needs no pin. The other TLS checks still
-apply to each server's effective values (pin format, the trust-store file exists,
+An http node (`allowInsecureHttp`) of a marked stage needs no pin as long as its `cli.url` and
+`e2e.soap.baseUrl` are http too; with an https StartCLI or SOAP address it needs its own pin,
+because the certificate check before StartCLI and the SOAP connection use that address. The other
+TLS checks still apply to each server's effective values (pin format, the trust-store file exists,
 `disableHostnameVerification` only with a pin), and so does the warning for a stage-level
 `cli.url` with several nodes in any stage. How the certificate tool works with a marked stage:
 [Stages whose servers present different certificates](#stages-whose-servers-present-different-certificates).

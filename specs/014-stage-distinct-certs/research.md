@@ -70,7 +70,7 @@ Every decision was checked against `main` (18344e2) — server code under
   | no pin in the stage's `tls` | `group.tls().pinnedCertificateSha256()` empty | `{group} 'int': tls.pinnedCertificateSha256 is not allowed with tls.pinPerServer; set it on each {node}` |
   | stage needs a trust store | `group.tls().trustStore()` present | `{group} 'int': tls.pinPerServer needs tls.trustStore on the {group}` |
   | no trust store on a server | `node.tls().trustStore()` empty | `int/b: tls.trustStore is not allowed on this {node} of {group} 'int' with tls.pinPerServer; set it on the {group}` |
-  | own pin on each https server | `node.tls().pinnedCertificateSha256()` present, unless `baseUrl` is `http` | `int/b: tls.pinPerServer on {group} 'int' needs tls.pinnedCertificateSha256 on this {node}` |
+  | own pin on each server with an https address | `node.tls().pinnedCertificateSha256()` present if `baseUrl`, own-or-stage `cli.url` or own-or-stage `e2e.soap.baseUrl` is https (T029b) | `int/b: tls.pinPerServer on {group} 'int' needs tls.pinnedCertificateSha256 on this {node}` |
   | own StartCLI address (more than one node) | `group.cli().url()` empty or `node.cli().url()` present | `int/b: cli.url is inherited from {group} 'int' with tls.pinPerServer; set cli.url on each {node}` |
   | own SOAP address (more than one node) | `group.e2e().soap().baseUrl()` empty or `node.e2e().soap().baseUrl()` present | `int/b: e2e.soap.baseUrl is inherited from {group} 'int' with tls.pinPerServer; set e2e.soap.baseUrl on each {node}` |
 

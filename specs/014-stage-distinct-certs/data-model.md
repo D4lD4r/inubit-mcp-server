@@ -30,8 +30,8 @@ Checked on the values as written (before inheritance). Jackson has already resol
 | marked group | `tls.pinnedCertificateSha256` absent |
 | marked group | `tls.trustStore` present (and the file exists: existing `checkTls`) |
 | node of a marked group | `tls.trustStore` absent |
-| https node of a marked group | `tls.pinnedCertificateSha256` present (format: existing `checkTls`) |
-| http node of a marked group | no TLS rule (allowed with `allowInsecureHttp`, as today) |
+| node of a marked group with an https `baseUrl`, effective `cli.url` or effective `e2e.soap.baseUrl` | `tls.pinnedCertificateSha256` present (format: existing `checkTls`) (V-6) |
+| node of a marked group whose addresses are all http | no TLS rule (allowed with `allowInsecureHttp`, as today) |
 | node of a marked group with more than one node | `cli.url` set on the node, or not set on the group (V-10) |
 | node of a marked group with more than one node | `e2e.soap.baseUrl` set on the node, or not set on the group (V-11) |
 

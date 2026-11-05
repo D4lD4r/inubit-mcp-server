@@ -2602,5 +2602,57 @@ class ConfigValidatorTest {
                 "int/b: cli.url is inherited from Umgebung 'int' with tls.pinPerServer; set"
                     + " cli.url on each Knoten");
         }
+
+        private static final String HTTP_B = """
+                    baseUrl: http://int-b.example.test:8080
+                    allowInsecureHttp: true
+            """;
+        private static final String PIN_MISSING_B = "int/b: tls.pinPerServer on group 'int' needs"
+            + " tls.pinnedCertificateSha256 on this node";
+
+        /** Marked stage {@code int} with the single http server {@code b}; {@code stage} is added. */
+        private static String oneHttpServer(String stage, String nodeB) {
+            return "profile:\n  name: acme\ngroups:\n  - name: int\n" + MARKED_TLS + stage
+                + "    nodes:\n      - name: b\n" + HTTP_B + nodeB;
+        }
+
+        @Test
+        void v6AnHttpServerWithAnHttpsCliUrlOrSoapAddressNeedsItsOwnPin() {
+            // T029b: the StartCLI probe and the SOAP client connect to these addresses via https
+            assertThat(validate(profile("", MARKED_TLS, HTTP_B + ownCli("b"))).errors())
+                .containsExactly(PIN_MISSING_B);
+            assertThat(validate(profile("", MARKED_TLS, HTTP_B + ownSoap("b"))).errors())
+                .containsExactly(PIN_MISSING_B);
+        }
+
+        @Test
+        void v6AnHttpServerInheritingAnHttpsAddressOfItsMarkedStageNeedsItsOwnPin() {
+            assertThat(validate(oneHttpServer(STAGE_CLI, "")).errors())
+                .containsExactly(PIN_MISSING_B);
+            assertThat(validate(oneHttpServer(STAGE_SOAP, "")).errors())
+                .containsExactly(PIN_MISSING_B);
+        }
+
+        @Test
+        void v6AnHttpServerWithAnHttpsAddressAndItsOwnPinIsValid() {
+            String pinB = "        tls:\n          pinnedCertificateSha256: \"" + PIN_B + "\"\n";
+
+            assertThat(validate(profile("", MARKED_TLS, HTTP_B + ownCli("b") + pinB)).errors())
+                .isEmpty();
+            assertThat(validate(oneHttpServer(STAGE_CLI + STAGE_SOAP, pinB)).errors()).isEmpty();
+        }
+
+        @Test
+        void v7AnHttpServerWithHttpAddressesNeedsNoPin() {
+            String httpAddresses = """
+                        cli:
+                          url: http://int-b.example.test:8080/ibis/servlet/IBISSoapServlet
+                        e2e:
+                          soap:
+                            baseUrl: http://int-b.example.test:8080
+                """;
+
+            assertThat(validate(oneHttpServer("", httpAddresses)).errors()).isEmpty();
+        }
     }
 }

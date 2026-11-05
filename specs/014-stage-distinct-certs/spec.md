@@ -203,9 +203,11 @@ all files unchanged and remember the rejection for `int/b` only. In a Claude ses
 - **Trust store of the marked stage not its own** (inherited from `defaults`, set through an alias,
   or used by another stage): valid for connections, but no adoption for any server of the stage;
   the report says so (FR-003, FR-012).
-- **http servers** in a marked stage: skipped as in feature 006; they need no expected certificate
-  and cannot be named for adoption. An http StartCLI address (only with `allowInsecureHttp`) has no
-  certificate and is not checked before StartCLI (FR-005a).
+- **http servers** in a marked stage: skipped as in feature 006; they cannot be named for
+  adoption. An http server whose addresses are all http needs no expected certificate; one with an
+  https `cli.url` or `e2e.soap.baseUrl` (own or inherited) needs its own, because the check before
+  StartCLI and the SOAP connection use that address (FR-004). An http StartCLI address (only with
+  `allowInsecureHttp`) has no certificate and is not checked before StartCLI (FR-005a).
 - **StartCLI address differs from the REST address** (`cli.url` set for a server): the check before
   StartCLI uses the StartCLI address, so that address must present the server's expected
   certificate too (FR-005a).
@@ -261,8 +263,10 @@ all files unchanged and remember the rejection for `int/b` only. In a Claude ses
   - an expected fingerprint in the marked stage's `tls`, written directly or reached through an
     alias (a fingerprint in `defaults` is allowed, because every server of the marked stage
     overrides it with its own);
-  - an https server of a marked stage whose expected fingerprint is not set in that server's own
-    `tls` (directly or through an alias the server's `tls` refers to);
+  - a server of a marked stage reached at any https address — its `baseUrl`, its effective
+    `cli.url` or its effective `e2e.soap.baseUrl` (own or inherited from the stage) — whose
+    expected fingerprint is not set in that server's own `tls` (directly or through an alias the
+    server's `tls` refers to);
   - a malformed fingerprint;
   - in a marked stage with more than one server, a server that inherits `cli.url` or
     `e2e.soap.baseUrl` from the stage instead of setting its own (each server is checked against

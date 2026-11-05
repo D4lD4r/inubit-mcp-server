@@ -515,8 +515,9 @@ public final class ConfigValidator {
     /**
      * Feature 014 (FR-004, research R-3): {@code tls.pinPerServer} rules V-1, V-3 … V-6, V-10 and
      * V-11, checked on the values as written, not the effective ones, because the rules are about
-     * where a value is set. YAML aliases are resolved before binding, so an alias counts as
-     * written there.
+     * where a value is set — except the https test of V-6, which looks at every address the
+     * server is reached at, inherited ones included (T029b). YAML aliases are resolved before
+     * binding, so an alias counts as written there.
      */
     private static void checkPinPerServer(ProfileConfig config, Findings findings) {
         for (GroupConfig stage : config.groups()) {
@@ -542,9 +543,12 @@ public final class ConfigValidator {
                     findings.termError("%s: tls.trustStore is not allowed on this {node} of {group}"
                         + " '%s' with tls.pinPerServer; set it on the {group}", id, stage.name());
                 }
-                boolean https = server.baseUrl()
-                    .map(url -> "https".equalsIgnoreCase(url.getScheme()))
-                    .orElse(false);
+                // cli.url defaults to baseUrl (EffectiveNodeConfig), so baseUrl covers that case
+                boolean https = Stream.of(server.baseUrl(),
+                        server.cli().url().or(stage.cli()::url),
+                        server.e2e().soap().baseUrl().or(stage.e2e().soap()::baseUrl))
+                    .flatMap(Optional::stream)
+                    .anyMatch(url -> "https".equalsIgnoreCase(url.getScheme()));
                 if (https && serverTls.pinnedCertificateSha256().isEmpty()) {
                     findings.termError("%s: tls.pinPerServer on {group} '%s' needs"
                         + " tls.pinnedCertificateSha256 on this {node}", id, stage.name());

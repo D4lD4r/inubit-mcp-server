@@ -629,12 +629,23 @@ brings the dialog back (Q5).
   its own certificate: each own address → the POST succeeds; swapped addresses → `TLS_ERROR` naming
   the node with cause `(CertificateException)`. No production change; if a test fails, stop and
   report.
-- [ ] T029b [US1] Pin for an http server with an https `cli.url` or `e2e.soap.baseUrl` (gap 2 of
-  `reviews/T029-r1.md`; FR-004, FR-005): needs the operator's decision — extend V-6 (a node of a
-  marked stage needs its own pin if its `baseUrl`, own `cli.url` or own `e2e.soap.baseUrl` is
-  https; failing test first in `ConfigValidatorTest.PinPerServer`, `v7…` stays green; align
-  contracts/configuration.md, spec FR-004 and its "http servers" edge case, `docs/setup.md`) or
-  record the case as accepted and document it next to the window paragraph in `docs/setup.md` §5.
+- [X] T029b [US1] Pin for an http server with an https `cli.url` or `e2e.soap.baseUrl` (gap 2 of
+  `reviews/T029-r1.md`; FR-004, FR-005; operator decision 2026-11-05: extend V-6): a server of a
+  marked stage needs its own pin if any address it is reached at is https — its `baseUrl`, its
+  effective `cli.url` (own or inherited from the stage) or its effective `e2e.soap.baseUrl` (own
+  or inherited); failing test first in `ConfigValidatorTest.PinPerServer` (additions only), `v7…`
+  stays green; align contracts/configuration.md, spec FR-004 and its "http servers" edge case,
+  `docs/setup.md`.
+- [ ] T029c [US1] Cert tool follows the extended V-6 (follow-up of `reviews/T029b-r1.md`; FR-004,
+  FR-013): write the failing tests first in `tools/tests` and see them fail (006 tests untouched):
+  (a) in a marked stage `expected` and `_prune_expected` include the own pin of every server, http
+  servers with an https `cli.url` / `e2e.soap.baseUrl` included; `--prune` keeps it and refuses
+  (exit 3) when it is missing from the store; (b) `_read_stage` reads each node's and the stage's
+  `cli.url` and `e2e.soap.baseUrl` (node → stage), and `_pin_per_server_problem` uses the same https
+  test as `ConfigValidator.checkPinPerServer`, so such a stage without the pin is unusable for
+  `--accept`, `--prune` and adoption (exit 3, same message as V-6); (c) update research R-13,
+  data-model `expected` and `docs/setup.md` (prune paragraph; the tool neither checks nor adopts the
+  certificate of an http server's https `cli.url` / SOAP address — its pin is set by hand).
 - [ ] T030 Validate offline (SC-005, FR-018, plan outline step 3):
   - `mvn -q -o clean verify`;
   - the tool suite as CI runs it: `python3 -I -m unittest discover -s tools/tests -v` (and once with

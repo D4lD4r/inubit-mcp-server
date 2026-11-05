@@ -61,8 +61,8 @@ message. Each one names the stage and, where it applies, the server.
 | V-3 | marked stage with `pinnedCertificateSha256` in its `tls` (inline or alias) | error `{group} 'int': tls.pinnedCertificateSha256 is not allowed with tls.pinPerServer; set it on each {node}` |
 | V-4 | marked stage without `tls.trustStore` | error `{group} 'int': tls.pinPerServer needs tls.trustStore on the {group}` |
 | V-5 | node of a marked stage with `tls.trustStore` | error `int/b: tls.trustStore is not allowed on this {node} of {group} 'int' with tls.pinPerServer; set it on the {group}` |
-| V-6 | https node of a marked stage without its own `tls.pinnedCertificateSha256` | error `int/b: tls.pinPerServer on {group} 'int' needs tls.pinnedCertificateSha256 on this {node}` |
-| V-7 | http node (`allowInsecureHttp`) of a marked stage without a pin | valid |
+| V-6 | node of a marked stage without its own `tls.pinnedCertificateSha256` whose `baseUrl`, effective `cli.url` or effective `e2e.soap.baseUrl` (own or inherited from the stage) is https | error `int/b: tls.pinPerServer on {group} 'int' needs tls.pinnedCertificateSha256 on this {node}` |
+| V-7 | http node (`allowInsecureHttp`) of a marked stage without a pin whose `cli.url` and `e2e.soap.baseUrl` (if set) are http too | valid |
 | V-8 | node pin reached through an alias (`tls: *x-int-b`) | valid (the tool offers no adoption for it) |
 | V-9 | `pinPerServer: false` or absent | uniform stage; every rule of features 001/002/006 unchanged |
 | V-10 | marked stage with more than one node, `cli.url` on the stage, a node without its own `cli.url` | error per inheriting node `int/b: cli.url is inherited from {group} 'int' with tls.pinPerServer; set cli.url on each {node}` |
