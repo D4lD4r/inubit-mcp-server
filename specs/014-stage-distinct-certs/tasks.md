@@ -142,7 +142,7 @@ The reviewed spec governs; the other documents were aligned in the same change.
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] Customer-agnostic Java fixture `testres/config/pin-per-server.yaml`
+- [X] T001 [P] Customer-agnostic Java fixture `testres/config/pin-per-server.yaml`
   (`src/test/resources/config/pin-per-server.yaml`): the example of contracts/configuration.md —
   profile `acme`; uniform stage `dev` (stage pin, own trust store); marked stage `int` with
   `tls.pinPerServer: true`, `tls.trustStore` and `disableHostnameVerification: true` on the stage, and
