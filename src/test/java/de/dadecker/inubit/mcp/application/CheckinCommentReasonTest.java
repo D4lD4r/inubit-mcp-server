@@ -29,6 +29,14 @@ class CheckinCommentReasonTest {
     }
 
     @Test
+    void anUpdatedModuleCarriesTheReasonAfterTheExtraPrefixOfInubit() {
+        // the comment as the archive port reads it from index.xml, user comment already removed
+        assertThat(ImportService.carriesReason(
+            "DefaultCommitCommentImport###DefaultCommitCommentImport###deploy TAG-01 from dev######",
+            "deploy TAG-01 from dev")).isTrue();
+    }
+
+    @Test
     void anotherReasonOrAnOlderSegmentIsNotTheReason() {
         assertThat(ImportService.carriesReason(
             "DefaultCommitCommentImport###deploy TAG-02 from dev###" + SUFFIX,

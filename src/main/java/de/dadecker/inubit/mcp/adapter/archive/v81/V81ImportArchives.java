@@ -58,6 +58,16 @@ public final class V81ImportArchives implements ImportArchivePort {
         }
     }
 
+    /**
+     * {@link #equivalent}, or equivalent after the rewrite of {@link SaxonFactoryRewrite}
+     * (issue #55).
+     */
+    @Override
+    public boolean importedAs(String path, byte[] sent, byte[] server) {
+        return equivalent(path, sent, server) || SaxonFactoryRewrite.asImported(path, sent,
+            server).filter(imported -> equivalent(path, imported, server)).isPresent();
+    }
+
     @Override
     public byte[] connectionOrdered(String path, byte[] file) {
         if (!path.endsWith(".xml")) {
@@ -77,10 +87,19 @@ public final class V81ImportArchives implements ImportArchivePort {
             rendered);
     }
 
+    /**
+     * The check-in comment without the Workbench user comment: when an artifact has a
+     * {@code UserComment}, the export appends it to {@code CheckinComment} as one more
+     * {@code ###} segment, which is not part of the check-in comment of the version.
+     */
     @Override
     public Optional<String> checkinComment(byte[] file) {
         try {
-            return XmlTree.parse(file).root().child("CheckinComment").map(Element::text);
+            Element root = XmlTree.parse(file).root();
+            String user = root.child("UserComment").map(Element::text).orElse("");
+            return root.child("CheckinComment").map(Element::text).map(comment ->
+                !user.isEmpty() && comment.endsWith("###" + user)
+                    ? comment.substring(0, comment.length() - user.length()) : comment);
         } catch (RuntimeException e) {
             return Optional.empty();
         }

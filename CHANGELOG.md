@@ -8,8 +8,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 Planned as **0.7.0**: feature 011, credentials only from the credential store of the system or
-from AWS Parameter Store. The live check against the real credential stores (macOS required before
-the release; Windows and Linux where available, `docs/live-tests.md`) has not been executed yet.
+from AWS Parameter Store. The live check against the real credential store (`docs/live-tests.md`)
+ran on macOS: entries read, a value with non-ASCII characters decoded, a missing entry "not found",
+a denied access dialog `ACCESS_DENIED`. It has not run on Windows and Linux; there the adapters are
+covered by tests with fakes only.
 
 ### Breaking
 
@@ -31,7 +33,7 @@ the release; Windows and Linux where available, `docs/live-tests.md`) has not be
 ### Added
 
 - Credential store adapters: `/usr/bin/security` on macOS, `CredReadW` on Windows (new dependency
-  JNA 5.17.0, Apache-2.0 option of its dual license, see `THIRD-PARTY-NOTICES.md`), `secret-tool`
+  JNA 5.19.1, Apache-2.0 option of its dual license, see `THIRD-PARTY-NOTICES.md`), `secret-tool`
   on Linux (needs `libsecret-tools`/`libsecret` and a Secret Service). One entry is read at a
   time (at most one access dialog), 60 s per node, 30 s back-off after a failure.
 - `credentials.prefix` as the name of the profile-wide entry prefix (`envPrefix` still works, with
@@ -54,6 +56,8 @@ the release; Windows and Linux where available, `docs/live-tests.md`) has not be
 - `query_logs` and `find_processes` check their input for every node before any node is contacted
   and without reading credentials.
 - The audit `account` of a node before its first read is `(credential store <entry> or <entry>)`.
+- AWS SDK for Java v2 2.57.3 → 2.57.7 (the same artifacts). `THIRD-PARTY-NOTICES.md` is
+  updated.
 
 ### Fixed
 
@@ -62,6 +66,19 @@ the release; Windows and Linux where available, `docs/live-tests.md`) has not be
   cannot be scrubbed reliably (since 0.7.0 checked when the entry is read).
 - `SECURITY.md` names AWS Systems Manager Parameter Store as a credential source (feature 010)
   and its bound of two failed logins per node per 60 s.
+- `import_artifacts` (and the import step of `deploy_release`) no longer rolls back a successful
+  import of an artifact that has a Workbench user comment. The export appends the user comment to
+  the check-in comment as one more `###` segment; the verification read it as part of the
+  check-in comment and reported `VERIFY_MISMATCH` ("the check-in comment does not carry exactly
+  the reason"). The appended user comment is now removed before the reason is compared.
+- `import_artifacts` and `deploy_release` no longer report `VERIFY_MISMATCH` and a failed
+  rollback when INUBIT rewrites the `xslt.transformer` of an imported XSLT Converter module from
+  the plain Saxon factory (`net.sf.saxon.TransformerFactoryImpl`) to its Saxon-EE factory of
+  `com.saxonica.config` (seen on 8.1.17, #55). The verification of the import or deployment, of
+  its rollback and of `restore_backup` accept this rewrite and nothing else; after a successful
+  import the workspace holds the server's value, as for every verified import. The preview of
+  `deploy_release` still lists such a module as `CHANGED` while the release names the plain
+  factory and the target the Saxon-EE one.
 
 ## [0.6.3] - 2026-11-02
 
