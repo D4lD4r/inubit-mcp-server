@@ -136,7 +136,7 @@ Every decision was checked against `main` (18344e2) — server code under
 
 - **Decision**: in `Launcher.serve`, right after the existing "started for profile" line, write
   `LOG.info("Stages with one pinned certificate per server (tls.pinPerServer): {}", names)`. It is
-  written only when at least one stage is marked. It goes to stderr and the log, never to stdout.
+  written only when at least one stage is marked. It goes to stderr only, never to stdout.
 - **Alternatives considered**: a validator warning. Rejected, because a deliberate setting is not
   a warning, and warnings are also printed by `--check-config`.
 

@@ -656,7 +656,7 @@ brings the dialog back (Q5).
     line is changed or removed, except in `tools/tests/support.py` (T002) and
     `src/test/java/de/dadecker/inubit/mcp/adapter/rest/TlsTestServer.java` (T011);
   - record the outcome (counts only) in `specs/014-stage-distinct-certs/quickstart.md`.
-- [ ] T031 Local validation on a configuration copy (quickstart Q2–Q7 with Q3a, SC-001–SC-004,
+- [X] T031 Local validation on a configuration copy (quickstart Q2–Q7 with Q3a, SC-001–SC-004,
   FR-005a): with the operator's OK, reinstall the tool to `~/.local/bin/inubit-cert-check`; run the
   Q2 configuration checks (valid copy exit 0 and `Result: OK` without errors and without the FR-005
   log line; each broken copy, V-10 and V-11 included, exit 1 naming stage and server), Q3 start-up
@@ -668,6 +668,8 @@ brings the dialog back (Q5).
   (time step d from seeing the error to the restored check: under 2 minutes, SC-002), Q5 dialogs and
   rejection memory (the operator clicks), Q6 concurrency, Q7 uniform-stage regression. Uses copies
   only; record the outcome without real names in `quickstart.md`.
+  - Note (T031 run): Q5 and the dialog part of Q6 were not run (user decision: no macOS dialogs);
+    they stay open for the operator together with T032.
 - [ ] T032 Manual live step — operator only, needs the operator's explicit approval, never automated
   (FR-016, FR-017, SC-006, Story 3 AS 3):
   - show the C-8′ diff for the operator's `~/.claude/CLAUDE.md` (back it up first; the trigger now

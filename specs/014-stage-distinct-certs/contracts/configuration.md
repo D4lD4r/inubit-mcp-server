@@ -102,7 +102,7 @@ stages only (research R-3). A marked stage with one node may set both addresses 
   JVM; a certificate switch exactly in that window is not caught, because StartCLI checks only the
   stage's trust store (and the host name, unless disabled). Certificates whose subjectAltNames
   match the host, with host-name verification on, close it (research R-15, `docs/setup.md`).
-- At start, when at least one stage is marked, the server logs one line (stderr and the log file,
+- At start, when at least one stage is marked, the server logs one line (stderr,
   never stdout):
 
   ```text

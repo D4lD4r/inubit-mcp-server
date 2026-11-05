@@ -780,7 +780,7 @@ for a server pin reached through an alias.
   most one server pass. Either leave `cli.url` out (each server then uses the default derived from
   its own `baseUrl`, `<baseUrl>/ibis/servlet/IBISSoapServlet`), or set `cli.url` and
   `e2e.soap.baseUrl` in each node entry. A marked stage with one server may set both on the stage.
-- At start the server logs (stderr and the log file, never stdout)
+- At start the server logs on stderr (never stdout)
   `Stages with one pinned certificate per server (tls.pinPerServer): int`.
 - `pinPerServer: false` or no `pinPerServer` keeps every rule of an unmarked stage.
 

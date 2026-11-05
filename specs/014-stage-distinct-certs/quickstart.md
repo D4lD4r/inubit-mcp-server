@@ -133,3 +133,56 @@ repeated (research R-12).
 Run the 006 quickstart scenarios 1–5 unchanged on a uniform stage.
 
 Expected: identical output, JSON and log lines (SC-005).
+
+## Outcome (T031, local copies)
+
+Everything ran on copies under a scratch directory. Hosts were `127.0.0.1` only, and the profile was
+`acme` with stages `dev` and `int` (`int/a`, `int/b` with `tls.pinPerServer`). Credentials came from a
+stub `secret-tool`; the Keychain was not used. The tool ran from the repository
+(`python3 -I tools/inubit-cert-check.py --config … --state-dir …`) instead of `~/.local/bin`.
+
+- Q2 pass:
+  - The valid copy: exit 0, `Result: OK`, no errors, no FR-005 line.
+  - The broken copies V-1, V-3, V-4, V-5, V-6, V-10 and V-11: exit 1 each, naming stage and server.
+    V-6 also reports the existing `disableHostnameVerification` error.
+  - `defaults.tls`: `Unknown key 'tls' at defaults`.
+- Q3 pass:
+  - Exactly one start-up line `Stages with one pinned certificate per server (tls.pinPerServer): int`
+    on stderr; stdout holds only JSON-RPC.
+  - The server writes no log file of its own; docs/setup.md and contracts/configuration.md now say
+    "stderr" only (the MCP client usually captures stderr in its log).
+- Q3a pass:
+  - With four endpoints, `export_artifacts` for `int/a` and `int/b` passed the REST login (stub
+    answered only `GET /ibis/rest/system/info` → 200 `{}`). Each then returned
+    `TLS_ERROR … for the StartCLI address 127.0.0.1:<port> (CertificateException); StartCLI was not started`.
+  - No marker file from the stub `startcli.sh`; only its local version query ran.
+  - With the StartCLI certificates swapped back, both calls reached the stub (2 marker files).
+- Q4 pass:
+  - a: OK, exit 0.
+  - b: `int/b` changed, `int/a` ok, exit 10.
+  - c: `--accept int <fp>` refused, exit 3, files unchanged.
+  - d: check → `--accept int/b <fp>` → check took 1.7 s of command time, well under 2 minutes (SC-002).
+    `int/a` was stopped; only the `int/b` pin line changed; the store held A, B and F; one
+    `adopted … server=int/b` line was logged.
+  - e: `--prune int` listed only the old `int/b` entry.
+  - f: certificate A on `int/b` produced the note "expected for int/a", exit 10.
+  - g: `int/b` silent; `--accept` refused after 5.2 s (`unreachable (timeout)`), exit 3, files unchanged,
+    one `failed` line.
+- Q5 open: not run, because no macOS dialogs were allowed (user decision). It stays with the
+  operator together with T032.
+- Q6 pass without a dialog:
+  - A second process held the profile lock the way the dialog does. With the lock held for 8 s,
+    `--accept int/a` waited and was adopted (exit 0).
+  - With the lock held for 36 s, `--accept` was refused after 30.2 s ("the profile lock is held by
+    another process … for more than 30 s", exit 3, files unchanged). Repeating it succeeded.
+  - Two concurrent `--accept` runs for `int/a` and `int/b` were both adopted.
+  - `--interactive` while the lock was held: "dialog open in another session", exit 0.
+  - The dialog variant stays open with Q5.
+- Q7 pass:
+  - The 006 scenarios 1–5 ran on a uniform `int`, once with this branch's tool and once with the
+    `main` tool, on identical copies. Text output, JSON and change-log lines were identical; only
+    timestamps differed.
+  - Dialog steps were replaced by the CLI: `--accept` instead of the dialog Accept, and a seeded
+    rejection instead of the dialog Reject.
+  - Scenario 4 used a silent `127.0.0.1` listener instead of `192.0.2.1`: exit 20 after 5.3 s.
+  - `get_health` was not run, because it needs INUBIT.
