@@ -354,6 +354,19 @@ class RejectionTest(StateTestCase):
         self.assertEqual(0, write.call_count)
         self.assertEqual(before, self.read(self.state.rejections_file))
 
+    def test_clear_several_keys_and_a_prefix_in_one_write(self):
+        self.remember_stage_and_servers()
+        self.state.remember_rejection("int/c", FP_NEW, None, "rejected", now=NOW)
+        self.state.remember_rejection("int2/a", FP_NEW, None, "rejected", now=NOW)
+        with mock.patch.object(self.tool, "write_atomically",
+                               wraps=self.tool.write_atomically) as write:
+            removed = self.state.clear_rejections(["int", "int/a"], prefix="int/")
+        self.assertEqual(["int", "int/a", "int/b", "int/c"], removed)
+        self.assertEqual(["dev", "int2/a"], sorted(self.state.load_rejections()))
+        self.assertEqual(1, write.call_count)
+        self.assertEqual([], self.state.clear_rejections([], prefix="int/"))
+        self.assertEqual(1, write.call_count, "no write when nothing was removed")
+
     def test_clear_several_under_the_rejections_lock(self):
         self.remember_stage_and_servers()
         before = self.read(self.state.rejections_file)

@@ -711,6 +711,104 @@ class ForgetTest(InteractiveTestCase):
         self.wait_for_workers()
         self.assertEqual(1, len(self.calls("show_dialog")))
 
+    # T021: --forget TARGET on marked stages (contract C-4′) -----------------------------------
+
+    def write_marked(self):
+        """dev: uniform stage with dev/node1; int: marked stage with int/a and int/b (the
+        addresses are never contacted by --forget)."""
+        support.write_profile(self.profile, [
+            {"name": "dev", "pin": self.fp_a, "store": self.stores["dev"],
+             "servers": [("node1", "https://dev-node1.example.test:8443")]},
+            {"name": "int", "pin_per_server": True, "store": self.stores["int"],
+             "servers": [(node, f"https://int-{node}.example.test:8443", {"pin": pin})
+                         for node, pin in (("a", self.fp_a), ("b", self.fp_b))]}])
+
+    def remember_all(self):
+        for key in ("dev", "int", "int/a", "int/b"):
+            self.state.remember_rejection(key, self.fp_b, None, "rejected")
+
+    def remembered(self):
+        return sorted(self.state.load_rejections())
+
+    def test_forget_one_server(self):
+        self.write_marked()
+        self.remember_all()
+        code, out, err = self.forget("int/b")
+        self.assertEqual(0, code, err)
+        self.assertEqual(["dev", "int", "int/a"], self.remembered())
+        self.assertEqual(1, len(out.splitlines()))
+        self.assertIn("int/b", out)
+        self.assertIn("int/b", self.diag())
+
+    def test_forget_marked_stage_removes_all_its_servers_in_one_write(self):
+        self.write_marked()
+        self.remember_all()
+        with mock.patch.object(self.tool, "write_atomically",
+                               wraps=self.tool.write_atomically) as write:
+            code, out, err = self.forget("int")
+        self.assertEqual(0, code, err)
+        self.assertEqual(["dev"], self.remembered())
+        self.assertEqual([self.state.rejections_file],
+                         [call[0][0] for call in write.call_args_list])
+        self.assertEqual(1, len(out.splitlines()))
+        self.assertIn("int", out)
+
+    def test_forget_marked_stage_with_only_a_leftover_stage_entry(self):
+        self.write_marked()
+        self.state.remember_rejection("int", self.fp_b, None, "rejected")
+        code, _out, err = self.forget("int")
+        self.assertEqual(0, code, err)
+        self.assertEqual([], self.remembered())
+
+    def test_forget_marked_nothing_remembered(self):
+        self.write_marked()
+        self.state.remember_rejection("dev", self.fp_b, None, "rejected")
+        for target in ("int", "int/a"):
+            with self.subTest(target=target):
+                code, out, err = self.forget(target)
+                self.assertEqual(0, code, err)
+                self.assertIn("nothing was remembered", out)
+        self.assertEqual(["dev"], self.remembered())
+
+    def test_forget_uniform_stage_as_in_006(self):
+        self.write_marked()
+        self.remember_all()
+        code, out, err = self.forget("dev")
+        self.assertEqual(0, code, err)
+        self.assertEqual("Stage dev: remembered rejection removed; the dialog is offered again.\n",
+                         out)
+        self.assertEqual(["int", "int/a", "int/b"], self.remembered())
+        code, out, _err = self.forget("dev")
+        self.assertEqual((0, "Stage dev: nothing was remembered.\n"), (code, out))
+
+    def test_forget_refusals(self):
+        self.write_marked()
+        self.remember_all()
+        for target, named in (("qa", "qa"), ("qa/a", "qa"), ("int/c", "int/c"),
+                              ("dev/node2", "dev/node2"), ("dev/node1", "--forget dev")):
+            with self.subTest(target=target):
+                code, out, err = self.forget(target)
+                self.assertEqual(3, code, err)
+                self.assertEqual("", out)
+                self.assertIn(named, err)
+        self.assertEqual(["dev", "int", "int/a", "int/b"], self.remembered())
+
+    def test_forget_marked_stage_removes_entries_of_servers_no_longer_in_the_profile(self):
+        self.write_marked()
+        for key in ("dev", "int/a", "int/c", "int2/a"):
+            self.state.remember_rejection(key, self.fp_b, None, "rejected")
+        with mock.patch.object(self.tool, "write_atomically",
+                               wraps=self.tool.write_atomically) as write:
+            code, out, err = self.forget("int")
+        self.assertEqual(0, code, err)
+        self.assertEqual(["dev", "int2/a"], self.remembered())
+        self.assertEqual([self.state.rejections_file],
+                         [call[0][0] for call in write.call_args_list])
+        self.assertEqual(1, len(out.splitlines()))
+        self.assertIn("int/a", out)
+        self.assertIn("int/c", out)
+        self.assertIn("int/c", self.diag())
+
 
 if __name__ == "__main__":
     unittest.main()

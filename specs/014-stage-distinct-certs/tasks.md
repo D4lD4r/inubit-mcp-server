@@ -513,7 +513,7 @@ brings the dialog back (Q5).
     writes of `--check`.
   Then implement `State.clear_rejections` and the housekeeping in `run_check` / `cmd_check` of
   `tools/inubit-cert-check.py`.
-- [ ] T021 [US3] `--forget TARGET` (FR-015, contract C-4′). Write the failing tests first in
+- [X] T021 [US3] `--forget TARGET` (FR-015, contract C-4′). Write the failing tests first in
   `tools/tests/test_interactive.py` `ForgetTest` and see them fail: `--forget int/b` removes only
   that entry; `--forget int` on a marked stage removes the entries of all its servers and a leftover
   stage-keyed entry; `--forget dev` behaves as in 006; exit 0 also when nothing was remembered; exit

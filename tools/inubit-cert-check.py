@@ -1427,12 +1427,16 @@ class State:
             self.save_rejections(rejections)
             return True
 
-    def clear_rejections(self, keys):
-        """Forgets the remembered rejections of several keys in one write under the rejections
-        lock; the keys that were there (no write when none was)."""
+    def clear_rejections(self, keys, prefix=None):
+        """Forgets the remembered rejections of several keys, plus every remembered key starting
+        with prefix, in one write under the rejections lock; the keys that were there (no write
+        when none was)."""
         with self._rejections_locked():
             rejections = self.load_rejections()
             removed = [key for key in dict.fromkeys(keys) if key in rejections]
+            if prefix:
+                removed += sorted(key for key in rejections
+                                  if key.startswith(prefix) and key not in removed)
             if removed:
                 for key in removed:
                     del rejections[key]
@@ -3089,19 +3093,43 @@ def _decide(args, state, profile, offer, parent_deadline, status, status_file):
     return outcome
 
 
-# --- forget (contract C-4) -----------------------------------------------------------------------
+# --- forget (contracts C-4, C-4′) ----------------------------------------------------------------
 
 def cmd_forget(args):
     profile = load_profile(args)
     state = state_for(args, profile)
-    if profile.stage(args.forget) is None:
-        return _refuse(f"unknown stage '{args.forget}'")
-    removed = state.clear_rejection(args.forget)
-    state.diag(f"stage {args.forget}: remembered rejection "
-               f"{'removed' if removed else 'not present'} (--forget)")
-    emit(f"Stage {args.forget}: "
-         + ("remembered rejection removed; the dialog is offered again.\n" if removed
-            else "nothing was remembered.\n"))
+    target = args.target
+    stage = profile.stage(target.stage)
+    if stage is None:
+        return _refuse(f"unknown stage '{target.stage}'")
+    if target.node is not None:
+        if target.id not in stage.server_ids:
+            return _refuse(f"unknown server '{target.id}'")
+        if not stage.pin_per_server:
+            return _refuse(f"stage {stage.name} has one pin for the stage - use --forget "
+                           f"{stage.name}")
+    if not stage.pin_per_server:
+        removed = state.clear_rejection(stage.name)
+        state.diag(f"stage {stage.name}: remembered rejection "
+                   f"{'removed' if removed else 'not present'} (--forget)")
+        emit(f"Stage {stage.name}: "
+             + ("remembered rejection removed; the dialog is offered again.\n" if removed
+                else "nothing was remembered.\n"))
+        return OK
+    # a marked stage: the stage target also takes a leftover stage-keyed entry (research R-9)
+    # and the entries of servers no longer in the profile
+    if target.node is not None:
+        removed = state.clear_rejections([target.id])
+    else:
+        removed = state.clear_rejections([stage.name] + list(stage.server_ids),
+                                         prefix=f"{stage.name}/")
+    label = (("server", target.id) if target.node is not None else ("stage", stage.name))
+    state.diag(f"{label[0]} {label[1]}: remembered rejection "
+               + (f"removed for {', '.join(removed)}" if removed else "not present")
+               + " (--forget)")
+    emit(f"{label[0].capitalize()} {label[1]}: "
+         + (f"remembered rejection removed for {', '.join(removed)}; the dialog is offered "
+            "again.\n" if removed else "nothing was remembered.\n"))
     return OK
 
 
