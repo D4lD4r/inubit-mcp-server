@@ -267,7 +267,7 @@ reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, AS 8, Q1,
   extend `checkPinPerServer` in `main/config/ConfigValidator.java` on the written
   `GroupConfig.cli()` / `NodeConfig.cli()` and `GroupConfig.e2e().soap()` /
   `NodeConfig.e2e().soap()` values.
-- [ ] T009 [P] [US1] Start-up log line (FR-005, research R-5; after T005). Write the failing tests
+- [X] T009 [P] [US1] Start-up log line (FR-005, research R-5; after T005). Write the failing tests
   first in `test/MainTest.java` and see them fail: starting with `pin-per-server.yaml` logs exactly
   `Stages with one pinned certificate per server (tls.pinPerServer): int` once (logback
   `ListAppender` on the `Launcher` logger, as in `test/security/SecretLeakTest.java`); a profile
