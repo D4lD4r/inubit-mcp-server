@@ -41,9 +41,10 @@ directories, git working trees and network paths, and on production groups the n
   `Wiring`, which hands `configLocation.roots()` to `TargetFolderRules` as `List<Path>
   configurationRoots` so that `application` does not depend on `config`; `.git` in the folder or an ancestor; writable directory or nearest existing ancestor;
   cloud-sync warning); network paths through the new port
-  `NetworkPathProbe` (UNC by path; mapped drives by `GetDriveTypeW` in `adapter/os`, JNA already
-  present); with the Windows flag, UNC and drive roots are recognised from the raw string before
-  the absolute check, so the network-path rule is tested on the Ubuntu CI host too.
+  `NetworkPathProbe` (`remoteDrive(char letter)`; UNC from the raw string; mapped drives by
+  `GetDriveTypeW` in `adapter/os`, JNA already present); with the Windows flag, UNC and drive
+  roots are recognised from the raw string before the absolute check, so the network-path rule is
+  tested on the Ubuntu CI host too.
 - **Placement** (R-11): `ArchiveFolderWriter` in `application`: temporary owner-only file in the
   target folder (`CREATE_NEW`), `force`, then `Files.createLink(final, temp)` (fails atomically if
   the name exists), temporary file deleted; fallback for file systems without hard links:

@@ -141,6 +141,10 @@ with its error precedence (R-12, R-13).
   with a lookup into the export's `Repository.zip` that scans each reached file. The archive holds
   the reached paths that exist in `Repository.zip` (inside the owner's root); references outside
   the owner are not followed (as today).
+  The shared functions take the bytes to scan plus the reference source (`WorkspacePath from`, as
+  `RepositoryReferences.scan(WorkspacePath, byte[])`), not the redacted model types: each caller
+  serializes its own input (`WorkspaceWriter` its redacted elements, `V81WorkflowArchives` the
+  unredacted elements of the export), so the same functions serve both.
 - **Rationale**: FR-005 asks for "the closure the workspace export already computes"; sharing one
   extraction makes it equal by construction, and `WorkspaceWriter`'s existing tests guard the
   extraction. Scanning the unredacted elements finds every reference the redacted ones show and
@@ -209,7 +213,8 @@ with its error precedence (R-12, R-13).
      `isAbsolute` check (so the rule is the same on a non-Windows host, where `\\server\share\x`
      and `Z:\x` are relative paths): a string starting with `\\` (UNC, also `\\?\UNC\`) → refused
      (network-path rule, contracts/mcp-tools-delta.md "Folder rules" 2); a drive root `<X>:\`
-     whose drive the probe reports remote (R-10) → refused (same rule);
+     whose letter `X`, taken from the raw string, the probe reports remote
+     (`remoteDrive('X')`, R-10) → refused (same rule);
   2. `Path.of` succeeds, `isAbsolute()`, no `.`/`..` name element (checked on the string's
      elements before any normalization);
   3. nearest existing ancestor *A* (the folder itself if it exists); *A* must be a directory
@@ -262,13 +267,16 @@ with its error precedence (R-12, R-13).
 
 ## R-10 Network paths on Windows: port `NetworkPathProbe`
 
-- **Decision**: `domain/port/NetworkPathProbe { boolean remote(Path absolute); }`. Production:
-  `adapter/os/WindowsNetworkPaths` calls `GetDriveTypeW("<X>:\\")` through a JNA mapping of
-  `kernel32` (`DriveTypeApi` / `JnaDriveTypeApi`, the pattern of
+- **Decision**: `domain/port/NetworkPathProbe { boolean remoteDrive(char letter); }`. The port
+  takes the drive letter, not a `Path`: on the Ubuntu CI host `Z:\x` is a relative path without
+  a root, so `TargetFolderRules` (with the Windows flag) extracts the letter from the raw string
+  (`<X>:\` or `<X>:/` at its start) before the `isAbsolute` check and asks the probe with it.
+  Production: `adapter/os/WindowsNetworkPaths` calls `GetDriveTypeW("<X>:\\")` through a JNA
+  mapping of `kernel32` (`DriveTypeApi` / `JnaDriveTypeApi`, the pattern of
   `adapter/os/JnaCredApi.java:27`, `:65`) and answers `DRIVE_REMOTE (4)`; on other systems
-  `remote` is always `false` (no native load). UNC paths are refused by `TargetFolderRules` from
-  the path alone. Tests use a fake probe; the JNA call itself is covered only by the manual
-  Windows check in `docs/live-tests.md` (as feature 011 did for `CredReadW`).
+  `remoteDrive` is always `false` (no native load). UNC paths are refused by `TargetFolderRules`
+  from the raw string alone. Tests use a fake probe; the JNA call itself is covered only by the
+  manual Windows check in `docs/live-tests.md` (as feature 011 did for `CredReadW`).
 - **Rationale**: Java has no public "remote volume" API (`FileStore.type()` reports the server's
   file system, e.g. `NTFS`); JNA core is already a dependency limited to `adapter/os`
   (`PackageBoundaryTest.onlyTheOsAdapterUsesJna`); "as far as detectable" (FR-008) covers drives
@@ -397,8 +405,9 @@ with its error precedence (R-12, R-13).
   the opt-in is a per-stage decision. Set on a group without `production: true` → startup warning
   "has no effect" (as `development.repository: WRITE` without a development node,
   `docs/setup.md:589-590`). `--check-config` appends to each group header
-  (`config/ConfigSummary.java:103-108`) `archives: clear-text archives allowed` /
-  `refused (production, no archives.productionOptIn)` / `allowed (archives.productionOptIn)`.
+  (`config/ConfigSummary.java:103-108`) the wording of contracts/configuration-delta.md:
+  `archives: allowed` / `archives: refused (no archives.productionOptIn)` /
+  `archives: allowed (archives.productionOptIn)`.
 - **Rationale**: the name mirrors `write.productionOptIn` (`config/WriteConfig.java:5-8`,
   `docs/setup.md:389`) so the operator recognizes the pattern, while the separate block keeps it
   independent of `write.*` (FR-014). Jackson binds the YAML to the records with

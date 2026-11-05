@@ -111,9 +111,12 @@ only on purpose, P1 — must ship together with US1), US3 (traceable and bounded
   `ArchiveCodecTest` and round-trip tests stay green unchanged. Then extract the reference scanning
   of `WorkspaceWriter.render` (`main/adapter/archive/v81/WorkspaceWriter.java:147-245`, the module
   part `:317-331`) into package-private `main/adapter/archive/v81/ArchiveReferences.java`
-  (`workflow(…)`, `indexEntry(…)`, `moduleFile(…)` returning `List<RepositoryReference>`, and
-  `closure(owner, references, repository, group)` wrapping `RepositoryClosure.of`) and make
-  `WorkspaceWriter` call it (no behaviour change).
+  (`workflow(WorkspacePath from, byte[] content)`, `indexEntry(WorkspacePath from, byte[] content)`,
+  `moduleFile(WorkspacePath from, byte[] content)` returning `List<RepositoryReference>` — the bytes
+  to scan plus the reference source, not the redacted model types, so `V81WorkflowArchives` can
+  pass the unredacted XML — and `closure(owner, references, repository, group)` wrapping
+  `RepositoryClosure.of`) and make `WorkspaceWriter` call it with its own serialized elements (no
+  behaviour change).
 
 - [ ] T006 Audit records of the tool (research R-12): test first
   `test/application/ArchiveExportAuditTest.java` against an in-memory `AuditPort`: `refused(error)`
@@ -136,7 +139,8 @@ only on purpose, P1 — must ship together with US1), US3 (traceable and bounded
 listing files, sizes, modules and repository files.
 
 **Independent test**: Q1–Q8, Q19 (content), Q21, Q25, Q27 of [quickstart.md](quickstart.md):
-a three-workflow group from the fake server into an empty temporary folder gives three owner-only
+three workflows of `fix/grp-b.zip` (`workflows` = `Workflow-0004`, `Workflow-0005`,
+`Workflow-0006`) from the fake server into an empty temporary folder give three owner-only
 archives whose content follows FR-005/FR-006.
 
 - [ ] T007 [US1] Slicing plans (research R-3, R-5, R-6): test first
@@ -195,13 +199,20 @@ archives whose content follows FR-005/FR-006.
   `.<file name>.<random>.part` created `CREATE_NEW`, `force(true)`, `Files.createLink(final,
   temporary)`, temporary name deleted; directories created level by level from the nearest existing
   ancestor; POSIX attributes only when `FileSystems.getDefault().supportedFileAttributeViews()`
-  contains `posix`. Writes stop at the first failure (detailed failure handling in T019).
+  contains `posix`. The writer's result is defined here in full, as the nested record
+  `ArchiveFolderWriter.Result(written, failed, notWritten, warnings)`: `written` the placed archives
+  (file name, size), `failed` at most one entry (workflow, file name, code, message without
+  content), `notWritten` the workflows after it, `warnings` the call-level warnings; the success
+  test asserts the three empty parts, so T019 only adds behaviour, no field. Writes stop at the
+  first failure (detailed failure handling in T019).
 
 - [ ] T010 [US1] Service happy path and export-dependent checks (research R-2, R-13 steps 1, 4–8,
   FR-002, FR-003, FR-005, FR-012, FR-017): test first
   `test/application/ArchiveExportServiceTest.java` with fakes for `ArtifactPort` (returns fixture
   bytes, counts calls), `AuditPort`, `VersionGate` (admits) and the real `V81WorkflowArchives`:
-  Q1 three archives into an empty folder, result lists `workflow`, `file`, absolute `path`, `size`,
+  Q1 three archives into an empty folder (source: `fix/grp-b.zip`, diagram group `GRP-02`, which
+  has four workflows, with `workflows: ["Workflow-0004", "Workflow-0005", "Workflow-0006"]`),
+  result lists `workflow`, `file`, absolute `path`, `size`,
   `moduleCount`, `modules`, `missingModuleCount`, `missingModules`, `repositoryFileCount`,
   `repositoryPaths`, per-archive warnings (missing modules: "imports only where these modules
   exist"; Workflow Connector: "the called workflow is not included"), `clearTextSecrets` text of
@@ -230,7 +241,8 @@ archives whose content follows FR-005/FR-006.
 
 - [ ] T011 [US1] Result bounding (research R-14, FR-012, Q25): test first, extending
   `test/application/ArchiveExportServiceTest.java` with `resultLimits.maxItems` set small (e.g. 3)
-  and the three-workflow group of Q1: the module, missing-module and repository-path lists are
+  and the three workflows of Q1 (`fix/grp-b.zip` with `workflows` = `Workflow-0004`,
+  `Workflow-0005`, `Workflow-0006`): the module, missing-module and repository-path lists are
   filled archive by archive in output order (per archive `modules`, then `missingModules`, then
   `repositoryPaths`) until their sum reaches `maxItems`, later items are dropped and
   `truncated: true`; `moduleCount`, `missingModuleCount` and `repositoryFileCount` stay complete;
@@ -297,14 +309,16 @@ everything refused by the static input checks before StartCLI.
   a git tree; an existing file as target; a non-writable existing folder; a missing folder whose
   nearest existing ancestor is not a writable directory; with the Windows flag set (on the Ubuntu
   CI host, where these strings are relative paths) a UNC root (`\\server\share\x`,
-  `\\?\UNC\server\share`) and a drive path `Z:\x` the probe reports remote — each refused by
+  `\\?\UNC\server\share`) and a drive path `Z:\x` for which the fake probe, asked with `'Z'`,
+  reports remote — each refused by
   the network-path rule (the test asserts that rule name in the message, not the "relative"
   rule).
   Accepted with a warning ("the archives (with clear-text secrets) will be synchronized to the
   cloud"): below `<home>/Library/CloudStorage`, `<home>/Library/Mobile Documents`, or the folders of
   the environment variables `OneDrive`, `OneDriveCommercial`, `OneDriveConsumer`. Accepted plain:
   a new folder below the temporary directory. Then
-  `main/domain/port/NetworkPathProbe.java` (`boolean remote(Path absolute)`) and
+  `main/domain/port/NetworkPathProbe.java` (`boolean remoteDrive(char letter)`; the rules extract
+  the letter from the raw string, since `Z:\x` has no root on the CI host) and
   `main/application/TargetFolderRules.java` (constructor with home, `workspace`,
   `auditDirectory`, `List<Path> configurationRoots`, environment map, `NetworkPathProbe`, Windows
   flag — no `config` type, `PackageBoundaryTest`; order of R-9: with the Windows flag UNC and
@@ -345,8 +359,9 @@ everything refused by the static input checks before StartCLI.
 
 - [ ] T015 [US2] Remote drives on Windows (research R-10): test first
   `test/adapter/os/WindowsNetworkPathsTest.java` with a fake `DriveTypeApi`: drive type `4`
-  (`DRIVE_REMOTE`) → remote, `3` (fixed), `2` (removable) → local; a non-drive path → local
-  without loading the native API; with
+  (`DRIVE_REMOTE`) → remote, `3` (fixed), `2` (removable) → local, the API asked for `"<X>:\\"`
+  (`remoteDrive('z')` asks for `Z:\`); a character that is not an ASCII letter → local without
+  loading the native API; with
   the Windows flag `false` the native API is never loaded and the answer is `false`;
   `PackageBoundaryTest` stays green (`com.sun.jna` only in `adapter.os`). Then
   `main/adapter/os/DriveTypeApi.java`, `main/adapter/os/JnaDriveTypeApi.java` (`kernel32`
@@ -356,9 +371,10 @@ everything refused by the static input checks before StartCLI.
   as `new WindowsNetworkPaths(windows, JnaDriveTypeApi::new)` from the constructor's existing
   `windows` flag, handed to `TargetFolderRules` in T017. `test/TestWiring.java` needs no change:
   with `windows` `false` the probe answers `false` without loading JNA, and with `true` on a
-  non-Windows build machine no path has a drive-letter root, for which alone the native API is
-  loaded; service tests use a fake `NetworkPathProbe` directly. Add the manual Windows
-  check (a mapped network drive is refused) to `docs/live-tests.md`.
+  non-Windows build machine the rules ask the probe only for a target string starting with a
+  drive letter, for which alone the native API is loaded; service tests use a fake
+  `NetworkPathProbe` directly. Add the manual Windows check (a mapped network drive is refused) to
+  `docs/live-tests.md`.
 
 - [ ] T016 [P] [US2] Production opt-in setting (research R-15, FR-014): test first
   `test/config/ConfigLoaderTest.java` (`archives: {productionOptIn: true}` on a group is parsed;
@@ -434,7 +450,8 @@ export and a write failure are each audited, and the folder never holds a partia
   creating the target folder fails → empty `archives`, the failure in `failed` (first workflow),
   the rest in `notWritten`; a folder created by the call stays (empty) when the first archive fails;
   a directory level that appears concurrently is accepted and its permissions are not changed. Then
-  complete `main/application/ArchiveFolderWriter.java`.
+  complete `main/application/ArchiveFolderWriter.java` (behaviour only: the result record of T009
+  keeps its fields).
 
 - [ ] T020 [US3] Outcomes, partial results and audit precedence (research R-12, R-13, FR-011,
   FR-013): test first, extending `test/application/ArchiveExportServiceTest.java` and a new
@@ -457,9 +474,13 @@ export and a write failure are each audited, and the folder never holds a partia
   `workflow.<n>`, every `file.<n>`, `acknowledgeClearTextSecrets`, `reason` and never content (Q16);
   two concurrent calls into the same folder with overlapping workflows never replace a file, each
   archive name exists once with complete content, the loser reports `failed` naming the file
-  (Q22, SC-003). Then complete `main/application/ArchiveExportService.java` (outcome mapping,
-  error wrapping, INFO log line with node, diagram group, counts and `auditId` only; ERROR line on
-  audit failure without values).
+  (Q22, SC-003); to force the race, a test `FileOps` (the seam of T009) holds each call's first
+  placement on a shared `CountDownLatch(2)` (count down, then await with a timeout), so both calls
+  have passed the collision check against the still-empty folder before either places a file (a
+  latch in the fake `ArtifactPort` would only align the exports, R-13 step 6). Then complete
+  `main/application/ArchiveExportService.java` (outcome mapping, error wrapping, INFO log line
+  with node, diagram group, counts and `auditId` only; ERROR line on audit failure without
+  values).
 
 - [ ] T021 [US3] Secret-leak guarantee (SC-004, FR-001, FR-003, Constitution II): test first
   `test/security/ArchiveExportSecretLeakTest.java` modelled on `test/security/SecretLeakTest.java`:
@@ -512,8 +533,8 @@ export and a write failure are each audited, and the folder never holds a partia
   `security/NoCustomerIdentifiersTest.repositoryContainsNoCustomerIdentifiers` **ran and passed**
   (not skipped — the local identifier lists must be present, `docs/release-checks.md`; if it skips,
   stop and ask the operator to provide the lists); `PackageBoundaryTest` green; walk the quickstart
-  table Q1–Q29 and tick each test; re-check the plan's Constitution Check; record the run in the
-  validation record of `specs/015-workbench-archives/quickstart.md`.
+  table Q1–Q29 and Q31 and tick each test; re-check the plan's Constitution Check; record the run in
+  the validation record of `specs/015-workbench-archives/quickstart.md`.
 
 - [ ] T026 Manual Workbench import (SC-001) — **only with the operator's explicit approval, on
   their machine**: ask the operator before any call to a real server. Following quickstart "Manual

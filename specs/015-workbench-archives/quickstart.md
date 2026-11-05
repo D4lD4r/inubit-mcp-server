@@ -19,7 +19,7 @@ mvn -q -o clean verify
 
 | # | Scenario (spec) | Expected | Test |
 |---|---|---|---|
-| Q1 | US1-1: three workflows into an empty folder | three `<name>.diagram.zip`, result lists files, sizes, modules, repository paths | `ArchiveExportServiceTest`, `ExportArchivesToolTest` |
+| Q1 | US1-1: three workflows (`fix/grp-b.zip`, `workflows` = `Workflow-0004`, `Workflow-0005`, `Workflow-0006`) into an empty folder | three `<name>.diagram.zip`, result lists files, sizes, modules, repository paths | `ArchiveExportServiceTest`, `ExportArchivesToolTest` |
 | Q2 | US1-2: shared module | each archive holds the module; no module FR-005 does not select | `V81WorkflowArchivesTest` |
 | Q3 | US1-3: repository chain | exactly the reached files of the owner (`.xml` + `.dat`), headers, order, comment kept; of the original's directory entries only the ancestors of a kept file (variant with directory entries) | `V81WorkflowArchivesTest`, `RawZipTest` |
 | Q4 | US1-4: secrets | archive holds the values as exported; result, log, audit hold none | `V81WorkflowArchivesTest`, `security/ArchiveExportSecretLeakTest` |
