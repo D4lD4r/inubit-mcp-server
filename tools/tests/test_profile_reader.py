@@ -535,5 +535,157 @@ class FailClosedTest(ReaderTestCase):
         self.assertTrue(issubclass(self.tool.ConfigError, self.tool.ToolError))
 
 
+class PinPerServerTest(ReaderTestCase):
+    """Marked stages, tls.pinPerServer (feature 014: FR-003, FR-004, research R-7)."""
+
+    TEXT = f"""\
+profile:
+  name: acme
+x-b-tls: &bTls
+  pinnedCertificateSha256: {PIN_C}
+groups:
+  - name: dev
+    tls:
+      trustStore: /stores/dev.p12
+      pinnedCertificateSha256: {PIN_A}
+    nodes:
+      - name: node1
+        baseUrl: https://dev-host.example.test:8443
+  - name: int
+    tls:
+      pinPerServer: true
+      trustStore: /stores/int.p12
+    nodes:
+      - name: a
+        baseUrl: https://int-a.example.test:8443
+        tls:
+          pinnedCertificateSha256: {PIN_B}   # int/a pin
+      - name: b
+        baseUrl: https://int-b.example.test:8443
+        tls: *bTls
+      - name: c
+        baseUrl: http://int-c.example.test:8080
+"""
+    INT_TLS = "    tls:\n      pinPerServer: true\n      trustStore: /stores/int.p12\n"
+    A_PIN = f"          pinnedCertificateSha256: {PIN_B}"
+
+    def test_marked_inline(self):
+        dev, int_ = self.read(self.TEXT).stages
+        self.assertEqual((False, True), (dev.pin_per_server, int_.pin_per_server))
+
+    def test_marked_through_alias(self):
+        text = self.TEXT.replace(self.INT_TLS, "    tls: *intTls\n").replace(
+            "groups:\n", "x-int-tls: &intTls\n  pinPerServer: true\n"
+                         "  trustStore: /stores/int.p12\ngroups:\n")
+        int_ = self.read(text).stage("int")
+        self.assertTrue(int_.pin_per_server)
+        # the trust store is not written in the stage's own inline block
+        self.assertEqual(("/stores/int.p12", False, None),
+                         (int_.trust_store, int_.own_tls, int_.problem))
+
+    def test_false_or_absent_is_uniform(self):
+        for text in (BASIC, self.TEXT.replace("pinPerServer: true", "pinPerServer: false"),
+                     self.TEXT.replace("      pinPerServer: true\n", "")):
+            with self.subTest(text=text[:40]):
+                for stage in self.read(text).stages:
+                    self.assertEqual((False, frozenset(), None),
+                                     (stage.pin_per_server, stage.expected, stage.problem))
+
+    def test_uniform_stage_unchanged(self):
+        dev = self.read(self.TEXT).stage("dev")
+        self.assertEqual(self.tool.Stage(
+            name="dev", pin=PIN_A, pin_source="stage",
+            pin_line=self.line_of(self.TEXT, f"pinnedCertificateSha256: {PIN_A}"),
+            trust_store="/stores/dev.p12", own_tls=True,
+            servers=(self.tool.Server(id="dev/node1", stage="dev", name="node1",
+                                      base_url="https://dev-host.example.test:8443",
+                                      host="dev-host.example.test", port=8443, pin=PIN_A,
+                                      trust_store="/stores/dev.p12"),),
+            server_ids=("dev/node1",)), dev)
+
+    def test_marked_stage_view(self):
+        int_ = self.read(self.TEXT).stage("int")
+        self.assertEqual((None, "server", None, "/stores/int.p12", True, None),
+                         (int_.pin, int_.pin_source, int_.pin_line, int_.trust_store,
+                          int_.own_tls, int_.problem))
+        self.assertEqual(frozenset({PIN_B, PIN_C}), int_.expected)
+        # the http server needs no pin and is not part of the evaluation
+        self.assertEqual(["int/c"], [server.id for server in int_.skipped_servers])
+
+    def test_server_pin_source_and_line(self):
+        a, b = self.read(self.TEXT).stage("int").servers
+        self.assertEqual((PIN_B, "server", self.line_of(self.TEXT, "# int/a pin")),
+                         (a.pin, a.pin_source, a.pin_line))
+        self.assertEqual((PIN_C, "alias", None), (b.pin, b.pin_source, b.pin_line))
+        text = self.TEXT.replace("        tls: *bTls\n",
+                                 "        tls:\n          disableHostnameVerification: true\n")
+        b = self.read(text).stage("int").servers[1]
+        self.assertEqual((None, "stage", None), (b.pin, b.pin_source, b.pin_line))
+
+    def test_own_tls_of_a_marked_stage(self):
+        inherited = self.TEXT.replace("      trustStore: /stores/int.p12\n", "").replace(
+            "groups:\n", "defaults:\n  tls:\n    trustStore: /stores/shared.p12\ngroups:\n")
+        shared = self.TEXT.replace("/stores/dev.p12", "/stores/int.p12")
+        for name, text in (("inherited from defaults.tls", inherited),
+                           ("shared with another stage", shared)):
+            with self.subTest(name):
+                int_ = self.read(text).stage("int")
+                self.assertEqual((True, False, None),
+                                 (int_.pin_per_server, int_.own_tls, int_.problem))
+
+    def test_problem(self):
+        cases = (
+            ("stage pin", self.TEXT.replace(
+                "      trustStore: /stores/int.p12\n",
+                f"      trustStore: /stores/int.p12\n      pinnedCertificateSha256: {PIN_A}\n"),
+             ("stage 'int'", "tls.pinnedCertificateSha256", "not allowed")),
+            ("stage pin through an alias", self.TEXT.replace(
+                self.INT_TLS, "    tls: *intTls\n").replace(
+                "groups:\n", "x-int-tls: &intTls\n  pinPerServer: true\n  trustStore: "
+                             f"/stores/int.p12\n  pinnedCertificateSha256: {PIN_A}\ngroups:\n"),
+             ("stage 'int'", "tls.pinnedCertificateSha256", "not allowed")),
+            ("trust store on a server", self.TEXT.replace(
+                self.A_PIN, "          trustStore: /stores/a.p12\n" + self.A_PIN),
+             ("int/a", "tls.trustStore", "not allowed")),
+            ("trust store on an http server", self.TEXT.replace(
+                "        baseUrl: http://int-c.example.test:8080\n",
+                "        baseUrl: http://int-c.example.test:8080\n"
+                "        tls:\n          trustStore: /stores/c.p12\n"),
+             ("int/c", "tls.trustStore", "not allowed")),
+            ("https server without a pin", self.TEXT.replace("        tls: *bTls\n", ""),
+             ("int/b", "tls.pinnedCertificateSha256")),
+            ("pinPerServer on a server", self.TEXT.replace(
+                self.A_PIN, "          pinPerServer: false\n" + self.A_PIN),
+             ("int/a", "tls.pinPerServer", "only valid on a stage")),
+            ("no trust store", self.TEXT.replace("      trustStore: /stores/int.p12\n", ""),
+             ("stage 'int'", "tls.trustStore")),
+            ("first broken rule", self.TEXT.replace(
+                "      trustStore: /stores/int.p12\n",
+                f"      pinnedCertificateSha256: {PIN_A}\n").replace(
+                "        tls: *bTls\n", ""),
+             ("stage 'int'", "tls.pinnedCertificateSha256", "not allowed")),
+        )
+        for name, text, fragments in cases:
+            with self.subTest(name):
+                dev, int_ = self.read(text).stages
+                self.assertIsNone(dev.problem)
+                self.assertIsNotNone(int_.problem)
+                for fragment in fragments:
+                    self.assertIn(fragment, int_.problem)
+                self.assertEqual((None, "server"), (int_.pin, int_.pin_source))
+
+    def test_flow_mapping_server_tls_fails_closed(self):
+        self.assertRefused(self.TEXT.replace(
+            "        tls:\n" + self.A_PIN, f"        tls: {{ pinnedCertificateSha256: {PIN_B} }}"),
+            "server int/a.tls must be a block mapping or an alias")
+
+    def test_non_boolean_value_fails_closed(self):
+        for value in ("maybe", "1", "'yes'", "[true]"):
+            with self.subTest(value):
+                self.assertRefused(self.TEXT.replace("pinPerServer: true",
+                                                     f"pinPerServer: {value}"),
+                                   "stage int.tls.pinPerServer")
+
+
 if __name__ == "__main__":
     unittest.main()

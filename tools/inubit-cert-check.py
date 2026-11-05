@@ -69,7 +69,7 @@ import time
 import unicodedata
 import urllib.parse
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from typing import FrozenSet, Optional, Tuple
 
 PROG = "inubit-cert-check"
 
@@ -139,9 +139,13 @@ def normalize_fingerprint(text):
 STAGE_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")  # group and node names (ProfileInfo)
 ENV_PREFIX = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
 DEFAULT_ENV_PREFIX_START = "INUBIT_"
-TLS_KEYS = ("trustStore", "disableHostnameVerification", "pinnedCertificateSha256")
+TLS_KEYS = ("trustStore", "disableHostnameVerification", "pinnedCertificateSha256",
+            "pinPerServer")
 CERT_CHECK_KEYS = ("java", "serverJar")
 PIN_KEY = "pinnedCertificateSha256"
+PER_SERVER_KEY = "pinPerServer"
+BOOLEANS = {"true": True, "True": True, "TRUE": True, "false": False, "False": False,
+            "FALSE": False}
 DEFAULT_HTTPS_PORT = 443
 
 _KEY = re.compile(r"""([A-Za-z0-9_][A-Za-z0-9_.-]*|"[^"\\]*"|'[^']*')[ ]*:(?:[ ]+(.*))?$""")
@@ -160,7 +164,9 @@ class ConfigError(ToolError):
 @dataclass(frozen=True)
 class Server:
     """One INUBIT endpoint of a stage; pin and trust store are the effective ones (server ->
-    stage -> defaults)."""
+    stage -> defaults). pin_source: "server" (the server's own inline tls block has the pin),
+    "alias" (the server's tls is an alias) or "stage" (inherited); pin_line is the line of the pin
+    when pin_source is "server", else None."""
     id: str
     stage: str
     name: str
@@ -169,6 +175,8 @@ class Server:
     port: int
     pin: Optional[str] = None
     trust_store: Optional[str] = None
+    pin_source: str = "stage"
+    pin_line: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -185,7 +193,10 @@ class SkippedServer:
 class Stage:
     """A group of the profile (data-model "Stage"). pin and trust_store are the stage-level
     effective values (stage -> defaults); pin_line is the line of the pin in the stage's own
-    inline tls block (pin_source "stage"), else None. servers are the https servers only."""
+    inline tls block (pin_source "stage"), else None. servers are the https servers only.
+    A marked stage (pin_per_server, tls.pinPerServer: true) has pin None, pin_source "server",
+    expected = the pins of its https servers, and problem = the first broken rule of research
+    R-7 or None."""
     name: str
     pin: Optional[str]
     pin_source: str  # stage | alias | defaults | server
@@ -195,6 +206,9 @@ class Stage:
     servers: Tuple[Server, ...]
     skipped_servers: Tuple[SkippedServer, ...] = ()
     server_ids: Tuple[str, ...] = ()  # every server of the stage, in file order
+    pin_per_server: bool = False
+    expected: FrozenSet[str] = frozenset()
+    problem: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -642,6 +656,10 @@ def _tls_block(node, anchors, what):
                 _fail(node.key_line(key), f"{what}.tls.{PIN_KEY}: {e}")
         elif key == "trustStore":
             value = _expand(value)
+        elif key == PER_SERVER_KEY:
+            if value not in BOOLEANS:
+                _fail(node.key_line(key), f"{what}.tls.{PER_SERVER_KEY} must be true or false")
+            value = BOOLEANS[value]
         values[key] = value
         lines[key] = node.key_line(key)
     return _TlsBlock(kind, values, lines)
@@ -770,6 +788,8 @@ class _StageDraft:
     servers: list
     skipped: list
     server_ids: list
+    pin_per_server: bool = False
+    problem: Optional[str] = None
 
 
 def _read_stage(item, anchors, defaults_tls):
@@ -783,7 +803,7 @@ def _read_stage(item, anchors, defaults_tls):
     nodes = item.get("nodes")
     if not isinstance(nodes, _Sequence) or not nodes.items:
         _fail(item.number, f"{what}: nodes must be a non-empty block sequence")
-    servers, skipped, node_names, node_blocks = [], [], [], []
+    servers, skipped, node_names, node_blocks, all_nodes = [], [], [], [], []
     for node in nodes.items:
         if not isinstance(node, _Mapping) or node.anchor is not None:
             _fail(node.number, f"{what}: unsupported shape inside nodes: each server must be a "
@@ -801,16 +821,35 @@ def _read_stage(item, anchors, defaults_tls):
         base_url, scheme, host, port = _base_url(_string(node, "baseUrl", server_what),
                                                  url_line, server_what)
         node_tls = _tls_block(node.get("tls"), anchors, server_what)
+        all_nodes.append((server_id, scheme, node_tls))
         if scheme == "http":  # no certificate: not contacted, not part of the evaluation
             skipped.append(SkippedServer(id=server_id, stage=stage_name, name=node_name,
                                          base_url=base_url))
             continue
         node_blocks.append(node_tls)
+        if node_tls is not None and node_tls.kind == "alias":
+            server_pin_source = "alias"
+        elif node_tls is not None and node_tls.get(PIN_KEY) is not None:
+            server_pin_source = "server"
+        else:
+            server_pin_source = "stage"
         servers.append(Server(
             id=server_id, stage=stage_name, name=node_name, base_url=base_url, host=host,
             port=port, pin=_effective(PIN_KEY, node_tls, group_tls, defaults_tls),
-            trust_store=_effective("trustStore", node_tls, group_tls, defaults_tls)))
+            trust_store=_effective("trustStore", node_tls, group_tls, defaults_tls),
+            pin_source=server_pin_source,
+            pin_line=node_tls.lines[PIN_KEY] if server_pin_source == "server" else None))
 
+    trust_store = _effective("trustStore", group_tls, defaults_tls)
+    if group_tls is not None and group_tls.get(PER_SERVER_KEY) is True:
+        return _StageDraft(
+            name=stage_name, pin=None, pin_source="server", pin_line=None,
+            trust_store=trust_store,
+            own_store=group_tls.kind == "inline" and group_tls.get("trustStore") is not None,
+            servers=servers, skipped=skipped,
+            server_ids=[f"{stage_name}/{node_name}" for node_name in node_names],
+            pin_per_server=True,
+            problem=_pin_per_server_problem(stage_name, group_tls, all_nodes, trust_store))
     if any(block is not None and (block.get(PIN_KEY) or block.get("trustStore"))
            for block in node_blocks):
         pin_source = "server"
@@ -825,29 +864,56 @@ def _read_stage(item, anchors, defaults_tls):
         name=stage_name, pin=_effective(PIN_KEY, group_tls, defaults_tls),
         pin_source=pin_source,
         pin_line=group_tls.lines.get(PIN_KEY) if pin_source == "stage" else None,
-        trust_store=_effective("trustStore", group_tls, defaults_tls),
+        trust_store=trust_store,
         own_store=pin_source == "stage" and group_tls.get("trustStore") is not None,
         servers=servers, skipped=skipped,
         server_ids=[f"{stage_name}/{node_name}" for node_name in node_names])
 
 
+def _pin_per_server_problem(stage_name, group_tls, nodes, trust_store):
+    """The first rule of research R-7 that a marked stage breaks, as a short text, or None.
+    nodes: (server id, scheme, tls block) of every server of the stage, in file order. The
+    server's --check-config reports the full list."""
+    if group_tls.get(PIN_KEY) is not None:
+        return f"stage '{stage_name}': tls.pinnedCertificateSha256 is not allowed with " \
+               "tls.pinPerServer; set it on each server"
+    for server_id, _scheme, tls in nodes:
+        if tls is not None and tls.get("trustStore") is not None:
+            return f"{server_id}: tls.trustStore is not allowed on a server of a stage with " \
+                   "tls.pinPerServer; set it on the stage"
+    for server_id, scheme, tls in nodes:
+        if scheme == "https" and (tls is None or tls.get(PIN_KEY) is None):
+            return f"{server_id}: tls.pinPerServer on stage '{stage_name}' needs " \
+                   "tls.pinnedCertificateSha256 on this server"
+    for server_id, _scheme, tls in nodes:
+        if tls is not None and tls.get(PER_SERVER_KEY) is not None:
+            return f"{server_id}: tls.pinPerServer is only valid on a stage"
+    if trust_store is None:
+        return f"stage '{stage_name}': tls.pinPerServer needs tls.trustStore on the stage"
+    return None
+
+
 def _finish_stages(drafts):
-    """Stages with own_tls: own pin line, own trustStore in the stage's inline tls block, and a
-    trust store (compared by real path) no other stage uses."""
+    """Stages with own_tls: own trustStore in the stage's inline tls block, a trust store
+    (compared by real path) no other stage uses, and (uniform stage only) an own pin line."""
     stores = {}
     for draft in drafts:
         for server in draft.servers:
             if server.trust_store is not None:
                 stores.setdefault(_same_file_key(server.trust_store), set()).add(draft.name)
     for draft in drafts:
-        own_tls = (draft.pin_source == "stage" and draft.pin_line is not None
-                   and draft.own_store
+        own_pin = draft.pin_per_server or (draft.pin_source == "stage"
+                                           and draft.pin_line is not None)
+        own_tls = (own_pin and draft.own_store
                    and stores.get(_same_file_key(draft.trust_store), {draft.name})
                    == {draft.name})
+        expected = frozenset(server.pin for server in draft.servers
+                             if server.pin is not None) if draft.pin_per_server else frozenset()
         yield Stage(name=draft.name, pin=draft.pin, pin_source=draft.pin_source,
                     pin_line=draft.pin_line, trust_store=draft.trust_store, own_tls=own_tls,
                     servers=tuple(draft.servers), skipped_servers=tuple(draft.skipped),
-                    server_ids=tuple(draft.server_ids))
+                    server_ids=tuple(draft.server_ids), pin_per_server=draft.pin_per_server,
+                    expected=expected, problem=draft.problem)
 
 
 # --- child processes -----------------------------------------------------------------------------

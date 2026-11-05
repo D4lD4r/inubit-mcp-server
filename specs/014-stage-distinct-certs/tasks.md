@@ -170,7 +170,7 @@ writes `server=` lines.
 **⚠️ CRITICAL**: no tool task of US1–US3 starts before T004. The Java tasks of US1 (T005–T012) do not
 depend on this phase and may start after T001.
 
-- [ ] T003 Profile view for marked stages (FR-003, FR-004, research R-7, data-model "Profile view").
+- [X] T003 Profile view for marked stages (FR-003, FR-004, research R-7, data-model "Profile view").
   Write the failing tests first in `tools/tests/test_profile_reader.py`, new class
   `PinPerServerTest(ReaderTestCase)`, and see them fail:
   - `pinPerServer: true` in the stage's inline `tls` → `Stage.pin_per_server` is `True`; also when the
