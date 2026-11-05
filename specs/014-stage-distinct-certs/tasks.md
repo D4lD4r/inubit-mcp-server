@@ -616,12 +616,25 @@ brings the dialog back (Q5).
   marked stages carry `server=`, rejections of marked stages are kept per server, the in-session rule
   also fires on a pin mismatch (`CertificateException`) and on `SunCertPathBuilderException`;
   unchanged for stages without the setting.
-- [ ] T029 Review `tools/inubit-cert-check.py`, `main/config/ConfigValidator.java`,
+- [X] T029 Review `tools/inubit-cert-check.py`, `main/config/ConfigValidator.java`,
   `main/config/EffectiveNodeConfig.java`, `main/adapter/cli/StartCliPinProbe.java`,
   `main/adapter/cli/HandshakeStartCliPinProbe.java`, `main/adapter/cli/CliRunner.java` (T012; its
   callers stay unchanged), and `main/Launcher.java` (T009) against FR-001…FR-018 (with FR-005a and
   FR-010a), SC-001…SC-006 and the clarifications (2026-11-03 Q1, Q2; 2026-11-05) using the coverage
   table below; list any gap as a new task here before continuing.
+- [ ] T029a [P] [US1] Regression, SOAP (gap 1 of `reviews/T029-r1.md`; SC-004, FR-005): in
+  `src/test/java/de/dadecker/inubit/mcp/adapter/soap/SoapE2eClientTest.java` (additions only) two
+  HTTPS WireMock servers with `localhostKeyStore()` and `selfsignedKeyStore()`, the shared
+  `TestCertificates.trustStore()` and two `EffectiveNodeConfig`s of a marked stage, each pinned to
+  its own certificate: each own address → the POST succeeds; swapped addresses → `TLS_ERROR` naming
+  the node with cause `(CertificateException)`. No production change; if a test fails, stop and
+  report.
+- [ ] T029b [US1] Pin for an http server with an https `cli.url` or `e2e.soap.baseUrl` (gap 2 of
+  `reviews/T029-r1.md`; FR-004, FR-005): needs the operator's decision — extend V-6 (a node of a
+  marked stage needs its own pin if its `baseUrl`, own `cli.url` or own `e2e.soap.baseUrl` is
+  https; failing test first in `ConfigValidatorTest.PinPerServer`, `v7…` stays green; align
+  contracts/configuration.md, spec FR-004 and its "http servers" edge case, `docs/setup.md`) or
+  record the case as accepted and document it next to the window paragraph in `docs/setup.md` §5.
 - [ ] T030 Validate offline (SC-005, FR-018, plan outline step 3):
   - `mvn -q -o clean verify`;
   - the tool suite as CI runs it: `python3 -I -m unittest discover -s tools/tests -v` (and once with
@@ -710,7 +723,7 @@ US3/Pol.: T024 docs rule (during US2/US3) → T025 → T026 (all docs/setup.md) 
 | FR-002 one own pin per server | T006, T007, T010, T011 |
 | FR-003 one stage trust store, "own" rule | T003, T006, T016 |
 | FR-004 configuration rules | T005 (V-2), T007 (V-1, V-3…V-9), T008 (V-10, V-11), T003 (`problem` in the tool), T025 |
-| FR-005 runtime per-server pin (REST, SOAP, StartCLI), start-up log | T009, T010, T011, T012 |
+| FR-005 runtime per-server pin (REST, SOAP, StartCLI), start-up log | T009, T010, T011, T012, T029a, T029b |
 | FR-005a check before every StartCLI call (before the credential guard; `TLS_ERROR`, `TIMEOUT`, `UNREACHABLE`) | T011, T012, T026, T031 (Q3a) |
 | FR-006 no conflict, per-server status | T013 |
 | FR-007 report and JSON fields | T013, T014 |
@@ -729,6 +742,6 @@ US3/Pol.: T024 docs rule (during US2/US3) → T025 → T026 (all docs/setup.md) 
 | SC-001 two certificates configured and healthy | T007, T010, T013, T031 |
 | SC-002 restore in under 2 minutes | T031 |
 | SC-003 adoption changes only the named server | T017, T031 |
-| SC-004 wrong certificate refused (REST, SOAP, StartCLI) and reported | T010, T011, T012, T013, T031 (Q3a) |
+| SC-004 wrong certificate refused (REST, SOAP, StartCLI) and reported | T010, T011, T012, T013, T029a, T031 (Q3a) |
 | SC-005 006 tests unchanged | T013, T014, T023, T030 |
 | SC-006 no adoption without operator action | T023, T032 |

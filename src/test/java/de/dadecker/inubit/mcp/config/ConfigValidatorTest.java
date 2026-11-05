@@ -2262,11 +2262,7 @@ class ConfigValidatorTest {
         }
     }
 
-    /**
-     * Feature 014: rules V-1 and V-3 … V-9 of contracts/configuration.md (research R-3). V-1 and
-     * V-5 say "the {group}" / "this {node} of {group} 'int'" where the contract has "a {group}" /
-     * "a {node} of a {group}": TemplateGrammarTest forbids an article before a placeholder.
-     */
+    /** Feature 014: rules V-1 and V-3 … V-11 of contracts/configuration.md (research R-3). */
     @Nested
     class PinPerServer {
 
