@@ -285,7 +285,7 @@ reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, AS 8, Q1,
   `CertPathValidatorException` (plan review r1 finding 1: the chain passes the shared store, only the
   pin fails). `PinningTrustManager` and `SslContexts` stay unchanged; if a test fails, stop and
   report.
-- [ ] T011 [P] [US1] StartCLI pin probe (FR-005a, SC-004, research R-15, data-model "StartCLI pin
+- [X] T011 [P] [US1] StartCLI pin probe (FR-005a, SC-004, research R-15, data-model "StartCLI pin
   probe", contract configuration.md "Runtime behaviour"). Write the failing tests first in the new
   `test/adapter/cli/StartCliPinProbeTest.java` and see them fail. Test support (plan review r2
   finding 6): `test/adapter/rest/TlsTestServer.java` becomes usable from `adapter/cli` (public class
