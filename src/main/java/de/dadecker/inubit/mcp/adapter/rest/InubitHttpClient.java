@@ -402,16 +402,13 @@ public final class InubitHttpClient implements AutoCloseable {
             return error(ErrorCode.TLS_ERROR,
                 "The TLS connection to " + server + " failed for " + request + " ("
                     + rootCause(e).getClass().getSimpleName() + ")",
-                "The INUBIT server certificate is not in the trust store, does not match the pinned"
-                    + " fingerprint, or the hostname does not match",
-                "Check tls.trustStore, tls.pinnedCertificateSha256 and"
-                    + " tls.disableHostnameVerification for " + server);
+                TransportErrorTexts.TLS_ERROR_LIKELY_CAUSE,
+                TransportErrorTexts.tlsErrorNextStep(server));
         }
         if (hasCause(e, HttpTimeoutException.class)) {
             return error(ErrorCode.TIMEOUT,
                 "INUBIT did not answer " + request + " within " + Durations.human(timeout),
-                "The INUBIT server is slow, overloaded or not reachable through the network",
-                "Retry, check get_health, or raise the timeout in the configuration");
+                TransportErrorTexts.TIMEOUT_LIKELY_CAUSE, TransportErrorTexts.TIMEOUT_NEXT_STEP);
         }
         boolean unreachable = hasCause(e, ConnectException.class)
             || hasCause(e, UnresolvedAddressException.class)
@@ -421,9 +418,8 @@ public final class InubitHttpClient implements AutoCloseable {
             "Cannot connect to " + server + " for " + request + " ("
                 + rootCause(e).getClass().getSimpleName() + ")",
             unreachable
-                ? "The INUBIT server is down, the host name cannot be resolved, or the network/VPN is"
-                    + " not connected"
-                : "The connection was interrupted",
+                ? TransportErrorTexts.UNREACHABLE_LIKELY_CAUSE
+                : TransportErrorTexts.INTERRUPTED_LIKELY_CAUSE,
             "Check baseUrl, DNS and the VPN, then retry");
     }
 

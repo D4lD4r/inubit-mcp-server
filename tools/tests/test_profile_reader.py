@@ -535,5 +535,293 @@ class FailClosedTest(ReaderTestCase):
         self.assertTrue(issubclass(self.tool.ConfigError, self.tool.ToolError))
 
 
+class PinPerServerTest(ReaderTestCase):
+    """Marked stages, tls.pinPerServer (feature 014: FR-003, FR-004, research R-7)."""
+
+    TEXT = f"""\
+profile:
+  name: acme
+x-b-tls: &bTls
+  pinnedCertificateSha256: {PIN_C}
+groups:
+  - name: dev
+    tls:
+      trustStore: /stores/dev.p12
+      pinnedCertificateSha256: {PIN_A}
+    nodes:
+      - name: node1
+        baseUrl: https://dev-host.example.test:8443
+  - name: int
+    tls:
+      pinPerServer: true
+      trustStore: /stores/int.p12
+    nodes:
+      - name: a
+        baseUrl: https://int-a.example.test:8443
+        tls:
+          pinnedCertificateSha256: {PIN_B}   # int/a pin
+      - name: b
+        baseUrl: https://int-b.example.test:8443
+        tls: *bTls
+      - name: c
+        baseUrl: http://int-c.example.test:8080
+"""
+    INT_TLS = "    tls:\n      pinPerServer: true\n      trustStore: /stores/int.p12\n"
+    A_PIN = f"          pinnedCertificateSha256: {PIN_B}"
+
+    def test_marked_inline(self):
+        dev, int_ = self.read(self.TEXT).stages
+        self.assertEqual((False, True), (dev.pin_per_server, int_.pin_per_server))
+
+    def test_marked_through_alias(self):
+        text = self.TEXT.replace(self.INT_TLS, "    tls: *intTls\n").replace(
+            "groups:\n", "x-int-tls: &intTls\n  pinPerServer: true\n"
+                         "  trustStore: /stores/int.p12\ngroups:\n")
+        int_ = self.read(text).stage("int")
+        self.assertTrue(int_.pin_per_server)
+        # the trust store is not written in the stage's own inline block
+        self.assertEqual(("/stores/int.p12", False, None),
+                         (int_.trust_store, int_.own_tls, int_.problem))
+
+    def test_false_or_absent_is_uniform(self):
+        for text in (BASIC, self.TEXT.replace("pinPerServer: true", "pinPerServer: false"),
+                     self.TEXT.replace("      pinPerServer: true\n", "")):
+            with self.subTest(text=text[:40]):
+                for stage in self.read(text).stages:
+                    self.assertEqual((False, frozenset(), None),
+                                     (stage.pin_per_server, stage.expected, stage.problem))
+
+    def test_uniform_stage_unchanged(self):
+        dev = self.read(self.TEXT).stage("dev")
+        self.assertEqual(self.tool.Stage(
+            name="dev", pin=PIN_A, pin_source="stage",
+            pin_line=self.line_of(self.TEXT, f"pinnedCertificateSha256: {PIN_A}"),
+            trust_store="/stores/dev.p12", own_tls=True,
+            servers=(self.tool.Server(id="dev/node1", stage="dev", name="node1",
+                                      base_url="https://dev-host.example.test:8443",
+                                      host="dev-host.example.test", port=8443, pin=PIN_A,
+                                      trust_store="/stores/dev.p12"),),
+            server_ids=("dev/node1",)), dev)
+
+    def test_marked_stage_view(self):
+        int_ = self.read(self.TEXT).stage("int")
+        self.assertEqual((None, "server", None, "/stores/int.p12", True, None),
+                         (int_.pin, int_.pin_source, int_.pin_line, int_.trust_store,
+                          int_.own_tls, int_.problem))
+        self.assertEqual(frozenset({PIN_B, PIN_C}), int_.expected)
+        # the http server needs no pin and is not part of the evaluation
+        self.assertEqual(["int/c"], [server.id for server in int_.skipped_servers])
+
+    def test_server_pin_source_and_line(self):
+        a, b = self.read(self.TEXT).stage("int").servers
+        self.assertEqual((PIN_B, "server", self.line_of(self.TEXT, "# int/a pin")),
+                         (a.pin, a.pin_source, a.pin_line))
+        self.assertEqual((PIN_C, "alias", None), (b.pin, b.pin_source, b.pin_line))
+        text = self.TEXT.replace("        tls: *bTls\n",
+                                 "        tls:\n          disableHostnameVerification: true\n")
+        b = self.read(text).stage("int").servers[1]
+        self.assertEqual((None, "stage", None), (b.pin, b.pin_source, b.pin_line))
+
+    def test_own_tls_of_a_marked_stage(self):
+        inherited = self.TEXT.replace("      trustStore: /stores/int.p12\n", "").replace(
+            "groups:\n", "defaults:\n  tls:\n    trustStore: /stores/shared.p12\ngroups:\n")
+        shared = self.TEXT.replace("/stores/dev.p12", "/stores/int.p12")
+        for name, text in (("inherited from defaults.tls", inherited),
+                           ("shared with another stage", shared)):
+            with self.subTest(name):
+                int_ = self.read(text).stage("int")
+                self.assertEqual((True, False, None),
+                                 (int_.pin_per_server, int_.own_tls, int_.problem))
+
+    def test_problem(self):
+        cases = (
+            ("stage pin", self.TEXT.replace(
+                "      trustStore: /stores/int.p12\n",
+                f"      trustStore: /stores/int.p12\n      pinnedCertificateSha256: {PIN_A}\n"),
+             ("stage 'int'", "tls.pinnedCertificateSha256", "not allowed")),
+            ("stage pin through an alias", self.TEXT.replace(
+                self.INT_TLS, "    tls: *intTls\n").replace(
+                "groups:\n", "x-int-tls: &intTls\n  pinPerServer: true\n  trustStore: "
+                             f"/stores/int.p12\n  pinnedCertificateSha256: {PIN_A}\ngroups:\n"),
+             ("stage 'int'", "tls.pinnedCertificateSha256", "not allowed")),
+            ("trust store on a server", self.TEXT.replace(
+                self.A_PIN, "          trustStore: /stores/a.p12\n" + self.A_PIN),
+             ("int/a", "tls.trustStore", "not allowed")),
+            ("trust store on an http server", self.TEXT.replace(
+                "        baseUrl: http://int-c.example.test:8080\n",
+                "        baseUrl: http://int-c.example.test:8080\n"
+                "        tls:\n          trustStore: /stores/c.p12\n"),
+             ("int/c", "tls.trustStore", "not allowed")),
+            ("https server without a pin", self.TEXT.replace("        tls: *bTls\n", ""),
+             ("int/b", "tls.pinnedCertificateSha256")),
+            ("pinPerServer on a server", self.TEXT.replace(
+                self.A_PIN, "          pinPerServer: false\n" + self.A_PIN),
+             ("int/a", "tls.pinPerServer", "only valid on a stage")),
+            ("no trust store", self.TEXT.replace("      trustStore: /stores/int.p12\n", ""),
+             ("stage 'int'", "tls.trustStore")),
+            ("first broken rule", self.TEXT.replace(
+                "      trustStore: /stores/int.p12\n",
+                f"      pinnedCertificateSha256: {PIN_A}\n").replace(
+                "        tls: *bTls\n", ""),
+             ("stage 'int'", "tls.pinnedCertificateSha256", "not allowed")),
+        )
+        for name, text, fragments in cases:
+            with self.subTest(name):
+                dev, int_ = self.read(text).stages
+                self.assertIsNone(dev.problem)
+                self.assertIsNotNone(int_.problem)
+                for fragment in fragments:
+                    self.assertIn(fragment, int_.problem)
+                self.assertEqual((None, "server"), (int_.pin, int_.pin_source))
+
+    def test_flow_mapping_server_tls_fails_closed(self):
+        self.assertRefused(self.TEXT.replace(
+            "        tls:\n" + self.A_PIN, f"        tls: {{ pinnedCertificateSha256: {PIN_B} }}"),
+            "server int/a.tls must be a block mapping or an alias")
+
+    def test_non_boolean_value_fails_closed(self):
+        for value in ("maybe", "1", "'yes'", "[true]"):
+            with self.subTest(value):
+                self.assertRefused(self.TEXT.replace("pinPerServer: true",
+                                                     f"pinPerServer: {value}"),
+                                   "stage int.tls.pinPerServer")
+
+
+class PinPerServerAddressTest(ReaderTestCase):
+    """The https addresses of a server of a marked stage: baseUrl, cli.url and e2e.soap.baseUrl,
+    each node -> stage, as ConfigValidator.checkPinPerServer (V-6; feature 014, T029c, FR-004,
+    FR-013, research R-13). int/c is the http server of PinPerServerTest.TEXT."""
+
+    TEXT = PinPerServerTest.TEXT
+    INT_TLS = PinPerServerTest.INT_TLS
+    C_URL = "        baseUrl: http://int-c.example.test:8080\n"
+    C_PIN = f"        tls:\n          pinnedCertificateSha256: {PIN_A}\n"
+    NODE_CLI = "        cli:\n          url: {url}\n"
+    NODE_SOAP = "        e2e:\n          soap:\n            baseUrl: {url}\n"
+    STAGE_CLI = "    cli:\n      url: {url}\n"
+    STAGE_SOAP = "    e2e:\n      soap:\n        baseUrl: {url}\n"
+    HTTPS = "https://int-c.example.test:8443"
+    HTTP = "http://int-c.example.test:8081"
+    V6 = "int/c: tls.pinPerServer on stage 'int' needs tls.pinnedCertificateSha256 on this server"
+
+    def text(self, node="", stage=""):
+        return self.TEXT.replace(self.C_URL, self.C_URL + node).replace(
+            self.INT_TLS, self.INT_TLS + stage)
+
+    def test_an_https_address_needs_the_own_pin(self):
+        cases = (
+            ("node cli.url", self.NODE_CLI.format(url=self.HTTPS), ""),
+            ("node cli.url, flow mapping", f"        cli: {{ url: '{self.HTTPS}' }}\n", ""),
+            ("node e2e.soap.baseUrl", self.NODE_SOAP.format(url=self.HTTPS + "/soap"), ""),
+            ("stage cli.url", "", self.STAGE_CLI.format(url=self.HTTPS)),
+            ("stage e2e.soap.baseUrl", "", self.STAGE_SOAP.format(url=self.HTTPS)),
+            ("upper-case scheme", self.NODE_CLI.format(url="HTTPS://int-c.example.test"), ""),
+            ("own http cli.url, https SOAP", self.NODE_CLI.format(url=self.HTTP),
+             self.STAGE_SOAP.format(url=self.HTTPS)),
+        )
+        for name, node, stage in cases:
+            with self.subTest(name):
+                int_ = self.read(self.text(node, stage)).stage("int")
+                self.assertEqual(self.V6, int_.problem)
+                self.assertIsNone(self.read(self.text(self.C_PIN + node, stage))
+                                  .stage("int").problem, "the own pin satisfies the rule")
+
+    def test_an_own_http_address_wins_over_the_stage(self):
+        cases = (
+            ("cli.url", self.NODE_CLI.format(url=self.HTTP), self.STAGE_CLI.format(url=self.HTTPS)),
+            ("e2e.soap.baseUrl", self.NODE_SOAP.format(url=self.HTTP),
+             self.STAGE_SOAP.format(url=self.HTTPS)),
+            ("http only", self.NODE_CLI.format(url=self.HTTP) + self.NODE_SOAP.format(
+                url=self.HTTP), ""),
+        )
+        for name, node, stage in cases:
+            with self.subTest(name):
+                self.assertIsNone(self.read(self.text(node, stage)).stage("int").problem)
+
+    def test_an_address_without_url_needs_no_pin(self):
+        node = "        cli:\n          timeout: PT9S\n        e2e:\n          soap: ~\n"
+        self.assertIsNone(self.read(self.text(node)).stage("int").problem)
+
+    def test_the_pin_of_an_http_server_is_expected(self):
+        for name, node in (("with an https cli.url", self.NODE_CLI.format(url=self.HTTPS)),
+                           ("http addresses only", "")):
+            with self.subTest(name):
+                int_ = self.read(self.text(self.C_PIN + node)).stage("int")
+                self.assertIsNone(int_.problem)
+                self.assertEqual(frozenset({PIN_A, PIN_B, PIN_C}), int_.expected)
+                self.assertEqual(frozenset({PIN_A, PIN_B, PIN_C}),
+                                 self.tool.kept_fingerprints(int_))
+                self.assertEqual([("int/a", PIN_B), ("int/b", PIN_C), ("int/c", PIN_A)],
+                                 list(self.tool._prune_expected(int_).items()))
+                # still not contacted by --check
+                self.assertEqual(["int/a", "int/b"], [server.id for server in int_.servers])
+                self.assertEqual(["int/c"], [server.id for server in int_.skipped_servers])
+
+    def docs_e2e_line(self):
+        """The nested one-line flow mapping of e2e as docs/setup.md writes it, verbatim."""
+        path = os.path.join(os.path.dirname(__file__), "..", "..", "docs", "setup.md")
+        with open(path, encoding="utf-8") as handle:
+            lines = [line for line in handle.read().split("\n")
+                     if line.strip().startswith("e2e: { soap: { baseUrl: https://")]
+        self.assertEqual(1, len(lines), lines)
+        self.assertEqual("    e2e: { soap: { baseUrl: https://inubit-int-1.example.test:8443 } }",
+                         lines[0])
+        return lines[0] + "\n"
+
+    def test_nested_one_line_flow_mapping_of_e2e(self):
+        # T029c r1: the form of docs/setup.md, at stage level as written, at node level indented
+        line = self.docs_e2e_line()
+        for name, node, stage in (("stage", "", line), ("node", "    " + line, "")):
+            with self.subTest(name):
+                self.assertEqual(self.V6, self.read(self.text(node, stage)).stage("int").problem)
+                self.assertIsNone(self.read(self.text(self.C_PIN + node, stage))
+                                  .stage("int").problem)
+        own_http = "        e2e: { soap: { baseUrl: 'http://int-c.example.test:8081' }, " \
+                   "x: [1, 2] }\n"
+        self.assertIsNone(self.read(self.text(own_http, line)).stage("int").problem)
+
+    def test_unreadable_address_shape_is_a_problem_of_the_marked_stage(self):
+        # T029c r1: not a profile-wide error; the stage is unusable, other stages are not
+        for name, node, stage, prefix, fragment in (
+                ("node cli alias", "        cli: *nowhere\n", "", "int/c: cannot read cli.url",
+                 "server int/c.cli must be a block mapping or a one-line flow mapping"),
+                ("node cli flow on two lines",
+                 "        cli: { url: https://int-c.example.test:8443,\n"
+                 "               timeout: PT9S }\n", "", "int/c: cannot read cli.url",
+                 "server int/c.cli must be a block mapping or a one-line flow mapping"),
+                ("node e2e block scalar", "        e2e: |\n          soap\n", "",
+                 "int/c: cannot read e2e.soap.baseUrl", "server int/c.e2e must be"),
+                ("node cli.url alias", "        cli:\n          url: *nowhere\n", "",
+                 "int/c: cannot read cli.url", "server int/c.cli.url must be a single-line"),
+                ("stage soap list", "", "    e2e:\n      soap: [x]\n",
+                 "stage 'int': cannot read e2e.soap.baseUrl", "stage int.e2e.soap must be"),
+                ("stage cli alias", "", "    cli: *nowhere\n",
+                 "stage 'int': cannot read cli.url", "stage int.cli must be")):
+            with self.subTest(name):
+                profile = self.read(self.text(node, stage))
+                int_ = profile.stage("int")
+                self.assertTrue(int_.problem.startswith(prefix + " here (line "), int_.problem)
+                self.assertIn(fragment, int_.problem)
+                self.assertEqual(["int/a", "int/b"], [server.id for server in int_.servers])
+                dev = profile.stage("dev")
+                self.assertEqual((PIN_A, None), (dev.pin, dev.problem))
+                # the problem wins over a missing own pin, also with the pin present
+                self.assertEqual(int_.problem.split(" (line ")[0],
+                                 self.read(self.text(self.C_PIN + node, stage)).stage("int")
+                                 .problem.split(" (line ")[0])
+
+    def test_uniform_stage_does_not_read_the_addresses(self):
+        uniform = self.TEXT.replace("      pinPerServer: true\n", "")
+        for node, stage in (("        cli: *nowhere\n", "    e2e: [x]\n"),
+                            (self.NODE_CLI.format(url=self.HTTPS),
+                             self.STAGE_SOAP.format(url=self.HTTPS))):
+            with self.subTest(node=node):
+                int_ = self.read(uniform.replace(self.C_URL, self.C_URL + node).replace(
+                    "      trustStore: /stores/int.p12\n",
+                    "      trustStore: /stores/int.p12\n" + stage)).stage("int")
+                self.assertEqual((False, frozenset(), None),
+                                 (int_.pin_per_server, int_.expected, int_.problem))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,30 @@
+# Feature 014: tls.pinPerServer. Every name is fictitious.
+# Stage dev is uniform (one pin for the stage); stage int is marked: one shared trust store on the
+# stage and one pin per server. int sets neither cli.url nor e2e.soap.baseUrl on the stage.
+profile:
+  name: acme
+
+groups:
+  - name: dev
+    tls:
+      trustStore: ~/.config/inubit-mcp/acme-dev-truststore.p12
+      pinnedCertificateSha256: "AA:11:AA:11:AA:11:AA:11:AA:11:AA:11:AA:11:AA:11:AA:11:AA:11:AA:11:AA:11:AA:11:AA:11:AA:11:01:02"
+      disableHostnameVerification: true
+    nodes:
+      - name: node1
+        baseUrl: https://dev-host.example.test:8443
+
+  - name: int
+    tls:
+      pinPerServer: true
+      trustStore: ~/.config/inubit-mcp/acme-int-truststore.p12
+      disableHostnameVerification: true
+    nodes:
+      - name: a
+        baseUrl: https://int-a.example.test:8443
+        tls:
+          pinnedCertificateSha256: "BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:BB:22:F0:03"
+      - name: b
+        baseUrl: https://int-b.example.test:8443
+        tls:
+          pinnedCertificateSha256: "CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:0E:04"
