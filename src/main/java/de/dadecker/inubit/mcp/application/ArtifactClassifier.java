@@ -13,7 +13,10 @@ import java.util.SortedMap;
  * has none, {@code UNCHANGED} if every file has the same reviewed content
  * ({@link ReleaseArchivePort#equivalent}: check-in comments, UIDs and a workflow's active flag
  * do not count), {@code LAYOUT_ONLY} for a workflow that differs only in layout, otherwise
- * {@code CHANGED}. Exclusions and {@code ONLY_ON_TARGET} are decided by the planner.
+ * {@code CHANGED}. A module is {@code UNCHANGED} too if its files differ only in what the target
+ * rewrites when it imports them ({@link ReleaseArchivePort#importedAs}, issue #55): deploying it
+ * would leave the target as it is. Exclusions and {@code ONLY_ON_TARGET} are decided by the
+ * planner.
  */
 final class ArtifactClassifier {
 
@@ -47,7 +50,7 @@ final class ArtifactClassifier {
             return ArtifactClass.CHANGED;
         }
         for (Map.Entry<String, byte[]> file : release.entrySet()) {
-            if (!releases.equivalent(file.getKey(), file.getValue(),
+            if (!releases.importedAs(file.getKey(), file.getValue(),
                 target.get(file.getKey()))) {
                 return ArtifactClass.CHANGED;
             }
