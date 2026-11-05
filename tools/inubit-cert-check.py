@@ -1580,6 +1580,11 @@ class ServerResult:
     server: Server
     presented: Presented
     status: str  # ok | changed | unreachable
+    # marked stages only (research R-8):
+    offer: Optional[str] = None
+    rejected: bool = False
+    expected_by: Tuple[str, ...] = ()
+    no_offer_reason: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -1589,7 +1594,7 @@ class StageResult:
     status: str
     conflict: bool
     offer: Optional[str]
-    rejected: bool
+    rejected: Optional[bool]  # None for a marked stage
     superseded: Optional[Tuple[TrustEntry, ...]]  # None: not inspected
     not_inspected: Optional[str]  # why the trust store was not inspected
 
@@ -1637,8 +1642,48 @@ def server_status(pin, presented):
     return "ok" if pin is not None and presented.fingerprint == pin else "changed"
 
 
-def evaluate_stage(stage, presented, rejection=None, superseded=None, not_inspected=None):
-    """The stage's check result (pure): status, conflict, offer, rejected."""
+def no_offer_reason(stage, server):
+    """Why a changed server of a marked stage gets no offer, or None (research R-8)."""
+    if server.pin_source == "alias":
+        return "pin through alias"
+    if stage.problem is not None or server.pin_source != "server" or server.pin_line is None:
+        return "configuration problem"
+    if not stage.own_tls:
+        return "trust store not the stage's own"
+    return None
+
+
+def evaluate_marked_stage(stage, presented, rejections, superseded, not_inspected):
+    """The check result of a stage with tls.pinPerServer: each server against its own pin, an
+    offer per changed server, never a conflict (research R-8)."""
+    servers = []
+    for server in stage.servers:
+        shown = presented[server.id]
+        status = server_status(server.pin, shown)
+        offer, reason, expected_by = None, None, ()
+        if status == "changed":
+            reason = no_offer_reason(stage, server)
+            offer = shown.fingerprint if reason is None else None
+            expected_by = tuple(other.id for other in stage.servers
+                                if other.id != server.id and other.pin == shown.fingerprint)
+        rejection = rejections.get(server.id)
+        rejected = offer is not None and rejection is not None \
+            and rejection.get("fingerprint") == offer
+        servers.append(ServerResult(server, shown, status, offer=offer, rejected=rejected,
+                                    expected_by=expected_by, no_offer_reason=reason))
+    status = max((result.status for result in servers), key=STATUS_ORDER.get, default="ok")
+    return StageResult(stage=stage, servers=tuple(servers), status=status, conflict=False,
+                       offer=None, rejected=None, superseded=superseded,
+                       not_inspected=not_inspected)
+
+
+def evaluate_stage(stage, presented, rejection=None, superseded=None, not_inspected=None,
+                   rejections=None):
+    """The stage's check result (pure): status, conflict, offer, rejected. rejections: every
+    remembered rejection by key, used for a marked stage (keyed by server id)."""
+    if stage.pin_per_server:
+        return evaluate_marked_stage(stage, presented, rejections or {}, superseded,
+                                     not_inspected)
     servers = tuple(ServerResult(server, presented[server.id],
                                  server_status(server.pin, presented[server.id]))
                     for server in stage.servers)
@@ -1709,7 +1754,8 @@ def run_check(profile, state, list_store=True, started=None):
     listings = superseded_all(profile) if list_store else {}
     for stage in profile.stages:
         superseded, reason = listings.get(stage.name, (None, "not inspected on start-up"))
-        result = evaluate_stage(stage, presented, rejections.get(stage.name), superseded, reason)
+        result = evaluate_stage(stage, presented, rejections.get(stage.name), superseded, reason,
+                                rejections=rejections)
         if result.status == "ok" and stage.name in rejections:
             try:
                 state.clear_rejection(stage.name)
@@ -1731,8 +1777,11 @@ def check_json(result):
     stages = []
     for stage_result in result.stages:
         stage = stage_result.stage
-        stages.append({
-            "stage": stage.name,
+        marked = stage.pin_per_server
+        document = {"stage": stage.name}
+        if marked:
+            document["pinPerServer"] = True
+        document.update({
             "pin": stage.pin,
             "status": stage_result.status,
             "conflict": stage_result.conflict,
@@ -1740,10 +1789,12 @@ def check_json(result):
             "rejected": stage_result.rejected,
             "pinSource": stage.pin_source,
             "ownTls": stage.own_tls,
-            "supersededTrustStoreEntries": None if stage_result.superseded is None else [
-                {"alias": entry.alias, "fingerprint": entry.fingerprint}
-                for entry in stage_result.superseded],
-            "servers": [{
+        })
+        if marked:
+            document["problem"] = stage.problem
+        servers = []
+        for server in stage_result.servers:
+            entry = {
                 "id": server.server.id,
                 "baseUrl": server.server.base_url,
                 "ip": server.presented.ip,
@@ -1756,8 +1807,19 @@ def check_json(result):
                 "notAfter": server.presented.not_after,
                 "validNow": server.presented.valid_now,
                 "error": server.presented.error,
-            } for server in stage_result.servers],
+            }
+            if marked:
+                entry.update({"offer": server.offer, "rejected": server.rejected,
+                              "expectedBy": list(server.expected_by),
+                              "noOfferReason": server.no_offer_reason})
+            servers.append(entry)
+        document.update({
+            "supersededTrustStoreEntries": None if stage_result.superseded is None else [
+                {"alias": entry.alias, "fingerprint": entry.fingerprint}
+                for entry in stage_result.superseded],
+            "servers": servers,
         })
+        stages.append(document)
     return {
         "profile": result.profile.name,
         "checkedAt": result.checked_at,

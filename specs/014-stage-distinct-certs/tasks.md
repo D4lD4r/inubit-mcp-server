@@ -359,7 +359,7 @@ reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, AS 8, Q1,
   `execute`). Test files changed by this task: `test/config/EffectiveNodeConfigTest.java` and
   `test/adapter/cli/CliRunnerTest.java` (additions only). Every existing CLI test stays green
   unchanged.
-- [ ] T013 [US1] Check evaluation and JSON for marked stages (FR-006, FR-007, FR-008, FR-010a,
+- [X] T013 [US1] Check evaluation and JSON for marked stages (FR-006, FR-007, FR-008, FR-010a,
   FR-015, FR-017, SC-001, SC-004, SC-005, contract C-1′, research R-8; after T004). Write the
   failing tests first with `support.marked_stage` (T002) in `tools/tests/test_check.py`, new class
   `PinPerServerCheckTest(CheckTestCase)`, and see them fail:
