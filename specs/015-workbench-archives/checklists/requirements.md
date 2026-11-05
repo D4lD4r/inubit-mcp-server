@@ -35,3 +35,11 @@
   StartCLI, `inventory.owner`, the audit log) are named as the domain vocabulary of the operator,
   not as implementation choices; no class, library or language is prescribed.
 - FR-014 (production stages) clarified by the operator on 2026-11-05: explicit opt-in per stage.
+- Review round 1 (`reviews/spec-r1.md`, 18 findings) resolved with the operator's decisions,
+  recorded under "Clarifications → Review round 1 decisions": FR-001, FR-002, FR-004–FR-016
+  revised, FR-017 (the two check moments) and an "Out of Scope" section added. The MCP tool
+  annotations (FR-001) are named as protocol vocabulary the operator's client acts on, not as an
+  implementation choice.
+- Called workflows and modules referenced only by other modules are covered by assumptions: the
+  data the server reads today (the workflow's nodes, `WorkflowName` in `module/module.xml`) does
+  not show these references.
