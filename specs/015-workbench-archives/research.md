@@ -113,9 +113,12 @@ with its error precedence (R-12, R-13).
   it is not an error. Every index entry of a selected name is kept (a module can have more than one
   entry; `WorkspaceWriter` groups them by name, `WorkspaceWriter.java:181-183`), and its module file
   `module/<lower-case name>.xml` if the export has one. Plug-in type = `ModuleGroupName` of the
-  entry. A node whose module's plug-in type is `Workflow Connector` (the type name INUBIT uses, as
-  recorded in `src/test/resources/fixtures/v8_1/rest/log_queueLog_error.json:10`) gives the
-  per-archive warning of FR-012.
+  entry. A node whose module's plug-in type is `Workflow Connector` gives the per-archive warning
+  of FR-012. **Unverified**: the type string `Workflow Connector` comes from a REST log fixture
+  (`src/test/resources/fixtures/v8_1/rest/log_queueLog_error.json:10`), not from a recorded
+  `module/module.xml` (no recorded export has a Workflow Connector); it is kept in one constant
+  of `V81WorkflowArchives` and confirmed against a real export's `ModuleGroupName` in the manual
+  check T025 (a different string there is fixed before the release).
 - **Rationale**: FR-005 says "also nested nodes". The two existing helpers are narrower:
   `V81ReleaseArchives.modulesOf` reads only the root's direct children
   (`adapter/archive/v81/V81ReleaseArchives.java:153-162`) and `WorkspaceWriter.moduleNames` only
@@ -173,8 +176,11 @@ with its error precedence (R-12, R-13).
   documents — exactly what `XmlNormalizer` preserves; `set_active` already ships single-workflow
   archives in this shape (Assumptions). The recorded fixtures have no directory entries in
   `Repository.zip` (`fixtures/v8_1/artifacts/README.md:53`), so "plus the directory entries of
-  their folders" (FR-006) is read as "keep those the original has" — see the spec gap in the
-  report.
+  their folders" (FR-006) is read as: a directory entry is kept only if the original
+  `Repository.zip` has it and it is an ancestor of a kept file; no directory entry is synthesized,
+  and a directory entry that is no ancestor of a kept file is dropped (spec Clarifications,
+  "Directory entries of `Repository.zip`"). A test-built fixture variant with directory entries
+  (one ancestor of a kept file, one not) covers both cases (T008).
 - **Alternatives**: textual cutting of `workflow.xml` (fragile with namespaces and escaping);
   synthesizing directory entries (would add entries INUBIT's export does not have).
 
@@ -207,9 +213,16 @@ with its error precedence (R-12, R-13).
      (`Files.isDirectory`, following links) and writable (`Files.isWritable`); an existing target
      that is not a directory → refused;
   4. forbidden roots — `<user.home>/.inubit-mcp`, the configured `workspace` and
-     `auditDirectory` — compared with `startsWith` on (a) the given path normalized and (b)
-     `A.toRealPath()` joined with the not-yet-existing rest, against each root as given and as
-     `toRealPath()` when it exists;
+     `auditDirectory`, and the **two configuration roots**: the default configuration directory as
+     `ConfigLoader.defaultDirectory()` computes it (`config/ConfigLoader.java:185-194`:
+     `~/.config/inubit-mcp`, on Windows `%APPDATA%\inubit-mcp`, without `APPDATA`
+     `<home>\AppData\Roaming\inubit-mcp`) and the parent folder of the configuration file in use,
+     `LoadedConfig.source().toAbsolutePath().getParent()` (`config/LoadedConfig.java:13`; it
+     differs from the default directory when `--config` names a file elsewhere) — compared with
+     `startsWith` on (a) the given path normalized and (b) `A.toRealPath()` joined with the
+     not-yet-existing rest, against each root as given and as `toRealPath()` when it exists (so a
+     configuration root that is itself a symbolic link, and a target reached through one, are both
+     caught);
   5. `.git`: any directory from (a) and from (b) up to the file-system root that contains an entry
      named `.git` (`Files.exists(dir.resolve(".git"), NOFOLLOW_LINKS)`, file or directory) →
      refused;
@@ -217,9 +230,21 @@ with its error precedence (R-12, R-13).
      Windows the values of `OneDrive`, `OneDriveCommercial`, `OneDriveConsumer` (environment map
      passed in by `Wiring`) — on (a) or (b): call-level warning, no refusal.
 
-  The roots come from `LoadedConfig` (`config/ConfigLoader.java:372`, `:385` defaults;
-  `infra/AuditLog.java:108`). Messages name the rule and the offending path element, never file
-  contents.
+  The workspace and audit roots come from the `ProfileConfig` (`config/ConfigLoader.java:372`,
+  `:385` defaults; `infra/AuditLog.java:108`). The configuration roots are not part of
+  `ProfileConfig` (`Launcher.serve`, `Launcher.java:258`, receives only `loaded.config()`), so
+  they are plumbed as a new record `config/ConfigLocation(Path defaultDirectory, Path source)`
+  (`roots()` = the default directory and the source's parent folder, each once):
+  `Launcher.java:214` passes `new ConfigLocation(loader.defaultDirectory(), loaded.source())` to
+  `serve`, `serve` passes it to `new Wiring(…)` (`Launcher.java:277`), every `Wiring`
+  constructor (`Wiring.java:180`, `:190`, `:201`) takes it as its last parameter, and `Wiring`
+  hands `roots()` to `TargetFolderRules`. Test callers: the four factories of `TestWiring`
+  (`TestWiring.java:32`, `:40`, `:48`, `:60`) keep their signatures and pass a fixed test
+  location below `java.io.tmpdir` (`inubit-mcp-test-config/config.yaml`), plus one new factory
+  overload taking a `ConfigLocation`; `WiringE2eTest.java:124`, `WiringAuditTest.java:147` and
+  `MessageTerminologyTest.java:125` pass a location below their temporary directory
+  (`MessageTerminologyTest` its `loaded.source()`). Messages name the rule and the offending
+  path element, never file contents.
 - **Rationale**: the order puts cheap syntax first and gives one deterministic message. Checking
   both the given and the resolved form covers symbolic links in either direction (FR-008).
   "`~/.inubit-mcp` of any profile" is the directory itself, which contains every profile's
@@ -254,7 +279,8 @@ with its error precedence (R-12, R-13).
   2. `Files.createLink(final, temporary)` — `link(2)` / `CreateHardLinkW` fail atomically with
      `FileAlreadyExistsException` when the name exists, also if another call created it after the
      collision check → `failed[]` entry naming the file;
-  3. the temporary name is deleted; if that fails, a per-archive warning names the leftover
+  3. the temporary name is deleted; if that fails, the archive still counts as written and a
+     **call-level** warning (the result's `warnings`, not the archive's) names the leftover
      temporary file (it holds the same secrets);
   4. if hard links are unsupported (`UnsupportedOperationException`, or `FileSystemException` other
      than `FileAlreadyExistsException` on `createLink`, e.g. FAT/exFAT): the temporary file is
@@ -289,9 +315,11 @@ with its error precedence (R-12, R-13).
     **before** the version gate (whose StartCLI client probe may run StartCLI) and the export;
     then the outcome record with the same `auditId`:
     `EXECUTED` (every selected archive written, also zero workflows), `REFUSED` (version gate,
-    export-dependent check), `FAILED` (StartCLI or archive error; or the first write failed and
-    nothing was written), new **`PARTIALLY_COMPLETED`** (at least one written and at least one
-    failed);
+    export-dependent check), `FAILED` (StartCLI, version-gate probe or slicing error: the call
+    ends with a tool error before any write), new **`PARTIALLY_COMPLETED`** for **every**
+    write-failure result of FR-011 — `failed[]` not empty, however many archives were written,
+    also zero (the target folder could not be created, or the first archive failed), as FR-013
+    records "a partial result (FR-011)" as "partially completed";
   - `inputs` (insertion order): `owner`, `diagramGroup`, `targetFolder`, `workflow.<n>` (one key
     per requested or, without `workflows`, selected workflow, as `repository.<n>` in
     `application/ImportService.java:2398-2410`), `file.<n>` (names only, once known),
@@ -326,7 +354,8 @@ with its error precedence (R-12, R-13).
      `NOT_FOUND` stays reserved for StartCLI's missing diagram group) → more than 50 without `workflows`
      (`INVALID_INPUT`, count and hint) → file name over 255 bytes (`INVALID_INPUT`) → collisions
      between selected workflows, then with the folder listing (`INVALID_INPUT`, colliding names);
-  7. write (R-11); failures go into the result (FR-011);
+  7. write (R-11); failures go into the result (FR-011), audited `PARTIALLY_COMPLETED` (R-12),
+     also when no archive was written;
   8. outcome record; INFO log line with node, diagram group, counts and `auditId`.
 
   Errors of 5–6 are returned as tool errors after the outcome record `REFUSED`/`FAILED`; if that
@@ -386,13 +415,16 @@ with its error precedence (R-12, R-13).
 
 - **Decision**: fixtures are built in test code (`WorkflowArchiveFixtures`) from `grp-a.zip` /
   `grp-b.zip` with `RawZip`: a 10-workflow group (SC-002), a bound module, a nested node, a missing
-  module, a Workflow Connector node, a repository chain (`msg.xsd` → `core.xsd`) and secret-bearing
+  module, a Workflow Connector node (type string unverified, R-5), a repository chain (`msg.xsd` →
+  `core.xsd`), a `Repository.zip` with directory entries (one ancestor of a kept file, one not;
+  R-7) and secret-bearing
   modules (the synthetic secrets of `fixtures/v8_1/artifacts/README.md`). The secret-leak test
   `security/ArchiveExportSecretLeakTest` runs the tool end to end with the production adapters and
   the scripted StartCLI launcher and asserts that no synthetic secret occurs in results, errors,
   logs or audit records, that the archives *do* contain them, and that the private export
   directory is gone. SC-001 is a manual task: the operator exports one archive from the
-  development stage and imports it in the Workbench; it runs only with their approval.
+  development stage and imports it in the Workbench, and confirms the `Workflow Connector` type
+  string against a real `module/module.xml` (R-5); it runs only with their approval.
 - **Rationale**: no new recorded file means no new neutralization work and no risk of customer
   identifiers; the identifier check (`security/NoCustomerIdentifiersTest`) must run, not skip, in
   the final validation (it skips without the local lists, `NoCustomerIdentifiersTest.java:29`,

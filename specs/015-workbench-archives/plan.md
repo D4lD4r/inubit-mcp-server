@@ -35,8 +35,11 @@ directories, git working trees and network paths, and on production groups the n
 - **File names** (R-8): `ArchiveFileNames` in `domain/model` (FR-004 rules, NFC + Unicode case
   fold key for comparisons).
 - **Folder rules** (R-9, R-10): `TargetFolderRules` in `application` (absolute, no `.`/`..`,
-  forbidden roots on the given and the resolved path, `.git` in the folder or an ancestor, writable
-  directory or nearest existing ancestor, cloud-sync warning); network paths through the new port
+  forbidden roots on the given and the resolved path — `~/.inubit-mcp`, `workspace`,
+  `auditDirectory`, the default configuration directory of `ConfigLoader.defaultDirectory()` and
+  the folder of the configuration file in use, plumbed as `ConfigLocation` from `Launcher` through
+  `Wiring`; `.git` in the folder or an ancestor; writable directory or nearest existing ancestor;
+  cloud-sync warning); network paths through the new port
   `NetworkPathProbe` (UNC by path; mapped drives by `GetDriveTypeW` in `adapter/os`, JNA already
   present).
 - **Placement** (R-11): `ArchiveFolderWriter` in `application`: temporary owner-only file in the
@@ -45,7 +48,8 @@ directories, git working trees and network paths, and on production groups the n
   `CREATE_NEW` on the final name and deletion on failure.
 - **Audit** (R-12, R-13): write-tool pattern: a single `REFUSED` record for a static refusal;
   otherwise `PENDING` (forced) before the version gate and StartCLI, then the outcome record with
-  the same `auditId`: `EXECUTED`, `REFUSED`, `FAILED` or the new `PARTIALLY_COMPLETED`. A refusal
+  the same `auditId`: `EXECUTED`, `REFUSED`, `FAILED` or the new `PARTIALLY_COMPLETED` (every
+  write-failure result, also with zero archives written). A refusal
   whose audit record cannot be written becomes `INTERNAL` carrying the original code and message.
 - **Result** (R-14): bounded by `resultLimits.maxItems` over modules, missing modules and repository
   paths of all archives; `truncated` flag; counts always complete; clear-text statement.
@@ -71,7 +75,7 @@ normalization with `java.text.Normalizer`, the drive-type probe with the JNA cor
   (fictitious names `GRP-01`, `GRP-02`, `Workflow-0001`…`Workflow-0006`, `Module-0001`…,
   owner `OWNERS`, user `jdoe`) plus test-built variants (a 10-workflow group for SC-002, a module
   bound by `WorkflowName`, a Workflow Connector node, a module missing from the export, nested
-  nodes, a repository chain), all built in test code from the fixtures — no new recorded file.
+  nodes, a repository chain, a `Repository.zip` with directory entries), all built in test code from the fixtures — no new recorded file.
 - Application tests with fakes for `ArtifactPort`, `WorkflowArchivePort` (where the real adapter is
   not needed), `AuditPort`, `NetworkPathProbe` and a `FileOps` seam of `ArchiveFolderWriter`
   (disk full, a file appearing between check and link, hard links unsupported).
@@ -79,7 +83,8 @@ normalization with `java.text.Normalizer`, the drive-type probe with the JNA cor
   `TestWiring` and the fake StartCLI launcher (`ScriptedProcessLauncher`).
 - `security/ArchiveExportSecretLeakTest` (SC-004), `NoCustomerIdentifiersTest` run (not skipped) in
   the final validation, `PackageBoundaryTest` unchanged rules.
-- SC-001 (Workbench import) is a manual check by the operator with their approval.
+- SC-001 (Workbench import) is a manual check by the operator with their approval; it also
+  confirms the not yet verified plug-in type string `Workflow Connector` (R-5).
 
 **Target Platform**: macOS, Linux, Windows (Windows: UNC/mapped-drive refusal, inherited ACLs).
 
@@ -102,9 +107,12 @@ without StartCLI time (expected well below 1 s: one parse, ten slices of a few h
 `ArchiveExportAudit`, domain records (`ArchiveFileNames`, `WorkflowArchivePlan`,
 `ArchiveExportResult`), ports `WorkflowArchivePort` and `NetworkPathProbe`, adapters
 `V81WorkflowArchives`, `RawZip`, `ArchiveReferences` (extracted from `WorkspaceWriter`),
-`WindowsNetworkPaths` (+ `DriveTypeApi`), config `ArchivesConfig`. Changed: `GroupConfig`,
+`WindowsNetworkPaths` (+ `DriveTypeApi`), config `ArchivesConfig` and `ConfigLocation`. Changed:
+`Launcher` (passes the `ConfigLocation`), `GroupConfig`,
 `EffectiveNodeConfig`, `ConfigValidator`, `ConfigSummary`, `AuditOutcome`, `ToolHints`
-(`localWrite` factory), `WorkspaceWriter` (uses `ArchiveReferences`), `Wiring`, `TestWiring`,
+(`localWrite` factory), `WorkspaceWriter` (uses `ArchiveReferences`), `Wiring` (constructors take
+the `ConfigLocation`), `TestWiring` and the other direct `new Wiring(` callers (`WiringE2eTest`,
+`WiringAuditTest`, `MessageTerminologyTest`),
 docs (`docs/tools.md`, `docs/setup.md`, `SECURITY.md`, `CHANGELOG.md`, `README.md` tool list).
 
 ## Constitution Check
@@ -138,7 +146,7 @@ specs/015-workbench-archives/
 │   ├── configuration-delta.md
 │   └── mcp-tools-delta.md
 ├── checklists/requirements.md
-├── reviews/                    # spec-r1 … spec-r3, plan reviews later
+├── reviews/                    # spec-r1 … spec-r3, plan-r1 …
 └── tasks.md                    # /speckit-tasks
 ```
 
@@ -156,11 +164,13 @@ src/main/java/de/dadecker/inubit/mcp/
 ├── adapter/os/    # WindowsNetworkPaths (+ DriveTypeApi, JnaDriveTypeApi): GetDriveTypeW
 ├── application/   # ArchiveExportService (flow, R-13), TargetFolderRules (R-9, R-10),
 │                  # ArchiveFolderWriter (+ FileOps seam, R-11), ArchiveExportAudit (R-12)
-├── config/        # ArchivesConfig; GroupConfig.archives; EffectiveNodeConfig.archivesProductionOptIn;
+├── config/        # ArchivesConfig; ConfigLocation (default directory + file in use, R-9);
+│                  # GroupConfig.archives; EffectiveNodeConfig.archivesProductionOptIn;
 │                  # ConfigValidator (no-effect warning); ConfigSummary (per group)
 ├── mcp/           # ToolHints.localWrite
 ├── mcp/tools/     # ExportArchivesTool (+ Result)
-└── Wiring.java    # service, probe and tool; announced with export_artifacts
+├── Launcher.java  # ConfigLocation from the loaded configuration into Wiring
+└── Wiring.java    # service, probe, folder rules and tool; announced with export_artifacts
 src/main/resources/schemas/export_archives.input.json, export_archives.output.json
 src/test/…         # tests per quickstart table; security/ArchiveExportSecretLeakTest;
                    # TestWiring (probe seam); fixtures built in test code from grp-a/grp-b

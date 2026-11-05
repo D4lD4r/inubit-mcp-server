@@ -454,6 +454,8 @@ and the outcome; the folder never holds a partial archive.
   sync root (macOS `~/Library/CloudStorage`, `~/Library/Mobile Documents`; Windows the folders
   named by `OneDrive`, `OneDriveCommercial`, `OneDriveConsumer`); `SECURITY.md` names the risk
   (FR-008, FR-012, FR-016).
+- Q: Directory entries of `Repository.zip`? → A: only those the original has and that are
+  ancestors of a kept file (FR-006).
 
 ## Assumptions
 

@@ -27,8 +27,22 @@ The validated input of one call (from `ExportArchivesTool`).
 | `warnings` | `List<String>` | the cloud-sync warning, if any |
 
 Refusals (`INVALID_INPUT`): relative; `.`/`..` element; UNC or remote drive (Windows); existing
-non-directory; not writable (folder or nearest ancestor); inside `~/.inubit-mcp`, `workspace` or
-`auditDirectory` (given or resolved form); `.git` in the folder or an ancestor (given or resolved).
+non-directory; not writable (folder or nearest ancestor); inside `~/.inubit-mcp`, `workspace`,
+`auditDirectory`, the default configuration directory (`ConfigLoader.defaultDirectory()`:
+`~/.config/inubit-mcp`, Windows `%APPDATA%\inubit-mcp`) or the folder of the configuration file in
+use (parent of `LoadedConfig.source()`) — each checked on the given and the resolved path, against
+the root as given and resolved; `.git` in the folder or an ancestor (given or resolved).
+
+## ConfigLocation (`config`) [R-9]
+
+| Field | Type | Meaning |
+|---|---|---|
+| `defaultDirectory` | `Path` | `ConfigLoader.defaultDirectory()` of the running server |
+| `source` | `Path` | `LoadedConfig.source()`, the configuration file in use |
+
+`roots()` = `defaultDirectory` and `source.toAbsolutePath().getParent()`, each once. Created in
+`Launcher` (`loader.defaultDirectory()`, `loaded.source()`), passed through `Launcher.serve` and
+every `Wiring` constructor to `TargetFolderRules`.
 
 ## WorkflowArchivePort (`domain/port`) [R-3]
 
@@ -54,7 +68,7 @@ Throws `UNEXPECTED_RESPONSE` for an export that cannot be read (as `export_artif
 | `modules` | `List<ModuleEntry>` | `{name, pluginType}` of node modules and bound modules found in the export, export order, each once |
 | `missingModules` | `List<String>` | node module names not in the export (FR-005) |
 | `repositoryPaths` | `List<String>` | repository paths (`/Root/<owner>/…`) in the archive, sorted |
-| `workflowConnector` | `boolean` | a node's module has plug-in type `Workflow Connector` |
+| `workflowConnector` | `boolean` | a node's module has plug-in type `Workflow Connector` (string unverified, one constant; confirmed in the manual check, R-5) |
 
 Derived warnings (per archive, FR-012): missing modules ("imports only where these modules
 exist"), Workflow Connector ("the called workflow is not included").
@@ -91,7 +105,7 @@ Owner-only (`rw-------`) on POSIX; Windows inherits the folder's ACLs. Never rep
 | `failed` | `List<FailedArchive>` | at most one entry (the write stops at the first failure) |
 | `notWritten` | `List<String>` | workflows not attempted after the failure |
 | `truncated` | `boolean` | lists cut by `resultLimits.maxItems` |
-| `warnings` | `List<String>` | call level: cloud sync, version admission, leftover temporary file, audit outcome not written |
+| `warnings` | `List<String>` | call level: cloud sync, version admission, leftover temporary `.part` file (naming it; the archive counts as written), audit outcome not written |
 
 `WrittenArchive`: `workflow`, `file` (name), `path` (absolute), `size` (bytes), `moduleCount`,
 `modules` (`{name, pluginType}`, bounded), `missingModuleCount`, `missingModules` (`{name}`,
@@ -110,8 +124,8 @@ after the check; never content).
 | `PENDING` | before the version gate and StartCLI |
 | `EXECUTED` | all selected archives written (or none selected) |
 | `REFUSED` (after `PENDING`) | version gate or an export-dependent check |
-| `FAILED` | StartCLI/slicing error, or the first archive failed |
-| `PARTIALLY_COMPLETED` (new enum value) | ≥ 1 written and one failed |
+| `FAILED` | StartCLI, version-gate probe or slicing error (tool error, nothing written) |
+| `PARTIALLY_COMPLETED` (new enum value) | every write-failure result (FR-011): `failed[]` has an entry, with any number of archives written — also zero (target folder not created, first archive failed) |
 
 Inputs: `owner`, `diagramGroup`, `targetFolder`, `workflow.<n>`, `file.<n>`,
 `acknowledgeClearTextSecrets`, `reason` (each ≤ 500 chars). Never content or secret values.
@@ -126,8 +140,8 @@ PENDING ──gate/export/check fails──▶ REFUSED | FAILED (end)
    │
    ▼
 writing ──all written──▶ EXECUTED
-        ──first fails──▶ FAILED (result, archives[] empty)
-        ──later fails──▶ PARTIALLY_COMPLETED (result)
+        ──folder or first archive fails──▶ PARTIALLY_COMPLETED (result, archives[] empty)
+        ──later archive fails──▶ PARTIALLY_COMPLETED (result)
 ```
 
 ## Configuration: ArchivesConfig (`config`) [R-15]

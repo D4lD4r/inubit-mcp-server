@@ -16,8 +16,8 @@ R-14 (result), R-16 (announcement).
 > Workbench-importable archive per workflow (`<name>.diagram.zip`) into a local folder you name.
 > The archives contain the workflows' secrets IN CLEAR TEXT; set acknowledgeClearTextSecrets to
 > true only when the user wants that. The folder must be an absolute path outside the workspace,
-> the server's directories, git working trees and network paths; existing files are never
-> replaced. Read-only for INUBIT; does not touch the workspace.
+> the server's directories (including its configuration directory), git working trees and network
+> paths; existing files are never replaced. Read-only for INUBIT; does not touch the workspace.
 
 ## Input schema (`schemas/export_archives.input.json`)
 
@@ -124,18 +124,40 @@ targetFolder: "/Users/jdoe/archives", acknowledgeClearTextSecrets: true, reason:
 | `TARGET_UNKNOWN`, `INVALID_INPUT` | unknown or malformed target | static |
 | `NOT_CONFIGURED` | no owner in the call and no `inventory.owner` | static |
 | `PRODUCTION_PROTECTED` | production group without `archives.productionOptIn` (message names the setting) | static |
-| `INVALID_INPUT` | acknowledgement missing/false; workflow-name syntax or limits; `reason`; folder rules (R-9) | static |
+| `INVALID_INPUT` | acknowledgement missing/false; workflow-name syntax or limits; `reason`; folder rules (below, R-9) | static |
 | `INTERNAL` | the audit record could not be written (for a refusal: carries the original code and message) | static / before StartCLI |
 | `UNSUPPORTED_VERSION` | version gate (as `export_artifacts`) | after `PENDING` |
 | `CLI_UNAVAILABLE`, `AUTH_FAILED`, `TIMEOUT`, `NOT_FOUND`, `UNEXPECTED_RESPONSE` | StartCLI export as `export_artifacts` (same messages, also the 128 MiB limit) | export |
 | `INVALID_INPUT` | unknown workflow names; > 50 workflows without `workflows`; file name > 255 bytes; colliding file names (between workflows or with the folder) | after export, before the first write |
 
 Write failures are **not** errors: they return the result with `failed[]` / `notWritten[]`
-(FR-011).
+(FR-011) and are audited `PARTIALLY_COMPLETED`, also when no archive was written (the target
+folder could not be created, or the first archive failed).
+
+## Folder rules (static, `INVALID_INPUT`; R-9, R-10)
+
+The wording `docs/tools.md` and `SECURITY.md` use and the docs tests assert. `targetFolder` is
+refused when it
+
+1. is not an absolute path, or has a `.` or `..` element;
+2. is a network path: a UNC path (`\\server\share`, `\\?\UNC\…`) or a mapped network drive
+   (Windows);
+3. exists and is not a writable directory, or (missing) its nearest existing ancestor is not a
+   writable directory;
+4. is or lies inside one of the server's directories: `~/.inubit-mcp`, the configured `workspace`,
+   the configured `auditDirectory`, the **configuration directory** (`~/.config/inubit-mcp`, on
+   Windows `%APPDATA%\inubit-mcp`) or the **folder of the configuration file in use**;
+5. is or lies inside a git working tree (a `.git` entry in the folder or an ancestor).
+
+Rules 4 and 5 are checked on the path as given and with symbolic links resolved (for a missing
+folder: its nearest existing ancestor). A folder below a known cloud-sync root (macOS
+`~/Library/CloudStorage`, `~/Library/Mobile Documents`; Windows `OneDrive`,
+`OneDriveCommercial`, `OneDriveConsumer`) is accepted with a call-level warning.
 
 ## Audit
 
 `capability: export_archives`, `step: EXECUTE`; outcomes `REFUSED` | `PENDING` → `EXECUTED` |
-`REFUSED` | `FAILED` | `PARTIALLY_COMPLETED` (new). Inputs: `owner`, `diagramGroup`,
+`REFUSED` | `FAILED` | `PARTIALLY_COMPLETED` (new; every write-failure result, also with zero
+archives written). Inputs: `owner`, `diagramGroup`,
 `targetFolder`, `workflow.<n>`, `file.<n>`, `acknowledgeClearTextSecrets`, `reason`. Schema
 violations are not audited.

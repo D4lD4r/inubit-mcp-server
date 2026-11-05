@@ -41,4 +41,5 @@ Group prod (production): archives: allowed (archives.productionOptIn)
 
 ## Audit log documentation (`docs/setup.md` → Audit log)
 
-- `capability` gains `export_archives`; outcomes gain `PARTIALLY_COMPLETED`.
+- `capability` gains `export_archives`; outcomes gain `PARTIALLY_COMPLETED` (an `export_archives`
+  call whose writing failed: some or no archives written, one failed, the rest not attempted).
