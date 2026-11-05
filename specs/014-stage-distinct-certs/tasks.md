@@ -220,7 +220,7 @@ certificates, `--check-config` passes, both servers connect, a CLI call to a ser
 other server's certificate is refused before StartCLI starts, and `inubit-cert-check --check`
 reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, AS 8, Q1, Q2, Q3, Q4 step a).
 
-- [ ] T005 [P] [US1] Bind the key (FR-001, research R-1, R-2, contract V-2/V-9). Write the failing
+- [X] T005 [P] [US1] Bind the key (FR-001, research R-1, R-2, contract V-2/V-9). Write the failing
   tests first in `test/config/ConfigLoaderTest.java` (new `@Nested class PinPerServer`) and see them
   fail: `pin-per-server.yaml` loads and `group.tls().pinPerServer()` is `Optional.of(true)` for `int`
   and empty for `dev`; `pinPerServer` on a node's `tls` binds (it is refused by the validator in
