@@ -75,7 +75,7 @@ only on purpose, P1 — must ship together with US1), US3 (traceable and bounded
 
 ## Phase 2: Foundational (blocking prerequisites)
 
-- [ ] T003 [P] File names (research R-8, FR-004, FR-009): test first
+- [X] T003 [P] File names (research R-8, FR-004, FR-009): test first
   `test/domain/model/ArchiveFileNamesTest.java` with the spec's cases — `Order: In/Out?.` →
   `Order_ In_Out_.diagram.zip`; `CON` → `_CON.diagram.zip`; `con.backup` → `_con.backup.diagram.zip`;
   `COM1`, `lpt9.x` prefixed, `COM10` not; a control character → `_`; trailing dots and spaces removed;
