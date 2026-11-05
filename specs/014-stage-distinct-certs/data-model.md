@@ -50,11 +50,11 @@ Checked on the values as written (before inheritance). Jackson has already resol
 
 | Item | Rule |
 |---|---|
-| type | interface `StartCliPinProbe` (`check(server, trustStorePassword)`), real implementation `HandshakeStartCliPinProbe`; `CliRunner`'s four-argument constructor uses the real one, a five-argument constructor takes any probe (tests) |
+| type | interface `StartCliPinProbe` (`check(server)`), real implementation `HandshakeStartCliPinProbe`; `CliRunner`'s four-argument constructor uses the real one, a five-argument constructor takes any probe (tests) |
 | when | in `CliRunner.run`, **before** `guard.acquire()` (no network contact inside the credential permit), before StartCLI is launched; only when `server.tls().pinPerServer()` is true; never in `CliRunner.execute` (`-v`) |
 | address | host and port of `server.cli().url()` (port `-1` → 443); `http` → no probe |
-| TLS | `SslContexts.forServer(server.secretLabels(), server.tls(), trustStorePassword)`; SNI = host; endpoint identification `HTTPS` unless `disableHostnameVerification`; connect and read timeout `server.timeout()` |
-| result | handshake completes → StartCLI runs as before; otherwise `ToolErrorException` with `TLS_ERROR` / `TIMEOUT` / `UNREACHABLE` as the REST path maps the same cause, the message naming the server, the StartCLI address and "StartCLI was not started"; `TLS_ERROR` uses the REST likely-cause and next-step texts, the `UNREACHABLE` next step names the effective `cli.url`; the guard is not touched (no permit taken) |
+| TLS | `SslContexts.forServer(server.secretLabels(), server.tls(), Optional.empty())` — a node with a CLI never has a trust-store password (`ConfigValidator`, `NodeSecrets`, research R-15), so no `run` overload and no caller change; SNI = host; endpoint identification `HTTPS` unless `disableHostnameVerification`; connect and read timeout `server.timeout()` |
+| result | handshake completes → StartCLI runs as before; otherwise `ToolErrorException` with `TIMEOUT` (a `SocketTimeoutException` anywhere in the cause chain, checked before `SSLException`) / `TLS_ERROR` / `UNREACHABLE`, the message naming the server, the StartCLI address and "StartCLI was not started"; `TLS_ERROR` uses the REST likely-cause and next-step texts, the `UNREACHABLE` next step names the effective `cli.url`; the guard is not touched (no permit taken) |
 
 ## Profile view (tool, extends 006 "Profile view")
 
@@ -84,8 +84,8 @@ Checked on the values as written (before inheritance). Jackson has already resol
 | Field | Rules |
 |---|---|
 | `status` | `ok` (presented = own pin) · `changed` · `unreachable` (unchanged definitions) |
-| `offer` | presented fingerprint, when `changed`, reachable, `pinSource = server`, stage `ownTls`, stage `problem` is none; else `None` |
-| `noOfferReason` | when `changed` but no offer: `unreachable` · `pin through alias` · `trust store not the stage's own` · `configuration problem` |
+| `offer` | presented fingerprint, when `changed`, `pinSource = server`, stage `ownTls`, stage `problem` is none; else `None` (a `changed` server is always reachable: 006 `server_status` returns `unreachable` first) |
+| `noOfferReason` | when `changed` but no offer: `pin through alias` · `trust store not the stage's own` · `configuration problem`; else `None` (JSON `null`), also for an `unreachable` server |
 | `expectedBy` | ids of the *other* servers of the stage whose pin equals the presented fingerprint (FR-010a); empty list if none |
 | `rejected` | `offer` equals the remembered rejection of this server id |
 

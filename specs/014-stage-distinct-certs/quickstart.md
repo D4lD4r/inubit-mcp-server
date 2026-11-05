@@ -58,12 +58,14 @@ and nothing but MCP traffic on stdout.
 
 Use the valid copy with `int` marked and `versionLine: V8_1` on `int`, plus:
 
-- three local TLS endpoints with the throw-away certificates A and B of §4, all trusted by the
-  stage trust store: an HTTPS stub with certificate A as `int/a`'s `baseUrl` that answers every
-  `GET` with `200` and `{}` (it only has to confirm the credentials; if the REST login needs more,
-  record what it needed and report it), and two bare TLS listeners (e.g. `openssl s_server`) as
-  the `cli.url` of `int/a` and `int/b`, **swapped**: the listener at `int/a`'s `cli.url` presents
-  B, the one at `int/b`'s presents A;
+- four local TLS endpoints with the throw-away certificates A and B of §4, all trusted by the
+  stage trust store:
+  - two HTTPS stubs, one with certificate A as `int/a`'s `baseUrl` and one with certificate B as
+    `int/b`'s `baseUrl`, each answering every `GET` with `200` and `{}` (they only have to confirm
+    the credentials, so each server passes its REST login and reaches the probe; if the REST login
+    needs more, record what it needed and report it);
+  - two bare TLS listeners (e.g. `openssl s_server`) as the `cli.url` of `int/a` and `int/b`,
+    **swapped**: the listener at `int/a`'s `cli.url` presents B, the one at `int/b`'s presents A;
 - `cli.home` of both servers pointing to a stub client directory whose `bin/startcli.sh` only
   creates a marker file and exits 0.
 

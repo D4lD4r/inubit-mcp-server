@@ -180,14 +180,17 @@ Every decision was checked against `main` (18344e2) — server code under
   - Server status is unchanged: `ok` when the presented fingerprint equals the server's pin.
   - Stage `status` is the worst server status, as in 006.
   - `conflict` is `false`; the stage-level `offer` and `rejected` are `null`.
-  - **Per-server offer**: a server gets an offer when it is `changed` and reachable,
+  - **Per-server offer**: a server gets an offer when it is `changed`,
     `pin_source == server` with a pin line, the stage has `own_tls`, and the stage has no `problem`.
-    Otherwise `noOfferReason` names why:
+    A `changed` server is always reachable (006 `server_status` returns `unreachable` before it
+    compares fingerprints). A `changed` server without an offer gets a `noOfferReason` naming why:
     - `pin through alias`;
     - `trust store not the stage's own`;
     - `configuration problem` (exactly this string, no suffix; the problem itself is reported in
-      the stage's `problem`; plan review r2 finding 9);
-    - `unreachable`.
+      the stage's `problem`; plan review r2 finding 9).
+
+    An `ok` or `unreachable` server is not `changed`: its `offer` and `noOfferReason` are `null`
+    (plan review r3 finding 5).
   - **`expectedBy`**: the ids of other servers of the stage whose pin equals this server's
     presented fingerprint (FR-010a).
   - **`rejected`**: the offer equals the remembered rejection under the server id.
@@ -277,8 +280,8 @@ Every decision was checked against `main` (18344e2) — server code under
   only with `allowInsecureHttp`. `CliVersionProbe` runs `startcli -v` through
   `CliRunner.execute`, which does not log in and does not contact the server.
 - **Decision**:
-  - New interface `adapter/cli/StartCliPinProbe` (one method `check(EffectiveNodeConfig server,
-    Optional<Secret> trustStorePassword)`) with the real implementation in its own class
+  - New interface `adapter/cli/StartCliPinProbe` (one method `check(EffectiveNodeConfig server)`)
+    with the real implementation in its own class
     `adapter/cli/HandshakeStartCliPinProbe`, so `CliRunnerTest` can use a counting fake.
     `CliRunner` keeps its four-argument constructor, which delegates to a new five-argument
     constructor with a `HandshakeStartCliPinProbe`; tests pass their own probe to the
@@ -294,28 +297,32 @@ Every decision was checked against `main` (18344e2) — server code under
     and `Launcher`'s `-v` runner keeps the four-argument constructor.
   - Address: host and port of `server.cli().url()` — exactly the address StartCLI connects to;
     port `-1` means 443. An `http` address has no certificate and is not probed.
-  - Handshake: `SslContexts.forServer(server.secretLabels(), server.tls(), trustStorePassword)`,
+  - Handshake: `SslContexts.forServer(server.secretLabels(), server.tls(), Optional.empty())`,
     the same context the REST client builds (shared stage trust store and this server's own pin in
     `PinningTrustManager`). An `SSLSocket` connects with `server.timeout()` as connect and read
     timeout, sets SNI to the host and, unless `disableHostnameVerification` is set, the endpoint
     identification algorithm `HTTPS`, so the host-name rule matches the REST client; then
     `startHandshake()` and close. No HTTP request and no credential are sent.
-  - Trust-store password: the four production callers of `CliRunner.run` (`CliTagRunner`,
-    `CliExportRunner`, `CliImportRunner`, `V81ProcessControlAdapter`) already hold the node's
-    `NodeCredentials`, and each of them may run against a marked stage, so all four switch to a
-    new `run` overload with an additional `Optional<Secret> trustStorePassword` (from
-    `credentials.trustStorePassword()`). The two existing `run` signatures stay and delegate with
-    `Optional.empty()`, so the existing `run(` calls in `CliRunnerTest` stay unchanged.
+  - Trust-store password: none, by an existing invariant — a node with a CLI never has a
+    trust-store password. `ConfigValidator` rejects `credentials.parameters.trustStorePassword`
+    on a node with a CLI (lines 639–645), `NodeSecrets` refuses a stored trust-store password
+    entry for such a node (lines 195–205), and `SslContexts` tells the operator that a password is
+    not allowed together with a CLI (line 76). The probe only runs for nodes with a CLI, so it
+    always builds the context without a password. There is no new `run` overload: the existing
+    `run` signatures call the probe, and `CliTagRunner`, `CliExportRunner`, `CliImportRunner` and
+    `V81ProcessControlAdapter` stay unchanged (plan review r3 finding 2).
   - Errors, mirroring `InubitHttpClient.transportError` (same codes; likely-cause and next-step
     texts as there, except the `UNREACHABLE` next step):
-    - `SSLException` or `CertificateException` in the cause chain → `TLS_ERROR`, message
+    - checked first: connect timeout or handshake timeout (`SocketTimeoutException` anywhere in
+      the cause chain, e.g. a listener that accepts but never answers the handshake; a handshake
+      read timeout may arrive wrapped in an `SSLException`) → `TIMEOUT`, message `The StartCLI
+      address int-a.example.test:8443 of int/a did not complete the TLS handshake within
+      <timeout>; StartCLI was not started`, likely cause and next step as the REST `TIMEOUT`
+      (plan review r3 finding 3);
+    - otherwise `SSLException` or `CertificateException` in the cause chain → `TLS_ERROR`, message
       `The TLS connection to int/a failed for the StartCLI address int-a.example.test:8443
       (<root cause simple name>); StartCLI was not started` — `(CertificateException)` for a pin
       mismatch;
-    - connect timeout or handshake timeout (`SocketTimeoutException`, e.g. a listener that
-      accepts but never answers the handshake) → `TIMEOUT`, message `The StartCLI address
-      int-a.example.test:8443 of int/a did not complete the TLS handshake within <timeout>;
-      StartCLI was not started`, likely cause and next step as the REST `TIMEOUT`;
     - `ConnectException`, unknown host, no route → `UNREACHABLE`, message `Cannot connect to int/a
       for the StartCLI address …; StartCLI was not started`; the next step names the effective
       StartCLI URL, not `baseUrl`: `Check cli.url (<effective cli.url>), DNS and the VPN, then

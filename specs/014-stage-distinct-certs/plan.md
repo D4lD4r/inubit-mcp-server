@@ -107,7 +107,7 @@ specs/014-stage-distinct-certs/
 │   └── cli.md           # Phase 1: delta to 006 contracts C-1…C-6, C-8
 ├── checklists/
 │   └── requirements.md
-├── reviews/             # spec reviews (r1, r2), plan review (r1)
+├── reviews/             # spec reviews (r1, r2), plan reviews (r1, r2, r3)
 └── tasks.md             # Phase 2 (/speckit-tasks)
 ```
 
@@ -120,13 +120,9 @@ src/main/java/de/dadecker/inubit/mcp/
 │   ├── EffectiveNodeConfig.java       # + Tls.pinPerServer (group value; old constructor kept)
 │   └── ConfigValidator.java           # + checkPinPerServer (FR-004, V-1…V-11), on the written group/node values
 ├── adapter/cli/
-│   ├── StartCliPinProbe.java          # new interface: check(server, trustStorePassword) (FR-005a)
-│   ├── HandshakeStartCliPinProbe.java # new: real probe, TLS handshake to the StartCLI address before StartCLI
-│   ├── CliRunner.java                 # 4-arg constructor kept (real probe) + 5-arg with probe; new run overload with trustStorePassword, probe before guard.acquire()
-│   ├── CliTagRunner.java              # call the new run overload with credentials.trustStorePassword()
-│   ├── CliExportRunner.java           # same
-│   ├── CliImportRunner.java           # same
-│   └── v81/V81ProcessControlAdapter.java  # same
+│   ├── StartCliPinProbe.java          # new interface: check(server) (FR-005a)
+│   ├── HandshakeStartCliPinProbe.java # new: real probe, TLS handshake to the StartCLI address before StartCLI (no trust-store password: a node with a CLI never has one, R-15)
+│   └── CliRunner.java                 # 4-arg constructor kept (real probe) + 5-arg with probe; existing run signatures call the probe before guard.acquire(); callers unchanged
 ├── Wiring.java                        # unchanged: the 4-arg CliRunner constructor uses the real probe
 └── Launcher.java                      # + one start-up log line (FR-005); -v runner unchanged (no probe)
 

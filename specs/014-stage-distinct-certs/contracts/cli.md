@@ -82,6 +82,11 @@ JSON, marked stage (existing fields keep their names; values per FR-007):
 Rules:
 
 - `pinPerServer`, `problem` and the four new server fields appear **only** on marked stages.
+- `noOfferReason` is a string only for a `changed` server without an offer, one of `pin through
+  alias`, `trust store not the stage's own`, `configuration problem`. An `ok` or `unreachable`
+  server has `"offer": null` and `"noOfferReason": null`: it is not `changed` (006
+  `server_status` returns `unreachable` before comparing fingerprints, so a `changed` server is
+  always reachable).
 - In a marked stage `pinned` is the server's own pin, and `supersededTrustStoreEntries` lists
   entries whose fingerprint is no server's pin (null when the store cannot be inspected, as in
   006).
