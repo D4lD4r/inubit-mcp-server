@@ -235,7 +235,7 @@ reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, AS 8, Q1,
   effective `Tls` has the group's trust store and that node's own pin, and no node gets another
   node's pin. `main/config/EffectiveNodeConfig.java` stays unchanged in this task; if the test
   fails, stop and report, because R-4 assumes it.
-- [ ] T007 [P] [US1] Validation rules V-1…V-9 (FR-004, research R-3, contract V-1…V-9; after T005).
+- [X] T007 [P] [US1] Validation rules V-1…V-9 (FR-004, research R-3, contract V-1…V-9; after T005).
   Write the failing tests first in `test/config/ConfigValidatorTest.java`, new
   `@Nested class PinPerServer`, one test per row, each asserting the exact message of
   contracts/configuration.md with `{group}` / `{node}` rendered by the profile's terminology (also
@@ -245,7 +245,7 @@ reports `int` as `ok`, no conflict, exit 0 (spec US1 Independent Test, AS 8, Q1,
   - V-3 stage pin, inline and through an alias → `{group} 'int': tls.pinnedCertificateSha256 is not
     allowed with tls.pinPerServer; set it on each {node}`;
   - V-4 no stage trust store → `{group} 'int': tls.pinPerServer needs tls.trustStore on the {group}`;
-  - V-5 trust store on a node → `int/b: tls.trustStore is not allowed on a {node} of a {group} with
+  - V-5 trust store on a node → `int/b: tls.trustStore is not allowed on this {node} of {group} 'int' with
     tls.pinPerServer; set it on the {group}`;
   - V-6 https node without own pin → `int/b: tls.pinPerServer on {group} 'int' needs
     tls.pinnedCertificateSha256 on this {node}`;

@@ -128,6 +128,7 @@ public final class ConfigValidator {
         checkProfile(config, findings);
         Optional<WorkspaceDirectory.Result> workspace = checkWorkspace(config, findings);
         checkStructure(config, findings);
+        checkPinPerServer(config, findings);
         checkResultLimits(config.resultLimits(), findings);
         checkDeployConfirmationTtl(config.defaults(), findings);
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
@@ -506,6 +507,46 @@ public final class ConfigValidator {
                         ? stage.name() + "/" + server.name()
                         : "groups[" + i + "].nodes[" + j + "]";
                     findings.error(label + ": baseUrl is missing");
+                }
+            }
+        }
+    }
+
+    /**
+     * Feature 014 (FR-004, research R-3): {@code tls.pinPerServer} rules V-1, V-3 … V-6, checked
+     * on the values as written, not the effective ones, because the rules are about where a
+     * value is set. YAML aliases are resolved before binding, so an alias counts as written there.
+     */
+    private static void checkPinPerServer(ProfileConfig config, Findings findings) {
+        for (GroupConfig stage : config.groups()) {
+            TlsConfig stageTls = stage.tls();
+            if (stageTls.marksStage() && stageTls.pinnedCertificateSha256().isPresent()) {
+                findings.termError("{group} '%s': tls.pinnedCertificateSha256 is not allowed with"
+                    + " tls.pinPerServer; set it on each {node}", stage.name());
+            }
+            if (stageTls.marksStage() && stageTls.trustStore().isEmpty()) {
+                findings.termError("{group} '%s': tls.pinPerServer needs tls.trustStore on the"
+                    + " {group}", stage.name());
+            }
+            for (NodeConfig server : stage.nodes()) {
+                String id = stage.name() + "/" + server.name();
+                TlsConfig serverTls = server.tls();
+                if (serverTls.pinPerServer().isPresent()) {
+                    findings.termError("%s: tls.pinPerServer is only valid on the {group}", id);
+                }
+                if (!stageTls.marksStage()) {
+                    continue;
+                }
+                if (serverTls.trustStore().isPresent()) {
+                    findings.termError("%s: tls.trustStore is not allowed on this {node} of {group}"
+                        + " '%s' with tls.pinPerServer; set it on the {group}", id, stage.name());
+                }
+                boolean https = server.baseUrl()
+                    .map(url -> "https".equalsIgnoreCase(url.getScheme()))
+                    .orElse(false);
+                if (https && serverTls.pinnedCertificateSha256().isEmpty()) {
+                    findings.termError("%s: tls.pinPerServer on {group} '%s' needs"
+                        + " tls.pinnedCertificateSha256 on this {node}", id, stage.name());
                 }
             }
         }

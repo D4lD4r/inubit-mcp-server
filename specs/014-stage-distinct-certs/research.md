@@ -32,7 +32,7 @@ Every decision was checked against `main` (18344e2) — server code under
   - It sits next to the trust store and the pins it governs, so it is easy to find in
     `docs/setup.md` §5.
   - `TlsConfig` is bound on groups and nodes, so the validator can name a misplaced setting
-    precisely: "… is only valid on a {group}".
+    precisely: "… is only valid on the {group}".
   - The tool already reads exactly the `tls` blocks (`_tls_block`, closed key list `TLS_KEYS`), so
     one key is added there.
 - **Alternatives considered**:
@@ -69,13 +69,13 @@ Every decision was checked against `main` (18344e2) — server code under
   |---|---|---|
   | no pin in the stage's `tls` | `group.tls().pinnedCertificateSha256()` empty | `{group} 'int': tls.pinnedCertificateSha256 is not allowed with tls.pinPerServer; set it on each {node}` |
   | stage needs a trust store | `group.tls().trustStore()` present | `{group} 'int': tls.pinPerServer needs tls.trustStore on the {group}` |
-  | no trust store on a server | `node.tls().trustStore()` empty | `int/b: tls.trustStore is not allowed on a {node} of a {group} with tls.pinPerServer; set it on the {group}` |
+  | no trust store on a server | `node.tls().trustStore()` empty | `int/b: tls.trustStore is not allowed on this {node} of {group} 'int' with tls.pinPerServer; set it on the {group}` |
   | own pin on each https server | `node.tls().pinnedCertificateSha256()` present, unless `baseUrl` is `http` | `int/b: tls.pinPerServer on {group} 'int' needs tls.pinnedCertificateSha256 on this {node}` |
   | own StartCLI address (more than one node) | `group.cli().url()` empty or `node.cli().url()` present | `int/b: cli.url is inherited from {group} 'int' with tls.pinPerServer; set cli.url on each {node}` |
   | own SOAP address (more than one node) | `group.e2e().soap().baseUrl()` empty or `node.e2e().soap().baseUrl()` present | `int/b: e2e.soap.baseUrl is inherited from {group} 'int' with tls.pinPerServer; set e2e.soap.baseUrl on each {node}` |
 
   For every node (marked stage or not): `node.tls().pinPerServer()` present →
-  `int/b: tls.pinPerServer is only valid on a {group}`. The existing per-server checks
+  `int/b: tls.pinPerServer is only valid on the {group}`. The existing per-server checks
   (`checkTls`: malformed pin, missing trust-store file, hostname verification without a pin) still
   run on the effective values.
 - **Rationale**: FR-004 is about *where* a value is written. The effective view hides that
