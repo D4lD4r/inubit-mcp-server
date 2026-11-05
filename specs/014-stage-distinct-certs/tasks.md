@@ -417,7 +417,7 @@ certificate a server still expects; adoptions run one after another.
 `--accept int/b F` changes only `int/b`'s pin line, the store gains F, a backup exists, one `adopted`
 line names `server=int/b` (spec US2 Independent Test, Q4 steps b–g).
 
-- [ ] T015 [US2] Targets on the command line (research R-6, contract "Targets"). Write the failing
+- [X] T015 [US2] Targets on the command line (research R-6, contract "Targets"). Write the failing
   tests first in `tools/tests/test_cli.py` `UsageTest` and see them fail: `--accept int/b FP`,
   `--accept dev FP`, `--forget int/b` and `--forget int` parse into a target; each part must match
   `[a-z0-9][a-z0-9-]{0,31}`; `int/b/c`, `/b`, `int/`, `INT/b` → usage error, exit 2; `--prune int/b`

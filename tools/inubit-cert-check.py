@@ -2945,14 +2945,14 @@ def build_parser():
     command.add_argument("--check", action="store_true",
                          help="read-only check of every server (exit 0 all ok, 10 a certificate "
                               "changed, 20 a server unreachable)")
-    command.add_argument("--accept", nargs=2, metavar=("STAGE", "FINGERPRINT"),
+    command.add_argument("--accept", nargs=2, metavar=("TARGET", "FINGERPRINT"),
                          help="adopt the certificate every server of the stage presents, after "
                               "re-verifying it (backup, trust store, pin, --check-config, rollback "
                               "on failure)")
     command.add_argument("--interactive", action="store_true",
                          help="start-up check for the launcher: dialog for changed stages, "
                               "always exit 0, nothing on stdout, stdin never read")
-    command.add_argument("--forget", metavar="STAGE",
+    command.add_argument("--forget", metavar="TARGET",
                          help="forget the remembered rejection of a stage (the dialog asks "
                               "again)")
     command.add_argument("--prune", metavar="STAGE",
@@ -2972,6 +2972,26 @@ def build_parser():
     return parser
 
 
+@dataclass(frozen=True)
+class Target:
+    """The stage, and the node for a server id (node None: the stage itself)."""
+    stage: str
+    node: Optional[str]
+
+    @property
+    def id(self):
+        return self.stage if self.node is None else f"{self.stage}/{self.node}"
+
+
+def parse_target(text):
+    """A target of --accept / --forget (research R-6): a stage name or a server id STAGE/NODE."""
+    parts = text.split("/")
+    if len(parts) > 2 or not all(STAGE_NAME.fullmatch(part) for part in parts):
+        raise UsageError(f"invalid target '{text}': expected STAGE or STAGE/SERVER, each part "
+                         f"{STAGE_NAME.pattern}")
+    return Target(parts[0], parts[1] if len(parts) == 2 else None)
+
+
 def parse_args(argv):
     """The parsed command line; raises UsageError for every rule argparse cannot express."""
     args = build_parser().parse_args(argv)
@@ -2986,6 +3006,14 @@ def parse_args(argv):
     if args.profile is not None and not valid_profile_name(args.profile):
         raise UsageError(f"invalid profile name: expected {PROFILE_NAME.pattern}, "
                          f"except {', '.join(sorted(RESERVED_PROFILE_NAMES))}")
+    args.target = None
+    if args.command == "accept":
+        args.target, args.fingerprint = parse_target(args.accept[0]), args.accept[1]
+    elif args.command == "forget":
+        args.target = parse_target(args.forget)
+    elif args.command == "prune" and not STAGE_NAME.fullmatch(args.prune):
+        raise UsageError(f"invalid stage '{args.prune}': expected {STAGE_NAME.pattern} "
+                         "(--prune takes a stage)")
     for option, owner in (("json", "check"), ("by", "accept"), ("yes", "prune")):
         if getattr(args, option) not in (None, False) and args.command != owner:
             raise UsageError(f"--{option} is only valid with --{owner}")
