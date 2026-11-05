@@ -604,7 +604,7 @@ brings the dialog back (Q5).
   therefore certificates whose subjectAltNames match each host, with `disableHostnameVerification`
   removed, are still recommended — they close the window because StartCLI itself then refuses
   another server's certificate.
-- [ ] T027 Usage text (FR-016, FR-018; after T023, tool file). Write the failing test first in
+- [X] T027 Usage text (FR-016, FR-018; after T023, tool file). Write the failing test first in
   `tools/tests/test_cli.py` `UsageTest.test_help_names_server_targets` (`--help` shows `TARGET` as
   `<stage>` or `<stage>/<server>` for `--accept` and `--forget`) and see it fail; then update the
   module docstring (contract reference `specs/014-stage-distinct-certs/contracts/cli.md`) and the

@@ -5,6 +5,15 @@ An operator tool for the TLS pins of an inubit-mcp profile (feature 006). It is 
 everything profile-specific comes from the profile file named by --profile or --config. The
 command line, outputs, exit codes and files are specified in
 specs/006-tls-pin-rotation/contracts/cli.md; the entities in data-model.md of the same feature.
+Stages with tls.pinPerServer (feature 014) keep one pin per server; the differences for them are
+specified in specs/014-stage-distinct-certs/contracts/cli.md (C-1' ... C-8'), the entities in
+data-model.md of that feature.
+
+Targets: --accept and --forget take a TARGET, which is <stage> (e.g. dev) or <stage>/<server>
+(e.g. int/b, the server id printed by the check). <stage>/<server> names a server of a stage with
+tls.pinPerServer; --accept takes <stage> only for a uniform stage, --forget takes <stage> for any
+stage (on a marked stage it forgets the rejections of all its servers). --prune keeps taking a
+stage.
 
 Usage:
   inubit-cert-check (--profile NAME | --config PATH) COMMAND [--state-dir DIR] [--java PATH]
@@ -16,16 +25,19 @@ Commands (exactly one):
                         each, in parallel), compares the presented certificate with the pin and
                         lists superseded trust-store entries. Exit 0 all ok, 10 a certificate
                         changed (conflicts included), 20 a server unreachable.
-  --accept STAGE FINGERPRINT [--by cli|claude]
+  --accept TARGET FINGERPRINT [--by cli|claude]
                         C-2: re-verifies that every server of the stage presents FINGERPRINT,
                         backs up profile and trust store, imports the certificate, replaces the
                         pin line, validates with the server's --check-config; restores both
                         files on any failure or interrupt. Exit 0 adopted, 3 refused (nothing
-                        changed), 4 failed and rolled back.
-  --interactive         C-3, the launcher's start-up check: a desktop dialog per changed stage,
-                        the start waits at most 20 s; always exit 0, nothing on stdout, stdin
-                        never read.
-  --forget STAGE        C-4: forgets the remembered rejection of a stage. Exit 0, 3 unknown stage.
+                        changed), 4 failed and rolled back. C-2': for a <stage>/<server> target
+                        only that server is re-verified and only its own pin line replaced.
+  --interactive         C-3, the launcher's start-up check: a desktop dialog per changed stage
+                        (C-3': per changed server of a stage with tls.pinPerServer), the start
+                        waits at most 20 s; always exit 0, nothing on stdout, stdin never read.
+  --forget TARGET       C-4: forgets the remembered rejection of a stage (C-4': of a server, or of
+                        all servers of a marked stage). Exit 0, 3 unknown stage or server, or a
+                        server of a uniform stage.
   --prune STAGE [--yes] C-5: lists the trust-store entries that differ from the pin; with --yes
                         removes them (backup first). Exit 0, 3 refused, 4 failed and rolled back.
 
@@ -3206,7 +3218,8 @@ def build_parser():
                     "adopt a changed certificate only after an explicit operator decision.",
         epilog="Exit status: 0 ok, 1 internal error, 2 usage error, 3 refused (nothing changed), "
                "4 failed and rolled back, 10 a certificate changed, 20 a server unreachable. "
-               "Contract: specs/006-tls-pin-rotation/contracts/cli.md.")
+               "Contract: specs/006-tls-pin-rotation/contracts/cli.md; for stages with "
+               "tls.pinPerServer specs/014-stage-distinct-certs/contracts/cli.md.")
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--profile", metavar="NAME",
                         help="profile file ~/.config/inubit-mcp/NAME.yaml")
@@ -3218,13 +3231,17 @@ def build_parser():
     command.add_argument("--accept", nargs=2, metavar=("TARGET", "FINGERPRINT"),
                          help="adopt the certificate every server of the stage presents, after "
                               "re-verifying it (backup, trust store, pin, --check-config, rollback "
-                              "on failure)")
+                              "on failure); TARGET is <stage> or <stage>/<server>: <stage> for a "
+                              "uniform stage, <stage>/<server> for a server of a stage with "
+                              "tls.pinPerServer (only that server is re-verified and re-pinned)")
     command.add_argument("--interactive", action="store_true",
                          help="start-up check for the launcher: dialog for changed stages, "
                               "always exit 0, nothing on stdout, stdin never read")
     command.add_argument("--forget", metavar="TARGET",
                          help="forget the remembered rejection of a stage (the dialog asks "
-                              "again)")
+                              "again); TARGET is <stage> or <stage>/<server>: <stage>/<server> "
+                              "forgets one server of a stage with tls.pinPerServer, <stage> all "
+                              "rejections of the stage")
     command.add_argument("--prune", metavar="STAGE",
                          help="list the superseded trust-store entries of a stage (remove them "
                               "with --yes)")

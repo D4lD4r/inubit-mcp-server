@@ -124,6 +124,30 @@ class UsageTest(unittest.TestCase):
                 "~/.config/inubit-mcp/NAME.yaml", "~/.inubit-mcp/<profile.name>"):
             self.assertIn(fragment, text)
 
+    def test_help_names_server_targets(self):
+        _code, out, _err = run_main(self.tool, ["--help"])
+        options = {}
+        current = None
+        for line in out.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("--"):
+                current = stripped.split()[0]
+                options[current] = stripped
+            elif current and line.startswith(" " * 6) and stripped:
+                options[current] += " " + stripped
+            else:
+                current = None
+        for option, synopsis in (("--accept", "--accept TARGET FINGERPRINT"),
+                                 ("--forget", "--forget TARGET")):
+            with self.subTest(option=option):
+                entry = options.get(option, "")
+                self.assertTrue(entry.startswith(synopsis), entry)
+                self.assertIn("TARGET is <stage> or <stage>/<server>", entry)
+        self.assertTrue(options.get("--prune", "").startswith("--prune STAGE"))
+        self.assertIn("specs/014-stage-distinct-certs/contracts/cli.md", self.tool.__doc__)
+        self.assertNotIn("--forget STAGE", self.tool.__doc__)
+        self.assertIn("--forget TARGET", self.tool.__doc__)
+
     def test_accept_and_forget_take_a_target(self):
         fingerprint = "AA" * 32
         for argv, stage, node, by in (
