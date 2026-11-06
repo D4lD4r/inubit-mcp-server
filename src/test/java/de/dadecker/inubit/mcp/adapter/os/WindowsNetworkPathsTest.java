@@ -131,15 +131,16 @@ class WindowsNetworkPathsTest {
     }
 
     @Test
-    void theJnaApiIsNotLoadedWithoutTheWindowsFlag() {
+    void theJnaApiIsNotLoadedWithoutTheWindowsFlag() throws Exception {
         WindowsNetworkPaths probe = new WindowsNetworkPaths(false, JnaDriveTypeApi::new);
 
         assertThat(probe.remoteDrive('Z')).isFalse();
         new JnaDriveTypeApi();
 
-        // JNA sets jna.loaded when its native library is loaded (com.sun.jna.Native's
-        // initializer); JnaDriveTypeApi loads it on its first call only (Holder)
-        assertThat(System.getProperty("jna.loaded")).isNotEqualTo("true");
         assertThat(appender.list).isEmpty();
+        // JNA sets jna.loaded when its native library is loaded (com.sun.jna.Native's
+        // initializer); JnaDriveTypeApi loads it on its first call only (Holder). A fresh JVM,
+        // as another test may have loaded it in this one (feature 013)
+        assertThat(NativeCodeProbe.jnaLoadedAfter("drives")).isNotEqualTo("true");
     }
 }

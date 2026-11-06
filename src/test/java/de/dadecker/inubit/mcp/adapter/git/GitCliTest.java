@@ -53,8 +53,8 @@ class GitCliTest {
         FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
     private static final List<String> FIXED_OPTIONS = List.of(
         "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false", "-c", "core.quotepath=false",
-        "-c", "gc.autoDetach=false", "-c", "maintenance.autoDetach=false",
-        "-c", "user.name=INUBIT MCP (acme)", "-c", "user.email=inubit-mcp@localhost");
+        "-c", "core.longpaths=true", "-c", "gc.autoDetach=false",
+        "-c", "maintenance.autoDetach=false", "-c", "user.name=INUBIT MCP (acme)", "-c", "user.email=inubit-mcp@localhost");
     private static final PrivateFileSystem FILES = PrivateFiles.forHost();
 
     @TempDir

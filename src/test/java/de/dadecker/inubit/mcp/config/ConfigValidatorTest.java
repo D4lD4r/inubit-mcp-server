@@ -49,7 +49,7 @@ class ConfigValidatorTest {
     private final List<Path> prepared = new ArrayList<>();
     private WorkspaceDirectory.Result workspaceResult = new WorkspaceDirectory.Usable(false);
     private boolean windows;
-    private Path tempDirectory = Path.of("/var/tmp/inubit-test");
+    private Path tempDirectory = Platform.posixPath("/var/tmp/inubit-test");
     private StartCliHost host = StartCliHost.unchecked();
 
     @BeforeEach
@@ -95,7 +95,7 @@ class ConfigValidatorTest {
     @Test
     void aTemporaryDirectoryStartCliCannotTakeIsAWarningWhenTheCliIsConfigured() {
         // review I9: exports are written below java.io.tmpdir, whose path goes into --execCommand
-        tempDirectory = Path.of("/var/tmp/odd~dir");
+        tempDirectory = Platform.posixPath("/var/tmp/odd~dir");
         String cli = """
             defaults:
               cliHome: /opt/client
@@ -120,7 +120,7 @@ class ConfigValidatorTest {
               cliHome: /opt/client
               cliJavaHome: /opt/jdk17
             """;
-        tempDirectory = Path.of("/" + "t".repeat(949));
+        tempDirectory = Platform.posixPath("/" + "t".repeat(949));
 
         assertThat(validate(cli + server("")).warnings()).singleElement().asString()
             .contains("java.io.tmpdir", "CLI_UNAVAILABLE");
@@ -1032,7 +1032,7 @@ class ConfigValidatorTest {
 
             assertThat(validate(server("timeout: PT5S\n")).warnings()).isEmpty();
             windows = false;
-            tempDirectory = Path.of("/var/tmp/inubit-test");
+            tempDirectory = Platform.posixPath("/var/tmp/inubit-test");
             assertThat(validate(twoNodesWithCli()).warnings()).isEmpty();
         }
 

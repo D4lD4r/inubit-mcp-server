@@ -53,4 +53,12 @@ class PlatformTest {
     void absolutePathIsOnDriveCOnWindows() {
         assertThat(Platform.absolutePath("/home/test")).isEqualTo(Path.of("C:\\home\\test"));
     }
+
+    @Test
+    void aPosixPathKeepsItsSlashesOnEveryHost() {
+        Path path = Platform.posixPath("/var/tmp/odd~dir");
+
+        assertThat(path.isAbsolute()).isTrue();
+        assertThat(path.resolve("export.zip")).hasToString("/var/tmp/odd~dir/export.zip");
+    }
 }

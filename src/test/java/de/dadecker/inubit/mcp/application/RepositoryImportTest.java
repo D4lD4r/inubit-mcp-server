@@ -1139,7 +1139,7 @@ class RepositoryImportTest {
                 + outcome.auditId() + "]\n\nServer-State: dev\nReason: Schemas");
         assertThat(harness.exports.git("show", "--name-only", "--format=", commit))
             .contains(WorkspacePath.repository(ImportHarness.DEV.group(), "jdoe", A).metaPath()
-                .toString(), file(B));
+                .toString().replace('\\', '/'), file(B));
 
         // FR-016: the commit is the new base, also of a.xsd, whose content it left unchanged
         ImportService.Response again = service.importArtifacts(harness.repositoryPaths(

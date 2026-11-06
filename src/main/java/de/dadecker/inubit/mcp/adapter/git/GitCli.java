@@ -38,10 +38,13 @@ import java.util.stream.Stream;
  *   <li>Argument arrays only, never a shell; the working directory is the workspace root.
  *   <li>Every call carries {@code -c core.hooksPath=<empty directory>}, {@code -c
  *       commit.gpgsign=false}, {@code -c core.autocrlf=false}, {@code -c core.quotepath=false},
- *       {@code -c gc.autoDetach=false}, {@code -c maintenance.autoDetach=false}, {@code -c
- *       user.name=INUBIT MCP (<profile>)} and {@code -c user.email=inubit-mcp@localhost}, so
- *       that hooks, signing, line-ending conversion and the identity of the person's git
- *       configuration have no effect; commits also pass {@code --no-verify}.
+ *       {@code -c core.longpaths=true}, {@code -c gc.autoDetach=false}, {@code -c
+ *       maintenance.autoDetach=false}, {@code -c user.name=INUBIT MCP (<profile>)} and
+ *       {@code -c user.email=inubit-mcp@localhost}, so that hooks, signing, line-ending
+ *       conversion and the identity of the person's git configuration have no effect; commits
+ *       also pass {@code --no-verify}. {@code core.longpaths} lets Git for Windows handle
+ *       workspace paths beyond 260 characters (deep repository folders), as git does elsewhere;
+ *       other platforms ignore it (feature 013, FR-001).
  *   <li>The automatic maintenance a command triggers ({@code git maintenance run --auto}, which
  *       runs {@code gc --auto} or a geometric repack depending on the git version) runs in the
  *       foreground of that call instead of detaching. A detached maintenance outlives the call,
@@ -434,7 +437,7 @@ public final class GitCli implements VersionHistoryPort {
         command.add("-c");
         command.add("core.hooksPath=" + emptyHooksDirectory());
         Stream.of("commit.gpgsign=false", "core.autocrlf=false", "core.quotepath=false",
-            "gc.autoDetach=false", "maintenance.autoDetach=false",
+            "core.longpaths=true", "gc.autoDetach=false", "maintenance.autoDetach=false",
             "user.name=INUBIT MCP (" + profile + ")", "user.email=inubit-mcp@localhost")
             .forEach(option -> {
                 command.add("-c");

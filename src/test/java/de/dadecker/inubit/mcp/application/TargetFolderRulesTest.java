@@ -82,7 +82,8 @@ class TargetFolderRulesTest {
         Map<String, TargetFolderRules> cases = new java.util.LinkedHashMap<>();
         cases.put("archives\nout", rules());
         cases.put(root + "/a\u0000b", rules());
-        cases.put(workspace.resolve("x\ry").toString(), rules());
+        // a string: Windows refuses to make a path of it
+        cases.put(workspace + java.io.File.separator + "x\ry", rules());
         cases.put("\\\\server\\share\u0007\u009B", windowsRules());
 
         for (Map.Entry<String, TargetFolderRules> entry : cases.entrySet()) {
@@ -93,8 +94,16 @@ class TargetFolderRulesTest {
                 .contains("'" + entry.getKey().replaceAll("\\p{Cc}", "?") + "'")
                 .doesNotContainPattern("\\p{Cc}");
         }
-        assertThat(rules().check(cloud.resolve("a\tb").toString()).warnings()).singleElement()
-            .asString().contains("a?b").doesNotContain("\t");
+        String tabbed = cloud + java.io.File.separator + "a\tb";
+        if (de.dadecker.inubit.mcp.testing.Platform.windows()) {
+            // no Windows file name has a tab: refused, shown the same way (feature 013)
+            assertThat(catchThrowableOfType(ToolErrorException.class,
+                () -> rules().check(tabbed)).error().message()).contains("a?b")
+                .doesNotContain("\t");
+        } else {
+            assertThat(rules().check(tabbed).warnings()).singleElement().asString()
+                .contains("a?b").doesNotContain("\t");
+        }
     }
 
     @Test

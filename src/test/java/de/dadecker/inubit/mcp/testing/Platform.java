@@ -50,6 +50,18 @@ public final class Platform {
         return Path.of(windows() ? "C:" + posixPath : posixPath);
     }
 
+    /**
+     * The absolute POSIX path {@code posixPath} with {@code /} as its separator on every host, for
+     * code told by a flag to apply the POSIX rules (e.g. the {@code java.io.tmpdir} check with
+     * {@code windows = false}): the default file system on POSIX; on Windows, whose default file
+     * system turns {@code /} into {@code \}, a path of the {@code jrt} file system, which is a
+     * name only and never opened.
+     */
+    public static Path posixPath(String posixPath) {
+        return windows() ? java.nio.file.FileSystems.getFileSystem(java.net.URI.create("jrt:/"))
+            .getPath(posixPath) : Path.of(posixPath);
+    }
+
     /** The {@code java} executable of the runtime running the tests. */
     static Path javaExecutable() {
         return Path.of(System.getProperty("java.home"), "bin",
