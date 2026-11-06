@@ -292,7 +292,7 @@ everything refused by the static input checks before StartCLI.
 **Independent test**: Q9–Q15, Q23, Q24: each refusal happens before StartCLI (the fake
 `ArtifactPort` is never called) and nothing is written.
 
-- [ ] T013 [P] [US2] Folder rules (research R-9, FR-008, FR-010): test first
+- [X] T013 [P] [US2] Folder rules (research R-9, FR-008, FR-010): test first
   `test/application/TargetFolderRulesTest.java` with temporary directories, a fake
   `NetworkPathProbe` and a fake home/environment: refused (`INVALID_INPUT`, message names the rule
   and the path) — relative path; a `.` or `..` element; the folder or a descendant of
