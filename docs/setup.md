@@ -161,6 +161,9 @@ use REST tools only.
   a group id (`dev`) addresses all its nodes.
 - Write access is off by default. It is enabled per group or node with `write.enabled: true`;
   groups with `production: true` additionally need `write.productionOptIn: true`.
+  `export_archives` (archives with clear-text secrets) is allowed on every group except a
+  production group without `archives.productionOptIn: true`
+  ([Workbench archives](#workbench-archives)).
 - `versionLine` says which INUBIT version a node runs; the default `AUTO` detects it from the
   node on first use. Write tools run only on a known, supported version (8.1); see
   [INUBIT version](#inubit-version-versionline).
@@ -181,8 +184,9 @@ use REST tools only.
 
   The durations (`timeout`, `cliTimeout`, `hangingThreshold`, `cliExportTimeout`,
   `confirmationTtl`) and `inventory` can be set in `defaults`, per group or per node
-  (`deployConfirmationTtl` only in `defaults`, `deploy` only per group, see
-  [Stage chain and deployments](#stage-chain-and-deployments));
+  (`deployConfirmationTtl` only in `defaults`, `deploy` and `archives` only per group, see
+  [Stage chain and deployments](#stage-chain-and-deployments) and
+  [Workbench archives](#workbench-archives));
   `versionLine`, `write`, `tls` and `cli` (`cli.home`, `cli.javaHome`, `cli.url`) per group or
   per node; `cliHome` / `cliJavaHome` in `defaults`. The most specific value wins.
 - Top-level keys starting with `x-` are ignored, so YAML anchors can share blocks
@@ -411,13 +415,56 @@ The write tools also need the CLI (`cliHome`, `cliJavaHome`, section 3); without
 `CLI_UNAVAILABLE`. Enable write access only for the groups and nodes where you are allowed to restart or
 kill instances, and restart the MCP client (e.g. Claude Code) after changing the file.
 
+### Workbench archives
+
+`export_archives` (feature 015, [reference](tools.md#export_archives)) writes Workbench-importable
+archives whose secrets are **in clear text** into a local folder. It needs no write access (it is
+read-only for INUBIT) and is offered under the condition of `export_artifacts` (a node has
+`cliHome`). On groups without `production: true` it needs no setting; on a production group it is
+refused with `PRODUCTION_PROTECTED` unless the group opts in:
+
+| Setting | Level | Default | Meaning |
+|---|---|---|---|
+| `archives.productionOptIn` | group | `false` | allows `export_archives` (archives with clear-text secrets) on a group with `production: true`; independent of `write.enabled` and `write.productionOptIn` — neither of them unlocks archives, and this setting allows no write tool |
+
+```yaml
+groups:
+  - name: prod
+    production: true
+    archives:
+      productionOptIn: true   # export_archives allowed on this production group
+    nodes:
+      - name: inubit01
+        baseUrl: https://inubit-prod-01.example.test:8443
+```
+
+- The value must be a YAML boolean, only `true` or `false`; an empty value is the default
+  `false`; anything else (also `1`, `0` or the text `"true"`, which `write.productionOptIn`
+  accepts) is a startup error that does not echo the value.
+- `archives` on a node or in `defaults`, and any other key under `archives`, is a startup error
+  (unknown key): the opt-in is a decision per group.
+- `archives.productionOptIn: true` on a group without `production: true` is a startup warning
+  "archives.productionOptIn has no effect on group <name> (not production)" (the word for the
+  group follows the profile's terminology).
+- `--check-config` ([section 6](#6-check-the-configuration)) ends each group line with the
+  archive state: `archives: allowed` (not production), `archives: refused (no
+  archives.productionOptIn)` or `archives: allowed (archives.productionOptIn)`.
+
+Each call also needs `acknowledgeClearTextSecrets: true`, the client's confirmation and a target
+folder that passes the folder rules (outside `~/.inubit-mcp`, the workspace, the audit directory,
+the configuration directory, the folder of the configuration file in use and every git working
+tree; no network path); see [`export_archives`](tools.md#export_archives) and
+[SECURITY.md](../SECURITY.md). Opt in only on production groups where you are allowed to take the
+workflows' secrets out of INUBIT.
+
 ### Audit log
 
 Every call of `restart_process` or `kill_process` that reaches the tool — refused, previewed,
 executed or failed — is appended to the audit log before the result is returned; so is every
-call of the development tools and of `deploy_release`
+call of the development tools, of `deploy_release` and of `export_archives`
 ([Development settings](#development-settings),
-[Stage chain and deployments](#stage-chain-and-deployments)). Calls whose arguments violate the
+[Stage chain and deployments](#stage-chain-and-deployments),
+[Workbench archives](#workbench-archives)). Calls whose arguments violate the
 input schema (group id instead of a node id, malformed process id or code, reason over 500
 chars, unknown property) are rejected by the MCP SDK before the tool runs and are not audited;
 they cannot change anything.
@@ -438,17 +485,20 @@ they cannot change anything.
 - Fields: `auditId`, `timestamp`, `profile` (the profile name), `node`, `group`, `capability`
   (`restart_process`, `kill_process`, the development tools `import_artifacts`,
   `restore_backup`, `set_active`, `tag_artifacts`, `run_e2e_test`, `backup_retention` for the
-  removal of old backups, and `deploy_release`), `step` (`PREVIEW` for the first call of a
-  two-step confirmation, `EXECUTE` otherwise), `inputs` (for restart and kill: `processId`,
-  `confirmationCode` / `issuedConfirmationCode` as `sha256:` + 16 hex chars only, `reason`),
+  removal of old backups, `deploy_release` and `export_archives`), `step` (`PREVIEW` for the
+  first call of a two-step confirmation, `EXECUTE` otherwise), `inputs` (for restart and kill:
+  `processId`, `confirmationCode` / `issuedConfirmationCode` as `sha256:` + 16 hex chars only,
+  `reason`; for `export_archives`: `owner`, `diagramGroup`, `targetFolder`, `workflow.<n>`,
+  `file.<n>`, `acknowledgeClearTextSecrets`, `reason`, never file content or secret values),
   `account` (the INUBIT username), `outcome`, `reason` (refusal or failure code and message, or
   the result), `mcpClient` (name/version the client sent in `initialize`). Absent values are
   omitted.
 - Outcomes: `CHALLENGE_ISSUED` (preview), `PENDING` (written **before** StartCLI runs; if it
   cannot be written, the action is not executed), then `EXECUTED` or `FAILED` with the same
   `auditId`; `REFUSED` for every refusal; `PACKAGED` for a node of a package-only deployment
-  target. A confirmed restart therefore leaves three records: `CHALLENGE_ISSUED`, `PENDING`,
-  `EXECUTED`.
+  target; `PARTIALLY_COMPLETED` for an `export_archives` call whose writing failed (some or no
+  archives written, one failed, the rest not attempted). A confirmed restart therefore leaves
+  three records: `CHALLENGE_ISSUED`, `PENDING`, `EXECUTED`.
 - Secrets are scrubbed from every field; passwords never appear.
 
 ### Artifact workspace
@@ -1374,7 +1424,10 @@ the nodes (see [The `secrets:` part](#the-secrets-part)) and prints to **stdout*
 its terminology, the credential store entry scheme, the audit directory and the workspace, then — if
 a group has a `deploy` record — a `Chains:` block (one line per stage chain, then the exclusions
 of each target, see [Stage chain and deployments](#stage-chain-and-deployments)), then per group
-one line per node — id, read-only or write flag, the development settings (if any node has them,
+a line with its name, `(production)` for a production group and the archive state of the group
+(`archives: …`, whether `export_archives` may run there, see
+[Workbench archives](#workbench-archives)), followed by one line per node — id, read-only or
+write flag, the development settings (if any node has them,
 see [Development settings](#development-settings)), CLI availability, the INUBIT version setting
 and the StartCLI client (see below), for a node of a target group `deploy: from <group> (<mode>)`,
 the source and the **names** of the entries or parameters read, each with its outcome (never
@@ -1412,9 +1465,10 @@ Typical warnings are harmless but worth reading: disabled host-name verification
 a missing StartCLI installation, a missing `inventory.owner`, environment variables that earlier
 versions read as credentials ("Environment variables are no longer read for INUBIT credentials
 (since 0.7.0): …", names only; move them to the credential store and remove them), a credential
-store that could not be asked, or another profile file in the default configuration directory
-that has the same profile name, the same credential prefix or the same audit directory (see
-"Several profiles side by side"; profile files elsewhere are not seen).
+store that could not be asked, an `archives.productionOptIn` on a group that is not production
+(see [Workbench archives](#workbench-archives)), or another profile file in the default
+configuration directory that has the same profile name, the same credential prefix or the same
+audit directory (see "Several profiles side by side"; profile files elsewhere are not seen).
 
 The version part of a node line ([INUBIT version](#inubit-version-versionline)):
 

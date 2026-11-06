@@ -512,7 +512,7 @@ export and a write failure are each audited, and the folder never holds a partia
   moments, refusal table of contracts/mcp-tools-delta.md, result example, audit, example prompt) and
   the tool line in `README.md`.
 
-- [ ] T023 [P] Setup and security docs (FR-014, FR-016): test first, own test class
+- [X] T023 [P] Setup and security docs (FR-014, FR-016): test first, own test class
   `test/mcp/tools/ArchiveSetupSecurityDocsTest.java`: `docs/setup.md` documents `archives.productionOptIn` (level group,
   default `false`, independence from `write.*`, the no-effect warning, the `--check-config` line) and
   lists `export_archives` and `PARTIALLY_COMPLETED` in the audit-log section; `SECURITY.md` names
