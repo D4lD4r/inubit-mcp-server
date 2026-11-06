@@ -499,7 +499,7 @@ export and a write failure are each audited, and the folder never holds a partia
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T022 [P] Tool reference (FR-016): test first, own test class
+- [X] T022 [P] Tool reference (FR-016): test first, own test class
   `test/mcp/tools/ArchiveToolReferenceTest.java` (as `ArtifactToolsReferenceTest`): `docs/tools.md`
   lists `| [\`export_archives\`](#export_archives) |` in the tool table and has a section
   `## \`export_archives\`` naming every parameter of the input schema, `clearTextSecrets`,
