@@ -75,3 +75,19 @@ Feasibility confirmed by the reviewer: `ClientCheckLookup` needs no recursion, `
 | 4 | SHOULD | SC-006 does not name the permanent exemptions | Accepted | SC-006 now names them (write successes, REST 403/500/503); `NOT_RECORDABLE.txt` content asserted exactly (D-10) |
 
 Round 3 #1 is superseded by this decision; the round-2 #1 residual risk stands as written in D-4.
+
+## Tasks — round 1 (rubber-duck, 2026-11-06)
+
+Before the review the producer checked every named path against the repository: REST adapters live in `adapter/rest/v81/` (`V81InventoryAdapter` in `adapter/`), `ClientCheck` is new, `Timed` is the existing `NodeVersionState.Timed`, and 012 already placed `cli/version.*` and `rest/system_info.*` under `fixtures/v9_0/` (four direct readers). Reviewer coverage check: no FR, SC, D-n or data-model row without a task.
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | BLOCKING | T026 names a record component `final` (Java keyword) | Accepted | Verified (data-model.md:35 `finalChoice`, contract JSON `"final"`). T026: `finalChoice` rendered as `"final"`, both asserted |
+| 2 | BLOCKING | Fixtures (T030) before their contract tests (T031) breaks TDD | Accepted | T030 = red (`V90Cases` + contract tests, missing `.origin` fails), T031 = green (fixtures, production fixes only where a test shows a 9.0 difference) |
+| 3 | SHOULD | Dependency graph lets tasks run before prerequisites (T027→T028, T030→T031, T015→T018, T014→T025, T034→T035/T036) | Accepted | Dependencies and parallel section rewritten |
+| 4 | SHOULD | T010 `[P]` but may change `CliRunner.java` like T012 | Accepted | T010 and T012 lose `[P]`; T009 → T010 → T011/T012 sequential (T012 also touches `CliRunner`) |
+| 5 | SHOULD | Probe bypass of the launch guard not tested | Accepted | T017 adds: with only key A checked, `-v`/`-h` for key B still execute; `checkAvailable` not guarded |
+| 6 | SHOULD | No test for `cliClients` under a group/node | Accepted | Verified (configuration-delta.md:54). T007 adds both cases with path and no value echo |
+| 7 | NIT | Phase 5 checkpoint without code-review | Accepted | Added |
+
+No blocking finding open.
