@@ -71,7 +71,7 @@ Throws `UNEXPECTED_RESPONSE` for an export that cannot be read (as `export_artif
 |---|---|---|
 | `workflow` | `String` | workflow name |
 | `modules` | `List<ModuleEntry>` | `{name, pluginType}` of node modules and bound modules found in the export, export order, each once |
-| `missingModules` | `List<String>` | node module names not in the export (FR-005) |
+| `missingModules` | `List<String>` | technical node module names (`moduleType="technical"`) not in the export (FR-005) |
 | `repositoryPaths` | `List<String>` | repository paths (`/Root/<owner>/…`) in the archive, sorted |
 | `workflowConnector` | `boolean` | a node's module has plug-in type `Workflow Connector` (string unverified, one constant; confirmed in the manual check, R-5) |
 

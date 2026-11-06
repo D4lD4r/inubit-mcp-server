@@ -144,7 +144,7 @@ three workflows of `fix/grp-b.zip` (`workflows` = `Workflow-0004`, `Workflow-000
 `Workflow-0006`) from the fake server into an empty temporary folder give three owner-only
 archives whose content follows FR-005/FR-006.
 
-- [ ] T007 [US1] Slicing plans (research R-3, R-5, R-6): test first
+- [X] T007 [US1] Slicing plans (research R-3, R-5, R-6): test first
   `test/adapter/archive/v81/V81WorkflowArchivesTest.java` (plan part) with a new test helper
   `test/adapter/archive/v81/WorkflowArchiveFixtures.java` that builds variants of `fix/grp-a.zip` /
   `fix/grp-b.zip` with `RawZip` (a module bound by `WorkflowName` that is no node; a nested

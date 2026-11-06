@@ -109,8 +109,10 @@ with its error precedence (R-12, R-13).
   2. plus every module index entry (`module/module.xml`) whose `WorkflowName` equals *W*
      (bound modules, e.g. connectors).
 
-  A name of (1) without an index entry in the export is a **missing module** (`{name}`; FR-005);
-  it is not an error. Every index entry of a selected name is kept (a module can have more than one
+  A name of (1) of a node with `moduleType="technical"` without an index entry in the export is a
+  **missing module** (`{name}`; FR-005), mirroring `WorkspaceWriter`'s warning; it is not an
+  error. Other nodes without an index entry (e.g. `Comment`, `PartnerManagement`) are not
+  reported; the module selection itself has no type filter. Every index entry of a selected name is kept (a module can have more than one
   entry; `WorkspaceWriter` groups them by name, `WorkspaceWriter.java:181-183`), and its module file
   `module/<lower-case name>.xml` if the export has one. Plug-in type = `ModuleGroupName` of the
   entry. A node whose module's plug-in type is `Workflow Connector` gives the per-archive warning
