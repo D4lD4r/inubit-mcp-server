@@ -56,6 +56,12 @@ class ConfigValidatorTest {
         existing.add(Path.of("/opt/jdk17"));
     }
 
+    /** Validates as on Windows, with a {@code java.io.tmpdir} that passes the Windows rule. */
+    private void runOnWindows() {
+        windows = true;
+        tempDirectory = Path.of("C:/Temp/inubit-test");
+    }
+
     private ValidationReport validate(String yaml) {
         LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, windows)
             .parse(yaml, HOME.resolve("config.yaml"));
@@ -734,7 +740,7 @@ class ConfigValidatorTest {
 
         @Test
         void onWindowsAValidCliConfigurationHasNoFindings() {
-            windows = true;
+            runOnWindows();
 
             ValidationReport report =
                 validate(server("cli:\n  home: /opt/client\n  javaHome: /opt/jdk17\n"));
@@ -745,7 +751,7 @@ class ConfigValidatorTest {
 
         @Test
         void onWindowsAMissingBatchFileIsAWarning() {
-            windows = true;
+            runOnWindows();
 
             ValidationReport report =
                 validate(server("cli:\n  home: /opt/other\n  javaHome: /opt/jdk17\n"));
@@ -758,7 +764,7 @@ class ConfigValidatorTest {
 
         @Test
         void withoutCliHomeWindowsGivesNoCliWarning() {
-            windows = true;
+            runOnWindows();
 
             assertThat(validate(server("timeout: PT5S\n")).warnings()).isEmpty();
         }
@@ -864,7 +870,7 @@ class ConfigValidatorTest {
 
         @BeforeEach
         void onWindows() {
-            windows = true;
+            runOnWindows();
         }
 
         private ValidationReport validateCli(String home, String settings) {
@@ -1021,6 +1027,7 @@ class ConfigValidatorTest {
 
             assertThat(validate(server("timeout: PT5S\n")).warnings()).isEmpty();
             windows = false;
+            tempDirectory = Path.of("/var/tmp/inubit-test");
             assertThat(validate(twoNodesWithCli()).warnings()).isEmpty();
         }
 
@@ -1041,6 +1048,49 @@ class ConfigValidatorTest {
                       - name: node2
                         baseUrl: https://inubit-2.example.test:8443
                 """;
+        }
+
+        // --- T018 (FR-009, R-3, US1 AS6): java.io.tmpdir follows the Windows path rule -------
+
+        private String tmpdirWarning() {
+            ValidationReport report = validateCli(CLI_HOME, "  javaHome: /opt/jdk17\n");
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).hasSize(1);
+            return report.warnings().get(0);
+        }
+
+        @Test
+        void aTemporaryDirectoryOutsideTheWindowsRuleIsAWarningWithTheRemedy() {
+            tempDirectory = Path.of("C:/Users/svc/odd~dir");
+
+            assertThat(tmpdirWarning()).contains("java.io.tmpdir", tempDirectory.toString(),
+                CliPaths.WINDOWS_PATH_VALUE.pattern(), "CLI_UNAVAILABLE", "-Djava.io.tmpdir=");
+        }
+
+        @Test
+        void aNetworkPathAsTemporaryDirectoryIsAWarning() {
+            tempDirectory = Path.of("\\\\files.example.test\\share\\tmp");
+
+            assertThat(tmpdirWarning()).contains("java.io.tmpdir", "CLI_UNAVAILABLE");
+        }
+
+        @Test
+        void theTemporaryDirectoryMustLeaveRoomForTheLongestExportPathOnWindows() {
+            // the longest export file below it (repository.zip) has 106 characters; Windows
+            // allows 259 in all
+            tempDirectory = Path.of("C:/" + "t".repeat(149));
+            ValidationReport fits = validateCli(CLI_HOME, "  javaHome: /opt/jdk17\n");
+            tempDirectory = Path.of("C:/" + "t".repeat(150));
+
+            assertThat(fits.warnings()).isEmpty();
+            assertThat(tmpdirWarning()).contains("java.io.tmpdir", "CLI_UNAVAILABLE");
+        }
+
+        @Test
+        void aTemporaryDirectoryWithBackslashesPassesTheWindowsRule() {
+            tempDirectory = Path.of("C:\\Users\\svc\\AppData\\Local\\Temp");
+
+            assertThat(validateCli(CLI_HOME, "  javaHome: /opt/jdk17\n").warnings()).isEmpty();
         }
     }
 

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
+import de.dadecker.inubit.mcp.config.CliPaths;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -102,7 +103,9 @@ class CliImportRunnerTest {
         assertThat(protocol.created()).hasSize(5);
         assertThat(cli.launches().get(0).importFile()).isEqualTo(ARCHIVE);
         Path file = importFile(cli.execCommands().get(0));
-        assertThat(file.getParent().getParent()).isEqualTo(tempRoot);
+        // on Windows the runner expands 8.3 names such as RUNNER~1 of the runner's %TEMP% (R-3)
+        assertThat(file.getParent().getParent())
+            .isEqualTo(CliPaths.forCommand(tempRoot, Platform.windows()));
         assertThat(file).doesNotExist();
         assertThat(leftovers()).isEmpty();
         cli.verifyComplete();

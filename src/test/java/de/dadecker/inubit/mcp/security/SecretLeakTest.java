@@ -61,6 +61,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
@@ -220,9 +222,12 @@ class SecretLeakTest {
     /**
      * Feature 013 (FR-003, research R-9): on Windows a username StartCLI cannot receive and a
      * password outside ASCII are refused before anything starts; neither value occurs in the
-     * tool result or the log output.
+     * tool result or the log output. Windows only: elsewhere {@code java.io.tmpdir} cannot pass
+     * the Windows path rule (T018), so the export stops before StartCLI's credentials are
+     * checked; {@code CliRunnerTest} covers the refusal on every platform.
      */
     @Test
+    @EnabledOnOs(OS.WINDOWS)
     void onWindowsRefusedCredentialsLeaveNoTrace() throws IOException {
         Files.writeString(cliHome.resolve("bin").resolve("startcli.bat"), "@echo off\r\n");
         FakeProcessLauncher startCli = FakeProcessLauncher.of("", "", 0);

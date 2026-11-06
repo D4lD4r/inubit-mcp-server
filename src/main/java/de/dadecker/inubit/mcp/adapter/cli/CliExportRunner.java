@@ -104,7 +104,9 @@ public final class CliExportRunner {
         this.guard = Objects.requireNonNull(guard, "guard");
         this.runner = Objects.requireNonNull(runner, "runner");
         this.classifier = Objects.requireNonNull(classifier, "classifier");
-        this.tempRoot = Objects.requireNonNull(tempRoot, "tempRoot");
+        // on Windows its real path, 8.3 short names expanded (feature 013, research R-3)
+        this.tempRoot = CliPaths.forCommand(Objects.requireNonNull(tempRoot, "tempRoot"),
+            runner.windows());
         this.maxArchiveBytes = maxArchiveBytes;
     }
 
@@ -129,7 +131,7 @@ public final class CliExportRunner {
             .quoted("--exportWorkflowType", type)
             .quoted("--exportWorkflowGroup", group)
             .flag("--includeHistory")
-            .path("--exportFile", file)
+            .path("--exportFile", file, runner.windows())
             .build());
     }
 
@@ -145,7 +147,7 @@ public final class CliExportRunner {
             .emptyQuoted("--exportModule")
             .emptyQuoted("--exportModuleGroup")
             .quoted("--exportModuleUser", owner)
-            .path("--exportFile", file)
+            .path("--exportFile", file, runner.windows())
             .build());
     }
 
@@ -167,7 +169,7 @@ public final class CliExportRunner {
             .quoted("--exportWorkflowUser", owner)
             .quoted("--exportWorkflowType", "technical")
             .quoted("--exportWorkflowGroup", diagramGroup)
-            .path("--exportFile", file)
+            .path("--exportFile", file, runner.windows())
             .build());
     }
 
@@ -184,7 +186,7 @@ public final class CliExportRunner {
             .quoted("--exportModule", name)
             .quoted("--exportModuleGroup", pluginType)
             .quoted("--exportModuleUser", owner)
-            .path("--exportFile", file)
+            .path("--exportFile", file, runner.windows())
             .build());
     }
 
@@ -211,7 +213,7 @@ public final class CliExportRunner {
                 .quoted("--exportWorkflowType", "technical")
                 .emptyQuoted("--exportWorkflowGroup")
                 .quoted("--exportTag", tag)
-                .path("--exportFile", file)
+                .path("--exportFile", file, runner.windows())
                 .build());
         } catch (ToolErrorException e) {
             if (e.error().code() == ErrorCode.NOT_FOUND) {
@@ -239,7 +241,7 @@ public final class CliExportRunner {
         checkRepositoryExport(path);
         return export("repository.zip", this::readArchive, file -> CliCommand.command("export")
             .repositoryPath("--exportRepositoryPath", path)
-            .path("--exportFile", file)
+            .path("--exportFile", file, runner.windows())
             .build());
     }
 
@@ -372,14 +374,15 @@ public final class CliExportRunner {
 
     private void checkPreconditions() {
         runner.checkAvailable(server);
-        if (!CliPaths.exportRootUsable(tempRoot)) {
+        if (!CliPaths.exportRootUsable(tempRoot, runner.windows())) {
             throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
                 "The temporary directory " + tempRoot + " cannot be passed to StartCLI on "
                     + server.id(),
                 "Export files are written below java.io.tmpdir, whose path is part of the"
-                    + " StartCLI command and must match " + CliPaths.PATH_VALUE.pattern(),
-                "Start the MCP server with -Djava.io.tmpdir=<absolute path of letters, digits,"
-                    + " _ . - / and spaces> (e.g. via JAVA_TOOL_OPTIONS)")
+                    + " StartCLI command and must match "
+                    + CliPaths.rule(runner.windows()).pattern(),
+                "Start the MCP server with -Djava.io.tmpdir=<"
+                    + CliPaths.tmpdirHint(runner.windows()) + "> (e.g. via JAVA_TOOL_OPTIONS)")
                 .withNode(server.id()));
         }
         if (!credentials.complete()) {

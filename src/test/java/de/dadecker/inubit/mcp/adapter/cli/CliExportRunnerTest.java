@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
+import de.dadecker.inubit.mcp.config.CliPaths;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
@@ -336,7 +337,9 @@ class CliExportRunnerTest {
             + " 'technical' --exportWorkflowGroup 'GRP-41' --includeHistory --exportFile '"
             + Platform.commandPath(file) + "'");
         assertThat(file.getFileName()).hasToString("history.zip");
-        assertThat(file.getParent().getParent()).isEqualTo(tempRoot);
+        // on Windows the runner expands 8.3 names such as RUNNER~1 of the runner's %TEMP% (R-3)
+        assertThat(file.getParent().getParent())
+            .isEqualTo(CliPaths.forCommand(tempRoot, Platform.windows()));
         // 002 research D-8: the runner's profile and this process's pid
         assertThat(file.getParent().getFileName().toString())
             .startsWith("inubit-mcp-export-acme-" + ProcessHandle.current().pid() + "-");

@@ -77,7 +77,9 @@ public final class CliImportRunner {
         this.guard = Objects.requireNonNull(guard, "guard");
         this.runner = Objects.requireNonNull(runner, "runner");
         this.classifier = Objects.requireNonNull(classifier, "classifier");
-        this.tempRoot = Objects.requireNonNull(tempRoot, "tempRoot");
+        // on Windows its real path, 8.3 short names expanded (feature 013, research R-3)
+        this.tempRoot = CliPaths.forCommand(Objects.requireNonNull(tempRoot, "tempRoot"),
+            runner.windows());
     }
 
     /**
@@ -87,14 +89,15 @@ public final class CliImportRunner {
      */
     public void checkAvailable() {
         runner.checkAvailable(server);
-        if (!CliPaths.exportRootUsable(tempRoot)) {
+        if (!CliPaths.exportRootUsable(tempRoot, runner.windows())) {
             throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
                 "The temporary directory " + tempRoot + " cannot be passed to StartCLI on "
                     + server.id(),
                 "Import files are written below java.io.tmpdir, whose path is part of the"
-                    + " StartCLI command and must match " + CliPaths.PATH_VALUE.pattern(),
-                "Start the MCP server with -Djava.io.tmpdir=<absolute path of letters, digits,"
-                    + " _ . - / and spaces>").withNode(server.id()));
+                    + " StartCLI command and must match "
+                    + CliPaths.rule(runner.windows()).pattern(),
+                "Start the MCP server with -Djava.io.tmpdir=<"
+                    + CliPaths.tmpdirHint(runner.windows()) + ">").withNode(server.id()));
         }
         if (!credentials.complete()) {
             throw new ToolErrorException(ToolError.of(ErrorCode.AUTH_FAILED,
@@ -137,7 +140,8 @@ public final class CliImportRunner {
         checkRepositoryImport(owner);
         String root = "/Root/" + owner;
         CliResult result = run(archive, file -> CliCommand.command("import")
-            .path("--importFile", file).repositoryPath("--importRepositoryPath", root).build());
+            .path("--importFile", file, runner.windows())
+            .repositoryPath("--importRepositoryPath", root).build());
         CliOutput output = classifier.parse(result);
         if (result.exitCode() != 0 || !output.nokMessages().isEmpty() || result.truncated()
             || output.okMessages().stream().noneMatch(REPOSITORY_SUCCESS::equals)) {
@@ -226,8 +230,9 @@ public final class CliImportRunner {
         }
     }
 
-    private static CliCommand command(Path file, Mode mode, String owner) {
-        CliCommand.Builder command = CliCommand.command("import").path("--importFile", file);
+    private CliCommand command(Path file, Mode mode, String owner) {
+        CliCommand.Builder command = CliCommand.command("import")
+            .path("--importFile", file, runner.windows());
         switch (mode) {
             case WORKFLOW -> command.flag("--importWorkflow");
             case WORKFLOW_ACTIVE -> command.flag("--importWorkflow")

@@ -278,7 +278,7 @@ Windows CI job.
 **Goal**: client check, module list, history and export work on Windows as on macOS.
 **Independent test**: the tool tests on the Windows CI job; later the live check (T031).
 
-- [ ] T018 [US1] Paths inside the command (FR-009, R-3): `CliPaths` platform-aware (Windows rule
+- [X] T018 [US1] Paths inside the command (FR-009, R-3): `CliPaths` platform-aware (Windows rule
   `^[A-Za-z]:/[A-Za-z0-9_.\- /]{1,256}$`, no `.`/`..`), `CliCommand.Builder.path` renders `/` on
   Windows and checks the platform rule, `CliExportRunner`/`CliImportRunner` messages print the
   platform's rule, temporary paths go through `toRealPath()` (the parent for files not yet

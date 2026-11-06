@@ -167,11 +167,12 @@ public final class ConfigValidator {
         if (windows && cliConfigured) {
             checkStartCliHost(findings);
         }
-        if (!windows && cliConfigured && !CliPaths.exportRootUsable(tempDirectory)) {
-            findings.warning("java.io.tmpdir " + tempDirectory + " cannot be passed to StartCLI"
-                + " (it must match " + CliPaths.PATH_VALUE.pattern() + "); inventory exports"
+        Path exportRoot = CliPaths.forCommand(tempDirectory, windows);
+        if (cliConfigured && !CliPaths.exportRootUsable(exportRoot, windows)) {
+            findings.warning("java.io.tmpdir " + exportRoot + " cannot be passed to StartCLI"
+                + " (it must match " + CliPaths.rule(windows).pattern() + "); inventory exports"
                 + " report CLI_UNAVAILABLE. Start the MCP server with"
-                + " -Djava.io.tmpdir=<such a path>");
+                + " -Djava.io.tmpdir=<" + CliPaths.tmpdirHint(windows) + ">");
         }
         if (cliConfigured && config.resolvableNodes().stream()
             .allMatch(node -> node.inventory().owner().isEmpty())) {
