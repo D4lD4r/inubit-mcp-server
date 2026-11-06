@@ -19,3 +19,59 @@ it is accepted.
 | 9 | SHOULD | 9.0 `startcli -v` output unverified; live check does not require keeping the evidence | Accepted | New SC-006: captured output and REST responses become contract fixtures before 0.8.1 |
 
 Verdict after round 1: no blocking finding open.
+
+## Spec changes during the plan phase (producer, 2026-11-06)
+
+| Change | Reason |
+|---|---|
+| FR-014: the default StartCLI address and the client per version are configuration defaults computed in the configuration layer | `PackageBoundaryTest` forbids `config` → `adapter`; the choice needs only the version and the configuration (research D-2) |
+| SC-003: tests that used 9.0 as "an undeclared version" move to 9.1, and the 0.8.0 tests of the 9.0 matrix entry are replaced | FR-001/FR-002 change exactly that entry; about 25 test classes used 9.0.7 as the undeclared example (D-20) |
+| FR-005: the new missing-client texts only when the version has a minor and `cliClients` is configured or the major is ≥ 9 | plan review 1, finding 8: FR-005 and FR-009 contradicted each other |
+
+## Plan — round 1 (rubber-duck, 2026-11-06)
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | BLOCKING | The gate checks the client of its version snapshot, `CliRunner` re-reads the shared version at launch; a concurrent `get_health` can make it launch an unchecked client; `HealthService` re-reads shared state | Accepted | Verified: `VersionGate.evaluate` snapshots the state (lines 173–188), the runner launches later. D-4 launch guard (keyed `-v` result, probe on miss, refuse on excluding range); `ClientSelectionPort`/`ClientVersionPort` take the caller's version snapshot; `HealthService` selects with its own observation (D-5, D-6); race tests in quickstart |
+| 2 | BLOCKING | 9.0 login hint keyed by address kind misses explicit `cli.url` (`CONFIGURED`) | Accepted | D-16 now keys on `CliChoice.major` ≥ 9; tests for explicit base-URL and servlet URLs |
+| 3 | BLOCKING | Live check omits `export_archives`, `check_artifacts`, `restore_backup`, `deploy_release`; Windows omits the `AUTO` switch | Accepted | Quickstart live steps 8–11 extended (two 9.0 stages for `deploy_release`, Windows step with `AUTO`) |
+| 4 | BLOCKING | Release guard relies on a hand-maintained `RECONSTRUCTED.txt`; an omitted case passes | Accepted (modified) | Closed world against the record scripts' 9.0 catalogue instead of a second manifest: `V90FixtureCatalogueTest` (D-10) ties catalogue (`.sh` = `.ps1`), fixture files, contract-test cases and `RECONSTRUCTED.txt` |
+| 5 | SHOULD | One client result/failure per node contradicts "per client" caching and per-key back-off (A→B→A) | Accepted | `NodeVersionState` keeps maps keyed by `ClientKey`; plan performance text corrected; A→B→A test |
+| 6 | SHOULD | "Any candidate" announces exports when only pinned 8.1 nodes and a `"9.0"` entry exist | Accepted | `anyCandidate`: pinned with minor → its own choice; without minor → version-less; only `AUTO` considers all entries (D-7); wiring test |
+| 7 | SHOULD | "cli.url never shown" conflicts with the pin probe's existing error texts | Partly accepted | Verified: `HandshakeStartCliPinProbe` lines 89–95 show the address. Not changed: 0.8.0 behaviour (FR-009), URLs carry no credentials (`ConfigLoader` refuses `@`, lines 637–703), operators need the address to diagnose. The plan constraint is narrowed to the new outputs |
+| 8 | SHOULD | FR-005 (always name the entry) vs. FR-009/D-8 (0.8.0 text) | Accepted | Condition of D-8 written into FR-005 |
+
+Not a finding (reviewer): a pinned 9.x node without `cli.url` intentionally moves from the servlet path to the base URL (FR-004, FR-011).
+
+## Plan — round 2 (rubber-duck, 2026-11-06)
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | BLOCKING | Guard only checks the client range; a write admitted on 9.0 still runs if the node is observed as 9.1 (with a checked 9.1 client) before the launch; `select` had no version parameter | Partly accepted | `select(server, version)` and the ports take the caller's snapshot (D-4, D-5). Not accepted: re-judging capabilities at launch. The gate decides on the version known at admission; an upgrade between admission and launch is the same time-of-check gap 0.8.0 has whether observed or not, and is independent of the client choice. Documented as residual risk in D-4 |
+| 2 | BLOCKING | Guard probing through `CliVersionProbe` (which uses `CliRunner.execute`) is circular; ignores back-off and budget; `checkAvailable` does not launch | Accepted | Verified (`CliVersionProbe` line 55). The guard no longer probes: it reads `ClientCheckLookup` (port, implemented by `NodeVersions`); key changed without a check → `CLI_UNAVAILABLE` "changed during this call"; recorded failure or first use → launch as the gate allows today (a failed probe is "not evaluable", `VersionGate.probeClient`); only `run`/`runSession` are guarded |
+| 3 | BLOCKING | A reconstructed fixture omitted from `RECONSTRUCTED.txt` passes as recorded | Accepted | Positive provenance: mandatory `<case>.origin` (`reconstructed …` / `recorded …`, the latter written only by the record scripts); missing origin fails; release guard requires `recorded` for every catalogue case (D-10) |
+| 4 | SHOULD | `.ps1` is the Windows invocation recorder (`win_*`), not a copy of the `.sh` catalogue; catalogue lacks `-h`, 401, 404 | Accepted | Verified (`record-fixtures.ps1` header, `record-fixtures.sh` `list_cases`). Catalogue = `.sh` 9.0 cases ∪ `.ps1` `win_*`; `.ps1` gets `-InubitLine 9.0`; `.sh` gets `help`, `rest_auth_failed`, `rest_not_found`; non-recordable cases listed in `NOT_RECORDABLE.txt` with their live-check step |
+| 5 | SHOULD | Old signatures `available(node)`, `warning(node)` in D-7/D-19 | Accepted | Both take the version snapshot |
+| 6 | SHOULD | "URLs carry no credentials" is stronger than the check (`cli.url` may have a query) | Accepted (wording) | Verified (`ConfigLoader` 675–717: query/fragment checked for `baseUrl` only). Statement narrowed to "no user info"; behaviour of the existing texts unchanged (0.8.0, FR-009) |
+
+## Plan — round 3 (rubber-duck, 2026-11-06)
+
+Feasibility confirmed by the reviewer: `ClientCheckLookup` needs no recursion, `NodeVersions` is built before `CliRunner` in `Wiring`, layering holds, no FR-009 regression in the reviewed paths; round 1 #7 partial rejection justified.
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | BLOCKING | A write admitted on 9.0 is still sent after the node is observed as 9.1 (checked 9.1 client); the runner cannot see the admission version | Accepted (modified) | Verified: `Admission` carries no version; ~15 admission sites, some via `FanOut`, so carrying a permit through every port is a large change. Instead: write commands are marked with their capability (`CliCommand.write`, enforced in `build()`) and re-judged at launch by `LaunchRecheck`, which reuses the gate's extracted write rule on the version read at launch. Same outcome as the reviewer's "re-evaluate the specific capability"; reads are not re-judged (not destructive). Round 2 #1 residual risk reduced to unobserved changes |
+| 2 | BLOCKING | Live steps do not produce REST 403/500/503, so "confirmed by the live check" is false | Accepted | Verified (quickstart steps 6–9). Write successes are confirmed by steps 8–9; 403/500/503 stay documentation-derived with a status-driven, contract-tested mapping (the body feeds only a scrubbed excerpt); D-10, quickstart 12 and Complexity Tracking say so |
+| 3 | SHOULD | Closed world one-directional for contract-test use | Accepted | `V90Cases` registry is the only fixture access of the 9.0 contract tests; catalogue ∪ non-recordable must equal the loaded set. Windows `win_*` cases dropped from the 9.0 catalogue: verified that `fixtures/windows` does not exist and no test consumes `.ps1` output; `.ps1` stays unchanged, 9.0 on Windows is live step 11 (also revises round 2 #4) |
+| 4 | NIT | D-7 still names `available(node)` | Accepted | Removed |
+
+## Plan — round 4 (rubber-duck, 2026-11-06)
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | BLOCKING | The one-shot re-check leaves a window before `launcher.launch`; needs a lease held until the process start | Decided by the person | Verified (`CliRunner.run` 191–201, `NodeVersions.observed`). Asked the person: the write race exists in 0.8.0 as well; closing it needs a version lock plus purpose plumbing. Decision: "Als eigenes Folge-Feature nach 0.8.1 vormerken, in 017 akzeptieren". The round-3 write re-check is withdrawn; D-4 keeps only the client guard; residual risk and follow-up recorded (D-4, plan "Follow-up") |
+| 2 | BLOCKING | `ImportPort`/`TagPort` serve both `DEVELOPMENT_WRITE` and `DEPLOYMENT`; adapters cannot know the capability | Moot (verified) | Verified (`V81PortSet` 20–37, `NodeDeployer`, `ImportService`). Part of the follow-up above |
+| 3 | SHOULD | Write-name enforcement not closed-world | Moot | Write re-check withdrawn |
+| 4 | SHOULD | SC-006 does not name the permanent exemptions | Accepted | SC-006 now names them (write successes, REST 403/500/503); `NOT_RECORDABLE.txt` content asserted exactly (D-10) |
+
+Round 3 #1 is superseded by this decision; the round-2 #1 residual risk stands as written in D-4.

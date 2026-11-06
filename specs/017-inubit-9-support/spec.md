@@ -224,9 +224,11 @@ pass unchanged.
 - **FR-005**: Client selection for StartCLI-backed tools happens after the node's version is
   resolved (detection of 009 where needed) and before StartCLI is started:
   - no client from any source (FR-003) → `CLI_UNAVAILABLE`, naming the node, its version and the
-    `defaults.cliClients` entry to add;
+    `defaults.cliClients` entry to add — when the version has a minor and `defaults.cliClients` is
+    configured or the major is 9 or later; otherwise the 0.8.0 text is kept (FR-009);
   - a selected client whose declared range excludes the node's version → refused by the existing
-    client check (009), its next step naming the `defaults.cliClients` entry to add;
+    client check (009), its next step naming the `defaults.cliClients` entry to add under the same
+    condition;
   - version unknown (failed detection) or a pin without minor (`V9_X`) → the version-less client
     (node/group `cli.home`, else `defaults.cliHome`).
 - **FR-006**: `--check-config` MUST check every configured client locally (no INUBIT contact) and
@@ -257,9 +259,11 @@ pass unchanged.
 - **FR-013**: Login to 9.0 MUST use user and password against the internal user management, as on
   8.1 (password on stdin for StartCLI, Basic for REST); no OAuth flow is started, and a failed
   StartCLI login on 9.0 MUST name the internal user management in its next step.
-- **FR-014**: All 9.0-specific access (addresses, request formats, error mapping, parsers) MUST live
-  in version-specific adapter code selected by the node's version (Constitution V); tool logic MUST
-  not branch on the INUBIT version.
+- **FR-014**: All 9.0-specific access (request formats, error mapping, parsers) MUST live in
+  adapter code selected by the node's version (Constitution V); the default StartCLI address and
+  the client per version are configuration defaults derived from the effective version's major
+  and major.minor, computed in the configuration layer. Tool logic MUST not branch on the INUBIT
+  version.
 - **FR-015**: `list_nodes` and `--check-config` MUST show for each node which client directory
   (no credentials) and which StartCLI address kind (with or without servlet path) apply to its
   currently known effective version, without any additional node contact; for a node whose
@@ -294,7 +298,8 @@ pass unchanged.
   (or nothing with `AUTO`) once the clients per version are configured.
 - **SC-003**: 100 % of the 0.8.0 test suite and every 0.8.0 configuration example pass (8.1 and
   6.1 behaviour preserved); the only permitted test changes are expectations of the additive
-  `list_nodes` field (FR-015).
+  `list_nodes` field (FR-015), tests that used 9.0 as an example of an undeclared version and now
+  use 9.1, and the 0.8.0 tests of the 9.0 matrix entry, which FR-001/FR-002 replace.
 - **SC-004**: No StartCLI call on a 9.x node uses the removed servlet address unless the operator
   configured it explicitly, in which case a warning is shown.
 - **SC-005**: No credential appears in any new message, warning, excerpt, log line or the
@@ -302,7 +307,11 @@ pass unchanged.
 - **SC-006**: Before 0.8.1 is released, the operator's live check has captured the exact output
   (stdout, stderr, exit status) of `startcli -v` of a 9.0 client and the responses of every REST
   endpoint used on 9.0; they are turned into contract fixtures that replace the
-  documentation-derived ones, and the test suite passes with them.
+  documentation-derived ones, and the test suite passes with them. Exempt are only the responses
+  the read-only recording cannot produce, listed by name: the success outputs of the StartCLI
+  write commands (confirmed by the live check's write steps) and the REST 403, 500 and 503 bodies
+  (no reproducible trigger; their handling depends on the status code, the body only feeds a
+  scrubbed excerpt).
 
 ## Assumptions
 
