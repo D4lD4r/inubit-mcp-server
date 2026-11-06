@@ -786,7 +786,7 @@ class InventoryServiceTest {
 
     // --- feature 009: version gate (T012) ----------------------------------------------------
 
-    private static final String UNVERIFIED = "INUBIT 9.0.7 on dev/node1 is not verified for"
+    private static final String UNVERIFIED = "INUBIT 9.1.0 on dev/node1 is not verified for"
         + " inventory; results may be incomplete";
 
     /** {@code dev/node1} detects INUBIT {@code raw}. */
@@ -802,9 +802,9 @@ class InventoryServiceTest {
     }
 
     @Test
-    void onInubit90ListsAndDetailsCarryTheUnverifiedWarning() {
+    void onInubit91ListsAndDetailsCarryTheUnverifiedWarning() {
         standardData(DEV);
-        devRuns("9.0.7");
+        devRuns("9.1.0");
 
         Listing diagrams = payload(service().list(list("dev/node1", InventoryKind.DIAGRAM))
             .get(0));
@@ -839,9 +839,9 @@ class InventoryServiceTest {
     }
 
     @Test
-    void anUnknownNameOnInubit90IsNotFoundWithTheWarning() {
+    void anUnknownNameOnInubit91IsNotFoundWithTheWarning() {
         standardData(DEV);
-        devRuns("9.0.7");
+        devRuns("9.1.0");
 
         NodeResult<Lookup> result = service().item(item("dev/node1", InventoryKind.DIAGRAM,
             "Workflow-9999")).get(0);
@@ -851,9 +851,9 @@ class InventoryServiceTest {
     }
 
     @Test
-    void withAClientThatExcludesInubit90DiagramsAreListedButModulesAreRefused() {
+    void withAClientThatExcludesInubit91DiagramsAreListedButModulesAreRefused() {
         standardData(DEV);
-        devRuns("9.0.7");
+        devRuns("9.1.0");
         devHasClient81();
 
         Listing diagrams = payload(service().list(list("dev/node1", InventoryKind.DIAGRAM))
@@ -868,15 +868,15 @@ class InventoryServiceTest {
             assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
             assertThat(error.node()).contains(DEV);
             assertThat(error.message()).startsWith("list_inventory: StartCLI client 8.1.17 of"
-                + " dev/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7");
+                + " dev/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.1.0");
         });
         assertThat(port(DEV).moduleLoads).as("no module export").hasValue(0);
     }
 
     @Test
-    void withAClientThatExcludesInubit90TheItemHistoryIsUnavailable() {
+    void withAClientThatExcludesInubit91TheItemHistoryIsUnavailable() {
         standardData(DEV);
-        devRuns("9.0.7");
+        devRuns("9.1.0");
         devHasClient81();
 
         Lookup diagram = payload(service().item(item("dev/node1", InventoryKind.DIAGRAM,

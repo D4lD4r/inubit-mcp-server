@@ -6,29 +6,31 @@ import java.util.OptionalInt;
 
 /**
  * The configured {@code versionLine} of a node (research D-2, data-model.md → VersionSetting):
- * {@code AUTO}, a line ({@code V6_1}, {@code V8_1}, {@code V9_X}) or a concrete version with at
- * least major.minor.patch. {@link #text()} is the configured spelling.
+ * {@code AUTO}, a line ({@code V6_1}, {@code V8_1}, {@code V9_0}, {@code V9_X}) or a concrete
+ * version with at least major.minor.patch. {@link #text()} is the configured spelling.
  */
 public sealed interface VersionSetting {
 
     Auto AUTO = new Auto();
     Line V6_1 = new Line(6, OptionalInt.of(1));
     Line V8_1 = new Line(8, OptionalInt.of(1));
+    Line V9_0 = new Line(9, OptionalInt.of(0));
     Line V9_X = new Line(9, OptionalInt.empty());
 
     /** The value as configured, e.g. {@code AUTO}, {@code V9_X} or {@code 9.0.7-HF1}. */
     String text();
 
     /**
-     * Reads a configured value: {@code AUTO}, {@code V6_1}, {@code V8_1}, {@code V9_X} or a
-     * version with a patch (suffix allowed). Empty for anything else; {@code text} is not
-     * trimmed.
+     * Reads a configured value: {@code AUTO}, {@code V6_1}, {@code V8_1}, {@code V9_0},
+     * {@code V9_X} or a version with a patch (suffix allowed). Empty for anything else;
+     * {@code text} is not trimmed.
      */
     static Optional<VersionSetting> parse(String text) {
         return switch (text) {
             case "AUTO" -> Optional.of(AUTO);
             case "V6_1" -> Optional.of(V6_1);
             case "V8_1" -> Optional.of(V8_1);
+            case "V9_0" -> Optional.of(V9_0);
             case "V9_X" -> Optional.of(V9_X);
             default -> InubitVersion.parse(text)
                 .filter(version -> version.patch().isPresent())

@@ -285,14 +285,14 @@ class TagServiceTest {
     // --- feature 009 (T009): the version gate --------------------------------------------------
 
     @Test
-    void aNodeOnInubit90IsRefusedAfterOnlyTheDetection() {
+    void aNodeOnInubit91IsRefusedAfterOnlyTheDetection() {
         versionLines.put(DEV, VersionSetting.AUTO);
-        detection.answer(DEV, "9.0.7");
+        detection.answer(DEV, "9.1.0");
 
         ToolError error = refusal(service(), request(List.of("GRP-01")));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
-        assertThat(error.message()).isEqualTo("tag_artifacts: INUBIT 9.0.7 on dev/node1 does not"
+        assertThat(error.message()).isEqualTo("tag_artifacts: INUBIT 9.1.0 on dev/node1 does not"
             + " support development writes yet; nothing was sent");
         assertThat(error.node()).contains(DEV);
         assertThat(port.calls).as("nothing read through StartCLI").isEmpty();

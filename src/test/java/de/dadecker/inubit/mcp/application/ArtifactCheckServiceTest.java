@@ -266,7 +266,7 @@ class ArtifactCheckServiceTest {
     void anAdmissionWarningBecomesOneWarningFinding() throws IOException {
         twoMissingModules();
         versionLine = VersionSetting.AUTO;
-        detection.answer(NODE, "9.0.7"); // no client result: unverified read, admitted
+        detection.answer(NODE, "9.1.0"); // no client result: unverified read, admitted
 
         List<CheckFinding> findings = service().checkPaths(List.of("dev"), true);
 
@@ -277,7 +277,7 @@ class ArtifactCheckServiceTest {
                 assertThat(finding.severity()).isEqualTo(Severity.WARNING);
                 assertThat(finding.path()).startsWith("dev/jdoe/workflows/GRP-01/");
                 assertThat(finding.location()).isPresent();
-                assertThat(finding.message()).contains("INUBIT 9.0.7 on dev/node1 is not"
+                assertThat(finding.message()).contains("INUBIT 9.1.0 on dev/node1 is not"
                     + " verified for inventory");
             });
         assertThat(server.calls).containsExactlyInAnyOrder("jdoe", "OWNERS");

@@ -318,7 +318,8 @@ final class Wiring implements AutoCloseable {
         CliRunner cliRunner = new CliRunner(launcher, environment, windows,
             windows ? new WindowsSystem() : new PosixSystem(), containment, cliResources);
         // feature 009 (research D-16): the 8.1 port set, as default for every version; feature
-        // 012 (research D-4): the 6.1 port set and health port, CLI-only (no REST client)
+        // 017 (research D-14): explicitly for 9.0 too; feature 012 (research D-4): the 6.1 port
+        // set and health port, CLI-only (no REST client)
         Map<NodeId, NodeSecrets> secrets = secrets(servers, credentialStore, scrubber, clock,
             parameterStore);
         // one client-option probe and one concurrency limiter for all 6.1 nodes (D-8, D-9)
@@ -326,7 +327,7 @@ final class Wiring implements AutoCloseable {
             clock.clock());
         CliConcurrencyLimiter cliLimiter = new CliConcurrencyLimiter(matrix);
         this.gateways = new AdapterGatewayFactory(servers, secrets, scrubber, clock.clock(),
-            cliRunner, versions, PortSetRegistry.v81Default()
+            cliRunner, versions, PortSetRegistry.v81Default().withV90()
                 .register(V61PortSet.RANGE, V61PortSet.factory(clientOptions, cliLimiter),
                     V61QueryRules.INSTANCE, V61PortSet.cliHealth(clientOptions, cliLimiter)));
         // feature 009 (research D-7): the StartCLI client probe, on the same runner so that a

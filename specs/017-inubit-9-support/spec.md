@@ -69,6 +69,11 @@ Version einen eigenen Startcli Pfad zu konfigurieren."
 - Spec review round 1 (see `reviews.md`): the configuration key is `defaults.cliClients`;
   `V9_X` uses the version-less client; a client check belongs to the client it checked (FR-017);
   `list_nodes` gains one additive field.
+- Q: A write is admitted on the version known at admission and sent later; the known version can
+  change in between (0.8.0 has the same gap for 8.1 → 9.0). Close it in 017 or later? → A: Close
+  it in 017 (plan review 5, the person revised the earlier "follow-up after 0.8.1"): a write is
+  sent only while the node's known version is the one it was admitted on, for every transition
+  including 8.1 ↔ 9.0 (FR-018).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -191,6 +196,12 @@ pass unchanged.
   `--check-config`; the first three make the profile invalid, the last is a warning (FR-003).
 - **REST error bodies in JSON**: messages and excerpts are scrubbed as before; no JSON error body is
   returned unfiltered.
+- **Version change during a write** (an `AUTO` node is found to run 9.0 by a parallel
+  `get_health` while a write admitted on 8.1 is under way, or 9.0 → 9.1): the write is not sent
+  on the new version; the call is refused with "changed … during this call; nothing was sent" and
+  the operator calls it again, which judges it on the new version (FR-018). In a multi-step write
+  (`deploy_release`) the refused step fails like a StartCLI error; the rollback is refused as well
+  and the backup stays for `restore_backup`.
 - **`tls.pinPerServer` (feature 014)**: the pin check targets the effective StartCLI address, which
   is now version-dependent; for the default address host and port are those of `baseUrl` in both
   cases.
@@ -277,6 +288,14 @@ pass unchanged.
   the previous result MUST NOT be used, and the new client is checked before its next use.
   `get_health` on a node whose version it learns only in that call MUST report the client check of
   the client selected for the observed version.
+- **FR-018**: A state-changing call MUST hand off each write (StartCLI process start, E2E request)
+  only while the node's known version has the major.minor the call was admitted on and is not
+  marked as possibly changed; the known version MUST NOT change between that check and the
+  hand-off. Otherwise the write is refused with `UNSUPPORTED_VERSION` ("changed … during this
+  call; nothing was sent", next step "Call the tool again"). This holds for every transition,
+  including 8.1 ↔ 9.0, and for every write tool (`import_artifacts`, `set_active`,
+  `restore_backup`, `tag_artifacts`, `run_e2e_test`, `deploy_release`, `restart_process`,
+  `kill_process`).
 
 ### Key Entities
 
@@ -312,6 +331,11 @@ pass unchanged.
   write commands (confirmed by the live check's write steps) and the REST 403, 500 and 503 bodies
   (no reproducible trigger; their handling depends on the status code, the body only feeds a
   scrubbed excerpt).
+
+- **SC-007**: No write is handed off to a node whose known major.minor differs from the one the
+  call was admitted on; in the offline tests a version change between admission and hand-off
+  refuses the write for every write tool, and a version change requested during a hand-off takes
+  effect only after it.
 
 ## Assumptions
 

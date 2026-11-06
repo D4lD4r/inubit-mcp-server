@@ -539,14 +539,14 @@ class E2eTestServiceTest {
     // --- feature 009 (T009): the version gate --------------------------------------------------
 
     @Test
-    void aNodeOnInubit90IsRefusedAfterOnlyTheDetection() {
+    void aNodeOnInubit91IsRefusedAfterOnlyTheDetection() {
         versionLines.put(DEV, VersionSetting.AUTO);
-        detection.answer(DEV, "9.0.7");
+        detection.answer(DEV, "9.1.0");
 
         ToolError error = refusal(service(), request());
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
-        assertThat(error.message()).isEqualTo("run_e2e_test: INUBIT 9.0.7 on dev/node1 does not"
+        assertThat(error.message()).isEqualTo("run_e2e_test: INUBIT 9.1.0 on dev/node1 does not"
             + " support end-to-end test yet; nothing was sent");
         assertThat(error.node()).contains(DEV);
         wireMock.verify(0, anyRequestedFor(anyUrl()));

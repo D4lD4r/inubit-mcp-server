@@ -66,8 +66,11 @@ earlier result (60 s back-off per key after a failure).
   address as in 0.8.0 (`cli.url` carries no user info: `ConfigLoader` refuses `@`);
 - a tool never launches a client whose key changed since the last admission without that key
   being checked, nor one whose checked range excludes the selected version (FR-017; launch guard,
-  D-4; the guard itself never launches a process); a version change between admission and launch
-  is not re-judged for capabilities (as in 0.8.0; accepted, follow-up after 0.8.1);
+  D-4; the guard itself never launches a process);
+- a write is handed off (process start, E2E request) only while the node's known major.minor is
+  the admitted one, under a per-node lock that every version-state change takes as well (FR-018,
+  D-24); the lock never spans a network wait or the wait for a process's output; this also closes
+  0.8.0's 8.1 → 9.0 gap;
 - no version-string branching in tool logic (FR-014): the gate reads the matrix, the CLI adapter
   reads `CliChoice`;
 - `pom.xml` version unchanged (`0.8.0-test.1`; the integration branch owns it).
@@ -161,14 +164,21 @@ and each ending with a green `mvn -o -q clean verify` (plus the Python tests whe
    admission and launch; two overlapping `get_health` calls),
    `CliClientProbe` cache, `ClientSelectionPort`/`CliClientSelector`, `VersionGate` (dynamic
    `withClient`, servlet warning), `HealthService` re-probe, `Wiring`.
-5. **REST for 9.0**: `MediaRange` per request, JSON error excerpt, URL-shape test, 9.0 fixtures
+5. **Write permit and lock (FR-018, D-24)**: `WritePermit`, `Admission.version`, permits from
+   `DevelopmentGuard`/`WriteGuard`/`DeployGuard`, `WriteLock` in `NodeVersions` (lock in
+   `update`, reentrancy assertion), permit parameter on `ImportPort`/`TagPort`/
+   `ProcessControlPort`/`E2ePort` and all callers and decorators, `CliRunner.run(…, permit)`
+   with the lock released after `launch`, `SoapE2eClient` with `sendAsync`; race tests
+   (8.1 → 9.0, 9.0 → 9.1, stale, change requested during a hand-off waits, deploy step and
+   rollback refused).
+6. **REST for 9.0**: `MediaRange` per request, JSON error excerpt, URL-shape test, 9.0 fixtures
    and contract test.
-6. **Operator view**: `--check-config` (client probes, JDK majors, warnings, summary lines),
+7. **Operator view**: `--check-config` (client probes, JDK majors, warnings, summary lines),
    `list_nodes.startCli` and schema.
-7. **Recording and guard**: `RECORD_INUBIT_LINE=9.0` (`.sh`) with tests, `.origin` per case,
+8. **Recording and guard**: `RECORD_INUBIT_LINE=9.0` (`.sh`) with tests, `.origin` per case,
    `NOT_RECORDABLE.txt`, `V90Cases` registry, `V90FixtureCatalogueTest` (closed world, both
    directions), `V90RecordedFixturesTest`.
-8. **Docs and CHANGELOG 0.8.1**, quickstart validation record.
+9. **Docs and CHANGELOG 0.8.1**, quickstart validation record.
 
 ### Touch points with 012, 013, 016 (already merged; D-22)
 
@@ -180,13 +190,10 @@ and each ending with a green `mvn -o -q clean verify` (plus the Python tests whe
   entries. `tools/record-fixtures.ps1` stays unchanged (no recorded Windows fixtures and no
   consumer yet); 9.0 on Windows is a live-check step.
 - **016** (update check): no touch point.
-
-## Follow-up (not part of 017)
-
-- **Write race between admission and launch** (plan reviews 3/4, decided by the person): re-judge
-  a write on the version at launch under a per-node version lock held until the process start,
-  with the write purpose passed through `ImportPort`/`TagPort`. Exists in 0.8.0 as well; planned
-  as its own feature after 0.8.1.
+- **0.8.0 write gap**: 0.8.0 (012) admits a write on the known version and launches later without
+  a re-check, so a write admitted on 8.1 can start after a parallel `get_health` found 9.0. Stage 5
+  closes this for every transition; 017 changes the write port signatures that 012/013 introduced
+  or used (`ImportPort`, `TagPort`, `ProcessControlPort`, `E2ePort`), all on this branch.
 
 ## Complexity Tracking
 

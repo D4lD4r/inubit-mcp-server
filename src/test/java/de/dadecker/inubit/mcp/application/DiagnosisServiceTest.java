@@ -726,9 +726,9 @@ class DiagnosisServiceTest {
     // --- feature 009: version gate (T012) ------------------------------------------------------
 
     @Test
-    void onInubit90BothToolsRunWithTheUnverifiedWarningAfterOneDetection() {
+    void onInubit91BothToolsRunWithTheUnverifiedWarningAfterOneDetection() {
         versionLines.put(DEV, VersionSetting.AUTO);
-        detection.answer(DEV, "9.0.7");
+        detection.answer(DEV, "9.1.0");
         processes(DEV).answer = query -> page(List.of(
             instance(DEV, "1", ProcessState.ERROR, NOW)), 0, 50, 1, false);
         logs(DEV).answer = query -> page(List.of(entry(DEV, 5)), 0, 50, 1, false);
@@ -739,10 +739,10 @@ class DiagnosisServiceTest {
         NodePage<LogEntry> logPage = service.queryLogs(logRequest("dev/node1",
             LogType.SYSTEM_LOG)).get(0).payload().orElseThrow();
 
-        assertThat(processPage.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not"
+        assertThat(processPage.warnings()).containsExactly("INUBIT 9.1.0 on dev/node1 is not"
             + " verified for process diagnosis; results may be incomplete");
         assertThat(processPage.page().items()).hasSize(1);
-        assertThat(logPage.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not"
+        assertThat(logPage.warnings()).containsExactly("INUBIT 9.1.0 on dev/node1 is not"
             + " verified for log diagnosis; results may be incomplete");
         assertThat(logPage.page().items()).hasSize(1);
         assertThat(detection.requests()).as("the second call uses the cached version")

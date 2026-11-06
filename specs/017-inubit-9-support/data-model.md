@@ -33,12 +33,17 @@ field is optional and additive.
 | `ClientCheckLookup` | new (port) | `Optional<ClientCheck> check(NodeId, ClientKey)` (`ClientCheck` = a recorded `ClientVersion` or a recorded failure code), `boolean anyCheck(NodeId)` | implemented by `NodeVersions`; read-only; used by the `CliRunner` launch guard (D-4) |
 | `ClientSelectionPort` | new | `Optional<ClientKey> current(NodeId, Optional<InubitVersion>)`, `boolean available(NodeId, Optional<InubitVersion>)`, `boolean anyCandidate(NodeId)` (D-7), `Optional<String> warning(NodeId, Optional<InubitVersion>)` (servlet address on ≥ 9, D-19) | no node contact, no process launch; the version is the caller's snapshot, never re-read |
 | `NodeSummary` | changed | `+ StartCli startCli` (`Optional<String> clientDirectory`, `String source`, `Optional<String> versionEntry`, `String address`, `boolean finalChoice`) | rendered as `startCli` (contracts/mcp-tools-delta.md) |
+| `WritePermit` | new (`domain/model`) | `NodeId node`, `Capability capability` (kind `WRITE`: `DEVELOPMENT_WRITE`, `DEPLOYMENT`, `E2E_TEST`, `PROCESS_CONTROL`), `InubitVersion admitted` | handed out by the write guards only; `MajorMinor admittedLine()`; no credentials (D-24) |
+| `WriteLock` | new (port, `domain/port`) | `<T> T handOff(WritePermit, Function<Optional<InubitVersion>, T>)` | refuses (`UNSUPPORTED_VERSION`, D-24 texts) unless the node is not stale and its effective major.minor is `admittedLine()`; runs the action under the node's lock |
+| `ImportPort`, `TagPort`, `ProcessControlPort`, `E2ePort` | changed | every state-changing method `+ WritePermit permit` (`importArchive`, `importRepository`, `tag`, `restart`, `kill`, `post`) | a permit for another node → `IllegalArgumentException` |
 
 ## Adapter
 
 | Type | Change | Rules |
 |---|---|---|
 | `CliRunner` | changed | `+ Function<NodeId, Optional<InubitVersion>> versions`, `+ ClientCheckLookup checks` (constructor); `+ Selection select(EffectiveNodeConfig, Optional<InubitVersion>)` (`server` with the chosen `Cli`, the `CliChoice`, the address warning); every launching entry point selects once with one version read (D-4); launch guard on `run`/`runSession` (D-4): result for the key excludes the version → `UNSUPPORTED_VERSION`; no check for the key but one for another key → `CLI_UNAVAILABLE` "changed during this call"; otherwise launch; never probes itself; `AUTH_FAILED` next step by `CliChoice.major` ≥ 9 (D-16); FR-005 texts (D-8) |
+| `CliRunner` (write path) | changed | `+ run(…, WritePermit)`; `execute` gets a start hook | select and pin probe unlocked; inside `WriteLock.handOff`: same key and address as before the lock (else D-4 "changed" text), launch guard, `launch`; lock released after the start, before waiting for output (D-24) |
+| `V81ImportAdapter`, `V81TagAdapter`, `V81ProcessControlAdapter`, `CliImportRunner`, `CliTagRunner`, `SoapE2eClient`, `StaleReportingPorts` | changed | take and pass the permit; `SoapE2eClient` hands the request over with `sendAsync` inside `handOff` and waits outside | D-24 |
 | `CliClientSelector` | new (`adapter/cli`) | implements `ClientSelectionPort` from `CliRunner.select`, the existence predicate and the Windows flag |
 | `CliVersionProbe` | changed | `probe(node, version, timeout)` selects by the given version; returns `ProbedClient`; range pattern case-insensitive (D-15) |
 | `CliClientProbe` | changed | cache key `(NodeId, ClientKey)` |
@@ -52,7 +57,9 @@ field is optional and additive.
 | Type | Change | Rules |
 |---|---|---|
 | `NodeVersions` | changed | implements `ClientCheckLookup`; `clientProbed(NodeId, ProbedClient)`, `clientProbeFailed(NodeId, ClientKey, ErrorCode)`, `needsClientProbe(NodeId, ClientKey)` |
+| `NodeVersions` (lock) | changed | implements `WriteLock`; one fair `ReentrantLock(true)` per node, blocking `lock()` only; `update` takes it; `update` or `handOff` while the same thread is inside `handOff` → `IllegalStateException` | FR-018 |
 | `VersionGate` | changed | `withClient` predicate → `ClientSelectionPort` with the gate's version snapshot; probe and judge only that key; adds `ClientSelectionPort.warning` when the channel includes CLI |
+| `VersionGate.Admission`, guards, policies | changed | `Admission + Optional<InubitVersion> version`; `DevelopmentPolicy` `+ WritePermit permit()` with the admission's capability (operation's, `DEPLOYMENT` for a deployment-backup restore), `WritePolicy` `+ WritePermit permit()`; `DeployGuard.Admitted` `+ Map<NodeId, WritePermit> permits` (target nodes, and source nodes where written) | permit from the admission's version; services pass it to every write port call, rollback included |
 | `HealthService` | changed | selects with the version this call observed; re-probe when that key differs from the probed one, within the remaining budget; otherwise `client` unavailable "not checked yet" (D-6) |
 | `NodeOverview` | changed | `startCli` per node; allowed capabilities with the current `available` (D-7) |
 

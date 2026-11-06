@@ -79,7 +79,8 @@ import org.slf4j.LoggerFactory;
  * part of the port set and is handed out without waiting for a detection. The StartCLI-backed
  * ports run with the factory's {@link CliRunner} and the server's {@link CredentialGuard}, shared
  * with its REST client. Production registers the 8.1 port set as default for every version
- * ({@link PortSetRegistry#v81Default()}) and the CLI-only 6.1 range.
+ * ({@link PortSetRegistry#v81Default()}), explicitly for the 9.0 range too
+ * ({@link PortSetRegistry#withV90()}), and the CLI-only 6.1 range.
  *
  * <p>CLI-only ranges (feature 012, research D-4): for a node whose effective version selects a
  * range registered with a {@link PortSetRegistry.CliHealthFactory}, the port set and the

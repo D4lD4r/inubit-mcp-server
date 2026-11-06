@@ -34,6 +34,10 @@ How to check 017 offline (automated) and live (by the person, in the joint 0.8.x
 | release guard: a release build with a catalogue case whose `.origin` is not `recorded` fails; pre-release builds skip with the list (SC-006) | `V90RecordedFixturesTest` |
 | launch guard: key changed without a check → `CLI_UNAVAILABLE` "changed during this call", nothing launched; checked range excludes → `UNSUPPORTED_VERSION`; failure recorded or first use → launched as in 0.8.0 (D-4) | `CliRunnerLaunchGuardTest` |
 | race: `AUTO` node observed as 9.0 between admission and launch; two overlapping `get_health` calls (FR-017) | `CliRunnerLaunchGuardTest`, `HealthServiceTest` — the unchecked 9.0 client is not launched; each `get_health` reports the client of its own observation |
+| write race (FR-018, SC-007): version changes 8.1 → 9.0, 9.0 → 9.1, 9.0 → stale between admission and hand-off → `UNSUPPORTED_VERSION` "changed … during this call", nothing launched/sent; 9.0.6 → 9.0.7 → sent | `WriteLockTest` (`NodeVersions`), `CliRunnerWriteLockTest`, `SoapE2eClientTest`, write-service tests |
+| a version change requested during a hand-off waits until the process started / the request was handed over; `update` inside a hand-off throws; no deadlock with parallel reads and `get_health` | `WriteLockTest` (latches, timeouts) |
+| `deploy_release` with a version change between two node imports: step fails with the refusal, rollback refused, backup kept (FR-018) | `NodeDeployerTest` |
+| every write port call carries the permit of its admission (purpose and node) | compile-time; `StaleReportingPortsTest`, service tests |
 | A→B→A version change: A's result reused, A's back-off kept (FR-017) | `NodeVersionStateTest` |
 | tool announcement: only a `"9.0"` entry and only `V8_1` nodes → exports not announced; an `AUTO` node → announced (D-7) | `WiringTest` |
 | `AUTH_FAILED` on 9.0 with explicit base-URL or servlet `cli.url` also names the internal user management (FR-013) | `CliOutputClassifierTest`, `CliRunnerTest` |

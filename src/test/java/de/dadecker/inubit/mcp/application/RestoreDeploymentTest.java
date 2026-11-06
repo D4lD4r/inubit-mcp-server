@@ -321,11 +321,11 @@ class RestoreDeploymentTest extends DeployExecution {
     // --- feature 009, T011: the version gate (DEPLOYMENT, WRITE, StartCLI and REST) ----------
 
     @Test
-    void aTargetNodeOnInubit90IsRefusedAfterOnlyTheDetection() {
+    void aTargetNodeOnInubit91IsRefusedAfterOnlyTheDetection() {
         harness(false);
         String backupRef = deploy(false).nodes().get(0).backupRef().orElseThrow();
         harness.versionLines.put(DeployHarness.INT1, VersionSetting.AUTO);
-        harness.detection.answer(DeployHarness.INT1, "9.0.7");
+        harness.detection.answer(DeployHarness.INT1, "9.1.0");
         int launches = harness.launches().size();
         int restCalls = harness.restCalls.size();
 
@@ -338,7 +338,7 @@ class RestoreDeploymentTest extends DeployExecution {
         assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
         assertThat(error.node()).contains(DeployHarness.INT1);
         assertThat(error.message()).startsWith("restore_backup: ").contains("deployment")
-            .contains("INUBIT 9.0.7 on int/node1").contains("nothing was sent");
+            .contains("INUBIT 9.1.0 on int/node1").contains("nothing was sent");
         assertThat(restoreAudit()).singleElement().satisfies(record ->
             assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED));
         assertThat(harness.detection.requests()).containsExactly(DeployHarness.INT1);

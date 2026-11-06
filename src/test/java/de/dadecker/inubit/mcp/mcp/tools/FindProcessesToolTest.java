@@ -204,7 +204,7 @@ class FindProcessesToolTest {
     }
 
     @Test
-    void onInubit90TheEntryOfTheNodeCarriesTheUnverifiedWarning() throws IOException {
+    void onInubit90TheEntryOfTheNodeCarriesNoVersionWarning() throws IOException {
         fixture.close();
         fixture = new DiagnosisToolFixture(dev, integration, FindProcessesTool::new,
             VersionSetting.AUTO);
@@ -219,9 +219,7 @@ class FindProcessesToolTest {
 
         assertMatchesOutputSchema("find_processes", result);
         JsonNode entry = result.path("structuredContent").path("results").get(0);
-        assertThat(entry.path("warnings")).extracting(JsonNode::asString).containsExactly(
-            "INUBIT 9.0.7 on dev/node1 is not verified for process diagnosis; results may"
-                + " be incomplete");
+        assertThat(entry.has("warnings")).as("INUBIT 9.0 is declared: no warnings").isFalse();
         assertThat(entry.path("page").path("items")).hasSize(2);
         assertThat(dev.findAll(getRequestedFor(urlPathEqualTo("/ibis/rest/system/info"))))
             .as("one detection request").hasSize(1);

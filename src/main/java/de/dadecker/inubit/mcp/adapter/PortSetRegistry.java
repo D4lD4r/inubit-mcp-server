@@ -27,8 +27,8 @@ import java.util.Optional;
  * no REST client and {@code AdapterGatewayFactory} builds none for it.
  *
  * <p>Production uses {@link #v81Default()}, the 8.1 port set for every version, so unverified
- * reads run on the 8.1 adapters; {@code Wiring} registers the CLI-only 6.1 range on top. A later
- * version adds its range with its own factory.
+ * reads run on the 8.1 adapters; {@code Wiring} registers the 9.0 range ({@link #withV90()}) and
+ * the CLI-only 6.1 range on top. A later version adds its range with its own factory.
  */
 public final class PortSetRegistry {
 
@@ -71,6 +71,11 @@ public final class PortSetRegistry {
         Optional<CliHealthFactory> cliHealth) {
     }
 
+    /** INUBIT 9.0.x, served by the 8.1 port set (feature 017, research D-14). */
+    public static final VersionRange V90_RANGE = new VersionRange(9, 0, 9, 0);
+
+    private static final Factory V81 = V81PortSet::create;
+
     private final Factory defaultFactory;
     private final QueryRules defaultRules;
     private final List<Entry> entries;
@@ -89,7 +94,17 @@ public final class PortSetRegistry {
 
     /** The 8.1 port set as default for every version, without ranges. */
     public static PortSetRegistry v81Default() {
-        return new PortSetRegistry(V81PortSet::create);
+        return new PortSetRegistry(V81);
+    }
+
+    /**
+     * A copy of this registry in which the 8.1 port set, with the 8.1 query checks, serves
+     * {@link #V90_RANGE} explicitly, without CLI health factory (feature 017, research D-14): the
+     * 8.1 adapters are verified against the 9.0 fixtures, and a later 9.0 deviation gets its
+     * place here. A node moving between 8.1 and 9.0 has its ports rebuilt (other range).
+     */
+    public PortSetRegistry withV90() {
+        return register(V90_RANGE, V81, V81QueryRules.INSTANCE);
     }
 
     /**

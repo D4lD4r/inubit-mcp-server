@@ -1,6 +1,6 @@
 # Tasks: INUBIT 9 Support
 
-**Input**: Design documents from `specs/017-inubit-9-support/` (spec, plan, research D-1…D-23,
+**Input**: Design documents from `specs/017-inubit-9-support/` (spec, plan, research D-1…D-24,
 data-model, contracts, quickstart, reviews)
 
 **Tests**: mandatory (constitution Principle III, TDD): each implementation task starts with its
@@ -23,29 +23,29 @@ decisions go to `specs/017-inubit-9-support/reviews.md` ("Implementation — pha
 
 ## Phase 1: Setup
 
-- [ ] T001 Baseline: `mvn -o -q clean verify` with the tmpdir above is green on the branch (merged
+- [X] T001 Baseline: `mvn -o -q clean verify` with the tmpdir above is green on the branch (merged
   `origin/0.8.0`); note the test count in `reviews.md` as the SC-003 reference
 
 ## Phase 2: Foundational — version model and matrix (plan stage 1; blocks every story)
 
-- [ ] T002 [P] `MajorMinor` per data-model.md ("`int major, int minor`; `parse(String)`;
+- [X] T002 [P] `MajorMinor` per data-model.md ("`int major, int minor`; `parse(String)`;
   `of(InubitVersion)` (empty without minor); `text()` = `"M.m"`"; `parse` accepts only
   `^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`) with tests in `domain/model/MajorMinor.java`,
   test `domain/model/MajorMinorTest.java`
-- [ ] T003 [P] `VersionSetting.V9_0 = Line(9, OptionalInt.of(0))`, `parse("V9_0")`; the load error
+- [X] T003 [P] `VersionSetting.V9_0 = Line(9, OptionalInt.of(0))`, `parse("V9_0")`; the load error
   text lists "AUTO, V6_1, V8_1, V9_0, V9_X or a full version" (D-9); `V9_X` unchanged; tests in
   `domain/model/VersionSettingTest.java` and `config/ConfigLoaderTest.java`; main
   `domain/model/VersionSetting.java`, `config/ConfigLoader.java`
-- [ ] T004 `CapabilityMatrix.production()`: 9.0 entry `READS_UNVERIFIED` → `ALL_SUPPORTED` (same
+- [X] T004 `CapabilityMatrix.production()`: 9.0 entry `READS_UNVERIFIED` → `ALL_SUPPORTED` (same
   states and channels as 8.1, REST and CLI); `+ boolean declares(MajorMinor)`; `V9_X`/unknown
   unchanged (D-9). Replace `CapabilityMatrixTest.readsAreUnverifiedAndWritesUnsupportedOn90` by
   the 9.0 expectations; `declares` true for 6.1, 8.1, 9.0, false for 9.1/7.0 — main
   `domain/model/CapabilityMatrix.java`, test `domain/model/CapabilityMatrixTest.java`
-- [ ] T005 D-20 migration: in every test class that uses `9.0.7`/the 9.0 entry as the example of an
+- [X] T005 D-20 migration: in every test class that uses `9.0.7`/the 9.0 entry as the example of an
   undeclared version (≈31 files, `grep -rln "9\.0\.7" src/test/java`), move the example to
   `9.1.0` with assertions unchanged; tests whose subject is 9.0 itself get the new expectation
   (T004). List every touched class in `reviews.md` (SC-003 permits exactly these changes)
-- [ ] T006 [P] `PortSetRegistry`: register `VersionRange(9, 0, 9, 0)` → `V81PortSet::create`, no CLI
+- [X] T006 [P] `PortSetRegistry`: register `VersionRange(9, 0, 9, 0)` → `V81PortSet::create`, no CLI
   health factory (D-14); test that 9.0.7 selects that range and an `AUTO` slot moving 8.1 → 9.0
   rebuilds its ports without network access — main `adapter/PortSetRegistry.java`, `Wiring.java`
   (registration site), test `adapter/PortSetRegistryTest.java`
@@ -179,7 +179,71 @@ FR-017).
   `export_archives`) uses `anyCandidate` — main `Wiring.java`, tests `StartCliClientWiringTest.java`,
   `ToolAnnouncementTest.java`
 
-### Operator view (plan stage 6)
+### Write permit and lock (plan stage 5, FR-018, D-24)
+
+- [ ] T040 [US2] `WritePermit(NodeId, Capability, InubitVersion admitted)` with `admittedLine()`
+  (every capability of kind `WRITE` accepted, `READ` refused) and
+  `VersionGate.Admission` `+ Optional<InubitVersion> version` (the version the call was judged on;
+  present for every admitted write) — main `domain/model/WritePermit.java`,
+  `application/VersionGate.java`, tests `domain/model/WritePermitTest.java`,
+  `application/VersionGateTest.java`
+- [ ] T041 [US2] Port `WriteLock.handOff(WritePermit, Function<Optional<InubitVersion>, T>)`;
+  `NodeVersions` implements it with one `ReentrantLock` per node, `update` takes the same lock,
+  fair lock (`ReentrantLock(true)`, blocking `lock()` only); `update` or `handOff` from inside a
+  hand-off on the same thread → `IllegalStateException` (lock released afterwards); refusal texts of
+  contracts/mcp-tools-delta.md ("changed from … to …", "may run another version", leak check).
+  Tests: 8.1 → 9.0, 9.0 → 9.1, 9.0 → 8.1, stale → refused and action not run; 9.0.6 → 9.0.7 →
+  run with 9.0.7; a `detected`/`observed`/`stale` call from another thread during the action
+  waits until it returns (latch, bounded wait); ordering: hand-off A held, `observed(9.0)` queued,
+  then hand-off B queued → after A the observation commits before B and B is refused; two
+  hand-offs on different nodes run in parallel —
+  main `domain/port/WriteLock.java`, `application/NodeVersions.java`, test
+  `application/WriteLockTest.java`
+- [ ] T042 [US2] Guards hand out permits from the admission's version and capability:
+  `DevelopmentGuard` → `DevelopmentPolicy.permit()` (the operation's capability: `E2E_TEST` for
+  `run_e2e_test`, `DEPLOYMENT` for the deployment-backup restore, else `DEVELOPMENT_WRITE`;
+  kept by `forDeploymentRestore`/`forRepositoryWrite`; a test per operation), `WriteGuard` → `WritePolicy.permit()`
+  (`PROCESS_CONTROL`), `DeployGuard` → `Admitted.permits()` per written node (`DEPLOYMENT`) —
+  main `application/DevelopmentGuard.java`, `application/WriteGuard.java`,
+  `application/DeployGuard.java`, tests `DevelopmentGuardTest`, `WriteGuardTest`, `DeployGuardTest`
+- [ ] T043 [US2] `CliRunner.run(…, WritePermit)` (D-24): select and pin probe unlocked; inside
+  `WriteLock.handOff` re-select with the locked version (key or address differ → D-4 "changed
+  during this call" text), launch guard with that version, `launch`; `execute` gets a start hook
+  so the lock is left right after the process started and before waiting for its output; the
+  credential guard wraps the whole. Tests (`FakeProcessLauncher`, fake `WriteLock`): refused →
+  nothing launched; version change requested while the process runs is not blocked after the
+  start; key changed under the lock → `CLI_UNAVAILABLE`; reads (`run` without permit) unchanged —
+  main `adapter/cli/CliRunner.java`, test `adapter/cli/CliRunnerWriteLockTest.java`
+- [ ] T044 [US2] `E2ePort.post(Message, WritePermit)` with `SoapE2eClient` and every E2E fake
+  (`RunE2eTestToolTest`, `E2eTestServiceTest`, …) in the same red/green step; `E2eTestService`
+  passes its policy's permit; `SoapE2eClient.post(message, permit)`: request built outside, handed to the
+  HTTP client with `sendAsync` inside `handOff`, response awaited outside (timeout as today);
+  refused → no request (WireMock: zero requests) — main `domain/port/E2ePort.java`,
+  `adapter/soap/SoapE2eClient.java`, `application/E2eTestService.java`, test
+  `adapter/soap/SoapE2eClientWriteLockTest.java`
+- [ ] T045 [US2] Port signatures `+ WritePermit` on `ImportPort.importArchive/importRepository`,
+  `TagPort.tag`, `ProcessControlPort.restart/kill` (E2E in T044); every implementation in the
+  same step (`RefusingPorts`, `StaleReportingPorts`, test fakes); adapters (`V81ImportAdapter`,
+  `CliImportRunner`, `V81TagAdapter`, `CliTagRunner`, `V81ProcessControlAdapter`) call
+  `CliRunner.run(…, permit)`; a permit for another node → `IllegalArgumentException`;
+  `StaleReportingPorts` passes it through; every caller passes the permit of its admission
+  (`ImportService` incl. `DiagramGroupTagger`, restore, set-active; `RepositoryStep`;
+  `TagService`; `NodeDeployer`; `ProcessControlService`); `Wiring` gives
+  `CliRunner` and `SoapE2eClient` the `NodeVersions` lock; test fakes record the permit and the
+  service tests assert node and capability — main `domain/port/*Port.java`, adapters, services,
+  `Wiring.java`, tests `StaleReportingPortsTest`, the service and adapter tests
+- [ ] T046 [US2] Multi-step writes (contracts "Every write tool"): `deploy_release` with a version
+  change between two node imports → that step fails with the refusal in its report, rollback
+  refused → `ROLLBACK_FAILED` with the contract's warning (both versions, restore only on the
+  admitted one), backup kept; `import_artifacts` with tag: tag refused after a version change →
+  existing tag-failure handling; parameterized over all eight FR-018 tools (standalone
+  `import_artifacts` and `tag_artifacts` included): a change between admission and the first
+  hand-off → refused, zero launches/requests, each recorded permit carries the admitted node and
+  capability (SC-007) — tests
+  `application/NodeDeployerWriteLockTest.java`, `application/WriteRaceToolsTest.java` (fix in
+  the services only if a test shows a gap)
+
+### Operator view (plan stage 7)
 
 - [ ] T023 [P] [US2] `JdkRelease.major(Path javaHome, Function<Path, Optional<String>> reader)`
   ("reads `JAVA_VERSION="<n>…"` of `<javaHome>/release`; `"1.8…"` → 8; unreadable → empty") —
@@ -205,8 +269,8 @@ FR-017).
   `mcp/tools/ListNodesTool.java`, tests `mcp/tools/ListNodesToolTest.java` (incl. its schema
   check), `application/NodeOverviewTest.java`
 
-**Checkpoint**: build green; code-review after T014 (stages 2–3), after T022 (stage 4) and after
-T026 (stage 6).
+**Checkpoint**: build green; code-review after T014 (stages 2–3), after T022 (stage 4), after
+T046 (stage 5) and after T026 (stage 7).
 
 ## Phase 4: User Story 1 – Work with INUBIT 9.0 nodes like with 8.1 nodes (P1)
 
@@ -258,7 +322,7 @@ shape.
   major.minor rule); StartCLI launched with `<baseUrl>` (SC-001 offline, SC-004) — tests
   `application/V90AdmissionTest.java`, `application/DeployServiceVersionTest.java` (9.0 cases)
 
-**Checkpoint**: build green; code-review phase 4 (plan stage 5).
+**Checkpoint**: build green; code-review phase 4 (plan stage 6).
 
 ## Phase 5: User Story 3 – Existing profiles keep working (P2)
 
@@ -278,7 +342,7 @@ StartCLI values; 8.1 and 6.1 suites pass.
 **Checkpoint**: build green (SC-003 count ≥ T001 minus replaced tests, listed in `reviews.md`);
 code-review phase 5.
 
-## Phase 6: Recording and release guard (plan stage 7; US1, SC-006)
+## Phase 6: Recording and release guard (plan stage 8; US1, SC-006)
 
 - [ ] T034 [US1] `tools/record-fixtures.sh`: `RECORD_INUBIT_LINE=9.0` → output
   `fixtures/v9_0/rest|cli`, CLI URL `<baseUrl>`, each REST case with its D-11 `Accept`; new
@@ -298,13 +362,15 @@ code-review phase 5.
 
 **Checkpoint**: build + Python tests green; code-review phase 6.
 
-## Phase 7: Polish (plan stage 8)
+## Phase 7: Polish (plan stage 9)
 
 - [ ] T037 [P] Docs (FR-016): `docs/setup.md` (`cliClients`, default address by major, JDK 17/21, migration
   8.1 → 9.0, `V9_0` vs `V9_X`), `docs/tools.md` (`list_nodes.startCli`, 9.0 support, servlet
-  warning, `CLI_UNAVAILABLE` "call again"), `README.md` (supported versions),
+  warning, `CLI_UNAVAILABLE` "call again", write refused after a version change during the call
+  (FR-018)), `README.md` (supported versions),
   `docs/research/inubit-interfaces.md` §4 (what 017 relies on, D-11/D-12)
-- [ ] T038 [P] `CHANGELOG.md` (FR-016): section `0.8.1 (unreleased)`; `pom.xml` version unchanged (D-23)
+- [ ] T038 [P] `CHANGELOG.md` (FR-016): section `0.8.1 (unreleased)`, incl. the fix "a write is no longer
+  sent after a parallel call found another INUBIT version" (also 8.1 → 9.0); `pom.xml` version unchanged (D-23)
 - [ ] T039 Full verification (mvn + Python), quickstart offline table checked row by row and the
   validation record filled in `specs/017-inubit-9-support/quickstart.md`; final code-review over
   `git diff origin/0.8.0...HEAD`; findings in `reviews.md`
@@ -314,7 +380,8 @@ code-review phase 5.
 - Phase 2 blocks everything.
 - US2: T007 → T008 → T009 → T010 → T011 → T012 (all touch `CliRunner.java`);
   T009 → (T013, T014); T015 → T016 → T017; T015 → T018; T014 + T016 → T019 → T020 → T021 →
-  T022; T008 → T023 → T024; T014 + T024 → T025; T019 + T022 → T026.
+  T022; T008 → T023 → T024; T014 + T024 → T025; T019 + T022 → T026;
+  T020 → T040 → T041 → T042; T017 + T041 → T043; T042 → T044; T043 + T044 → T045 → T046.
 - US1 (Phase 4): T027 → T028 → T029 (all `InubitHttpClient`/adapters); T030 → T031 (T031 also
   needs T027–T029 for the header/JSON-error cases and T018 for `-h`); T032 needs T009 (address by
   major), T020 (gate on 9.0 clients) and T031.
@@ -330,5 +397,5 @@ T027–T030 can start after Phase 2 alongside US2; T037/T038. Builds always sequ
 ## Implementation strategy
 
 MVP = Phase 2 + US2 configuration and selection (T007–T014): 9.0 nodes get their own client and
-address. Then the per-client check (T015–T022), 9.0 REST (Phase 4), operator view, compatibility
+address. Then the per-client check (T015–T022), the write permit and lock (T040–T046), 9.0 REST (Phase 4), operator view, compatibility
 proof, release guard and docs. Each phase ends green and reviewed.

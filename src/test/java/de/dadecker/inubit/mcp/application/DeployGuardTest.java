@@ -169,7 +169,7 @@ class DeployGuardTest {
         Map<NodeId, VersionSetting> settings = Map.of(
             NodeId.parse("dev/node1"), VersionSetting.parse("8.1.17").orElseThrow(),
             NodeId.parse("dev/node2"), VersionSetting.parse("8.1.17").orElseThrow(),
-            NodeId.parse("int/node1"), VersionSetting.parse("9.0.7").orElseThrow(),
+            NodeId.parse("int/node1"), VersionSetting.parse("9.1.0").orElseThrow(),
             NodeId.parse("int/node2"), VersionSetting.V9_X);
         MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
         NodeVersions versions = new NodeVersions(clock, settings::get,
@@ -189,7 +189,7 @@ class DeployGuardTest {
         assertThat(e.error().message()).startsWith("deploy_release: refused Knoten: int/node1,"
             + " int/node2; deployment from dev into int refused (the version check refused"
             + " int/node1, int/node2; the Knoten run different INUBIT minor versions (8.1,"
-            + " 9.0)). Sources: ");
+            + " 9.1)). Sources: ");
         assertThat(e.error().likelyCause()).isEqualTo("deploy_release deploys only between"
             + " Knoten whose INUBIT versions are known, supported for deployments and of the"
             + " same minor version");

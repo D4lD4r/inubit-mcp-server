@@ -53,6 +53,35 @@ unchanged; outputs change only additively (`list_nodes.startCli`) and by the 9.0
       "node": "test/node1" }
     ```
 
+## Every write tool (FR-018, D-24)
+
+`import_artifacts`, `set_active`, `restore_backup`, `tag_artifacts`, `run_e2e_test`,
+`deploy_release`, `restart_process`, `kill_process`: when the node's known version changed to
+another major.minor (or was marked as possibly changed) after the call was admitted, the write is
+not sent:
+
+```json
+{ "code": "UNSUPPORTED_VERSION",
+  "message": "INUBIT on test/node1 changed from 8.1.17 to 9.0.7 during this call; the write was admitted for INUBIT 8.1; nothing was sent",
+  "likelyCause": "A parallel call found that test/node1 runs another INUBIT version",
+  "nextStep": "Call the tool again; it is judged on the version INUBIT runs now",
+  "node": "test/node1" }
+```
+
+Stale or unknown current version: message `INUBIT on test/node1 may run another version than
+8.1.17 since this call was admitted; nothing was sent`, same cause and next step.
+
+- A patch change within the admitted major.minor (9.0.6 → 9.0.7) does not refuse; the launch
+  guard (above) checks the client's range for the new version.
+- Multi-step writes: in `deploy_release`, `import_artifacts` with tag and `restore_backup`, a
+  refused step fails like a StartCLI error of that step (existing step failure, with this error in
+  the step's report); steps already sent stay sent. `deploy_release`'s rollback is refused as well
+  (`ROLLBACK_FAILED` as today); instead of the 0.8.0 warning "… is in the backup <ref>
+  (restore_backup)" its warning reads `The rollback of test/node1 was not sent because INUBIT
+  changed from 8.1.17 to 9.0.7 during this call; its state before the deployment is in the backup
+  <ref>, taken on INUBIT 8.1; restore it with restore_backup only on INUBIT 8.1`.
+- Reads are not affected.
+
 ## `get_health`
 
 - Part `client`: the check of the client chosen for the version read in this call. If the choice

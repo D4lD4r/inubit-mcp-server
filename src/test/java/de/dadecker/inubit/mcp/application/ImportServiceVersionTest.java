@@ -33,7 +33,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 /**
  * T009 (feature 009, US2, FR-005, FR-008, FR-011, FR-015): {@code import_artifacts},
  * {@code restore_backup} of a development backup and {@code set_active} pass the version gate
- * after the configuration checks and before the StartCLI check. A node on INUBIT 9.0, pinned to
+ * after the configuration checks and before the StartCLI check. A node on INUBIT 9.1, pinned to
  * {@code V9_X} or with a failed detection is refused with {@code UNSUPPORTED_VERSION} naming the
  * tool, audited {@code REFUSED}, and nothing but the detection is requested. A StartCLI client
  * whose patch differs from the server's admits the call with the mismatch in {@code warnings}.
@@ -87,14 +87,14 @@ class ImportServiceVersionTest {
 
     @ParameterizedTest
     @EnumSource(Call.class)
-    void aNodeDetectedOnInubit90IsRefusedAfterOnlyTheDetection(Call call) throws IOException {
+    void aNodeDetectedOnInubit91IsRefusedAfterOnlyTheDetection(Call call) throws IOException {
         ImportHarness harness = ImportHarness.grpA(temp);
         harness.versionLines.put(DEV, VersionSetting.AUTO);
-        harness.detection.answer(DEV, "9.0.7");
+        harness.detection.answer(DEV, "9.1.0");
 
         ToolError error = refusal(harness, call);
 
-        assertThat(error.message()).contains("INUBIT 9.0.7 on dev/node1");
+        assertThat(error.message()).contains("INUBIT 9.1.0 on dev/node1");
         assertThat(harness.detection.requests()).containsExactly(DEV);
     }
 

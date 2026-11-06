@@ -63,7 +63,7 @@ public final class CapabilityMatrix {
 
     private static final CapabilityMatrix PRODUCTION = new CapabilityMatrix(
         List.of(V6_1, new Entry(new VersionRange(8, 1, 8, 1), ALL_SUPPORTED),
-            new Entry(new VersionRange(9, 0, 9, 0), READS_UNVERIFIED)),
+            new Entry(new VersionRange(9, 0, 9, 0), ALL_SUPPORTED)),
         READS_UNVERIFIED);
 
     private final List<Entry> entries;
@@ -82,8 +82,8 @@ public final class CapabilityMatrix {
 
     /**
      * The production declaration of research D-3: 6.1.x CLI-only with every capability
-     * unsupported; 8.1.x all supported; 9.0.x, any other known version and unknown versions: reads
-     * unverified, writes unsupported.
+     * unsupported; 8.1.x and (feature 017, research D-9) 9.0.x all supported; any other known
+     * version and unknown versions: reads unverified, writes unsupported.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;
@@ -123,6 +123,15 @@ public final class CapabilityMatrix {
                 major + "." + minor.getAsInt()))
             : Optional.empty();
         return state(version, capability);
+    }
+
+    /**
+     * Whether an entry's range contains {@code version}; a version that only falls back to the
+     * declaration for unknown versions is not declared (feature 017).
+     */
+    public boolean declares(MajorMinor version) {
+        return entry(Optional.of(new InubitVersion(version.major(), version.minor(),
+            OptionalInt.empty(), version.text()))).isPresent();
     }
 
     private Optional<Entry> entry(Optional<InubitVersion> version) {

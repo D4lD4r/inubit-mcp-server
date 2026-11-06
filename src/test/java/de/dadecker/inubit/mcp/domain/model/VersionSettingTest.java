@@ -10,7 +10,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Feature 009 (T005, research D-2, data-model.md → VersionSetting); feature 012 (T003, FR-002,
- * research D-1): {@code V6_1} and concrete 6.1 pins.
+ * research D-1): {@code V6_1} and concrete 6.1 pins; feature 017 (T003, research D-9):
+ * {@code V9_0}.
  */
 class VersionSettingTest {
 
@@ -23,6 +24,9 @@ class VersionSettingTest {
             .contains(new VersionSetting.Line(9, OptionalInt.empty()));
         assertThat(VersionSetting.parse("V6_1"))
             .contains(new VersionSetting.Line(6, OptionalInt.of(1)));
+        assertThat(VersionSetting.parse("V9_0"))
+            .contains(new VersionSetting.Line(9, OptionalInt.of(0)))
+            .contains(VersionSetting.V9_0);
     }
 
     @Test
@@ -40,7 +44,8 @@ class VersionSettingTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"8.1", "6.1", "V6_X", "V10", "auto", "", " AUTO", "V8_2", "x8.1.17"})
+    @ValueSource(strings = {"8.1", "6.1", "V6_X", "V10", "auto", "", " AUTO", "V8_2", "x8.1.17", "v9_0",
+        "V9_00", "V90"})
     void refusesEverythingElse(String text) {
         assertThat(VersionSetting.parse(text)).isEmpty();
     }
@@ -51,6 +56,7 @@ class VersionSettingTest {
         assertThat(VersionSetting.V8_1.text()).isEqualTo("V8_1");
         assertThat(VersionSetting.V9_X.text()).isEqualTo("V9_X");
         assertThat(VersionSetting.V6_1.text()).isEqualTo("V6_1");
+        assertThat(VersionSetting.V9_0.text()).isEqualTo("V9_0");
         assertThat(VersionSetting.parse("8.1.17-HF3").orElseThrow().text())
             .isEqualTo("8.1.17-HF3");
     }

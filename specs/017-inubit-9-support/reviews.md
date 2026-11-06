@@ -76,6 +76,19 @@ Feasibility confirmed by the reviewer: `ClientCheckLookup` needs no recursion, `
 
 Round 3 #1 is superseded by this decision; the round-2 #1 residual risk stands as written in D-4.
 
+## Plan — round 5 (the person's correction, 2026-11-06)
+
+The answer recorded in round 4 #1 ("follow-up after 0.8.1") was given on the person's behalf by
+the project coordinator; the person corrected it: "Möchte ich noch in 017 schließen". Round 4 #1
+and #2 are therefore reopened and closed in 017 (FR-018, SC-007, D-24, plan stage 5, T040–T046):
+a `WritePermit` (node, write capability, admitted version) from every write guard is passed to
+every state-changing port method and all callers (this also settles round 4 #2: the purpose
+travels with the permit); `NodeVersions` implements `WriteLock`, a per-node lock that every
+version-state change takes; a write is handed off (process start, E2E request) only inside the
+lock while the known major.minor equals the admitted one, and the lock is left as soon as the
+process started / the request was handed over. The same mechanism closes 0.8.0's 8.1 → 9.0 gap.
+The follow-up note in plan.md is removed; D-4's residual-risk paragraph is replaced.
+
 ## Tasks — round 1 (rubber-duck, 2026-11-06)
 
 Before the review the producer checked every named path against the repository: REST adapters live in `adapter/rest/v81/` (`V81InventoryAdapter` in `adapter/`), `ClientCheck` is new, `Timed` is the existing `NodeVersionState.Timed`, and 012 already placed `cli/version.*` and `rest/system_info.*` under `fixtures/v9_0/` (four direct readers). Reviewer coverage check: no FR, SC, D-n or data-model row without a task.
@@ -112,3 +125,49 @@ Coverage 23/23 (FR-001…FR-017, SC-001…SC-006); no CRITICAL; no constitution 
 | C1 | HIGH | SC-005 / Constitution II: no explicit secret-leak test for new texts, logs, JSON excerpts, `--check-config` | Fixed: "leak check" rule with `TestSecrets` in the header, named in T009, T011, T017, T024, T025, T029 |
 | C2 | MEDIUM | SC-002 (switch by `versionLine` only) untested | Fixed: case added to T033 |
 | C3 | LOW | FR-016, SC-001, SC-004 covered without ID reference | IDs added to T032, T037, T038 |
+
+## Implementation — phase 1 (baseline)
+
+T001: `mvn -o -q clean verify` on the merged branch (86bb40e, no source change since): 4998 tests, 0 failures, 0 errors, 51 skipped. SC-003 reference.
+
+## Implementation — phase 2 (T002–T006, code-review)
+
+Result before the fixes: 5037 tests, 0 failures, 51 skipped (green; `GitCliTest` needs the
+Homebrew git without `GIT_*` variables, environmental).
+
+SC-003 audit of the touched test classes (T005):
+- **9.0 → 9.1.0 example moves** (only the version string; "undeclared version" now 9.1):
+  `DevelopmentWiringTest`, `ArchiveExportServiceTest`, `ArtifactCheckServiceTest`,
+  `CapabilityExtensionTest`, `DeployGuardTest`, `DeployServiceVersionTest`, `DiagnosisServiceTest`,
+  `WorkspaceExportTest`, `HealthServiceTest` (`UNVERIFIED_910`), `E2eTestServiceTest`,
+  `ImportServiceVersionTest`, `ProcessControlServiceTest`, `RestoreDeploymentTest`,
+  `TagServiceTest`, `InventoryServiceTest`, `VersionGateTest` (7 tests), `ListNodesToolTest`.
+- **Tests about 9.0 itself, expectation changed by FR-001**: `CapabilityMatrixTest` (9.0 =
+  8.1), `FindProcessesToolTest` and `GetInventoryItemToolTest` (9.0 fixture, now no version
+  warning; renamed `…CarriesNoVersionWarning`).
+- **Additions only**: `MajorMinorTest` (new), `VersionSettingTest`, `ConfigLoaderTest`,
+  `PortSetRegistryTest`, `AdapterGatewayFactoryTest` (8.1 → 9.0 rebuilds the ports).
+- **Kept at 9.0.7** (independent of the production matrix): test matrices, client-range
+  exclusion, pin contradiction, fixture parser, 9.x line.
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | SHOULD | T005 marked done without the SC-003 class list | Accepted | List above |
+| 2 | NIT | `productionRegistersOnly…` builds `v81Default()`, not the production registry | Accepted | Renamed `v81DefaultRegistersOnly…`; the production-like registry is covered in `PortSetRegistryTest` |
+
+No blocking finding open.
+
+## Design — round 1 of the write lock (rubber-duck, 2026-11-06)
+
+Reviews the round-5 design (FR-018, D-24, T040–T046). All findings verified against the code.
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | BLOCKING | `WritePermit` excluded `E2E_TEST`; T042 gave every `DevelopmentGuard` result `DEVELOPMENT_WRITE` | Accepted | Verified (`DevelopmentGuard` `Operation.capability()` → `E2E_TEST`; restore of a deployment backup admitted as `DEPLOYMENT`). Permit accepts every `WRITE` capability; the guard uses the admission's capability; a test per operation |
+| 2 | BLOCKING | A non-fair lock lets a later hand-off barge past a queued version update | Accepted | Fair `ReentrantLock(true)`, blocking `lock()` only; ordering test (A held, update queued, B queued → update first, B refused) |
+| 3 | SHOULD | Nested hand-off would keep the lock across the inner wait | Accepted | `handOff` inside a hand-off on the same thread → `IllegalStateException`, like `update` |
+| 4 | SHOULD | Recommending `restore_backup` after a refused rollback can import 8.1 exports into 9.0; manifests carry no version | Accepted (modified) | The rollback warning after a version change names both versions and says to restore only on the admitted version. Recording the version in the manifest and refusing `restore_backup` on a mismatch is not added: the gap exists in 0.8.0 for any upgrade between deploy and restore, independent of the race; reported to the coordinator as a possible follow-up |
+| 5 | SHOULD | T044 changed `SoapE2eClient` before T045 changed `E2ePort` (not green per task) | Accepted | `E2ePort` signature, its fakes and `E2eTestService` move into T044; T044 now depends on T042, T045 on T044 |
+| 6 | SHOULD | `RefusingPorts` implements `ImportPort`/`TagPort`/`ProcessControlPort` but was not named | Accepted | Verified (`adapter/RefusingPorts.java`). Named in T045 with every implementation in the same step |
+| 7 | SHOULD | Race coverage lacked standalone `import_artifacts` and `tag_artifacts` | Accepted | T046 parameterized over all eight FR-018 tools |
+

@@ -693,9 +693,9 @@ class ProcessControlServiceTest {
 
     @ParameterizedTest
     @EnumSource(ProcessAction.class)
-    void onInubit90BothToolsAreRefusedAfterOnlyTheDetection(ProcessAction action) {
+    void onInubit91BothToolsAreRefusedAfterOnlyTheDetection(ProcessAction action) {
         versionLines.put(DEV, VersionSetting.AUTO);
-        detection.answer(DEV, "9.0.7");
+        detection.answer(DEV, "9.1.0");
 
         ToolError error = errorOf(() -> service.execute(request(action, "dev/node1", PID,
             Optional.empty())));
@@ -703,7 +703,7 @@ class ProcessControlServiceTest {
         assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
         assertThat(error.node()).contains(DEV);
         assertThat(error.message()).startsWith(action.capability() + ": ")
-            .contains("INUBIT 9.0.7 on dev/node1").contains("process control")
+            .contains("INUBIT 9.1.0 on dev/node1").contains("process control")
             .contains("nothing was sent");
         assertThat(detection.requests()).containsExactly(DEV);
         assertThat(ports.calls).as("no CLI check, no state read").isEmpty();

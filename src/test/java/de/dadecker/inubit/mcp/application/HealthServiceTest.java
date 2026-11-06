@@ -530,7 +530,7 @@ class HealthServiceTest {
 
     // --- feature 009: the version warning comes from the version gate (T013) ----------------
 
-    private static final String UNVERIFIED_902 = "INUBIT 9.0.2 on dev/node1 is not verified for"
+    private static final String UNVERIFIED_910 = "INUBIT 9.1.0 on dev/node1 is not verified for"
         + " monitoring; results may be incomplete";
 
     private static InubitVersion version(String raw) {
@@ -549,14 +549,14 @@ class HealthServiceTest {
     @Test
     void aVersionOtherThan81AddsTheUnverifiedWarningDerivedFromThisRead() {
         // dev/node1 is pinned to V8_1: the warning follows what get_health read, not the pin
-        monitoring(DEV).systemInfo = () -> systemInfoOf("9.0.2");
+        monitoring(DEV).systemInfo = () -> systemInfoOf("9.1.0");
 
         HealthReport report = checkOne(DEV, false);
 
-        assertThat(report.version()).contains("9.0.2");
+        assertThat(report.version()).contains("9.1.0");
         // T016: the read also contradicts the pin
-        assertThat(report.warnings()).containsExactly(UNVERIFIED_902,
-            contradiction("9.0.2"));
+        assertThat(report.warnings()).containsExactly(UNVERIFIED_910,
+            contradiction("9.1.0"));
         assertThat(gateDetections).hasValue(0);
     }
 
@@ -565,8 +565,8 @@ class HealthServiceTest {
         versionLines.put(DEV, VersionSetting.AUTO);
         monitoring(DEV).systemInfo = () -> {
             // as the gateway factory's slot does for the first read of an AUTO node
-            versions.detected(DEV, InubitVersion.parse("9.0.2").orElseThrow());
-            return systemInfoOf("9.0.2");
+            versions.detected(DEV, InubitVersion.parse("9.1.0").orElseThrow());
+            return systemInfoOf("9.1.0");
         };
 
         HealthReport first = checkOne(DEV, false);
@@ -577,8 +577,8 @@ class HealthServiceTest {
         assertThat(gateDetections).as("the gate never detects for get_health").hasValue(0);
         assertThat(detections).hasValue(0);
         assertThat(first.warnings()).as("no duplicate version warning")
-            .containsExactly(UNVERIFIED_902);
-        assertThat(second.warnings()).containsExactly(UNVERIFIED_902);
+            .containsExactly(UNVERIFIED_910);
+        assertThat(second.warnings()).containsExactly(UNVERIFIED_910);
     }
 
     @Test
@@ -1072,15 +1072,15 @@ class HealthServiceTest {
     @Test
     void aPinnedNodeObservingAnotherMajorMinorIsContradictedUntilAMatchingRead() {
         // dev/node1 is pinned to V8_1
-        monitoring(DEV).systemInfo = () -> systemInfoOf("9.0.7");
+        monitoring(DEV).systemInfo = () -> systemInfoOf("9.1.0");
 
         HealthReport contradicted = checkOne(DEV, false);
 
-        assertThat(contradicted.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not"
-            + " verified for monitoring; results may be incomplete", contradiction("9.0.7"));
+        assertThat(contradicted.warnings()).containsExactly("INUBIT 9.1.0 on dev/node1 is not"
+            + " verified for monitoring; results may be incomplete", contradiction("9.1.0"));
         assertThat(versions.state(DEV).pinContradiction()).isTrue();
         assertThat(versions.state(DEV).observed().orElseThrow().value().raw())
-            .isEqualTo("9.0.7");
+            .isEqualTo("9.1.0");
 
         monitoring(DEV).systemInfo = () -> SYSTEM_INFO;
         HealthReport matching = checkOne(DEV, false);

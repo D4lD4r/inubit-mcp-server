@@ -128,14 +128,10 @@ budget):
 The gate always probes the current key before it admits a CLI capability, so the refusal case is
 reachable only in the race; outside it every path behaves as in 0.8.0 (FR-009).
 
-**Residual risk (accepted by the person, plan review 4)**: the gate's capability decision is made
-on the version known at admission. A write admitted on 9.0 can still be sent if the node is
-observed as 9.1 (with an already checked 9.1 client) before the launch, and the guard's own check
-and the process start are not atomic. 0.8.0 has the same gap (8.1 → 9.0). Closing it needs a
-per-node version lock held until the process start and the write purpose
-(`DEVELOPMENT_WRITE`/`DEPLOYMENT`) passed through `ImportPort`/`TagPort`, because one port serves
-both (plan reviews 3 and 4). The person decided to leave it to a follow-up feature after 0.8.1
-(plan "Follow-up").
+**Write lock (D-24)**: the gate's capability decision for a write is bound to the version it was
+made on; a write is handed off only while the node's known version is the admitted one, under a
+per-node lock held until the hand-off (D-24). The launch guard above runs inside that locked
+section for writes.
 
 **Rationale**: smallest change with one place of truth; the 013 Windows checks (UNC home, refused
 characters in `cli.home`, `cli.javaHome`, `cli.url`) automatically apply to a version entry's paths
@@ -394,3 +390,84 @@ changed by 017 (the integration branch owns the version). Docs: `docs/setup.md` 
 default address, JDKs, migration 8.1 → 9.0), `docs/tools.md` (`list_nodes.startCli`, 9.0
 support), `README.md` (supported versions), `docs/research/inubit-interfaces.md` §4 (what 017
 relies on), a live-check list for 9.0 in `quickstart.md`.
+
+## D-24 A write is sent only on the version it was admitted on (FR-018)
+
+**Context**: the gate admits a write on the version known at admission; the write is handed off
+later (each `import`/`tag`/`processErrorStart`/`kill` launch, the E2E request). A concurrent
+`get_health` or detection can change the node's known version in between, so a write admitted on
+8.1 could be sent to a node now known as 9.0 (0.8.0 has this gap for 8.1 → 9.0, where 9.0 refused
+writes) or one admitted on 9.0 to a node known as 9.1. The person decided (plan review 5) to close
+the gap in 017, for every transition including 8.1 ↔ 9.0.
+
+**Decision**:
+- `VersionGate.Admission` gains the version the call was judged on (`Optional<InubitVersion>`;
+  present for every admitted write, because writes need a known version). The write guards
+  (`DevelopmentGuard` → `DevelopmentPolicy`, `WriteGuard` → `WritePolicy`, `DeployGuard` →
+  `Admitted`, per target node) hand out a `WritePermit(NodeId node, Capability capability,
+  InubitVersion admitted)`; the capability is the write purpose the call was admitted for (any
+  capability of kind `WRITE`: `DEVELOPMENT_WRITE`, `DEPLOYMENT`, `E2E_TEST`, `PROCESS_CONTROL`;
+  `DevelopmentGuard` takes it from the operation, `E2E_TEST` for `run_e2e_test`, `DEPLOYMENT` for
+  the restore of a deployment backup), so a port serving several purposes (`ImportPort`,
+  `TagPort`) learns it from its caller.
+- Every state-changing port method takes the permit: `ImportPort.importArchive(…, WritePermit)`,
+  `ImportPort.importRepository(…, WritePermit)`, `TagPort.tag(…, WritePermit)`,
+  `ProcessControlPort.restart/kill(…, WritePermit)`, `E2ePort.post(Message, WritePermit)`. All
+  callers pass the permit of their admission (`ImportService` incl. `DiagramGroupTagger`,
+  `RepositoryStep`, restore and set-active; `TagService`; `NodeDeployer` incl. rollback;
+  `ProcessControlService`; `E2eTestService`); decorators (`StaleReportingPorts`) pass it through.
+  A permit for another node is refused (`IllegalArgumentException`, programming error).
+- New domain port `WriteLock` (implemented by `NodeVersions`): `<T> T handOff(WritePermit permit,
+  Function<Optional<InubitVersion>, T> action)` takes the node's lock, reads the current
+  effective version and the `stale` flag, refuses unless the state is not stale and the effective
+  version has the permit's major.minor, and otherwise runs `action` with that version while
+  holding the lock. Every `NodeVersions` state change of that node (`update`) takes the same lock,
+  so the node's known version cannot change between the check and the end of `action`. One fair
+  `ReentrantLock` per node (`new ReentrantLock(true)`, always taken with blocking `lock()`, never
+  `tryLock`), so a version change queued during a hand-off is applied before any hand-off queued
+  after it (no barging, no starvation of updates); writes on one node hand off one after the
+  other (a hand-off takes milliseconds). `action` must neither change the node's version state
+  nor hand off again: `update` or `handOff` from inside a hand-off on the same thread throws
+  `IllegalStateException` (a nested hand-off would keep the lock across the inner wait).
+- Refusal: `UNSUPPORTED_VERSION` "INUBIT on <node> changed from <admitted> to <current> during this
+  call; the write was admitted for INUBIT <M.m>; nothing was sent" (stale or unknown current
+  version: "INUBIT on <node> may run another version than <admitted> since this call was
+  admitted; …"), next step "Call the tool again; it is judged on the version INUBIT runs now".
+  Built from node id and versions only (SC-005).
+- CLI writes: `CliRunner.run(…, WritePermit)` (new overload; the one without permit stays for
+  reads). Before the lock: one unlocked version read, selection, Windows checks, `tls.pinPerServer`
+  probe (network, so outside the lock). Inside `handOff`: the version read under the lock must
+  select the same `ClientKey` and address as before the lock, else `CLI_UNAVAILABLE` "changed
+  during this call" (D-4 text); then the launch guard (D-4) with that version; then
+  `ProcessLauncher.launch`. The lock is released when the process has started, before waiting for
+  its output; the credential guard (`guarded`) wraps the whole as today.
+- E2E: `SoapE2eClient.post(message, permit)` builds the request, then inside `handOff` hands it to
+  the HTTP client (`sendAsync`) and leaves the lock when the request was handed over; it waits for
+  the response outside the lock (bounded by the message timeout as today).
+- Multi-step writes (`deploy_release`, `import_artifacts` with tag, restore): every hand-off
+  checks the same permit. A refused step is a failed step of the existing failure handling (as a
+  StartCLI error); a rollback is a write with the same permit and is refused as well after a
+  version change (`ROLLBACK_FAILED` as today; importing the pre-deploy exports of the admitted
+  version into another version is what `deploy_release` refuses in general). Its warning names
+  both versions and says to restore the backup only on the admitted version (contracts). The
+  backup manifest records no INUBIT version, so `restore_backup` itself cannot check this; that
+  holds in 0.8.0 for any upgrade between deploy and restore and is outside 017 (design review 1
+  #4).
+- Reads take no lock and no permit (not destructive; D-4 keeps the single read per launch).
+
+**Rationale**: the decision and the hand-off see the same version; the lock covers exactly the
+check and the irreversible hand-off and never a network wait. Comparing major.minor matches the
+matrix (keyed by major.minor), the client choice (D-3) and the deploy rule; a patch change keeps
+the decision valid, and the client's range for the full version is re-checked by the launch guard
+inside the lock. Covers 8.1 → 9.0 (0.8.0's gap) and every other transition the same way. The
+lock orders the write against what the server knows about the node; an upgrade the server has not
+noticed yet is caught, as in 0.8.0, by the `stale` marking of D-10 and the next detection, not by
+the lock.
+
+**Alternatives rejected**: re-checking without a lock (round 3, leaves a window, round 4);
+holding the lock for the whole tool call (blocks version updates for minutes during deploys);
+re-judging the capability instead of comparing major.minor (the matrix is keyed by major.minor,
+so equal major.minor means equal decision; a different major.minor must be re-admitted anyway
+for the deploy rule and the client); a permit without capability (`ImportPort`/`TagPort` serve
+two purposes; the refusal and audit need it).
+

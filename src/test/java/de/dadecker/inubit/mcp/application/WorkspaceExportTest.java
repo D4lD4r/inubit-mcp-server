@@ -444,13 +444,13 @@ class WorkspaceExportTest {
     }
 
     @Test
-    void onInubit90TheExportRunsWithTheUnverifiedWarningFirst() {
-        devRuns("9.0.7");
+    void onInubit91TheExportRunsWithTheUnverifiedWarningFirst() {
+        devRuns("9.1.0");
 
         ExportResult result = harness.service().export(diagramGroups("jdoe", "GRP-01"));
 
         assertThat(result.export()).isPresent();
-        assertThat(result.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not verified"
+        assertThat(result.warnings()).containsExactly("INUBIT 9.1.0 on dev/node1 is not verified"
             + " for workspace export; results may be incomplete",
             "Workflow Workflow-0002 is in edit mode by jdoe (CheckoutUser)");
         assertThat(harness.detection.requests()).containsExactly(DEV);

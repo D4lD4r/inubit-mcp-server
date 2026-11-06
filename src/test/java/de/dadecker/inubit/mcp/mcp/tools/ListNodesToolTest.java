@@ -541,14 +541,14 @@ class ListNodesToolTest {
     }
 
     @Test
-    void aNineZeroNodeWithAnEightOneClientIsPartiallySupported() {
+    void aNineOneNodeWithAnEightOneClientIsPartiallySupported() {
         // US1-5: REST reads usable (unverified), StartCLI-backed and write capabilities not
-        versions.detected(DEV1, InubitVersion.parse("9.0.7").orElseThrow());
+        versions.detected(DEV1, InubitVersion.parse("9.1.0").orElseThrow());
         versions.clientProbed(DEV1, clientVersion("8.1.17", "4.0.1", "8.1.17"));
 
         JsonNode version = listVersions().get("dev/node1");
 
-        assertThat(version.path("server").path("version").asString()).isEqualTo("9.0.7");
+        assertThat(version.path("server").path("version").asString()).isEqualTo("9.1.0");
         assertThat(version.path("client").path("comparison").asString()).isEqualTo("mismatch");
         assertThat(version.path("status").asString()).isEqualTo("partially_supported");
         assertThat(usable(version)).containsExactly("monitoring", "process_diagnosis",
@@ -556,11 +556,11 @@ class ListNodesToolTest {
         assertThat(notUsable(version)).containsExactly("inventory (StartCLI parts)",
             "workspace_export", "development_writes", "process_control");
         String excluded = "StartCLI client 8.1.17 of dev/node1 supports INUBIT 4.0.1 to 8.1.17,"
-            + " which excludes INUBIT 9.0.7";
+            + " which excludes INUBIT 9.1.0";
         assertThat(reason(version, "inventory (StartCLI parts)")).contains(excluded);
         assertThat(reason(version, "workspace_export")).contains(excluded);
         assertThat(reason(version, "development_writes"))
-            .contains("INUBIT 9.0.7 on dev/node1 does not support development writes yet");
+            .contains("INUBIT 9.1.0 on dev/node1 does not support development writes yet");
         assertThat(reason(version, "process_control"))
             .contains("does not support process control yet");
     }
@@ -705,7 +705,7 @@ class ListNodesToolTest {
     @Test
     void noVersionFieldCarriesAUrlUsernameOrPassword() {
         // FR-016, across the states of the tests above
-        versions.detected(DEV1, InubitVersion.parse("9.0.7").orElseThrow());
+        versions.detected(DEV1, InubitVersion.parse("9.1.0").orElseThrow());
         versions.clientProbed(DEV1, clientVersion("8.1.17", "4.0.1", "8.1.17"));
         versions.detectionFailed(DEV2, ErrorCode.AUTH_FAILED);
         versions.observed(QA1, InubitVersion.parse("9.0.7").orElseThrow());
