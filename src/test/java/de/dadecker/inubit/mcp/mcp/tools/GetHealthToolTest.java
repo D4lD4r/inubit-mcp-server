@@ -685,7 +685,7 @@ class GetHealthToolTest {
                     versionLine: V8_1
                     baseUrl: https://localhost:%1$d
                     tls:
-                      trustStore: "%2$s"
+                      trustStore: '%2$s'
                   - name: node2
                     versionLine: V6_1
                     baseUrl: http://localhost:%3$d
@@ -693,8 +693,8 @@ class GetHealthToolTest {
             """.formatted(dev.httpsPort(), TestCertificates.get().trustStore(), legacy.port())
             + (withStartCli ? """
                     cli:
-                      home: "%1$s"
-                      javaHome: "%2$s"
+                      home: '%1$s'
+                      javaHome: '%2$s'
             """.formatted(cliHome, javaHome) : "");
         Map<String, String> environment = Map.of("INUBIT_ACME_LEGACY_USERNAME", "jdoe",
             "INUBIT_ACME_LEGACY_PASSWORD", PASSWORD);

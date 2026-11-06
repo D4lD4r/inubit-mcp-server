@@ -171,8 +171,9 @@ class V61HealthAdapterTest {
         assertThat(new String(launchers.session.last().stdinBytes(), StandardCharsets.UTF_8))
             .isEqualTo(PASSWORD + "\nuname\nuptime\nmaintenance\nfree -m\nps -c -e\nps -c -w\n"
                 + "ps -c -q\nps -c -a\nexit\n");
-        assertThat(launchers.session.last().spec().command()).doesNotContain(PASSWORD)
-            .contains("-u", "jdoe");
+        assertThat(String.join(" ", launchers.session.last().spec().command()))
+            .doesNotContain(PASSWORD);
+        assertThat(launchers.session.last().spec().startCliArguments()).contains("-u", "jdoe");
     }
 
     @Test

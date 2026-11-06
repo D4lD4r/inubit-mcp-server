@@ -334,14 +334,14 @@ class FindProcessesToolTest {
                     versionLine: V8_1
                     baseUrl: https://localhost:%1$d
                     tls:
-                      trustStore: "%2$s"
+                      trustStore: '%2$s'
                   - name: node2
                     versionLine: V6_1
                     baseUrl: http://localhost:%3$d
                     allowInsecureHttp: true
                     cli:
-                      home: "%4$s"
-                      javaHome: "%5$s"
+                      home: '%4$s'
+                      javaHome: '%5$s'
             """.formatted(dev.httpsPort(), TestCertificates.get().trustStore(), legacy.port(),
             cliHome, javaHome);
         Map<String, String> environment = Map.of("INUBIT_ACME_LEGACY_USERNAME", "jdoe",
