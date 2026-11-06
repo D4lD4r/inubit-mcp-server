@@ -26,7 +26,8 @@ import java.util.regex.Pattern;
  *       is set, writes {@link #WRITTEN_FILE} into {@link #WRITE_INTO} if set, writes the
  *       fixture {@link #EXPORT_FIXTURE} to the {@code --exportFile} of its {@code --execCommand}
  *       ({@link #EXPORT_MODULE_FIXTURE} for a module export if set) as StartCLI writes the
- *       export, then writes
+ *       export (not for a launch without {@code --execCommand}, the client probe, which replays
+ *       {@code version} instead of {@link #REPLAY}), then writes
  *       {@code {"pid", "childPid", "args", "environment", "stdin" (Base64), "workingDirectory",
  *       "javaHome"}} as
  *       JSON to the file named by {@link #RECORD} (atomically, so a poller never reads half a
@@ -74,6 +75,9 @@ public final class ArgvRecorder {
     }
 
     public static void main(String[] args) throws Exception {
+        // the client probe (-v) of a call that exports: no export file, the recorded version
+        boolean probe = System.getProperty(EXPORT_FIXTURE) != null
+            && !java.util.Arrays.asList(args).contains("--execCommand");
         String record = System.getProperty(RECORD);
         if (record != null) {
             byte[] stdin = System.in.readAllBytes();
@@ -87,7 +91,7 @@ public final class ArgvRecorder {
                 Files.writeString(Path.of(writeInto, WRITTEN_FILE), "written");
             }
             String exportFixture = System.getProperty(EXPORT_FIXTURE);
-            if (exportFixture != null) {
+            if (exportFixture != null && !probe) {
                 String moduleFixture = System.getProperty(EXPORT_MODULE_FIXTURE);
                 Files.write(exportFile(args), fixture(moduleFixture != null
                     && String.join(" ", args).contains("--exportModule")
@@ -102,7 +106,7 @@ public final class ArgvRecorder {
         }
         int exitCode = 0;
         String reply = System.getenv(REPLY_ENVIRONMENT);
-        String replay = System.getProperty(REPLAY);
+        String replay = probe ? "version" : System.getProperty(REPLAY);
         if (reply != null) {
             Path directory = Path.of(reply);
             System.out.write(crlf(Files.readAllBytes(directory.resolve("stdout"))));

@@ -304,7 +304,7 @@ Windows CI job.
   and the StartCLI-backed tools are announced for a Windows client installation. Test first:
   `ConfigSummaryTest`/`MainTest` Windows node line with client version, `ListNodesToolTest` and the
   tool-announcement cases of `WiringE2eTest` with the Windows flag.
-- [ ] T021 [US1] Read-only tools end to end (FR-001, FR-006): **(Windows)**
+- [X] T021 [US1] Read-only tools end to end (FR-001, FR-006): **(Windows)**
   `WindowsReadOnlyToolsTest` (new) runs `list_inventory` (modules), `get_inventory_item` (history)
   and `export_artifacts` through the Windows launch with the substitute replaying the macOS
   recordings of `fixtures/v8_1/cli/` as UTF-8 with CRLF; results equal the macOS results; no
@@ -348,13 +348,13 @@ Windows CI job.
   deployment ledger and lock are checked like the audit log. Test first: their POSIX tests
   unchanged; a failing `PrivateFileSystem` stub fails each class with its existing error (every
   platform); **(Windows)** DACL read-back per class.
-- [ ] T026 [US3] Workspace and git (FR-007): `WorkspaceDirectory` (when it creates the workspace)
+- [X] T026 [US3] Workspace and git (FR-007): `WorkspaceDirectory` (when it creates the workspace)
   and `GitCli` (hooks directory) use `PrivateFileSystem`; an existing workspace is not checked.
   Test first: `GitCliTest`/`ConfigValidatorTest` POSIX cases unchanged; a failing
   `PrivateFileSystem` stub makes the workspace tools unavailable (as today when the workspace cannot
   be created); **(Windows)** DACL read-back of a new workspace and of the hooks directory; an
   existing workspace gives no warning.
-- [ ] T027 [US3] Write tools end to end (FR-001): **(Windows)** `WindowsWriteToolsTest` (new) runs
+- [X] T027 [US3] Write tools end to end (FR-001): **(Windows)** `WindowsWriteToolsTest` (new) runs
   `import_artifacts` (preview and execution with the code), `restore_backup`, `set_active`,
   `tag_artifacts`, `restart_process`, `kill_process` and a real `deploy_release` against the
   substitute with recorded outputs — one node succeeding, one failing with roll-back from its
@@ -370,12 +370,15 @@ Windows CI job.
   012 session tests (`V61ConnectionTest`, `V61SessionTest` or their successors). Otherwise: add a
   task to `specs/012-inubit-61-cli-reads/tasks.md` on its branch ("Windows variants of the 6.1
   session tests, feature 013 FR-012") and mark this task done with a note.
+  - **Note (open on purpose)**: feature 012 does not go to `main`. 012 and 013 are merged in a
+    separate 0.8.0 branch by another session, which also does this task there; the 012 branch is
+    not changed from this branch.
 
 ---
 
 ## Phase 9: User Story 6 - Documentation (Priority: P3)
 
-- [ ] T029 [P] [US6] Docs (FR-016): README (requirements: StartCLI on Windows with
+- [X] T029 [P] [US6] Docs (FR-016): README (requirements: StartCLI on Windows with
   `bin\startcli.bat`, Java 17 runtime; remove "not supported on Windows"), `docs/setup.md`
   (Windows client setup, refused characters, path rule and `-Djava.io.tmpdir`, job and DACL notes,
   6.1 on Windows per T028), `docs/tools.md` (error texts), `docs/live-tests.md` (Windows section:
@@ -388,7 +391,7 @@ Windows CI job.
 **Blocked on**: a Windows user with a non-production INUBIT 8.1 node and the person's approval in
 the chat for each step.
 
-- [ ] T030 [US6] Recorder (FR-014, R-13): `tools/record-fixtures.ps1` with the read-only cases
+- [X] T030 [US6] Recorder (FR-014, R-13): `tools/record-fixtures.ps1` with the read-only cases
   `win_version`, `win_help`, `win_modules`, `win_failure`, `win_argv`, `win_backslash`, same stdin
   and allowlist rules as the server, no password on the command line; `.gitattributes` gets
   `src/test/resources/fixtures/windows/** -text`. Test first: `test/tools/RecordFixturesPs1Test`
@@ -405,6 +408,8 @@ the chat for each step.
 - [ ] T032 [US6] Windows recordings in the offline suite (SC-005): parse tests over the Windows
   recordings, transcoded into 850, 1252 and 65001, equal the macOS results; the substitute of T002
   is adjusted to the recorded argument forwarding. Test first: `WindowsRecordingsTest` (new).
+  - **Note (T031, T032)**: decided by the user: the Windows live check and the recordings run in
+    the joint live test on the 0.8.0 branch (features 012 and 013 together), not on this branch.
 - [ ] T033 Quickstart validation: offline table of quickstart.md, full `mvn -q -o clean verify`
   green on macOS, `NoCustomerIdentifiersTest` run (20 tests, 0 skipped), Windows CI job green;
   record in quickstart.md.

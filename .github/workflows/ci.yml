@@ -32,11 +32,9 @@ jobs:
       - name: Test operator tools
         run: python3 -I -m unittest discover -s tools/tests -v
 
-  # Feature 013 (FR-013): the offline suite on Windows. continue-on-error until T021, when the
-  # porting and the Windows launch are done. The operator-tool tests stay on Linux.
+  # Feature 013 (FR-013): the offline suite on Windows. The operator-tool tests stay on Linux.
   windows:
     runs-on: windows-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
         with:

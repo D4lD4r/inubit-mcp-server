@@ -94,6 +94,8 @@ class WindowsReadOnlyToolsTest {
         assertThat(launched.path("isError").asBoolean()).as(launched.toString()).isFalse();
         assertThat(withoutCommit(launched)).isEqualTo(withoutCommit(simulated));
         assertThat(launched.path("structuredContent").path("unchanged").asBoolean()).isFalse();
+        assertThat(launched.path("structuredContent").path("warnings").toString())
+            .as("the client probe through the launch succeeds").doesNotContain("probe");
         assertThat(launchedRoot.resolve("workspace/dev/jdoe/workflows/GRP-01"))
             .isDirectory();
         assertThat(exportDirectories()).as("no temporary data remains").isEqualTo(before);
@@ -141,9 +143,8 @@ class WindowsReadOnlyToolsTest {
         var scrubber = new de.dadecker.inubit.mcp.infra.SecretScrubber();
         var credentials = de.dadecker.inubit.mcp.testing.TestSecrets.store(Map.of(
             "INUBIT_ACME_DEV_USERNAME", "jdoe", "INUBIT_ACME_DEV_PASSWORD", "export-fixture-pw"));
-        de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher launcher = throughTheLaunch
-            ? new de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher()
-            : de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher.replaying("export_release")
+        de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher export =
+            de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher.replaying("export_release")
                 .onLaunch(spec -> {
                     java.util.regex.Matcher file = EXPORT_FILE.matcher(
                         String.join(" ", spec.startCliArguments()));
@@ -156,6 +157,12 @@ class WindowsReadOnlyToolsTest {
                         }
                     }
                 });
+        // the client probe (-v) answers the recorded version, as the substitute does
+        de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher launcher = throughTheLaunch
+            ? new de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher()
+            : spec -> spec.startCliArguments().contains("--execCommand") ? export.launch(spec)
+                : de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher.replaying("version")
+                    .launch(spec);
         Map<String, String> environment = throughTheLaunch ? System.getenv()
             : Map.of("PATH", de.dadecker.inubit.mcp.testing.Platform.searchPath());
         try (var wiring = de.dadecker.inubit.mcp.TestWiring.of(config, credentials, scrubber,
@@ -171,21 +178,14 @@ class WindowsReadOnlyToolsTest {
     }
 
     /**
-     * The result without the commit, whose id and time differ between the two calls, with the
-     * workspace relative to the root of the call and without the times in the warnings (the
-     * probe of the two calls fails at different seconds).
+     * The result without the commit, whose id and time differ between the two calls, and with
+     * the workspace relative to the root of the call.
      */
     private static JsonNode withoutCommit(JsonNode result) {
         ObjectNode copy = (ObjectNode) result.path("structuredContent").deepCopy();
         copy.remove("commit");
         copy.put("workspace", Path.of(copy.path("workspace").asString()).getFileName()
             .toString());
-        if (copy.path("warnings").isArray()) {
-            var warnings = copy.putArray("warnings");
-            result.path("structuredContent").path("warnings").forEach(warning -> warnings.add(
-                warning.asString().replaceAll("\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ",
-                    "<time>")));
-        }
         return copy;
     }
 
