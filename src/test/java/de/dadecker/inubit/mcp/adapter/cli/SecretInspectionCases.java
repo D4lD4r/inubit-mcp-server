@@ -20,9 +20,12 @@ import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -64,6 +67,9 @@ abstract class SecretInspectionCases {
     private Path cliHome;
     private Path tempRoot;
     private final RecordingLauncher launcher = new RecordingLauncher();
+    /** Files under the temp directory at the launch and when StartCLI exited (review T017 r1). */
+    private final Set<Path> seenDuringTheCall = new TreeSet<>();
+    private final Set<Path> heldACredentialDuringTheCall = new TreeSet<>();
     private final CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", DEV),
         new MutableClock(Instant.parse("2026-10-01T08:00:00Z")));
 
@@ -136,6 +142,9 @@ abstract class SecretInspectionCases {
         assertThat(record.environment().values())
             .noneMatch(SecretInspectionCases::holdsACredential);
 
+        assertThat(seenDuringTheCall).as("temporary files while StartCLI ran").isNotEmpty();
+        assertThat(heldACredentialDuringTheCall).as("temporary files while StartCLI ran")
+            .isEmpty();
         assertThat(filesHoldingACredential()).as("files written during the call").isEmpty();
         try (Stream<Path> left = Files.list(tempRoot)) {
             assertThat(left).as("temporary data").isEmpty();
@@ -158,15 +167,33 @@ abstract class SecretInspectionCases {
         List<Path> found = new ArrayList<>();
         try (Stream<Path> paths = Files.walk(directory)) {
             for (Path path : paths.filter(Files::isRegularFile).toList()) {
-                byte[] bytes = Files.readAllBytes(path);
-                String utf8 = new String(bytes, StandardCharsets.UTF_8);
-                String utf16 = new String(bytes, StandardCharsets.UTF_16LE);
-                if (holdsACredential(utf8) || holdsACredential(utf16)) {
+                if (fileHoldsACredential(path)) {
                     found.add(path);
                 }
             }
         }
         return found;
+    }
+
+    private static boolean fileHoldsACredential(Path path) throws IOException {
+        byte[] bytes = Files.readAllBytes(path);
+        return holdsACredential(new String(bytes, StandardCharsets.UTF_8))
+            || holdsACredential(new String(bytes, StandardCharsets.UTF_16LE));
+    }
+
+    /**
+     * Records the files under the temp directory: the runner deletes its directory before the
+     * call returns, so the files (the import archive, the export file) are read while they exist.
+     */
+    private void scanTempRoot() throws IOException {
+        try (Stream<Path> paths = Files.walk(tempRoot)) {
+            for (Path path : paths.filter(Files::isRegularFile).toList()) {
+                seenDuringTheCall.add(tempRoot.relativize(path));
+                if (fileHoldsACredential(path)) {
+                    heldACredentialDuringTheCall.add(tempRoot.relativize(path));
+                }
+            }
+        }
     }
 
     private EffectiveNodeConfig server() {
@@ -221,8 +248,11 @@ abstract class SecretInspectionCases {
         return name.toLowerCase(Locale.ROOT);
     }
 
-    /** The real launcher, remembering what it was asked to start. */
-    private static final class RecordingLauncher implements ProcessLauncher {
+    /**
+     * The real launcher, remembering what it was asked to start; scans the temp directory at the
+     * launch and once the process has exited.
+     */
+    private final class RecordingLauncher implements ProcessLauncher {
 
         final List<LaunchSpec> launched = new ArrayList<>();
         private final SystemProcessLauncher system = new SystemProcessLauncher();
@@ -230,7 +260,62 @@ abstract class SecretInspectionCases {
         @Override
         public LaunchedProcess launch(LaunchSpec spec) throws IOException {
             launched.add(spec);
-            return system.launch(spec);
+            scanTempRoot();
+            LaunchedProcess process = system.launch(spec);
+            return new LaunchedProcess() {
+                @Override
+                public OutputStream stdin() {
+                    return process.stdin();
+                }
+
+                @Override
+                public InputStream stdout() {
+                    return process.stdout();
+                }
+
+                @Override
+                public InputStream stderr() {
+                    return process.stderr();
+                }
+
+                @Override
+                public boolean waitFor(Duration timeout) throws InterruptedException {
+                    boolean exited = process.waitFor(timeout);
+                    if (exited) {
+                        try {
+                            scanTempRoot();
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    }
+                    return exited;
+                }
+
+                @Override
+                public int exitValue() {
+                    return process.exitValue();
+                }
+
+                @Override
+                public boolean isAlive() {
+                    return process.isAlive();
+                }
+
+                @Override
+                public void destroy() {
+                    process.destroy();
+                }
+
+                @Override
+                public boolean treeAlive() {
+                    return process.treeAlive();
+                }
+
+                @Override
+                public void destroyForcibly() {
+                    process.destroyForcibly();
+                }
+            };
         }
     }
 }
