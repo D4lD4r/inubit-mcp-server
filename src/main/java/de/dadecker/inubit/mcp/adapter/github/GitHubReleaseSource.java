@@ -8,6 +8,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.net.http.HttpResponse.BodySubscriber;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -83,19 +84,27 @@ public final class GitHubReleaseSource implements ReleaseSource {
             response = pending.get(requestTimeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
             pending.cancel(true);
-            throw new ReleaseCheckException("no answer within " + requestTimeout.toSeconds() + " s");
+            throw noAnswer();
         } catch (InterruptedException e) {
             pending.cancel(true);
             Thread.currentThread().interrupt();
             throw new ReleaseCheckException("interrupted");
         } catch (ExecutionException e) {
             Throwable cause = e.getCause() == null ? e : e.getCause();
+            // the client's own request timeout may fire before the wait above ends
+            if (cause instanceof HttpTimeoutException) {
+                throw noAnswer();
+            }
             throw new ReleaseCheckException(cause.getClass().getSimpleName());
         }
         if (response.statusCode() != 200) {
             throw new ReleaseCheckException("HTTP " + response.statusCode());
         }
         return parse(response.body());
+    }
+
+    private ReleaseCheckException noAnswer() {
+        return new ReleaseCheckException("no answer within " + requestTimeout.toSeconds() + " s");
     }
 
     private LatestRelease parse(byte[] body) throws ReleaseCheckException {

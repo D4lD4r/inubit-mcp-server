@@ -47,7 +47,7 @@ import org.junit.jupiter.api.Test;
  * {@code application} only on {@code java.*}, {@code domain}, itself and SLF4J; only
  * {@code mcp} uses the MCP SDK; {@code mcp} never reaches into {@code adapter} or
  * {@code config}; only {@code adapter.rest} uses {@code java.net.http} (feature 004: and
- * {@code adapter.soap}); only {@code adapter.cli}
+ * {@code adapter.soap}; feature 016: and {@code adapter.github}); only {@code adapter.cli}
  * starts or inspects OS processes ({@code ProcessBuilder}, {@code Process},
  * {@code ProcessHandle}, {@code Runtime.exec}).
  *
@@ -150,10 +150,11 @@ class PackageBoundaryTest {
     }
 
     @Test
-    void onlyTheRestAndSoapAdaptersUseTheHttpClient() {
-        assertThat(violations(inPackage("adapter/rest").or(inPackage(SOAP_ADAPTER)).negate(),
-            forbidden(HTTP_CLIENT)))
-            .as("java.net.http outside adapter.rest and adapter.soap").isEmpty();
+    void onlyTheRestSoapAndGitHubAdaptersUseTheHttpClient() {
+        // feature 016: adapter.github asks GitHub for the latest release of this server
+        assertThat(violations(inPackage("adapter/rest").or(inPackage(SOAP_ADAPTER))
+            .or(inPackage("adapter/github")).negate(), forbidden(HTTP_CLIENT)))
+            .as("java.net.http outside adapter.rest, adapter.soap and adapter.github").isEmpty();
     }
 
     @Test

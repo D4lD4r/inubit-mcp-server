@@ -156,7 +156,7 @@ that never answers: `instructions` name it, the first tool result has the note b
   lines), `docs/tools.md` (`get_health.serverUpdate`), `CHANGELOG.md` `[Unreleased]`; wherever docs tell
   the version by the file name (`docs/setup.md` certificate section, start script) point to
   `--version`/manifest; `docs/release-checks.md` gets a manifest check step
-- [ ] T019 Full verification: `mvn -o clean verify -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-016-tmp`
+- [X] T019 Full verification: `mvn -o clean verify -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-016-tmp`
   and `python3 -I -m unittest discover -s tools/tests`; quickstart offline steps
 
 ## Dependencies
