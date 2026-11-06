@@ -429,7 +429,9 @@ class CliExportRunnerTest {
         assertThat(error.code()).isEqualTo(ErrorCode.INTERNAL);
         assertThat(error.node()).contains(DEV);
         assertThat(error.message()).contains("FileSystemException");
-        assertThat(error.nextStep()).contains(tempRoot.toString())
+        // on Windows the runner names the expanded path, e.g. RUNNER~1 resolved (R-3)
+        assertThat(error.nextStep())
+            .contains(CliPaths.forCommand(tempRoot, Platform.windows()).toString())
             .contains(Platform.windows() ? "only to this account and SYSTEM" : "rwx------");
         assertThat(launcher.launchCount()).isZero();
         assertThat(leftovers()).isEmpty();

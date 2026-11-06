@@ -13,7 +13,9 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -248,8 +250,13 @@ class CliResourcesTest {
         CliResources resources = new CliResources("acme", PrivateFiles.forHost());
         Path dir = exportDir(ProcessHandle.current().pid());
         Path locked = Files.createDirectory(dir.resolve("locked"));
-        Files.writeString(locked.resolve("history.zip"), "zip");
-        locked.toFile().setWritable(false);
+        Path file = Files.writeString(locked.resolve("history.zip"), "zip");
+        // Windows ignores a read-only directory when deleting its files; a file held open
+        // without delete sharing (as FileInputStream opens it) blocks the deletion instead
+        InputStream held = Platform.windows() ? new FileInputStream(file.toFile()) : null;
+        if (held == null) {
+            locked.toFile().setWritable(false);
+        }
         try {
             CliResources.Registration registration = resources.reserve().directory(dir);
 
@@ -259,6 +266,9 @@ class CliResourcesTest {
             assertThat(resources.registeredDirectories()).as("deregistered only after deletion")
                 .containsExactly(dir);
         } finally {
+            if (held != null) {
+                held.close();
+            }
             locked.toFile().setWritable(true);
         }
         resources.close();

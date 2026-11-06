@@ -167,7 +167,8 @@ class CliImportRunnerTest {
                 assertThat(e.error().code()).isEqualTo(ErrorCode.INTERNAL);
                 assertThat(e.error().node()).contains(DEV);
                 assertThat(e.error().message()).contains("nothing was sent");
-                assertThat(e.error().nextStep()).contains(tempRoot.toString())
+                assertThat(e.error().nextStep())
+                    .contains(CliPaths.forCommand(tempRoot, Platform.windows()).toString())
                     .contains(Platform.windows() ? "only to this account and SYSTEM"
                         : "rwx------");
             });
@@ -186,7 +187,8 @@ class CliImportRunnerTest {
             .isInstanceOfSatisfying(ToolErrorException.class, e -> {
                 assertThat(e.error().code()).isEqualTo(ErrorCode.INTERNAL);
                 assertThat(e.error().message()).contains("nothing was sent");
-                assertThat(e.error().nextStep()).contains(tempRoot.toString())
+                assertThat(e.error().nextStep())
+                    .contains(CliPaths.forCommand(tempRoot, Platform.windows()).toString())
                     .contains(Platform.windows() ? "only to this account and SYSTEM"
                         : "rw-------");
             });

@@ -617,6 +617,8 @@ class CliRunnerTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "runner(…) is the host's; the Windows"
+        + " refusal has its own cases")
     void offWindowsTheCredentialsAreNotCheckedForTheCommandInterpreter() {
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
 
