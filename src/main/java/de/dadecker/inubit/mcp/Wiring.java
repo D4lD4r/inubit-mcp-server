@@ -50,6 +50,7 @@ import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TagService;
 import de.dadecker.inubit.mcp.application.TargetFolderRules;
 import de.dadecker.inubit.mcp.application.TargetResolver;
+import de.dadecker.inubit.mcp.application.UpdateStatus;
 import de.dadecker.inubit.mcp.application.WorkspaceService;
 import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
 import de.dadecker.inubit.mcp.application.WriteGuard;
@@ -162,6 +163,8 @@ final class Wiring implements AutoCloseable {
     /** Feature 009 (research D-9): the {@code list_nodes} view with the version state. */
     private final NodeOverview overview;
     private final HealthService health;
+    /** Feature 016: the last update check, shown by {@code get_health}. */
+    private final UpdateStatus updateStatus = new UpdateStatus();
     private final DiagnosisService diagnosis;
     private final InventoryService inventory;
     private final ProcessControlService processControl;
@@ -472,7 +475,7 @@ final class Wiring implements AutoCloseable {
     List<ToolHandler> toolHandlers() {
         List<ToolHandler> handlers = new ArrayList<>();
         handlers.add(new ListNodesTool(profile, overview::nodes));
-        handlers.add(new GetHealthTool(health));
+        handlers.add(new GetHealthTool(health, updateStatus::current));
         handlers.add(new FindProcessesTool(diagnosis));
         handlers.add(new QueryLogsTool(diagnosis));
         handlers.add(new ListInventoryTool(inventory));
@@ -523,6 +526,11 @@ final class Wiring implements AutoCloseable {
     }
 
     /** The configuration location the server runs with (feature 015, research R-9). */
+    /** Feature 016: the status the update check records and {@code get_health} shows. */
+    UpdateStatus updateStatus() {
+        return updateStatus;
+    }
+
     ConfigLocation configLocation() {
         return configLocation;
     }

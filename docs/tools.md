@@ -51,7 +51,8 @@ General rules:
   profile's display names: with `terminology: {group: {singular: Umgebung, plural: Umgebungen},
   node: {singular: Knoten, plural: Knoten}}` the `get_health` description reads "[acme: ACME
   test] Check whether the INUBIT Knoten are reachable and ready: … `target` takes the id of one
-  Knoten (`<Umgebung>/<Knoten>`) or of one Umgebung (all its Knoten); omit it for all Knoten."
+  Knoten (`<Umgebung>/<Knoten>`) or of one Umgebung (all its Knoten); omit it for all Knoten. `serverUpdate` tells whether a newer release of this MCP
+  server exists."
   The names are inserted exactly as configured (see setup.md). The MCP `initialize` result
   carries `serverInfo.title` "INUBIT MCP – <profile>" and `instructions` naming the profile, its
   description and the terminology.
@@ -471,7 +472,8 @@ can I do on next/node1?" → `list_nodes`, then `get_health` for nodes whose ver
 
 > [acme] Check whether the INUBIT nodes are reachable and ready: maintenance mode, version,
 > memory, threads, and blocking queue. `target` takes the id of one node (`<group>/<node>`) or of
-> one group (all its nodes); omit it for all nodes.
+> one group (all its nodes); omit it for all nodes. `serverUpdate` tells whether a newer release
+> of this MCP server exists.
 
 Checks whether INUBIT nodes are reachable and ready: maintenance mode, version, memory, threads
 and blocking queue. Target one node, one group, or omit `target` for all nodes.

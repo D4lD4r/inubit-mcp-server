@@ -28,6 +28,8 @@ import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.SemVer;
+import de.dadecker.inubit.mcp.domain.model.ServerUpdate;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -39,6 +41,7 @@ import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -67,7 +70,8 @@ class GetHealthToolTest {
     private static final String DESCRIPTION = "[acme] Check whether the INUBIT nodes are"
         + " reachable and ready: maintenance mode, version, memory, threads, and blocking queue."
         + " `target` takes the id of one node (`<group>/<node>`) or of one group (all its nodes);"
-        + " omit it for all nodes.";
+        + " omit it for all nodes. `serverUpdate` tells whether a newer release of this MCP server"
+        + " exists.";
     private static final Duration TIMEOUT = Duration.ofSeconds(2);
     private static final String PASSWORD = "get-health-test-pw";
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -83,6 +87,8 @@ class GetHealthToolTest {
     };
     private AdapterGatewayFactory gateways;
     private McpTestClient client;
+    /** Feature 016: what the update check last recorded; read on every call. */
+    private volatile Optional<ServerUpdate> serverUpdate = Optional.empty();
 
     @BeforeAll
     static void start() {
@@ -157,7 +163,8 @@ class GetHealthToolTest {
             new FanOut(), timeouts::get, Clock.systemUTC(),
             gateWithoutClients(versions, gateways, CapabilityMatrix.production()), versions, probe,
             withClient::contains);
-        client = McpTestClient.start(List.of(new GetHealthTool(health)), scrubber);
+        client = McpTestClient.start(List.of(new GetHealthTool(health, () -> serverUpdate)),
+            scrubber);
         client.initialize();
     }
 
@@ -290,6 +297,40 @@ class GetHealthToolTest {
     }
 
     // --- Phase 3 review H1, m3, M2: real adapters, slow and hanging servers ----------------
+
+    @Test
+    void withoutASuccessfulUpdateCheckThereIsNoServerUpdate() {
+        JsonNode result = call(Map.of("target", "dev/node1"));
+
+        assertThat(result.path("structuredContent").has("serverUpdate")).isFalse();
+    }
+
+    @Test
+    void theLastUpdateCheckIsReportedForEveryTarget() {
+        serverUpdate = Optional.of(ServerUpdate.of(SemVer.parse("0.7.1").orElseThrow(),
+            SemVer.parse("0.8.0").orElseThrow(), Instant.parse("2026-11-06T12:00:00Z")));
+
+        for (Map<String, Object> arguments : List.<Map<String, Object>>of(Map.of(),
+            Map.of("target", "staging/bogus"))) {
+            JsonNode result = call(arguments);
+            assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+            assertMatchesOutputSchema(result);
+            JsonNode update = result.path("structuredContent").path("serverUpdate");
+            assertThat(update.path("currentVersion").asString()).isEqualTo("0.7.1");
+            assertThat(update.path("latestVersion").asString()).isEqualTo("0.8.0");
+            assertThat(update.path("updateAvailable").asBoolean()).isTrue();
+            assertThat(update.path("releaseUrl").asString()).isEqualTo(
+                "https://github.com/D4lD4r/inubit-mcp-server/releases/tag/v0.8.0");
+            assertThat(update.path("checkedAt").asString()).isEqualTo("2026-11-06T12:00:00Z");
+            assertThat(update.path("notice").asString()).contains("Update manually");
+        }
+
+        serverUpdate = Optional.of(ServerUpdate.of(SemVer.parse("0.8.0").orElseThrow(),
+            SemVer.parse("0.8.0").orElseThrow(), Instant.parse("2026-11-06T12:00:00Z")));
+        JsonNode current = call(Map.of("target", "dev/node1"));
+        assertMatchesOutputSchema(current);
+        assertThat(current.path("structuredContent").path("serverUpdate").has("notice")).isFalse();
+    }
 
     @Test
     void aSlowAutoServerIsReachableOnTheFirstCall() {

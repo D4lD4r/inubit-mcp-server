@@ -71,7 +71,7 @@ the checkout; never two builds in parallel).
   `src/main/java/de/dadecker/inubit/mcp/application/UpdateStatus.java`,
   `src/main/java/de/dadecker/inubit/mcp/application/UpdateCheck.java`,
   `src/test/java/de/dadecker/inubit/mcp/application/UpdateCheckTest.java`
-- [ ] T009 [US1] `get_health`: `Result(List<HealthReport> reports, Optional<ServerUpdate>
+- [X] T009 [US1] `get_health`: `Result(List<HealthReport> reports, Optional<ServerUpdate>
   serverUpdate)` from a `Supplier<Optional<ServerUpdate>>`; output schema `$defs/ServerUpdate`
   (contracts/get_health-delta.md); description sentence; `Wiring` owns the `UpdateStatus` and
   exposes it; tests in `src/main/java/de/dadecker/inubit/mcp/mcp/tools/GetHealthTool.java`,
