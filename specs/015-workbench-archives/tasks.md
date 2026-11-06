@@ -531,7 +531,7 @@ export and a write failure are each audited, and the folder never holds a partia
   ACLs, and `archives.productionOptIn`.
   Then add the entry (and keep the existing 0.7.0 text of feature 011).
 
-- [ ] T025 Final validation: run `mvn -q -o clean verify` green; confirm in the Surefire report that
+- [X] T025 Final validation: run `mvn -q -o clean verify` green; confirm in the Surefire report that
   `security/NoCustomerIdentifiersTest.repositoryContainsNoCustomerIdentifiers` **ran and passed**
   (not skipped — the local identifier lists must be present, `docs/release-checks.md`; if it skips,
   stop and ask the operator to provide the lists); `PackageBoundaryTest` green; walk the quickstart

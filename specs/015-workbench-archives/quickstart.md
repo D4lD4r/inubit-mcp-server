@@ -67,4 +67,86 @@ mvn -q -o clean verify
 
 | Date | Build | Result |
 |---|---|---|
-| — | — | — |
+| 2026-11-06 | `015-workbench-archives` at `d131f95` (after merging `main` with feature 014), JDK 25, Maven 3.10, offline | `mvn -q -o clean verify` green: 3985 tests, 0 failures, 0 errors, 3 skipped; `security/NoCustomerIdentifiersTest.repositoryContainsNoCustomerIdentifiers` **ran and passed** (local identifier lists present: 21 denylist rules, 1430 files scanned); `PackageBoundaryTest` 20/20; `python3 -I -m unittest discover -s tools/tests` 411 OK. Q1–Q29 and Q31 walked below; plan's Constitution Check re-checked, still PASS. SC-001 (Q30, T026) open for the operator. |
+
+Scenario walk (T025, from the Surefire reports of that run; every class 0 failures, 0 errors, 0
+skipped):
+
+- [X] Q1 `ArchiveExportServiceTest.q1ThreeWorkflowsGiveThreeArchivesInAnEmptyFolder`,
+  `ExportArchivesToolTest.aSuccessfulCallReturnsStructuredContentValidAgainstTheOutputSchema`
+- [X] Q2 `V81WorkflowArchivesTest.aModuleOfTwoWorkflowsIsInBothPlans`,
+  `thePlanListsEveryNodeModuleOnceInExportOrder`,
+  `theEntriesAreThoseOfThePlanAndTheCopiedOnesAreByteIdenticalWithTheirTimes`,
+  `theArchiveHoldsOnlyItsEntriesInExportOrder`
+- [X] Q3 `V81WorkflowArchivesTest.theRepositoryPathsAreTheOwnerRootClosure`,
+  `aFileReachedOnlyThroughAnotherRepositoryFileIsIncluded`,
+  `theRepositoryHoldsTheSelectedFilesUnchangedInOriginalOrder`, `theArchiveCommentOfTheRepositoryIsKept`,
+  `onlyDirectoryEntriesTheOriginalHasAndThatAreAncestorsOfAKeptFileAreKept`
+- [X] Q4 `V81WorkflowArchivesTest.theSyntheticSecretsArePresentUnchanged`,
+  `ArchiveExportSecretLeakTest.noSyntheticSecretLeavesTheArchives`
+- [X] Q5 `ArchiveExportServiceTest.q5OneNamedWorkflowGivesOnlyItsArchive`
+- [X] Q6 `ArchiveFileNamesTest.derivesTheFileNameInTheOrderOfTheSpec` (18 cases),
+  `refusesAFileNameOf256Utf8BytesNamingTheWorkflow`,
+  `ArchiveExportServiceTest.aFileNameOver255BytesIsRefusedNamingTheWorkflow`
+- [X] Q7 `V81WorkflowArchivesTest.theEntriesAreThoseOfThePlanAndTheCopiedOnesAreByteIdenticalWithTheirTimes`,
+  `theWorkflowDocumentHoldsTheGroupWithOnlyThatWorkflowUnchanged`,
+  `theModuleIndexHoldsOnlyTheSelectedEntriesInOriginalOrder`
+- [X] Q8 `V81WorkflowArchivesTest.aNodeNestedBelowAPartnerManagementNodeIsSelected`,
+  `aModuleBoundByWorkflowNameThatIsNoNodeIsSelected`, `aNodeModuleTheExportDoesNotHoldIsMissingAndNotListed`,
+  `onlyAWorkflowConnectorNodeMarksThePlan`,
+  `ArchiveExportServiceTest.missingModulesAreListedWithAWarningAndTheArchiveIsWritten`,
+  `aWorkflowConnectorNodeGivesAWarningThatTheCalledWorkflowIsNotIncluded`
+- [X] Q9 `ArchiveExportServiceTest.q9WithoutTheAcknowledgementTheCallIsRefusedOnceBeforeTheExport`,
+  `ExportArchivesToolTest.aCallWithoutTheAcknowledgementIsAnAuditedToolErrorBeforeTheExport`
+- [X] Q10 `TargetFolderRulesTest` (38 tests; the server-directory, configuration and git-tree rules
+  also through a link), `MainTest.exportArchivesRefusesTheFolderOfTheConfigurationFileInUse`
+  (real `--config` / `ConfigLocation`),
+  `ArchiveExportServiceTest.q10q13EveryFolderRuleRefusesThroughTheServiceBeforeTheExport`,
+  `q10WithTheWindowsFlagUncAndRemoteDrivesAreNetworkPaths`,
+  `ExportArchivesWiringTest.aCallIntoTheDefaultConfigurationDirectoryIsRefusedBeforeStartCli`,
+  `aCallIntoTheConfigurationFilesFolderIsRefusedBeforeStartCli`
+- [X] Q11 `ArchiveExportServiceTest.anExistingFileWithTheSameKeyIsRefusedNamingBothAndStaysUnchanged`
+- [X] Q12 `ArchiveFolderWriterTest.createsAMissingFolderAndTwoMissingParentsRightBeforeTheFirstArchive`,
+  `writesThroughAHiddenTemporaryFileInTheFolderAndAHardLink`
+- [X] Q13 `TargetFolderRulesTest.refusesAnExistingFile`, `refusesANonWritableFolderAndAMissingFolderBelowIt`,
+  `refusesAMissingFolderBelowAFile`,
+  `ArchiveExportServiceTest.q10q13EveryFolderRuleRefusesThroughTheServiceBeforeTheExport`
+- [X] Q14 `ExportArchivesToolTest.everySuccessfulResultCarriesTheFixedClearTextStatement`,
+  `ToolHintsTest.localWriteIsNeitherReadOnlyNorDestructiveNorIdempotentButOpenWorld`
+- [X] Q15 `TargetFolderRulesTest.warnsBelowTheMacOsCloudSyncRoots`, `warnsBelowTheOneDriveFoldersOfTheEnvironment`,
+  `ArchiveExportServiceTest.q15ACloudSyncFolderIsAcceptedWithACallLevelWarning`
+- [X] Q16 `ArchiveExportAuditTest.pendingThenOutcomeAppendTwoRecordsWithTheSameAuditId`,
+  `ArchiveExportServiceTest.q16TheAuditOfASuccessfulCallHoldsEveryNameTheFolderTheFilesAndTheReasonOnly`
+- [X] Q17 `ArchiveExportServiceTest.q17AStartCliFailureIsPassedThroughUnchangedNothingIsWrittenAndItIsAuditedFailed`
+  (4 cases), `q17TheSizeLimitOfTheExportIsPassedThroughUnchangedAndNothingIsSlicedOrWritten`
+- [X] Q18 `ArchiveExportServiceTest.q18AWriteFailureOnTheSecondOfThreeIsAPartialResultAuditedPartiallyCompleted`,
+  `q18AFailureOnTheFirstArchiveIsAResultWithoutArchivesAuditedPartiallyCompleted`,
+  `q18ATargetFolderThatCannotBeCreatedIsAResultWithoutArchivesAuditedPartiallyCompleted`,
+  `q18ALeftoverPartFileIsACallLevelWarningAndTheArchiveCountsAsWrittenAndExecuted`
+- [X] Q19 `ArchiveExportServiceTest.missingModulesAreListedWithAWarningAndTheArchiveIsWritten`
+- [X] Q20 `ArchiveExportAuditTest.pendingThrowsInternalWhenTheRecordCannotBeWritten`,
+  `ArchiveExportServiceTest.q20AnUnwritableAuditRefusesAValidCallWithInternalBeforeTheGateAndTheExport`,
+  `q20AnUnwritableAuditTurnsAStaticRefusalIntoInternalWithTheOriginalCodeAndMessage`
+- [X] Q21 `ArchiveExportServiceTest.aDiagramGroupWithoutTechnicalWorkflowsSucceedsWithEmptyListsAndCreatesNoFolder`,
+  `moreThanFiftyWorkflowsWithoutWorkflowsAreRefusedNamingTheCount`,
+  `unknownWorkflowNamesAreRefusedAfterTheExportNamingThemCaseSensitively`,
+  `twoWorkflowsWithTheSameFileNameKeyAreRefusedNamingBoth`
+- [X] Q22 `ArchiveFolderWriterTest.aNameThatAppearsAfterTheCollisionCheckStopsTheWritesAndStaysUnchanged`,
+  `ArchiveExportConcurrencyTest.q22TwoConcurrentCallsIntoOneFolderNeverReplaceAFileAndTheLoserNamesIt`
+- [X] Q23 `ArchiveExportServiceTest.q23AProductionGroupWithoutTheOptInIsRefusedAlsoWithWriteEnabledAndItsOptIn`,
+  `q23AProductionGroupWithTheOptInIsAllowedAlsoWithWriteDisabled`,
+  `ExportArchivesWiringTest.withACliHomeTheArchiveToolIsOfferedNextToTheExportTool`,
+  `aProductionGroupWithoutTheOptInDoesNotSuppressIt`,
+  `aProductionGroupNeedsArchivesProductionOptInNotTheWriteOptIn`
+- [X] Q24 `ConfigLoaderTest.theOptInIsReadPerGroup`, `ConfigValidatorTest.theOptInOnANonProductionGroupIsAWarning`,
+  `ConfigSummaryTest.eachGroupLineShowsWhetherArchivesAreAllowed`
+- [X] Q25 `ArchiveExportServiceTest.q25ListsAreFilledArchiveByArchiveUntilMaxItemsAndCountsStayComplete`,
+  `aSumExactlyAtMaxItemsIsNotTruncatedAndOneMoreItemIs`
+- [X] Q26 `ArchiveExportServiceTest.anUnsupportedVersionIsRefusedByTheGateAfterThePendingRecordBeforeTheExport`
+- [X] Q27 `ArchiveExportPerformanceTest.tenWorkflowsAreBuiltAndWrittenWithinTenSeconds`
+- [X] Q28 `ArchiveExportServiceTest.theWorkspaceIsUntouchedAndTheRawExportReachesNoCodec`,
+  `ArchiveExportSecretLeakTest.noSyntheticSecretLeavesTheArchives`
+- [X] Q29 `ArchiveToolReferenceTest` (5), `ArchiveSetupSecurityDocsTest` (6), `ArchiveChangelogTest` (3)
+- [ ] Q30 SC-001, manual (T026, operator)
+- [X] Q31 `ArchiveExportServiceTest.anUnknownTargetIsRefusedOnceBeforeTheExport`,
+  `withoutOwnerAndInventoryOwnerTheCallIsRefusedOnceBeforeTheExport`
