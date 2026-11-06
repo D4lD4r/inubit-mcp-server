@@ -7,6 +7,37 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Feature 013, StartCLI-backed tools on Windows: process restart and kill, the module list and
+  version histories of the inventory, `export_artifacts`, `export_archives`, the development tools
+  and `deploy_release` now run on Windows with the INUBIT client's `bin\startcli.bat`, started
+  through the command interpreter of the system directory (setup.md "StartCLI on Windows").
+  - Values passed outside the StartCLI command that the interpreter would interpret (`"` `%` `!`
+    `^` `&` `|` `<` `>`, control characters, non-ASCII) are refused before any process starts: a
+    setting with `CLI_UNAVAILABLE` and a warning in `--check-config`, a username with
+    `AUTH_FAILED`; a `cli.home` on a network path is refused; a password outside ASCII is refused
+    until the live check has shown that it reaches the client unchanged.
+  - The password reaches StartCLI only through its standard input; StartCLI gets an allowlisted
+    environment with a fixed `PATH`, English messages and UTF-8 output, which is decoded
+    independently of the console code page and of CRLF line endings.
+  - File paths inside the command follow a drive-letter rule with `/` separators (at most 259
+    characters, 8.3 names expanded); command lines over 6143 characters are refused.
+  - Every StartCLI process tree is bound to the server through a Windows job and ends with a
+    timeout, an interrupted call or the server.
+  - What the server creates privately (temporary data, backups, packages, deployment lock and
+    ledger, workspace and its history, git hooks directory, audit directory and log) gets an
+    access list for the account and SYSTEM only, without inherited entries; existing files with
+    broader access are reported with an `icacls` command instead of being changed.
+  - git runs with `core.longpaths=true`.
+  - The offline suite runs on Windows in CI, including every StartCLI-backed, safety and secret
+    test against a substitute of `startcli.bat`.
+
+### Removed
+
+- The statement and the `CLI_UNAVAILABLE` "CLI tools are not supported on Windows in this
+  version", and the matching warning of `--check-config`.
+
 ## [0.7.1] - 2026-11-06
 
 The manual checks left open in 0.7.0 have run; no functional change.

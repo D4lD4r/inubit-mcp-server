@@ -334,6 +334,49 @@ Windows drive-type API could not be loaded …"); look for it in the server log 
 4. Remove the mapping (`net use Z: /delete`, `subst Y: /d`) and record the outcome (refused or
    not, per path form; no paths of the real share) in `specs/015-workbench-archives/quickstart.md`.
 
+## StartCLI live check on Windows (feature 013)
+
+The offline build runs every StartCLI-backed tool on Windows in CI against a substitute of
+`startcli.bat` (`WindowsReadOnlyToolsTest`, `WindowsWriteToolsTest` and the other Windows-only
+tests). What only the real Windows client shows is checked by hand by a Windows user, on a
+non-production node and with the person's approval in the chat for each step:
+
+- whether the client reads the password from standard input (if it waits at its password prompt
+  instead, the call ends with a `TIMEOUT` naming the password prompt; stop and report it, a
+  password argument is never a fallback);
+- how `startcli.bat` forwards arguments, how StartCLI treats `\` inside a quoted command value,
+  and how many characters `startcli.bat` adds to the command line;
+- the encoding of the output in the console code page of the machine (`chcp`).
+
+`tools\record-fixtures.ps1` records these facts read-only (`-List` prints its cases; the
+recording call is in `specs/013-windows-startcli/quickstart.md`). It starts `startcli.bat` the way
+the server does, only for the groups in `RECORD_ALLOWED_GROUPS` and the hosts in
+`RECORD_ALLOWED_HOSTS`, and writes neutralised files to `src/test/resources/fixtures/windows/`.
+
+Steps, in PowerShell:
+
+1. `java -jar inubit-mcp-server-<version>.jar --profile acme --check-config`: the node line shows
+   `cli: available` and the client version, with no Windows warning.
+2. Read-only first: `InventoryLiveTest` and `ArtifactExportLiveTest`, with `INUBIT_MCP_PROFILE`
+   and `INUBIT_LIVE_NODE` set as in [Run](#run):
+
+   ```powershell
+   $env:INUBIT_MCP_PROFILE = 'acme'; $env:INUBIT_LIVE_NODE = 'test/node1'
+   mvn verify -Plive "-Dtest=InventoryLiveTest,ArtifactExportLiveTest"
+   ```
+
+   `ArtifactExportLiveTest` needs `INUBIT_LIVE_DIAGRAM_GROUP`. Then `CredentialStoreLiveTest` as
+   in [Credential store live check](#credential-store-live-check-feature-011). Afterwards no
+   `inubit-mcp-export-*` directory is left below `java.io.tmpdir`.
+3. Only on a development node or an approved target, with approval: `DevelopmentLiveTest` and
+   `DeploymentLiveTest` ([Development live test](#development-live-test-feature-004),
+   [Deployment live test](#deployment-live-test-feature-005)); check the access list of a backup
+   with `icacls` (the account of the server and SYSTEM only, no inherited entries).
+4. Record per step the Windows version, the client version, the code page and the outcome kind
+   (no customer data) in the "Validation record" of
+   `specs/013-windows-startcli/quickstart.md`. If the separator, the handling of `\`, the
+   encoding or the length margin differ from the defaults, a follow-up task adjusts the rules.
+
 ## Manual write checks (approval only)
 
 There is **no automated live test for `restart_process` / `kill_process`**: every state-changing

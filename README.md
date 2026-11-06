@@ -129,11 +129,12 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
   histories of the inventory tools, and every tool that exports, imports or tags artifacts —
   `export_artifacts`, `export_archives`, the development tools and `deploy_release`, which needs
   it for the nodes of the source and the target group): a local **INUBIT 8.1 Workbench client
-  installation** with StartCLI (`bin/startcli.sh`) matching the servers' patch level, a Java 17
-  runtime for StartCLI, and "CLI login access" for the account. The INUBIT client is **not
-  included** in this project. Without it, the REST-based tools work and CLI-based parts report
-  `CLI_UNAVAILABLE`. CLI-based tools are not supported on Windows in this version: on Windows the
-  server offers the REST-based tools only.
+  installation** with StartCLI (`bin/startcli.sh`; on Windows `bin\startcli.bat` on a local
+  drive) matching the servers' patch level, a Java 17 runtime for StartCLI, and "CLI login
+  access" for the account. The INUBIT client is **not included** in this project. Without it, the
+  REST-based tools work and CLI-based parts report `CLI_UNAVAILABLE`. On Windows the CLI-based
+  tools work as on macOS, with a few rules for paths and characters
+  ([StartCLI on Windows](docs/setup.md#startcli-on-windows)).
 - Only for the artifact workspace (`export_artifacts`, the development tools and
   `deploy_release`): **git 2.32** or newer on `PATH`.
 - For the credentials: the credential store of the system — the macOS Keychain and the Windows

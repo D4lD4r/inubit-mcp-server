@@ -17,7 +17,7 @@ guide walks through it. All host names below are examples (`*.example.test`).
 |---|---|
 | JDK 21 or newer on `PATH` (`java -version`) | runs the server |
 | Maven 3.9+ (`mvn -v`) | only to build the JAR from source; a released JAR can be downloaded instead ([README](../README.md#installation-in-claude-code)) |
-| INUBIT 8.1.17 client installation (Workbench), e.g. `/opt/inubit/client` with `bin/startcli.sh` | CLI-backed tools only (process restart/kill, module list and version histories of the inventory, `export_artifacts`, every development tool except `run_e2e_test`, and `deploy_release`, which needs it on every node of a target group and of its source group); the INUBIT versions it declares must include the server's major.minor, and it should match the servers' patch level ([StartCLI client check](#startcli-client-check)) |
+| INUBIT 8.1.17 client installation (Workbench), e.g. `/opt/inubit/client` with `bin/startcli.sh` (`bin\startcli.bat` on Windows, e.g. `C:\inubit\client`; [StartCLI on Windows](#startcli-on-windows)) | CLI-backed tools only (process restart/kill, module list and version histories of the inventory, `export_artifacts`, every development tool except `run_e2e_test`, and `deploy_release`, which needs it on every node of a target group and of its source group); the INUBIT versions it declares must include the server's major.minor, and it should match the servers' patch level ([StartCLI client check](#startcli-client-check)) |
 | Temurin (or another) JDK **17** | StartCLI 8.1 runs on Java 17, not on the JDK of the server |
 | An INUBIT account per group (or node) with rights to read logs, monitoring and models, plus "CLI login access" for CLI-backed tools, and rights to export, import and tag the owner's diagrams and modules where the development tools or deployments are used | REST and CLI access |
 | The credential store of the system: macOS Keychain and Windows Credential Manager are built in; on Linux `secret-tool` (package `libsecret-tools` on Debian/Ubuntu, `libsecret` on Fedora/Arch) and a running Secret Service (e.g. GNOME Keyring) in the desktop session | the INUBIT credentials (section 4); without a usable store (a container, a headless server) use AWS Parameter Store. Environment variables are not a credential source |
@@ -25,8 +25,8 @@ guide walks through it. All host names below are examples (`*.example.test`).
 | `git` 2.32 or newer on `PATH` (`git --version`) | only for the history of the artifact workspace (`export_artifacts`, `import_artifacts`, `restore_backup`, `set_active`, `deploy_release`; section 3); the history stays local |
 
 Without a client installation the REST-backed tools still work; CLI-backed parts report
-`CLI_UNAVAILABLE`. CLI-backed tools are not supported on Windows in this version: on Windows the
-server offers the REST-backed tools only.
+`CLI_UNAVAILABLE`. On Windows the CLI-backed tools work as on macOS and Linux, with the rules of
+[StartCLI on Windows](#startcli-on-windows).
 
 ## 2. Build
 
@@ -328,8 +328,8 @@ but the version detection is sent; see `UNSUPPORTED_VERSION` in [tools.md](tools
 
 ### StartCLI client check
 
-For every node with a StartCLI installation (`cliHome` with `bin/startcli.sh`) the server runs
-`startcli.sh -v` **locally** — no credentials, no server URL, no INUBIT contact — and reads the
+For every node with a StartCLI installation (`cliHome` with `bin/startcli.sh`, or
+`bin\startcli.bat` on Windows) the server runs `startcli.sh -v` (`startcli.bat -v`) **locally** — no credentials, no server URL, no INUBIT contact — and reads the
 client version and the INUBIT versions it declares ("Supported inubit Process Engine versions
 from 4.0.1 to 8.1.17."). The check runs
 
@@ -352,6 +352,76 @@ The client is compared with the node's server version (the most recent one detec
 | inside the range, different patch (8.1.17 client, 8.1.18 server: `mismatch`) | StartCLI-backed tools run with a warning that their results may be unreliable |
 | the range cannot be evaluated (no range printed, the check failed or timed out, server version unknown) | StartCLI-backed reads run with a warning naming the cause (writes on an unknown version are refused by the version check anyway) |
 | no StartCLI installation | client `not_available`; StartCLI-backed tools report `CLI_UNAVAILABLE` as before |
+
+### StartCLI on Windows
+
+Since feature 013 the StartCLI-backed tools run on Windows as on macOS and Linux. Setup:
+
+- Install the INUBIT Workbench client on a **local drive** and set `cli.home` (`cliHome`) to it,
+  e.g. `C:\inubit\client`; the server starts its `bin\startcli.bat` through the command
+  interpreter of the system directory (`cmd.exe /d /v:off /s /c`), never through `PATH` or the
+  working directory. A `cli.home` on a network path (`\\server\share\…`, UNC) is refused: the
+  interpreter does not accept it as its working directory.
+- Set `cli.javaHome` (`cliJavaHome`) to a Java 17 runtime, e.g.
+  `C:\Program Files\Eclipse Adoptium\jdk-17…`; without it the server's `JAVA_HOME` is used.
+  Spaces in these paths are fine.
+- `--check-config` runs the client check (`startcli.bat -v`) and prints `cli: available` as on
+  macOS.
+
+Rules the server applies on Windows only, before any process starts:
+
+- **Characters.** The values passed to StartCLI outside its command (`cli.home`, the Java home,
+  `tls.trustStore`, the StartCLI URL and the username) must not contain
+  `"` `%` `!` `^` `&` `|` `<` `>`, control characters (tab and line breaks included) or
+  characters outside ASCII; the Java home also no `;` (the `PATH` separator). In a setting this
+  makes the node's StartCLI-backed capabilities report `CLI_UNAVAILABLE` naming the setting and the
+  character class, with a warning at startup and in `--check-config`; the server and its REST
+  tools still start. A username with such a character is refused with `AUTH_FAILED` naming the
+  credential entry (never the value), without counting as a failed login. Space, `'`, `(`, `)`,
+  `;`, `,`, `=`, `\`, `*` and `?` reach StartCLI unchanged.
+- **Password.** The password reaches StartCLI only through its standard input (UTF-8, then a line
+  break), never as a process argument, environment variable or file. Until the live check has
+  shown that a password outside ASCII reaches the client unchanged, use a password of ASCII
+  characters: another one is refused with `AUTH_FAILED` naming the entry.
+- **Paths inside the command.** A file path inside a StartCLI command (the temporary export and
+  import data) must be an absolute path with a drive letter, of ASCII letters, digits, `_`, `.`,
+  `-` and spaces, with `/` separators, without `.` or `..` and at most 259 characters; an 8.3
+  short name (`RUNNER~1`) is expanded first, a UNC path is refused. These files live below
+  `java.io.tmpdir`; if it breaks the rule (e.g. a user name outside ASCII in
+  `%LOCALAPPDATA%\Temp`), inventory exports report `CLI_UNAVAILABLE` and `--check-config` warns.
+  Start the server with a plain temporary directory then, e.g. `-Djava.io.tmpdir=C:\mcp-temp`
+  in the `args` of the MCP registration ([section 7](#7-register-with-claude-code)).
+- **Length.** The interpreter allows 8 191 characters per command line; the server keeps a margin
+  for what `startcli.bat` adds and allows 6143 characters. A tool input that makes the line longer
+  is refused with `INVALID_INPUT`; configured values that alone make it longer report
+  `CLI_UNAVAILABLE` naming the longest setting, and `--check-config` warns.
+- **Environment.** StartCLI gets an allowlist only: the variables Windows and Java need
+  (`SystemRoot`, `windir`, `SystemDrive`, `PATHEXT`, `TEMP`, `TMP`, `USERPROFILE`, `USERNAME`,
+  `USERDOMAIN`, `APPDATA`, `LOCALAPPDATA`, `ProgramData`, `OS`, `PROCESSOR_ARCHITECTURE`,
+  `NUMBER_OF_PROCESSORS`), `ComSpec`, `PATH` = `<Java home>\bin;<system directory>`,
+  `NoDefaultCurrentDirectoryInExePath=1`, `JAVA_HOME` and `JAVA_TOOL_OPTIONS` with English
+  messages and UTF-8 output. Its output is read as UTF-8 (else in the console code page), with
+  CRLF line endings, so the display language and code page of Windows do not matter.
+- **Processes.** Every StartCLI process tree is bound to the server through a Windows job: a
+  timeout, an interrupted call or a stopped server (also a forcibly ended one) ends the
+  interpreter, Java and their descendants. A timeout whose last output is the client's password
+  prompt says so: the client may be waiting for the password on its console, or the INUBIT server
+  is slow.
+- **Access.** What the server creates privately (temporary export and import data, backups,
+  packages, the deployment lock and ledger, the workspace and its history, the empty git hooks
+  directory, the audit directory and log) gets a protected access list for the account of the
+  server and SYSTEM only, without inherited entries; files StartCLI and git write below it
+  inherit it. If that access list cannot be set, the operation fails before anything is written.
+  An existing default audit directory, audit log, deployment ledger or lock with broader access is
+  not changed: the server warns at startup and in `--check-config` and names the `icacls` command
+  that restricts it. An existing workspace is used as is.
+- **git.** Git for Windows (2.32 or newer) on `PATH`; the server runs it with
+  `core.longpaths=true`, so repository paths longer than 260 characters work.
+- **INUBIT 6.1.** The StartCLI sessions of INUBIT 6.1 nodes come with feature 012; on Windows they
+  follow the same rules once feature 012 and this feature are combined.
+
+The live check of the Windows client (password through standard input, argument forwarding, code
+page) is described in [docs/live-tests.md](live-tests.md#startcli-live-check-on-windows-feature-013).
 
 ### Inventory settings
 
@@ -378,7 +448,8 @@ over REST.
 
 The exports are written to `java.io.tmpdir` (on macOS a per-user directory below
 `/var/folders/…`). Its path is part of the StartCLI command, so it may contain only letters,
-digits, `_ . - /` and spaces; otherwise the exports report `CLI_UNAVAILABLE` and
+digits, `_ . - /` and spaces (on Windows a drive-letter path, see
+[StartCLI on Windows](#startcli-on-windows)); otherwise the exports report `CLI_UNAVAILABLE` and
 `--check-config` warns. Start the server with `-Djava.io.tmpdir=<such a path>` in that case.
 Running exports are stopped and their directories deleted when the server shuts down; directories
 left behind by a killed server are deleted at the next start.

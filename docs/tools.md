@@ -250,7 +250,7 @@ other nodes are still reported.
 | `MAINTENANCE_MODE` | HTTP 503 while the server is in maintenance mode |
 | `NOT_FOUND` | the name, id or process instance does not exist (for `get_inventory_item` with `similarNames`) |
 | `INVALID_INPUT` | the arguments are well-formed but not valid (time format, a filter the log type does not support, a group id for a write tool, …) |
-| `CLI_UNAVAILABLE` | StartCLI cannot be used: no `cliHome` or JDK, Windows, or an unusable `java.io.tmpdir` |
+| `CLI_UNAVAILABLE` | StartCLI cannot be used: no `cliHome` or JDK, an unusable `java.io.tmpdir`, or on Windows a refused setting ([StartCLI on Windows](#startcli-on-windows)) |
 | `UNEXPECTED_RESPONSE` | INUBIT or StartCLI answered in an unexpected way (status, format); see `excerpt` |
 | `WRITE_DISABLED` | only `restart_process` / `kill_process`: `write.enabled` is not `true` for the node (see their refusal table) |
 | `PRODUCTION_PROTECTED`, `CONFIRMATION_INVALID`, `PRECONDITION_FAILED` | refusals of `restart_process` / `kill_process` (see their refusal table), of the development tools, of `deploy_release` and (`PRODUCTION_PROTECTED` only) of `export_archives`; `PRECONDITION_FAILED` also when the workspace is busy (another workspace operation is running) or not usable |
@@ -267,6 +267,25 @@ other nodes are still reported.
 | `DEPLOY_LOCKED` | another deployment into the same target group is running (feature 005) |
 | `REPOSITORY_WRITE_DENIED` | `import_artifacts` or `restore_backup` would create or change a repository file on a node whose `development.repository` is `READ_ONLY` (feature 008); the whole call is refused, nothing was sent, the message names the paths. `nextStep`: revert the files in the workspace (`git restore`) or ask the administrator to set `WRITE` on that development node; for `restore_backup`: ask for `WRITE` and restore again, or restore in the Workbench |
 | `INTERNAL` | an unexpected error inside the MCP server, the server is shutting down, or an audit record could not be written |
+
+### StartCLI on Windows
+
+Since feature 013 every StartCLI-backed tool runs on Windows; the rules are in
+[setup.md](setup.md#startcli-on-windows). Refusals happen before any process starts, name the
+setting or credential entry (never a value) and do not count as a failed login. The Windows-only
+messages (`<node>` is `<group>/<node>`):
+
+| Code | Message (cause / next step) |
+|---|---|
+| `CLI_UNAVAILABLE` | "StartCLI cannot be used for `<node>`: `<setting>` contains a character the Windows command interpreter interprets (`<class>`)" / "Use a `<setting>` without …" — `<setting>` is `cli.home`, `cli.javaHome` (else `JAVA_HOME`, there also `semicolon`), `tls.trustStore` or `cli.url`; `<class>` e.g. `percent sign`, `control character`, `non-ASCII character` |
+| `CLI_UNAVAILABLE` | "StartCLI cannot be used for `<node>`: cli.home is a network path (\\\\…)" / "StartCLI needs a local drive path on Windows; install the INUBIT client on a local drive and set cli.home to it" |
+| `CLI_UNAVAILABLE` | "StartCLI cannot be used for `<node>`: the StartCLI command line would exceed 6143 characters (`<setting>`)" / "Shorten `<setting>`" |
+| `INVALID_INPUT` | "The StartCLI command line for `<node>` would have `<n>` characters; Windows allows at most 6143" / "Pass fewer or shorter values in one call" |
+| `CLI_UNAVAILABLE` | "… the Windows system directory could not be read (`<reason>`)" or "… StartCLI processes could not be bound to the server (`<reason>`)": the interpreter or the process job is not available; for the job: "Start the MCP server outside a job that forbids nested jobs" |
+| `AUTH_FAILED` | "… the username in `<entry>` contains a character the Windows command interpreter interprets (`<class>`)" / "Use an INUBIT account whose username has none of these characters and store it in `<entry>`; then restart the MCP server" |
+| `AUTH_FAILED` | "… the password in `<entry>` contains a non-ASCII character" / "Give the INUBIT account a password of ASCII characters only and store it in `<entry>`; then restart the MCP server" |
+| `TIMEOUT` | as on macOS; if StartCLI's last output was its password prompt, the cause reads "StartCLI's last output was its password prompt: it may be waiting for the password on its console instead of reading it from standard input, or the INUBIT server is slow", and the next step adds the live check of [live-tests.md](live-tests.md#startcli-live-check-on-windows-feature-013) |
+| `INTERNAL` | no private directory: "Make sure the account of the MCP server can create directories in `<parent>` whose access is granted only to this account and SYSTEM (a protected access list without inherited entries), or point java.io.tmpdir of the MCP server to such a directory" |
 
 ## Credentials from the credential store (feature 011)
 
@@ -776,7 +795,7 @@ Times must fit INUBIT's epoch milliseconds (e.g. `+999999999-12-31T23:59:59Z` or
   StartCLI exports (`export … --includeHistory`, `export --exportModule ''`), which run into a
   private (`rwx------`) directory `inubit-mcp-export-<profile>-<pid>-<random>` below
   `java.io.tmpdir` that is deleted afterwards (setup.md, "Several profiles side by side").
-  Without a CLI home (or on Windows) the module list is `CLI_UNAVAILABLE`
+  Without a CLI home the module list is `CLI_UNAVAILABLE`
   and a diagram's `versions` are reported in `unavailable`. The exports use `cliExportTimeout`
   (default 120 s); a timed-out export names that setting in its `nextStep`.
 - **Module usage** (which workflows use a module; research R-11, T126): INUBIT 8.1's module
@@ -990,7 +1009,8 @@ exist. Both tools are annotated `destructiveHint: true`, `idempotentHint: false`
    may be detected first (one request); a version other than 8.1, an unknown version, a
    contradicted pin or a StartCLI client whose range excludes the node's version →
    `UNSUPPORTED_VERSION` (see [the variants](#unsupported_version)), before the state read.
-4. No usable StartCLI (no `cliHome`, no JDK, Windows) → `CLI_UNAVAILABLE`; no credentials →
+4. No usable StartCLI (no `cliHome`, no JDK, a refused Windows setting) → `CLI_UNAVAILABLE`; no
+   credentials →
    `AUTH_FAILED`.
 5. The current state is read from the Queue Manager (REST `queueLog`, `workflowId EQUAL
    <processId>`). No entry → `NOT_FOUND` (finished, already restarted/killed, or wrong id).
