@@ -151,7 +151,7 @@ that never answers: `instructions` name it, the first tool result has the note b
 
 ## Phase 8: Polish
 
-- [ ] T018 [P] Docs: README (install: manifest/`--version`, version-free file name allowed; update
+- [X] T018 [P] Docs: README (install: manifest/`--version`, version-free file name allowed; update
   check section), `docs/setup.md` (configuration key, environment variable, proxy options, log
   lines), `docs/tools.md` (`get_health.serverUpdate`), `CHANGELOG.md` `[Unreleased]`; wherever docs tell
   the version by the file name (`docs/setup.md` certificate section, start script) point to

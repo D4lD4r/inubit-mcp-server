@@ -170,6 +170,11 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
    Release JARs also carry a build provenance attestation, which the GitHub CLI can check:
    `gh attestation verify <path to the JAR> --repo D4lD4r/inubit-mcp-server`.
 
+   The JAR names its own version in its manifest (`Implementation-Version`); `java -jar <JAR>
+   --version` prints it, whatever the file is called. You may therefore also keep it under a
+   version-free name such as `inubit-mcp-server.jar`, so the registration of step 6 stays the same
+   after an update.
+
 3. **Create the profile** `~/.config/inubit-mcp/<profile>.yaml` (Windows:
    `%APPDATA%\inubit-mcp\<profile>.yaml`). Minimal read-only example for a profile `acme` with one
    non-production node:
@@ -284,6 +289,38 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
 
 Several profiles: one YAML file and one registration (`inubit-acme`, `inubit-globex`, …) each; see
 [docs/setup.md](docs/setup.md#several-profiles-side-by-side).
+
+## Updates
+
+The server checks at start and then every 24 hours whether a newer release exists. It **never
+downloads or installs** anything: update by hand with steps 1 and 2 above (replace the JAR the
+registration runs) and restart the client.
+
+- **What is sent**: one anonymous request to
+  `https://api.github.com/repos/D4lD4r/inubit-mcp-server/releases/latest` with the user agent
+  `inubit-mcp-server/<version>`. No profile, node, host name or credential leaves the machine.
+- **No waiting**: the check runs in the background with short timeouts; it delays neither the start
+  nor a tool call. A failure (offline, proxy, rate limit) is logged at DEBUG only and retried at the
+  next daily check.
+- **Where a newer release shows up** (each once per version):
+  - a WARN line on stderr (the client's MCP log);
+  - `serverUpdate` in the result of `get_health` ([tools.md](docs/tools.md#get_health));
+  - a short note block in the first successful tool result of a session, so the assistant can
+    mention it;
+  - after a restart, in the server instructions, from the cache `~/.inubit-mcp/update-check.json`
+    (also offline);
+  - in clients that support MCP forms (elicitation), a dialog with the release link and the option
+    "Do not remind me of this version again"; it opens after the first tool call and does not hold
+    it up.
+- **Switching it off**: `updateCheck: {enabled: false}` in the profile, or the environment variable
+  `INUBIT_MCP_UPDATE_CHECK=off` for every profile the client starts. Then the server sends no
+  request, reads and writes no cache and shows no notice.
+- **Proxy**: the check uses the JVM's standard proxy settings; add them before `-jar` in the
+  registration, e.g. `-Dhttps.proxyHost=proxy.example.test -Dhttps.proxyPort=3128`, or
+  `-Djava.net.useSystemProxies=true`. A proxy that requires authentication is not supported;
+  switch the check off there.
+
+Details: [docs/setup.md](docs/setup.md#update-check-updatecheck).
 
 ## Build from source
 
