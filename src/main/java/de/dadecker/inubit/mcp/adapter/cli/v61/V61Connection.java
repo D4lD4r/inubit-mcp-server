@@ -92,7 +92,10 @@ public final class V61Connection {
      */
     public CliResult session(List<CliSessionCommand> commands, Duration budget,
         int maxOutputBytes) {
-        runner.checkAvailable(server);
+        // feature 017 (T013): the client and address are chosen once, at the start
+        CliRunner.Selection selection = runner.select(server);
+        EffectiveNodeConfig chosen = selection.server();
+        runner.checkAvailable(selection);
         if (!credentials.complete()) {
             throw new ToolErrorException(ToolError.of(ErrorCode.AUTH_FAILED,
                 "No INUBIT credentials are configured for " + server.id()
@@ -105,13 +108,13 @@ public final class V61Connection {
             credentials.password().orElseThrow().value());
         CliClientOptions options =
             probe.optionsFor(server.id(), server.cliTimeout()).orElse(NOTHING_KNOWN);
-        refuse(options);
-        URI url = server.cli().url();
+        refuse(options, chosen.cli().url());
+        URI url = chosen.cli().url();
         try (CliConcurrencyLimiter.Permit permit = limiter.acquire(server)) {
             if (isHttps(url)) {
-                TlsHandshakeCheck.verify(server, url);
+                TlsHandshakeCheck.verify(chosen, url);
             }
-            return runner.runSession(server, credentials.username().orElseThrow().value(),
+            return runner.runSession(selection, credentials.username().orElseThrow().value(),
                 credentials.password().orElseThrow().value(), options, commands,
                 budget.compareTo(server.cliTimeout()) < 0 ? budget : server.cliTimeout(),
                 maxOutputBytes, guard);
@@ -119,7 +122,7 @@ public final class V61Connection {
     }
 
     /** The refusals of FR-012a and the HTTP rule, before any contact. */
-    private void refuse(CliClientOptions options) {
+    private void refuse(CliClientOptions options, URI url) {
         if (server.tls().disableHostnameVerification() && !options.disableHostNameVerification()) {
             throw refused("StartCLI on " + server.id() + " cannot skip the host-name check: the"
                     + " client offers no --disableHostNameVerification option",
@@ -156,7 +159,6 @@ public final class V61Connection {
                     + " JAVA_TOOL_OPTIONS, which is split at whitespace",
                 "Use a trust-store path without spaces");
         }
-        URI url = server.cli().url();
         if (!isHttps(url) && !(isHttp(url) && server.allowInsecureHttp())) {
             throw refused("StartCLI on " + server.id() + " is refused: its URL does not use"
                     + " https://",

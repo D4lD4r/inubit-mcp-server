@@ -1,5 +1,7 @@
 package de.dadecker.inubit.mcp.adapter;
 
+import de.dadecker.inubit.mcp.config.CliChoice.HomeSource;
+import de.dadecker.inubit.mcp.config.CliClient;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialNames;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
@@ -7,11 +9,15 @@ import de.dadecker.inubit.mcp.config.SecretLabels;
 import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.SecretSourceConfig;
 import de.dadecker.inubit.mcp.config.StoreKind;
+import de.dadecker.inubit.mcp.domain.model.MajorMinor;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 
 /** Builder for {@link EffectiveNodeConfig} values in adapter tests. */
@@ -39,6 +45,9 @@ public final class TestNodeConfig {
     private String credentialPrefix = "INUBIT";
     private EffectiveNodeConfig.Development development = EffectiveNodeConfig.NO_DEVELOPMENT;
     private boolean archivesProductionOptIn;
+    private final Map<MajorMinor, CliClient> cliClients = new LinkedHashMap<>();
+    private Optional<Path> defaultCliHome = Optional.empty();
+    private Optional<Path> defaultCliJavaHome = Optional.empty();
 
     private TestNodeConfig() {
     }
@@ -105,6 +114,24 @@ public final class TestNodeConfig {
         return this;
     }
 
+    /** Feature 017: a {@code defaults.cliClients} entry. */
+    public TestNodeConfig cliClient(String key, Path home, Optional<Path> javaHome) {
+        this.cliClients.put(MajorMinor.parse(key).orElseThrow(), new CliClient(home, javaHome));
+        return this;
+    }
+
+    /** Feature 017: {@code defaults.cliHome} (below a node's {@code cli.home}). */
+    public TestNodeConfig defaultCliHome(Path value) {
+        this.defaultCliHome = Optional.of(value);
+        return this;
+    }
+
+    /** Feature 017: {@code defaults.cliJavaHome} (below a node's {@code cli.javaHome}). */
+    public TestNodeConfig defaultCliJavaHome(Path value) {
+        this.defaultCliJavaHome = Optional.of(value);
+        return this;
+    }
+
     public TestNodeConfig timeout(Duration value) {
         this.timeout = value;
         return this;
@@ -158,7 +185,31 @@ public final class TestNodeConfig {
         return this;
     }
 
+    /**
+     * The node; with {@code cliClients} or a default CLI setting its StartCLI settings are layered
+     * as {@code ConfigLoader} resolves them (feature 017, research D-3), else they are fixed node
+     * settings.
+     */
     public EffectiveNodeConfig build() {
+        EffectiveNodeConfig fixed = buildFixed();
+        if (cliClients.isEmpty() && defaultCliHome.isEmpty() && defaultCliJavaHome.isEmpty()) {
+            return fixed;
+        }
+        EffectiveNodeConfig.CliSources sources = new EffectiveNodeConfig.CliSources(cliUrl,
+            cliHome.map(home -> new EffectiveNodeConfig.Layered<>(home, HomeSource.NODE)),
+            cliJavaHome.map(home -> new EffectiveNodeConfig.Layered<>(home, HomeSource.NODE)),
+            cliClients, defaultCliHome, defaultCliJavaHome);
+        EffectiveNodeConfig layered = new EffectiveNodeConfig(fixed.id(), fixed.production(),
+            fixed.baseUrl(), fixed.allowInsecureHttp(), fixed.versionLine(), fixed.write(),
+            fixed.tls(), fixed.cli(), fixed.inventory(), fixed.timeout(), fixed.cliTimeout(),
+            fixed.cliExportTimeout(), fixed.hangingThreshold(), fixed.confirmationTtl(),
+            fixed.credentialPrefix(), fixed.development(), fixed.secretPlan(),
+            fixed.archivesProductionOptIn(), sources);
+        return layered.withCli(layered.cliFor(
+            NodeVersionState.initial(versionLine).effectiveVersion()).cli());
+    }
+
+    private EffectiveNodeConfig buildFixed() {
         return new EffectiveNodeConfig(
             id,
             production,

@@ -195,3 +195,22 @@ Round-1 fixes confirmed. Findings on the retarget/no-gate change:
 
 No blocking finding open after these fixes (confirmed by the reviewer in round 3).
 
+
+## Implementation — stages 2–3, T007–T014 (code-review, 2026-11-06)
+
+Implemented test-first. Full build before the review: 5127 tests, 0 failures, 0 errors, 51
+skipped. Deviations from the tasks: `VersionGate` gets the D-8 next-step suffix through a new
+constructor flag (`cliClientsConfigured`, set in `Wiring`); until T015 `VersionGate.probeClient`,
+`HealthService` and `Launcher` pass the version to the probe and use `ProbedClient.version()`.
+Changed existing expectations: `VersionGateTest` (two next steps on INUBIT 9.x now end with
+`, or add defaults.cliClients."9.x"`; FR-009 unaffected because both nodes run 9.x), probe fakes
+moved to `ClientKey.NONE`, `V61Connection*Test`, `CliVersionProbeTest`.
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | SHOULD | A `V9_X` node with an observed 9.x version is told to add `defaults.cliClients."9.y"`, but a line without minor never chooses an entry (FR-011, D-3): a hint loop | Accepted | Verified (`EffectiveNodeConfig.choose` sets `wholeMajorLine`; `entryHint` and `VersionGate` ignored the line). Both now name no entry for a line without minor; red-green tests `CliRunnerMessagesTest.aLineWithoutMinorKeepsThe080TextEvenWithAnObservedVersion`, `VersionGateTest.aLineWithoutMinorNamesNoEntryEvenAfterAnObservation` |
+
+The reviewer confirmed the two changed `VersionGateTest` expectations and the 0.8.0 texts for
+profiles without `cliClients` and without 9.x nodes; the no-JDK hint names both JDKs for every
+profile, as T011 requires. No blocking finding open. Full build after the fix: 5131 tests, 0
+failures, 0 errors, 51 skipped.

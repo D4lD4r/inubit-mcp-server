@@ -5,6 +5,7 @@ import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
@@ -24,8 +25,10 @@ import java.util.regex.Pattern;
 public final class CliVersionProbe implements ClientVersionPort {
 
     private static final Pattern VERSION = Pattern.compile("^CLI (\\S+)$");
+    /** The 9.0 client writes "inubit" in lower case; any case is read (feature 017, D-15). */
     private static final Pattern SUPPORTED = Pattern.compile(
-        "^Supported inubit Process Engine versions from (\\S+) to (\\S+?)\\.?$");
+        "^Supported inubit Process Engine versions from (\\S+) to (\\S+?)\\.?$",
+        Pattern.CASE_INSENSITIVE);
     /** URLs are removed from a failure's excerpt (FR-016). */
     private static final Pattern URL = Pattern.compile("[A-Za-z][A-Za-z0-9+.-]*://\\S*");
     private static final String URL_REMOVED = "<url removed>";
@@ -48,19 +51,23 @@ public final class CliVersionProbe implements ClientVersionPort {
         this.classifier = new CliOutputClassifier(scrubber);
     }
 
-    /** Runs {@code startcli -v} with the node's CLI home and JDK, bounded by {@code timeout}. */
+    /**
+     * Runs {@code startcli -v} with the CLI home and JDK chosen for {@code version}, bounded by
+     * {@code timeout}.
+     */
     @Override
-    public ClientVersion probe(NodeId node, Duration timeout) {
+    public ProbedClient probe(NodeId node, Optional<InubitVersion> version, Duration timeout) {
         EffectiveNodeConfig server = nodes.apply(node);
-        CliResult result = runner.execute(server, List.of("-v"), Optional.empty(), timeout);
+        CliRunner.Selection selection = runner.select(server, version);
+        CliResult result = runner.execute(selection, List.of("-v"), Optional.empty(), timeout);
         CliOutput output = classifier.parse(result);
-        Optional<InubitVersion> version = Optional.empty();
+        Optional<InubitVersion> client = Optional.empty();
         Optional<InubitVersion> from = Optional.empty();
         Optional<InubitVersion> to = Optional.empty();
         for (String line : output.outputLines()) {
             Matcher versionLine = VERSION.matcher(line.strip());
-            if (versionLine.matches() && version.isEmpty()) {
-                version = InubitVersion.parse(versionLine.group(1));
+            if (versionLine.matches() && client.isEmpty()) {
+                client = InubitVersion.parse(versionLine.group(1));
             }
             Matcher supported = SUPPORTED.matcher(line.strip());
             if (supported.matches()) {
@@ -68,7 +75,7 @@ public final class CliVersionProbe implements ClientVersionPort {
                 to = InubitVersion.parse(supported.group(2));
             }
         }
-        if (result.exitCode() != 0 || version.isEmpty()) {
+        if (result.exitCode() != 0 || client.isEmpty()) {
             String excerpt = scrubber.scrub(String.join("\n", output.outputLines()));
             throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
                     "StartCLI did not report its version (exit code " + result.exitCode() + ")",
@@ -82,7 +89,7 @@ public final class CliVersionProbe implements ClientVersionPort {
         // major.minor counts (D-8)
         boolean range = from.isPresent() && to.isPresent() && (from.get().major() < to.get().major()
             || from.get().major() == to.get().major() && from.get().minor() <= to.get().minor());
-        return new ClientVersion(version.get(), range ? from : Optional.empty(),
-            range ? to : Optional.empty());
+        return new ProbedClient(selection.key(), new ClientVersion(client.get(),
+            range ? from : Optional.empty(), range ? to : Optional.empty()));
     }
 }

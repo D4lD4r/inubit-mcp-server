@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.MajorMinor;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState.DetectionFailure;
@@ -127,15 +128,27 @@ public final class VersionGate {
     private final Predicate<NodeId> withClient;
     private final Function<NodeId, Duration> cliTimeouts;
     private final Terminology terms;
+    private final boolean cliClientsConfigured;
+
+    /** A gate of a profile without {@code defaults.cliClients}. */
+    public VersionGate(NodeVersions versions, GatewayFactory gateways, CapabilityMatrix matrix,
+        ClientVersionPort clients, Predicate<NodeId> withClient,
+        Function<NodeId, Duration> cliTimeouts, Terminology terms) {
+        this(versions, gateways, matrix, clients, withClient, cliTimeouts, terms, false);
+    }
 
     /**
      * @param withClient  whether a node has a StartCLI installation (only those are probed)
      * @param cliTimeouts the {@code cliTimeout} of each node, the bound of its client probe
      * @param terms       the profile's terminology of the messages
+     * @param cliClientsConfigured whether the profile sets {@code defaults.cliClients}: the
+     *     refusal of a client names the entry of the version then (feature 017, research D-8)
      */
     public VersionGate(NodeVersions versions, GatewayFactory gateways, CapabilityMatrix matrix,
         ClientVersionPort clients, Predicate<NodeId> withClient,
-        Function<NodeId, Duration> cliTimeouts, Terminology terms) {
+        Function<NodeId, Duration> cliTimeouts, Terminology terms,
+        boolean cliClientsConfigured) {
+        this.cliClientsConfigured = cliClientsConfigured;
         this.versions = Objects.requireNonNull(versions, "versions");
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.matrix = Objects.requireNonNull(matrix, "matrix");
@@ -330,7 +343,9 @@ public final class VersionGate {
      */
     private void probeClient(NodeId node) {
         try {
-            versions.clientProbed(node, clients.probe(node, cliTimeouts.apply(node)));
+            // feature 017: interim until the client check is kept per client (T015 ff.)
+            versions.clientProbed(node, clients.probe(node, versions.effectiveVersion(node),
+                cliTimeouts.apply(node)).version());
         } catch (ToolErrorException e) {
             if (Thread.currentThread().isInterrupted()) {
                 throw e;
@@ -379,7 +394,12 @@ public final class VersionGate {
                 terms.render("The local StartCLI client does not support the INUBIT version of"
                     + " the {node}"),
                 "Install a StartCLI client on the host of this server that supports INUBIT "
-                    + majorMinor(state, version));
+                    + majorMinor(state, version)
+                    + version.filter(known -> !wholeMajorLine(state)
+                            && (cliClientsConfigured || known.major() >= 9))
+                        .map(known -> ", or add defaults.cliClients.\""
+                            + MajorMinor.of(known).text() + "\"")
+                        .orElse(""));
             case NOT_EVALUABLE -> warnings.add(client.supportedFrom().isEmpty()
                 ? "StartCLI client " + client.version().raw() + " of " + node
                     + " declares no supported INUBIT range; StartCLI results may be unreliable"
@@ -516,6 +536,11 @@ public final class VersionGate {
     }
 
     /** "9.0", or "9.x" for a major-only line. */
+    /** A line without minor never chooses a {@code cliClients} entry (research D-3). */
+    private static boolean wholeMajorLine(NodeVersionState state) {
+        return state.setting() instanceof VersionSetting.Line line && line.minor().isEmpty();
+    }
+
     private static String majorMinor(NodeVersionState state, Optional<InubitVersion> version) {
         if (version.isPresent()) {
             return version.get().major() + "." + version.get().minor();

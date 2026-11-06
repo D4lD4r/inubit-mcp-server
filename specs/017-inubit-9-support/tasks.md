@@ -63,7 +63,7 @@ FR-017).
 
 ### Configuration (plan stage 2)
 
-- [ ] T007 [US2] `CliClient(Path home, Optional<Path> javaHome)` ("`home` required; path binding as
+- [X] T007 [US2] `CliClient(Path home, Optional<Path> javaHome)` ("`home` required; path binding as
   `cliHome`"), `Defaults.cliClients: Map<MajorMinor, CliClient>` (empty by default, only in
   `defaults`), `CliClientsDeserializer` ("key pattern `^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`;
   duplicate key → load error with the path `defaults.cliClients.<key>`; no echo of values other
@@ -74,7 +74,7 @@ FR-017).
   loads — main
   `config/CliClient.java`, `config/CliClientsDeserializer.java`, `config/Defaults.java` (or the
   existing defaults record), test `config/CliClientsConfigTest.java`
-- [ ] T008 [US2] `EffectiveNodeConfig`: `CliSources` (fields per data-model.md), `CliChoice` ("`Cli
+- [X] T008 [US2] `EffectiveNodeConfig`: `CliSources` (fields per data-model.md), `CliChoice` ("`Cli
   cli`, `HomeSource source` (`NODE`, `GROUP`, `VERSION_ENTRY`, `DEFAULTS`, `NONE`),
   `Optional<MajorMinor> entry`, `AddressKind address` (`SERVLET_PATH`, `BASE_URL`, `CONFIGURED`),
   `OptionalInt major`, `boolean versionKnown`"; "`entry` present iff `source == VERSION_ENTRY`"),
@@ -90,7 +90,7 @@ FR-017).
 
 ### CLI selection (plan stage 3)
 
-- [ ] T009 [US2] Domain types first (tests `domain/model/ClientKeyTest.java`): `ClientKey(String
+- [X] T009 [US2] Domain types first (tests `domain/model/ClientKeyTest.java`): `ClientKey(String
   home, String javaHome)` ("`""` = none"; value equality; no URL, no credentials) and
   `ProbedClient(ClientKey key, ClientVersion version)` in `domain/model/`; then `CliRunner`: constructor `+ Function<NodeId, Optional<InubitVersion>> versions`;
   `Selection select(EffectiveNodeConfig, Optional<InubitVersion>)` (server with the chosen `Cli`,
@@ -101,11 +101,11 @@ FR-017).
   8.1 node → 8.1 client + servlet URL; 9.0 node → 9.0 client + JDK 21 + `<baseUrl>`; explicit
   `cli.url` kept; `select` idempotent — main `adapter/cli/CliRunner.java`, test
   `adapter/cli/CliRunnerSelectTest.java`
-- [ ] T010 [US2] Windows (US2 scenario 7, D-21): with 013's platform fake, a 9.0 entry home
+- [X] T010 [US2] Windows (US2 scenario 7, D-21): with 013's platform fake, a 9.0 entry home
   launches its `startcli.bat`; a UNC entry home and refused characters in an entry path are
   refused as for `cli.home` — test `adapter/cli/CliRunnerWindowsSelectTest.java`; production
   fixes, if any, in `adapter/cli/CliRunner.java` (therefore not parallel to T011/T012)
-- [ ] T011 [US2] FR-005 texts (D-8): no client → `CLI_UNAVAILABLE` naming the version and
+- [X] T011 [US2] FR-005 texts (D-8): no client → `CLI_UNAVAILABLE` naming the version and
   "Add `defaults.cliClients."<M.m>".home` (the INUBIT <M.m> client directory) or set cliHome"
   only when the version has a minor and (`cliClients` configured or major ≥ 9), else the 0.8.0
   text byte-identical; client range excludes → the 009 `UNSUPPORTED_VERSION` next step gains
@@ -113,16 +113,16 @@ FR-017).
   JDK 21)". Tests for both branches of the condition, leak check on every new text (`TemplateGrammarTest` stays green) — main
   `adapter/cli/CliRunner.java`, `application/VersionGate.java`, tests
   `adapter/cli/CliRunnerMessagesTest.java`, `application/VersionGateTest.java`
-- [ ] T012 [US2] `CliOutputClassifier`: `AUTH_FAILED` next step adds "On INUBIT 9 the user must
+- [X] T012 [US2] `CliOutputClassifier`: `AUTH_FAILED` next step adds "On INUBIT 9 the user must
   exist in the internal user management; users that log in only through OAuth cannot use
   StartCLI" when `CliChoice.major` ≥ 9 (any address kind); 8.1 text unchanged (D-16, FR-013) —
   main `adapter/cli/CliOutputClassifier.java`, `adapter/cli/CliRunner.java`, test
   `adapter/cli/CliOutputClassifierTest.java`
-- [ ] T013 [P] [US2] `V61Connection` selects at its start and uses the chosen URL;
+- [X] T013 [P] [US2] `V61Connection` selects at its start and uses the chosen URL;
   `HandshakeStartCliPinProbe` uses the chosen URL; 6.1 tests unchanged and green — main
   `adapter/cli/v61/V61Connection.java`, `adapter/cli/HandshakeStartCliPinProbe.java`, tests in
   the existing `adapter/cli/v61/` and pin-probe test classes
-- [ ] T014 [US2] `CliVersionProbe.probe(node, version, timeout)` selects by the given version and
+- [X] T014 [US2] `CliVersionProbe.probe(node, version, timeout)` selects by the given version and
   returns `ProbedClient`; range pattern `CASE_INSENSITIVE` (D-15); test with
   `src/test/resources/fixtures/v9_0/cli/version.*` (lower-case "inubit") and the 8.1 fixture —
   main `adapter/cli/CliVersionProbe.java`, `domain/port/ClientVersionPort.java`, test

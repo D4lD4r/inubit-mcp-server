@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliSystem;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
+import de.dadecker.inubit.mcp.adapter.cli.HandshakeStartCliPinProbe;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.github.GitHubReleaseSource;
@@ -41,6 +42,7 @@ import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.SemVer;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -346,14 +348,19 @@ final class Launcher {
         // directories, which the probe never creates
         try (CliResources resources = new CliResources("check-config",
             context.privateFiles())) {
+            // no version is detected here: the line's own version chooses StartCLI (017, D-4)
             CliRunner runner = new CliRunner(new SystemProcessLauncher(), context.environment(),
-                context.windows(), system, containment, resources);
+                context.windows(), system, containment, resources,
+                new HandshakeStartCliPinProbe(),
+                id -> NodeVersionState.initial(byId.get(id).versionLine()).effectiveVersion());
             CliVersionProbe probe = new CliVersionProbe(runner, byId::get);
             CliClientProbe optionProbe = new CliClientProbe(runner, byId::get,
                 CapabilityMatrix.production(), Clock.systemUTC());
             for (EffectiveNodeConfig server : withClient) {
                 try {
-                    clients.put(server.id(), probe.probe(server.id(), server.cliTimeout()));
+                    clients.put(server.id(), probe.probe(server.id(),
+                        NodeVersionState.initial(server.versionLine()).effectiveVersion(),
+                        server.cliTimeout()).version());
                 } catch (ToolErrorException e) {
                     warnings.add(server.id() + ": StartCLI client probe failed: "
                         + e.error().message());

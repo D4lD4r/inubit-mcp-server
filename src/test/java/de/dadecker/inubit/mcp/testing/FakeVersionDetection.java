@@ -58,7 +58,7 @@ public final class FakeVersionDetection implements GatewayFactory {
      */
     public static VersionGate gateWithoutClients(NodeVersions versions, GatewayFactory gateways,
         CapabilityMatrix matrix) {
-        return new VersionGate(versions, gateways, matrix, (node, timeout) -> {
+        return new VersionGate(versions, gateways, matrix, (node, version, timeout) -> {
             throw new AssertionError("no client probe expected for " + node);
         }, node -> false, node -> Duration.ZERO, Terminology.DEFAULT);
     }

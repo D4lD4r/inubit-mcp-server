@@ -279,7 +279,8 @@ public final class HealthService {
             // the local client probe, bounded by what is left of the budget (FR-002)
             Future<ClientVersion> probe = withClient.test(server)
                 && versions.needsClientProbe(server)
-                ? executor.submit(() -> clients.probe(server, remaining(budgetEnd)))
+                ? executor.submit(() -> clients.probe(server, versions.effectiveVersion(server),
+                    remaining(budgetEnd)).version())
                 : null;
             // unconfirmed credentials: one login attempt at a time (Phase 3 review M2)
             boolean serialized = !monitoring.credentialsConfirmed();
@@ -363,7 +364,8 @@ public final class HealthService {
                 cli.snapshot(remaining(budgetEnd)));
             Future<ClientVersion> probe = withClient.test(server)
                 && versions.needsClientProbe(server)
-                ? executor.submit(() -> clients.probe(server, remaining(budgetEnd)))
+                ? executor.submit(() -> clients.probe(server, versions.effectiveVersion(server),
+                    remaining(budgetEnd)).version())
                 : null;
             Outcome<CliHealthSnapshot> snapshot = await(session, deadline, server, budget,
                 "to the StartCLI health session");

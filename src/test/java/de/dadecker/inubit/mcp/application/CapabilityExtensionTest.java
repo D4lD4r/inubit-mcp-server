@@ -205,7 +205,7 @@ class CapabilityExtensionTest {
             CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, Terminology.DEFAULT, gate,
             SecretTiming.NONE);
         HealthService health = new HealthService(gateways, targets, new FanOut(), timeouts,
-            clock, gate, versions, (node, timeout) -> {
+            clock, gate, versions, (node, version, timeout) -> {
                 throw new AssertionError("no client probe expected for " + node);
             }, node -> false);
         Map<NodeId, WritePolicy> policies = new HashMap<>();

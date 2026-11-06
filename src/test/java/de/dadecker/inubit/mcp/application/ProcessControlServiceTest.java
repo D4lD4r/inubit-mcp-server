@@ -10,11 +10,13 @@ import de.dadecker.inubit.mcp.application.ProcessControlService.Response;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ConfirmationChallenge;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ProcessAction;
 import de.dadecker.inubit.mcp.domain.model.ProcessControlResult;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
@@ -89,9 +91,9 @@ class ProcessControlServiceTest {
     private Supplier<ClientVersion> probeOutcome = () -> {
         throw new AssertionError("no client probe scripted");
     };
-    private final ClientVersionPort clientProbe = (node, timeout) -> {
+    private final ClientVersionPort clientProbe = (node, version, timeout) -> {
         probes.add(node);
-        return probeOutcome.get();
+        return new ProbedClient(ClientKey.NONE, probeOutcome.get());
     };
 
     private final ProcessControlService service = new ProcessControlService(

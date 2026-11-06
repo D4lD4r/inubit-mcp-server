@@ -9,6 +9,7 @@ import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.CliHealthSnapshot;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -18,6 +19,7 @@ import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LoadFigures;
 import de.dadecker.inubit.mcp.domain.model.MemoryFigures;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ProcessCounts;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
@@ -205,9 +207,10 @@ class HealthServiceTest {
     private HealthService service(CapabilityMatrix matrix, Duration singleCliBudget,
         Duration overviewBudget) {
         GatewayFactory gateways = gatewaysForTest();
-        ClientVersionPort probe = (server, timeout) -> {
+        ClientVersionPort probe = (server, version, timeout) -> {
             probeTimeouts.add(timeout);
-            return clients.getOrDefault(server, () -> CLIENT_8117).get();
+            return new ProbedClient(ClientKey.NONE,
+                clients.getOrDefault(server, () -> CLIENT_8117).get());
         };
         VersionGate gate = gateWithoutClients(versions, gateways, matrix);
         return singleCliBudget == null
@@ -1554,7 +1557,8 @@ class HealthServiceTest {
         HealthService service = new HealthService(gatewaysForTest(), new TargetResolver(SERVERS),
             new FanOut(), server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC),
             gateWithoutClients(versions, gatewaysForTest(), CapabilityMatrix.production()),
-            versions, (server, timeout) -> CLIENT_8117, withClient::contains,
+            versions, (server, version, timeout) -> new ProbedClient(ClientKey.NONE, CLIENT_8117),
+            withClient::contains,
             server -> server.equals(QA1) ? Optional.of("macOS Keychain") : Optional.empty());
 
         HealthReport pending = service.check(Optional.of(QA1.value()), false).get(0);

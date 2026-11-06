@@ -14,6 +14,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -241,6 +242,49 @@ class CliOutputClassifierTest {
                 + " /inubit/test/node1/username, /inubit/test/node1/password in Parameter Store"
                 + " (eu-central-1); no restart is needed");
         });
+    }
+
+    @Test
+    void aLoginFailureOfAClientChosenForNineNamesTheInternalUserManagement() {
+        // feature 017 (T012, research D-16, FR-013): whatever the address kind
+        CliOutputClassifier forNode = new CliOutputClassifier(scrubber, new SecretLabels.Store(
+            new CredentialNames("INUBIT_ACME", NodeId.parse("test/node1")), StoreKind.KEYCHAIN),
+            false);
+
+        ToolError byMarker = ((CliOutcome.Failure) forNode.classify(
+            fixture("login_failed").forClientMajor(OptionalInt.of(9)))).error();
+        ToolError byText = failure(result(1, PREAMBLE + "EXECUTION ERROR\nThe user does not"
+            + " exist or password does not match.\n").forClientMajor(OptionalInt.of(10)));
+
+        assertThat(byMarker.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(byMarker.nextStep()).isEqualTo("Correct the credential store entries"
+            + " INUBIT_ACME_TEST_NODE1_USERNAME (or INUBIT_ACME_TEST_USERNAME) and"
+            + " INUBIT_ACME_TEST_NODE1_PASSWORD (or INUBIT_ACME_TEST_PASSWORD) (service"
+            + " inubit-mcp) in the macOS Keychain; no restart is needed. On INUBIT 9 the user"
+            + " must exist in the internal user management; users that log in only through"
+            + " OAuth cannot use StartCLI");
+        assertThat(byText.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(byText.nextStep()).isEqualTo("Check the node's username and password with"
+            + " --check-config and correct them where they are stored. On INUBIT 9 the user must"
+            + " exist in the internal user management; users that log in only through OAuth"
+            + " cannot use StartCLI");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {-1, 6, 8})
+    void aLoginFailureBelowNineOrOfAnUnknownMajorKeepsTheText(int major) {
+        // feature 017 (T012, FR-009): the 0.8.0 text
+        CliResult login = fixture("login_failed").forClientMajor(
+            major < 0 ? OptionalInt.empty() : OptionalInt.of(major));
+
+        assertThat(failure(login).nextStep()).isEqualTo("Check the node's username and"
+            + " password with --check-config and correct them where they are stored");
+    }
+
+    @Test
+    void aResultWithoutClientMajorHasNone() {
+        assertThat(result(0, "").clientMajor()).isEmpty();
+        assertThat(result(0, "").forClientMajor(OptionalInt.of(9)).clientMajor()).hasValue(9);
     }
 
     @Test

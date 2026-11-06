@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.application.DiagnosisService.ProcessRequest;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
@@ -17,6 +18,7 @@ import de.dadecker.inubit.mcp.domain.model.LogType;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeResult;
 import de.dadecker.inubit.mcp.domain.model.Page;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
@@ -193,9 +195,9 @@ class DiagnosisServiceTest {
         return new DiagnosisService(gateways, new TargetResolver(SERVERS), new FanOut(),
             limiter, server -> TIMEOUT, server -> cliTimeout, thresholds::get, clock,
             item -> sizes.apply(item), new VersionGate(versions, detection, matrix,
-                (node, timeout) -> {
+                (node, version, timeout) -> {
                     probes.add(node);
-                    return CLIENT_610;
+                    return new ProbedClient(ClientKey.NONE, CLIENT_610);
                 }, withClient::contains, node -> cliTimeout, Terminology.DEFAULT),
             secretTiming);
     }

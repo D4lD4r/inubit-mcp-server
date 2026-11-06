@@ -175,7 +175,7 @@ class DeployGuardTest {
         NodeVersions versions = new NodeVersions(clock, settings::get,
             node -> Duration.ofMinutes(10));
         VersionGate gate = new VersionGate(versions, new FakeVersionDetection(versions),
-            CapabilityMatrix.production(), (node, timeout) -> {
+            CapabilityMatrix.production(), (node, version, timeout) -> {
                 throw new AssertionError("no client probe expected for " + node);
             }, node -> false, node -> Duration.ZERO, terms);
         List<NodeId> nodes = List.of(NodeId.parse("dev/node1"), NodeId.parse("dev/node2"),

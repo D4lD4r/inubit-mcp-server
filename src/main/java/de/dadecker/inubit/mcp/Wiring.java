@@ -14,6 +14,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
+import de.dadecker.inubit.mcp.adapter.cli.HandshakeStartCliPinProbe;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
@@ -315,8 +316,10 @@ final class Wiring implements AutoCloseable {
         // feature 009 (research D-4): the per-node version state, fed by the adapters
         NodeVersions versions = new NodeVersions(clock.clock(),
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
+        // feature 017 (research D-4): StartCLI is chosen per call by the effective version
         CliRunner cliRunner = new CliRunner(launcher, environment, windows,
-            windows ? new WindowsSystem() : new PosixSystem(), containment, cliResources);
+            windows ? new WindowsSystem() : new PosixSystem(), containment, cliResources,
+            new HandshakeStartCliPinProbe(), versions::effectiveVersion);
         // feature 009 (research D-16): the 8.1 port set, as default for every version; feature
         // 017 (research D-14): explicitly for 9.0 too; feature 012 (research D-4): the 6.1 port
         // set and health port, CLI-only (no REST client)
@@ -339,7 +342,8 @@ final class Wiring implements AutoCloseable {
             .filter(server -> server.cliAvailable(exists, windows))
             .map(EffectiveNodeConfig::id).collect(Collectors.toUnmodifiableSet());
         VersionGate versionGate = new VersionGate(versions, gateways, matrix, clientVersions,
-            withClient::contains, id -> byId.get(id).cliTimeout(), terms);
+            withClient::contains, id -> byId.get(id).cliTimeout(), terms,
+            servers.stream().anyMatch(server -> !server.cliSources().clients().isEmpty()));
         Map<NodeId, Duration> timeouts = new HashMap<>();
         servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
         // feature 011 (research R-8): get_health names the credential store a read waits for

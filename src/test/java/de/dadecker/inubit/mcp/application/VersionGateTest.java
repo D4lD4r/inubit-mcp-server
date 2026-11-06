@@ -14,10 +14,12 @@ import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.Capability.Kind;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -359,8 +361,10 @@ class VersionGateTest {
             "INUBIT 9.1.0 on dev/node1 is not verified for inventory; results may be incomplete");
         assertThat(cli.message()).contains("8.1.17", "4.0.1 to 8.1.17", "INUBIT 9.1.0",
             "dev/node1", "inventory");
+        // feature 017 (T011, research D-8): on INUBIT 9 the next step names the version entry
         assertThat(cli.nextStep()).isEqualTo(
-            "Install a StartCLI client on the host of this server that supports INUBIT 9.1");
+            "Install a StartCLI client on the host of this server that supports INUBIT 9.1, or"
+                + " add defaults.cliClients.\"9.1\"");
         assertThat(detection.calls).isEqualTo(1);
     }
 
@@ -512,10 +516,70 @@ class VersionGateTest {
         assertThat(error.message()).isEqualTo("list_inventory: StartCLI client 8.1.17 of"
             + " dev/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7;"
             + " inventory via StartCLI refused; nothing was sent");
+        // feature 017 (T011, research D-8): on INUBIT 9 the next step names the version entry
         assertThat(error.nextStep()).isEqualTo(
-            "Install a StartCLI client on the host of this server that supports INUBIT 9.0");
+            "Install a StartCLI client on the host of this server that supports INUBIT 9.0, or"
+                + " add defaults.cliClients.\"9.0\"");
         assertThat(probe.calls).hasSize(1);
         assertThat(detection.calls).isEqualTo(1);
+    }
+
+    @Test
+    void withCliClientsConfiguredTheNextStepNamesTheEntryOfTheVersion() {
+        // feature 017 (T011, research D-8)
+        detection.answer("8.1.17");
+        versions.clientProbed(AUTO, client("9.0.7", "9.0.0", "9.0.99"));
+        VersionGate gate = new VersionGate(versions, detection, CapabilityMatrix.production(),
+            probe, withClient::contains, node -> CLI_TIMEOUT, Terminology.DEFAULT, true);
+
+        ToolError error = refusal(() -> gate.admit(AUTO, Capability.INVENTORY, Kind.READ, CLI));
+
+        assertThat(error.nextStep()).isEqualTo("Install a StartCLI client on the host of this"
+            + " server that supports INUBIT 8.1, or add defaults.cliClients.\"8.1\"");
+        // leak check
+        assertThat(error.toString()).doesNotContain(PASSWORD, USERNAME, BASE_URL);
+    }
+
+    @Test
+    void withoutCliClientsBelowNineTheNextStepIsUnchanged() {
+        // feature 017 (T011, FR-009): the 0.8.0 text
+        detection.answer("8.1.17");
+        versions.clientProbed(AUTO, client("9.0.7", "9.0.0", "9.0.99"));
+
+        ToolError error = refusal(() -> gate().admit(AUTO, Capability.INVENTORY, Kind.READ,
+            CLI));
+
+        assertThat(error.nextStep()).isEqualTo(
+            "Install a StartCLI client on the host of this server that supports INUBIT 8.1");
+    }
+
+    @Test
+    void aLineWithoutMinorNamesNoEntryEvenWithCliClients() {
+        // feature 017 (T011, research D-8): an entry needs major.minor
+        withClient.add(V9_X);
+        probe.answer(client("8.1.17", "4.0.1", "8.1.17"));
+        VersionGate gate = new VersionGate(versions, detection, CapabilityMatrix.production(),
+            probe, withClient::contains, node -> CLI_TIMEOUT, Terminology.DEFAULT, true);
+
+        ToolError error = refusal(() -> gate.admit(V9_X, Capability.INVENTORY, Kind.READ, CLI));
+
+        assertThat(error.nextStep()).isEqualTo(
+            "Install a StartCLI client on the host of this server that supports INUBIT 9.x");
+    }
+
+    @Test
+    void aLineWithoutMinorNamesNoEntryEvenAfterAnObservation() {
+        // feature 017 (research D-3, FR-011): V9_X never chooses an entry, so none is named
+        withClient.add(V9_X);
+        versions.observed(V9_X, version("9.1.3"));
+        probe.answer(client("8.1.17", "4.0.1", "8.1.17"));
+        VersionGate gate = new VersionGate(versions, detection, CapabilityMatrix.production(),
+            probe, withClient::contains, node -> CLI_TIMEOUT, Terminology.DEFAULT, true);
+
+        ToolError error = refusal(() -> gate.admit(V9_X, Capability.INVENTORY, Kind.READ, CLI));
+
+        assertThat(error.nextStep()).isEqualTo(
+            "Install a StartCLI client on the host of this server that supports INUBIT 9.1");
     }
 
     @Test
@@ -1063,9 +1127,10 @@ class VersionGateTest {
         }
 
         @Override
-        public ClientVersion probe(NodeId node, Duration timeout) {
+        public ProbedClient probe(NodeId node, Optional<InubitVersion> version,
+            Duration timeout) {
             calls.add(timeout);
-            return outcome.get();
+            return new ProbedClient(ClientKey.NONE, outcome.get());
         }
     }
 
