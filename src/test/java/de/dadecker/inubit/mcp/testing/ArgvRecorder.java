@@ -33,8 +33,13 @@ import java.util.regex.Pattern;
  *       record);
  *   <li>{@link #REPLAY} set: prints {@code fixtures/v8_1/cli/<case>.stdout} and {@code .stderr}
  *       (with CRLF line ends if {@link #CRLF} is set);
+ *   <li>the environment variable {@link #REPLY_ENVIRONMENT} set (instead of {@link #REPLAY}):
+ *       prints the files {@code stdout} and {@code stderr} of the directory it names in the same
+ *       way, exits with the code in its file {@code exit} and keeps a copy of its record there as
+ *       {@link #RECORD_FILE} — one scripted answer per launch
+ *       (feature 013 T027, {@code ScriptedProcessLauncher#throughTheLaunch});
  *   <li>{@link #SLEEP_MILLIS} set: sleeps that long;
- *   <li>exits with the replayed case's {@code .exit} code, else 0.
+ *   <li>exits with the replayed case's {@code .exit} code (or the scripted answer's), else 0.
  * </ol>
  *
  * <p>The child is this class again with only {@link #SLEEP_MILLIS}: it records nothing and just
@@ -47,11 +52,19 @@ public final class ArgvRecorder {
     public static final String SLEEP_MILLIS = "argvRecorder.sleepMillis";
     public static final String CHILD_SLEEP_MILLIS = "argvRecorder.childSleepMillis";
     public static final String WRITE_INTO = "argvRecorder.writeInto";
+    /**
+     * The export fixture: a file of {@code fixtures/v8_1/cli/}, or a resource path starting with
+     * {@code /}.
+     */
     public static final String EXPORT_FIXTURE = "argvRecorder.exportFixture";
     /** The export fixture instead of {@link #EXPORT_FIXTURE} for a module export. */
     public static final String EXPORT_MODULE_FIXTURE = "argvRecorder.exportModuleFixture";
     /** Set: the replayed output has CRLF line ends, as the client prints them on Windows. */
     public static final String CRLF = "argvRecorder.crlf";
+    /** The environment variable naming the directory of a scripted answer. */
+    public static final String REPLY_ENVIRONMENT = "ARGV_RECORDER_REPLY";
+    /** The copy of the record kept in the directory of a scripted answer. */
+    public static final String RECORD_FILE = "record.json";
     /** The name of the file written into {@link #WRITE_INTO}. */
     public static final String WRITTEN_FILE = "argv-recorder.txt";
 
@@ -80,11 +93,24 @@ public final class ArgvRecorder {
                     && String.join(" ", args).contains("--exportModule")
                     ? moduleFixture : exportFixture));
             }
-            writeRecord(Path.of(record), json(args, stdin, childPid));
+            String json = json(args, stdin, childPid);
+            writeRecord(Path.of(record), json);
+            String reply = System.getenv(REPLY_ENVIRONMENT);
+            if (reply != null) {
+                writeRecord(Path.of(reply, RECORD_FILE), json);
+            }
         }
         int exitCode = 0;
+        String reply = System.getenv(REPLY_ENVIRONMENT);
         String replay = System.getProperty(REPLAY);
-        if (replay != null) {
+        if (reply != null) {
+            Path directory = Path.of(reply);
+            System.out.write(crlf(Files.readAllBytes(directory.resolve("stdout"))));
+            System.out.flush();
+            System.err.write(crlf(Files.readAllBytes(directory.resolve("stderr"))));
+            System.err.flush();
+            exitCode = Integer.parseInt(Files.readString(directory.resolve("exit")).strip());
+        } else if (replay != null) {
             System.out.write(output(replay + ".stdout"));
             System.out.flush();
             System.err.write(output(replay + ".stderr"));
@@ -101,7 +127,11 @@ public final class ArgvRecorder {
 
     /** A replayed output, with CRLF line ends if {@link #CRLF} is set. */
     private static byte[] output(String name) throws IOException {
-        byte[] recorded = fixture(name);
+        return crlf(fixture(name));
+    }
+
+    /** {@code recorded} with CRLF line ends if {@link #CRLF} is set. */
+    private static byte[] crlf(byte[] recorded) {
         if (System.getProperty(CRLF) == null) {
             return recorded;
         }
@@ -174,7 +204,7 @@ public final class ArgvRecorder {
 
     private static byte[] fixture(String name) {
         try (InputStream in = ArgvRecorder.class.getResourceAsStream(
-            "/fixtures/v8_1/cli/" + name)) {
+            name.startsWith("/") ? name : "/fixtures/v8_1/cli/" + name)) {
             if (in == null) {
                 throw new IllegalArgumentException("No fixture " + name);
             }

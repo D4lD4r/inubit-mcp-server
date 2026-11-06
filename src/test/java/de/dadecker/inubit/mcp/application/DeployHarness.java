@@ -105,6 +105,8 @@ public final class DeployHarness {
     /** The REST reads of every node, e.g. {@code int/node1 diagrams jdoe}. */
     public final List<String> restCalls = new CopyOnWriteArrayList<>();
     public final Map<NodeId, ScriptedProcessLauncher> cli = new LinkedHashMap<>();
+    /** Feature 013 (T027): every StartCLI call is started for real ({@link #throughTheLaunch}). */
+    private boolean launched;
     public final List<AuditRecord> audit = new CopyOnWriteArrayList<>();
     public final MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
     /** Feature 009: the {@code versionLine} of each node ({@code V8_1} if absent). */
@@ -174,6 +176,25 @@ public final class DeployHarness {
         }
     }
 
+    /**
+     * Feature 013 (T027): from now on every StartCLI call of every node is started for real —
+     * the substitute StartCLI of the host platform (on Windows {@code startcli.bat} through the
+     * command interpreter) prints each scripted answer with CRLF line ends. Call it before
+     * scripting any call.
+     */
+    public DeployHarness throughTheLaunch() throws IOException {
+        FakeStartCli.install(cliHome, Map.of(
+            de.dadecker.inubit.mcp.testing.ArgvRecorder.CRLF, "true"));
+        Path replies = Files.createDirectories(profileHome.resolveSibling("replies"));
+        for (NodeId node : List.copyOf(cli.keySet())) {
+            cli.put(node, ScriptedProcessLauncher.throughTheLaunch(
+                new de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher(),
+                Files.createDirectories(replies.resolve(node.value().replace('/', '-')))));
+        }
+        launched = true;
+        return this;
+    }
+
     /** {@code export} with {@code Module-0005} importing {@link #RELEASE_XSL}. */
     static byte[] withRepositoryReference(byte[] export) {
         Map<String, byte[]> entries = new LinkedHashMap<>(
@@ -194,8 +215,9 @@ public final class DeployHarness {
 
     private EffectiveNodeConfig server(NodeId node) {
         return TestNodeConfig.node().id(node.value()).cliHome(cliHome)
-            .cliJavaHome(Path.of("/opt/jdk-17")).cliExportTimeout(Duration.ofSeconds(2))
-            .build();
+            .cliJavaHome(launched ? Path.of(System.getProperty("java.home"))
+                : Path.of("/opt/jdk-17"))
+            .cliExportTimeout(Duration.ofSeconds(launched ? 120 : 2)).build();
     }
 
     private NodeCredentials credentials(NodeId node) {
@@ -206,8 +228,9 @@ public final class DeployHarness {
     }
 
     private CliRunner runner(NodeId node) {
-        return TestCliRunners.forHost(cli.get(node), Map.of("PATH", Platform.searchPath()),
-            new CliResources("acme", PrivateFiles.forHost()));
+        return TestCliRunners.forHost(cli.get(node), launched ? System.getenv()
+            : Map.of("PATH", Platform.searchPath()), new CliResources("acme",
+                PrivateFiles.forHost()));
     }
 
     private CredentialGuard guard(NodeId node) {

@@ -153,7 +153,12 @@ public final class FakeStartCli {
 
     /** The record of the last run. */
     public Recorded record() throws IOException {
-        return JSON.readValue(Files.readAllBytes(recordFile), Recorded.class);
+        return read(recordFile);
+    }
+
+    /** A record written by {@link ArgvRecorder}, e.g. the copy of one scripted answer. */
+    public static Recorded read(Path file) throws IOException {
+        return JSON.readValue(Files.readAllBytes(file), Recorded.class);
     }
 
     /**
