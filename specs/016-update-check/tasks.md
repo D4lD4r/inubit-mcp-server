@@ -57,7 +57,7 @@ the checkout; never two builds in parallel).
   `of(SemVer current, SemVer latest, Instant checkedAt)` and tests in
   `src/main/java/de/dadecker/inubit/mcp/domain/model/ServerUpdate.java`,
   `src/test/java/de/dadecker/inubit/mcp/domain/model/ServerUpdateTest.java`
-- [ ] T007 [US1] `GitHubReleaseSource` (research R-1, R-2, R-5: fixed URL, headers `Accept`,
+- [X] T007 [US1] `GitHubReleaseSource` (research R-1, R-2, R-5: fixed URL, headers `Accept`,
   `X-GitHub-Api-Version`, `User-Agent: inubit-mcp-server/<version>`; `ProxySelector.getDefault()`;
   connect 5 s, request 10 s; body ≤ 1 MiB; only `tag_name` = `v`+SemVer, `draft`/`prerelease` true
   rejected; every failure → `ReleaseCheckException`; default TLS verification, no custom `SSLContext`), base URI injectable; WireMock tests incl.
