@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp;
 
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
+import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.ParameterStore;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
@@ -21,6 +22,18 @@ import java.util.function.Supplier;
  */
 public final class TestWiring implements AutoCloseable {
 
+    /**
+     * The configuration location of the factories without one (feature 015, research R-9): a
+     * default directory below {@code java.io.tmpdir} that is never created, with the configuration
+     * file in it.
+     */
+    public static final ConfigLocation TEST_CONFIG_LOCATION;
+
+    static {
+        Path directory = Path.of(System.getProperty("java.io.tmpdir"), "inubit-mcp-test-config");
+        TEST_CONFIG_LOCATION = new ConfigLocation(directory, directory.resolve("config.yaml"));
+    }
+
     private final Wiring wiring;
 
     private TestWiring(Wiring wiring) {
@@ -31,7 +44,7 @@ public final class TestWiring implements AutoCloseable {
     public static TestWiring of(ProfileConfig config, CredentialStore credentials,
         SecretScrubber scrubber, Predicate<Path> exists, boolean windows) {
         return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
-            exists, windows));
+            exists, windows, TEST_CONFIG_LOCATION));
     }
 
     /** As above, with a fake StartCLI ({@code launcher}) and its parent environment. */
@@ -39,7 +52,7 @@ public final class TestWiring implements AutoCloseable {
         SecretScrubber scrubber, Predicate<Path> exists, boolean windows,
         ProcessLauncher launcher, Map<String, String> environment) {
         return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
-            exists, windows, launcher, environment));
+            exists, windows, launcher, environment, TEST_CONFIG_LOCATION));
     }
 
     /** As above, with the Parameter Store of the AWS nodes. */
@@ -47,7 +60,7 @@ public final class TestWiring implements AutoCloseable {
         SecretScrubber scrubber, Predicate<Path> exists, boolean windows,
         ProcessLauncher launcher, Map<String, String> environment, ParameterStore store) {
         return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
-            exists, windows, launcher, environment, () -> store));
+            exists, windows, launcher, environment, () -> store, TEST_CONFIG_LOCATION));
     }
 
     /**
@@ -59,7 +72,19 @@ public final class TestWiring implements AutoCloseable {
         boolean windows, ProcessLauncher launcher, Map<String, String> environment,
         Supplier<ParameterStore> parameterStore) {
         return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
-            exists, windows, launcher, environment, parameterStore));
+            exists, windows, launcher, environment, parameterStore, TEST_CONFIG_LOCATION));
+    }
+
+    /**
+     * As {@link #of(ProfileConfig, CredentialStore, SecretScrubber, Predicate, boolean,
+     * ProcessLauncher, Map)}, with the configuration location the server would have been started
+     * with (feature 015, research R-9).
+     */
+    public static TestWiring withConfigLocation(ProfileConfig config, CredentialStore credentials,
+        SecretScrubber scrubber, Predicate<Path> exists, boolean windows,
+        ProcessLauncher launcher, Map<String, String> environment, ConfigLocation location) {
+        return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
+            exists, windows, launcher, environment, location));
     }
 
     /** As the launcher variant, with a capability matrix other than the production one. */
@@ -69,7 +94,7 @@ public final class TestWiring implements AutoCloseable {
         return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
             exists, windows, launcher, environment, () -> {
                 throw new IllegalStateException("no Parameter Store in this test");
-            }, matrix));
+            }, TEST_CONFIG_LOCATION, matrix));
     }
 
     /** The MCP server the launcher starts, with {@link #toolHandlers()}. */
@@ -80,6 +105,11 @@ public final class TestWiring implements AutoCloseable {
     /** The handlers the server registers. */
     public List<ToolHandler> toolHandlers() {
         return wiring.toolHandlers();
+    }
+
+    /** The configuration location of the wiring. */
+    ConfigLocation configLocation() {
+        return wiring.configLocation();
     }
 
     /** The gateways of the wiring (e.g. for a live test's own read or cleanup). */

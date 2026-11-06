@@ -22,12 +22,14 @@ field or error code; see
 the credentials from the credential store of the system of feature 011
 [its delta](../specs/011-os-credential-stores/contracts/mcp-tools-delta.md) (no new tool,
 parameter, field or error code; see
-[Credentials from the credential store](#credentials-from-the-credential-store-feature-011)), and
-the read-only INUBIT 6.1 nodes of feature 012
+[Credentials from the credential store](#credentials-from-the-credential-store-feature-011)),
+`export_archives` of feature 015
+[its delta](../specs/015-workbench-archives/contracts/mcp-tools-delta.md), and the read-only
+INUBIT 6.1 nodes of feature 012
 [its delta](../specs/012-inubit-61-cli-reads/contracts/mcp-tools-delta.md) (see
 [INUBIT 6.1](#inubit-61-feature-012)).
-All sixteen tools are described here; each section quotes the description the server announces in
-`tools/list` for a profile `acme` without description and with the default terminology
+All seventeen tools are described here; each section quotes the description the server announces
+in `tools/list` for a profile `acme` without description and with the default terminology
 (Group/Node).
 
 General rules:
@@ -74,6 +76,7 @@ General rules:
 | [`kill_process`](#restart_process--kill_process) | delete ONE process instance on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `kill`) |
 | [`export_artifacts`](#export_artifacts) | export technical workflows, modules or repository files into the local workspace and its history | read-only for INUBIT, non-idempotent (records a history entry), open world | yes (StartCLI `export`, read-only) |
 | [`check_artifacts`](#check_artifacts) | check workspace files offline: structure, a stylesheet run, XML/XSD | read-only, idempotent, open world | only to look up modules missing in the workspace (module list) |
+| [`export_archives`](#export_archives) | export the technical workflows of ONE diagram group as Workbench-importable archives, one per workflow, into a local folder — **secrets in clear text** | not read-only (writes local files; read-only for INUBIT), not destructive, non-idempotent, open world | yes (StartCLI `export`, read-only) |
 | [`import_artifacts`](#import_artifacts) | import the changed workflows of ONE diagram group (with their changed or new modules), changed modules, or new and changed repository files, into ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`restore_backup`](#restore_backup) | re-import the backup of an earlier development call or of a deployment on one node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`set_active`](#set_active) | activate or deactivate ONE workflow on ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
@@ -86,13 +89,14 @@ write access** (`write.enabled: true`, and on a `production: true` group also
 `write.productionOptIn: true`; see [setup.md](setup.md#write-settings-restart-and-kill)). With the
 default configuration the server is read-only and `tools/list` does not contain them.
 
-`export_artifacts` is **offered only if at least one node has a StartCLI installation**
-(`cliHome`); `check_artifacts` is always offered.
+`export_artifacts` and `export_archives` are **offered only if at least one node has a StartCLI
+installation** (`cliHome`); `check_artifacts` is always offered. `export_archives` is offered also
+when every production group lacks `archives.productionOptIn` (it refuses them per call).
 
 `list_nodes` and `get_health` are always offered. `find_processes`, `query_logs`,
-`list_inventory`, `get_inventory_item` and `export_artifacts` are not offered when no configured
-node may run their capability (feature 012), e.g. in a profile of INUBIT 6.1 nodes only (see
-[tool announcement](#tool-announcement)).
+`list_inventory`, `get_inventory_item`, `export_artifacts` and `export_archives` are not offered
+when no configured node may run their capability (feature 012), e.g. in a profile of INUBIT 6.1
+nodes only (see [tool announcement](#tool-announcement)).
 
 The development tools of feature 004 are **offered only if at least one node is a development
 stage** (`development.enabled: true`, never on production groups; see
@@ -123,7 +127,7 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 | `query_logs` | `log_diagnosis` | read | REST | supported | runs with a warning | refused |
 | `list_inventory` `DIAGRAM` | `inventory` | read | REST | supported | runs with a warning | refused |
 | `list_inventory` `MODULE`, `get_inventory_item` (diagram details via REST; the module list and every version history via StartCLI) | `inventory` | read | REST + StartCLI | supported | the REST part runs with a warning; the StartCLI part also needs the client check | refused |
-| `export_artifacts` | `workspace_export` | read on INUBIT | StartCLI | supported | runs with a warning if the client check passes (refused on 9.0 with an 8.1 client) | refused |
+| `export_artifacts`, `export_archives` | `workspace_export` | read on INUBIT | StartCLI | supported | runs with a warning if the client check passes (refused on 9.0 with an 8.1 client) | refused |
 | `check_artifacts` | – (its optional module lookup: `inventory` over StartCLI) | read | none, optional module lookup | runs | runs; the module lookup as `inventory` | runs; the module lookup is skipped |
 | `import_artifacts`, `restore_backup` of a development backup, `set_active`, `tag_artifacts` | `development_writes` | write | StartCLI + REST | supported | refused | refused |
 | `restore_backup` of a deployment backup, `deploy_release` | `deployment` | write | StartCLI + REST | supported | refused; `deploy_release` also only within one minor version | refused |
@@ -221,10 +225,10 @@ additionally not offered when every node that could run it by configuration is p
 line or a concrete version) to a version that does not support its capability, e.g. a profile
 whose only development nodes are `V9_X`. Since feature 012 the same rule applies to the read tools
 `find_processes` (process diagnosis), `query_logs` (log diagnosis), `list_inventory` and
-`get_inventory_item` (inventory) and `export_artifacts` (workspace export), e.g. in a profile
-whose only nodes are pinned to INUBIT 6.1; `list_nodes`, `get_health` and `check_artifacts` are
-always offered. `AUTO` nodes count as possibly capable; a later detection does not change the
-list, it leads to refusals.
+`get_inventory_item` (inventory), `export_artifacts` and `export_archives` (workspace export),
+e.g. in a profile whose only nodes are pinned to INUBIT 6.1; `list_nodes`, `get_health` and
+`check_artifacts` are always offered. `AUTO` nodes count as possibly capable; a later detection
+does not change the list, it leads to refusals.
 
 ### INUBIT 6.1 (feature 012)
 
@@ -260,7 +264,7 @@ access exists` for writes:
 | `get_health`, `find_processes` | `monitoring`, `process diagnosis` | `use the Workbench, or another node with a different INUBIT version` |
 | `query_logs` | `log diagnosis` | `read the logs of INUBIT 6.1 in the Workbench` |
 | `list_inventory`, `get_inventory_item` | `inventory; modules of INUBIT 6.1 cannot be looked up` | `use the Workbench, or another node with a different INUBIT version` |
-| `export_artifacts` | `workspace export` | `use the Workbench export` |
+| `export_artifacts`, `export_archives` | `workspace export` | `use the Workbench export` |
 | `restart_process`, `kill_process`, the development tools, `deploy_release`, `run_e2e_test` | `process control`, `development writes`, `deployment`, `end-to-end test` | `use the Workbench` |
 | `find_processes` with `tag` | `find_processes: INUBIT 6.1 does not support the input tag; nothing was sent` (this whole message; the 6.1 process listing has no tag column) | `Omit tag for this node, or filter by workflow` |
 | `check_artifacts` | no refusal: the module lookup is skipped, see [`check_artifacts`](#check_artifacts) | – |
@@ -312,7 +316,7 @@ other nodes are still reported.
 | `CLI_UNAVAILABLE` | StartCLI cannot be used: no `cliHome` or JDK, Windows, or an unusable `java.io.tmpdir` |
 | `UNEXPECTED_RESPONSE` | INUBIT or StartCLI answered in an unexpected way (status, format); see `excerpt` |
 | `WRITE_DISABLED` | only `restart_process` / `kill_process`: `write.enabled` is not `true` for the node (see their refusal table) |
-| `PRODUCTION_PROTECTED`, `CONFIRMATION_INVALID`, `PRECONDITION_FAILED` | refusals of `restart_process` / `kill_process` (see their refusal table), of the development tools and of `deploy_release`; `PRECONDITION_FAILED` also when the workspace is busy (another workspace operation is running) or not usable |
+| `PRODUCTION_PROTECTED`, `CONFIRMATION_INVALID`, `PRECONDITION_FAILED` | refusals of `restart_process` / `kill_process` (see their refusal table), of the development tools, of `deploy_release` and (`PRODUCTION_PROTECTED` only) of `export_archives`; `PRECONDITION_FAILED` also when the workspace is busy (another workspace operation is running) or not usable |
 | `CONFIRMATION_REQUIRED` | reserved in the catalogue, not returned by this version: the first write call returns a `challenge` |
 | `UNSUPPORTED_VERSION` | the node's INUBIT version, a contradicted pin or the local StartCLI client does not allow the call (feature 009); nothing but the version detection was sent; see [its variants](#unsupported_version) |
 | `NOT_CONFIGURED` | a setting the tool needs is not configured for this node, e.g. `inventory.owner` for `list_inventory` / `get_inventory_item`; `nextStep` names the setting ("set inventory.owner for <group>/<node> or in defaults") |
@@ -1327,6 +1331,183 @@ usable); `INTERNAL`. Server lookup failures are findings (`MODULE_UNVERIFIED`), 
 ["dev/OWNERS/workflows/GRP-01"])`; "Run the stylesheet of Map-Order on this test message" →
 `check_artifacts(xslt: {stylesheet: "dev/OWNERS/modules/XSLT Converter/Map-Order/xslt.stylesheet.xsl",
 input: "inputs/order.xml"})`.
+
+## `export_archives`
+
+> [acme] Export the technical workflows of one diagram group of one group or node as one
+> Workbench-importable archive per workflow (`<name>.diagram.zip`) into a local folder you name.
+> The archives contain the workflows' secrets IN CLEAR TEXT; set acknowledgeClearTextSecrets to
+> true only when the user wants that. The folder must be an absolute path outside the workspace,
+> the server's directories (including its configuration directory), git working trees and network
+> paths; existing files are never replaced. Read-only for INUBIT; does not touch the workspace.
+
+Feature 015 ([its delta](../specs/015-workbench-archives/contracts/mcp-tools-delta.md)). Runs one
+StartCLI `export` of the diagram group (as `export_artifacts`, `--exportWorkflowType 'technical'`,
+read-only for INUBIT) and slices it **in memory** into one archive per technical workflow that the
+INUBIT Workbench can import: the workflow, every module its nodes use (also nested nodes) and the
+modules bound to it, and the repository files they reach (the closure `export_artifacts` computes).
+Module files, repository files and `archive.properties` are byte-identical to INUBIT's export.
+Unlike `export_artifacts`, **nothing is redacted**: passwords, encrypted values, keystores, key
+material and saved test messages stay **in clear text** as INUBIT exported them. The workspace and
+its history are never touched; the raw export is deleted with StartCLI's private temporary
+directory. No manifest or other file is written besides the archives.
+
+The tool is annotated `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`,
+`openWorldHint: true` (title "Export Workbench archives of workflows"), so that clients ask before
+calling it (the **client confirmation**). `acknowledgeClearTextSecrets: true` documents the user's
+intent; it does not replace that confirmation. The tool is offered under the condition of
+`export_artifacts` (a node has `cliHome`), also when every production group lacks the opt-in.
+
+**Input** (`export_archives.input.json`):
+
+| Property | Rules |
+|---|---|
+| `target` (required) | id of one group (its first node is used and named in the result) or one node |
+| `owner` | INUBIT user or user group owning the workflows; default `inventory.owner` of the node |
+| `diagramGroup` (required) | one diagram group name (letters, digits, `_ . -` and spaces, 1–200) |
+| `workflows` | 1–50 unique workflow names (1–200 characters, no control characters), matched case-sensitively; default: every technical workflow of the diagram group, at most 50 |
+| `targetFolder` (required) | absolute path of the local folder for the archives (1–4096 characters); see the folder rules below; created owner-only if missing |
+| `acknowledgeClearTextSecrets` | must be `true` (checked by the tool, not the schema, so that a missing acknowledgement is audited and explained) |
+| `reason` | one line, 1–500 characters; stored in the audit log |
+
+**Archive files.** `<file name>.diagram.zip` per workflow, the file name derived from the
+workflow name, in this order: each of `< > : " / \ | ? *` and each control character becomes `_`,
+trailing dots and spaces are removed, an empty result becomes `_`, a leading `.` becomes `_`, and a
+name whose part before the first dot is a Windows reserved name (`CON`, `PRN`, `AUX`, `NUL`,
+`COM1`–`COM9`, `LPT1`–`LPT9`, in any case) gets the prefix `_` (`con.backup` →
+`_con.backup.diagram.zip`); a file name over 255 bytes (UTF-8) is refused. Names are compared
+after NFC normalization and case folding, so two names that are the same file on a
+case-insensitive file system collide. Each archive is written to a hidden
+`.<file name>.<random>.part` file and then hard-linked to its name, which the operating system
+refuses if the name exists, so it appears under its final name only complete — **existing files
+are never replaced**, also not one that appears after the collision check. Without hard links
+(e.g. FAT/exFAT) the archive is written directly under its final name with "create new", which
+also never replaces a file, but an incomplete archive is visible under that name while it is
+written (it is deleted if the write fails). On POSIX the archives are `rw-------` and every folder
+the call creates `rwx------`; permissions of existing folders are never changed. **On Windows the
+archives and folders inherit the target folder's ACLs** (they are not tightened).
+
+**Folder rules** (static input checks, `INVALID_INPUT`). `targetFolder` is refused when it
+
+1. is not an absolute path, or has a `.` or `..` element;
+2. is a network path: a UNC path (`\\server\share`, `\\?\UNC\…`) or a mapped network drive
+   (Windows);
+3. exists and is not a writable directory, or (missing) its nearest existing ancestor is not a
+   writable directory;
+4. is or lies inside one of the server's directories: `~/.inubit-mcp`, the configured
+   `workspace`, the configured `auditDirectory`, the **configuration directory**
+   (`~/.config/inubit-mcp`, on Windows `%APPDATA%\inubit-mcp`) or the **folder of the
+   configuration file in use**;
+5. is or lies inside a git working tree (a `.git` entry in the folder or an ancestor).
+
+Rules 4 and 5 are checked on the path as given and with symbolic links resolved (for a missing
+folder: its nearest existing ancestor), so a link in either direction is caught. Rule 2 checks the
+path as given: a symbolic link or junction to a network share, or a local folder resolving onto a
+mapped drive, is not detected, and on macOS and Linux a mounted network share is not recognized as
+one. A folder below a known cloud-sync root (macOS `~/Library/CloudStorage`,
+`~/Library/Mobile Documents`; on Windows the folders named by `OneDrive`, `OneDriveCommercial`,
+`OneDriveConsumer`) is accepted with a call-level warning that the archives (with clear-text
+secrets) will be synchronized to the cloud; other sync folders are not detected. The message names
+the rule and the folder, never a file's content.
+
+**Decision flow.** The tool checks at **two moments**; nothing is written before both passed:
+
+1. `target` and owner: `TARGET_UNKNOWN` / `INVALID_INPUT` for the id, `NOT_CONFIGURED` without
+   `owner` and `inventory.owner`.
+2. **Static input checks**, before StartCLI, first failure wins: the production opt-in
+   (`PRODUCTION_PROTECTED`) → the acknowledgement → the syntax and limits of `diagramGroup`,
+   `workflows` and `reason` (again, as defence in depth) → the folder rules. A failure of 1–2 is
+   audited `REFUSED` and returned as a tool error; nothing is exported or written.
+3. The audit record `PENDING` is forced to disk; if it cannot be written, `INTERNAL` and nothing
+   is exported.
+4. The version gate (`UNSUPPORTED_VERSION`, capability `workspace_export` as `export_artifacts`),
+   then the StartCLI export (its errors as `export_artifacts`, also the 128 MiB limit), then the
+   slicing (`UNEXPECTED_RESPONSE` for an archive that cannot be processed).
+5. **Export-dependent checks, after the export, before the first write**, first failure wins:
+   unknown workflow names → more than 50 technical workflows without `workflows` → a file name
+   over 255 bytes → colliding file names, first between the selected workflows, then with the
+   files already in the target folder. A failure is audited `REFUSED` and returned as a tool error;
+   nothing is written. If the existing target folder cannot be listed for the last check, the call
+   ends in `INTERNAL`, audited `FAILED`; nothing is written. A diagram group without technical
+   workflows is no error: the result lists no archive and no folder is created.
+6. The writes, one archive at a time in the order of `workflows` (without it: export order). A
+   missing target folder and its missing parents are created right before the first archive. The
+   writes **stop at the first failure** (creating the folder, building an archive, any file
+   operation, a file that appeared after the check): that archive is in `failed` (code
+   `INTERNAL`, the message names the file or, if the folder could not be created, the folder
+   failure), the workflows after it in `notWritten`, the archives written before it stay in
+   `archives`. Every file the call created for the failed archive is
+   deleted; a folder it created stays. A write failure is **a result, not a tool error**.
+7. The outcome record, an INFO log line (node, outcome, diagram group, counts, audit id) and the
+   result.
+
+**Refusals** (tool errors; nothing written):
+
+| Code | When | Moment |
+|---|---|---|
+| `TARGET_UNKNOWN`, `INVALID_INPUT` | unknown or malformed target | static |
+| `NOT_CONFIGURED` | no owner in the call and no `inventory.owner` | static |
+| `PRODUCTION_PROTECTED` | production group without `archives.productionOptIn` (the message names the setting; `write.enabled` and `write.productionOptIn` do not unlock archives) | static |
+| `INVALID_INPUT` | acknowledgement missing or `false`; workflow-name syntax or limits; `reason`; a folder rule | static |
+| `INTERNAL` | the audit record could not be written (for a refusal: the message carries the original code and message); an unexpected failure during or after the writes (the message names the counts and the folder whose archives hold clear-text secrets) | static / before StartCLI / writes |
+| `UNSUPPORTED_VERSION` | version gate (as `export_artifacts`) | after `PENDING` |
+| `CLI_UNAVAILABLE`, `AUTH_FAILED`, `TIMEOUT`, `NOT_FOUND`, `UNEXPECTED_RESPONSE` | the StartCLI export as `export_artifacts` (same messages, also the 128 MiB limit) | export |
+| `INVALID_INPUT` | unknown workflow names (named; names are case-sensitive); more than 50 workflows without `workflows`; a file name over 255 bytes; colliding file names (between workflows or with the folder, both named) | after the export, before the first write |
+| `INTERNAL` | the existing target folder could not be listed for the collision check (audited `FAILED`) | after the export, before the first write |
+
+**Output** (`export_archives.output.json`):
+
+| Field | Meaning |
+|---|---|
+| `node`, `owner`, `diagramGroup` | where the workflows came from (a group target: its first node) |
+| `targetFolder` | the absolute path of the folder |
+| `auditId` | the id of the call's audit records |
+| `clearTextSecrets` | always: "The archives contain the secrets of these workflows (passwords, keys, certificates, saved test messages) in clear text. Do not share, attach or commit them as they are; delete them when no longer needed." |
+| `archives` | the archives written completely, in write order (see below) |
+| `failed` | `[{workflow, code, message}]`, at most one entry: the archive the writes stopped at (`INTERNAL`) |
+| `notWritten` | the workflows not attempted after the failure |
+| `truncated` | `true` if `modules`, `missingModules` or `repositoryPaths` were cut: over all archives together they hold at most `resultLimits.maxItems` items, filled archive by archive (per archive modules, then missing modules, then repository paths); counts, archives and warnings are never cut, and the full lists are not written anywhere |
+| `warnings` | call-level: the version warnings of the node (feature 009), the cloud-sync warning, a file of the call that could not be deleted (a temporary `.part` file, or a file of the failed archive; it holds the same secrets), an audit outcome that could not be written (naming the `auditId`) |
+
+Per archive: `workflow`, `file` (the name in `targetFolder`), `path` (absolute), `size` (bytes),
+`moduleCount` and `modules` (`[{name, pluginType}]`), `missingModuleCount` and `missingModules`
+(`[{name}]`: a technical module the workflow uses that the export does not contain, e.g. one of
+another owner; the archive is still written and imports only where these modules exist),
+`repositoryFileCount` and `repositoryPaths`, and `warnings` (missing modules; a node whose module
+is a Workflow Connector: the called workflow is not included, archive it separately). The result
+never contains file content or a secret value.
+
+```json
+{"node":"dev/node1","owner":"OWNERS","diagramGroup":"GRP-01","targetFolder":"/Users/jdoe/archives",
+ "auditId":"…","clearTextSecrets":"The archives contain the secrets of these workflows …",
+ "archives":[{"workflow":"Workflow-0001","file":"Workflow-0001.diagram.zip",
+   "path":"/Users/jdoe/archives/Workflow-0001.diagram.zip","size":48213,"moduleCount":2,
+   "modules":[{"name":"Module-0001","pluginType":"Web Services Connector"},
+              {"name":"Module-0002","pluginType":"XSLT Converter"}],
+   "missingModuleCount":0,"missingModules":[],"repositoryFileCount":2,
+   "repositoryPaths":["/Root/OWNERS/xsd/core.xsd","/Root/OWNERS/xsd/msg.xsd"],"warnings":[]}],
+ "failed":[],"notWritten":[],"truncated":false,"warnings":[]}
+```
+
+A write failure on the second of three workflows gives `archives` with the first, `failed:
+[{"workflow":"Workflow-0002","code":"INTERNAL","message":"Writing the archive file
+'Workflow-0002.diagram.zip' failed: …"}]` and `notWritten: ["Workflow-0003"]`.
+
+**Audit.** `capability: export_archives`, step `EXECUTE`, one `auditId` per call. A static refusal
+is one record `REFUSED`; otherwise `PENDING` (before the version gate and StartCLI) and then the
+outcome: `EXECUTED` (every selected archive written, also none), `REFUSED` (version gate, an
+export-dependent check), `FAILED` (StartCLI, slicing, an unexpected failure), and
+**`PARTIALLY_COMPLETED` for every write failure** — `failed` not empty, however many archives
+were written, also when no archive was written (the target folder could not be created, or the
+first archive failed). Inputs: `owner`, `diagramGroup`, `targetFolder`, `workflow.<n>`,
+`file.<n>`, `acknowledgeClearTextSecrets`, `reason`; names, counts and codes only, never file
+content or secret values. Calls that violate the input schema are not audited.
+
+**Example prompt**: "Export Workflow-0001 of diagram group GRP-01 from dev as a Workbench archive
+into /Users/jdoe/archives; I know it contains the passwords in clear text" →
+`export_archives(target: "dev", diagramGroup: "GRP-01", workflows: ["Workflow-0001"],
+targetFolder: "/Users/jdoe/archives", acknowledgeClearTextSecrets: true, reason: "hand over to
+the Workbench")`. Delete the archives when they are no longer needed.
 
 ## Development on a development stage (feature 004)
 

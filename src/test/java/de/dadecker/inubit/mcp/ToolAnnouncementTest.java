@@ -31,7 +31,7 @@ class ToolAnnouncementTest {
     private static final List<String> ALWAYS = List.of("list_nodes", "get_health",
         "check_artifacts");
     private static final List<String> READS = List.of("find_processes", "query_logs",
-        "list_inventory", "get_inventory_item", "export_artifacts");
+        "list_inventory", "get_inventory_item", "export_artifacts", "export_archives");
 
     /** The production matrix after the flip of the 6.1 capabilities (T040). */
     private static final CapabilityMatrix FLIPPED = new CapabilityMatrix(List.of(
@@ -77,7 +77,7 @@ class ToolAnnouncementTest {
         try (Wiring wiring = new Wiring(config, TestSecrets.store(Map.of()), scrubber,
             ClockProvider.system(), path -> false, false, failing, Map.of(), () -> {
                 throw new AssertionError("no node reads from the Parameter Store");
-            }, matrix)) {
+            }, TestWiring.TEST_CONFIG_LOCATION, matrix)) {
             return wiring.toolHandlers().stream().map(ToolHandler::name).toList();
         }
     }
@@ -95,7 +95,7 @@ class ToolAnnouncementTest {
 
         assertThat(names).containsAll(ALWAYS).contains("find_processes")
             .doesNotContain("query_logs", "list_inventory", "get_inventory_item",
-                "export_artifacts");
+                "export_artifacts", "export_archives");
     }
 
     @Test

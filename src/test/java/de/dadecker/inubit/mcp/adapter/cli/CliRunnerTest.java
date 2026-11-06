@@ -2,9 +2,12 @@ package de.dadecker.inubit.mcp.adapter.cli;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
+import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
+import de.dadecker.inubit.mcp.adapter.rest.TlsTestServer;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -16,6 +19,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,6 +32,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -826,5 +831,211 @@ class CliRunnerTest {
             assertThat(process.spec().environment())
                 .containsEntry("JAVA_TOOL_OPTIONS", CliRunner.JAVA_TOOL_OPTIONS);
         });
+    }
+
+    // --- feature 014 T012: the StartCLI pin probe of a marked stage (FR-005a, R-15) -------------
+
+    private static final TestCertificates CERTS = TestCertificates.get();
+    private static final String PIN_A = TestCertificates.fingerprint(CERTS.localhostCertificate());
+
+    /** A probe that only counts its calls. */
+    private static final class CountingProbe implements StartCliPinProbe {
+
+        private final AtomicInteger calls = new AtomicInteger();
+
+        @Override
+        public void check(EffectiveNodeConfig server) {
+            calls.incrementAndGet();
+        }
+
+        int calls() {
+            return calls.get();
+        }
+    }
+
+    private CliRunner runner(FakeProcessLauncher launcher, StartCliPinProbe probe) {
+        return new CliRunner(launcher, parentEnv, false, new CliResources("acme"), probe);
+    }
+
+    /** {@code server} as a server of a stage marked with {@code tls.pinPerServer}. */
+    private static EffectiveNodeConfig marked(EffectiveNodeConfig server) {
+        EffectiveNodeConfig.Tls tls = server.tls();
+        return new EffectiveNodeConfig(server.id(), server.production(), server.baseUrl(),
+            server.allowInsecureHttp(), server.versionLine(), server.write(),
+            new EffectiveNodeConfig.Tls(tls.trustStore(), tls.disableHostnameVerification(),
+                tls.pinnedCertificateSha256(), true),
+            server.cli(), server.inventory(), server.timeout(), server.cliTimeout(),
+            server.cliExportTimeout(), server.hangingThreshold(), server.confirmationTtl(),
+            server.credentialPrefix(), server.development(), server.secretPlan(),
+            server.archivesProductionOptIn());
+    }
+
+    /** {@code int/a} with pin A, the shared stage trust store and its StartCLI at {@code port}. */
+    private TestNodeConfig stageServerA(int port) {
+        return server().id("int/a")
+            .baseUrl("https://localhost:" + port)
+            .trustStore(CERTS.trustStore())
+            .pin(PIN_A);
+    }
+
+    private CliResult runOn(CliRunner runner, EffectiveNodeConfig config, CredentialGuard guard) {
+        return runner.run(config, USER, Secret.of(PASSWORD),
+            CliCommand.processErrorStart("110190387"), Duration.ofSeconds(5), guard);
+    }
+
+    @Test
+    void aMarkedServerWhoseStartCliAddressPresentsTheOtherServersCertificateIsNotStarted()
+        throws IOException, GeneralSecurityException, InterruptedException {
+        try (TlsTestServer other = TlsTestServer.start(CERTS.selfsignedKeyStore())) {
+            FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+            EffectiveNodeConfig swapped = marked(stageServerA(other.port()).build());
+
+            ToolError error = errorOf(() -> runOn(runner(launcher,
+                new HandshakeStartCliPinProbe()), swapped, guard()));
+
+            assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
+            assertThat(error.message()).contains("int/a").contains("(CertificateException)")
+                .contains("StartCLI was not started");
+            assertThat(launcher.launchCount()).isZero();
+        }
+    }
+
+    @Test
+    void aMarkedServerWhoseStartCliAddressIsUnreachableIsNotStarted() throws IOException {
+        int closedPort;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            closedPort = socket.getLocalPort();
+        }
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+        EffectiveNodeConfig unreachable = marked(stageServerA(closedPort).build());
+
+        ToolError error = errorOf(() -> runOn(runner(launcher, new HandshakeStartCliPinProbe()),
+            unreachable, guard()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNREACHABLE);
+        assertThat(launcher.launchCount()).isZero();
+    }
+
+    @Test
+    void aMarkedServerWithItsOwnCertificateStartsStartCliWithTheUsualArguments()
+        throws IOException, GeneralSecurityException, InterruptedException {
+        try (TlsTestServer own = TlsTestServer.start(CERTS.localhostKeyStore())) {
+            FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+            EffectiveNodeConfig server = marked(stageServerA(own.port()).build());
+
+            runOn(runner(launcher, new HandshakeStartCliPinProbe()), server, guard());
+
+            assertThat(own.handshakes()).isEqualTo(1);
+            assertThat(launcher.launchCount()).isEqualTo(1);
+            assertThat(launcher.last().spec().command()).containsExactly(
+                script.toString(), "-u", USER,
+                "--trustStoreFilePath", CERTS.trustStore().toString(),
+                "--execCommand", "processErrorStart 110190387",
+                "https://localhost:" + own.port() + EffectiveNodeConfig.DEFAULT_CLI_PATH);
+        }
+    }
+
+    @Test
+    void theProbeRunsBeforeTheGuardSoItDoesNotWaitForARunningFirstLogin()
+        throws IOException, GeneralSecurityException, InterruptedException {
+        try (TlsTestServer other = TlsTestServer.start(CERTS.selfsignedKeyStore())) {
+            FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+            EffectiveNodeConfig swapped = marked(stageServerA(other.port()).build());
+            CliRunner runner = runner(launcher, new HandshakeStartCliPinProbe());
+            CredentialGuard guard = guard();
+            ToolError error;
+
+            try (CredentialGuard.Permit firstLogin = guard.acquire()) {
+                error = assertTimeoutPreemptively(Duration.ofSeconds(5),
+                    () -> errorOf(() -> runOn(runner, swapped, guard)));
+            }
+
+            assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
+            assertThat(launcher.launchCount()).isZero();
+            assertThat(guard.confirmed()).isFalse();
+            runOn(runner(launcher, new CountingProbe()), swapped, guard);
+            assertThat(launcher.launchCount()).as("not refused with a cached AUTH_FAILED")
+                .isEqualTo(1);
+        }
+    }
+
+    @Test
+    void anUnmarkedServerIsNeverProbedAndLaunchesExactlyAsBefore() {
+        CountingProbe probe = new CountingProbe();
+        FakeProcessLauncher before = FakeProcessLauncher.replaying("processErrorStart_ok");
+        FakeProcessLauncher after = FakeProcessLauncher.replaying("processErrorStart_ok");
+        EffectiveNodeConfig server = server().trustStore(CERTS.trustStore())
+            .disableHostnameVerification(PIN_A).build();
+
+        runOn(runner(before), server, guard());
+        runOn(runner(after, probe), server, guard());
+        runner(after, probe).run(server, USER, Secret.of(PASSWORD), CliCommand.kill("1"),
+            Duration.ofSeconds(5), "cliExportTimeout", guard());
+
+        assertThat(probe.calls()).isZero();
+        assertThat(after.processes().get(0).spec()).isEqualTo(before.last().spec());
+        assertThat(after.processes().get(0).stdinBytes()).isEqualTo(before.last().stdinBytes());
+    }
+
+    @Test
+    void theClientVersionProbeNeverCallsThePinProbe() {
+        CountingProbe probe = new CountingProbe();
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("8.1.0", "", 0);
+        EffectiveNodeConfig server = marked(server().trustStore(CERTS.trustStore())
+            .pin(PIN_A).build());
+
+        runner(launcher, probe).execute(server, List.of("-v"), Optional.empty(),
+            Duration.ofSeconds(5));
+
+        assertThat(probe.calls()).isZero();
+        assertThat(launcher.launchCount()).isEqualTo(1);
+    }
+
+    @Test
+    void eachRunSignatureProbesAMarkedServerOnce() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+        EffectiveNodeConfig server = marked(server().trustStore(CERTS.trustStore())
+            .pin(PIN_A).build());
+        CountingProbe probe = new CountingProbe();
+        CountingProbe probeWithSetting = new CountingProbe();
+
+        runner(launcher, probe).run(server, USER, Secret.of(PASSWORD),
+            CliCommand.processErrorStart("110190387"), Duration.ofSeconds(5), guard());
+        runner(launcher, probeWithSetting).run(server, USER, Secret.of(PASSWORD),
+            CliCommand.processErrorStart("110190387"), Duration.ofSeconds(5),
+            "cliExportTimeout", guard());
+
+        assertThat(probe.calls()).isEqualTo(1);
+        assertThat(probeWithSetting.calls()).isEqualTo(1);
+        assertThat(launcher.launchCount()).isEqualTo(2);
+    }
+
+    @Test
+    void theFourArgumentConstructorUsesTheHandshakeProbe()
+        throws IOException, GeneralSecurityException, InterruptedException {
+        try (TlsTestServer other = TlsTestServer.start(CERTS.selfsignedKeyStore())) {
+            FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+            EffectiveNodeConfig swapped = marked(stageServerA(other.port()).build());
+
+            ToolError error = errorOf(() -> runOn(runner(launcher), swapped, guard()));
+
+            assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
+            assertThat(launcher.launchCount()).isZero();
+        }
+    }
+
+    @Test
+    void aSixOneSessionOfAMarkedServerRunsNoSecondPinProbe() {
+        CountingProbe probe = new CountingProbe();
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(SESSION_OK, "", 0);
+        EffectiveNodeConfig server = marked(server().trustStore(CERTS.trustStore())
+            .pin(PIN_A).build());
+
+        runner(launcher, probe).runSession(server, USER, Secret.of(PASSWORD), ALL_OPTIONS,
+            HEALTH_COMMANDS, Duration.ofSeconds(5), CliRunner.MAX_OUTPUT_BYTES, guard());
+
+        assertThat(probe.calls()).as("V61Connection made the handshake with the pin before")
+            .isZero();
+        assertThat(launcher.launchCount()).isEqualTo(1);
     }
 }

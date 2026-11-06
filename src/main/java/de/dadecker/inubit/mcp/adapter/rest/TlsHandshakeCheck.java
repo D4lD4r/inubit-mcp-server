@@ -81,23 +81,23 @@ public final class TlsHandshakeCheck {
     private static ToolError error(EffectiveNodeConfig node, String host, String target,
         IOException e) {
         String request = "the TLS handshake with " + target;
-        String cause = InubitHttpClient.rootCause(e).getClass().getSimpleName();
+        String cause = TransportErrorTexts.causeName(e);
         ToolError error;
         if (InubitHttpClient.hasCause(e, SocketTimeoutException.class)) {
             error = ToolError.of(ErrorCode.TIMEOUT, "INUBIT did not answer " + request
                     + " within " + Durations.human(node.timeout()),
-                InubitHttpClient.TIMEOUT_CAUSE, InubitHttpClient.TIMEOUT_NEXT_STEP);
+                TransportErrorTexts.TIMEOUT_LIKELY_CAUSE, TransportErrorTexts.TIMEOUT_NEXT_STEP);
         } else if (InubitHttpClient.hasCause(e, SSLException.class)
             || InubitHttpClient.hasCause(e, CertificateException.class)) {
             error = ToolError.of(ErrorCode.TLS_ERROR, "The TLS connection to " + node.id()
                     + " failed for " + request + " (" + cause + ")",
                 tlsCause(e, host, !node.tls().disableHostnameVerification()),
-                InubitHttpClient.tlsNextStep(node.id()));
+                TransportErrorTexts.tlsErrorNextStep(node.id()));
         } else {
             error = ToolError.of(ErrorCode.UNREACHABLE, "Cannot connect to " + node.id()
                     + " for " + request + " (" + cause + ")",
-                InubitHttpClient.isUnreachable(e) ? InubitHttpClient.UNREACHABLE_CAUSE
-                    : InubitHttpClient.INTERRUPTED_CAUSE,
+                InubitHttpClient.isUnreachable(e) ? TransportErrorTexts.UNREACHABLE_LIKELY_CAUSE
+                    : TransportErrorTexts.INTERRUPTED_LIKELY_CAUSE,
                 "Check the StartCLI URL (cli.url, otherwise baseUrl), DNS and the VPN, then"
                     + " retry");
         }
@@ -125,6 +125,6 @@ public final class TlsHandshakeCheck {
             && rejection.getClass() == CertificateException.class) {
             return "The server certificate is not issued for the host name " + host;
         }
-        return InubitHttpClient.TLS_CAUSE;
+        return TransportErrorTexts.TLS_ERROR_LIKELY_CAUSE;
     }
 }

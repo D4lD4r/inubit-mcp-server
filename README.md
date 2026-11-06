@@ -28,6 +28,7 @@ run side by side as separate registrations.
 | `kill_process` | kill ONE process instance on ONE node (two-step confirmation) | REST + StartCLI |
 | `export_artifacts` | export technical workflows (by diagram group), modules, or repository files and folders (by path) into a local, git-versioned workspace as readable files, with the repository files the exported artifacts reference (also indirectly); secrets replaced by placeholders, key material withheld | StartCLI `export` (read-only) |
 | `check_artifacts` | check workspace files offline: workflow structure, referenced modules, a stylesheet run with deterministic stand-ins, XML/XSD validation | only the module list for modules missing locally |
+| `export_archives` | export the technical workflows of one diagram group as Workbench-importable archives (one `.diagram.zip` per workflow) into a local folder outside the workspace, the server's directories, git working trees and network paths; the archives hold the workflows' **secrets in clear text**, so the call needs an explicit acknowledgement and, on a production group, `archives.productionOptIn`; existing files are never replaced | StartCLI `export` (read-only) |
 | `import_artifacts` | import the changed workflows of one diagram group (with changed or new modules), changed modules, or new and changed repository files (by path), into one development node, together with the new and changed repository files they reference — checked, conflict-free, backed up, verified, rolled back on failure; the preview lists modules the node has already as `existing` (updated as a new version) or `identical` (not sent, the workflows are bound to them) | StartCLI `export` + `import` |
 | `restore_backup` | re-import the backup of an earlier development call, or of a deployment on one node of a target group | StartCLI `export` + `import` |
 | `set_active` | activate or deactivate one workflow on a development node | StartCLI `export` + `import` |
@@ -42,7 +43,7 @@ own explicit setting:
 |---|---|
 | `list_nodes`, `get_health`, `check_artifacts` | always |
 | `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item` | a node is not pinned to an INUBIT version that refuses the tool (none of them is offered, e.g., in a profile of INUBIT 6.1 nodes only) |
-| `export_artifacts` | a node has a StartCLI installation and is not pinned to an INUBIT version that refuses the export |
+| `export_artifacts`, `export_archives` | a node has a StartCLI installation and is not pinned to an INUBIT version that refuses the export |
 | `restart_process`, `kill_process` | a node has effective write access (`write.enabled`) |
 | `import_artifacts`, `restore_backup`, `set_active`, `tag_artifacts` | a node has `development.enabled: true` (never on production) |
 | `deploy_release` | a group has a `deploy` record (stage chain); with a target in mode `EXECUTE` also `restore_backup` for deployment backups |
@@ -138,13 +139,13 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
   StartCLI-backed part, not on Windows.
 - Only for the CLI-based parts (`restart_process`, `kill_process`, the module list and version
   histories of the inventory tools, and every tool that exports, imports or tags artifacts —
-  `export_artifacts`, the development tools and `deploy_release`, which needs it for the nodes of
-  the source and the target group): a local **INUBIT 8.1 Workbench client installation** with
-  StartCLI (`bin/startcli.sh`) matching the servers' patch level, a Java 17 runtime for StartCLI,
-  and "CLI login access" for the account. The INUBIT client is **not included** in this project.
-  Without it, the REST-based tools work and CLI-based parts report `CLI_UNAVAILABLE`. CLI-based
-  tools are not supported on Windows in this version: on Windows the server offers the REST-based
-  tools only.
+  `export_artifacts`, `export_archives`, the development tools and `deploy_release`, which needs
+  it for the nodes of the source and the target group): a local **INUBIT 8.1 Workbench client
+  installation** with StartCLI (`bin/startcli.sh`) matching the servers' patch level, a Java 17
+  runtime for StartCLI, and "CLI login access" for the account. The INUBIT client is **not
+  included** in this project. Without it, the REST-based tools work and CLI-based parts report
+  `CLI_UNAVAILABLE`. CLI-based tools are not supported on Windows in this version: on Windows the
+  server offers the REST-based tools only.
 - Only for the artifact workspace (`export_artifacts`, the development tools and
   `deploy_release`): **git 2.32** or newer on `PATH`.
 - For the credentials: the credential store of the system — the macOS Keychain and the Windows

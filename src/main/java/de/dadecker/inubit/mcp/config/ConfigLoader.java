@@ -332,6 +332,7 @@ public final class ConfigLoader {
         Format001Detector.check(rootObject, source);
         checkCredentialsSections(rootObject, source);
         rejectEmptyListEntries(rootObject, "", source);
+        requireStrictArchivesOptIn(rootObject, source);
         List<String> urlProblems = new ArrayList<>();
         sanitizeUrls(rootObject, source, urlProblems);
         if (!rootObject.hasNonNull("auditDirectory")) {
@@ -576,6 +577,26 @@ public final class ConfigLoader {
             if (!allowed.contains(entry.getKey())) {
                 throw new ConfigException("Unknown key '" + entry.getKey() + "' at " + path
                     + " in " + source + " (" + hint + ")");
+            }
+        }
+    }
+
+    /**
+     * Feature 015 (research R-15): {@code archives.productionOptIn} of a group must be a YAML
+     * boolean. Jackson would coerce a number or the text {@code "true"}; for the switch that
+     * allows clear-text secrets from a production group only {@code true} or {@code false}
+     * counts. The value is never echoed. Other shapes are left to the binding.
+     */
+    private static void requireStrictArchivesOptIn(ObjectNode root, Path source) {
+        JsonNode groups = root.get("groups");
+        if (groups == null || !groups.isArray()) {
+            return;
+        }
+        for (int i = 0; i < groups.size(); i++) {
+            JsonNode optIn = groups.get(i).path("archives").path("productionOptIn");
+            if (!optIn.isMissingNode() && !optIn.isNull() && !optIn.isBoolean()) {
+                throw new ConfigException("Invalid value at groups[" + i
+                    + "].archives.productionOptIn in " + source + ": expected true or false");
             }
         }
     }

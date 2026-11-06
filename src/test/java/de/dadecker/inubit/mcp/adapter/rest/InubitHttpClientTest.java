@@ -644,6 +644,83 @@ class InubitHttpClientTest {
         }
     }
 
+    /**
+     * Feature 014 T010: a marked stage whose two servers present different certificates. Both
+     * servers share the stage's trust store (holding both certificates) and each has its own node
+     * pin, as {@code EffectiveNodeConfig.resolve} yields for a stage without a group pin.
+     */
+    @Test
+    void eachServerOfAStageWithDistinctCertificatesChecksItsOwnPin() {
+        WireMockServer serverB = httpsServer(CERTS.selfsignedKeyStore());
+        try {
+            wireMock.stubFor(get(anyUrl()).willReturn(aResponse().withBody("{}")));
+            serverB.stubFor(get(anyUrl()).willReturn(aResponse().withBody("{}")));
+            String pinA = TestCertificates.fingerprint(CERTS.localhostCertificate());
+            String pinB = TestCertificates.fingerprint(CERTS.selfsignedCertificate());
+
+            InubitHttpClient a = client(stageServer("int/a", wireMock, false, pinA));
+            InubitHttpClient b = client(stageServer("int/b", serverB, true, pinB));
+
+            assertThat(a.get("/ibis/rest/healthcheck", Map.of()).status()).isEqualTo(200);
+            assertThat(b.get("/ibis/rest/healthcheck", Map.of()).status()).isEqualTo(200);
+        } finally {
+            serverB.stop();
+        }
+    }
+
+    @Test
+    void aServerPresentingTheOtherServersCertificateFailsOnlyThePin() {
+        WireMockServer serverB = httpsServer(CERTS.selfsignedKeyStore());
+        try {
+            wireMock.stubFor(get(anyUrl()).willReturn(aResponse().withBody("{}")));
+            serverB.stubFor(get(anyUrl()).willReturn(aResponse().withBody("{}")));
+            String pinA = TestCertificates.fingerprint(CERTS.localhostCertificate());
+            String pinB = TestCertificates.fingerprint(CERTS.selfsignedCertificate());
+
+            // each server's address now presents the other server's certificate
+            InubitHttpClient a = client(stageServer("int/a", wireMock, false, pinB));
+            InubitHttpClient b = client(stageServer("int/b", serverB, true, pinA));
+
+            for (var entry : Map.of("int/a", a, "int/b", b).entrySet()) {
+                ToolError error = stageErrorOf(NodeId.parse(entry.getKey()),
+                    () -> entry.getValue().get("/ibis/rest/healthcheck", Map.of()));
+                assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
+                assertThat(error.message())
+                    .contains("(CertificateException)")
+                    .doesNotContain("CertPathValidatorException");
+            }
+            assertThat(wireMock.getAllServeEvents()).isEmpty();
+            assertThat(serverB.getAllServeEvents()).isEmpty();
+        } finally {
+            serverB.stop();
+        }
+    }
+
+    /**
+     * A server of the marked stage {@code int}: the shared trust store and the server's own pin;
+     * the self-signed server (no matching host name) runs with hostname verification off, so only
+     * the pin decides.
+     */
+    private static EffectiveNodeConfig stageServer(String id, WireMockServer server,
+        boolean disableHostnameVerification, String pin) {
+        TestNodeConfig config = TestNodeConfig.node().id(id)
+            .baseUrl("https://localhost:" + server.httpsPort())
+            .trustStore(CERTS.trustStore());
+        return (disableHostnameVerification
+            ? config.disableHostnameVerification(pin) : config.pin(pin)).build();
+    }
+
+    private ToolError stageErrorOf(NodeId node, Runnable call) {
+        try {
+            call.run();
+        } catch (ToolErrorException e) {
+            assertThat(e.error().toString() + e.getMessage()).doesNotContain(PASSWORD, TOKEN);
+            assertThat(e.error().node()).contains(node);
+            return e.error();
+        }
+        throw new AssertionError("expected a ToolErrorException for " + node);
+    }
+
     @Test
     void createUsesTheResolvedCredentials() {
         stubStatus(200, "application/json", "{}");

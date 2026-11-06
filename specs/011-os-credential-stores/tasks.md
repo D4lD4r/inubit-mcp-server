@@ -251,11 +251,13 @@ step and removes the environment path. US4 (`--check-config`), US5 (rotation, me
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
-- [ ] T020 Live check execution (SC-001, SC-007): with the person's approval, they run
+- [X] T020 Live check execution (SC-001, SC-007): with the person's approval, they run
   `INUBIT_LIVE_STORE=1 mvn -q verify -Plive-store` on macOS (required before the release) and, where
   available, Windows and Linux, plus the manual access-denied steps; record per system the outcome
   and the observed exit codes / texts in `quickstart.md`; adjust R-3/R-5 mappings if they differ (with
   tests).
+  Done 2026-11-05 on macOS only (Windows and Linux not available): green, access denied as
+  expected, exit codes 0 / 44 / 128 as R-3 maps them, no mapping changed; record in quickstart.md.
 - [X] T021 [P] `docs/setup.md` section 4 rewritten (R-16): one general part (sources, first use,
   checking, changing a credential without restart), "Credential store" (entry identity per system;
   create/change/delete commands without the value on a command line; what an access permission

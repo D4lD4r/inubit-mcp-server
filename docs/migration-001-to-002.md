@@ -295,9 +295,9 @@ Terminology: stage/stages, server/servers
 Credential store entries: service inubit-mcp, account INUBIT_<STAGE>[_<SERVER>]_<KIND> (macOS Keychain)
 Audit directory: /Users/jdoe/.inubit-mcp/acme/audit
 Workspace: /Users/jdoe/.inubit-mcp/acme/workspace (ok)
-Stage dev:
+Stage dev: archives: allowed
   Server dev/node1: write enabled (confirmation CLIENT), cli: unavailable, inubit: AUTO, secrets: credentialStore (macOS Keychain), username ← INUBIT_DEV_USERNAME ok, password ← INUBIT_DEV_PASSWORD ok
-Stage qa:
+Stage qa: archives: allowed
   Server qa/node1: read-only, cli: unavailable, inubit: AUTO, secrets: credentialStore (macOS Keychain), username ← INUBIT_QA_USERNAME ok, password ← INUBIT_QA_PASSWORD ok
   Server qa/node2: read-only, cli: unavailable, inubit: AUTO, secrets: credentialStore (macOS Keychain), username ← INUBIT_QA_USERNAME ok, password ← INUBIT_QA_NODE2_PASSWORD ok
 Result: OK

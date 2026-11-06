@@ -78,7 +78,33 @@ one online dependency resolution.
     reads its own variables itself.
   No code path reads an INUBIT credential value from the environment
   (`NoEnvironmentCredentialsTest`).
-- **Pending: T020** — the opt-in live checks against the real credential store
-  (`INUBIT_LIVE_STORE=1 mvn -q verify -Plive-store`, docs/live-tests.md) on macOS (required before
-  the release) and, where available, Windows and Linux, plus the manual access-denied steps and the
-  recording of the exit codes and texts of `security` / `secret-tool` (research R-3, R-5).
+2026-11-05, task T020 (live, macOS 27.2, OpenJDK 25.0.5, login keychain, GUI session; entries
+created by the person with `security add-generic-password … -w`, values never shown to the agent):
+
+- `CredentialStoreLiveTest` (`INUBIT_LIVE_STORE=1 mvn verify -Plive-store`, docs/live-tests.md):
+  - entries trusting `/usr/bin/security`: `USERNAME found, PASSWORD found, NODE9_PASSWORD not found`;
+    username equal, SHA-256 of the password equal, the password contains a non-ASCII character
+    (`ä€`); 1 test, 0 failures. No access dialog.
+  - password entry re-created with `-T ""` (trusts no application), "Deny" in the dialog:
+    `PASSWORD failed (ACCESS_DENIED)`, the test fails as expected; the other two entries unchanged.
+  - A first run with a password without non-ASCII characters failed only at the encoding assertion
+    (entry re-created with `ä€`, then green); no code change.
+- `/usr/bin/security find-generic-password -s inubit-mcp -a <ACCOUNT> -g` called directly, recorded
+  exit code, form of the `password:` line (never its value) and the other stderr lines — as R-3
+  maps them, no mapping changed:
+
+  | Case | Exit | `password:` line | Other stderr | Adapter outcome |
+  |---|---|---|---|---|
+  | found, ASCII value | 0 | `password: "…"` | none | `Found` |
+  | found, value with `ä€` ("Allow" in the dialog) | 0 | `password: 0x…` (hex) | none | `Found`, decoded (hash equal) |
+  | not found | 44 | none | `security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.` | `NotFound` |
+  | "Deny" in the dialog | 128 | none | empty line | `ACCESS_DENIED` |
+
+  51, 36 and 50 were not observed (no wrong keychain password, SSH session or missing keychain).
+- `find-generic-password` **without** `-g` on the entry that trusts no application returned exit 0
+  at once and showed no access dialog (open question of the R-13 deviation, tasks.md T007).
+- `--check-config` with a real profile (4 stages, 6 servers, 12 entries created for 0.6.x): every
+  entry `ok`, no access dialog, `Result: OK`; warnings only `credentials.envPrefix is deprecated`
+  and the pinned-certificate hostname notes; no leftover-variable warning.
+- Windows and Linux: not available to the person; not run. The Linux "unlock prompt dismissed"
+  caveat (R-5, setup.md section 4) stays unconfirmed.

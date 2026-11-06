@@ -21,6 +21,9 @@ import java.util.function.Predicate;
  *     every message about this node's credentials names its own variables
  *     ({@link #credentialNames()})
  * @param secretPlan where this node's credentials come from (feature 010, research R-6)
+ * @param archivesProductionOptIn the group's {@code archives.productionOptIn} (feature 015,
+ *     research R-15), built-in {@code false}; it matters only on a production group, where
+ *     {@code export_archives} needs it, and is independent of {@link #write()}
  */
 public record EffectiveNodeConfig(
     NodeId id,
@@ -39,7 +42,8 @@ public record EffectiveNodeConfig(
     Duration confirmationTtl,
     String credentialPrefix,
     Development development,
-    SecretPlan secretPlan) {
+    SecretPlan secretPlan,
+    boolean archivesProductionOptIn) {
 
     /** Path of the StartCLI SOAP endpoint relative to the base URL (8.1). */
     public static final String DEFAULT_CLI_PATH = "/ibis/servlet/IBISSoapServlet";
@@ -75,13 +79,24 @@ public record EffectiveNodeConfig(
         }
     }
 
+    /**
+     * @param pinPerServer the stage's {@code tls.pinPerServer}: StartCLI calls are preceded by a
+     *     certificate check against this server's own pin (feature 014, research R-15)
+     */
     public record Tls(
         Optional<Path> trustStore,
         boolean disableHostnameVerification,
-        Optional<String> pinnedCertificateSha256) {
+        Optional<String> pinnedCertificateSha256,
+        boolean pinPerServer) {
         public Tls {
             Objects.requireNonNull(trustStore, "trustStore");
             Objects.requireNonNull(pinnedCertificateSha256, "pinnedCertificateSha256");
+        }
+
+        /** A server of a stage without {@code tls.pinPerServer}. */
+        public Tls(Optional<Path> trustStore, boolean disableHostnameVerification,
+            Optional<String> pinnedCertificateSha256) {
+            this(trustStore, disableHostnameVerification, pinnedCertificateSha256, false);
         }
     }
 
@@ -148,7 +163,8 @@ public record EffectiveNodeConfig(
     public EffectiveNodeConfig withTimeout(Duration newTimeout) {
         return new EffectiveNodeConfig(id, production, baseUrl, allowInsecureHttp, versionLine,
             write, tls, cli, inventory, newTimeout, cliTimeout, cliExportTimeout, hangingThreshold,
-            confirmationTtl, credentialPrefix, development, secretPlan);
+            confirmationTtl, credentialPrefix, development, secretPlan,
+            archivesProductionOptIn);
     }
 
     /**
@@ -221,7 +237,8 @@ public record EffectiveNodeConfig(
             node.tls().trustStore().or(group.tls()::trustStore),
             node.tls().disableHostnameVerification().or(group.tls()::disableHostnameVerification)
                 .orElse(false),
-            node.tls().pinnedCertificateSha256().or(group.tls()::pinnedCertificateSha256));
+            node.tls().pinnedCertificateSha256().or(group.tls()::pinnedCertificateSha256),
+            group.tls().marksStage());
         Cli cli = new Cli(
             node.cli().url().or(group.cli()::url)
                 .orElseGet(() -> URI.create(baseUrl + DEFAULT_CLI_PATH)),
@@ -270,6 +287,8 @@ public record EffectiveNodeConfig(
                     .map(Urls::withoutTrailingSlash),
                 repository == RepositoryMode.WRITE && developmentEnabled
                     && !group.production()),
-            secretPlan);
+            secretPlan,
+            group.archives().productionOptIn()
+                .orElse(Defaults.BUILTIN_ARCHIVES_PRODUCTION_OPT_IN));
     }
 }

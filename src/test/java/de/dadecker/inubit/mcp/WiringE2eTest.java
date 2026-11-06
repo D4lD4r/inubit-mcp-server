@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.adapter.NodeSecrets;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
+import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
@@ -123,7 +124,8 @@ class WiringE2eTest {
             .parse(yaml, temp.resolve("config.yaml")).config();
         wiring = new Wiring(config, credentialStore, scrubber,
             new ClockProvider(clock), path -> false, false, new SystemProcessLauncher(),
-            environment, () -> store);
+            environment, () -> store,
+            new ConfigLocation(temp.resolve("config"), temp.resolve("config/config.yaml")));
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
     }

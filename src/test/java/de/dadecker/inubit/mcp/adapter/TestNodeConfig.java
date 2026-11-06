@@ -38,6 +38,7 @@ public final class TestNodeConfig {
     /** {@code credentials.envPrefix: INUBIT}: the variable names of feature 001. */
     private String credentialPrefix = "INUBIT";
     private EffectiveNodeConfig.Development development = EffectiveNodeConfig.NO_DEVELOPMENT;
+    private boolean archivesProductionOptIn;
 
     private TestNodeConfig() {
     }
@@ -146,6 +147,12 @@ public final class TestNodeConfig {
         return this;
     }
 
+    /** The group's {@code archives.productionOptIn} of feature 015 (default: {@code false}). */
+    public TestNodeConfig archivesProductionOptIn(boolean value) {
+        this.archivesProductionOptIn = value;
+        return this;
+    }
+
     public TestNodeConfig credentialPrefix(String value) {
         this.credentialPrefix = value;
         return this;
@@ -174,6 +181,7 @@ public final class TestNodeConfig {
             development,
             new SecretPlan(id, new SecretSourceConfig.SystemStore(Optional.empty()),
                 SecretPlan.Origin.DEFAULT,
-                Optional.of(new CredentialNames(credentialPrefix, id)), Optional.empty()));
+                Optional.of(new CredentialNames(credentialPrefix, id)), Optional.empty()),
+            archivesProductionOptIn);
     }
 }

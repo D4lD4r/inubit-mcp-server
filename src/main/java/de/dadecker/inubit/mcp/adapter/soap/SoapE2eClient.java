@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.adapter.soap;
 
 import de.dadecker.inubit.mcp.adapter.rest.SslContexts;
+import de.dadecker.inubit.mcp.adapter.rest.TransportErrorTexts;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -195,7 +196,7 @@ public final class SoapE2eClient implements E2ePort, AutoCloseable {
         if (hasCause(e, SSLException.class) || hasCause(e, CertificateException.class)) {
             return new ToolErrorException(ToolError.of(ErrorCode.TLS_ERROR,
                 "The TLS connection for the SOAP test on " + node + " failed (" + path + ", "
-                    + rootCause(e).getClass().getSimpleName() + ")",
+                    + TransportErrorTexts.causeName(e) + ")",
                 "The SOAP endpoint's certificate is not in the trust store, does not match the"
                     + " pinned fingerprint, or the hostname does not match",
                 "Check tls.trustStore, tls.pinnedCertificateSha256 and e2e.soap.baseUrl for "
@@ -203,7 +204,7 @@ public final class SoapE2eClient implements E2ePort, AutoCloseable {
         }
         return new ToolErrorException(ToolError.of(ErrorCode.UNREACHABLE,
             "Cannot connect to the SOAP endpoint of " + node + " (" + path + ", "
-                + rootCause(e).getClass().getSimpleName() + ")",
+                + TransportErrorTexts.causeName(e) + ")",
             hasCause(e, ConnectException.class) ? "The endpoint is down or the address is wrong"
                 : "The connection was interrupted",
             "Check e2e.soap.baseUrl, DNS and the VPN, then retry").withNode(node));
@@ -222,13 +223,6 @@ public final class SoapE2eClient implements E2ePort, AutoCloseable {
         return false;
     }
 
-    private static Throwable rootCause(Throwable error) {
-        Throwable cause = error;
-        while (cause.getCause() != null && cause.getCause() != cause) {
-            cause = cause.getCause();
-        }
-        return cause;
-    }
 
     @Override
     public void close() {

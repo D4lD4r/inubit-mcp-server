@@ -399,4 +399,24 @@ class V81ReleaseArchivesTest {
         assertThat(archives.legacyCanonical(WORKFLOW, unreadable)).isEqualTo(unreadable)
             .isNotSameAs(unreadable);
     }
+
+    @Test
+    void aDeploymentMayTurnThePlainSaxonFactoryIntoASaxonicaFactory() {
+        // issue #55; ProfessionalTransformerFactory stands in for the Saxon-EE factory
+        String path = "int/o/modules/XSLT Converter/M/module.xml";
+        String plain = "<Properties version=\"4.1\">"
+            + "<Property name=\"xslt.stylesheet\">s</Property>"
+            + "<Property name=\"xslt.transformer\">net.sf.saxon.TransformerFactoryImpl</Property>"
+            + "</Properties>";
+        String saxonica = plain.replace("net.sf.saxon.TransformerFactoryImpl",
+            "com.saxonica.config.ProfessionalTransformerFactory");
+        java.util.function.Function<String, byte[]> utf8 = text -> text.getBytes(
+            java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThat(archives.equivalent(path, utf8.apply(plain), utf8.apply(saxonica))).isFalse();
+        assertThat(archives.importedAs(path, utf8.apply(plain), utf8.apply(saxonica))).isTrue();
+        assertThat(archives.importedAs(path, utf8.apply(saxonica), utf8.apply(plain))).isFalse();
+        assertThat(archives.importedAs(path, utf8.apply(plain), utf8.apply(saxonica.replace(
+            ">s<", ">t<")))).isFalse();
+    }
 }

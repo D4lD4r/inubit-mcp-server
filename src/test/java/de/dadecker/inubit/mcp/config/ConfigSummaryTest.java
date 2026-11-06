@@ -259,9 +259,59 @@ class ConfigSummaryTest {
 
         assertThat(summary).as("002-T018, contracts/configuration.md → --check-config")
             .contains("Profile: acme (ACME test)\n", "Terminology: group/groups, node/nodes\n",
-                "Group test:\n  Node test/inubit01: write enabled",
+                "Group test: archives: allowed\n  Node test/inubit01: write enabled",
                 "\n  Node test/inubit02: read-only",
-                "Group prod (production):\n  Node prod/inubit01: read-only");
+                "Group prod (production): archives: refused (no archives.productionOptIn)\n"
+                    + "  Node prod/inubit01: read-only");
+    }
+
+    // --- feature 015 T016: archives.productionOptIn (research R-15) -----------------------------
+
+    @Test
+    void eachGroupLineShowsWhetherArchivesAreAllowed() {
+        String optedIn = CONFIG.replace("    production: true\n",
+            "    production: true\n    archives:\n      productionOptIn: true\n");
+        String optedOut = CONFIG.replace("    production: true\n",
+            "    production: true\n    archives:\n      productionOptIn: false\n");
+
+        assertThat(render(CONFIG)).as("contracts/configuration-delta.md → --check-config")
+            .contains("\nGroup test: archives: allowed\n",
+                "\nGroup prod (production): archives: refused (no archives.productionOptIn)\n");
+        assertThat(render(optedIn))
+            .contains("\nGroup test: archives: allowed\n",
+                "\nGroup prod (production): archives: allowed (archives.productionOptIn)\n");
+        assertThat(render(optedOut)).contains(
+            "\nGroup prod (production): archives: refused (no archives.productionOptIn)\n");
+    }
+
+    @Test
+    void theArchivesStateIsIndependentOfTheWriteSettings() {
+        // FR-014: write.enabled and write.productionOptIn neither allow nor refuse archives
+        String writeOptIn = CONFIG.replace("    production: true\n    write:\n"
+            + "      enabled: true\n", "    production: true\n    write:\n      enabled: true\n"
+            + "      productionOptIn: true\n");
+        String archivesOnly = CONFIG.replace("    production: true\n    write:\n"
+            + "      enabled: true\n", "    production: true\n    write:\n      enabled: false\n"
+            + "    archives:\n      productionOptIn: true\n");
+
+        assertThat(writeOptIn).isNotEqualTo(CONFIG);
+        assertThat(archivesOnly).isNotEqualTo(CONFIG);
+        assertThat(render(writeOptIn)).contains(
+            "\nGroup prod (production): archives: refused (no archives.productionOptIn)\n",
+            "prod/inubit01: write enabled");
+        assertThat(render(archivesOnly)).contains(
+            "\nGroup prod (production): archives: allowed (archives.productionOptIn)\n",
+            "prod/inubit01: read-only");
+    }
+
+    @Test
+    void theArchivesStateUsesTheProfileTerminology() {
+        String summary = render(CONFIG.replace("profile:\n  name: acme\n", "profile:\n"
+            + "  name: acme\nterminology:\n  group: { singular: stage, plural: stages }\n"
+            + "  node: { singular: server, plural: servers }\n"));
+
+        assertThat(summary).contains("\nStage test: archives: allowed\n",
+            "\nStage prod (production): archives: refused (no archives.productionOptIn)\n");
     }
 
     @Test

@@ -1,7 +1,5 @@
 package de.dadecker.inubit.mcp.application;
 
-import de.dadecker.inubit.mcp.testing.TestSecrets;
-import de.dadecker.inubit.mcp.config.CredentialStore;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyUrl;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
@@ -16,10 +14,13 @@ import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
+import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.GitFreeTempDir;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -193,9 +194,9 @@ class V61RefusalTest {
             .map(tool -> tool.path("name").asString()).toList();
 
         assertThat(names).contains("get_health", "find_processes", "query_logs",
-            "list_inventory", "get_inventory_item", "export_artifacts", "restart_process",
-            "kill_process", "import_artifacts", "restore_backup", "set_active", "tag_artifacts",
-            "deploy_release", "run_e2e_test");
+            "list_inventory", "get_inventory_item", "export_artifacts", "export_archives",
+            "restart_process", "kill_process", "import_artifacts", "restore_backup", "set_active",
+            "tag_artifacts", "deploy_release", "run_e2e_test");
     }
 
     @Test
@@ -274,6 +275,26 @@ class V61RefusalTest {
 
         assertRefusal(toolError(result), tool + ": " + message, capitalized(nextStep));
         assertNothingReachedThe61Node();
+    }
+
+    /**
+     * Feature 015 merged with 012: {@code export_archives} needs {@code workspace_export} like
+     * {@code export_artifacts}, so it refuses a 6.1 node before any contact and writes nothing.
+     */
+    @Test
+    void exportArchivesOnThe61NodeIsRefusedBeforeAnyContact(
+        @TempDir(factory = GitFreeTempDir.class) Path archives) throws IOException {
+        JsonNode result = client.callTool("export_archives", Map.of("target", NODE,
+            "owner", "OWNERS", "diagramGroup", "grpA", "targetFolder", archives.toString(),
+            "acknowledgeClearTextSecrets", true));
+
+        assertRefusal(toolError(result), "export_archives: "
+            + refusal("workspace export", "use the Workbench export"),
+            capitalized("use the Workbench export"));
+        assertNothingReachedThe61Node();
+        try (Stream<Path> written = Files.list(archives)) {
+            assertThat(written).as("archives written").isEmpty();
+        }
     }
 
     @Test

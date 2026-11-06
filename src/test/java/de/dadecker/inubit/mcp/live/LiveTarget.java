@@ -250,7 +250,7 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
                     group.versionLine(), group.timeout(), group.cliTimeout(),
                     group.cliExportTimeout(), group.hangingThreshold(), group.confirmationTtl(),
                     group.development(), group.e2eTests(), group.e2e(), group.deploy(),
-                    group.credentials()))
+                    group.credentials(), group.archives()))
             .toList();
         return new ProfileConfig(config.profile(), config.terminology(), config.credentials(),
             groups, config.defaults(), config.auditDirectory(), config.logLevel(),

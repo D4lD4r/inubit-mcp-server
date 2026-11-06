@@ -2,6 +2,12 @@ package de.dadecker.inubit.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import de.dadecker.inubit.mcp.config.ConfigLoader;
+import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.ParameterType;
 import de.dadecker.inubit.mcp.config.StoreLocation;
@@ -41,6 +47,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -245,11 +252,11 @@ class MainTest {
             INUBIT_ACME_<GROUP>[_<NODE>]_<KIND> (macOS Keychain)
             Audit directory: %s
             Workspace: %s (ok)
-            Group dev:
+            Group dev: archives: allowed
               Node dev/node1: read-only, cli: unavailable, inubit: V8_1, \
             secrets: credentialStore (macOS Keychain), \
             username ← INUBIT_ACME_DEV_USERNAME ok, password ← INUBIT_ACME_DEV_PASSWORD ok
-            Group qa:
+            Group qa: archives: allowed
               Node qa/node2: read-only, cli: unavailable, inubit: AUTO, \
             secrets: credentialStore (macOS Keychain), \
             username ← INUBIT_ACME_QA_NODE2_USERNAME ok, password ← INUBIT_ACME_QA_PASSWORD ok
@@ -1126,6 +1133,61 @@ class MainTest {
     }
 
     @Test
+    void theWiringKnowsTheConfigurationFileInUseAndTheDefaultDirectory() throws Exception {
+        // feature 015 T014 (research R-9): LoadedConfig.source() reaches the Wiring
+        credentials();
+        Path file = Files.createDirectories(home.resolve("elsewhere")).resolve("profile.yaml");
+        Files.move(validConfig(), file);
+        AtomicReference<Wiring> captured = new AtomicReference<>();
+
+        int exit = main(new ByteArrayInputStream(new byte[0]), stdout, wiring -> {
+            captured.set(wiring);
+            return wiring.toolHandlers();
+        }).run("--config", file.toString());
+
+        assertThat(exit).as(err()).isZero();
+        assertThat(captured.get()).as("the server was started").isNotNull();
+        assertThat(captured.get().configLocation()).isEqualTo(new ConfigLocation(
+            new ConfigLoader(Map.copyOf(environment), home, false).defaultDirectory(), file));
+    }
+
+    @Test
+    void exportArchivesRefusesTheFolderOfTheConfigurationFileInUse() throws Exception {
+        // feature 015 T017 (research R-9): the folder of --config is one of the server's
+        // directories, refused before StartCLI
+        credentials();
+        Path file = Files.createDirectories(home.resolve("elsewhere")).resolve("profile.yaml");
+        Files.writeString(file, Files.readString(validConfig())
+            + "    cli:\n      home: " + home.resolve("startcli") + "\n");
+        PipedInputStream serverIn = new PipedInputStream(1 << 16);
+        PipedOutputStream toServer = new PipedOutputStream(serverIn);
+        LineQueue protocol = new LineQueue();
+        Launcher main = main(serverIn, protocol);
+
+        CompletableFuture<Integer> exit = CompletableFuture.supplyAsync(
+            () -> main.run("--config", file.toString()));
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":"
+            + "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},"
+            + "\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}");
+        protocol.next();
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":"
+            + "{\"name\":\"export_archives\",\"arguments\":{\"target\":\"dev/node1\","
+            + "\"owner\":\"OWNERS\",\"diagramGroup\":\"GRP-01\",\"targetFolder\":"
+            + JSON.writeValueAsString(home.resolve("elsewhere").resolve("sub").toString())
+            + ",\"acknowledgeClearTextSecrets\":true}}}");
+        JsonNode refused = protocol.next().path("result");
+        toServer.close();
+
+        assertThat(exit.get(20, TimeUnit.SECONDS)).as(err()).isZero();
+        assertThat(refused.path("isError").asBoolean()).as(refused.toString()).isTrue();
+        assertThat(refused.toString()).contains("INVALID_INPUT",
+            "is or lies inside one of the server's directories",
+            "the folder of the configuration file in use");
+        assertThat(home.resolve("elsewhere").resolve("sub")).doesNotExist();
+    }
+
+    @Test
     void anExistingAuditDirectoryIsRestrictedToTheOwner() throws Exception {
         credentials();
         Path file = validConfig();
@@ -1236,6 +1298,73 @@ class MainTest {
             .startsWith("Startup failed:")
             .contains("schemas/no_schema_tool.input.json");
         assertThat(out()).isEmpty();
+    }
+
+    @Test
+    void aMarkedStageIsNamedOnceInTheStartupLog() throws Exception {
+        // feature 014 (FR-005, research R-5)
+        Path file = home.resolve("config.yaml");
+        try (InputStream fixture = MainTest.class.getResourceAsStream(
+            "/config/pin-per-server.yaml")) {
+            Files.writeString(file, new String(fixture.readAllBytes(), StandardCharsets.UTF_8)
+                .replace("profile:\n  name: acme\n", "profile:\n  name: acme\nauditDirectory: "
+                    + home.resolve("audit") + "\n"));
+        }
+        Path stores = Files.createDirectories(home.resolve(".config/inubit-mcp"));
+        Files.createFile(stores.resolve("acme-dev-truststore.p12"));
+        Files.createFile(stores.resolve("acme-int-truststore.p12"));
+
+        List<String> lines = startupLogOfAnInitializedServer(file);
+
+        assertThat(lines).filteredOn(line -> line.contains("tls.pinPerServer"))
+            .containsExactly("Stages with one pinned certificate per server (tls.pinPerServer):"
+                + " int");
+    }
+
+    @Test
+    void aProfileWithoutAMarkedStageLogsNoPinPerServerLine() throws Exception {
+        credentials();
+
+        List<String> lines = startupLogOfAnInitializedServer(validConfig());
+
+        assertThat(lines).anyMatch(line -> line.contains("started for profile acme"));
+        assertThat(lines).noneMatch(line -> line.contains("pinPerServer"));
+    }
+
+    /** Starts the server, initializes it, closes stdin and returns the {@link Launcher} log. */
+    private List<String> startupLogOfAnInitializedServer(Path file) throws Exception {
+        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
+        Logger launcher = context.getLogger(Launcher.class);
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.setContext(context);
+        logs.start();
+        launcher.addAppender(logs);
+        try {
+            PipedInputStream serverIn = new PipedInputStream(1 << 16);
+            PipedOutputStream toServer = new PipedOutputStream(serverIn);
+            LineQueue protocol = new LineQueue();
+            Launcher main = main(serverIn, protocol);
+
+            CompletableFuture<Integer> exit = CompletableFuture.supplyAsync(
+                () -> main.run("--config", file.toString()));
+            send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":"
+                + "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},"
+                + "\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}");
+            JsonNode initialize = protocol.next();
+            toServer.close();
+
+            assertThat(exit.get(20, TimeUnit.SECONDS)).as(err()).isZero();
+            assertThat(initialize.path("result").path("serverInfo").path("name").asString())
+                .isEqualTo("inubit-mcp-server");
+            assertThat(protocol.raw()).as("only JSON-RPC lines on the protocol stdout")
+                .allSatisfy(line -> assertThat(JSON.readTree(line).path("jsonrpc").asString())
+                    .isEqualTo("2.0"));
+            assertThat(protocol.rawText()).doesNotContain("pinPerServer");
+            return logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+        } finally {
+            launcher.detachAppender(logs);
+            logs.stop();
+        }
     }
 
     private static void send(PipedOutputStream toServer, String line) throws IOException {

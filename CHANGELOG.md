@@ -7,46 +7,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Planned as **0.7.0**: feature 011, credentials only from the credential store of the system or
-from AWS Parameter Store. The live check against the real credential stores (macOS required before
-the release; Windows and Linux where available, `docs/live-tests.md`) has not been executed yet.
-
-It also contains feature 012, read-only INUBIT 6.1 nodes reached through StartCLI only. The
-recordings of a real 6.1 node have not been made yet, so every capability is still declared
-unsupported for 6.1: on a 6.1 node only `list_nodes` and the offline checks of `check_artifacts`
-run, and every other tool refuses it.
-
-### Breaking
-
-- **Environment variables are no longer read for INUBIT credentials.** Every node reads its
-  credentials from the credential store of the system the server runs on (macOS Keychain, Windows
-  Credential Manager, Linux Secret Service; the default) or from AWS Systems Manager Parameter
-  Store. The entries use the former variable names as account and the service `inubit-mcp`, so
-  entries created for the macOS start script of 0.6.x keep working; the start script is no longer
-  needed. Upgrading: [docs/migration-environment-variables.md](docs/migration-environment-variables.md).
-- `credentials.source: { type: environment }` is refused at startup with a hint to the
-  replacement (`type: credentialStore`, the default, or `awsParameterStore`).
-- Credentials are read on a node's first use, no longer at startup: a missing entry no longer
-  stops the server but fails the first call on that node with `AUTH_FAILED` (and is reported by
-  `--check-config`).
-- Only one of the two end-to-end entries (`_E2E_USERNAME` / `_E2E_PASSWORD`) now fails
-  `run_e2e_test` naming the missing entry; before, one variable alone silently meant no basic
-  authentication.
+Feature 012, read-only INUBIT 6.1 nodes reached through StartCLI only. The recordings of a real
+6.1 node have not been made yet, so every capability is still declared unsupported for 6.1: on a
+6.1 node only `list_nodes` and the offline checks of `check_artifacts` run, and every other tool
+(`export_archives` included) refuses it.
 
 ### Added
 
-- Credential store adapters: `/usr/bin/security` on macOS, `CredReadW` on Windows (new dependency
-  JNA 5.17.0, Apache-2.0 option of its dual license, see `THIRD-PARTY-NOTICES.md`), `secret-tool`
-  on Linux (needs `libsecret-tools`/`libsecret` and a Secret Service). One entry is read at a
-  time (at most one access dialog), 60 s per node, 30 s back-off after a failure.
-- `credentials.prefix` as the name of the profile-wide entry prefix (`envPrefix` still works, with
-  a warning).
-- `--check-config` reads every credential store entry once and shows per node the entry found and
-  its outcome (`ok`, `not found`, `invalid value`, `access denied`, `not checked`); a store that
-  cannot be asked is a warning.
-- A warning names (never shows) environment variables that earlier versions read as credentials.
-- Opt-in live check of the credential store (`mvn verify -Plive-store` with
-  `INUBIT_LIVE_STORE=1`).
 - Read-only INUBIT 6.1 nodes (feature 012), reached through StartCLI only: the server sends a 6.1
   node no REST or SOAP request (also no version detection) and never writes to it. A capability
   is declared supported for 6.1 only once its StartCLI outputs are verified against recordings of
@@ -86,15 +53,6 @@ run, and every other tool refuses it.
 
 ### Changed
 
-- A changed password needs no restart for any source: after INUBIT rejects a login the server
-  reads the node's credentials once more (at most two failed logins per node per 60 s). Messages
-  name the entries or parameters to correct and no longer ask to restart the MCP client.
-- Within calls over several nodes, a node's part gets the read time (61 s credential store, 11 s
-  Parameter Store) on top of its deadline only while its credentials are not read yet; a timeout
-  during a pending credential store read names a possibly open access dialog.
-- `query_logs` and `find_processes` check their input for every node before any node is contacted
-  and without reading credentials.
-- The audit `account` of a node before its first read is `(credential store <entry> or <entry>)`.
 - Deliberate changes of feature 012 for existing profiles; otherwise 8.1 and 9.x nodes behave as
   before, and the `AUTO` detection stays REST-based:
   - The capability `diagnosis` is split into `process_diagnosis` (`find_processes`) and
@@ -105,12 +63,135 @@ run, and every other tool refuses it.
   - When the `AUTO` detection request was answered with HTTP 404, the unknown-version warning
     adds a conditional hint: "the INUBIT version of dev/node1 is unknown (UNEXPECTED_RESPONSE at
     …); if dev/node1 runs INUBIT 6.1, pin V6_1; results are unverified".
-  - The read tools `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item` and
-    `export_artifacts` are no longer announced when every node that could run them is pinned to
-    a version that does not support their capability (e.g. a profile of INUBIT 6.1 nodes only),
-    as write tools already are since feature 009. `list_nodes`, `get_health` and
+  - The read tools `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item`,
+    `export_artifacts` and `export_archives` are no longer announced when every node that could
+    run them is pinned to a version that does not support their capability (e.g. a profile of
+    INUBIT 6.1 nodes only), as write tools already are since feature 009. `list_nodes`, `get_health` and
     `check_artifacts` are always offered; `AUTO` nodes count as capable.
   - The `versionLine` error message lists `V6_1` among the accepted values.
+
+## [0.7.1] - 2026-11-06
+
+The manual checks left open in 0.7.0 have run; no functional change.
+
+### Changed
+
+- Feature 015, Workbench import (SC-001) checked by hand on 2026-11-06 against INUBIT 8.1.14:
+  archives written by `export_archives` on a development stage imported in the Workbench without
+  error; workflow, modules and repository files equal to the original. The plug-in type string
+  `Workflow Connector` (`ModuleGroupName` in `module/module.xml`) is confirmed; only the comment of
+  `V81WorkflowArchives` changes.
+- Feature 014, start-up dialogs and live step checked by hand on 2026-11-06: one dialog per server,
+  rejection memory per server, `--forget STAGE/SERVER`, migration of stage-keyed rejections, an
+  `--accept` from a terminal while a dialog holds the profile lock, and on a real stage marked with
+  `tls.pinPerServer` a per-server adoption and prune. A real `TLS_ERROR` inside a Claude session
+  did not occur, so the in-session rule was not exercised.
+- `docs/setup.md` "Converting a stage": before marking a stage, install the `inubit-cert-check` of
+  the release and set the profile's `serverJar` to 0.7.0 or later; an older tool refuses
+  `pinPerServer`, and an older `serverJar` makes every adoption roll back.
+
+## [0.7.0] - 2026-11-06
+
+Feature 011: credentials only from the credential store of the system or from AWS Parameter
+Store. Feature 014: stages whose servers present different certificates (`tls.pinPerServer`).
+Feature 015: Workbench archives (`export_archives`). Contains the fixes of 0.6.3 and 0.6.4. The
+live check against the real credential store (`docs/live-tests.md`) ran on macOS: entries read, a
+value with non-ASCII characters decoded, a missing entry "not found", a denied access dialog
+`ACCESS_DENIED`. It has not run on Windows and Linux; there the adapters are covered by tests with
+fakes only. The manual live check of feature 014 against stages with different certificates and
+its start-up dialogs have not run yet.
+
+### Breaking
+
+- **Environment variables are no longer read for INUBIT credentials.** Every node reads its
+  credentials from the credential store of the system the server runs on (macOS Keychain, Windows
+  Credential Manager, Linux Secret Service; the default) or from AWS Systems Manager Parameter
+  Store. The entries use the former variable names as account and the service `inubit-mcp`, so
+  entries created for the macOS start script of 0.6.x keep working; the start script is no longer
+  needed. Upgrading: [docs/migration-environment-variables.md](docs/migration-environment-variables.md).
+- `credentials.source: { type: environment }` is refused at startup with a hint to the
+  replacement (`type: credentialStore`, the default, or `awsParameterStore`).
+- Credentials are read on a node's first use, no longer at startup: a missing entry no longer
+  stops the server but fails the first call on that node with `AUTH_FAILED` (and is reported by
+  `--check-config`).
+- Only one of the two end-to-end entries (`_E2E_USERNAME` / `_E2E_PASSWORD`) now fails
+  `run_e2e_test` naming the missing entry; before, one variable alone silently meant no basic
+  authentication.
+
+### Added
+
+- Credential store adapters: `/usr/bin/security` on macOS, `CredReadW` on Windows (new dependency
+  JNA 5.19.1, Apache-2.0 option of its dual license, see `THIRD-PARTY-NOTICES.md`), `secret-tool`
+  on Linux (needs `libsecret-tools`/`libsecret` and a Secret Service). One entry is read at a
+  time (at most one access dialog), 60 s per node, 30 s back-off after a failure.
+- `credentials.prefix` as the name of the profile-wide entry prefix (`envPrefix` still works, with
+  a warning).
+- `--check-config` reads every credential store entry once and shows per node the entry found and
+  its outcome (`ok`, `not found`, `invalid value`, `access denied`, `not checked`); a store that
+  cannot be asked is a warning.
+- A warning names (never shows) environment variables that earlier versions read as credentials.
+- Opt-in live check of the credential store (`mvn verify -Plive-store` with
+  `INUBIT_LIVE_STORE=1`).
+- Feature 014, stages whose servers present different certificates:
+  - `tls.pinPerServer: true` on a group marks a stage whose nodes each present their own
+    certificate. Each https node then needs its own `tls.pinnedCertificateSha256`, and REST calls
+    check that node's pin; `--check-config` refuses a marked stage with a stage-wide pin, without
+    a stage trust store, without a pin per https node, or, in a stage with more than one node, a
+    node that inherits `cli.url` / `e2e.soap.baseUrl` from the stage. Stages without the setting
+    are unchanged.
+  - In a marked stage every StartCLI call to an https `cli.url` is preceded by a TLS handshake to
+    that address that checks the server's own pin. A mismatch or failure refuses the call with
+    `TLS_ERROR`, `TIMEOUT` or `UNREACHABLE` before StartCLI starts and before credentials are
+    used.
+  - `inubit-cert-check` works per server in marked stages: `--check` reports each server,
+    `--accept STAGE/SERVER` adopts one server's new certificate, `--prune` keeps every
+    certificate a server of the stage expects, `--forget STAGE[/SERVER]` clears remembered
+    rejections, and `--interactive` shows one dialog per changed server. A certificate that
+    another server of the stage expects is flagged with an `expectedBy` note (dialog warning
+    "this is the certificate expected for server …").
+- Feature 015, Workbench archives (#56):
+  - New tool `export_archives`: exports the technical workflows of one diagram group as one
+    Workbench-importable archive per workflow (`<name>.diagram.zip`) into a local folder, from one
+    StartCLI `export` (read-only for INUBIT; the workspace is not touched). The archives hold the
+    workflows' secrets (passwords, keys, certificates, saved test messages) **in clear text**, as
+    the Workbench needs them; nothing is redacted.
+  - No archive is written without `acknowledgeClearTextSecrets: true`, and the tool is annotated as
+    not read-only so that clients ask before calling it (the client confirmation; the
+    acknowledgement does not replace it). Existing files are never replaced.
+  - Folder rules: the target folder must be an absolute local path and must not be a network share
+    (UNC path or mapped network drive), nor lie inside `~/.inubit-mcp`, the workspace, the audit
+    directory, the configuration directory, the folder of the configuration file in use or a git
+    working tree. A folder below a known cloud-synchronized root (iCloud Drive, OneDrive, …) is
+    accepted with a warning.
+  - On POSIX the archives are `rw-------` and created folders `rwx------`; on Windows the archives
+    and folders inherit the target folder's ACLs, so choose a folder only you can read.
+  - A production group is refused with `PRODUCTION_PROTECTED` unless it sets the new group setting
+    `archives.productionOptIn` to `true` (default `false`, independent of `write.*`); `--check-config`
+    shows the archive state per group and warns about the setting on a non-production group.
+  - Every call that passes the input schema is audited (as `export_archives`). A failure while
+    writing the archives (after all checks passed) ends as `PARTIALLY_COMPLETED`, also when none
+    was written, and names the archives written, the failed one and the ones not written; an
+    existing file or another refusal before writing is `REFUSED` and writes nothing.
+
+### Changed
+
+- A changed password needs no restart for any source: after INUBIT rejects a login the server
+  reads the node's credentials once more (at most two failed logins per node per 60 s). Messages
+  name the entries or parameters to correct and no longer ask to restart the MCP client.
+- Within calls over several nodes, a node's part gets the read time (61 s credential store, 11 s
+  Parameter Store) on top of its deadline only while its credentials are not read yet; a timeout
+  during a pending credential store read names a possibly open access dialog.
+- `query_logs` and `find_processes` check their input for every node before any node is contacted
+  and without reading credentials.
+- The audit `account` of a node before its first read is `(credential store <entry> or <entry>)`.
+- AWS SDK for Java v2 2.57.3 → 2.57.7 (the same artifacts). `THIRD-PARTY-NOTICES.md` is
+  updated.
+- Feature 014, for marked stages (`tls.pinPerServer`) only: change-log lines of
+  `inubit-cert-check` carry `server=`, and rejections are remembered per server (a leftover
+  stage-wide entry is removed). For all stages, the rule for running Claude sessions in
+  `docs/setup.md` also fires on a pin mismatch (`CertificateException`) and on
+  `SunCertPathBuilderException`, and adopts with `--accept <target>`. Stages without the setting
+  otherwise behave as before.
 
 ### Fixed
 
@@ -119,6 +200,32 @@ run, and every other tool refuses it.
   cannot be scrubbed reliably (since 0.7.0 checked when the entry is read).
 - `SECURITY.md` names AWS Systems Manager Parameter Store as a credential source (feature 010)
   and its bound of two failed logins per node per 60 s.
+- `import_artifacts` (and the import step of `deploy_release`) no longer rolls back a successful
+  import of an artifact that has a Workbench user comment. The export appends the user comment to
+  the check-in comment as one more `###` segment; the verification read it as part of the
+  check-in comment and reported `VERIFY_MISMATCH` ("the check-in comment does not carry exactly
+  the reason"). The appended user comment is now removed before the reason is compared.
+- `import_artifacts` and `deploy_release` no longer report `VERIFY_MISMATCH` and a failed
+  rollback when INUBIT rewrites the `xslt.transformer` of an imported XSLT Converter module from
+  the plain Saxon factory (`net.sf.saxon.TransformerFactoryImpl`) to its Saxon-EE factory of
+  `com.saxonica.config` (seen on 8.1.17, #55). The verification of the import or deployment, of
+  its rollback and of `restore_backup` accept this rewrite and nothing else; after a successful
+  import the workspace holds the server's value, as for every verified import. The preview of
+  `deploy_release` lists a module that differs from the target only in this rewrite as
+  `UNCHANGED`, so redeploying such a release no longer imports it again.
+
+## [0.6.4] - 2026-11-04
+
+Bug fix release from the 0.6.x line (branch `release/0.6.x`, based on 0.6.3); it does not contain
+the credential store changes planned for 0.7.0. Live checks are unchanged since 0.6.1.
+
+### Fixed
+
+- `import_artifacts` (and the import step of `deploy_release`) no longer rolls back a successful
+  import of an artifact that has a Workbench user comment. The export appends the user comment to
+  the check-in comment as one more `###` segment; the verification read it as part of the
+  check-in comment and reported `VERIFY_MISMATCH` ("the check-in comment does not carry exactly
+  the reason"). The appended user comment is now removed before the reason is compared.
 
 ## [0.6.3] - 2026-11-02
 
@@ -661,7 +768,10 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.3...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.4...v0.7.0
+[0.6.4]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.0...v0.6.1

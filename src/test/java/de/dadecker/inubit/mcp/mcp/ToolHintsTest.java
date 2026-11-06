@@ -20,4 +20,16 @@ class ToolHintsTest {
         assertThat(ToolHints.readOnly("Check", false, true))
             .isEqualTo(new ToolHints("Check", true, false, true, false));
     }
+
+    /** Feature 015 (research R-1): export_archives writes local files but changes nothing in INUBIT. */
+    @Test
+    void localWriteIsNeitherReadOnlyNorDestructiveNorIdempotentButOpenWorld() {
+        ToolHints hints = ToolHints.localWrite("Export archives");
+
+        assertThat(hints.title()).isEqualTo("Export archives");
+        assertThat(hints.readOnly()).isFalse();
+        assertThat(hints.destructive()).isFalse();
+        assertThat(hints.idempotent()).isFalse();
+        assertThat(hints.openWorld()).isTrue();
+    }
 }

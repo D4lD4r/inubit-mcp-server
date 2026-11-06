@@ -77,6 +77,32 @@ class V81ImportArchivesTest {
     }
 
     @Test
+    void anImportMayTurnThePlainSaxonFactoryIntoASaxonicaFactory() {
+        // issue #55; ProfessionalTransformerFactory stands in for the Saxon-EE factory
+        String path = "dev/o/modules/XSLT Converter/M/module.xml";
+        String plain = "<Properties version=\"4.1\">"
+            + "<Property name=\"xslt.stylesheet\">s</Property>"
+            + "<Property name=\"xslt.transformer\">net.sf.saxon.TransformerFactoryImpl</Property>"
+            + "</Properties>";
+        String saxonica = plain.replace("net.sf.saxon.TransformerFactoryImpl",
+            "com.saxonica.config.ProfessionalTransformerFactory");
+
+        assertThat(archives.equivalent(path, bytes(plain), bytes(saxonica))).isFalse();
+        assertThat(archives.importedAs(path, bytes(plain), bytes(saxonica))).isTrue();
+        assertThat(archives.importedAs(path, bytes(plain), bytes(plain))).isTrue();
+        assertThat(archives.importedAs(path, bytes(saxonica), bytes(saxonica))).isTrue();
+        assertThat(archives.importedAs(path, bytes(saxonica), bytes(plain)))
+            .as("INUBIT does not turn a saxonica factory into the plain one").isFalse();
+        assertThat(archives.importedAs(path, bytes(plain), bytes(plain.replace(
+            "net.sf.saxon.TransformerFactoryImpl", "org.example.OtherFactory")))).isFalse();
+        assertThat(archives.importedAs(path, bytes(plain), bytes(saxonica.replace(">s<",
+            ">t<")))).as("another difference stays a difference").isFalse();
+        assertThat(archives.importedAs(path, bytes(plain), null)).isFalse();
+        assertThat(archives.importedAs("dev/o/modules/A/M/x.bin", bytes("a"), bytes("b")))
+            .isFalse();
+    }
+
+    @Test
     void theCheckinCommentIsRead() {
         assertThat(archives.checkinComment(bytes("<Workflow><CheckinComment>Default"
             + "CommitCommentImport###r###</CheckinComment></Workflow>")))
@@ -84,6 +110,23 @@ class V81ImportArchivesTest {
         assertThat(archives.checkinComment(bytes("<Properties/>"))).isEmpty();
         assertThat(archives.checkinComment(bytes("not xml"))).isEmpty();
         assertThat(Map.of()).isEmpty();
+    }
+
+    @Test
+    void theUserCommentThatTheExportAppendsIsNotPartOfTheCheckinComment() {
+        // An artifact with a Workbench user comment: the export appends it as a last ### segment.
+        assertThat(archives.checkinComment(bytes("<Module><CheckinComment>Default"
+            + "CommitCommentImport###DefaultCommitCommentImport###r######TICKET-1 note"
+            + "</CheckinComment><UserComment>TICKET-1 note</UserComment></Module>")))
+            .contains("DefaultCommitCommentImport###DefaultCommitCommentImport###r######");
+        // Only a whole last segment equal to the user comment goes, nothing else.
+        assertThat(archives.checkinComment(bytes("<Module><CheckinComment>Default"
+            + "CommitCommentImport###r: TICKET-1 note</CheckinComment>"
+            + "<UserComment>TICKET-1 note</UserComment></Module>")))
+            .contains("DefaultCommitCommentImport###r: TICKET-1 note");
+        assertThat(archives.checkinComment(bytes("<Module><CheckinComment>Default"
+            + "CommitCommentImport###r######</CheckinComment><UserComment/></Module>")))
+            .contains("DefaultCommitCommentImport###r######");
     }
 
     @Test

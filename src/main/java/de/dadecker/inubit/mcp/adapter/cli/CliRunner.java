@@ -78,11 +78,22 @@ public final class CliRunner {
     private final Map<String, String> parentEnvironment;
     private final boolean windows;
     private final CliResources resources;
+    private final StartCliPinProbe pinProbe;
 
     /** @param resources registry of the running StartCLI processes, stopped on shutdown */
     public CliRunner(ProcessLauncher launcher, Map<String, String> parentEnvironment,
         boolean windows, CliResources resources) {
+        this(launcher, parentEnvironment, windows, resources, new HandshakeStartCliPinProbe());
+    }
+
+    /**
+     * @param pinProbe checks the StartCLI address of a server of a stage with
+     *     {@code tls.pinPerServer} before StartCLI is started (feature 014, research R-15)
+     */
+    public CliRunner(ProcessLauncher launcher, Map<String, String> parentEnvironment,
+        boolean windows, CliResources resources, StartCliPinProbe pinProbe) {
         this.resources = Objects.requireNonNull(resources, "resources");
+        this.pinProbe = Objects.requireNonNull(pinProbe, "pinProbe");
         this.launcher = launcher;
         this.parentEnvironment = Map.copyOf(parentEnvironment);
         this.windows = windows;
@@ -121,9 +132,14 @@ public final class CliRunner {
      * after a rejected login the cached {@code AUTH_FAILED} is thrown without starting
      * StartCLI; a {@code LoginFailure} rejects and an exit code 0 confirms the credentials.
      *
+     * <p>For a server of a stage with {@code tls.pinPerServer} the certificate at the StartCLI
+     * address is checked against the server's own pin first, before the guard (feature 014,
+     * research R-15).
+     *
      * @throws ToolErrorException {@code AUTH_FAILED} from the guard, {@code CLI_UNAVAILABLE} if
      *     StartCLI cannot be started, {@code TIMEOUT} if it does not finish within
-     *     {@code timeout}
+     *     {@code timeout}; {@code TLS_ERROR}, {@code UNREACHABLE} or {@code TIMEOUT} from the
+     *     pin check, StartCLI then not started
      */
     public CliResult run(EffectiveNodeConfig server, String username, Secret password,
         CliCommand command, Duration timeout, CredentialGuard guard) {
@@ -136,6 +152,10 @@ public final class CliRunner {
      */
     public CliResult run(EffectiveNodeConfig server, String username, Secret password,
         CliCommand command, Duration timeout, String timeoutSetting, CredentialGuard guard) {
+        // before the guard: a refused address must neither wait for nor count as a login
+        if (server.tls().pinPerServer()) {
+            pinProbe.check(server);
+        }
         return guarded(guard, () -> runUnguarded(server, username, password, command, timeout,
             timeoutSetting));
     }
@@ -146,9 +166,11 @@ public final class CliRunner {
      * {@link #run(EffectiveNodeConfig, String, Secret, CliCommand, Duration, CredentialGuard)}.
      * Neither the password nor a command appears in the argument array. The trust store and the
      * host-name option are passed as {@code options} allow (research D-8); every refusal is
-     * made by the caller before (feature 012, {@code V61Connection}). stdout and stderr are
-     * kept up to {@code maxOutputBytes} each (research D-10: {@link #MAX_OUTPUT_BYTES} for
-     * health, more for process listings).
+     * made by the caller before (feature 012, {@code V61Connection}), and so is the TLS
+     * handshake with the server's own pin that also serves as the pin check of a stage with
+     * {@code tls.pinPerServer} (feature 014, research R-15); this method runs no second one.
+     * stdout and stderr are kept up to {@code maxOutputBytes} each (research D-10:
+     * {@link #MAX_OUTPUT_BYTES} for health, more for process listings).
      *
      * @throws ToolErrorException {@code AUTH_FAILED} from the guard, {@code CLI_UNAVAILABLE} if
      *     StartCLI cannot be started, {@code TIMEOUT} if it does not finish within

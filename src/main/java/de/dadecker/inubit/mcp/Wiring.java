@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
+import de.dadecker.inubit.mcp.adapter.archive.v81.V81WorkflowArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
 import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
 import de.dadecker.inubit.mcp.adapter.cli.CliClientProbe;
@@ -17,9 +18,14 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
+import de.dadecker.inubit.mcp.adapter.os.JnaDriveTypeApi;
+import de.dadecker.inubit.mcp.adapter.os.WindowsNetworkPaths;
 import de.dadecker.inubit.mcp.adapter.soap.SoapE2eClient;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
 import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
+import de.dadecker.inubit.mcp.application.ArchiveExportAudit;
+import de.dadecker.inubit.mcp.application.ArchiveExportService;
+import de.dadecker.inubit.mcp.application.ArchiveFolderWriter;
 import de.dadecker.inubit.mcp.application.ArtifactCheckService;
 import de.dadecker.inubit.mcp.application.BackupStore;
 import de.dadecker.inubit.mcp.application.ConfirmationRegistry;
@@ -46,10 +52,12 @@ import de.dadecker.inubit.mcp.application.ReleasePlanner;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TagService;
+import de.dadecker.inubit.mcp.application.TargetFolderRules;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.WorkspaceService;
 import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
 import de.dadecker.inubit.mcp.application.WriteGuard;
+import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialNames;
 import de.dadecker.inubit.mcp.config.CredentialStore;
@@ -72,6 +80,7 @@ import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.E2ePort;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
+import de.dadecker.inubit.mcp.domain.port.NetworkPathProbe;
 import de.dadecker.inubit.mcp.infra.AuditLog;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.ResultJson;
@@ -81,6 +90,7 @@ import de.dadecker.inubit.mcp.mcp.ResultMapper;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import de.dadecker.inubit.mcp.mcp.tools.CheckArtifactsTool;
+import de.dadecker.inubit.mcp.mcp.tools.ExportArchivesTool;
 import de.dadecker.inubit.mcp.mcp.tools.ExportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.FindProcessesTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetHealthTool;
@@ -103,6 +113,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -118,7 +129,8 @@ import java.util.stream.Collectors;
  * <p><b>Extension point:</b> each user-story phase adds its handlers in {@link #toolHandlers()}
  * (US1: {@code list_nodes}, {@code get_health}; US2: {@code find_processes},
  * {@code query_logs}; US3: {@code list_inventory}, {@code get_inventory_item}; feature 003:
- * {@code export_artifacts}, only if a node has a CLI installation, and {@code check_artifacts}).
+ * {@code export_artifacts}, only if a node has a CLI installation, and {@code check_artifacts};
+ * feature 015: {@code export_archives} under the same condition as {@code export_artifacts}).
  * Feature 012 (research D-12): the read tools other than {@code list_nodes}, {@code get_health}
  * and {@code check_artifacts} are announced only if some node may run their capability
  * ({@link #possiblyCapable}).
@@ -161,6 +173,8 @@ final class Wiring implements AutoCloseable {
     private final InventoryService inventory;
     private final ProcessControlService processControl;
     private final ExportArtifactsTool exportArtifacts;
+    /** Feature 015: offered under the condition of {@code export_artifacts} (research R-16). */
+    private final ExportArchivesTool exportArchives;
     private final CheckArtifactsTool checkArtifacts;
     private final ImportArtifactsTool importArtifacts;
     private final RestoreBackupTool restoreBackup;
@@ -176,6 +190,13 @@ final class Wiring implements AutoCloseable {
         .ConcurrentHashMap<>();
     private final CliResources cliResources;
     private final Thread cleanupHook;
+    /** Feature 015 (research R-9): the configuration roots an archive target stays out of. */
+    private final ConfigLocation configLocation;
+    /**
+     * Feature 015 (research R-10): tells whether a drive letter is a mapped network drive; the
+     * native API is loaded only on Windows, on the first drive letter asked.
+     */
+    private final NetworkPathProbe networkPathProbe;
 
     /**
      * @param config  a configuration that {@code ConfigValidator} reported no errors for
@@ -183,11 +204,14 @@ final class Wiring implements AutoCloseable {
      *     read here
      * @param exists  file-system check for the CLI availability of {@code list_nodes}
      * @param windows whether the server runs on Windows ({@code startcli.bat})
+     * @param configLocation the default configuration directory and the configuration file in use
+     *     (feature 015, research R-9)
      */
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
-        ClockProvider clock, Predicate<Path> exists, boolean windows) {
+        ClockProvider clock, Predicate<Path> exists, boolean windows,
+        ConfigLocation configLocation) {
         this(config, credentialStore, scrubber, clock, exists, windows, new SystemProcessLauncher(),
-            System.getenv(), SsmParameterStore::new);
+            System.getenv(), SsmParameterStore::new, configLocation);
     }
 
     /**
@@ -196,9 +220,9 @@ final class Wiring implements AutoCloseable {
      */
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
-        Map<String, String> environment) {
+        Map<String, String> environment, ConfigLocation configLocation) {
         this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
-            SsmParameterStore::new);
+            SsmParameterStore::new, configLocation);
     }
 
     /**
@@ -207,16 +231,19 @@ final class Wiring implements AutoCloseable {
      */
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
-        Map<String, String> environment, Supplier<ParameterStore> parameterStore) {
+        Map<String, String> environment, Supplier<ParameterStore> parameterStore,
+        ConfigLocation configLocation) {
         this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
-            parameterStore, CapabilityMatrix.production());
+            parameterStore, configLocation, CapabilityMatrix.production());
     }
 
     /** As above, with a capability matrix other than the production one (tests). */
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment, Supplier<ParameterStore> parameterStore,
-        CapabilityMatrix matrix) {
+        ConfigLocation configLocation, CapabilityMatrix matrix) {
+        this.configLocation = Objects.requireNonNull(configLocation, "configLocation");
+        this.networkPathProbe = new WindowsNetworkPaths(windows, JnaDriveTypeApi::new);
         this.profile = config.profileInfo();
         this.matrix = matrix;
         this.scrubber = scrubber;
@@ -301,6 +328,18 @@ final class Wiring implements AutoCloseable {
             new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
             new ArchiveCodec(), gateways::artifacts, gateways::inventory, versionGate), targets,
             id -> byId.get(id).inventory().owner(), limiter);
+        // feature 015: the archives go to a user-chosen local folder outside the server's
+        // directories (research R-9); production only with archives.productionOptIn (R-15);
+        // the shared audit log
+        TargetFolderRules folders = new TargetFolderRules(
+            Path.of(System.getProperty("user.home")), workspace, config.auditDirectory(),
+            configLocation.roots(), environment, networkPathProbe, windows);
+        this.exportArchives = new ExportArchivesTool(new ArchiveExportService(targets,
+            id -> byId.get(id).inventory().owner(), id -> policies.apply(id).account(),
+            id -> byId.get(id).production(), id -> byId.get(id).archivesProductionOptIn(),
+            folders, gateways::artifacts, new V81WorkflowArchives(), versionGate,
+            new ArchiveFolderWriter(), limiter, new ArchiveExportAudit.Dependencies(audit,
+                clock.clock(), profile.name(), UUID::randomUUID)));
         ArtifactCheckService checks = new ArtifactCheckService(workspace,
             new WorkspaceInspector(), new SaxonXsltRunner(workspace), group -> servers.stream()
                 .map(EffectiveNodeConfig::id).filter(id -> id.group().equals(group)).findFirst(),
@@ -473,6 +512,7 @@ final class Wiring implements AutoCloseable {
         if (servers.stream().anyMatch(server -> server.cli().home().isPresent()
             && possiblyCapable(server, Capability.WORKSPACE_EXPORT))) {
             handlers.add(exportArtifacts);
+            handlers.add(exportArchives);
         }
         handlers.add(checkArtifacts);
         if (anyWriteEnabled()) {
@@ -513,6 +553,11 @@ final class Wiring implements AutoCloseable {
 
     GatewayFactory gateways() {
         return gateways;
+    }
+
+    /** The configuration location the server runs with (feature 015, research R-9). */
+    ConfigLocation configLocation() {
+        return configLocation;
     }
 
     TargetResolver targets() {

@@ -45,6 +45,9 @@ import java.util.function.Predicate;
  * setting of a node pinned to a CLI-only version (6.1) with
  * {@code (INUBIT 6.1, StartCLI only; available: …; refused: …)} and (FR-012a, research D-8)
  * shows the client options of such a node inside its client part.
+ * Feature 015 (research R-15): every group line ends with {@code archives: allowed},
+ * {@code archives: refused (no archives.productionOptIn)} or
+ * {@code archives: allowed (archives.productionOptIn)}.
  * Groups and nodes are named with the profile's display names (FR-007). Values and URLs are never
  * printed.
  */
@@ -123,7 +126,8 @@ public final class ConfigSummary {
             if (!server.id().group().equals(group)) {
                 group = server.id().group();
                 out.append(terms.render("{Group} ")).append(group)
-                    .append(server.production() ? " (production)" : "").append(":\n");
+                    .append(server.production() ? " (production)" : "").append(": archives: ")
+                    .append(archives(server)).append('\n');
             }
             out.append("  ").append(terms.render("{Node} ")).append(server.id()).append(": ")
                 .append(writeFlag(server))
@@ -319,6 +323,18 @@ public final class ConfigSummary {
         } catch (URISyntaxException e) {
             return url.getScheme() + "://" + url.getHost();
         }
+    }
+
+    /**
+     * Feature 015 (research R-15): whether {@code export_archives} may run on the group;
+     * {@code archives.productionOptIn} is a group setting, so any node of the group tells.
+     */
+    private static String archives(EffectiveNodeConfig server) {
+        if (!server.production()) {
+            return "allowed";
+        }
+        return server.archivesProductionOptIn() ? "allowed (archives.productionOptIn)"
+            : "refused (no archives.productionOptIn)";
     }
 
     private static String writeFlag(EffectiveNodeConfig server) {
