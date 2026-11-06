@@ -453,6 +453,9 @@
                                     <mainClass>${main.class}</mainClass>
                                     <manifestEntries>
                                         <Multi-Release>true</Multi-Release>
+                                        <!-- feature 016 (FR-010): the JAR names its own version -->
+                                        <Implementation-Title>${project.artifactId}</Implementation-Title>
+                                        <Implementation-Version>${project.version}</Implementation-Version>
                                     </manifestEntries>
                                 </transformer>
                                 <!-- Mandatory (research R-3): the SDK finds its JSON mapper and

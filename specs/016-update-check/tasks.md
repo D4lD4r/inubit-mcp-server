@@ -36,7 +36,7 @@ the checkout; never two builds in parallel).
   uses the `CodeSource` location of `BuildInfo.class`; tests with temporary JARs in
   `src/main/java/de/dadecker/inubit/mcp/infra/BuildInfo.java`,
   `src/test/java/de/dadecker/inubit/mcp/infra/BuildInfoTest.java`
-- [ ] T004 [US3] Manifest entries `Implementation-Title: ${project.artifactId}` and
+- [X] T004 [US3] Manifest entries `Implementation-Title: ${project.artifactId}` and
   `Implementation-Version: ${project.version}` in the shade `ManifestResourceTransformer` of
   `pom.xml`; Failsafe test `src/test/java/de/dadecker/inubit/mcp/JarVersionIT.java` (system
   properties `project.version` and `project.jar` from `pom.xml`): reads the manifest, copies the JAR
