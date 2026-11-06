@@ -14,6 +14,8 @@ import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.os.JnaDriveTypeApi;
+import de.dadecker.inubit.mcp.adapter.os.WindowsNetworkPaths;
 import de.dadecker.inubit.mcp.adapter.soap.SoapE2eClient;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
 import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
@@ -73,6 +75,7 @@ import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.E2ePort;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
+import de.dadecker.inubit.mcp.domain.port.NetworkPathProbe;
 import de.dadecker.inubit.mcp.infra.AuditLog;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.ResultJson;
@@ -181,6 +184,11 @@ final class Wiring implements AutoCloseable {
     private final Thread cleanupHook;
     /** Feature 015 (research R-9): the configuration roots an archive target stays out of. */
     private final ConfigLocation configLocation;
+    /**
+     * Feature 015 (research R-10): tells whether a drive letter is a mapped network drive; the
+     * native API is loaded only on Windows, on the first drive letter asked.
+     */
+    private final NetworkPathProbe networkPathProbe;
 
     /**
      * @param config  a configuration that {@code ConfigValidator} reported no errors for
@@ -218,6 +226,7 @@ final class Wiring implements AutoCloseable {
         Map<String, String> environment, Supplier<ParameterStore> parameterStore,
         ConfigLocation configLocation) {
         this.configLocation = Objects.requireNonNull(configLocation, "configLocation");
+        this.networkPathProbe = new WindowsNetworkPaths(windows, JnaDriveTypeApi::new);
         this.profile = config.profileInfo();
         this.scrubber = scrubber;
         // 002 research D-8: the export directories carry the profile name

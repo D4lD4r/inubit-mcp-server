@@ -359,7 +359,7 @@ everything refused by the static input checks before StartCLI.
     `test/MessageTerminologyTest.java:125` (`new ConfigLocation(<tmp>, loaded.source())`).
   No tool behaviour changes in this task.
 
-- [ ] T015 [US2] Remote drives on Windows (research R-10): test first
+- [X] T015 [US2] Remote drives on Windows (research R-10): test first
   `test/adapter/os/WindowsNetworkPathsTest.java` with a fake `DriveTypeApi`: drive type `4`
   (`DRIVE_REMOTE`) → remote, `3` (fixed), `2` (removable) → local, the API asked for `"<X>:\\"`
   (`remoteDrive('z')` asks for `Z:\`); a character that is not an ASCII letter → local without
