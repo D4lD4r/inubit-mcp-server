@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -557,6 +558,25 @@ class CliRunnerTest {
 
     // --- interactive session on INUBIT 6.1 (feature 012, T016, research D-5) ---------------
 
+    /** The JAVA_TOOL_OPTIONS every StartCLI process of this platform gets (feature 013). */
+    private static final String TOOL_OPTIONS = Platform.windows()
+        ? StartCliEnvironment.WINDOWS_JAVA_TOOL_OPTIONS : StartCliEnvironment.JAVA_TOOL_OPTIONS;
+
+    /**
+     * {@code spec} hands StartCLI exactly {@code arguments}; off Windows its command is the script
+     * and these arguments, on Windows the command interpreter's last argument starts with the
+     * quoted script (the quoting itself is covered by the Windows tests below).
+     */
+    private void assertStartCli(ProcessLauncher.LaunchSpec spec, String... arguments) {
+        assertThat(spec.startCliArguments()).containsExactly(arguments);
+        if (Platform.windows()) {
+            assertThat(spec.command().getLast()).startsWith("\"\"" + script + "\"");
+        } else {
+            assertThat(spec.command()).containsExactlyElementsOf(
+                Stream.concat(Stream.of(script.toString()), Stream.of(arguments)).toList());
+        }
+    }
+
     private static final String SESSION_OK = "Password: \nuname output\n";
     private static final String SESSION_LOGIN_FAILED = "Password: \n"
         + "com.inubit.ibis.cli.CliConnectionException: @Start@LoginFailure@@@The user does not"
@@ -584,8 +604,7 @@ class CliRunnerTest {
 
         runSession(launcher, guard(), Duration.ofSeconds(5));
 
-        List<String> command = launcher.last().spec().command();
-        assertThat(command).containsExactly(script.toString(), "-u", USER,
+        assertStartCli(launcher.last().spec(), "-u", USER,
             "https://inubit-dev-1.example.test:8443/ibis/servlet/IBISSoapServlet");
     }
 
@@ -621,10 +640,13 @@ class CliRunnerTest {
         runSession(launcher, guard(), Duration.ofSeconds(5));
 
         Map<String, String> env = launcher.last().spec().environment();
-        assertThat(env.keySet()).containsExactlyInAnyOrder("PATH", "HOME", "TMPDIR", "LANG",
-            "LC_ALL", "USER", "JAVA_HOME", "JAVA_TOOL_OPTIONS");
+        assertThat(env.keySet()).containsExactlyInAnyOrderElementsOf(Platform.windows()
+            ? List.of("PATH", "ComSpec", "NoDefaultCurrentDirectoryInExePath", "JAVA_HOME",
+                "JAVA_TOOL_OPTIONS")
+            : List.of("PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "USER", "JAVA_HOME",
+                "JAVA_TOOL_OPTIONS"));
         assertThat(env).containsEntry("JAVA_HOME", JAVA_HOME.toString())
-            .containsEntry("JAVA_TOOL_OPTIONS", StartCliEnvironment.JAVA_TOOL_OPTIONS);
+            .containsEntry("JAVA_TOOL_OPTIONS", TOOL_OPTIONS);
         assertThat(String.join(" ", env.values())).doesNotContain(PASSWORD);
         assertThat(launcher.last().spec().workingDirectory()).isEqualTo(cliHome);
     }
@@ -748,8 +770,7 @@ class CliRunnerTest {
 
         FakeProcessLauncher.FakeProcess execCommand = launcher.last();
         assertThat(launcher.launchCount()).isEqualTo(2);
-        assertThat(execCommand.spec().command()).containsExactly(
-            script.toString(), "-u", USER,
+        assertStartCli(execCommand.spec(), "-u", USER,
             "--trustStoreFilePath", trustStore.toString(),
             "--disableHostNameVerification",
             "--execCommand", "processErrorStart 110190387",
@@ -791,10 +812,10 @@ class CliRunnerTest {
         FakeProcessLauncher.FakeProcess process =
             session(server().trustStore(trustStore).build(), ALL_OPTIONS);
 
-        assertThat(process.spec().command()).containsExactly(script.toString(), "-u", USER,
+        assertStartCli(process.spec(), "-u", USER,
             "--trustStoreFilePath", trustStore.toString(), URL);
         assertThat(process.spec().environment())
-            .containsEntry("JAVA_TOOL_OPTIONS", StartCliEnvironment.JAVA_TOOL_OPTIONS);
+            .containsEntry("JAVA_TOOL_OPTIONS", TOOL_OPTIONS);
     }
 
     @Test
@@ -805,9 +826,9 @@ class CliRunnerTest {
         FakeProcessLauncher.FakeProcess process =
             session(server().trustStore(trustStore).build(), NO_OPTIONS);
 
-        assertThat(process.spec().command()).containsExactly(script.toString(), "-u", USER, URL);
+        assertStartCli(process.spec(), "-u", USER, URL);
         assertThat(process.spec().environment()).containsEntry("JAVA_TOOL_OPTIONS",
-            StartCliEnvironment.JAVA_TOOL_OPTIONS + " -Djavax.net.ssl.trustStore=" + trustStore
+            TOOL_OPTIONS + " -Djavax.net.ssl.trustStore=" + trustStore
                 + " -Djavax.net.ssl.trustStoreType=PKCS12");
     }
 
@@ -819,7 +840,7 @@ class CliRunnerTest {
             session(server().trustStore(trustStore).build(), NO_OPTIONS);
 
         assertThat(process.spec().environment()).containsEntry("JAVA_TOOL_OPTIONS",
-            StartCliEnvironment.JAVA_TOOL_OPTIONS + " -Djavax.net.ssl.trustStore=" + trustStore
+            TOOL_OPTIONS + " -Djavax.net.ssl.trustStore=" + trustStore
                 + " -Djavax.net.ssl.trustStoreType=JKS");
     }
 
@@ -828,10 +849,9 @@ class CliRunnerTest {
         for (CliClientOptions options : List.of(ALL_OPTIONS, NO_OPTIONS)) {
             FakeProcessLauncher.FakeProcess process = session(server().build(), options);
 
-            assertThat(process.spec().command()).as("%s", options)
-                .containsExactly(script.toString(), "-u", USER, URL);
+            assertStartCli(process.spec(), "-u", USER, URL);
             assertThat(process.spec().environment()).as("%s", options)
-                .containsEntry("JAVA_TOOL_OPTIONS", StartCliEnvironment.JAVA_TOOL_OPTIONS);
+                .containsEntry("JAVA_TOOL_OPTIONS", TOOL_OPTIONS);
         }
     }
 
@@ -856,7 +876,10 @@ class CliRunnerTest {
     void aTrustStorePathWithWhitespaceNeverReachesJavaToolOptions() {
         // V61Connection (T020) refuses such a node first; the runner defends itself anyway
         // because JAVA_TOOL_OPTIONS is split at whitespace without quoting on Java 7/8
-        for (String name : List.of("trust store.p12", "trust\tstore.p12", "trust\nstore.p12")) {
+        // a tab or line break is not even a valid Windows file name
+        List<String> names = Platform.windows() ? List.of("trust store.p12")
+            : List.of("trust store.p12", "trust\tstore.p12", "trust\nstore.p12");
+        for (String name : names) {
             FakeProcessLauncher launcher = FakeProcessLauncher.of(SESSION_OK, "", 0);
             CredentialGuard guard = guard();
             EffectiveNodeConfig config = server().trustStore(cliHome.resolve(name)).build();
@@ -876,7 +899,7 @@ class CliRunnerTest {
         FakeProcessLauncher.FakeProcess process =
             session(server().disableHostnameVerification(PIN).build(), ALL_OPTIONS);
 
-        assertThat(process.spec().command()).containsExactly(script.toString(), "-u", USER,
+        assertStartCli(process.spec(), "-u", USER,
             "--disableHostNameVerification", URL);
     }
 
@@ -887,7 +910,7 @@ class CliRunnerTest {
         FakeProcessLauncher.FakeProcess process = session(
             server().trustStore(trustStore).disableHostnameVerification(PIN).build(), ALL_OPTIONS);
 
-        assertThat(process.spec().command()).containsExactly(script.toString(), "-u", USER,
+        assertStartCli(process.spec(), "-u", USER,
             "--trustStoreFilePath", trustStore.toString(), "--disableHostNameVerification", URL);
     }
 
@@ -902,10 +925,9 @@ class CliRunnerTest {
             session(server().pin(PIN).build(), ALL_OPTIONS));
 
         assertThat(processes).allSatisfy(process -> {
-            assertThat(process.spec().command())
-                .containsExactly(script.toString(), "-u", USER, URL);
+            assertStartCli(process.spec(), "-u", USER, URL);
             assertThat(process.spec().environment())
-                .containsEntry("JAVA_TOOL_OPTIONS", StartCliEnvironment.JAVA_TOOL_OPTIONS);
+                .containsEntry("JAVA_TOOL_OPTIONS", TOOL_OPTIONS);
         });
     }
 

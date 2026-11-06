@@ -118,8 +118,8 @@ class HealthOverviewPerformanceTest {
         yaml.append("  - name: legacy\n    versionLine: V6_1\n    nodes:\n")
             .append("      - name: node1\n        baseUrl: http://localhost:")
             .append(legacy.port()).append("\n        allowInsecureHttp: true\n")
-            .append("        cli:\n          home: \"").append(cliHome).append("\"\n")
-            .append("          javaHome: \"").append(javaHome).append("\"\n");
+            .append("        cli:\n          home: '").append(cliHome).append("'\n")
+            .append("          javaHome: '").append(javaHome).append("'\n");
         environment.put("INUBIT_ACME_LEGACY_USERNAME", "jdoe");
         environment.put("INUBIT_ACME_LEGACY_PASSWORD", "sc002-test-pw");
         FakeProcessLauncher help = FakeProcessLauncher.replaying("v6_1", "help");
