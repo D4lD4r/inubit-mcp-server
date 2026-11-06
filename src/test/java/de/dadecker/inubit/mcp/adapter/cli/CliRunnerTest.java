@@ -772,7 +772,7 @@ class CliRunnerTest {
     void buildingAWindowsRunnerAsksTheSystemNothing() {
         CliSystem untouched = new CliSystem() {
             @Override
-            public Optional<String> systemDirectory() {
+            public SystemDirectory systemDirectory() {
                 throw new AssertionError("system directory read while building the runner");
             }
 
@@ -791,14 +791,16 @@ class CliRunnerTest {
         batchFile(cliHome);
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
         CliRunner runner = new CliRunner(launcher, parentEnv, true,
-            new TestCliRunners.FixedSystem(Optional.empty(), StandardCharsets.ISO_8859_1),
+            new TestCliRunners.FixedSystem(new CliSystem.Unreadable(
+                "GetSystemDirectoryW failed (Windows error 87)"), StandardCharsets.ISO_8859_1),
             ProcessContainment.Bound::new, new CliResources("acme"));
 
         ToolError error = errorOf(() -> runOnWindows(runner, server().build(),
             CliCommand.processErrorStart("110190387")));
 
         assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
-        assertThat(error.message()).contains("the Windows system directory could not be read");
+        assertThat(error.message()).contains("the Windows system directory could not be read"
+            + " (GetSystemDirectoryW failed (Windows error 87))");
         assertThat(launcher.launchCount()).isZero();
     }
 
@@ -935,8 +937,8 @@ class CliRunnerTest {
 
             assertThat(own.handshakes()).isEqualTo(1);
             assertThat(launcher.launchCount()).isEqualTo(1);
-            assertThat(launcher.last().spec().command()).containsExactly(
-                script.toString(), "-u", USER,
+            // feature 013: on Windows the script runs through the interpreter
+            assertThat(launcher.last().spec().startCliArguments()).containsExactly("-u", USER,
                 "--trustStoreFilePath", CERTS.trustStore().toString(),
                 "--execCommand", "processErrorStart 110190387",
                 "https://localhost:" + own.port() + EffectiveNodeConfig.DEFAULT_CLI_PATH);

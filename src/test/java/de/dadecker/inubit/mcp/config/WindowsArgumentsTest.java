@@ -3,6 +3,8 @@ package de.dadecker.inubit.mcp.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -83,5 +85,35 @@ class WindowsArgumentsTest {
         assertThat(WindowsArguments.isUnc(Path.of("C:/inubit"))).isFalse();
         assertThat(WindowsArguments.isUnc(Path.of("/opt/inubit"))).isFalse();
         assertThat(WindowsArguments.isUnc(Path.of("inubit"))).isFalse();
+    }
+
+    // --- T015: the length of the inner line, shared by the command line and the validator ----
+
+    @Test
+    void theLineLengthCountsTheOuterQuotesAndEveryQuotedPart() {
+        String line = "\"\"C:\\c\\bin\\startcli.bat\" \"-u\" \"jdoe\"\"";
+
+        assertThat(WindowsArguments.lineLength("C:\\c\\bin\\startcli.bat",
+            List.of("-u", "jdoe"))).isEqualTo(line.length());
+    }
+
+    @Test
+    void theLineLengthCountsDoubledTrailingBackslashesAndEmptyArguments() {
+        assertThat(WindowsArguments.lineLength("s", List.of("C:\\dir\\", "")))
+            .isEqualTo("\"\"s\" \"C:\\dir\\\\\" \"\"\"".length());
+    }
+
+    @Test
+    void theLimitLeavesRoomForWhatStartCliAdds() {
+        assertThat(WindowsArguments.MAX_LINE_LENGTH).isEqualTo(8191 - 2048);
+    }
+
+    @Test
+    void environmentNamesMatchIgnoringCaseWithTheExactSpellingFirst() {
+        assertThat(WindowsArguments.environmentValue(
+            Map.of("JAVA_HOME", "", "Java_Home", "b"), "JAVA_HOME")).isEmpty();
+        assertThat(WindowsArguments.environmentValue(
+            Map.of("java_home", "a", "Java_Home", "b"), "JAVA_HOME")).isEqualTo("b");
+        assertThat(WindowsArguments.environmentValue(Map.of("PATH", "p"), "JAVA_HOME")).isNull();
     }
 }

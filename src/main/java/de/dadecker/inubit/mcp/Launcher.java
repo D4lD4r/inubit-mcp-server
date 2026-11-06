@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp;
 import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.CliSystem;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
@@ -25,8 +26,10 @@ import de.dadecker.inubit.mcp.config.ParameterCheck;
 import de.dadecker.inubit.mcp.config.ParameterStore;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.SecretPlan;
+import de.dadecker.inubit.mcp.config.StartCliHost;
 import de.dadecker.inubit.mcp.config.StoreKind;
 import de.dadecker.inubit.mcp.config.ValidationReport;
+import de.dadecker.inubit.mcp.config.WorkspaceDirectory;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
@@ -195,12 +198,17 @@ final class Launcher {
         List<LoadedConfig> otherProfiles = loader.otherProfiles(loaded.source());
         // feature 011 (research R-10): no credential is resolved at startup; every node reads its
         // credentials on first use
-        ValidationReport report = new ConfigValidator(context.exists(), context.environment(),
-            context.windows(), Path.of(System.getProperty("java.io.tmpdir")),
-            source -> otherProfiles).validate(loaded);
         if (arguments.checkConfig()) {
+            // feature 013 (T015, research R-7): the containment first, so that the check reports
+            // it and the client probe's processes end with this process
+            ProcessContainment containment = context.containment().get();
+            CliSystem system = context.windows() ? new WindowsSystem() : new PosixSystem();
+            ValidationReport report = validator(otherProfiles,
+                context.windows() ? startCliHost(system, containment) : StartCliHost.unchecked())
+                .validate(loaded);
             Map<NodeId, ClientVersion> clients = new HashMap<>();
-            ValidationReport withProbes = probeClients(loaded.config(), report, clients);
+            ValidationReport withProbes = probeClients(loaded.config(), report, clients, system,
+                containment);
             // feature 010 (research R-12): the Parameter Store client only for AWS nodes
             Collection<SecretPlan> plans = loaded.config().secretPlans().values();
             ParameterCheck.Result parameters = plans.stream().anyMatch(SecretPlan::aws)
@@ -217,6 +225,8 @@ final class Launcher {
             context.out().flush();
             return checked.hasErrors() ? EXIT_ERROR : EXIT_OK;
         }
+        ValidationReport report = validator(otherProfiles, StartCliHost.unchecked())
+            .validate(loaded);
         if (report.hasErrors()) {
             printFindings("Configuration errors in " + loaded.source() + " (the MCP server does not"
                 + " start):", report.errors());
@@ -236,17 +246,38 @@ final class Launcher {
         }
     }
 
+    private ConfigValidator validator(List<LoadedConfig> otherProfiles, StartCliHost host) {
+        return new ConfigValidator(context.exists(), context.environment(), context.windows(),
+            Path.of(System.getProperty("java.io.tmpdir")), source -> otherProfiles,
+            WorkspaceDirectory::prepare, host);
+    }
+
+    /**
+     * What the Windows host reports before StartCLI can start (feature 013, T015): the reasons
+     * the system directory cannot be read and the processes cannot be bound.
+     */
+    private static StartCliHost startCliHost(CliSystem system, ProcessContainment containment) {
+        Optional<String> systemDirectory = system.systemDirectory()
+            instanceof CliSystem.Unreadable(String reason) ? Optional.of(reason)
+            : Optional.empty();
+        Optional<String> bound = containment.state()
+            instanceof ProcessContainment.Unavailable(String reason) ? Optional.of(reason)
+            : Optional.empty();
+        return new StartCliHost(systemDirectory, bound);
+    }
+
     /**
      * Feature 009 (FR-011a, research D-13): runs {@code startcli -v} for every node with a
      * StartCLI installation, bounded by the node's {@code cliTimeout}, and puts the successes into
      * {@code clients}. No credentials, no server URL, no INUBIT contact. A failed probe is a
-     * warning. Feature 013 (research R-7): the containment is set up first, so that on Windows the
-     * probe's processes end with this process too; while it is unavailable no probe starts.
+     * warning. Feature 013 (research R-7): {@code containment} is set up before, so that on
+     * Windows the probe's processes end with this process too; while it is unavailable no probe
+     * starts.
      *
      * @return {@code report} with a warning per failed probe
      */
     private ValidationReport probeClients(ProfileConfig config, ValidationReport report,
-        Map<NodeId, ClientVersion> clients) {
+        Map<NodeId, ClientVersion> clients, CliSystem system, ProcessContainment containment) {
         List<EffectiveNodeConfig> withClient = config.resolvableNodes().stream()
             .filter(server -> server.cliAvailable(context.exists(), context.windows())).toList();
         if (withClient.isEmpty()) {
@@ -259,9 +290,8 @@ final class Launcher {
         // directories, which the probe never creates
         try (CliResources resources = new CliResources("check-config")) {
             CliVersionProbe probe = new CliVersionProbe(new CliRunner(new SystemProcessLauncher(),
-                context.environment(), context.windows(),
-                context.windows() ? new WindowsSystem() : new PosixSystem(),
-                context.containment().get(), resources), byId::get);
+                context.environment(), context.windows(), system, containment, resources),
+                byId::get);
             for (EffectiveNodeConfig server : withClient) {
                 try {
                     clients.put(server.id(), probe.probe(server.id(), server.cliTimeout()));

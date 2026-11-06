@@ -3,7 +3,6 @@ package de.dadecker.inubit.mcp.adapter.os;
 import de.dadecker.inubit.mcp.adapter.cli.CliSystem;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.util.Optional;
 
 /**
  * {@link CliSystem} on macOS and Linux (feature 013): StartCLI starts as {@code bin/startcli.sh}
@@ -12,8 +11,8 @@ import java.util.Optional;
 public final class PosixSystem implements CliSystem {
 
     @Override
-    public Optional<String> systemDirectory() {
-        return Optional.empty();
+    public SystemDirectory systemDirectory() {
+        return new Unreadable("macOS and Linux start StartCLI without an interpreter");
     }
 
     @Override

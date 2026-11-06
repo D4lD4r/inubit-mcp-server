@@ -67,15 +67,21 @@ public final class WindowsSystem implements CliSystem {
     }
 
     @Override
-    public Optional<String> systemDirectory() {
+    public SystemDirectory systemDirectory() {
         try {
             char[] buffer = new char[MAX_PATH];
             int length = Holder.KERNEL32.GetSystemDirectoryW(buffer, buffer.length);
-            // 0: failed; buffer length or more: the buffer is too small
-            return length > 0 && length < buffer.length
-                ? Optional.of(new String(buffer, 0, length)) : Optional.empty();
+            if (length == 0) {
+                return new Unreadable("GetSystemDirectoryW failed (Windows error "
+                    + Native.getLastError() + ")");
+            }
+            // the buffer is too small
+            return length < buffer.length ? new Read(new String(buffer, 0, length))
+                : new Unreadable("the directory is longer than " + (MAX_PATH - 1)
+                    + " characters");
         } catch (LinkageError e) {
-            return Optional.empty();
+            return new Unreadable("the Windows API could not be loaded ("
+                + e.getClass().getSimpleName() + ")");
         }
     }
 

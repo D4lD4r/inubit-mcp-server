@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -44,6 +45,7 @@ class ConfigValidatorTest {
     private WorkspaceDirectory.Result workspaceResult = new WorkspaceDirectory.Usable(false);
     private boolean windows;
     private Path tempDirectory = Path.of("/var/tmp/inubit-test");
+    private StartCliHost host = StartCliHost.unchecked();
 
     @BeforeEach
     void setUp() {
@@ -62,7 +64,7 @@ class ConfigValidatorTest {
             source -> List.of(), workspace -> {
                 prepared.add(workspace);
                 return workspaceResult;
-            }).validate(loaded);
+            }, host).validate(loaded);
     }
 
     private static String server(String settings) {
@@ -731,15 +733,27 @@ class ConfigValidatorTest {
         }
 
         @Test
-        void cliToolsAreNotSupportedOnWindows() {
+        void onWindowsAValidCliConfigurationHasNoFindings() {
             windows = true;
 
             ValidationReport report =
                 validate(server("cli:\n  home: /opt/client\n  javaHome: /opt/jdk17\n"));
 
             assertThat(report.errors()).isEmpty();
-            assertThat(report.warnings()).singleElement().satisfies(w -> assertThat(w)
-                .contains("dev/node1", "not supported on Windows", "CLI_UNAVAILABLE"));
+            assertThat(report.warnings()).isEmpty();
+        }
+
+        @Test
+        void onWindowsAMissingBatchFileIsAWarning() {
+            windows = true;
+
+            ValidationReport report =
+                validate(server("cli:\n  home: /opt/other\n  javaHome: /opt/jdk17\n"));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("dev/node1: "
+                + Path.of("/opt/other/bin/startcli.bat") + " not found; CLI-backed capabilities"
+                + " report CLI_UNAVAILABLE");
         }
 
         @Test
@@ -835,6 +849,199 @@ class ConfigValidatorTest {
                 .contains("dev/nourl", "baseUrl is missing"));
         }
 
+    }
+
+    /**
+     * Feature 013 T015 (FR-002, FR-011, contracts/configuration-delta.md): the configured values
+     * StartCLI receives through the Windows command interpreter. Each problem is a warning; the
+     * node's REST tools stay available (no error), and no message contains the value.
+     */
+    @Nested
+    class OnWindows {
+
+        private static final String CLI_UNAVAILABLE = "; CLI-backed capabilities report"
+            + " CLI_UNAVAILABLE";
+
+        @BeforeEach
+        void onWindows() {
+            windows = true;
+        }
+
+        private ValidationReport validateCli(String home, String settings) {
+            existing.add(Path.of(home, "bin", "startcli.bat"));
+            return validate(server("cli:\n  home: '" + home + "'\n" + settings));
+        }
+
+        private String interprets(String setting, String characterClass) {
+            return "dev/node1: " + setting + " contains a character the Windows command"
+                + " interpreter interprets (" + characterClass + ")" + CLI_UNAVAILABLE;
+        }
+
+        @Test
+        void aRefusedCharacterInTheCliHomeIsNamedWithItsClass() {
+            ValidationReport report = validateCli("/opt/client!8.1", "  javaHome: /opt/jdk17\n");
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings())
+                .containsExactly(interprets("cli.home", "exclamation mark"));
+        }
+
+        @Test
+        void aSemicolonInTheCliJavaHomeIsRefused() {
+            existing.add(Path.of("/opt/jdk;17"));
+
+            ValidationReport report = validateCli(CLI_HOME, "  javaHome: '/opt/jdk;17'\n");
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings())
+                .containsExactly(interprets("cli.javaHome", "semicolon"));
+        }
+
+        @Test
+        void withoutCliJavaHomeTheServersJavaHomeIsChecked() {
+            env.remove("JAVA_HOME");
+            env.put("Java_Home", "/opt/jdk^17");
+
+            ValidationReport report = validateCli(CLI_HOME, "");
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly(interprets("JAVA_HOME", "caret"));
+        }
+
+        @Test
+        void theExactJavaHomeSpellingWinsAsInTheRunner() {
+            env.put("JAVA_HOME", "/opt/jdk17");
+            env.put("Java_Home", "/opt/jdk^17");
+
+            assertThat(validateCli(CLI_HOME, "").warnings()).isEmpty();
+        }
+
+        @Test
+        void aBlankExactJavaHomeIsUnsetEvenIfAnotherSpellingIsSet() {
+            env.put("JAVA_HOME", " ");
+            env.put("Java_Home", "/opt/jdk17");
+
+            assertThat(validateCli(CLI_HOME, "").warnings()).singleElement()
+                .satisfies(w -> assertThat(w).contains("nor JAVA_HOME is set"));
+        }
+
+        @Test
+        void aRefusedCharacterInTheTrustStoreIsNamed() {
+            existing.add(Path.of("/opt/trust&store.p12"));
+
+            ValidationReport report = validate(server("""
+                cli:
+                  home: /opt/client
+                  javaHome: /opt/jdk17
+                tls:
+                  trustStore: '/opt/trust&store.p12'
+                """));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings())
+                .containsExactly(interprets("tls.trustStore", "ampersand"));
+        }
+
+        @Test
+        void aRefusedCharacterInTheStartCliUrlIsNamed() {
+            ValidationReport report = validateCli(CLI_HOME,
+                "  javaHome: /opt/jdk17\n  url: 'https://cli.example.test/x!y'\n");
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly(interprets("cli.url", "exclamation mark"));
+        }
+
+        @Test
+        void aNetworkPathAsCliHomeIsAWarning() {
+            ValidationReport report =
+                validateCli("\\\\files.example.test\\share\\client", "  javaHome: /opt/jdk17\n");
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("dev/node1: cli.home is a network path"
+                + " (\\\\…); StartCLI needs a local drive path on Windows");
+        }
+
+        @Test
+        void configuredValuesThatMakeTheCommandLineTooLongAreAWarningNamingTheLongest() {
+            String home = "/" + "c".repeat(WindowsArguments.MAX_LINE_LENGTH);
+
+            ValidationReport report = validateCli(home, "  javaHome: /opt/jdk17\n");
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("dev/node1: the StartCLI command line"
+                + " would exceed 6143 characters (cli.home)" + CLI_UNAVAILABLE);
+        }
+
+        @Test
+        void theLengthCheckAssumesAUsernameOfSixtyFourCharactersAndAnEmptyCommand() {
+            String url = "https://cli.example.test/ibis/servlet/IBISSoapServlet";
+            // the line with the CLI home "": script, -u, 64-character username, --execCommand,
+            // an empty command, url; the home "/c…c" adds its own length
+            int fixed = WindowsArguments.lineLength(Path.of("/bin/startcli.bat").toString(),
+                List.of("-u", "u".repeat(64), "--execCommand", "", url));
+            String fits = "/" + "c".repeat(WindowsArguments.MAX_LINE_LENGTH - fixed - 1);
+            String tooLong = fits + "c";
+
+            assertThat(validateCli(fits, "  javaHome: /opt/jdk17\n  url: " + url + "\n")
+                .warnings()).isEmpty();
+            assertThat(validateCli(tooLong, "  javaHome: /opt/jdk17\n  url: " + url + "\n")
+                .warnings()).singleElement().asString()
+                .contains("would exceed 6143 characters (cli.home)");
+        }
+
+        @Test
+        void anUnreadableSystemDirectoryIsOneWarningPerProfile() {
+            host = new StartCliHost(Optional.of("GetSystemDirectoryW failed (Windows error 5)"),
+                Optional.empty());
+
+            ValidationReport report = validate(twoNodesWithCli());
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("StartCLI cannot be started: the"
+                + " Windows system directory could not be read (GetSystemDirectoryW failed"
+                + " (Windows error 5))" + CLI_UNAVAILABLE);
+        }
+
+        @Test
+        void anUnavailableContainmentIsOneWarningPerProfile() {
+            host = new StartCliHost(Optional.empty(),
+                Optional.of("CreateJobObjectW failed (Windows error 5)"));
+
+            ValidationReport report = validate(twoNodesWithCli());
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("StartCLI processes could not be bound"
+                + " to the server (CreateJobObjectW failed (Windows error 5))" + CLI_UNAVAILABLE);
+        }
+
+        @Test
+        void theHostStateIsIrrelevantWithoutACliOrOffWindows() {
+            host = new StartCliHost(Optional.of("GetSystemDirectoryW failed (Windows error 5)"),
+                Optional.of("CreateJobObjectW failed (Windows error 5)"));
+
+            assertThat(validate(server("timeout: PT5S\n")).warnings()).isEmpty();
+            windows = false;
+            assertThat(validate(twoNodesWithCli()).warnings()).isEmpty();
+        }
+
+        private static String twoNodesWithCli() {
+            return """
+                defaults:
+                  cliHome: /opt/client
+                  cliJavaHome: /opt/jdk17
+                profile:
+                  name: acme
+                groups:
+                  - name: dev
+                    inventory:
+                      owner: INTEGRATION
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-1.example.test:8443
+                      - name: node2
+                        baseUrl: https://inubit-2.example.test:8443
+                """;
+        }
     }
 
     /**

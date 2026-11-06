@@ -325,14 +325,15 @@ public final class CliRunner {
             "tls.trustStore", WindowsArguments.refusal(trustStore.toString()), ""));
         refuseOnWindows(server, "cli.url",
             WindowsArguments.refusal(server.cli().url().toString()), "");
-        Optional<String> systemDirectory = system.systemDirectory();
-        if (systemDirectory.isEmpty()) {
-            throw unavailable(server, "StartCLI cannot be used for " + server.id()
-                    + ": the Windows system directory could not be read",
-                "GetSystemDirectoryW failed, so the command interpreter cannot be located",
+        return switch (system.systemDirectory()) {
+            case CliSystem.Read(String path) ->
+                new LaunchTarget(home, script, javaHome, Optional.of(path));
+            case CliSystem.Unreadable(String reason) -> throw unavailable(server,
+                "StartCLI cannot be used for " + server.id()
+                    + ": the Windows system directory could not be read (" + reason + ")",
+                "The command interpreter cannot be located",
                 "Restart the MCP server; the REST tools work meanwhile");
-        }
-        return new LaunchTarget(home, script, javaHome, systemDirectory);
+        };
     }
 
     /**

@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.adapter.os;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.adapter.cli.CliSystem;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -65,7 +66,7 @@ class WindowsSystemTest {
     @Test
     @EnabledOnOs(OS.WINDOWS)
     void theSystemDirectoryIsSystem32AndHoldsTheInterpreter() throws IOException {
-        Path directory = Path.of(system.systemDirectory().orElseThrow());
+        Path directory = Path.of(((CliSystem.Read) system.systemDirectory()).path());
 
         assertThat(directory).isAbsolute();
         assertThat(directory.resolve("cmd.exe")).isRegularFile();

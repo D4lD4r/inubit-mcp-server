@@ -1,7 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.cli;
 
 import de.dadecker.inubit.mcp.config.WindowsArguments;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -15,7 +14,8 @@ import java.util.Optional;
  *   <li>The last element, the inner line, starts and ends with {@code "}, so the JDK passes it
  *       unchanged and {@code /s /c} makes the interpreter strip exactly these outer quotes.
  *   <li>Every StartCLI argument is wrapped in double quotes; trailing backslashes are doubled so
- *       that they do not escape the closing quote under the C runtime rules of the Java launcher.
+ *       that they do not escape the closing quote under the C runtime rules of the Java launcher
+ *       ({@link WindowsArguments#line}).
  *   <li>The script and every argument are re-checked with {@link WindowsArguments#refusal}; a
  *       refused character here means a check before (configuration, credentials) is missing,
  *       so it is an {@link IllegalStateException}, never the user-facing refusal.
@@ -31,11 +31,8 @@ import java.util.Optional;
  */
 public final class WindowsCommandLine {
 
-    /**
-     * The interpreter's 8 191 characters minus a 2 048-character margin for what
-     * {@code startcli.bat} adds (research R-4; revisited in T031).
-     */
-    public static final int MAX_INNER_LENGTH = 8191 - 2048;
+    /** {@link WindowsArguments#MAX_LINE_LENGTH}. */
+    public static final int MAX_INNER_LENGTH = WindowsArguments.MAX_LINE_LENGTH;
 
     /** The outcome of {@link #build}. */
     public sealed interface Result permits Built, TooLong {
@@ -87,14 +84,12 @@ public final class WindowsCommandLine {
         for (int i = 0; i < arguments.size(); i++) {
             guard("StartCLI argument " + (i + 1), arguments.get(i));
         }
-        List<String> parts = new ArrayList<>(arguments.size() + 1);
-        parts.add('"' + script + '"');
-        arguments.forEach(argument -> parts.add(quote(argument)));
         int command = arguments.size() - 2;
         boolean hasCommand = command > 0 && arguments.get(command - 1).equals(EXEC_COMMAND);
-        // without its quotes; parts.get(0) is the script
-        int toolInput = hasCommand ? parts.get(command + 1).length() - 2 : 0;
-        String inner = '"' + String.join(" ", parts) + '"';
+        // without its quotes
+        int toolInput = hasCommand ? WindowsArguments.quote(arguments.get(command)).length() - 2
+            : 0;
+        String inner = WindowsArguments.line(script, arguments);
         if (inner.length() > MAX_INNER_LENGTH) {
             Cause cause = inner.length() - toolInput > MAX_INNER_LENGTH
                 ? Cause.CONFIGURATION : Cause.TOOL_INPUT;
@@ -108,16 +103,6 @@ public final class WindowsCommandLine {
     static String interpreter(String systemDirectory) {
         String separator = systemDirectory.endsWith("\\") ? "" : "\\";
         return systemDirectory + separator + "cmd.exe";
-    }
-
-    /** {@code "<value>"} with the trailing backslashes of {@code value} doubled. */
-    private static String quote(String value) {
-        int end = value.length();
-        while (end > 0 && value.charAt(end - 1) == '\\') {
-            end--;
-        }
-        String trailing = value.substring(end);
-        return '"' + value + trailing + '"';
     }
 
     private static void guard(String what, String value) {

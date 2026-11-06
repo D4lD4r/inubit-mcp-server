@@ -239,7 +239,7 @@ Windows CI job.
   `ArgvRecorder` sees no second program and the exact `args`), and US1 AS5: an installation path
   with spaces, `(` and `)`, made read-only, works and nothing is written into it. Verification
   task.
-- [ ] T015 [US2] Configured values on Windows (FR-002, FR-011, contracts/configuration-delta.md):
+- [X] T015 [US2] Configured values on Windows (FR-002, FR-011, contracts/configuration-delta.md):
   `ConfigValidator.checkCli` loses its Windows early return; on Windows it checks
   `bin\startcli.bat`, `WindowsArguments` for `cli.home`, the effective Java home (`cli.javaHome`,
   else `JAVA_HOME`, also `;`), `tls.trustStore` and the StartCLI URL, a UNC `cli.home`, the
@@ -255,6 +255,8 @@ Windows CI job.
   but `CliSystem.systemDirectory()` returns an `Optional`; either the port carries the reason
   or the contract row drops it. `Launcher.probeClients` sets up the containment only when a
   node has a client; T015 needs the state for every Windows `--check-config`.
+  Resolved in T015: the port returns `CliSystem.SystemDirectory` (`Read`/`Unreadable(reason)`),
+  and `Launcher` sets up the containment for every Windows `--check-config` (reviews/T015-r1.md).
 - [ ] T016 [US2] Credentials on Windows (FR-002, FR-003, R-9): before a StartCLI call on Windows,
   `CliRunner` refuses a username with a refused character and a password with a non-ASCII
   character with `AUTH_FAILED` naming the entry and cause, before the `CredentialGuard` login step

@@ -10,7 +10,6 @@ import de.dadecker.inubit.mcp.adapter.os.PosixSystem;
 import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
 import java.nio.charset.Charset;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Builds a {@link CliRunner} for the host platform ({@link Platform#windows()}) with the host's
@@ -23,7 +22,7 @@ public final class TestCliRunners {
     public static final String SYSTEM_DIRECTORY = "C:\\Windows\\system32";
 
     /** A {@link CliSystem} with fixed answers. */
-    public record FixedSystem(Optional<String> systemDirectory, Charset oemCharset)
+    public record FixedSystem(CliSystem.SystemDirectory systemDirectory, Charset oemCharset)
         implements CliSystem {
     }
 
@@ -56,7 +55,7 @@ public final class TestCliRunners {
         Map<String, String> parentEnvironment, ProcessContainment.State containment,
         CliResources resources) {
         return new CliRunner(launcher, parentEnvironment, true,
-            new FixedSystem(Optional.of(SYSTEM_DIRECTORY), Charset.forName("IBM850")),
+            new FixedSystem(new CliSystem.Read(SYSTEM_DIRECTORY), Charset.forName("IBM850")),
             () -> containment, resources);
     }
 }

@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.adapter.os;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.adapter.cli.CliSystem;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 
@@ -12,7 +13,7 @@ class PosixSystemTest {
 
     @Test
     void needsNoSystemDirectory() {
-        assertThat(system.systemDirectory()).isEmpty();
+        assertThat(system.systemDirectory()).isInstanceOf(CliSystem.Unreadable.class);
     }
 
     @Test

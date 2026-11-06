@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.cli;
 
+import de.dadecker.inubit.mcp.config.WindowsArguments;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -101,15 +102,7 @@ public final class StartCliEnvironment {
      * on Windows: the exact spelling, else the first in {@code String} order; null if unset.
      */
     static String valueIgnoringCase(Map<String, String> parent, String name) {
-        String exact = parent.get(name);
-        if (exact != null) {
-            return exact;
-        }
-        return parent.entrySet().stream()
-            .filter(entry -> entry.getKey().equalsIgnoreCase(name))
-            .min(Map.Entry.comparingByKey())
-            .map(Map.Entry::getValue)
-            .orElse(null);
+        return WindowsArguments.environmentValue(parent, name);
     }
 
     /** {@code <directory>\<name>}, without doubling a trailing backslash of the directory. */

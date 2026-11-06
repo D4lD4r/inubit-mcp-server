@@ -1155,6 +1155,44 @@ class MainTest {
         assertThat(cli.recordFile()).doesNotExist();
     }
 
+    /**
+     * T015: {@code --check-config} sets up the containment also when no node has a client, and on
+     * Windows an unavailable one is a warning of the check (contracts/configuration-delta.md).
+     */
+    @Test
+    void checkConfigReportsAnUnavailableContainmentOnWindowsAlsoWithoutAClient()
+        throws IOException {
+        credentials();
+        windows = Platform.windows();
+        containment = () -> new ProcessContainment.Unavailable(
+            "CreateJobObjectW failed (Windows error 5)");
+        Path file = config("""
+            profile:
+              name: acme
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: "8.1.17"
+                    cli:
+                      home: %s
+                      javaHome: %s
+            """.formatted(home.resolve("no-client"), home));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        assertThat(containments).hasValue(1);
+        String warning = "StartCLI processes could not be bound to the server (CreateJobObjectW"
+            + " failed (Windows error 5)); CLI-backed capabilities report CLI_UNAVAILABLE";
+        if (windows) {
+            assertThat(out()).contains(warning);
+        } else {
+            assertThat(out()).doesNotContain(warning);
+        }
+    }
+
     /** Never on Windows: there the system context binds the process (this test JVM) to a job. */
     @Test
     @DisabledOnOs(OS.WINDOWS)
