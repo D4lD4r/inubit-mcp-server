@@ -4,17 +4,18 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
@@ -30,8 +31,11 @@ import java.util.regex.Pattern;
  * <ul>
  *   <li>Names and hashes only: an {@link Entry} accepts a {@code sha256:} fingerprint, a UUID and
  *       a tag of the StartCLI value rule, never content or a secret.
- *   <li>Owner-only: the directory {@code rwx------}, the file {@code rw-------}; written to a
- *       temporary file in the same directory and moved atomically into place.
+ *   <li>Owner-only: the directory and its missing parents and the file are created through the
+ *       {@link PrivateFileSystem} (feature 013, FR-007): {@code rwx------} and
+ *       {@code rw-------} on POSIX, on Windows a protected access list for the current user and
+ *       {@code SYSTEM}. The file is written to a new private temporary file in the same
+ *       directory and moved atomically into place, which keeps its access.
  *   <li>An unreadable ledger is {@code PRECONDITION_FAILED} and never overwritten.
  * </ul>
  *
@@ -62,10 +66,23 @@ public final class DeploymentLedger {
     }
 
     private final Path directory;
+    private final PrivateFileSystem files;
 
-    /** @param deployments {@code ~/.inubit-mcp/<profile>/deployments} */
-    public DeploymentLedger(Path deployments) {
+    /**
+     * @param deployments {@code ~/.inubit-mcp/<profile>/deployments} ({@link #defaultDirectory})
+     * @param files       creates the private directory and files
+     */
+    public DeploymentLedger(Path deployments, PrivateFileSystem files) {
         this.directory = Objects.requireNonNull(deployments, "deployments");
+        this.files = Objects.requireNonNull(files, "files");
+    }
+
+    /**
+     * The directory of the deployment ledgers and locks of a profile:
+     * {@code <home>/.inubit-mcp/<profile>/deployments}.
+     */
+    public static Path defaultDirectory(Path home, String profile) {
+        return home.resolve(".inubit-mcp").resolve(profile).resolve("deployments");
     }
 
     /**
@@ -142,12 +159,10 @@ public final class DeploymentLedger {
         json.append("}\n");
         try {
             if (!Files.isDirectory(directory)) {
-                Files.createDirectories(directory, PosixFilePermissions.asFileAttribute(
-                    PosixFilePermissions.fromString("rwx------")));
+                files.createDirectories(directory);
             }
-            Path temporary = Files.createTempFile(directory, ".ledger-", ".tmp",
-                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(
-                    "rw-------")));
+            Path temporary = files.createFile(directory.resolve(".ledger-" + UUID.randomUUID()
+                + ".tmp"));
             try {
                 Files.writeString(temporary, json, StandardCharsets.UTF_8);
                 Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE,

@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.application;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -10,8 +11,6 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -23,7 +22,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
-import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -35,9 +33,12 @@ import org.slf4j.LoggerFactory;
  * {@code <root>/<auditId>/<group>-<node>/} with the import archives of D-7 step 4 in their order
  * (they carry the node's own secret values — the reason for the private location),
  * {@code diff.txt}, {@code warnings.txt} and a {@code README.md} with the StartCLI commands in
- * that order. Directories are {@code rwx------}, files {@code rw-------}. Packages follow the
- * backup retention: older than {@link #RETENTION} and not the newest of their target group →
- * removed (by {@link #sweep}, which every {@link #write} runs afterwards).
+ * that order. Directories (with missing parents) and files are created private through the
+ * {@link PrivateFileSystem} (feature 013, FR-007): {@code rwx------} and {@code rw-------} on
+ * POSIX, existing directories tightened; on Windows a protected access list for the current user
+ * and {@code SYSTEM}. Packages follow the backup retention: older than {@link #RETENTION} and
+ * not the newest of their target group → removed (by {@link #sweep}, which every {@link #write}
+ * runs afterwards).
  *
  * <p>Nothing here sends anything to INUBIT.
  */
@@ -51,10 +52,6 @@ public final class PackageWriter {
     private static final String MARKER = "package.properties";
     private static final Pattern AUDIT_ID = Pattern.compile(
         "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
-    private static final Set<PosixFilePermission> DIRECTORY =
-        PosixFilePermissions.fromString("rwx------");
-    private static final Set<PosixFilePermission> FILE =
-        PosixFilePermissions.fromString("rw-------");
 
     /**
      * One import of D-7 step 4.
@@ -101,18 +98,23 @@ public final class PackageWriter {
 
     private final Path root;
     private final Clock clock;
-    private final FileSink files;
+    private final PrivateFileSystem files;
+    private final FileSink sink;
 
-    /** @param root {@code ~/.inubit-mcp/<profile>/packages} */
-    public PackageWriter(Path root, Clock clock) {
-        this(root, clock, PackageWriter::writeOwnerOnly);
+    /**
+     * @param root  {@code ~/.inubit-mcp/<profile>/packages}
+     * @param files creates the private directories and files
+     */
+    public PackageWriter(Path root, Clock clock, PrivateFileSystem files) {
+        this(root, clock, files, (file, content) -> writeOwnerOnly(files, file, content));
     }
 
-    /** As above, writing the files through {@code files} (tests). */
-    PackageWriter(Path root, Clock clock, FileSink files) {
+    /** As above, writing the files through {@code sink} (tests). */
+    PackageWriter(Path root, Clock clock, PrivateFileSystem files, FileSink sink) {
         this.root = Objects.requireNonNull(root, "root");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.files = Objects.requireNonNull(files, "files");
+        this.sink = Objects.requireNonNull(sink, "sink");
     }
 
     /**
@@ -138,7 +140,7 @@ public final class PackageWriter {
                 properties.setProperty("takenAt", clock.instant().toString());
                 java.io.StringWriter text = new java.io.StringWriter();
                 properties.store(text, null);
-                files.write(marker, text.toString().getBytes(StandardCharsets.ISO_8859_1));
+                sink.write(marker, text.toString().getBytes(StandardCharsets.ISO_8859_1));
             }
             if (Files.exists(dir, LinkOption.NOFOLLOW_LINKS)) {
                 throw new IllegalStateException("The package of " + content.node()
@@ -150,20 +152,20 @@ public final class PackageWriter {
             int index = 0;
             for (Archive archive : content.archives()) {
                 Path zip = dir.resolve(++index + "-" + name(archive) + ".zip");
-                files.write(zip, archive.zip());
+                sink.write(zip, archive.zip());
                 commands.add("import --importFile '" + zip + "' "
                     + importOptions(archive.mode(), content.owner()));
             }
-            files.write(dir.resolve("diff.txt"), content.diff().getBytes(StandardCharsets.UTF_8));
+            sink.write(dir.resolve("diff.txt"), content.diff().getBytes(StandardCharsets.UTF_8));
             List<String> warnings = new ArrayList<>(content.warnings());
             if (!content.excluded().isEmpty()) {
                 warnings.add("");
                 warnings.add("Left out by the release on this node:");
                 warnings.addAll(content.excluded());
             }
-            files.write(dir.resolve("warnings.txt"), (String.join("\n", warnings) + "\n")
+            sink.write(dir.resolve("warnings.txt"), (String.join("\n", warnings) + "\n")
                 .getBytes(StandardCharsets.UTF_8));
-            files.write(dir.resolve("README.md"), readme(content, commands)
+            sink.write(dir.resolve("README.md"), readme(content, commands)
                 .getBytes(StandardCharsets.UTF_8));
         } catch (IOException | RuntimeException e) {
             if (created) {
@@ -318,11 +320,11 @@ public final class PackageWriter {
         }
     }
 
-    private static void directory(Path dir) throws IOException {
+    private void directory(Path dir) throws IOException {
         if (!Files.isDirectory(dir, LinkOption.NOFOLLOW_LINKS)) {
-            Files.createDirectories(dir, PosixFilePermissions.asFileAttribute(DIRECTORY));
+            files.createDirectories(dir);
         }
-        Files.setPosixFilePermissions(dir, DIRECTORY);
+        files.tightenOnPosix(dir);
     }
 
     /** Removes a half-written package directory; a failure is only logged. */
@@ -337,9 +339,10 @@ public final class PackageWriter {
         }
     }
 
-    static void writeOwnerOnly(Path file, byte[] content) throws IOException {
-        Files.createFile(file, PosixFilePermissions.asFileAttribute(FILE));
-        Files.setPosixFilePermissions(file, FILE);
+    /** Creates {@code file} private through {@code files}, then writes {@code content}. */
+    static void writeOwnerOnly(PrivateFileSystem files, Path file, byte[] content)
+        throws IOException {
+        files.createFile(file);
         Files.write(file, content, StandardOpenOption.TRUNCATE_EXISTING);
     }
 }

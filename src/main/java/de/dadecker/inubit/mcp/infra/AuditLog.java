@@ -19,6 +19,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.Objects;
@@ -81,6 +82,8 @@ public final class AuditLog implements AuditPort {
     private final JsonMapper json = JsonMapper.builder().build();
     private final PrivateFileSystem files;
     private final ReentrantLock lock = new ReentrantLock();
+    /** Logs whose private creation failed in this process; they are never written to. */
+    private final Set<Path> notPrivate = new HashSet<>();
 
     public AuditLog(Path directory, SecretScrubber scrubber, PrivateFileSystem files) {
         this(directory, scrubber, files, FileChannel::open);
@@ -154,11 +157,18 @@ public final class AuditLog implements AuditPort {
     }
 
     private void ensureFile(Path file) throws IOException {
+        if (notPrivate.contains(file)) {
+            throw new IOException("the audit log could not be made private before");
+        }
         if (!Files.exists(file)) {
             try {
                 files.createFile(file);
             } catch (FileAlreadyExistsException | UnsupportedOperationException e) {
                 // created meanwhile, or no private files here: the open creates it
+            } catch (IOException e) {
+                // it may be left behind with the access of its directory (feature 013 T024 r1)
+                notPrivate.add(file);
+                throw e;
             }
         }
         files.tightenOnPosix(file);

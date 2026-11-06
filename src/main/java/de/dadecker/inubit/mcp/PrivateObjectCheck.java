@@ -1,5 +1,7 @@
 package de.dadecker.inubit.mcp;
 
+import de.dadecker.inubit.mcp.application.DeployLock;
+import de.dadecker.inubit.mcp.application.DeploymentLedger;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.infra.AuditLog;
@@ -16,7 +18,8 @@ import java.util.stream.Collectors;
 /**
  * The warnings about existing private objects of the server that grant access to other
  * principals (feature 013, FR-007, US3 AS4): the default audit directory of the profile and the
- * audit logs in it. The server does not change an access list it did not set; the warning names
+ * audit logs in it, and the deployment ledgers and locks of the profile (T025). The server does
+ * not change an access list it did not set; the warning names
  * the object, the principals and the {@code icacls} command that restricts it to the current
  * user and {@code SYSTEM}. An {@code auditDirectory} the user configured is used as it is.
  *
@@ -39,27 +42,44 @@ final class PrivateObjectCheck {
 
     /**
      * The warnings for {@code auditDirectory} and its {@code audit-*.jsonl} files, if it is the
-     * existing default audit directory of {@code profile} below {@code home}; none otherwise.
+     * existing default audit directory of {@code profile} below {@code home}, then for the
+     * deployment ledgers ({@code <group>.ledger.json}) and locks ({@code <group>.lock}) in the
+     * existing {@link DeploymentLedger#defaultDirectory deployments directory} of
+     * {@code profile}; none for objects that do not exist or an invalid profile name.
      */
     List<String> warnings(Path auditDirectory, Path home, String profile) {
-        if (!ProfileInfo.isValidName(profile)
-            || !auditDirectory.equals(AuditLog.defaultDirectory(home, profile))
-            || !Files.isDirectory(auditDirectory)) {
+        if (!ProfileInfo.isValidName(profile)) {
             return List.of();
         }
         List<String> warnings = new ArrayList<>();
-        warn(warnings, "audit directory", auditDirectory, true);
-        List<Path> logs = new ArrayList<>();
-        try (DirectoryStream<Path> stream =
-                 Files.newDirectoryStream(auditDirectory, "audit-*.jsonl")) {
-            stream.forEach(logs::add);
-        } catch (IOException e) {
-            warnings.add("the access of the audit logs in " + auditDirectory
-                + " could not be checked (" + describe(e) + ")");
-            return warnings;
+        if (auditDirectory.equals(AuditLog.defaultDirectory(home, profile))
+            && Files.isDirectory(auditDirectory)) {
+            warn(warnings, "audit directory", auditDirectory, true);
+            files(warnings, auditDirectory, "audit-*.jsonl", "audit logs").forEach(log ->
+                warn(warnings, "audit log", log, false));
         }
-        logs.stream().sorted().forEach(log -> warn(warnings, "audit log", log, false));
+        Path deployments = DeploymentLedger.defaultDirectory(home, profile);
+        if (Files.isDirectory(deployments)) {
+            files(warnings, deployments, "*{" + DeploymentLedger.SUFFIX + "," + DeployLock.SUFFIX
+                + "}", "deployment ledgers and locks").forEach(file -> warn(warnings,
+                    file.getFileName().toString().endsWith(DeployLock.SUFFIX)
+                        ? "deployment lock" : "deployment ledger", file, false));
+        }
         return warnings;
+    }
+
+    /** The files of {@code directory} that match {@code glob}, sorted; none if unreadable. */
+    private static List<Path> files(List<String> warnings, Path directory, String glob,
+        String what) {
+        List<Path> found = new ArrayList<>();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory, glob)) {
+            stream.forEach(found::add);
+        } catch (IOException e) {
+            warnings.add("the access of the " + what + " in " + directory
+                + " could not be checked (" + describe(e) + ")");
+            return List.of();
+        }
+        return found.stream().sorted().toList();
     }
 
     private void warn(List<String> warnings, String what, Path path, boolean directory) {
@@ -87,7 +107,8 @@ final class PrivateObjectCheck {
                 : principal))
             .collect(Collectors.joining(" "));
         return "icacls " + quote(path.toString()) + " /inheritance:r /grant:r "
-            + quote(user + rights) + " " + quote("*" + SYSTEM_SID + rights)
+            + quote(files.currentUserSid().map(sid -> "*" + sid).orElse(user) + rights) + " "
+            + quote("*" + SYSTEM_SID + rights)
             + (removed.isEmpty() ? "" : " /remove " + removed);
     }
 

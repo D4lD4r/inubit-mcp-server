@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.domain.port;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Creates the files and directories the server keeps private (feature 013, FR-007, research R-8):
@@ -75,4 +76,13 @@ public interface PrivateFileSystem {
      * {@code BUILTIN\Administrators} otherwise), elsewhere the account {@code user.name}.
      */
     boolean ownedByCurrentUser(Path path) throws IOException;
+
+    /**
+     * The SID of the user of the process token on Windows, so that a remedy can name the user
+     * unambiguously ({@code icacls … /grant:r "*<sid>:F"}; an account name may resolve to another
+     * account, e.g. on an Entra ID joined machine); empty elsewhere or if it cannot be read.
+     */
+    default Optional<String> currentUserSid() {
+        return Optional.empty();
+    }
 }

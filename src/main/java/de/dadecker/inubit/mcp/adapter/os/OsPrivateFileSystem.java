@@ -13,6 +13,7 @@ import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -53,6 +54,12 @@ public final class OsPrivateFileSystem implements PrivateFileSystem {
     private final Mode mode;
     private final AclApi acl;
     private final Supplier<Optional<String>> userSid;
+
+    /** For the running system ({@code os.name}). */
+    public static OsPrivateFileSystem forHost() {
+        return new OsPrivateFileSystem(
+            System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows"));
+    }
 
     /** For the running system; on Windows the token user is read with {@link WindowsSystem}. */
     public OsPrivateFileSystem(boolean windows) {
@@ -193,6 +200,18 @@ public final class OsPrivateFileSystem implements PrivateFileSystem {
             "the access list cannot be read or set (" + cause + ")");
         failure.initCause(cause);
         return failure;
+    }
+
+    @Override
+    public Optional<String> currentUserSid() {
+        if (mode != Mode.WINDOWS) {
+            return Optional.empty();
+        }
+        try {
+            return userSid.get();
+        } catch (LinkageError e) {
+            return Optional.empty();
+        }
     }
 
     private String user(Path path) throws FileSystemException {

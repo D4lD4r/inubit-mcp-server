@@ -162,10 +162,12 @@ public final class DeployHarness {
         this.cliHome = Files.createDirectories(temp.resolve("client"));
         this.profileHome = Files.createDirectories(temp.resolve("profile"));
         FakeStartCli.install(cliHome);
-        this.backups = new BackupStore(profileHome.resolve("backups"), clock);
+        this.backups = new BackupStore(profileHome.resolve("backups"), clock,
+            PrivateFiles.forHost());
         this.workspace = new ExportHarness(root);
         this.history = workspace.history;
-        this.ledger = new DeploymentLedger(profileHome.resolve("deployments"));
+        this.ledger = new DeploymentLedger(profileHome.resolve("deployments"),
+            PrivateFiles.forHost());
         for (NodeId node : nodes) {
             this.servers.put(node, servers.apply(node));
             cli.put(node, new ScriptedProcessLauncher());
@@ -366,7 +368,8 @@ public final class DeployHarness {
                 new de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives(), root),
             planner(), ledger, challenges, java.time.Duration.ofMinutes(30), serviceAudit, clock,
             java.util.UUID::randomUUID, deployer(serviceAudit), history,
-            new de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives()));
+            new de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives(),
+            PrivateFiles.forHost()));
     }
 
     /** The node deployer on the real 8.1 adapters of this harness. */
@@ -428,7 +431,8 @@ public final class DeployHarness {
 
     /** The package writer below {@link #profileHome} ({@code packages}). */
     public PackageWriter packages() {
-        return new PackageWriter(profileHome.resolve("packages"), clock);
+        return new PackageWriter(profileHome.resolve("packages"), clock,
+            PrivateFiles.forHost());
     }
 
     // --- scripting (per node, in launch order) -----------------------------------------------

@@ -207,6 +207,15 @@ class OsPrivateFileSystemTest {
     }
 
     @Test
+    void theSidOfTheTokenUserIsKnownOnWindowsOnly() {
+        assertThat(windows().currentUserSid()).contains(USER);
+        assertThat(new OsPrivateFileSystem(OsPrivateFileSystem.Mode.POSIX, acl,
+            () -> Optional.of(USER)).currentUserSid()).isEmpty();
+        assertThat(new OsPrivateFileSystem(OsPrivateFileSystem.Mode.WINDOWS, acl,
+            Optional::empty).currentUserSid()).isEmpty();
+    }
+
+    @Test
     void onWindowsTheEmptyDirectoryGetsTheInheritableListOfTheTokenUser() throws IOException {
         Path directory = windows().createDirectory(root.resolve("d"));
 

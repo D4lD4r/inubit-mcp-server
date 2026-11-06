@@ -19,6 +19,7 @@ import de.dadecker.inubit.mcp.domain.model.PathChange;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
 import de.dadecker.inubit.mcp.domain.port.AuditPort;
 import de.dadecker.inubit.mcp.domain.port.ImportArchivePort;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -76,6 +77,7 @@ public final class DeployService {
     /**
      * @param root        the workspace root (reports, workspace lock)
      * @param deployments {@code ~/.inubit-mcp/<profile>/deployments} (deploy locks)
+     * @param files       creates the private deploy locks (feature 013, FR-007)
      * @param profile     the profile every audit record carries
      * @param ttl         {@code defaults.deployConfirmationTtl}
      */
@@ -83,9 +85,10 @@ public final class DeployService {
         ReleaseDiscovery discovery, ReleasePlanner planner, DeploymentLedger ledger,
         WriteChallengeRegistry challenges, Duration ttl, AuditPort audit, Clock clock,
         Supplier<UUID> ids, NodeDeployer deployer, VersionHistoryPort history,
-        ImportArchivePort archives) {
+        ImportArchivePort archives, PrivateFileSystem files) {
         public Dependencies {
             Objects.requireNonNull(archives, "archives");
+            Objects.requireNonNull(files, "files");
             Objects.requireNonNull(deployer, "deployer");
             Objects.requireNonNull(history, "history");
             Objects.requireNonNull(root, "root");
@@ -166,7 +169,8 @@ public final class DeployService {
         Map<String, String> inputs = inputs(admitted);
         inputs.put(AuditRecord.CONFIRMATION_CODE, request.confirmationCode().orElseThrow());
         boolean started = false;
-        try (DeployLock lock = DeployLock.acquire(d.deployments(), admitted.target(), d.root())) {
+        try (DeployLock lock = DeployLock.acquire(d.deployments(), admitted.target(), d.root(),
+            d.files())) {
             String previewed = d.challenges().redeem(request.confirmationCode().get(),
                 WriteChallengeRegistry.DEPLOY_RELEASE, admitted.target(), inputFingerprint(
                     admitted.target(), admitted.tag(), admitted.owner()));
@@ -363,7 +367,8 @@ public final class DeployService {
         DeployGuard.Admitted admitted = d.guard().admit(request);
         UUID auditId = d.ids().get();
         Map<String, String> inputs = inputs(admitted);
-        try (DeployLock lock = DeployLock.acquire(d.deployments(), admitted.target(), d.root())) {
+        try (DeployLock lock = DeployLock.acquire(d.deployments(), admitted.target(), d.root(),
+            d.files())) {
             return locked(admitted, auditId, inputs, request.mcpClient());
         } catch (AuditFailed e) {
             throw e.error; // never audited twice (stage 2 review n2)

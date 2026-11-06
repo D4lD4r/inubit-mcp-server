@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.application.DeploymentLedger;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.infra.AuditLog;
 import java.io.IOException;
@@ -12,14 +13,15 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * T024 (feature 013, FR-007, US3 AS4): the default audit directory and the audit log with
- * broader access give a warning naming them and the {@code icacls} command that restricts them;
- * nothing is changed. Every platform, with a stubbed {@link PrivateFileSystem}; the Windows
- * read-back is in {@code MainTest}.
+ * T024, T025 (feature 013, FR-007, US3 AS4): the default audit directory, the audit log and the
+ * deployment ledgers and locks with broader access give a warning naming them and the
+ * {@code icacls} command that restricts them; nothing is changed. Every platform, with a
+ * stubbed {@link PrivateFileSystem}; the Windows read-back is in {@code MainTest}.
  */
 class PrivateObjectCheckTest {
 
@@ -29,6 +31,7 @@ class PrivateObjectCheckTest {
     private final Map<Path, List<String>> granted = new HashMap<>();
     private final List<Path> checked = new ArrayList<>();
     private final Map<Path, IOException> unreadable = new HashMap<>();
+    private Optional<String> userSid = Optional.empty();
 
     @Test
     void theDefaultAuditDirectoryAndItsLogWithOtherPrincipalsAreNamedWithTheRemedy()
@@ -102,6 +105,94 @@ class PrivateObjectCheckTest {
                 + " (AccessDeniedException: " + audit + ")");
     }
 
+    @Test
+    void theDeploymentLedgerAndLockWithOtherPrincipalsAreNamedWithTheRemedy()
+        throws IOException {
+        Path deployments = Files.createDirectories(DeploymentLedger.defaultDirectory(home,
+            "acme"));
+        Path ledger = Files.createFile(deployments.resolve("int.ledger.json"));
+        Path lock = Files.createFile(deployments.resolve("int.lock"));
+        Path qaLock = Files.createFile(deployments.resolve("qa.lock"));
+        Files.createFile(deployments.resolve(".ledger-1.tmp"));
+        Files.createFile(deployments.resolve("notes.txt"));
+        granted.put(ledger, List.of("BUILTIN\\Users"));
+        granted.put(lock, List.of("S-1-5-21-1-2-3-1001"));
+        Path audit = AuditLog.defaultDirectory(home, "acme");
+
+        List<String> warnings = check().warnings(audit, home, "acme");
+
+        assertThat(warnings).containsExactly(
+            "the deployment ledger " + ledger + " grants access to BUILTIN\\Users; the server"
+                + " does not change it. Restrict it to jdoe and SYSTEM with: icacls \"" + ledger
+                + "\" /inheritance:r /grant:r \"jdoe:F\" \"*S-1-5-18:F\" /remove"
+                + " \"BUILTIN\\Users\"",
+            "the deployment lock " + lock + " grants access to S-1-5-21-1-2-3-1001; the server"
+                + " does not change it. Restrict it to jdoe and SYSTEM with: icacls \"" + lock
+                + "\" /inheritance:r /grant:r \"jdoe:F\" \"*S-1-5-18:F\" /remove"
+                + " \"*S-1-5-21-1-2-3-1001\"");
+        assertThat(checked).as("only ledgers and locks, not the directory")
+            .containsExactly(ledger, lock, qaLock);
+    }
+
+    @Test
+    void theDeploymentFilesAreCheckedAfterTheAuditObjectsAlsoWithAConfiguredAuditDirectory()
+        throws IOException {
+        Path audit = Files.createDirectories(AuditLog.defaultDirectory(home, "acme"));
+        Path deployments = Files.createDirectories(DeploymentLedger.defaultDirectory(home,
+            "acme"));
+        Path ledger = Files.createFile(deployments.resolve("int.ledger.json"));
+        granted.put(ledger, List.of("BUILTIN\\Users"));
+
+        assertThat(check().warnings(audit, home, "acme")).hasSize(1);
+        assertThat(checked).containsExactly(audit, ledger);
+        checked.clear();
+        assertThat(check().warnings(home.resolve("chosen"), home, "acme")).singleElement()
+            .asString().startsWith("the deployment ledger " + ledger + " grants access to");
+        assertThat(checked).containsExactly(ledger);
+    }
+
+    @Test
+    void privateOrMissingDeploymentFilesGiveNoWarning() throws IOException {
+        Path audit = AuditLog.defaultDirectory(home, "acme");
+        assertThat(check().warnings(audit, home, "acme")).isEmpty();
+        assertThat(checked).isEmpty();
+
+        Path deployments = Files.createDirectories(DeploymentLedger.defaultDirectory(home,
+            "acme"));
+        assertThat(check().warnings(audit, home, "acme")).isEmpty();
+        assertThat(checked).isEmpty();
+
+        Files.createFile(deployments.resolve("int.ledger.json"));
+        Files.createFile(deployments.resolve("int.lock"));
+        assertThat(check().warnings(audit, home, "acme")).isEmpty();
+        assertThat(check().warnings(audit, home, "../acme")).isEmpty();
+        assertThat(checked).hasSize(2);
+    }
+
+    @Test
+    void aDeploymentFileWhoseAccessListCannotBeReadIsAWarning() throws IOException {
+        Path deployments = Files.createDirectories(DeploymentLedger.defaultDirectory(home,
+            "acme"));
+        Path lock = Files.createFile(deployments.resolve("int.lock"));
+        unreadable.put(lock, new AccessDeniedException(lock.toString()));
+
+        assertThat(check().warnings(AuditLog.defaultDirectory(home, "acme"), home, "acme"))
+            .containsExactly("the access of the deployment lock " + lock + " could not be"
+                + " checked (AccessDeniedException: " + lock + ")");
+    }
+
+    @Test
+    void theRemedyGrantsToTheSidOfTheTokenUserWhenItIsKnown() throws IOException {
+        Path audit = Files.createDirectories(AuditLog.defaultDirectory(home, "acme"));
+        granted.put(audit, List.of("BUILTIN\\Users"));
+        userSid = Optional.of("S-1-12-1-1-2-3-4");
+
+        assertThat(check().warnings(audit, home, "acme")).singleElement().asString()
+            .contains("Restrict it to jdoe and SYSTEM with: icacls \"" + audit + "\""
+                + " /inheritance:r /grant:r \"*S-1-12-1-1-2-3-4:(OI)(CI)F\""
+                + " \"*S-1-5-18:(OI)(CI)F\" /remove \"BUILTIN\\Users\"");
+    }
+
     private PrivateObjectCheck check() {
         return new PrivateObjectCheck(new StubFileSystem(), "jdoe");
     }
@@ -146,6 +237,11 @@ class PrivateObjectCheckTest {
         @Override
         public boolean ownedByCurrentUser(Path path) {
             throw new AssertionError("not asked");
+        }
+
+        @Override
+        public Optional<String> currentUserSid() {
+            return userSid;
         }
     }
 }

@@ -247,7 +247,7 @@ final class Wiring implements AutoCloseable {
         Map<String, String> environment, Supplier<ParameterStore> parameterStore,
         ConfigLocation configLocation, ProcessContainment containment) {
         this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
-            parameterStore, configLocation, containment, new OsPrivateFileSystem(windows));
+            parameterStore, configLocation, containment, OsPrivateFileSystem.forHost());
     }
 
     /**
@@ -412,12 +412,12 @@ final class Wiring implements AutoCloseable {
         if (chain.isEmpty()) {
             this.deployRelease = Optional.empty();
         } else {
-            Path deployments = Path.of(System.getProperty("user.home")).resolve(".inubit-mcp")
-                .resolve(profile.name()).resolve("deployments");
+            Path deployments = DeploymentLedger.defaultDirectory(
+                Path.of(System.getProperty("user.home")), profile.name());
             ArchiveCodec codec = new ArchiveCodec();
             V81ReleaseArchives releases = new V81ReleaseArchives();
             V81ImportArchives importArchives = new V81ImportArchives();
-            DeploymentLedger ledger = new DeploymentLedger(deployments);
+            DeploymentLedger ledger = new DeploymentLedger(deployments, privateFiles);
             ReleasePlanner planner = new ReleasePlanner(new ReleasePlanner.Dependencies(
                 gateways::artifacts, gateways::inventory, codec, releases, importArchives,
                 (releaseRoot, paths) -> new ArtifactCheckService(releaseRoot,
@@ -427,9 +427,10 @@ final class Wiring implements AutoCloseable {
                 clock.clock()));
             NodeDeployer nodeDeployer = new NodeDeployer(new NodeDeployer.Dependencies(planner,
                 releases, importArchives, codec, gateways::imports, gateways::tags, accounts,
-                new BackupStore(backups, clock.clock()), ledger, audit, profile.name(),
-                clock.clock(), UUID::randomUUID, workspace, new DiagramGroupTagger(workspace),
-                new PackageWriter(deployments.resolveSibling("packages"), clock.clock())));
+                new BackupStore(backups, clock.clock(), privateFiles), ledger, audit,
+                profile.name(), clock.clock(), UUID::randomUUID, workspace,
+                new DiagramGroupTagger(workspace), new PackageWriter(
+                    deployments.resolveSibling("packages"), clock.clock(), privateFiles)));
             deployer = Optional.of(nodeDeployer);
             DeployService deploy = new DeployService(new DeployService.Dependencies(workspace,
                 deployments, profile.name(), new DeployGuard(chain, targets, group ->
@@ -439,7 +440,7 @@ final class Wiring implements AutoCloseable {
                 new ReleaseDiscovery(gateways::artifacts, codec, releases, workspace), planner,
                 ledger, challenges, config.defaults().effectiveDeployConfirmationTtl(), audit,
                 clock.clock(), UUID::randomUUID, nodeDeployer, new GitCli(workspace, profile.name(),
-                    new SystemProcessLauncher(), environment), importArchives));
+                    new SystemProcessLauncher(), environment), importArchives, privateFiles));
             this.deployRelease = Optional.of(new DeployReleaseTool(deploy,
                 config.resultLimits().maxItems()));
         }
@@ -452,7 +453,7 @@ final class Wiring implements AutoCloseable {
                 new V81ReleaseArchives(), gateways::artifacts, gateways::imports, gateways::tags,
                 gateways::inventory,
                 id -> byId.get(id).inventory().owner(), accounts, challenges,
-                new BackupStore(backups, clock.clock()),
+                new BackupStore(backups, clock.clock(), privateFiles),
                 audit, clock.clock(), UUID::randomUUID, deployer));
         this.importArtifacts = new ImportArtifactsTool(imports);
         this.restoreBackup = new RestoreBackupTool(imports);

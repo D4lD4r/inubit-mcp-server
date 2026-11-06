@@ -1154,6 +1154,32 @@ class MainTest {
     }
 
     @Test
+    void theDeploymentLedgerAndLockWithBroaderAccessAreNamedAtStartupAndInCheckConfig()
+        throws Exception {
+        // feature 013 T025 (FR-007)
+        credentials();
+        profileConfig("acme", "acme");
+        Path deployments = Files.createDirectories(home.resolve(".inubit-mcp/acme/deployments"));
+        Path ledger = Files.writeString(deployments.resolve("int.ledger.json"), "{}\n");
+        Path lock = Files.createFile(deployments.resolve("int.lock"));
+        privateFiles = PrivateFiles.reporting(List.of("BUILTIN\\Users"));
+
+        int checked = run("--profile", "acme", "--check-config");
+        String summary = out();
+        int started = run("--profile", "acme"); // empty stdin: starts and stops at once
+
+        assertThat(checked).as(summary).isZero();
+        assertThat(started).as(err()).isZero();
+        for (String output : List.of(summary, err())) {
+            assertThat(output).contains(
+                "the deployment ledger " + ledger + " grants access to BUILTIN\\Users; the"
+                    + " server does not change it", "icacls \"" + ledger + "\" /inheritance:r",
+                "the deployment lock " + lock + " grants access to BUILTIN\\Users");
+        }
+        assertThat(Files.readString(ledger)).as("not changed").isEqualTo("{}\n");
+    }
+
+    @Test
     @EnabledOnOs(OS.WINDOWS)
     void onWindowsTheNewDefaultAuditDirectoryIsPrivate() throws Exception {
         credentials();

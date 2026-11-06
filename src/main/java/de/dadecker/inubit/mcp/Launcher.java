@@ -129,14 +129,14 @@ final class Launcher {
             Objects.requireNonNull(privateFiles, "privateFiles");
         }
 
-        /** With the private files of the host. */
+        /** With the private files of the host (not of {@code windows}, which tests set). */
         Context(Map<String, String> environment, Path userHome, boolean windows,
             InputStream in, PrintStream out, PrintStream err, SecretScrubber scrubber,
             Predicate<Path> exists, Supplier<ParameterStore> parameterStore,
             Supplier<CredentialStore> credentialStore,
             Supplier<ProcessContainment> containment) {
             this(environment, userHome, windows, in, out, err, scrubber, exists, parameterStore,
-                credentialStore, containment, new OsPrivateFileSystem(windows));
+                credentialStore, containment, OsPrivateFileSystem.forHost());
         }
 
         static Context system(PrintStream protocolOut) {
@@ -258,7 +258,7 @@ final class Launcher {
     /**
      * {@code report} with a warning per existing private object of the server that grants access
      * to other principals (feature 013, FR-007, US3 AS4): the default audit directory and its
-     * logs; nothing is changed.
+     * logs, the deployment ledgers and locks; nothing is changed.
      */
     private ValidationReport withPrivateObjects(ProfileConfig config, ValidationReport report) {
         List<String> found = new PrivateObjectCheck(context.privateFiles(),

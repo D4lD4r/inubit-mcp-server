@@ -320,6 +320,54 @@ class AuditLogTest {
     }
 
     @Test
+    void aLogLeftBehindByAFailedPrivateCreationIsNeverWritten() throws IOException {
+        PrivateFileSystem leaving = new PrivateFileSystem() {
+            @Override
+            public Path createFile(Path file) throws IOException {
+                Files.createFile(file); // the access list fails and so does the clean-up
+                throw new IOException("access list not set");
+            }
+
+            @Override
+            public Path createDirectory(Path dir) throws IOException {
+                return FILES.createDirectory(dir);
+            }
+
+            @Override
+            public boolean createDirectories(Path dir) throws IOException {
+                return FILES.createDirectories(dir);
+            }
+
+            @Override
+            public Path createTempDirectory(Path parent, String prefix) throws IOException {
+                return FILES.createTempDirectory(parent, prefix);
+            }
+
+            @Override
+            public void tightenOnPosix(Path path) throws IOException {
+                FILES.tightenOnPosix(path);
+            }
+
+            @Override
+            public List<String> check(Path path) throws IOException {
+                return FILES.check(path);
+            }
+
+            @Override
+            public boolean ownedByCurrentUser(Path path) throws IOException {
+                return FILES.ownedByCurrentUser(path);
+            }
+        };
+        AuditLog log = new AuditLog(directory, scrubber, leaving);
+
+        assertThatThrownBy(() -> log.append(record(AuditOutcome.PENDING)))
+            .isInstanceOf(UncheckedIOException.class);
+        assertThatThrownBy(() -> log.append(record(AuditOutcome.EXECUTED)))
+            .isInstanceOf(UncheckedIOException.class);
+        assertThat(Files.readString(file())).isEmpty();
+    }
+
+    @Test
     @EnabledOnOs(OS.WINDOWS)
     void onWindowsTheNewDirectoryAndLogArePrivate() throws Exception {
         Path nested = directory.resolve("a/audit");

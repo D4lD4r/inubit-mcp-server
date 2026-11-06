@@ -150,7 +150,7 @@ public final class ImportHarness {
                 List.of()));
         }
         this.inubit = new FakeInubit(fixture);
-        this.backups = new BackupStore(temp.resolve("backups"), clock);
+        this.backups = new BackupStore(temp.resolve("backups"), clock, PrivateFiles.forHost());
         this.server = TestNodeConfig.node().id(DEV.value()).cliHome(cliHome)
             .cliJavaHome(Path.of("/opt/jdk-17")).cliExportTimeout(Duration.ofSeconds(2))
             .build();
