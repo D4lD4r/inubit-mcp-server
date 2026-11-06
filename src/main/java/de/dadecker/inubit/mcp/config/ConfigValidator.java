@@ -52,63 +52,56 @@ public final class ConfigValidator {
     /** Upper bound of {@code defaults.deployConfirmationTtl} (feature 005, research D-2). */
     static final Duration MAX_DEPLOY_CONFIRMATION_TTL = Duration.ofHours(2);
 
+    /**
+     * The username length the Windows line-length check assumes (feature 013); the username is a
+     * credential, read on use, where the call checks the real one.
+     */
+    private static final int ASSUMED_USERNAME_LENGTH = 64;
+
     private final Predicate<Path> exists;
     private final Map<String, String> environment;
     private final boolean windows;
     private final Path tempDirectory;
     private final Function<Path, List<LoadedConfig>> otherProfiles;
     private final WorkspaceDirectory.Preparer workspaces;
+    private final StartCliHost host;
 
     /**
-     * @param exists      file-system check, injectable for tests
-     * @param environment the process environment (for the {@code JAVA_HOME} fallback and the
+     * @param exists        file-system check, injectable for tests
+     * @param environment   the process environment (for the {@code JAVA_HOME} fallback and the
      *     names of leftover credential variables; no credential value is read from it)
-     * @param windows     whether the server runs on Windows, where CLI tools are unsupported
-     */
-    public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
-        boolean windows) {
-        this(exists, environment, windows, Path.of(System.getProperty("java.io.tmpdir")));
-    }
-
-    /**
+     * @param windows       whether the server runs on Windows, where StartCLI receives its
+     *     values through the command interpreter (feature 013)
      * @param tempDirectory {@code java.io.tmpdir}, below which the inventory exports are written
      *     (its path is passed to StartCLI, review I9)
-     */
-    public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
-        boolean windows, Path tempDirectory) {
-        this(exists, environment, windows, tempDirectory, source -> List.of());
-    }
-
-    /**
      * @param otherProfiles the other profile files of the default configuration directory, given
      *     the file being checked ({@link ConfigLoader#otherProfiles}); compared best effort for a
      *     shared audit directory, credential prefix or profile name (002 T031)
-     */
-    public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
-        boolean windows, Path tempDirectory, Function<Path, List<LoadedConfig>> otherProfiles) {
-        this(exists, environment, windows, tempDirectory, otherProfiles,
-            WorkspaceDirectory::prepare);
-    }
-
-    /**
-     * @param workspaces creates and checks the workspace directory ({@link
-     *     WorkspaceDirectory#prepare} unless a test injects another)
+     * @param workspaces    creates and checks the workspace directory ({@link
+     *     WorkspaceDirectory#prepare} with the private files of the host, built by the launcher;
+     *     feature 013 T026)
      */
     public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
         boolean windows, Path tempDirectory, Function<Path, List<LoadedConfig>> otherProfiles,
         WorkspaceDirectory.Preparer workspaces) {
+        this(exists, environment, windows, tempDirectory, otherProfiles, workspaces,
+            StartCliHost.unchecked());
+    }
+
+    /**
+     * @param host what the Windows host reported before StartCLI can start ({@code
+     *     --check-config}; feature 013, contracts/configuration-delta.md); ignored off Windows
+     */
+    public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
+        boolean windows, Path tempDirectory, Function<Path, List<LoadedConfig>> otherProfiles,
+        WorkspaceDirectory.Preparer workspaces, StartCliHost host) {
+        this.host = Objects.requireNonNull(host, "host");
         this.workspaces = Objects.requireNonNull(workspaces, "workspaces");
         this.tempDirectory = tempDirectory;
         this.exists = exists;
         this.environment = Map.copyOf(environment);
         this.windows = windows;
         this.otherProfiles = Objects.requireNonNull(otherProfiles, "otherProfiles");
-    }
-
-    /** A validator for the current process. */
-    public static ConfigValidator forSystem() {
-        return new ConfigValidator(Files::exists, System.getenv(),
-            System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows"));
     }
 
     /**
@@ -147,11 +140,15 @@ public final class ConfigValidator {
         checkChain(config, findings);
         boolean cliConfigured = config.resolvableNodes().stream()
             .anyMatch(EffectiveNodeConfig::cliConfigured);
-        if (!windows && cliConfigured && !CliPaths.exportRootUsable(tempDirectory)) {
-            findings.warning("java.io.tmpdir " + tempDirectory + " cannot be passed to StartCLI"
-                + " (it must match " + CliPaths.PATH_VALUE.pattern() + "); inventory exports"
+        if (windows && cliConfigured) {
+            checkStartCliHost(findings);
+        }
+        Path exportRoot = CliPaths.forCommand(tempDirectory, windows);
+        if (cliConfigured && !CliPaths.exportRootUsable(exportRoot, windows)) {
+            findings.warning("java.io.tmpdir " + exportRoot + " cannot be passed to StartCLI"
+                + " (it must match " + CliPaths.rule(windows).pattern() + "); inventory exports"
                 + " report CLI_UNAVAILABLE. Start the MCP server with"
-                + " -Djava.io.tmpdir=<such a path>");
+                + " -Djava.io.tmpdir=<" + CliPaths.tmpdirHint(windows) + ">");
         }
         if (cliConfigured && config.resolvableNodes().stream()
             .allMatch(node -> node.inventory().owner().isEmpty())) {
@@ -1039,9 +1036,7 @@ public final class ConfigValidator {
     private void checkCli(EffectiveNodeConfig server, Findings findings) {
         String id = server.id().value();
         if (windows) {
-            findings.warning(id + ": CLI tools are not supported on Windows in this version;"
-                + " CLI-backed capabilities report CLI_UNAVAILABLE (REST tools work)");
-            return;
+            checkWindowsValues(server, findings);
         }
         server.startCliScript(windows)
             .filter(script -> !exists.test(script))
@@ -1053,12 +1048,9 @@ public final class ConfigValidator {
                 findings.warning(id + ": cli.javaHome " + javaHome + " not found; CLI-backed"
                     + " capabilities report CLI_UNAVAILABLE");
             }
-        } else {
-            String javaHome = environment.get("JAVA_HOME");
-            if (javaHome == null || javaHome.isBlank()) {
-                findings.warning(id + ": neither cliJavaHome / cli.javaHome nor JAVA_HOME is set;"
-                    + " CLI-backed capabilities report CLI_UNAVAILABLE");
-            }
+        } else if (serverJavaHome().isEmpty()) {
+            findings.warning(id + ": neither cliJavaHome / cli.javaHome nor JAVA_HOME is set;"
+                + " CLI-backed capabilities report CLI_UNAVAILABLE");
         }
     }
 
@@ -1097,6 +1089,93 @@ public final class ConfigValidator {
                 + " settings cannot carry; use a path without spaces");
         }
         return warnings;
+    }
+
+    /**
+     * The server's {@code JAVA_HOME} as {@code CliRunner} resolves it: on Windows the name is
+     * matched ignoring case ({@link WindowsArguments#environmentValue}); blank counts as unset.
+     */
+    private Optional<String> serverJavaHome() {
+        return Optional.ofNullable(windows
+                ? WindowsArguments.environmentValue(environment, "JAVA_HOME")
+                : environment.get("JAVA_HOME"))
+            .filter(value -> !value.isBlank());
+    }
+
+    /**
+     * Feature 013 (FR-002, FR-011, contracts/configuration-delta.md): the configured values that
+     * StartCLI receives through the Windows command interpreter, checked as {@code CliRunner}
+     * checks them per call. The messages name the setting and the character class, never the
+     * value.
+     */
+    private void checkWindowsValues(EffectiveNodeConfig server, Findings findings) {
+        String id = server.id().value();
+        Path home = server.cli().home().orElseThrow();
+        if (WindowsArguments.isUnc(home)) {
+            findings.warning(id + ": cli.home is a network path (\\\\…); StartCLI needs a local"
+                + " drive path on Windows");
+        }
+        refusedOnWindows(id, "cli.home", WindowsArguments.refusal(home.toString()), findings);
+        Optional<String> javaHome = server.cli().javaHome().map(Path::toString)
+            .or(this::serverJavaHome);
+        javaHome.ifPresent(value -> refusedOnWindows(id,
+            server.cli().javaHome().isPresent() ? "cli.javaHome" : "JAVA_HOME",
+            WindowsArguments.refusal(value)
+                .or(() -> value.indexOf(';') >= 0 ? Optional.of("semicolon") : Optional.empty()),
+            findings));
+        server.tls().trustStore().ifPresent(trustStore -> refusedOnWindows(id, "tls.trustStore",
+            WindowsArguments.refusal(trustStore.toString()), findings));
+        refusedOnWindows(id, "cli.url", WindowsArguments.refusal(server.cli().url().toString()),
+            findings);
+        checkWindowsLineLength(server, findings);
+    }
+
+    private static void refusedOnWindows(String id, String setting, Optional<String> refusal,
+        Findings findings) {
+        refusal.ifPresent(characterClass -> findings.warning(id + ": " + setting + " contains a"
+            + " character the Windows command interpreter interprets (" + characterClass + ");"
+            + " CLI-backed capabilities report CLI_UNAVAILABLE"));
+    }
+
+    /**
+     * The command line of a call with an empty command and a username of {@link
+     * #ASSUMED_USERNAME_LENGTH} characters, built as {@code CliRunner} builds it; too long, it
+     * names the longest configured value.
+     */
+    private static void checkWindowsLineLength(EffectiveNodeConfig server, Findings findings) {
+        List<String> arguments = new ArrayList<>(List.of("-u",
+            "u".repeat(ASSUMED_USERNAME_LENGTH)));
+        server.tls().trustStore().ifPresent(trustStore -> {
+            arguments.add("--trustStoreFilePath");
+            arguments.add(trustStore.toString());
+        });
+        if (server.tls().disableHostnameVerification()) {
+            arguments.add("--disableHostNameVerification");
+        }
+        arguments.addAll(List.of("--execCommand", "", server.cli().url().toString()));
+        String script = server.startCliScript(true).orElseThrow().toString();
+        if (WindowsArguments.lineLength(script, arguments) > WindowsArguments.MAX_LINE_LENGTH) {
+            Map<String, Integer> lengths = new LinkedHashMap<>();
+            lengths.put("cli.home", server.cli().home().orElseThrow().toString().length());
+            server.tls().trustStore().ifPresent(trustStore ->
+                lengths.put("tls.trustStore", trustStore.toString().length()));
+            lengths.put("cli.url", server.cli().url().toString().length());
+            String longest = lengths.entrySet().stream().max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey).orElseThrow();
+            findings.warning(server.id().value() + ": the StartCLI command line would exceed "
+                + WindowsArguments.MAX_LINE_LENGTH + " characters (" + longest + "); CLI-backed"
+                + " capabilities report CLI_UNAVAILABLE");
+        }
+    }
+
+    /** Once per profile: what the Windows host reported before StartCLI can start. */
+    private void checkStartCliHost(Findings findings) {
+        host.systemDirectoryProblem().ifPresent(reason -> findings.warning("StartCLI cannot be"
+            + " started: the Windows system directory could not be read (" + reason + ");"
+            + " CLI-backed capabilities report CLI_UNAVAILABLE"));
+        host.containmentProblem().ifPresent(reason -> findings.warning("StartCLI processes could"
+            + " not be bound to the server (" + reason + "); CLI-backed capabilities report"
+            + " CLI_UNAVAILABLE"));
     }
 
     private static void checkPositive(String id, String key, Duration value, Findings findings) {

@@ -3,7 +3,13 @@ package de.dadecker.inubit.mcp.adapter.cli;
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchedProcess;
+import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Built;
+import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Cause;
+import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.TooLong;
+import de.dadecker.inubit.mcp.config.CredentialNames;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.config.SecretLabels;
+import de.dadecker.inubit.mcp.config.WindowsArguments;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -31,7 +37,7 @@ import java.util.function.Supplier;
  * Runs StartCLI for one server (research R-6, R-12; Constitution I, II, V).
  *
  * <ul>
- *   <li>Argument array, never a shell:
+ *   <li>Argument array, never a shell (macOS, Linux):
  *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <p12>],
  *       [--disableHostNameVerification], --execCommand, <command>, <cliUrl>]}. There is never a
  *       {@code -p}; the password plus {@code \n} is written to stdin, which is then closed.
@@ -39,51 +45,70 @@ import java.util.function.Supplier;
  *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <path>],
  *       [--disableHostNameVerification], <cliUrl>]}; stdin receives the password line, one line
  *       per {@link CliSessionCommand} and {@code exit}, and is then closed. Environment,
- *       timeout and credential guard are those of the {@code --execCommand} run; the output
- *       bound is passed per call (research D-10).
+ *       timeout, credential guard and (on Windows) launch and refusals are those of the
+ *       {@code --execCommand} run; the output bound is passed per call (research D-10).
  *       The client trust options follow its {@link CliClientOptions} (research D-8): a client
  *       without {@code --trustStoreFilePath} gets the trust store through
  *       {@code -Djavax.net.ssl.trustStore} and {@code -Djavax.net.ssl.trustStoreType} appended
  *       to {@code JAVA_TOOL_OPTIONS}; never a trust-store password.
- *   <li>The child environment is an allowlist: {@code PATH}, {@code HOME}, {@code TMPDIR},
- *       {@code LANG}, {@code LC_ALL}, {@code USER} (copied if set), {@code JAVA_HOME} (from
- *       {@code cli.javaHome}, else the server's own) and
- *       {@code JAVA_TOOL_OPTIONS=-Duser.language=en -Duser.country=US}. No credential variable
- *       ever reaches StartCLI.
+ *   <li>Windows (feature 013, contracts/windows-invocation.md): the same StartCLI arguments reach
+ *       {@code bin\startcli.bat} through the interpreter call of {@link WindowsCommandLine}.
+ *       Before anything starts, each call refuses with {@code CLI_UNAVAILABLE} (naming the
+ *       setting and the character class, never the value): a character
+ *       {@link WindowsArguments#refusal} refuses in {@code cli.home}, {@code tls.trustStore} or
+ *       {@code cli.url}, such a character or a {@code ;} in the effective Java home (it goes into
+ *       {@code PATH}), a network {@code cli.home}, an unreadable system directory and a command
+ *       line the configured values alone make too long; a command line the tool input makes too
+ *       long is {@code INVALID_INPUT}. A username with such a character and a password with a
+ *       non-ASCII character are {@code AUTH_FAILED} before the credential guard, so they never
+ *       count as a failed login (FR-003, research R-9).
+ *   <li>Every platform: while the {@link ProcessContainment} is {@code Unavailable}, StartCLI is
+ *       {@code CLI_UNAVAILABLE} (only possible on Windows).
+ *   <li>The child environment is the allowlist of {@link StartCliEnvironment}, with
+ *       {@code JAVA_HOME} from {@code cli.javaHome}, else the server's own (on Windows in any
+ *       spelling). No credential variable ever reaches StartCLI.
  *   <li>The working directory is the CLI home. On timeout (or interruption) the process tree is
- *       destroyed; any member still alive after {@link #KILL_GRACE} is killed forcibly.
- *   <li>Windows is not supported in this version (known limitation, research R-6):
- *       {@code CLI_UNAVAILABLE}.
+ *       destroyed; any member still alive after {@link #KILL_GRACE} is killed forcibly. On
+ *       Windows a timeout whose last output is the client's password prompt names both
+ *       possibilities: the client waits for the password at its console, or the server is slow.
  *   <li>stdout and stderr are drained completely but kept only up to
  *       {@link #MAX_OUTPUT_BYTES} each ({@code --execCommand} runs), or up to the bound a
- *       session is given.
+ *       session is given, then decoded by {@link OutputDecoder}.
  * </ul>
  */
 public final class CliRunner {
 
     public static final int MAX_OUTPUT_BYTES = 1 << 20;
     public static final Duration KILL_GRACE = Duration.ofSeconds(2);
-    public static final String JAVA_TOOL_OPTIONS = "-Duser.language=en -Duser.country=US";
-    static final String WINDOWS_UNSUPPORTED =
-        "CLI tools are not supported on Windows in this version";
     private static final Duration POLL = Duration.ofMillis(20);
     private static final byte[] JKS_MAGIC =
         {(byte) 0xfe, (byte) 0xed, (byte) 0xfe, (byte) 0xed};
-
-    /** Variables copied from the server's own environment, if set. */
-    static final List<String> INHERITED_VARIABLES =
-        List.of("PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "USER");
+    /** The characters a value passed outside the command must not contain on Windows (R-2). */
+    private static final String REFUSED_CHARACTERS =
+        "\" % ! ^ & | < >, control characters or non-ASCII characters";
 
     private final ProcessLauncher launcher;
     private final Map<String, String> parentEnvironment;
     private final boolean windows;
+    private final CliSystem system;
+    private final ProcessContainment containment;
     private final CliResources resources;
+    /** Created on the first decoded output: building a runner never loads native code. */
+    private volatile OutputDecoder decoder;
     private final StartCliPinProbe pinProbe;
 
-    /** @param resources registry of the running StartCLI processes, stopped on shutdown */
+    /**
+     * @param windows whether StartCLI runs on Windows ({@code bin\startcli.bat} through the
+     *     interpreter of {@code system}'s system directory)
+     * @param system the system directory and OEM code page (Windows)
+     * @param containment whether StartCLI's processes end with the server; read on each call
+     * @param resources registry of the running StartCLI processes, stopped on shutdown
+     */
     public CliRunner(ProcessLauncher launcher, Map<String, String> parentEnvironment,
-        boolean windows, CliResources resources) {
-        this(launcher, parentEnvironment, windows, resources, new HandshakeStartCliPinProbe());
+        boolean windows, CliSystem system, ProcessContainment containment,
+        CliResources resources) {
+        this(launcher, parentEnvironment, windows, system, containment, resources,
+            new HandshakeStartCliPinProbe());
     }
 
     /**
@@ -91,12 +116,25 @@ public final class CliRunner {
      *     {@code tls.pinPerServer} before StartCLI is started (feature 014, research R-15)
      */
     public CliRunner(ProcessLauncher launcher, Map<String, String> parentEnvironment,
-        boolean windows, CliResources resources, StartCliPinProbe pinProbe) {
+        boolean windows, CliSystem system, ProcessContainment containment,
+        CliResources resources, StartCliPinProbe pinProbe) {
         this.resources = Objects.requireNonNull(resources, "resources");
         this.pinProbe = Objects.requireNonNull(pinProbe, "pinProbe");
         this.launcher = launcher;
         this.parentEnvironment = Map.copyOf(parentEnvironment);
         this.windows = windows;
+        this.system = Objects.requireNonNull(system, "system");
+        this.containment = Objects.requireNonNull(containment, "containment");
+        this.decoder = windows ? null : OutputDecoder.posix();
+    }
+
+    private OutputDecoder decoder() {
+        OutputDecoder current = decoder;
+        if (current == null) {
+            current = OutputDecoder.windows(system.oemCharset());
+            decoder = current;
+        }
+        return current;
     }
 
     /** The registry of running StartCLI processes (and export directories). */
@@ -123,7 +161,7 @@ public final class CliRunner {
         arguments.add(command.commandLine());
         arguments.add(server.cli().url().toString());
         return execute(server, arguments, Optional.of(password), List.of(), timeout,
-            timeoutSetting, JAVA_TOOL_OPTIONS, MAX_OUTPUT_BYTES);
+            timeoutSetting, "", MAX_OUTPUT_BYTES);
     }
 
     /**
@@ -152,6 +190,9 @@ public final class CliRunner {
      */
     public CliResult run(EffectiveNodeConfig server, String username, Secret password,
         CliCommand command, Duration timeout, String timeoutSetting, CredentialGuard guard) {
+        if (windows) {
+            refuseWindowsCredentials(server, username, password);
+        }
         // before the guard: a refused address must neither wait for nor count as a login
         if (server.tls().pinPerServer()) {
             pinProbe.check(server);
@@ -172,9 +213,10 @@ public final class CliRunner {
      * stdout and stderr are kept up to {@code maxOutputBytes} each (research D-10:
      * {@link #MAX_OUTPUT_BYTES} for health, more for process listings).
      *
-     * @throws ToolErrorException {@code AUTH_FAILED} from the guard, {@code CLI_UNAVAILABLE} if
-     *     StartCLI cannot be started, {@code TIMEOUT} if it does not finish within
-     *     {@code timeout}
+     * @throws ToolErrorException {@code AUTH_FAILED} from the guard or, on Windows, for a
+     *     credential StartCLI cannot receive (feature 013, FR-003; before the guard),
+     *     {@code CLI_UNAVAILABLE} if StartCLI cannot be started or a Windows refusal applies,
+     *     {@code TIMEOUT} if it does not finish within {@code timeout}
      * @throws IllegalArgumentException if the trust store has to go through
      *     {@code JAVA_TOOL_OPTIONS} and its path contains whitespace (the caller refuses such a
      *     node first); nothing is launched
@@ -182,9 +224,12 @@ public final class CliRunner {
     public CliResult runSession(EffectiveNodeConfig server, String username, Secret password,
         CliClientOptions options, List<CliSessionCommand> commands, Duration timeout,
         int maxOutputBytes, CredentialGuard guard) {
+        if (windows) {
+            refuseWindowsCredentials(server, username, password);
+        }
         Optional<Path> trustStore = server.tls().trustStore();
-        String javaToolOptions = options.trustStoreFilePath() ? JAVA_TOOL_OPTIONS
-            : JAVA_TOOL_OPTIONS + trustStore.map(CliRunner::trustStoreProperties).orElse("");
+        String extraJavaToolOptions = options.trustStoreFilePath() ? ""
+            : trustStore.map(CliRunner::trustStoreProperties).orElse("");
         List<String> arguments = new ArrayList<>(List.of("-u", username));
         if (options.trustStoreFilePath()) {
             trustStore.ifPresent(path -> {
@@ -200,7 +245,7 @@ public final class CliRunner {
         List<CliSessionCommand> lines = new ArrayList<>(commands);
         lines.add(CliSessionCommand.EXIT);
         return guarded(guard, () -> execute(server, arguments, Optional.of(password), lines,
-            timeout, "cliTimeout", javaToolOptions, maxOutputBytes));
+            timeout, "cliTimeout", extraJavaToolOptions, maxOutputBytes));
     }
 
     /**
@@ -248,82 +293,239 @@ public final class CliRunner {
     }
 
     /**
+     * Feature 013 (FR-003, research R-9): the username reaches StartCLI through the command
+     * interpreter, and a password outside ASCII is refused until the live check (R-13) shows it
+     * arrives unchanged. Names the entry and the cause, never the value.
+     */
+    private static void refuseWindowsCredentials(EffectiveNodeConfig server, String username,
+        Secret password) {
+        SecretLabels labels = server.secretLabels();
+        WindowsArguments.refusal(username).ifPresent(characterClass -> {
+            String entry = labels.label(CredentialNames.USERNAME);
+            throw refusedCredential(server, "the username in " + entry + " contains a character"
+                    + " the Windows command interpreter interprets (" + characterClass + ")",
+                "On Windows the username reaches StartCLI through the command interpreter, which"
+                    + " would change or execute " + REFUSED_CHARACTERS,
+                "Use an INUBIT account whose username has none of these characters and store it in "
+                    + entry + "; then restart the MCP server");
+        });
+        if (password.reveal().chars().anyMatch(c -> c > 0x7f)) {
+            String entry = labels.label(CredentialNames.PASSWORD);
+            throw refusedCredential(server, "the password in " + entry + " contains a non-ASCII"
+                    + " character",
+                "On Windows a password outside ASCII is not yet known to reach StartCLI unchanged",
+                "Give the INUBIT account a password of ASCII characters only and store it in "
+                    + entry + "; then restart the MCP server");
+        }
+    }
+
+    /**
+     * The refusal of a credential StartCLI cannot receive. Unlike a rejected login it re-reads
+     * nothing (it never reaches the {@link CredentialGuard}), so a corrected entry takes effect
+     * after a restart.
+     */
+    private static ToolErrorException refusedCredential(EffectiveNodeConfig server, String what,
+        String cause, String nextStep) {
+        return new ToolErrorException(ToolError.of(ErrorCode.AUTH_FAILED,
+            "StartCLI cannot log in to " + server.id() + ": " + what, cause, nextStep)
+            .withNode(server.id()));
+    }
+
+    /**
      * Runs {@code startcli <arguments>}; with {@code stdinSecret} empty, stdin is closed at once.
      */
     CliResult execute(EffectiveNodeConfig server, List<String> arguments,
         Optional<Secret> stdinSecret, Duration timeout) {
-        return execute(server, arguments, stdinSecret, List.of(), timeout, "cliTimeout",
-            JAVA_TOOL_OPTIONS, MAX_OUTPUT_BYTES);
+        return execute(server, arguments, stdinSecret, List.of(), timeout, "cliTimeout", "",
+            MAX_OUTPUT_BYTES);
     }
 
+    /**
+     * @param extraJavaToolOptions appended to the platform's {@code JAVA_TOOL_OPTIONS} (empty,
+     *     or the trust-store properties of a 6.1 session, each with a leading space)
+     */
     private CliResult execute(EffectiveNodeConfig server, List<String> arguments,
         Optional<Secret> stdinSecret, List<CliSessionCommand> stdinCommands, Duration timeout,
-        String timeoutSetting, String javaToolOptions, int maxOutputBytes) {
+        String timeoutSetting, String extraJavaToolOptions, int maxOutputBytes) {
         LaunchTarget target = launchTarget(server);
+        LaunchSpec spec = windows ? windowsSpec(server, target, arguments, extraJavaToolOptions)
+            : posixSpec(target, arguments, extraJavaToolOptions);
+        return launchAndWait(server, spec, stdinSecret, stdinCommands, timeout, timeoutSetting,
+            maxOutputBytes);
+    }
+
+    private LaunchSpec posixSpec(LaunchTarget target, List<String> arguments,
+        String extraJavaToolOptions) {
         List<String> command = new ArrayList<>(arguments.size() + 1);
         command.add(target.script().toString());
         command.addAll(arguments);
-        LaunchSpec spec = new LaunchSpec(command,
-            childEnvironment(target.javaHome(), javaToolOptions), target.home());
-        return launchAndWait(server, spec, stdinSecret, stdinCommands, timeout, timeoutSetting,
-            maxOutputBytes);
+        return new LaunchSpec(command,
+            StartCliEnvironment.posix(parentEnvironment, target.javaHome(),
+                extraJavaToolOptions), target.home(), arguments);
+    }
+
+    /** The interpreter call; a line over the limit is refused before anything starts (R-4). */
+    private LaunchSpec windowsSpec(EffectiveNodeConfig server, LaunchTarget target,
+        List<String> arguments, String extraJavaToolOptions) {
+        String systemDirectory = target.systemDirectory().orElseThrow();
+        return switch (WindowsCommandLine.build(systemDirectory, target.script().toString(),
+            arguments)) {
+            case Built built -> new LaunchSpec(built.command(),
+                StartCliEnvironment.windows(parentEnvironment, target.javaHome(),
+                    systemDirectory, extraJavaToolOptions), target.home(), arguments);
+            case TooLong(Cause cause, int length) when cause == Cause.TOOL_INPUT ->
+                throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
+                    "The StartCLI command line for " + server.id() + " would have " + length
+                        + " characters; Windows allows at most "
+                        + WindowsCommandLine.MAX_INNER_LENGTH,
+                    "The tool input makes the command too long for the Windows command"
+                        + " interpreter",
+                    "Pass fewer or shorter values in one call").withNode(server.id()));
+            case TooLong tooLong -> {
+                String setting = longestSetting(server, arguments);
+                throw unavailable(server, "StartCLI cannot be used for " + server.id()
+                        + ": the StartCLI command line would exceed "
+                        + WindowsCommandLine.MAX_INNER_LENGTH + " characters (" + setting + ")",
+                    "The configured values alone make the command line longer than the Windows"
+                        + " command interpreter allows",
+                    "Shorten " + setting);
+            }
+        };
+    }
+
+    /**
+     * The longest of the configured values in the command line: {@code cli.home} (in the script
+     * path), {@code tls.trustStore}, {@code cli.url} and the username, which {@link
+     * #runUnguarded} passes after {@code -u} as the first two arguments.
+     */
+    private static String longestSetting(EffectiveNodeConfig server, List<String> arguments) {
+        Map<String, Integer> lengths = new LinkedHashMap<>();
+        lengths.put("cli.home", server.cli().home().map(home -> home.toString().length())
+            .orElse(0));
+        lengths.put("tls.trustStore", server.tls().trustStore()
+            .map(trustStore -> trustStore.toString().length()).orElse(0));
+        lengths.put("cli.url", server.cli().url().toString().length());
+        if (arguments.size() > 1 && arguments.get(0).equals("-u")) {
+            lengths.put("the username", arguments.get(1).length());
+        }
+        return lengths.entrySet().stream().max(Map.Entry.comparingByValue())
+            .map(Map.Entry::getKey).orElseThrow();
     }
 
     /**
      * Checks that StartCLI can be used for {@code server} without launching anything, e.g.
      * before preparing an export directory.
      *
-     * @throws ToolErrorException {@code CLI_UNAVAILABLE} on Windows, without CLI home, without
-     *     {@code bin/startcli.sh} or without a JDK for StartCLI
+     * @throws ToolErrorException {@code CLI_UNAVAILABLE} without CLI home, without
+     *     {@code bin/startcli.sh} ({@code bin\startcli.bat}) or without a JDK for StartCLI, while
+     *     the containment is unavailable, and on Windows for the refusals of the class comment
+     *     except the line length, which needs the call
      */
     public void checkAvailable(EffectiveNodeConfig server) {
         launchTarget(server);
     }
 
-    /** Where and with which JDK StartCLI runs for one server. */
-    private record LaunchTarget(Path home, Path script, String javaHome) {
+    /**
+     * Where and with which JDK StartCLI runs for one server; {@code systemDirectory} only on
+     * Windows.
+     */
+    private record LaunchTarget(Path home, Path script, String javaHome,
+        Optional<String> systemDirectory) {
     }
 
     private LaunchTarget launchTarget(EffectiveNodeConfig server) {
-        if (windows) {
-            throw unavailable(server, "StartCLI cannot be used for " + server.id(),
-                WINDOWS_UNSUPPORTED, "Run the CLI-backed tools from macOS or Linux; the REST"
-                    + " tools work on Windows");
-        }
         Path home = server.cli().home().orElseThrow(() -> unavailable(server,
             "No CLI home is configured for " + server.id(),
             "cliHome / cli.home is not set", "Set cliHome to the INUBIT client directory"));
+        if (windows) {
+            if (WindowsArguments.isUnc(home)) {
+                throw unavailable(server, "StartCLI cannot be used for " + server.id()
+                        + ": cli.home is a network path (\\\\…)",
+                    "The Windows command interpreter does not accept a network path as its"
+                        + " working directory",
+                    "StartCLI needs a local drive path on Windows; install the INUBIT client on"
+                        + " a local drive and set cli.home to it");
+            }
+            refuseOnWindows(server, "cli.home", WindowsArguments.refusal(home.toString()), "");
+        }
         Path script = server.startCliScript(windows).orElseThrow();
         if (!Files.isRegularFile(script)) {
             throw unavailable(server, "StartCLI not found: " + script,
                 "cliHome does not point to an INUBIT client installation",
-                "Set cliHome to the client directory that contains bin/" + script.getFileName());
+                "Set cliHome to the client directory that contains " + scriptName());
         }
         String javaHome = javaHome(server)
             .orElseThrow(() -> unavailable(server, "No JDK for StartCLI on " + server.id(),
                 "Neither cli.javaHome (cliJavaHome) nor JAVA_HOME is set",
                 "Set cli.javaHome to the JDK the INUBIT client needs (8.1: JDK 17)"));
-        return new LaunchTarget(home, script, javaHome);
+        // type patterns, not record patterns: javac 21 emits an invalid stack map for the record
+        // patterns of this method (VerifyError at class load on JDK 21.0.13)
+        if (containment.state() instanceof ProcessContainment.Unavailable refused) {
+            throw unavailable(server, "StartCLI cannot be used for " + server.id()
+                    + ": StartCLI processes could not be bound to the server ("
+                    + refused.reason() + ")",
+                "Windows refused the job that ends StartCLI's processes with the MCP server",
+                "Start the MCP server outside a job that forbids nested jobs; the REST tools"
+                    + " work meanwhile");
+        }
+        if (!windows) {
+            return new LaunchTarget(home, script, javaHome, Optional.empty());
+        }
+        refuseOnWindows(server, server.cli().javaHome().isPresent() ? "cli.javaHome"
+            : "JAVA_HOME", WindowsArguments.refusal(javaHome)
+                .or(() -> javaHome.indexOf(';') >= 0 ? Optional.of("semicolon")
+                    : Optional.empty()), " or ;");
+        server.tls().trustStore().ifPresent(trustStore -> refuseOnWindows(server,
+            "tls.trustStore", WindowsArguments.refusal(trustStore.toString()), ""));
+        refuseOnWindows(server, "cli.url",
+            WindowsArguments.refusal(server.cli().url().toString()), "");
+        return switch (system.systemDirectory()) {
+            case CliSystem.Read read ->
+                new LaunchTarget(home, script, javaHome, Optional.of(read.path()));
+            case CliSystem.Unreadable unreadable -> throw unavailable(server,
+                "StartCLI cannot be used for " + server.id()
+                    + ": the Windows system directory could not be read ("
+                    + unreadable.reason() + ")",
+                "The command interpreter cannot be located",
+                "Restart the MCP server; the REST tools work meanwhile");
+        };
     }
 
-    /** The Java runtime StartCLI runs with: {@code cli.javaHome}, else the server's own. */
+    /**
+     * The Java runtime StartCLI runs with: {@code cli.javaHome}, else the server's own
+     * {@code JAVA_HOME} (on Windows in any spelling).
+     */
     Optional<String> javaHome(EffectiveNodeConfig server) {
         return server.cli().javaHome().map(Path::toString)
-            .or(() -> Optional.ofNullable(parentEnvironment.get("JAVA_HOME"))
+            .or(() -> Optional.ofNullable(windows
+                    ? StartCliEnvironment.valueIgnoringCase(parentEnvironment, "JAVA_HOME")
+                    : parentEnvironment.get("JAVA_HOME"))
                 .filter(value -> !value.isBlank()));
     }
 
-    private Map<String, String> childEnvironment(String javaHome, String javaToolOptions) {
-        Map<String, String> environment = new LinkedHashMap<>();
-        for (String name : INHERITED_VARIABLES) {
-            String value = parentEnvironment.get(name);
-            if (value != null) {
-                environment.put(name, value);
-            }
+    /**
+     * Throws {@code CLI_UNAVAILABLE} naming {@code setting} and the class of {@code refusal};
+     * {@code alsoRefused} extends the list of refused characters in the next step.
+     */
+    private static void refuseOnWindows(EffectiveNodeConfig server, String setting,
+        Optional<String> refusal, String alsoRefused) {
+        if (refusal.isPresent()) {
+            throw unavailable(server, "StartCLI cannot be used for " + server.id() + ": "
+                    + setting + " contains a character the Windows command interpreter"
+                    + " interprets (" + refusal.get() + ")",
+                "The command interpreter that starts bin\\startcli.bat would change the value",
+                "Use a " + setting + " without " + REFUSED_CHARACTERS + alsoRefused);
         }
-        environment.put("JAVA_HOME", javaHome);
-        environment.put("JAVA_TOOL_OPTIONS", javaToolOptions);
-        return environment;
+    }
+
+    /** Whether StartCLI runs on Windows ({@code bin\startcli.bat} through the interpreter). */
+    public boolean windows() {
+        return windows;
+    }
+
+    /** The StartCLI script below the CLI home as the next steps name it. */
+    String scriptName() {
+        return windows ? "bin\\startcli.bat" : "bin/startcli.sh";
     }
 
     private CliResult launchAndWait(EffectiveNodeConfig server, LaunchSpec spec,
@@ -345,8 +547,12 @@ public final class CliRunner {
             reservation.close();
             throw unavailable(server, "StartCLI could not be started ("
                     + e.getClass().getSimpleName() + ")",
-                "The script is not executable or the JDK is missing",
-                "Check cliHome, cli.javaHome and the file permissions of bin/startcli.sh");
+                windows ? "The Windows command interpreter " + spec.command().get(0)
+                    + " could not be started with cli.home as its working directory"
+                    : "The script is not executable or the JDK is missing",
+                windows ? "Check that cli.home is an existing local directory your account can"
+                    + " access"
+                    : "Check cliHome, cli.javaHome and the file permissions of bin/startcli.sh");
         } catch (RuntimeException | Error e) {
             reservation.close();
             throw e;
@@ -389,12 +595,19 @@ public final class CliRunner {
         }
         if (!exited) {
             terminate(process);
-            throw timeout(server, "StartCLI did not finish within " + Durations.human(timeout)
-                + " on " + server.id(), timeoutSetting);
+            String message = "StartCLI did not finish within " + Durations.human(timeout)
+                + " on " + server.id();
+            if (windows) {
+                stdout.await(KILL_GRACE);
+                if (CliOutputClassifier.endsAtThePasswordPrompt(stdout.text(decoder()))) {
+                    throw timeoutAtThePasswordPrompt(server, message, timeoutSetting);
+                }
+            }
+            throw timeout(server, message, timeoutSetting);
         }
         stdout.await(KILL_GRACE);
         stderr.await(KILL_GRACE);
-        return new CliResult(process.exitValue(), stdout.text(), stderr.text(),
+        return new CliResult(process.exitValue(), stdout.text(decoder()), stderr.text(decoder()),
             Duration.ofNanos(System.nanoTime() - start), stdout.truncated() || stderr.truncated(),
             maxOutputBytes);
     }
@@ -471,6 +684,22 @@ public final class CliRunner {
     }
 
     /**
+     * Windows (feature 013, FR-005, research R-10): the last output was the password prompt. The
+     * server cannot tell a client waiting for the password at its console from a slow server.
+     */
+    private static ToolErrorException timeoutAtThePasswordPrompt(EffectiveNodeConfig server,
+        String message, String timeoutSetting) {
+        return new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT, message,
+            "StartCLI's last output was its password prompt: it may be waiting for the password"
+                + " on its console instead of reading it from standard input, or the INUBIT"
+                + " server is slow",
+            "Check get_health; raise " + timeoutSetting + " if the INUBIT server is just slow;"
+                + " if the call keeps stopping at the prompt, run the StartCLI live check on"
+                + " Windows in docs/live-tests.md")
+            .withNode(server.id()));
+    }
+
+    /**
      * Reads a stream to its end on a virtual thread, keeping at most the first {@code bound}
      * bytes.
      */
@@ -520,8 +749,8 @@ public final class CliRunner {
             }
         }
 
-        synchronized String text() {
-            return kept.toString(StandardCharsets.UTF_8);
+        synchronized String text(OutputDecoder decoder) {
+            return decoder.decode(kept.toByteArray());
         }
 
         synchronized boolean truncated() {

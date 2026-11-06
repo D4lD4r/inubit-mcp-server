@@ -34,8 +34,12 @@ import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -101,6 +105,8 @@ public final class DeployHarness {
     /** The REST reads of every node, e.g. {@code int/node1 diagrams jdoe}. */
     public final List<String> restCalls = new CopyOnWriteArrayList<>();
     public final Map<NodeId, ScriptedProcessLauncher> cli = new LinkedHashMap<>();
+    /** Feature 013 (T027): every StartCLI call is started for real ({@link #throughTheLaunch}). */
+    private boolean launched;
     public final List<AuditRecord> audit = new CopyOnWriteArrayList<>();
     public final MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
     /** Feature 009: the {@code versionLine} of each node ({@code V8_1} if absent). */
@@ -157,16 +163,36 @@ public final class DeployHarness {
         this.root = Files.createDirectories(temp.resolve("workspace"));
         this.cliHome = Files.createDirectories(temp.resolve("client"));
         this.profileHome = Files.createDirectories(temp.resolve("profile"));
-        Files.writeString(Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh"),
-            "#!/bin/sh\n");
-        this.backups = new BackupStore(profileHome.resolve("backups"), clock);
+        FakeStartCli.install(cliHome);
+        this.backups = new BackupStore(profileHome.resolve("backups"), clock,
+            PrivateFiles.forHost());
         this.workspace = new ExportHarness(root);
         this.history = workspace.history;
-        this.ledger = new DeploymentLedger(profileHome.resolve("deployments"));
+        this.ledger = new DeploymentLedger(profileHome.resolve("deployments"),
+            PrivateFiles.forHost());
         for (NodeId node : nodes) {
             this.servers.put(node, servers.apply(node));
             cli.put(node, new ScriptedProcessLauncher());
         }
+    }
+
+    /**
+     * Feature 013 (T027): from now on every StartCLI call of every node is started for real —
+     * the substitute StartCLI of the host platform (on Windows {@code startcli.bat} through the
+     * command interpreter) prints each scripted answer with CRLF line ends. Call it before
+     * scripting any call.
+     */
+    public DeployHarness throughTheLaunch() throws IOException {
+        FakeStartCli.install(cliHome, Map.of(
+            de.dadecker.inubit.mcp.testing.ArgvRecorder.CRLF, "true"));
+        Path replies = Files.createDirectories(profileHome.resolveSibling("replies"));
+        for (NodeId node : List.copyOf(cli.keySet())) {
+            cli.put(node, ScriptedProcessLauncher.throughTheLaunch(
+                new de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher(),
+                Files.createDirectories(replies.resolve(node.value().replace('/', '-')))));
+        }
+        launched = true;
+        return this;
     }
 
     /** {@code export} with {@code Module-0005} importing {@link #RELEASE_XSL}. */
@@ -189,8 +215,9 @@ public final class DeployHarness {
 
     private EffectiveNodeConfig server(NodeId node) {
         return TestNodeConfig.node().id(node.value()).cliHome(cliHome)
-            .cliJavaHome(Path.of("/opt/jdk-17")).cliExportTimeout(Duration.ofSeconds(2))
-            .build();
+            .cliJavaHome(launched ? Path.of(System.getProperty("java.home"))
+                : Path.of("/opt/jdk-17"))
+            .cliExportTimeout(Duration.ofSeconds(launched ? 120 : 2)).build();
     }
 
     private NodeCredentials credentials(NodeId node) {
@@ -201,8 +228,9 @@ public final class DeployHarness {
     }
 
     private CliRunner runner(NodeId node) {
-        return new CliRunner(cli.get(node), Map.of("PATH", "/usr/bin"), false,
-            new CliResources("acme"));
+        return TestCliRunners.forHost(cli.get(node), launched ? System.getenv()
+            : Map.of("PATH", Platform.searchPath()), new CliResources("acme",
+                PrivateFiles.forHost()));
     }
 
     private CredentialGuard guard(NodeId node) {
@@ -363,7 +391,8 @@ public final class DeployHarness {
                 new de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives(), root),
             planner(), ledger, challenges, java.time.Duration.ofMinutes(30), serviceAudit, clock,
             java.util.UUID::randomUUID, deployer(serviceAudit), history,
-            new de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives()));
+            new de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives(),
+            PrivateFiles.forHost()));
     }
 
     /** The node deployer on the real 8.1 adapters of this harness. */
@@ -425,7 +454,8 @@ public final class DeployHarness {
 
     /** The package writer below {@link #profileHome} ({@code packages}). */
     public PackageWriter packages() {
-        return new PackageWriter(profileHome.resolve("packages"), clock);
+        return new PackageWriter(profileHome.resolve("packages"), clock,
+            PrivateFiles.forHost());
     }
 
     // --- scripting (per node, in launch order) -----------------------------------------------

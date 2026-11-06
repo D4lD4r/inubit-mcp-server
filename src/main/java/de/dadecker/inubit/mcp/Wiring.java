@@ -14,12 +14,17 @@ import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
 import de.dadecker.inubit.mcp.adapter.os.JnaDriveTypeApi;
+import de.dadecker.inubit.mcp.adapter.os.NoJob;
+import de.dadecker.inubit.mcp.adapter.os.OsPrivateFileSystem;
+import de.dadecker.inubit.mcp.adapter.os.PosixSystem;
 import de.dadecker.inubit.mcp.adapter.os.WindowsNetworkPaths;
+import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
 import de.dadecker.inubit.mcp.adapter.soap.SoapE2eClient;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
 import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
@@ -81,6 +86,7 @@ import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.E2ePort;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.NetworkPathProbe;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.infra.AuditLog;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.ResultJson;
@@ -227,28 +233,70 @@ final class Wiring implements AutoCloseable {
 
     /**
      * As above, with the Parameter Store of the AWS nodes (feature 010), created only if a node
-     * reads its secrets from it; nothing is fetched here (FR-006a).
+     * reads its secrets from it; nothing is fetched here (FR-006a). StartCLI's processes count as
+     * contained ({@link NoJob}): tests never bind their JVM to a job.
      */
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment, Supplier<ParameterStore> parameterStore,
         ConfigLocation configLocation) {
         this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
-            parameterStore, configLocation, CapabilityMatrix.production());
+            parameterStore, configLocation, new NoJob());
     }
 
-    /** As above, with a capability matrix other than the production one (tests). */
+    /** As above, with a capability matrix other than the production one (tests, feature 012). */
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment, Supplier<ParameterStore> parameterStore,
         ConfigLocation configLocation, CapabilityMatrix matrix) {
+        this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
+            parameterStore, configLocation, new NoJob(), OsPrivateFileSystem.forHost(), matrix);
+    }
+
+    /**
+     * As above, with the containment of StartCLI's processes that {@code Launcher} set up once for
+     * the process (feature 013, research R-7): the StartCLI runner refuses to start StartCLI while
+     * it is unavailable. The runner's system queries are those of the platform ({@code windows}).
+     */
+    Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
+        ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
+        Map<String, String> environment, Supplier<ParameterStore> parameterStore,
+        ConfigLocation configLocation, ProcessContainment containment) {
+        this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
+            parameterStore, configLocation, containment, OsPrivateFileSystem.forHost());
+    }
+
+    /**
+     * As above, with the private file system that {@code Launcher} uses too (feature 013,
+     * FR-007): the export and import directories and the audit directory and log are created
+     * through it.
+     */
+    Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
+        ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
+        Map<String, String> environment, Supplier<ParameterStore> parameterStore,
+        ConfigLocation configLocation, ProcessContainment containment,
+        PrivateFileSystem privateFiles) {
+        this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
+            parameterStore, configLocation, containment, privateFiles,
+            CapabilityMatrix.production());
+    }
+
+    /** As above, with the capability matrix of the INUBIT versions (feature 012). */
+    Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
+        ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
+        Map<String, String> environment, Supplier<ParameterStore> parameterStore,
+        ConfigLocation configLocation, ProcessContainment containment,
+        PrivateFileSystem privateFiles, CapabilityMatrix matrix) {
+        Objects.requireNonNull(containment, "containment");
+        Objects.requireNonNull(privateFiles, "privateFiles");
         this.configLocation = Objects.requireNonNull(configLocation, "configLocation");
         this.networkPathProbe = new WindowsNetworkPaths(windows, JnaDriveTypeApi::new);
         this.profile = config.profileInfo();
         this.matrix = matrix;
         this.scrubber = scrubber;
         // 002 research D-8: the export directories carry the profile name
-        this.cliResources = new CliResources(profile.name());
+        // feature 013 (FR-007): the export and import directories are private on every platform
+        this.cliResources = new CliResources(profile.name(), privateFiles);
         this.cleanupHook = new Thread(cliResources::close, "inubit-mcp-cli-cleanup");
         Terminology terms = profile.terminology();
         this.servers = config.effectiveNodes();
@@ -263,7 +311,8 @@ final class Wiring implements AutoCloseable {
         // feature 009 (research D-4): the per-node version state, fed by the adapters
         NodeVersions versions = new NodeVersions(clock.clock(),
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
-        CliRunner cliRunner = new CliRunner(launcher, environment, windows, cliResources);
+        CliRunner cliRunner = new CliRunner(launcher, environment, windows,
+            windows ? new WindowsSystem() : new PosixSystem(), containment, cliResources);
         // feature 009 (research D-16): the 8.1 port set, as default for every version; feature
         // 012 (research D-4): the 6.1 port set and health port, CLI-only (no REST client)
         Map<NodeId, NodeSecrets> secrets = secrets(servers, credentialStore, scrubber, clock,
@@ -317,7 +366,7 @@ final class Wiring implements AutoCloseable {
         // which the guard treats as no write access
         Function<NodeId, WritePolicy> policies = id -> byId.containsKey(id)
             ? policy(byId.get(id), secrets.get(id)) : null;
-        AuditLog audit = new AuditLog(config.auditDirectory(), scrubber);
+        AuditLog audit = new AuditLog(config.auditDirectory(), scrubber, privateFiles);
         this.processControl = new ProcessControlService(
             new WriteGuard(targets, policies, gateways, versionGate), policies,
             gateways, new ConfirmationRegistry(clock.clock()), audit, clock.clock(),
@@ -325,7 +374,8 @@ final class Wiring implements AutoCloseable {
         // feature 003: the workspace history uses the system git (not the StartCLI launcher)
         Path workspace = config.workspace();
         this.exportArtifacts = new ExportArtifactsTool(new WorkspaceService(workspace,
-            new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
+            new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment,
+                privateFiles),
             new ArchiveCodec(), gateways::artifacts, gateways::inventory, versionGate), targets,
             id -> byId.get(id).inventory().owner(), limiter);
         // feature 015: the archives go to a user-chosen local folder outside the server's
@@ -399,12 +449,12 @@ final class Wiring implements AutoCloseable {
         if (chain.isEmpty()) {
             this.deployRelease = Optional.empty();
         } else {
-            Path deployments = Path.of(System.getProperty("user.home")).resolve(".inubit-mcp")
-                .resolve(profile.name()).resolve("deployments");
+            Path deployments = DeploymentLedger.defaultDirectory(
+                Path.of(System.getProperty("user.home")), profile.name());
             ArchiveCodec codec = new ArchiveCodec();
             V81ReleaseArchives releases = new V81ReleaseArchives();
             V81ImportArchives importArchives = new V81ImportArchives();
-            DeploymentLedger ledger = new DeploymentLedger(deployments);
+            DeploymentLedger ledger = new DeploymentLedger(deployments, privateFiles);
             ReleasePlanner planner = new ReleasePlanner(new ReleasePlanner.Dependencies(
                 gateways::artifacts, gateways::inventory, codec, releases, importArchives,
                 (releaseRoot, paths) -> new ArtifactCheckService(releaseRoot,
@@ -414,9 +464,10 @@ final class Wiring implements AutoCloseable {
                 clock.clock()));
             NodeDeployer nodeDeployer = new NodeDeployer(new NodeDeployer.Dependencies(planner,
                 releases, importArchives, codec, gateways::imports, gateways::tags, accounts,
-                new BackupStore(backups, clock.clock()), ledger, audit, profile.name(),
-                clock.clock(), UUID::randomUUID, workspace, new DiagramGroupTagger(workspace),
-                new PackageWriter(deployments.resolveSibling("packages"), clock.clock())));
+                new BackupStore(backups, clock.clock(), privateFiles), ledger, audit,
+                profile.name(), clock.clock(), UUID::randomUUID, workspace,
+                new DiagramGroupTagger(workspace), new PackageWriter(
+                    deployments.resolveSibling("packages"), clock.clock(), privateFiles)));
             deployer = Optional.of(nodeDeployer);
             DeployService deploy = new DeployService(new DeployService.Dependencies(workspace,
                 deployments, profile.name(), new DeployGuard(chain, targets, group ->
@@ -426,7 +477,8 @@ final class Wiring implements AutoCloseable {
                 new ReleaseDiscovery(gateways::artifacts, codec, releases, workspace), planner,
                 ledger, challenges, config.defaults().effectiveDeployConfirmationTtl(), audit,
                 clock.clock(), UUID::randomUUID, nodeDeployer, new GitCli(workspace, profile.name(),
-                    new SystemProcessLauncher(), environment), importArchives));
+                    new SystemProcessLauncher(), environment, privateFiles), importArchives,
+                privateFiles));
             this.deployRelease = Optional.of(new DeployReleaseTool(deploy,
                 config.resultLimits().maxItems()));
         }
@@ -434,12 +486,13 @@ final class Wiring implements AutoCloseable {
         ImportService imports = new ImportService(
             new ImportService.Dependencies(workspace, profile.name(), developmentGuard,
                 development::get,
-                new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
+                new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment,
+                    privateFiles),
                 new WorkspaceInspector(), checks, new ArchiveCodec(), new V81ImportArchives(),
                 new V81ReleaseArchives(), gateways::artifacts, gateways::imports, gateways::tags,
                 gateways::inventory,
                 id -> byId.get(id).inventory().owner(), accounts, challenges,
-                new BackupStore(backups, clock.clock()),
+                new BackupStore(backups, clock.clock(), privateFiles),
                 audit, clock.clock(), UUID::randomUUID, deployer));
         this.importArtifacts = new ImportArtifactsTool(imports);
         this.restoreBackup = new RestoreBackupTool(imports);

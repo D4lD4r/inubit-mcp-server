@@ -55,6 +55,7 @@ public final class V61PortSet {
     }
 
     private static CliOutputClassifier classifier(PortSetRegistry.NodeResources node) {
-        return new CliOutputClassifier(node.scrubber(), node.server().secretLabels());
+        return new CliOutputClassifier(node.scrubber(), node.server().secretLabels(),
+            node.cliRunner().windows());
     }
 }

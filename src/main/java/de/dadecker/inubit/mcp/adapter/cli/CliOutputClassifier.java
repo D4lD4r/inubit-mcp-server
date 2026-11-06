@@ -74,26 +74,50 @@ public final class CliOutputClassifier {
     private final SecretScrubber scrubber;
     /** The names of the node's secrets for the next step of {@code AUTH_FAILED}, if known. */
     private final Optional<SecretLabels> labels;
+    /** Whether next steps name {@code bin\startcli.bat} instead of {@code startcli.sh}. */
+    private final boolean windows;
 
-    /** A classifier whose {@code AUTH_FAILED} next step refers to {@code --check-config}. */
+    /**
+     * A classifier whose {@code AUTH_FAILED} next step refers to {@code --check-config}; next
+     * steps name {@code startcli.sh}.
+     */
     public CliOutputClassifier(SecretScrubber scrubber) {
         this.scrubber = scrubber;
         this.labels = Optional.empty();
+        this.windows = false;
     }
 
     /**
      * A classifier for one node: {@code AUTH_FAILED} names its secrets per source (002 research
-     * D-6, feature 010 research R-15).
+     * D-6, feature 010 research R-15); next steps name the client script of the node's StartCLI
+     * runner, {@code bin\startcli.bat} if {@code windows} (feature 013, FR-001).
      */
-    public CliOutputClassifier(SecretScrubber scrubber, SecretLabels labels) {
+    public CliOutputClassifier(SecretScrubber scrubber, SecretLabels labels, boolean windows) {
         this.scrubber = scrubber;
         this.labels = Optional.of(labels);
+        this.windows = windows;
     }
 
     /** True if StartCLI reported that the login was rejected ({@code @Start@LoginFailure}). */
     public static boolean isLoginFailure(CliResult result) {
         return LOGIN_FAILURE.matcher(result.stdout()).find()
             || LOGIN_FAILURE.matcher(result.stderr()).find();
+    }
+
+    /**
+     * True if the last non-blank line of {@code stdout} is the client's password prompt alone
+     * (feature 013, FR-005): the client prints it before it reads the password, so a call that
+     * stops there may wait at its console or for a slow server.
+     */
+    public static boolean endsAtThePasswordPrompt(String stdout) {
+        List<String> lines = lines(stdout);
+        for (int i = lines.size() - 1; i >= 0; i--) {
+            String line = lines.get(i).strip();
+            if (!line.isEmpty()) {
+                return line.equals(PASSWORD_PROMPT);
+            }
+        }
+        return false;
     }
 
     /** A classifier that scrubs with {@link SecretScrubber#global()}. */
@@ -232,7 +256,8 @@ public final class CliOutputClassifier {
             return Optional.of(error(ErrorCode.INTERNAL,
                 "StartCLI does not know the command (Command not found.)",
                 "The INUBIT client version does not support an allow-listed command",
-                "Check that cliHome matches the INUBIT server version (startcli.sh -v) and report it"));
+                "Check that cliHome matches the INUBIT server version ("
+                    + (windows ? "bin\\startcli.bat" : "startcli.sh") + " -v) and report it"));
         }
         if (all.contains("Invalid filter expression!")) {
             return Optional.of(invalidFilter());

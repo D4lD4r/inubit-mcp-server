@@ -45,7 +45,10 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
+import de.dadecker.inubit.mcp.testing.TestValidators;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import java.io.IOException;
@@ -180,8 +183,9 @@ class GetHealthToolTest {
                 "INUBIT_STAGING_USERNAME", "jdoe", "INUBIT_STAGING_PASSWORD", PASSWORD), scrubber));
         secrets.putAll(awsSecrets.apply(scrubber));
         gateways = new AdapterGatewayFactory(servers, secrets, scrubber, Clock.systemUTC(),
-            new CliRunner(new SystemProcessLauncher(), Map.of(), false,
-                new CliResources("acme")), versions, PortSetRegistry.v81Default());
+            TestCliRunners.forHost(new SystemProcessLauncher(), Map.of(),
+                new CliResources("acme",
+                    PrivateFiles.forHost())), versions, PortSetRegistry.v81Default());
         Map<NodeId, Duration> timeouts = servers.stream().collect(Collectors.toMap(
             EffectiveNodeConfig::id, EffectiveNodeConfig::timeout));
         HealthService health = new HealthService(gateways, new TargetResolver(ids),
@@ -656,7 +660,7 @@ class GetHealthToolTest {
         LoadedConfig loaded = new ConfigLoader(environment, temp, false)
             .parse(yaml, temp.resolve("config.yaml"));
         scrubber = new SecretScrubber();
-        assertThat(ConfigValidator.forSystem().validate(loaded).errors()).isEmpty();
+        assertThat(TestValidators.ofSystem(false).validate(loaded).errors()).isEmpty();
         ProcessLauncher launcher = spec -> switch (spec.command().size() == 2
             ? spec.command().get(1) : "") {
             case "-h" -> help.launch(spec);

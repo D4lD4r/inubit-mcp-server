@@ -20,6 +20,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
@@ -34,8 +35,12 @@ import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.tools.ExportArtifactsTool;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -57,6 +62,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
@@ -92,11 +99,11 @@ class SecretLeakTest {
     @BeforeEach
     void setUp() throws IOException {
         captureLogs();
-        Files.writeString(Files.createDirectories(cliHome.resolve("bin"))
-            .resolve("startcli.sh"), "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
         FakeProcessLauncher startCli = FakeProcessLauncher.of(
             "1-OK: Artifacts exported successfully.\n", "", 0).onLaunch(spec -> {
-                String command = spec.command().get(spec.command().indexOf("--execCommand") + 1);
+                List<String> arguments = spec.startCliArguments();
+                String command = arguments.get(arguments.indexOf("--execCommand") + 1);
                 Matcher file = EXPORT_FILE.matcher(command);
                 assertThat(file.find()).isTrue();
                 String fixture = EXPORTS.entrySet().stream()
@@ -109,26 +116,36 @@ class SecretLeakTest {
                     throw new UncheckedIOException(e);
                 }
             });
-        NodeCredentials credentials = new NodeCredentials(DEV,
-            Optional.of(new SourcedValue<>("jdoe", "INUBIT_DEV_USERNAME")),
-            Optional.of(new SourcedValue<>(Secret.of("leak-test-pw"), "INUBIT_DEV_PASSWORD")),
+        client = startClient(credentials("jdoe", "leak-test-pw"),
+            TestCliRunners.forHost(startCli, Map.of("PATH", Platform.searchPath()),
+                new CliResources("acme", PrivateFiles.forHost())));
+    }
+
+    private static NodeCredentials credentials(String username, String password) {
+        return new NodeCredentials(DEV,
+            Optional.of(new SourcedValue<>(username, "INUBIT_DEV_USERNAME")),
+            Optional.of(new SourcedValue<>(Secret.of(password), "INUBIT_DEV_PASSWORD")),
             Optional.empty(), Optional.empty());
+    }
+
+    /** {@code export_artifacts} over MCP with the production adapters and {@code runner}. */
+    private McpTestClient startClient(NodeCredentials credentials, CliRunner runner) {
         ArtifactPort artifacts = new V81ArtifactAdapter(new CliExportRunner(TestNodeConfig.node()
             .cliHome(cliHome).cliJavaHome(Path.of("/opt/jdk-17")).build(), credentials,
             new CredentialGuard(storeLabels("INUBIT", DEV),
                 new MutableClock(Instant.parse("2026-10-06T08:00:00Z"))),
-            new CliRunner(startCli, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
-            new CliOutputClassifier(new SecretScrubber())), () -> { });
+            runner, new CliOutputClassifier(new SecretScrubber())), () -> { });
         WorkspaceService service = new WorkspaceService(workspace, new GitCli(workspace, "acme",
             new SystemProcessLauncher(), Map.of("PATH",
-                System.getenv().getOrDefault("PATH", "/usr/bin"))),
+                System.getenv().getOrDefault("PATH", "/usr/bin")), PrivateFiles.forHost()),
             new ArchiveCodec(), node -> artifacts, node -> {
                 throw new AssertionError("every module names its plugin type");
             }, FakeVersionDetection.pinned81());
-        client = McpTestClient.start(List.of(new ExportArtifactsTool(service,
+        McpTestClient started = McpTestClient.start(List.of(new ExportArtifactsTool(service,
             new TargetResolver(List.of(DEV)), node -> Optional.of("OWNERS"),
             new ResultLimiter(3, ResultLimiter.DEFAULT_MAX_CHARS))));
-        client.initialize();
+        started.initialize();
+        return started;
     }
 
     @AfterEach
@@ -203,12 +220,45 @@ class SecretLeakTest {
             .allSatisfy(directory -> assertThat(directory).as("deleted").doesNotExist());
     }
 
+    /**
+     * Feature 013 (FR-003, research R-9): on Windows a username StartCLI cannot receive and a
+     * password outside ASCII are refused before anything starts; neither value occurs in the
+     * tool result or the log output. Windows only: elsewhere {@code java.io.tmpdir} cannot pass
+     * the Windows path rule (T018), so the export stops before StartCLI's credentials are
+     * checked; {@code CliRunnerTest} covers the refusal on every platform.
+     */
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void onWindowsRefusedCredentialsLeaveNoTrace() throws IOException {
+        Files.writeString(cliHome.resolve("bin").resolve("startcli.bat"), "@echo off\r\n");
+        FakeProcessLauncher startCli = FakeProcessLauncher.of("", "", 0);
+        String username = "j%doe-UserLeak";
+        String password = "leak-test-p\u00e4ss";
+        for (NodeCredentials refused : List.of(credentials(username, "leak-test-pw"),
+            credentials("jdoe", password))) {
+            client.close();
+            client = startClient(refused, TestCliRunners.simulatedWindows(startCli,
+                Map.of("PATH", Platform.searchPath()), new ProcessContainment.Bound(),
+                new CliResources("acme", PrivateFiles.forHost())));
+
+            JsonNode result = client.callTool("export_artifacts",
+                Map.of("target", "dev", "diagramGroups", List.of("GRP-01")));
+
+            assertThat(result.path("isError").asBoolean()).isTrue();
+            assertThat(result.toString()).contains("AUTH_FAILED", "credential store entry");
+            toolResults.add(result.toString());
+        }
+        assertThat(startCli.launchCount()).as("nothing is started").isZero();
+        assertThat(String.join("\n", toolResults) + logText())
+            .doesNotContain(username, password, "UserLeak");
+    }
+
     /** Every file of the workspace (outside {@code .git}), as text. */
     private Map<String, String> workspaceFiles() throws IOException {
         Map<String, String> files = new LinkedHashMap<>();
         try (Stream<Path> walk = Files.walk(workspace)) {
             for (Path file : walk.filter(Files::isRegularFile).toList()) {
-                String relative = workspace.relativize(file).toString();
+                String relative = workspace.relativize(file).toString().replace('\\', '/');
                 if (!relative.startsWith(".git/")) {
                     files.put(relative, Files.readString(file, StandardCharsets.ISO_8859_1));
                 }

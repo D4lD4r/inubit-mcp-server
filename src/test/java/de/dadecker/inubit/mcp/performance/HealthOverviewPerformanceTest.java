@@ -20,8 +20,11 @@ import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
+import de.dadecker.inubit.mcp.config.WorkspaceDirectory;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -83,8 +86,8 @@ class HealthOverviewPerformanceTest {
     @Test
     void anOverviewOfTenServersWithOneHangingReturnsWithinTenSeconds() throws Exception {
         StringBuilder yaml = new StringBuilder("profile:\n  name: acme\n")
-            .append("x-tls: &tls\n  trustStore: \"")
-            .append(TestCertificates.get().trustStore()).append("\"\ngroups:\n");
+            .append("x-tls: &tls\n  trustStore: '")
+            .append(TestCertificates.get().trustStore()).append("'\ngroups:\n");
         Map<String, String> environment = new HashMap<>();
         for (String stage : STAGES) {
             yaml.append("  - name: ").append(stage).append('\n');
@@ -132,7 +135,10 @@ class HealthOverviewPerformanceTest {
         Path file = Files.writeString(home.resolve("config.yaml"), yaml);
         LoadedConfig loaded = new ConfigLoader(Map.of(), home, false).loadFile(file);
         SecretScrubber scrubber = new SecretScrubber();
-        assertThat(ConfigValidator.forSystem().validate(loaded).errors())
+        assertThat(new ConfigValidator(Files::exists, System.getenv(), Platform.windows(),
+            Path.of(System.getProperty("java.io.tmpdir")), source -> List.of(),
+            workspace -> WorkspaceDirectory.prepare(workspace, PrivateFiles.forHost()))
+            .validate(loaded).errors())
             .isEmpty();
         assertThat(loaded.config().effectiveNodes()).hasSize(11)
             .allSatisfy(server -> assertThat(server.timeout()).as("default timeout")

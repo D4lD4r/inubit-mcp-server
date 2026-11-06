@@ -31,6 +31,8 @@ import de.dadecker.inubit.mcp.infra.ResultJson;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -101,13 +103,14 @@ class V61ProcessQueryAdapterTest {
 
     private V61ProcessQueryAdapter adapter(Launchers launchers) {
         EffectiveNodeConfig server = node();
-        CliRunner runner = new CliRunner(launchers, Map.of("PATH", "/usr/bin"), false,
-            new CliResources("acme"));
+        CliRunner runner = TestCliRunners.forHost(launchers, Map.of("PATH", "/usr/bin"),
+            new CliResources("acme", PrivateFiles.forHost()));
         V61Connection connection = new V61Connection(server, credentials(), guard, runner,
             new CliClientProbe(runner, id -> server, CapabilityMatrix.production(), clock),
             new CliConcurrencyLimiter(CapabilityMatrix.production()));
         return new V61ProcessQueryAdapter(ID, connection,
-            new CliOutputClassifier(new SecretScrubber(), server.secretLabels()));
+            new CliOutputClassifier(new SecretScrubber(), server.secretLabels(),
+            runner.windows()));
     }
 
     /** The reconstructed 6.1 {@code -h} for the probe, {@code session} for every session. */

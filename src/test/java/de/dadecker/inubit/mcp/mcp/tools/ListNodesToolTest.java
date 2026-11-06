@@ -12,7 +12,6 @@ import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
 import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
-import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
@@ -40,6 +39,8 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
@@ -114,12 +115,17 @@ class ListNodesToolTest {
     }
 
     private static McpTestClient client(ProfileInfo profile) {
+        return client(profile, EXISTS, false);
+    }
+
+    private static McpTestClient client(ProfileInfo profile, Predicate<Path> exists,
+        boolean windows) {
         List<EffectiveNodeConfig> config = config();
         NodeVersions versions = new NodeVersions(Clock.systemUTC(),
             id -> config.stream().filter(node -> node.id().equals(id)).findFirst().orElseThrow()
                 .versionLine(), id -> java.time.Duration.ofMinutes(10));
         NodeOverview overview = new NodeOverview(config.stream()
-            .map(node -> node.summary(EXISTS, false)).toList(), versions,
+            .map(node -> node.summary(exists, windows)).toList(), versions,
             CapabilityMatrix.production(), id -> READS);
         McpTestClient client = McpTestClient.start(profile, List.of(new ListNodesTool(profile,
             overview::nodes)));
@@ -191,6 +197,30 @@ class ListNodesToolTest {
                 .isTrue();
             assertThat(prod2.path("versionLine").asString()).isEqualTo("V9_X");
             assertThat(prod2.path("production").asBoolean()).isTrue();
+        }
+    }
+
+    /**
+     * Feature 013 (T020, FR-010): on Windows a node whose CLI home holds {@code startcli.bat} is
+     * listed with {@code cliAvailable}; {@code startcli.sh} alone is no installation there.
+     */
+    @Test
+    void onWindowsTheBatchInstallationMakesTheCliAvailable() {
+        Predicate<Path> batch =
+            path -> path.equals(CLI_HOME.resolve("bin").resolve("startcli.bat"));
+        for (Map.Entry<Predicate<Path>, Boolean> installation
+            : Map.of(batch, true, EXISTS, false).entrySet()) {
+            try (McpTestClient client =
+                client(McpTestClient.TEST_PROFILE, installation.getKey(), true)) {
+                JsonNode nodes = client.callTool("list_nodes", Map.of())
+                    .path("structuredContent").path("groups").get(0).path("nodes");
+
+                assertThat(nodes.get(0).path("cliAvailable").asBoolean())
+                    .as(installation.getValue() ? "startcli.bat" : "startcli.sh on Windows")
+                    .isEqualTo(installation.getValue());
+                assertThat(nodes.get(1).path("cliAvailable").asBoolean()).as("no CLI home")
+                    .isFalse();
+            }
         }
     }
 
@@ -359,8 +389,9 @@ class ListNodesToolTest {
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber), scrubber,
             Clock.systemUTC(),
-            new CliRunner(noStartCli(new AtomicInteger()), Map.of(), false,
-                new CliResources("acme")), versions, PortSetRegistry.v81Default());
+            TestCliRunners.forHost(noStartCli(new AtomicInteger()), Map.of(),
+                new CliResources("acme",
+                    PrivateFiles.forHost())), versions, PortSetRegistry.v81Default());
         allowed = Map.of(DEV1, DEVELOPMENT, DEV2, READS, QA1, DEVELOPMENT,
             NodeId.parse("qa/node2"), READS, QA3, DEVELOPMENT, QA4, DEVELOPMENT);
         summaries = nodes.stream().map(node -> node.summary(EXISTS, false)).toList();

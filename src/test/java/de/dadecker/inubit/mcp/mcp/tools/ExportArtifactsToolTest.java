@@ -10,6 +10,8 @@ import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.Platform;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -168,9 +170,8 @@ class ExportArtifactsToolTest {
                     "/ibis/rest/system/info")).willReturn(
                         de.dadecker.inubit.mcp.adapter.rest.RestFixtures.response("system_info",
                             "xml")));
-            java.nio.file.Path cliHome = Files.createDirectories(root.resolve(
-                ".cli/bin")).getParent();
-            Files.writeString(cliHome.resolve("bin/startcli.sh"), "#!/bin/sh\n");
+            java.nio.file.Path cliHome = root.resolve(".cli");
+            FakeStartCli.install(cliHome);
             java.nio.file.Path workspace = Files.createDirectories(root.resolve(".prod-ws"));
             String yaml = """
                 profile:
@@ -185,7 +186,7 @@ class ExportArtifactsToolTest {
                     inventory:
                       owner: jdoe
                     tls:
-                      trustStore: "%s"
+                      trustStore: '%s'
                     nodes:
                       - name: node1
                         baseUrl: https://localhost:%d
@@ -203,8 +204,8 @@ class ExportArtifactsToolTest {
                 java.util.regex.Pattern.compile("--exportFile '([^']+)'");
             var startCli = de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher.of(
                 "1-OK: Workflow group exported successfully.\n", "", 0).onLaunch(spec -> {
-                    String command = spec.command().get(spec.command().indexOf("--execCommand")
-                        + 1);
+                    List<String> arguments = spec.startCliArguments();
+                    String command = arguments.get(arguments.indexOf("--execCommand") + 1);
                     java.util.regex.Matcher file = exportFile.matcher(command);
                     if (file.find()) {
                         try {
@@ -216,7 +217,8 @@ class ExportArtifactsToolTest {
                     }
                 });
             try (var wiring = de.dadecker.inubit.mcp.TestWiring.of(config, credentials,
-                scrubber, Files::exists, false, startCli, Map.of("PATH", "/usr/bin"));
+                scrubber, Files::exists, Platform.windows(), startCli,
+                Map.of("PATH", Platform.searchPath()));
                 McpTestClient production = McpTestClient.start(wiring.toolHandlers(),
                     scrubber)) {
                 production.initialize();

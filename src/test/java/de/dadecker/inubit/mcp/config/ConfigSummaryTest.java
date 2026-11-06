@@ -13,6 +13,7 @@ import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
+import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -23,6 +24,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -33,7 +35,7 @@ class ConfigSummaryTest {
     private static final WorkspaceDirectory.Preparer NO_DISK =
         workspace -> new WorkspaceDirectory.Usable(false);
 
-    private static final Path HOME = Path.of("/home/test");
+    private static final Path HOME = Platform.absolutePath("/home/test");
     private static final Path SOURCE = HOME.resolve(".config/inubit-mcp/config.yaml");
 
     /** Feature 011: no credential comes from the environment; the summary names the entries. */
@@ -56,7 +58,9 @@ class ConfigSummaryTest {
         }
         return entries;
     }
-    private final Predicate<Path> exists = Set.of(Path.of("/opt/client/bin/startcli.sh"))::contains;
+    private Predicate<Path> exists = Set.of(Path.of("/opt/client/bin/startcli.sh"))::contains;
+    /** The platform of the summary (feature 013); the validation stays POSIX. */
+    private boolean windows;
     /** The Parameter Store of the AWS nodes (feature 010); unscripted names are not found. */
     private final FakeParameterStore store = new FakeParameterStore();
     /** The bound of each store call of {@link ParameterCheck}. */
@@ -106,7 +110,7 @@ class ConfigSummaryTest {
         EntryCheck.Result entries = EntryCheck.run(loaded.config().resolvableNodes(),
             credentialStore != null ? credentialStore : TestSecrets.store(storeEntries),
             Duration.ofSeconds(5));
-        return new ConfigSummary(exists, false, matrix).render(loaded,
+        return new ConfigSummary(exists, windows, matrix).render(loaded,
             entries.addTo(parameters.addTo(report)), clients, options, parameters, entries);
     }
 
@@ -228,7 +232,8 @@ class ConfigSummaryTest {
                 + workspace + " is not writable)\n");
         assertThat(render(CONFIG.replace("profile:\n  name: acme\n",
             "profile:\n  name: acme\nworkspace: relative/dir\n")))
-            .containsPattern("Workspace: .*relative/dir \\(not usable: see the errors\\)\n");
+            .containsPattern("Workspace: .*" + Pattern.quote(Path.of("relative/dir").toString())
+                + " \\(not usable: see the errors\\)\n");
     }
 
     @Test
@@ -489,6 +494,27 @@ class ConfigSummaryTest {
             .contains("prod/node1: read-only, cli: unavailable, inubit: 8.1.17,"
                 + " secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).contains("Result: OK");
+    }
+
+    /**
+     * Feature 013 (T020, FR-010): on Windows the node line shows the StartCLI installation
+     * ({@code startcli.bat}) and the probed client like on POSIX; {@code startcli.sh} alone is no
+     * installation there.
+     */
+    @Test
+    void onWindowsTheNodeLineShowsTheBatchInstallationAndTheProbedClient() {
+        windows = true;
+        String withShellScript = render(PINS);
+        exists = Set.of(Path.of("/opt/client/bin/startcli.bat"))::contains;
+
+        String summary = render(PINS,
+            Map.of(NodeId.parse("test/node1"), client("8.1.17", "4.0.1", "8.1.17")));
+
+        assertThat(summary).contains("test/node1: read-only, cli: available, inubit: 8.1.17,"
+            + " client: 8.1.17 (4.0.1–8.1.17), client vs pin: match,")
+            .contains("test/node4: read-only, cli: available, inubit: AUTO,");
+        assertThat(withShellScript).as("startcli.sh is no installation on Windows")
+            .contains("test/node1: read-only, cli: unavailable, inubit: 8.1.17,");
     }
 
     @Test

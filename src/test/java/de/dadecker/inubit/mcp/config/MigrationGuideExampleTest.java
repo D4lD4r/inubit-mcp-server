@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -41,7 +42,7 @@ class MigrationGuideExampleTest {
         workspace -> new WorkspaceDirectory.Usable(false);
 
     private static final Path GUIDE = Path.of("docs/migration-001-to-002.md");
-    private static final Path HOME = Path.of("/home/test");
+    private static final Path HOME = Platform.absolutePath("/home/test");
 
     /** The variables of the 001 installation, as exported in the user's shell. */
     private static final Map<String, String> ENV_001 = Map.of(
@@ -150,7 +151,7 @@ class MigrationGuideExampleTest {
     @Test
     void theGuideShowsTheCheckSummaryOfTheAfterExampleVerbatim() throws IOException {
         // rendered as the guide shows it: home /Users/jdoe, file ~/.config/inubit-mcp/acme.yaml
-        Path home = Path.of("/Users/jdoe");
+        Path home = Platform.absolutePath("/Users/jdoe");
         Path source = home.resolve(".config").resolve("inubit-mcp").resolve("acme.yaml");
         LoadedConfig loaded = new ConfigLoader(ENV_001, home, false)
             .parse(Files.readString(resource("migration-after.yaml")), source);
@@ -162,11 +163,24 @@ class MigrationGuideExampleTest {
             TestSecrets.store(ENV_001), Duration.ofSeconds(5));
         String summary = new ConfigSummary(path -> true, false).render(loaded,
             entries.addTo(report), Map.of(), Map.of(), ParameterCheck.Result.NONE, entries);
+        // the guide shows POSIX paths; on Windows they are rendered with drive and backslashes
+        for (Path path : List.of(source, config.auditDirectory(), config.workspace())) {
+            summary = summary.replace(path.toString(), posixForm(path));
+        }
 
         assertThat(summary).startsWith("Configuration: /Users/jdoe/.config/inubit-mcp/acme.yaml\n")
             .contains("Audit directory: /Users/jdoe/.inubit-mcp/acme/audit\n");
         assertThat(Files.readString(GUIDE, StandardCharsets.UTF_8))
             .contains("```text\n" + summary + (summary.endsWith("\n") ? "" : "\n") + "```");
+    }
+
+    /** {@code /} followed by the names of the absolute {@code path}, joined with {@code /}. */
+    private static String posixForm(Path path) {
+        StringBuilder form = new StringBuilder();
+        for (Path name : path) {
+            form.append('/').append(name);
+        }
+        return form.toString();
     }
 
     /**

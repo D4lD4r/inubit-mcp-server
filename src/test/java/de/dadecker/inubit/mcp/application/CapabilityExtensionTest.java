@@ -57,6 +57,8 @@ import de.dadecker.inubit.mcp.mcp.tools.ListInventoryTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
@@ -186,9 +188,9 @@ class CapabilityExtensionTest {
         gateways = new AdapterGatewayFactory(servers, TestSecrets.credentialStore(servers, Map.of(
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber), scrubber,
-            clock, new CliRunner(spec -> {
+            clock, TestCliRunners.forHost(spec -> {
                 throw new AssertionError("no StartCLI run expected: " + spec.command());
-            }, Map.of(), false, new CliResources("acme")), versions, portSets);
+            }, Map.of(), new CliResources("acme", PrivateFiles.forHost())), versions, portSets);
         VersionGate gate = gateWithoutClients(versions, gateways, MATRIX);
         TargetResolver targets = new TargetResolver(ids);
         Function<NodeId, Duration> timeouts = id -> byId.get(id).timeout();
@@ -211,7 +213,8 @@ class CapabilityExtensionTest {
             WritePolicy.Confirmation.CLIENT, Duration.ofMinutes(5), Optional.of("jdoe"))));
         ProcessControlService processControl = new ProcessControlService(
             new WriteGuard(targets, policies::get, gateways, gate), policies::get, gateways,
-            new ConfirmationRegistry(clock), new AuditLog(temp.resolve("audit"), scrubber), clock,
+            new ConfirmationRegistry(clock), new AuditLog(temp.resolve("audit"), scrubber,
+                PrivateFiles.forHost()), clock,
             UUID::randomUUID, "acme");
         NodeOverview overview = new NodeOverview(servers.stream()
             .map(server -> server.summary(path -> false, false)).toList(), versions, MATRIX,

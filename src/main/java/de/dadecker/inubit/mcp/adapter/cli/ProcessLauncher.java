@@ -24,20 +24,34 @@ public interface ProcessLauncher {
      * @param command the argument array; element 0 is the executable
      * @param environment the complete child environment (nothing is inherited)
      * @param workingDirectory the child's working directory
+     * @param startCliArguments the logical StartCLI arguments ({@code -u}, …,
+     *     {@code --execCommand}, …), independent of how {@code command} passes them to the
+     *     platform (on POSIX: {@code command} without the executable); empty for processes
+     *     other than StartCLI. The launcher ignores it; test doubles read it.
      */
     record LaunchSpec(List<String> command, Map<String, String> environment,
-        Path workingDirectory) {
+        Path workingDirectory, List<String> startCliArguments) {
 
         public LaunchSpec {
             command = List.copyOf(command);
             environment = Map.copyOf(environment);
             Objects.requireNonNull(workingDirectory, "workingDirectory");
+            startCliArguments = List.copyOf(startCliArguments);
             if (command.isEmpty()) {
                 throw new IllegalArgumentException("command must not be empty");
             }
         }
 
-        /** Only the executable and the argument count: arguments may carry user data. */
+        /** A process other than StartCLI: no StartCLI arguments. */
+        public LaunchSpec(List<String> command, Map<String, String> environment,
+            Path workingDirectory) {
+            this(command, environment, workingDirectory, List.of());
+        }
+
+        /**
+         * Only the executable and the argument count: arguments (and the StartCLI arguments)
+         * may carry user data.
+         */
         @Override
         public String toString() {
             return "LaunchSpec[" + command.get(0) + " +" + (command.size() - 1) + " args]";

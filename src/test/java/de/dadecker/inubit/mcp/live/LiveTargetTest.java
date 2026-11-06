@@ -9,6 +9,7 @@ import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -250,8 +251,7 @@ class LiveTargetTest {
 
     private void chainProfile() throws IOException {
         Path client = home.resolve("client");
-        Files.createDirectories(client.resolve("bin"));
-        Files.writeString(client.resolve("bin/startcli.sh"), "#!/bin/sh\n");
+        FakeStartCli.install(client);
         Path file = home.resolve(".config/inubit-mcp/acme.yaml");
         Files.createDirectories(file.getParent());
         Files.writeString(file, CHAIN_YAML.formatted(client));

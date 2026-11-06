@@ -12,7 +12,11 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -48,8 +52,7 @@ class CliRepositoryImportTest {
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        Files.writeString(Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh"),
-            "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
     }
 
     @AfterEach
@@ -58,8 +61,8 @@ class CliRepositoryImportTest {
     }
 
     private CliImportRunner imports() {
-        CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
-            new CliResources("acme"));
+        CliRunner runner = TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
+            new CliResources("acme", PrivateFiles.forHost()));
         NodeCredentials credentials = new NodeCredentials(INT,
             Optional.of(new SourcedValue<>("jdoe", "TARGET_USERNAME")),
             Optional.of(new SourcedValue<>(Secret.of("repo-import-pw"), "TARGET_PASSWORD")),

@@ -32,6 +32,13 @@ import java.util.regex.Pattern;
  * or comes after the last one, throws an {@link AssertionError} naming the command — a write
  * that should not happen fails the test — and is also kept in {@link #unexpected()}, so that
  * {@link #verifyComplete()} reports it even if the code under test swallowed the error.
+ *
+ * <p>{@link #throughTheLaunch(ProcessLauncher, Path)} (feature 013 T027) keeps the script but
+ * starts every matched launch for real: the step's actions still run in the test JVM before the
+ * start, and its answer is handed to the substitute StartCLI ({@code ArgvRecorder}) through the
+ * environment variable {@code ARGV_RECORDER_REPLY}, which prints it and exits with its code. So
+ * the command line, its quoting, stdin, the output's line ends and the exit code take the real
+ * way through the interpreter and the operating system.
  */
 public final class ScriptedProcessLauncher implements ProcessLauncher {
 
@@ -42,6 +49,28 @@ public final class ScriptedProcessLauncher implements ProcessLauncher {
     private final List<Step> script = new ArrayList<>();
     private final List<Launch> launches = new CopyOnWriteArrayList<>();
     private final List<String> unexpected = new CopyOnWriteArrayList<>();
+    private final ProcessLauncher real;
+    private final Path replies;
+
+    /** Answers every launch with a simulated process. */
+    public ScriptedProcessLauncher() {
+        this(null, null);
+    }
+
+    private ScriptedProcessLauncher(ProcessLauncher real, Path replies) {
+        this.real = real;
+        this.replies = replies;
+    }
+
+    /**
+     * Starts every matched launch with {@code real} (a launcher of a substitute StartCLI), its
+     * answer written into a directory of its own below {@code replies}. Hanging steps are not
+     * supported.
+     */
+    public static ScriptedProcessLauncher throughTheLaunch(ProcessLauncher real, Path replies) {
+        return new ScriptedProcessLauncher(java.util.Objects.requireNonNull(real, "real"),
+            java.util.Objects.requireNonNull(replies, "replies"));
+    }
 
     /** The next launch's command line must start with {@code prefix}. */
     public ScriptedProcessLauncher expect(String prefix) {
@@ -171,9 +200,37 @@ public final class ScriptedProcessLauncher implements ProcessLauncher {
             stderr = reply.stderr().getBytes(StandardCharsets.UTF_8);
             exitCode = reply.exitCode();
         }
+        if (real != null) {
+            try {
+                return started(spec, line, importFile, step, new Reply(new String(stdout,
+                    StandardCharsets.UTF_8), new String(stderr, StandardCharsets.UTF_8),
+                    exitCode));
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
         FakeProcessLauncher.FakeProcess process = new FakeProcessLauncher.FakeProcess(spec,
             stdout, stderr, exitCode, step.hang, false, false, -1);
-        launches.add(new Launch(spec, line, process, importFile));
+        launches.add(new Launch(spec, line, process, importFile, null));
+        return process;
+    }
+
+    private LaunchedProcess started(LaunchSpec spec, String line, byte[] importFile, Step step,
+        Reply reply) throws IOException {
+        if (step.hang) {
+            throw new IllegalStateException("a hanging step is not started for real: " + line);
+        }
+        Path directory = Files.createDirectories(replies.resolve(String.valueOf(
+            launches.size() + 1)));
+        Files.writeString(directory.resolve("stdout"), reply.stdout(), StandardCharsets.UTF_8);
+        Files.writeString(directory.resolve("stderr"), reply.stderr(), StandardCharsets.UTF_8);
+        Files.writeString(directory.resolve("exit"), String.valueOf(reply.exitCode()),
+            StandardCharsets.UTF_8);
+        java.util.Map<String, String> environment = new java.util.HashMap<>(spec.environment());
+        environment.put("ARGV_RECORDER_REPLY", directory.toString());
+        LaunchedProcess process = real.launch(new LaunchSpec(spec.command(), environment,
+            spec.workingDirectory(), spec.startCliArguments()));
+        launches.add(new Launch(spec, line, null, importFile, directory));
         return process;
     }
 
@@ -205,9 +262,9 @@ public final class ScriptedProcessLauncher implements ProcessLauncher {
         }
     }
 
-    /** The {@code --execCommand} value of a launch. */
+    /** The {@code --execCommand} value of a launch, from its StartCLI arguments. */
     public static String execCommand(LaunchSpec spec) {
-        List<String> command = spec.command();
+        List<String> command = spec.startCliArguments();
         int index = command.indexOf("--execCommand");
         if (index < 0 || index + 1 >= command.size()) {
             throw new AssertionError("launch without --execCommand: " + spec);
@@ -244,9 +301,12 @@ public final class ScriptedProcessLauncher implements ProcessLauncher {
         }
     }
 
-    /** One matched launch. */
+    /**
+     * One matched launch: its simulated {@code process}, or (started for real) the
+     * {@code replyDirectory} with its answer and the substitute's record of it.
+     */
     public record Launch(LaunchSpec spec, String execCommand,
-        FakeProcessLauncher.FakeProcess process, byte[] importFile) {
+        FakeProcessLauncher.FakeProcess process, byte[] importFile, Path replyDirectory) {
 
         /** The captured import archive, if the step captured it. */
         @Override

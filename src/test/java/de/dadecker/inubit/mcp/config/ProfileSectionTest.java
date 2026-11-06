@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.Platform;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
@@ -28,7 +29,7 @@ class ProfileSectionTest {
     private static final WorkspaceDirectory.Preparer NO_DISK =
         workspace -> new WorkspaceDirectory.Usable(false);
 
-    private static final Path HOME = Path.of("/home/test");
+    private static final Path HOME = Platform.absolutePath("/home/test");
     private static final String GROUPS = """
         groups:
           - name: dev

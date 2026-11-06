@@ -32,6 +32,7 @@ import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.TestValidators;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -348,7 +349,7 @@ class FindProcessesToolTest {
         LoadedConfig loaded = new ConfigLoader(environment, temp, false)
             .parse(yaml, temp.resolve("config.yaml"));
         SecretScrubber scrubber = new SecretScrubber();
-        assertThat(ConfigValidator.forSystem().validate(loaded).errors()).isEmpty();
+        assertThat(TestValidators.ofSystem(false).validate(loaded).errors()).isEmpty();
         ProcessLauncher launcher = spec -> switch (spec.command().size() == 2
             ? spec.command().get(1) : "") {
             case "-h" -> help.launch(spec);

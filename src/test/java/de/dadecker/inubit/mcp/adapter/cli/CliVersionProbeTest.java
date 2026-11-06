@@ -13,6 +13,10 @@ import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -44,8 +48,7 @@ class CliVersionProbeTest {
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        script = FakeStartCli.install(cliHome).script();
         server = TestNodeConfig.node().cliHome(cliHome).cliJavaHome(Path.of("/opt/jdk-17"))
             .trustStore(Path.of("/etc/trust.p12")).disableHostnameVerification("AB".repeat(32))
             .build();
@@ -56,9 +59,9 @@ class CliVersionProbeTest {
     }
 
     private CliVersionProbe probe(FakeProcessLauncher launcher, SecretScrubber scrubber) {
-        return new CliVersionProbe(new CliRunner(launcher,
-            Map.of("PATH", "/usr/bin", "INUBIT_DEV_PASSWORD", "never-passed"), false,
-                new CliResources("acme")), id -> server, scrubber);
+        return new CliVersionProbe(TestCliRunners.forHost(launcher,
+            Map.of("PATH", Platform.searchPath(), "INUBIT_DEV_PASSWORD", "never-passed"),
+                new CliResources("acme", PrivateFiles.forHost())), id -> server, scrubber);
     }
 
     /** Replays {@code fixtures/v9_0/cli/<fixtureCase>.*} (FakeProcessLauncher reads v8_1). */
@@ -144,12 +147,14 @@ class CliVersionProbeTest {
 
         probe(launcher).probe(ID, TIMEOUT);
 
-        assertThat(launcher.last().spec().command()).containsExactly(script.toString(), "-v");
+        assertThat(launcher.last().spec().startCliArguments()).containsExactly("-v");
         assertThat(launcher.last().stdinBytes()).isEmpty();
         assertThat(launcher.last().stdinClosed()).isTrue();
         assertThat(launcher.last().spec().environment())
-            .containsEntry("JAVA_HOME", "/opt/jdk-17")
-            .containsEntry("JAVA_TOOL_OPTIONS", "-Duser.language=en -Duser.country=US")
+            .containsEntry("JAVA_HOME", Path.of("/opt/jdk-17").toString())
+            .containsEntry("JAVA_TOOL_OPTIONS", Platform.windows()
+                ? StartCliEnvironment.WINDOWS_JAVA_TOOL_OPTIONS
+                : "-Duser.language=en -Duser.country=US")
             .doesNotContainKey("INUBIT_DEV_PASSWORD");
         assertThat(launcher.last().spec().workingDirectory()).isEqualTo(cliHome);
     }
@@ -182,6 +187,23 @@ class CliVersionProbeTest {
                 assertThat(e.error().node()).contains(ID);
             });
         assertThat(launcher.launchCount()).isZero();
+    }
+
+    /** Feature 013 T013: the next step names the script of the platform. */
+    @Test
+    void onWindowsAFailedProbeNamesTheBatchFileInItsNextStep() throws IOException {
+        Files.writeString(cliHome.resolve("bin").resolve("startcli.bat"), "@echo off\r\n");
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("unknown_command");
+        CliVersionProbe probe = new CliVersionProbe(TestCliRunners.simulatedWindows(launcher,
+            Map.of(), new ProcessContainment.Bound(),
+                new CliResources("acme", PrivateFiles.forHost())), id -> server,
+            new SecretScrubber());
+
+        assertThatThrownBy(() -> probe.probe(ID, TIMEOUT))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(e.error()
+                .nextStep()).isEqualTo("Run bin\\startcli.bat -v in cliHome with that JDK and"
+                    + " check the output"));
+        assertThat(launcher.launchCount()).isOne();
     }
 
     @Test

@@ -1,11 +1,17 @@
 package de.dadecker.inubit.mcp.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.WindowsAcl;
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -19,6 +25,8 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -29,10 +37,13 @@ import org.junit.jupiter.params.provider.ValueSource;
  */
 class ConfigValidatorTest {
 
-    private static final Path HOME = Path.of("/home/test");
+    private static final Path HOME = Platform.absolutePath("/home/test");
     private static final String PIN =
         "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89";
     private static final String CLI_HOME = "/opt/client";
+    /** Owner-only permissions are checked on POSIX; the Windows equivalent follows in T026. */
+    private static final boolean POSIX =
+        FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
 
     private final Map<String, String> env = new HashMap<>();
     private final Set<Path> existing = new HashSet<>();
@@ -40,7 +51,8 @@ class ConfigValidatorTest {
     private final List<Path> prepared = new ArrayList<>();
     private WorkspaceDirectory.Result workspaceResult = new WorkspaceDirectory.Usable(false);
     private boolean windows;
-    private Path tempDirectory = Path.of("/var/tmp/inubit-test");
+    private Path tempDirectory = Platform.posixPath("/var/tmp/inubit-test");
+    private StartCliHost host = StartCliHost.unchecked();
 
     @BeforeEach
     void setUp() {
@@ -51,6 +63,12 @@ class ConfigValidatorTest {
         existing.add(Path.of("/opt/jdk17"));
     }
 
+    /** Validates as on Windows, with a {@code java.io.tmpdir} that passes the Windows rule. */
+    private void runOnWindows() {
+        windows = true;
+        tempDirectory = Path.of("C:/Temp/inubit-test");
+    }
+
     private ValidationReport validate(String yaml) {
         LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, windows)
             .parse(yaml, HOME.resolve("config.yaml"));
@@ -59,7 +77,7 @@ class ConfigValidatorTest {
             source -> List.of(), workspace -> {
                 prepared.add(workspace);
                 return workspaceResult;
-            }).validate(loaded);
+            }, host).validate(loaded);
     }
 
     private static String server(String settings) {
@@ -79,7 +97,7 @@ class ConfigValidatorTest {
     @Test
     void aTemporaryDirectoryStartCliCannotTakeIsAWarningWhenTheCliIsConfigured() {
         // review I9: exports are written below java.io.tmpdir, whose path goes into --execCommand
-        tempDirectory = Path.of("/var/tmp/odd~dir");
+        tempDirectory = Platform.posixPath("/var/tmp/odd~dir");
         String cli = """
             defaults:
               cliHome: /opt/client
@@ -104,7 +122,7 @@ class ConfigValidatorTest {
               cliHome: /opt/client
               cliJavaHome: /opt/jdk17
             """;
-        tempDirectory = Path.of("/" + "t".repeat(949));
+        tempDirectory = Platform.posixPath("/" + "t".repeat(949));
 
         assertThat(validate(cli + server("")).warnings()).singleElement().asString()
             .contains("java.io.tmpdir", "CLI_UNAVAILABLE");
@@ -482,7 +500,7 @@ class ConfigValidatorTest {
             ValidationReport report = validate(server("tls:\n  trustStore: /missing.p12\n"));
 
             assertThat(report.errors()).singleElement().satisfies(e -> assertThat(e)
-                .contains("dev/node1", "/missing.p12"));
+                .contains("dev/node1", Path.of("/missing.p12").toString()));
         }
 
         @Test
@@ -728,20 +746,32 @@ class ConfigValidatorTest {
         }
 
         @Test
-        void cliToolsAreNotSupportedOnWindows() {
-            windows = true;
+        void onWindowsAValidCliConfigurationHasNoFindings() {
+            runOnWindows();
 
             ValidationReport report =
                 validate(server("cli:\n  home: /opt/client\n  javaHome: /opt/jdk17\n"));
 
             assertThat(report.errors()).isEmpty();
-            assertThat(report.warnings()).singleElement().satisfies(w -> assertThat(w)
-                .contains("dev/node1", "not supported on Windows", "CLI_UNAVAILABLE"));
+            assertThat(report.warnings()).isEmpty();
+        }
+
+        @Test
+        void onWindowsAMissingBatchFileIsAWarning() {
+            runOnWindows();
+
+            ValidationReport report =
+                validate(server("cli:\n  home: /opt/other\n  javaHome: /opt/jdk17\n"));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("dev/node1: "
+                + Path.of("/opt/other/bin/startcli.bat") + " not found; CLI-backed capabilities"
+                + " report CLI_UNAVAILABLE");
         }
 
         @Test
         void withoutCliHomeWindowsGivesNoCliWarning() {
-            windows = true;
+            runOnWindows();
 
             assertThat(validate(server("timeout: PT5S\n")).warnings()).isEmpty();
         }
@@ -767,7 +797,7 @@ class ConfigValidatorTest {
                 validate(server("cli:\n  home: /opt/client\n  javaHome: /nope\n"));
 
             assertThat(report.warnings()).singleElement().satisfies(w -> assertThat(w)
-                .contains("dev/node1", "/nope"));
+                .contains("dev/node1", Path.of("/nope").toString()));
         }
 
         @Test
@@ -1002,6 +1032,243 @@ class ConfigValidatorTest {
     }
 
     /**
+     * Feature 013 T015 (FR-002, FR-011, contracts/configuration-delta.md): the configured values
+     * StartCLI receives through the Windows command interpreter. Each problem is a warning; the
+     * node's REST tools stay available (no error), and no message contains the value.
+     */
+    @Nested
+    class OnWindows {
+
+        private static final String CLI_UNAVAILABLE = "; CLI-backed capabilities report"
+            + " CLI_UNAVAILABLE";
+
+        @BeforeEach
+        void onWindows() {
+            runOnWindows();
+        }
+
+        private ValidationReport validateCli(String home, String settings) {
+            existing.add(Path.of(home, "bin", "startcli.bat"));
+            return validate(server("cli:\n  home: '" + home + "'\n" + settings));
+        }
+
+        private String interprets(String setting, String characterClass) {
+            return "dev/node1: " + setting + " contains a character the Windows command"
+                + " interpreter interprets (" + characterClass + ")" + CLI_UNAVAILABLE;
+        }
+
+        @Test
+        void aRefusedCharacterInTheCliHomeIsNamedWithItsClass() {
+            ValidationReport report = validateCli("/opt/client!8.1", "  javaHome: /opt/jdk17\n");
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings())
+                .containsExactly(interprets("cli.home", "exclamation mark"));
+        }
+
+        @Test
+        void aSemicolonInTheCliJavaHomeIsRefused() {
+            existing.add(Path.of("/opt/jdk;17"));
+
+            ValidationReport report = validateCli(CLI_HOME, "  javaHome: '/opt/jdk;17'\n");
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings())
+                .containsExactly(interprets("cli.javaHome", "semicolon"));
+        }
+
+        @Test
+        void withoutCliJavaHomeTheServersJavaHomeIsChecked() {
+            env.remove("JAVA_HOME");
+            env.put("Java_Home", "/opt/jdk^17");
+
+            ValidationReport report = validateCli(CLI_HOME, "");
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly(interprets("JAVA_HOME", "caret"));
+        }
+
+        @Test
+        void theExactJavaHomeSpellingWinsAsInTheRunner() {
+            env.put("JAVA_HOME", "/opt/jdk17");
+            env.put("Java_Home", "/opt/jdk^17");
+
+            assertThat(validateCli(CLI_HOME, "").warnings()).isEmpty();
+        }
+
+        @Test
+        void aBlankExactJavaHomeIsUnsetEvenIfAnotherSpellingIsSet() {
+            env.put("JAVA_HOME", " ");
+            env.put("Java_Home", "/opt/jdk17");
+
+            assertThat(validateCli(CLI_HOME, "").warnings()).singleElement()
+                .satisfies(w -> assertThat(w).contains("nor JAVA_HOME is set"));
+        }
+
+        @Test
+        void aRefusedCharacterInTheTrustStoreIsNamed() {
+            existing.add(Path.of("/opt/trust&store.p12"));
+
+            ValidationReport report = validate(server("""
+                cli:
+                  home: /opt/client
+                  javaHome: /opt/jdk17
+                tls:
+                  trustStore: '/opt/trust&store.p12'
+                """));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings())
+                .containsExactly(interprets("tls.trustStore", "ampersand"));
+        }
+
+        @Test
+        void aRefusedCharacterInTheStartCliUrlIsNamed() {
+            ValidationReport report = validateCli(CLI_HOME,
+                "  javaHome: /opt/jdk17\n  url: 'https://cli.example.test/x!y'\n");
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly(interprets("cli.url", "exclamation mark"));
+        }
+
+        @Test
+        void aNetworkPathAsCliHomeIsAWarning() {
+            ValidationReport report =
+                validateCli("\\\\files.example.test\\share\\client", "  javaHome: /opt/jdk17\n");
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("dev/node1: cli.home is a network path"
+                + " (\\\\…); StartCLI needs a local drive path on Windows");
+        }
+
+        @Test
+        void configuredValuesThatMakeTheCommandLineTooLongAreAWarningNamingTheLongest() {
+            String home = "/" + "c".repeat(WindowsArguments.MAX_LINE_LENGTH);
+
+            ValidationReport report = validateCli(home, "  javaHome: /opt/jdk17\n");
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("dev/node1: the StartCLI command line"
+                + " would exceed 6143 characters (cli.home)" + CLI_UNAVAILABLE);
+        }
+
+        @Test
+        void theLengthCheckAssumesAUsernameOfSixtyFourCharactersAndAnEmptyCommand() {
+            String url = "https://cli.example.test/ibis/servlet/IBISSoapServlet";
+            // the line with the CLI home "": script, -u, 64-character username, --execCommand,
+            // an empty command, url; the home "/c…c" adds its own length
+            int fixed = WindowsArguments.lineLength(Path.of("/bin/startcli.bat").toString(),
+                List.of("-u", "u".repeat(64), "--execCommand", "", url));
+            String fits = "/" + "c".repeat(WindowsArguments.MAX_LINE_LENGTH - fixed - 1);
+            String tooLong = fits + "c";
+
+            assertThat(validateCli(fits, "  javaHome: /opt/jdk17\n  url: " + url + "\n")
+                .warnings()).isEmpty();
+            assertThat(validateCli(tooLong, "  javaHome: /opt/jdk17\n  url: " + url + "\n")
+                .warnings()).singleElement().asString()
+                .contains("would exceed 6143 characters (cli.home)");
+        }
+
+        @Test
+        void anUnreadableSystemDirectoryIsOneWarningPerProfile() {
+            host = new StartCliHost(Optional.of("GetSystemDirectoryW failed (Windows error 5)"),
+                Optional.empty());
+
+            ValidationReport report = validate(twoNodesWithCli());
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("StartCLI cannot be started: the"
+                + " Windows system directory could not be read (GetSystemDirectoryW failed"
+                + " (Windows error 5))" + CLI_UNAVAILABLE);
+        }
+
+        @Test
+        void anUnavailableContainmentIsOneWarningPerProfile() {
+            host = new StartCliHost(Optional.empty(),
+                Optional.of("CreateJobObjectW failed (Windows error 5)"));
+
+            ValidationReport report = validate(twoNodesWithCli());
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("StartCLI processes could not be bound"
+                + " to the server (CreateJobObjectW failed (Windows error 5))" + CLI_UNAVAILABLE);
+        }
+
+        @Test
+        void theHostStateIsIrrelevantWithoutACliOrOffWindows() {
+            host = new StartCliHost(Optional.of("GetSystemDirectoryW failed (Windows error 5)"),
+                Optional.of("CreateJobObjectW failed (Windows error 5)"));
+
+            assertThat(validate(server("timeout: PT5S\n")).warnings()).isEmpty();
+            windows = false;
+            tempDirectory = Platform.posixPath("/var/tmp/inubit-test");
+            assertThat(validate(twoNodesWithCli()).warnings()).isEmpty();
+        }
+
+        private static String twoNodesWithCli() {
+            return """
+                defaults:
+                  cliHome: /opt/client
+                  cliJavaHome: /opt/jdk17
+                profile:
+                  name: acme
+                groups:
+                  - name: dev
+                    inventory:
+                      owner: INTEGRATION
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-1.example.test:8443
+                      - name: node2
+                        baseUrl: https://inubit-2.example.test:8443
+                """;
+        }
+
+        // --- T018 (FR-009, R-3, US1 AS6): java.io.tmpdir follows the Windows path rule -------
+
+        private String tmpdirWarning() {
+            ValidationReport report = validateCli(CLI_HOME, "  javaHome: /opt/jdk17\n");
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).hasSize(1);
+            return report.warnings().get(0);
+        }
+
+        @Test
+        void aTemporaryDirectoryOutsideTheWindowsRuleIsAWarningWithTheRemedy() {
+            tempDirectory = Path.of("C:/Users/svc/odd~dir");
+
+            assertThat(tmpdirWarning()).contains("java.io.tmpdir", tempDirectory.toString(),
+                CliPaths.WINDOWS_PATH_VALUE.pattern(), "CLI_UNAVAILABLE", "-Djava.io.tmpdir=");
+        }
+
+        @Test
+        void aNetworkPathAsTemporaryDirectoryIsAWarning() {
+            tempDirectory = Path.of("\\\\files.example.test\\share\\tmp");
+
+            assertThat(tmpdirWarning()).contains("java.io.tmpdir", "CLI_UNAVAILABLE");
+        }
+
+        @Test
+        void theTemporaryDirectoryMustLeaveRoomForTheLongestExportPathOnWindows() {
+            // the longest export file below it (repository.zip) has 106 characters; Windows
+            // allows 259 in all
+            tempDirectory = Path.of("C:/" + "t".repeat(149));
+            ValidationReport fits = validateCli(CLI_HOME, "  javaHome: /opt/jdk17\n");
+            tempDirectory = Path.of("C:/" + "t".repeat(150));
+
+            assertThat(fits.warnings()).isEmpty();
+            assertThat(tmpdirWarning()).contains("java.io.tmpdir", "CLI_UNAVAILABLE");
+        }
+
+        @Test
+        void aTemporaryDirectoryWithBackslashesPassesTheWindowsRule() {
+            tempDirectory = Path.of("C:\\Users\\svc\\AppData\\Local\\Temp");
+
+            assertThat(validateCli(CLI_HOME, "  javaHome: /opt/jdk17\n").warnings()).isEmpty();
+        }
+    }
+
+    /**
      * 002 T031 (contracts/configuration.md → Startup validation; spec edge cases): best-effort
      * warnings for another profile file in the default configuration directory that would share
      * the audit directory, the credential variables or the profile name with this one.
@@ -1041,7 +1308,9 @@ class ConfigValidatorTest {
             ProfileConfig config = loaded.config();
             
             return new ConfigValidator(existing::contains, env, false, tempDirectory,
-                loader::otherProfiles).validate(loaded);
+                loader::otherProfiles,
+                workspace -> WorkspaceDirectory.prepare(workspace, PrivateFiles.forHost()))
+                .validate(loaded);
         }
 
         @Test
@@ -1404,20 +1673,22 @@ class ConfigValidatorTest {
             ValidationReport report = validate("workspace: relative/ws\n" + server(""));
 
             assertThat(report.errors()).singleElement().asString()
-                .contains("workspace", "relative/ws", "must be absolute after expansion");
+                .contains("workspace", Path.of("relative/ws").toString(),
+                    "must be absolute after expansion");
             assertThat(prepared).isEmpty();
             assertThat(report.workspace()).isEmpty();
         }
 
         @Test
         void anUnusableWorkspaceIsAnError() {
+            Path workspace = Platform.absolutePath("/srv/ws");
             workspaceResult = new WorkspaceDirectory.Unusable(
-                "The workspace /srv/ws must be readable and writable");
+                "The workspace " + workspace + " must be readable and writable");
 
-            ValidationReport report = validate("workspace: /srv/ws\n" + server(""));
+            ValidationReport report = validate("workspace: " + workspace + "\n" + server(""));
 
             assertThat(report.errors()).containsExactly(
-                "The workspace /srv/ws must be readable and writable");
+                "The workspace " + workspace + " must be readable and writable");
             assertThat(report.workspace()).contains(workspaceResult);
         }
 
@@ -1434,6 +1705,8 @@ class ConfigValidatorTest {
     @Nested
     class WorkspaceOnDisk {
 
+        private static final PrivateFileSystem FILES = PrivateFiles.forHost();
+
         @TempDir
         Path home;
 
@@ -1441,23 +1714,27 @@ class ConfigValidatorTest {
         void aMissingWorkspaceIsCreatedOwnerOnlyWithItsMissingParents() throws IOException {
             Path workspace = home.resolve("a/b/workspace");
 
-            WorkspaceDirectory.Result result = WorkspaceDirectory.prepare(workspace);
+            WorkspaceDirectory.Result result = WorkspaceDirectory.prepare(workspace, FILES);
 
             assertThat(result).isEqualTo(new WorkspaceDirectory.Usable(true));
-            for (Path created : List.of(home.resolve("a"), home.resolve("a/b"), workspace)) {
-                assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(created)))
-                    .as(created.toString()).isEqualTo("rwx------");
+            if (POSIX) {
+                for (Path created : List.of(home.resolve("a"), home.resolve("a/b"), workspace)) {
+                    assertThat(PosixFilePermissions.toString(
+                        Files.getPosixFilePermissions(created)))
+                        .as(created.toString()).isEqualTo("rwx------");
+                }
             }
-            assertThat(WorkspaceDirectory.prepare(workspace))
+            assertThat(WorkspaceDirectory.prepare(workspace, FILES))
                 .isEqualTo(new WorkspaceDirectory.Usable(false));
         }
 
         @Test
         void anExistingWorkspaceKeepsItsPermissions() throws IOException {
+            assumeTrue(POSIX);
             Path workspace = Files.createDirectory(home.resolve("ws"),
                 PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwxr-x---")));
 
-            assertThat(WorkspaceDirectory.prepare(workspace))
+            assertThat(WorkspaceDirectory.prepare(workspace, FILES))
                 .isEqualTo(new WorkspaceDirectory.Usable(false));
             assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(workspace)))
                 .isEqualTo("rwxr-x---");
@@ -1465,10 +1742,11 @@ class ConfigValidatorTest {
 
         @Test
         void aWorkspaceThatIsNotWritableIsUnusable() throws IOException {
+            assumeTrue(POSIX);
             Path workspace = Files.createDirectory(home.resolve("ro"),
                 PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("r-x------")));
 
-            assertThat(WorkspaceDirectory.prepare(workspace))
+            assertThat(WorkspaceDirectory.prepare(workspace, FILES))
                 .isInstanceOfSatisfying(WorkspaceDirectory.Unusable.class, u -> assertThat(
                     u.problem()).contains(workspace.toString(), "must be readable and writable"));
         }
@@ -1477,12 +1755,45 @@ class ConfigValidatorTest {
         void aFileOrAnUncreatableWorkspaceIsUnusable() throws IOException {
             Path file = Files.writeString(home.resolve("file"), "x");
 
-            assertThat(WorkspaceDirectory.prepare(file))
+            assertThat(WorkspaceDirectory.prepare(file, FILES))
                 .isInstanceOfSatisfying(WorkspaceDirectory.Unusable.class,
                     u -> assertThat(u.problem()).contains(file.toString(), "not a directory"));
-            assertThat(WorkspaceDirectory.prepare(file.resolve("below")))
+            assertThat(WorkspaceDirectory.prepare(file.resolve("below"), FILES))
                 .isInstanceOfSatisfying(WorkspaceDirectory.Unusable.class, u -> assertThat(
                     u.problem()).contains(file.resolve("below").toString(), "cannot be created"));
+        }
+
+        // --- feature 013 T026 (FR-007): created through the PrivateFileSystem port ---------
+
+        @Test
+        void aWorkspaceThatCannotBeMadePrivateIsUnusableAndNotCreated() {
+            Path workspace = home.resolve("a/workspace");
+
+            assertThat(WorkspaceDirectory.prepare(workspace, PrivateFiles.failing()))
+                .isInstanceOfSatisfying(WorkspaceDirectory.Unusable.class, u -> assertThat(
+                    u.problem()).contains(workspace.toString(), "cannot be created"));
+            assertThat(home.resolve("a")).doesNotExist();
+        }
+
+        @Test
+        void anExistingWorkspaceIsNeitherCreatedNorChecked() throws IOException {
+            Path workspace = Files.createDirectory(home.resolve("ws"));
+
+            assertThat(WorkspaceDirectory.prepare(workspace, PrivateFiles.failing()))
+                .isEqualTo(new WorkspaceDirectory.Usable(false));
+        }
+
+        @Test
+        @EnabledOnOs(OS.WINDOWS)
+        void onWindowsANewWorkspaceAndItsNewParentsArePrivate() throws Exception {
+            Path workspace = home.resolve("a/b/workspace");
+
+            assertThat(WorkspaceDirectory.prepare(workspace, FILES))
+                .isEqualTo(new WorkspaceDirectory.Usable(true));
+
+            for (Path created : List.of(home.resolve("a"), home.resolve("a/b"), workspace)) {
+                WindowsAcl.assertPrivate(created, WindowsAcl.DIRECTORY_INHERITANCE);
+            }
         }
 
         @Test
@@ -1491,7 +1802,8 @@ class ConfigValidatorTest {
                 home.resolve("config.yaml"));
 
             ValidationReport report = new ConfigValidator(existing::contains, env, false,
-                tempDirectory, source -> List.of()).validate(loaded);
+                tempDirectory, source -> List.of(),
+                workspace -> WorkspaceDirectory.prepare(workspace, FILES)).validate(loaded);
 
             assertThat(report.errors()).isEmpty();
             assertThat(home.resolve(".inubit-mcp/acme/workspace")).isDirectory();

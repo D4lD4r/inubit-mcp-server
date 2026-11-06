@@ -22,6 +22,8 @@ import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -74,13 +76,14 @@ final class FakeV61Node {
             Optional.empty(), Optional.empty());
         ProcessLauncher launcher = spec -> spec.command().size() == 2
             && spec.command().get(1).equals("-h") ? help.launch(spec) : session.launch(spec);
-        CliRunner runner = new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false,
-            new CliResources("acme"));
+        CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", "/usr/bin"),
+            new CliResources("acme", PrivateFiles.forHost()));
         this.adapter = new V61HealthAdapter(id, new V61Connection(server, credentials,
                 new CredentialGuard(storeLabels("INUBIT", id), clock), runner,
                 new CliClientProbe(runner, node -> server, CapabilityMatrix.production(), clock),
                 new CliConcurrencyLimiter(CapabilityMatrix.production())),
-            new CliOutputClassifier(new SecretScrubber(), server.secretLabels()));
+            new CliOutputClassifier(new SecretScrubber(), server.secretLabels(),
+            runner.windows()));
     }
 
     CliHealthPort adapter() {

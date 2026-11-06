@@ -6,11 +6,14 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
+import de.dadecker.inubit.mcp.adapter.os.NoJob;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.ParameterType;
 import de.dadecker.inubit.mcp.config.StoreLocation;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.infra.BuildInfo;
 import de.dadecker.inubit.mcp.infra.LogLevels;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -18,7 +21,11 @@ import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import de.dadecker.inubit.mcp.mcp.ToolHints;
 import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
+import de.dadecker.inubit.mcp.testing.WindowsAcl;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -32,6 +39,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,10 +50,15 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
@@ -78,8 +91,20 @@ class MainTest {
     private final AtomicInteger storesCreated = new AtomicInteger();
     /** The credential store the launcher created last (feature 011). */
     private final AtomicReference<FakeCredentialStore> credentialStore = new AtomicReference<>();
+    /** How often the launcher set up the containment of StartCLI's processes (feature 013). */
+    private final AtomicInteger containments = new AtomicInteger();
+    /** The containment the launcher sets up. */
+    private ProcessContainment containment = new NoJob();
+    /** The private files of the launcher (feature 013, FR-007): the host's by default. */
+    private PrivateFileSystem privateFiles = PrivateFiles.forHost();
     /** The store the launcher gets instead of one built from {@link #entries}, if set. */
     private FakeCredentialStore scriptedStore;
+    /**
+     * The launcher's platform: the host ({@link Platform#windows()}) where a test runs the
+     * substitute StartCLI, which is {@code startcli.bat} on Windows; otherwise POSIX, whose
+     * default configuration directory the profile tests use.
+     */
+    private boolean windows;
 
     @AfterEach
     void restoreTestLogLevel() {
@@ -92,7 +117,7 @@ class MainTest {
 
     private Launcher main(InputStream in, OutputStream out,
         Function<Wiring, List<ToolHandler>> handlers) {
-        return new Launcher(new Launcher.Context(Map.copyOf(environment), home, false, in,
+        return new Launcher(new Launcher.Context(Map.copyOf(environment), home, windows, in,
             new PrintStream(out, true, StandardCharsets.UTF_8),
             new PrintStream(stderr, true, StandardCharsets.UTF_8), new SecretScrubber(),
             Files::exists, () -> {
@@ -103,7 +128,10 @@ class MainTest {
                     : TestSecrets.store(entries);
                 credentialStore.set(created);
                 return created;
-            }), handlers);
+            }, () -> {
+                containments.incrementAndGet();
+                return containment;
+            }, privateFiles), handlers);
     }
 
     private int run(String... args) {
@@ -158,11 +186,9 @@ class MainTest {
         credentials();
         entries.put("INUBIT_ACME_QA_NODE2_PASSWORD", "other-Secret-99");
         entries.put("INUBIT_ACME_QA_USERNAME", "other-user");
-        Path cliHome = fakeStartCli("""
-            echo "$@" > "$(dirname "$0")/arguments"
-            echo "CLI 8.1.17"
-            echo "Supported inubit Process Engine versions from 4.0.1 to 8.1.17."
-            """);
+        windows = Platform.windows();
+        Path cliHome = home.resolve("client");
+        FakeStartCli cli = FakeStartCli.replaying(cliHome, "version");
         Path file = config("""
             profile:
               name: acme
@@ -200,7 +226,7 @@ class MainTest {
                 "inubit.example.test");
         assertThat(err()).doesNotContain(PASSWORD, "other-Secret-99");
         // feature 009 (FR-011a): the local client probe only, without credentials or server URL
-        assertThat(Files.readString(cliHome.resolve("bin/arguments"))).isEqualTo("-v\n");
+        assertThat(cli.record().args()).containsExactly("-v");
     }
 
     // --- feature 010 (T006): existing profiles behave as before; AWS nodes are deferred -------
@@ -622,10 +648,9 @@ class MainTest {
     @Test
     void checkConfigReportsAFailingClientProbeAsAWarning() throws IOException {
         credentials();
-        Path cliHome = fakeStartCli("""
-            echo "Error: no JDK" >&2
-            exit 1
-            """);
+        windows = Platform.windows();
+        Path cliHome = home.resolve("client");
+        FakeStartCli.replaying(cliHome, "unknown_command"); // exit code 1, no version line
         Path file = config("""
             profile:
               name: acme
@@ -651,6 +676,8 @@ class MainTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "a POSIX shell substitute of startcli.sh;"
+        + " the Windows launch of a 6.1 session is covered by CliRunnerTest and V61ConnectionTest")
     void checkConfigShowsAV61NodeAsStartCliOnlyWithoutContactingInubit() throws IOException {
         // feature 012 (FR-014, research D-13)
         credentials();
@@ -698,6 +725,8 @@ class MainTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "a POSIX shell substitute of startcli.sh;"
+        + " the Windows launch of a 6.1 session is covered by CliRunnerTest and V61ConnectionTest")
     void checkConfigWarnsAboutWhatTheStartCliClientOfAV61NodeCannotDo() throws IOException {
         // feature 012 (FR-012a, contracts/configuration-delta.md → Validation): the warnings name
         // the refusals of V61Connection; local probes only, the server is not contacted
@@ -1204,6 +1233,263 @@ class MainTest {
             assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(audit)))
                 .isEqualTo("rwx------");
         }
+    }
+
+    // --- feature 013 T024: the audit directory and log are private (FR-007, US3 AS4) ---------
+
+    @Test
+    void anAuditDirectoryThatCannotBeMadePrivateStopsTheServerFromStarting() throws Exception {
+        credentials();
+        Path file = validConfig();
+        Files.createDirectories(home.resolve(".inubit-mcp/acme/workspace")); // T026: not created
+        privateFiles = PrivateFiles.failing();
+
+        int exit = run("--config", file.toString());
+
+        assertThat(exit).isEqualTo(1);
+        assertThat(err()).contains("Cannot create the audit directory "
+            + home.resolve("audit/nested"), "the MCP server does not start");
+        assertThat(home.resolve("audit")).doesNotExist();
+    }
+
+    @Test
+    void theDefaultAuditDirectoryAndLogWithBroaderAccessAreNamedAtStartupAndInCheckConfig()
+        throws Exception {
+        credentials();
+        profileConfig("acme", "acme");
+        Path audit = Files.createDirectories(home.resolve(".inubit-mcp/acme/audit"));
+        Path log = Files.writeString(audit.resolve("audit-2026-10.jsonl"), "{}\n");
+        privateFiles = PrivateFiles.reporting(List.of("BUILTIN\\Users"));
+
+        int checked = run("--profile", "acme", "--check-config");
+        String summary = out();
+        int started = run("--profile", "acme"); // empty stdin: starts and stops at once
+
+        assertThat(checked).as(summary).isZero();
+        assertThat(started).as(err()).isZero();
+        for (String output : List.of(summary, err())) {
+            assertThat(output).contains(
+                "the audit directory " + audit + " grants access to BUILTIN\\Users; the server"
+                    + " does not change it", "icacls \"" + audit + "\" /inheritance:r",
+                "the audit log " + log + " grants access to BUILTIN\\Users");
+        }
+        assertThat(Files.readString(log)).as("not changed").isEqualTo("{}\n");
+    }
+
+    @Test
+    void theDeploymentLedgerAndLockWithBroaderAccessAreNamedAtStartupAndInCheckConfig()
+        throws Exception {
+        // feature 013 T025 (FR-007)
+        credentials();
+        profileConfig("acme", "acme");
+        Path deployments = Files.createDirectories(home.resolve(".inubit-mcp/acme/deployments"));
+        Path ledger = Files.writeString(deployments.resolve("int.ledger.json"), "{}\n");
+        Path lock = Files.createFile(deployments.resolve("int.lock"));
+        privateFiles = PrivateFiles.reporting(List.of("BUILTIN\\Users"));
+
+        int checked = run("--profile", "acme", "--check-config");
+        String summary = out();
+        int started = run("--profile", "acme"); // empty stdin: starts and stops at once
+
+        assertThat(checked).as(summary).isZero();
+        assertThat(started).as(err()).isZero();
+        for (String output : List.of(summary, err())) {
+            assertThat(output).contains(
+                "the deployment ledger " + ledger + " grants access to BUILTIN\\Users; the"
+                    + " server does not change it", "icacls \"" + ledger + "\" /inheritance:r",
+                "the deployment lock " + lock + " grants access to BUILTIN\\Users");
+        }
+        assertThat(Files.readString(ledger)).as("not changed").isEqualTo("{}\n");
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void onWindowsTheNewDefaultAuditDirectoryIsPrivate() throws Exception {
+        credentials();
+        profileConfig("acme", "acme");
+
+        assertThat(run("--profile", "acme")).as(err()).isZero();
+
+        WindowsAcl.assertPrivate(home.resolve(".inubit-mcp/acme/audit"),
+            WindowsAcl.DIRECTORY_INHERITANCE);
+        assertThat(err()).doesNotContain("grants access to");
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void onWindowsAnInheritedUsersEntryIsNamedAndTheRemedyRestrictsTheDirectory()
+        throws Exception {
+        credentials();
+        profileConfig("acme", "acme");
+        Path parent = Files.createDirectories(home.resolve(".inubit-mcp/acme"));
+        WindowsAcl.run(new ProcessBuilder(WindowsAcl.system32("icacls.exe").toString(),
+            parent.toString(), "/grant", "*" + WindowsAcl.USERS + ":(OI)(CI)(RX)"));
+        Path audit = Files.createDirectory(parent.resolve("audit"));
+        assertThat(WindowsAcl.readBack(audit).entries())
+            .anySatisfy(entry -> {
+                assertThat(entry.sid()).isEqualTo(WindowsAcl.USERS);
+                assertThat(entry.inherited()).isTrue();
+            });
+
+        assertThat(run("--profile", "acme", "--check-config")).as(out()).isZero();
+
+        Matcher remedy = Pattern.compile("the audit directory " + Pattern.quote(audit.toString())
+            + " grants access to [^;]*Users[^;]*; the server does not change it\\. Restrict it"
+            + " to [^ ]+ and SYSTEM with: icacls (.*)").matcher(out());
+        assertThat(remedy.find()).as(out()).isTrue();
+        assertThat(WindowsAcl.readBack(audit).entries()).as("not changed")
+            .extracting(WindowsAcl.Entry::sid).contains(WindowsAcl.USERS);
+        List<String> command = new ArrayList<>(List.of(
+            WindowsAcl.system32("icacls.exe").toString()));
+        Matcher token = Pattern.compile("\"([^\"]*)\"|(\\S+)").matcher(remedy.group(1).strip());
+        while (token.find()) {
+            command.add(token.group(1) != null ? token.group(1) : token.group(2));
+        }
+        WindowsAcl.run(new ProcessBuilder(command));
+        WindowsAcl.ReadBack restricted = WindowsAcl.readBack(audit); // the owner is not changed
+        assertThat(restricted.isProtected()).isTrue();
+        assertThat(restricted.entries()).extracting(WindowsAcl.Entry::sid)
+            .containsExactlyInAnyOrder(restricted.me(), WindowsAcl.SYSTEM);
+        stdout.reset();
+        assertThat(run("--profile", "acme", "--check-config")).as(out()).isZero();
+        assertThat(out()).doesNotContain("grants access to");
+    }
+
+    // --- feature 013 T026: the workspace is private (FR-007) ---------------------------------
+
+    @Test
+    void aWorkspaceThatCannotBeMadePrivateIsAConfigurationError() throws Exception {
+        credentials();
+        profileConfig("acme", "acme");
+        privateFiles = PrivateFiles.failing();
+        Path workspace = home.resolve(".inubit-mcp/acme/workspace");
+
+        int exit = run("--profile", "acme", "--check-config");
+
+        assertThat(exit).as(out()).isNotZero();
+        assertThat(out() + err()).contains("The workspace " + workspace + " cannot be created");
+        assertThat(workspace).doesNotExist();
+    }
+
+    @Test
+    void anExistingWorkspaceIsNotChecked() throws Exception {
+        credentials();
+        profileConfig("acme", "acme");
+        Path workspace = Files.createDirectories(home.resolve(".inubit-mcp/acme/workspace"));
+        privateFiles = PrivateFiles.reporting(List.of("BUILTIN\\Users"));
+
+        assertThat(run("--profile", "acme", "--check-config")).as(out()).isZero();
+
+        assertThat(out()).doesNotContain(workspace + " grants access");
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void onWindowsTheNewDefaultWorkspaceIsPrivate() throws Exception {
+        credentials();
+        profileConfig("acme", "acme");
+
+        assertThat(run("--profile", "acme", "--check-config")).as(out()).isZero();
+
+        WindowsAcl.assertPrivate(home.resolve(".inubit-mcp/acme/workspace"),
+            WindowsAcl.DIRECTORY_INHERITANCE);
+    }
+
+    // --- feature 013 T012: the containment of StartCLI's processes (FR-005, research R-7) ------
+
+    @Test
+    void theServerSetsUpTheProcessContainmentOnceAndVersionDoesNot() throws IOException {
+        credentials();
+        Path file = validConfig();
+
+        assertThat(run("--version")).isZero();
+        assertThat(containments).hasValue(0);
+
+        assertThat(run("--config", file.toString())).as(err()).isZero(); // empty stdin
+        assertThat(containments).hasValue(1);
+    }
+
+    /**
+     * T013: {@code --check-config} sets up the containment before the client probe (on Windows
+     * the kill-on-close job, so a forced end of the check also ends the probe), and an unavailable
+     * one fails the probe without starting StartCLI.
+     */
+    @Test
+    void checkConfigProbesTheClientOnlyWithItsProcessesContained() throws IOException {
+        credentials();
+        windows = Platform.windows();
+        Path cliHome = home.resolve("client");
+        FakeStartCli cli = FakeStartCli.replaying(cliHome, "version");
+        containment = () -> new ProcessContainment.Unavailable(
+            "CreateJobObjectW failed (Windows error 5)");
+        Path file = config("""
+            profile:
+              name: acme
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: "8.1.17"
+                    cli:
+                      home: %s
+                      javaHome: %s
+            """.formatted(cliHome, home));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        assertThat(containments).hasValue(1);
+        assertThat(out()).contains("  - dev/node1: StartCLI client probe failed: StartCLI"
+            + " cannot be used for dev/node1: StartCLI processes could not be bound to the"
+            + " server (CreateJobObjectW failed (Windows error 5))");
+        assertThat(cli.recordFile()).doesNotExist();
+    }
+
+    /**
+     * T015: {@code --check-config} sets up the containment also when no node has a client, and on
+     * Windows an unavailable one is a warning of the check (contracts/configuration-delta.md).
+     */
+    @Test
+    void checkConfigReportsAnUnavailableContainmentOnWindowsAlsoWithoutAClient()
+        throws IOException {
+        credentials();
+        windows = Platform.windows();
+        containment = () -> new ProcessContainment.Unavailable(
+            "CreateJobObjectW failed (Windows error 5)");
+        Path file = config("""
+            profile:
+              name: acme
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: "8.1.17"
+                    cli:
+                      home: %s
+                      javaHome: %s
+            """.formatted(home.resolve("no-client"), home));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        assertThat(containments).hasValue(1);
+        String warning = "StartCLI processes could not be bound to the server (CreateJobObjectW"
+            + " failed (Windows error 5)); CLI-backed capabilities report CLI_UNAVAILABLE";
+        if (windows) {
+            assertThat(out()).contains(warning);
+        } else {
+            assertThat(out()).doesNotContain(warning);
+        }
+    }
+
+    /** Never on Windows: there the system context binds the process (this test JVM) to a job. */
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void onMacOsAndLinuxTheSystemContextNeedsNoJob() {
+        assertThat(Launcher.Context.system(System.out).containment().get())
+            .isInstanceOf(NoJob.class);
     }
 
     @Test

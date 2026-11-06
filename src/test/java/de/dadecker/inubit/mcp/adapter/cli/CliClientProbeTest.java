@@ -10,6 +10,8 @@ import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -73,8 +75,8 @@ class CliClientProbeTest {
     }
 
     private CliClientProbe probe(FakeProcessLauncher launcher) {
-        return new CliClientProbe(new CliRunner(launcher, parentEnvironment, false,
-            new CliResources("acme")), id -> server, CapabilityMatrix.production(), clock);
+        return new CliClientProbe(TestCliRunners.forHost(launcher, parentEnvironment,
+            new CliResources("acme", PrivateFiles.forHost())), id -> server, CapabilityMatrix.production(), clock);
     }
 
     @Test

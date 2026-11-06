@@ -14,11 +14,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.FileAttribute;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -35,7 +31,8 @@ import java.util.function.Function;
  *       {@code CLI_UNAVAILABLE}, {@code AUTH_FAILED}).
  *   <li>The archive holds secret values. It is written {@code rw-------} into a fresh owner-only
  *       temporary directory below {@code java.io.tmpdir} (the rules of the exports, registered
- *       with {@link CliResources}) that is deleted on every path.
+ *       with {@link CliResources}) that is deleted on every path; on Windows both grant access
+ *       only to this account and {@code SYSTEM} ({@link CliResources#files()}, feature 013).
  *   <li>The node's {@code cliExportTimeout} applies; a {@code TIMEOUT} names it (the import may
  *       nevertheless have happened). Every run goes through the node's {@link CredentialGuard}.
  *   <li>A failure reported by StartCLI ({@code n-NOK}, exit code, unreadable protocol) is
@@ -51,10 +48,6 @@ public final class CliImportRunner {
     static final String FILE = "import.zip";
     /** The result line of a repository import (research D-1; there is no protocol). */
     static final String REPOSITORY_SUCCESS = "Imported successfully";
-    private static final FileAttribute<Set<PosixFilePermission>> OWNER_ONLY_DIRECTORY =
-        PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------"));
-    private static final FileAttribute<Set<PosixFilePermission>> OWNER_ONLY_FILE =
-        PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"));
 
     private final EffectiveNodeConfig server;
     private final NodeCredentials credentials;
@@ -77,7 +70,9 @@ public final class CliImportRunner {
         this.guard = Objects.requireNonNull(guard, "guard");
         this.runner = Objects.requireNonNull(runner, "runner");
         this.classifier = Objects.requireNonNull(classifier, "classifier");
-        this.tempRoot = Objects.requireNonNull(tempRoot, "tempRoot");
+        // on Windows its real path, 8.3 short names expanded (feature 013, research R-3)
+        this.tempRoot = CliPaths.forCommand(Objects.requireNonNull(tempRoot, "tempRoot"),
+            runner.windows());
     }
 
     /**
@@ -87,14 +82,15 @@ public final class CliImportRunner {
      */
     public void checkAvailable() {
         runner.checkAvailable(server);
-        if (!CliPaths.exportRootUsable(tempRoot)) {
+        if (!CliPaths.exportRootUsable(tempRoot, runner.windows())) {
             throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
                 "The temporary directory " + tempRoot + " cannot be passed to StartCLI on "
                     + server.id(),
                 "Import files are written below java.io.tmpdir, whose path is part of the"
-                    + " StartCLI command and must match " + CliPaths.PATH_VALUE.pattern(),
-                "Start the MCP server with -Djava.io.tmpdir=<absolute path of letters, digits,"
-                    + " _ . - / and spaces>").withNode(server.id()));
+                    + " StartCLI command and must match "
+                    + CliPaths.rule(runner.windows()).pattern(),
+                "Start the MCP server with -Djava.io.tmpdir=<"
+                    + CliPaths.tmpdirHint(runner.windows()) + ">").withNode(server.id()));
         }
         if (!credentials.complete()) {
             throw new ToolErrorException(ToolError.of(ErrorCode.AUTH_FAILED,
@@ -137,7 +133,8 @@ public final class CliImportRunner {
         checkRepositoryImport(owner);
         String root = "/Root/" + owner;
         CliResult result = run(archive, file -> CliCommand.command("import")
-            .path("--importFile", file).repositoryPath("--importRepositoryPath", root).build());
+            .path("--importFile", file, runner.windows())
+            .repositoryPath("--importRepositoryPath", root).build());
         CliOutput output = classifier.parse(result);
         if (result.exitCode() != 0 || !output.nokMessages().isEmpty() || result.truncated()
             || output.okMessages().stream().noneMatch(REPOSITORY_SUCCESS::equals)) {
@@ -187,16 +184,17 @@ public final class CliImportRunner {
         }
         Path directory;
         try {
-            directory = Files.createTempDirectory(tempRoot, runner.resources().exportPrefix(),
-                OWNER_ONLY_DIRECTORY);
+            // feature 013 (FR-007): owner-only on POSIX, this account and SYSTEM on Windows
+            directory = runner.resources().files().createTempDirectory(tempRoot,
+                runner.resources().exportPrefix());
         } catch (IOException | UnsupportedOperationException e) {
             reservation.close();
             throw new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
                 "No private temporary directory for the import on " + server.id() + " ("
                     + e.getClass().getSimpleName() + "); nothing was sent",
-                "The temporary directory is not writable or does not support owner-only"
-                    + " permissions",
-                "Check java.io.tmpdir of the MCP server").withNode(server.id()));
+                CliResources.NO_PRIVATE_ACCESS,
+                CliResources.privateDirectoryStep(tempRoot, runner.windows()))
+                .withNode(server.id()));
         } catch (RuntimeException e) {
             reservation.close();
             throw e;
@@ -211,13 +209,14 @@ public final class CliImportRunner {
         try (registration) {
             Path file = directory.resolve(FILE);
             try {
-                Files.write(Files.createFile(file, OWNER_ONLY_FILE), archive,
+                Files.write(runner.resources().files().createFile(file), archive,
                     StandardOpenOption.TRUNCATE_EXISTING);
-            } catch (IOException e) {
+            } catch (IOException | UnsupportedOperationException e) {
                 throw new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
                     "The import archive cannot be written for " + server.id() + " ("
                         + e.getClass().getSimpleName() + "); nothing was sent",
-                    "The temporary directory is not writable", "Check java.io.tmpdir")
+                    CliResources.NO_PRIVATE_ACCESS,
+                    CliResources.privateFileStep(tempRoot, runner.windows()))
                     .withNode(server.id()));
             }
             return runner.run(server, credentials.username().orElseThrow().value(),
@@ -226,8 +225,9 @@ public final class CliImportRunner {
         }
     }
 
-    private static CliCommand command(Path file, Mode mode, String owner) {
-        CliCommand.Builder command = CliCommand.command("import").path("--importFile", file);
+    private CliCommand command(Path file, Mode mode, String owner) {
+        CliCommand.Builder command = CliCommand.command("import")
+            .path("--importFile", file, runner.windows());
         switch (mode) {
             case WORKFLOW -> command.flag("--importWorkflow");
             case WORKFLOW_ACTIVE -> command.flag("--importWorkflow")

@@ -26,6 +26,8 @@ import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
@@ -135,8 +137,8 @@ class PortSetRegistryTest {
 
     /** A runner that fails on any StartCLI launch. */
     private static CliRunner noStartCli() {
-        return new CliRunner(spec -> {
+        return TestCliRunners.forHost(spec -> {
             throw new AssertionError("no StartCLI run expected: " + spec.command());
-        }, Map.of(), false, new CliResources("acme"));
+        }, Map.of(), new CliResources("acme", PrivateFiles.forHost()));
     }
 }

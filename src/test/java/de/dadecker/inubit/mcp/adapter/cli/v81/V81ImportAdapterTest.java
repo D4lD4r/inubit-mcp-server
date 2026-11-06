@@ -20,9 +20,12 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ImportPort.Mode;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -53,17 +56,16 @@ class V81ImportAdapterTest {
             Optional.empty(), Optional.empty());
         CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", DEV),
             new MutableClock(Instant.parse("2026-10-07T08:00:00Z")));
-        CliRunner runner = new CliRunner(spec -> {
+        CliRunner runner = TestCliRunners.forHost(spec -> {
             calls.add("startcli");
             return cli.launch(spec);
-        }, Map.of("PATH", "/usr/bin"), false, new CliResources("acme"));
+        }, Map.of("PATH", Platform.searchPath()), new CliResources("acme", PrivateFiles.forHost()));
         return new V81ImportAdapter(new CliImportRunner(server, credentials, guard, runner,
             new CliOutputClassifier(new SecretScrubber())), () -> calls.add("confirm"));
     }
 
     private EffectiveNodeConfig withCli() throws IOException {
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
         return TestNodeConfig.node().cliHome(cliHome).cliJavaHome(Path.of("/opt/jdk-17"))
             .build();
     }

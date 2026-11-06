@@ -70,6 +70,25 @@ class CliOutputClassifierTest {
         assertThat(output.outputLines()).containsExactly("1-OK: Module exported successfully.");
     }
 
+    /** T023 (feature 013, FR-005): the client's prompt as the last output of a call. */
+    @ParameterizedTest
+    @ValueSource(strings = {"Password: ", "Password:", "Password: \n", "Password: \r\n",
+        "JAVA_HOME is set\r\nPassword: ", "JAVA_HOME is set\nPassword: \n\n"})
+    void thePasswordPromptAsTheLastOutputIsRecognised(String escaped) {
+        assertThat(CliOutputClassifier.endsAtThePasswordPrompt(unescape(escaped))).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "\n", "Password: 1-OK: Module exported successfully.\n",
+        "Password: \nConnecting\n", "JAVA_HOME is set\n", "Enter Password: x"})
+    void otherOutputIsNotThePasswordPrompt(String escaped) {
+        assertThat(CliOutputClassifier.endsAtThePasswordPrompt(unescape(escaped))).isFalse();
+    }
+
+    private static String unescape(String escaped) {
+        return escaped.replace("\\r", "\r").replace("\\n", "\n");
+    }
+
     @Test
     void aMessageAfterAnImportsProgressTextOnTheSameLineIsRead() {
         CliOutput output = classifier.parse(fixture("import_repository_new_files"));
@@ -191,7 +210,8 @@ class CliOutputClassifierTest {
     void aLoginFailureOfACredentialStoreNodeNamesItsEntriesAndNeedsNoRestart() {
         // feature 011 (T016, FR-010): the entries under the effective prefix, no restart
         CliOutputClassifier forNode = new CliOutputClassifier(scrubber, new SecretLabels.Store(
-            new CredentialNames("INUBIT_ACME", NodeId.parse("test/node1")), StoreKind.KEYCHAIN));
+            new CredentialNames("INUBIT_ACME", NodeId.parse("test/node1")), StoreKind.KEYCHAIN),
+            false);
 
         CliOutcome outcome = forNode.classify(fixture("login_failed"));
 
@@ -211,7 +231,7 @@ class CliOutputClassifierTest {
             NodeId.parse("test/node1"), new StoreLocation("eu-central-1", Optional.empty()),
             new ParameterNames(Optional.of("/inubit/test/node1/username"),
                 Optional.of("/inubit/test/node1/password"), Optional.empty(), Optional.empty(),
-                Optional.empty())));
+                Optional.empty())), false);
 
         CliOutcome outcome = forNode.classify(fixture("login_failed"));
 
@@ -240,6 +260,26 @@ class CliOutputClassifierTest {
             + "CONNECTION ERROR\nCommand not found.\n");
 
         assertThat(failure(result).code()).isEqualTo(ErrorCode.AUTH_FAILED);
+    }
+
+    /** Feature 013 T013: the next step names the client script of the platform (FR-001). */
+    @Test
+    void anUnknownCommandNamesTheClientScriptOfThePlatform() {
+        SecretLabels labels = new SecretLabels.Store(
+            new CredentialNames("INUBIT_ACME", NodeId.parse("test/node1")), StoreKind.KEYCHAIN);
+        CliResult result = fixture("unknown_command");
+
+        ToolError posix = ((CliOutcome.Failure) new CliOutputClassifier(scrubber, labels, false)
+            .classify(result)).error();
+        ToolError windows = ((CliOutcome.Failure) new CliOutputClassifier(scrubber, labels, true)
+            .classify(result)).error();
+
+        assertThat(posix.code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(posix.nextStep()).isEqualTo("Check that cliHome matches the INUBIT server"
+            + " version (startcli.sh -v) and report it");
+        assertThat(windows.code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(windows.nextStep()).isEqualTo("Check that cliHome matches the INUBIT server"
+            + " version (bin\\startcli.bat -v) and report it");
     }
 
     @ParameterizedTest

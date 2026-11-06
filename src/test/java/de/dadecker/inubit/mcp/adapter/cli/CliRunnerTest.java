@@ -14,7 +14,11 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.lang.reflect.Method;
@@ -37,7 +41,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** T022: the StartCLI process layer with {@link FakeProcessLauncher} (research R-6, R-12). */
 @Timeout(30)
@@ -55,9 +64,8 @@ class CliRunnerTest {
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
-        parentEnv.put("PATH", "/usr/bin:/bin");
+        script = FakeStartCli.install(cliHome).script();
+        parentEnv.put("PATH", Platform.searchPath());
         parentEnv.put("HOME", "/Users/jdoe");
         parentEnv.put("TMPDIR", "/var/tmp/");
         parentEnv.put("LANG", "de_DE.UTF-8");
@@ -73,7 +81,8 @@ class CliRunnerTest {
     }
 
     private CliRunner runner(FakeProcessLauncher launcher) {
-        return new CliRunner(launcher, parentEnv, false, new CliResources("acme"));
+        return TestCliRunners.forHost(launcher, parentEnv,
+            new CliResources("acme", PrivateFiles.forHost()));
     }
 
     private CliResult run(FakeProcessLauncher launcher, EffectiveNodeConfig config) {
@@ -126,10 +135,10 @@ class CliRunnerTest {
     @Test
     void afterShutdownNoStartCliProcessIsStarted() {
         // Phase 6 review W2: a launch after close is refused before anything is started
-        CliResources resources = new CliResources("acme");
+        CliResources resources = new CliResources("acme", PrivateFiles.forHost());
         resources.close();
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
-        CliRunner runner = new CliRunner(launcher, parentEnv, false, resources);
+        CliRunner runner = TestCliRunners.forHost(launcher, parentEnv, resources);
 
         ToolError error = errorOf(() -> runner.run(server().build(), USER, Secret.of(PASSWORD),
             CliCommand.processErrorStart("110190387"), Duration.ofSeconds(5), guard()));
@@ -186,12 +195,35 @@ class CliRunnerTest {
         run(launcher, server().trustStore(trustStore).disableHostnameVerification("AB".repeat(32))
             .build());
 
-        assertThat(launcher.last().spec().command()).containsExactly(
-            script.toString(), "-u", USER,
+        assertThat(launcher.last().spec().startCliArguments()).containsExactly(
+            "-u", USER,
             "--trustStoreFilePath", trustStore.toString(),
             "--disableHostNameVerification",
             "--execCommand", "processErrorStart 110190387",
             "https://inubit-dev-1.example.test:8443/ibis/servlet/IBISSoapServlet");
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void onPosixTheCommandIsTheScriptFollowedByTheStartCliArguments() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+
+        run(launcher, server().build());
+
+        List<String> command = launcher.last().spec().command();
+        assertThat(command.get(0)).isEqualTo(script.toString());
+        assertThat(command.subList(1, command.size()))
+            .isEqualTo(launcher.last().spec().startCliArguments());
+    }
+
+    @Test
+    void theLaunchSpecDescriptionShowsNoStartCliArgument() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+
+        run(launcher, server().build());
+
+        assertThat(launcher.last().spec().toString()).doesNotContain(USER)
+            .doesNotContain("processErrorStart").doesNotContain("inubit-dev-1");
     }
 
     @Test
@@ -213,8 +245,8 @@ class CliRunnerTest {
         run(launcher, server().cliUrl("https://cli.example.test/ibis/servlet/IBISSoapServlet")
             .build());
 
-        assertThat(launcher.last().spec().command()).containsExactly(
-            script.toString(), "-u", USER, "--execCommand", "processErrorStart 110190387",
+        assertThat(launcher.last().spec().startCliArguments()).containsExactly(
+            "-u", USER, "--execCommand", "processErrorStart 110190387",
             "https://cli.example.test/ibis/servlet/IBISSoapServlet");
     }
 
@@ -225,7 +257,7 @@ class CliRunnerTest {
 
         run(launcher, server().trustStore(trustStore).build());
 
-        assertThat(launcher.last().spec().command())
+        assertThat(launcher.last().spec().startCliArguments())
             .containsSubsequence("--trustStoreFilePath", trustStore.toString())
             .doesNotContain("--disableHostNameVerification");
     }
@@ -283,10 +315,15 @@ class CliRunnerTest {
         run(launcher, server().build());
 
         assertThat(launcher.last().spec().environment())
-            .containsEntry("JAVA_TOOL_OPTIONS", "-Duser.language=en -Duser.country=US");
+            .containsEntry("JAVA_TOOL_OPTIONS", Platform.windows()
+                ? StartCliEnvironment.WINDOWS_JAVA_TOOL_OPTIONS
+                : "-Duser.language=en -Duser.country=US");
     }
 
+    /** Windows: {@link #onWindowsTheEnvironmentIsTheWindowsAllowlist()}. */
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "the POSIX allowlist; the Windows one is"
+        + " checked on every host with the simulated Windows runner")
     void theChildEnvironmentIsAnAllowlist() {
         parentEnv.put("INUBIT_DEV_PASSWORD", "dev-secret");
         parentEnv.put("INUBIT_QA_NODE2_PASSWORD", "qa-secret");
@@ -303,7 +340,7 @@ class CliRunnerTest {
         Map<String, String> env = launcher.last().spec().environment();
         assertThat(env.keySet()).containsExactlyInAnyOrder("PATH", "HOME", "TMPDIR", "LANG",
             "LC_ALL", "USER", "JAVA_HOME", "JAVA_TOOL_OPTIONS");
-        assertThat(env).containsEntry("PATH", "/usr/bin:/bin").containsEntry("USER", "jdoe")
+        assertThat(env).containsEntry("PATH", Platform.searchPath()).containsEntry("USER", "jdoe")
             .containsEntry("LANG", "de_DE.UTF-8");
         assertThat(env.values()).doesNotContain("dev-secret", "qa-secret", "db-secret",
             "ghp_token", "/evil", "/evil.dylib");
@@ -353,6 +390,61 @@ class CliRunnerTest {
         assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
         assertThat(launcher.last().destroyed()).isTrue();
         assertThat(launcher.last().destroyedForcibly()).isFalse();
+    }
+
+    /** The cause and next step of a timeout as on macOS and Linux (before feature 013). */
+    private static final String TIMEOUT_CAUSE =
+        "The INUBIT server is slow or unreachable, or StartCLI waits for input";
+    private static final String TIMEOUT_NEXT_STEP =
+        "Check get_health; raise cliTimeout if the INUBIT server is just slow";
+
+    /** T023 (feature 013, FR-005, US4 AS6): the client cannot be told from a slow server. */
+    @Test
+    void onWindowsATimeoutAfterThePasswordPromptNamesBothPossibilities() throws IOException {
+        batchFile(cliHome);
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(
+            "JAVA_HOME is set\r\nPassword: ", "", 0).hanging();
+
+        ToolError error = errorOf(() -> windowsRunner(launcher).run(server().build(), USER,
+            Secret.of(PASSWORD), CliCommand.kill("1"), Duration.ofMillis(200), guard()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(error.message()).startsWith("StartCLI did not finish within");
+        assertThat(error.likelyCause())
+            .contains("waiting for the password on its console")
+            .contains("the INUBIT server is slow");
+        assertThat(error.nextStep()).startsWith(TIMEOUT_NEXT_STEP)
+            .contains("docs/live-tests.md").contains("live check");
+        assertThat(error.toString()).doesNotContain(PASSWORD);
+    }
+
+    @Test
+    void onWindowsATimeoutWithOtherLastOutputKeepsTheMessage() throws IOException {
+        batchFile(cliHome);
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("Password: \r\nConnecting\r\n",
+            "", 0).hanging();
+
+        ToolError error = errorOf(() -> windowsRunner(launcher).run(server().build(), USER,
+            Secret.of(PASSWORD), CliCommand.kill("1"), Duration.ofMillis(200), guard()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(error.likelyCause()).isEqualTo(TIMEOUT_CAUSE);
+        assertThat(error.nextStep()).isEqualTo(TIMEOUT_NEXT_STEP);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "Password: "})
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "the POSIX runner of the host; the Windows"
+        + " cases are onWindowsATimeout…")
+    void onPosixATimeoutKeepsTheMessageWithOrWithoutThePrompt(String stdout) {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(stdout, "", 0).hanging();
+
+        ToolError error = errorOf(() -> runner(launcher).run(server().build(), USER,
+            Secret.of(PASSWORD), CliCommand.kill("1"), Duration.ofMillis(200), guard()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(error.likelyCause()).isEqualTo(TIMEOUT_CAUSE);
+        assertThat(error.nextStep()).isEqualTo(TIMEOUT_NEXT_STEP);
     }
 
     @Test
@@ -426,7 +518,7 @@ class CliRunnerTest {
         ToolError error = errorOf(() -> run(launcher, server().build()));
 
         assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
-        assertThat(error.toString()).contains("startcli.sh");
+        assertThat(error.toString()).contains(script.getFileName().toString());
         assertThat(launcher.launchCount()).isZero();
     }
 
@@ -437,22 +529,6 @@ class CliRunnerTest {
 
         assertThat(errorOf(() -> run(launcher, server().build())).code())
             .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
-    }
-
-    @Test
-    void cliToolsAreNotSupportedOnWindows() throws IOException {
-        Files.writeString(cliHome.resolve("bin").resolve("startcli.bat"), "@echo off\r\n");
-        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
-
-        ToolError error = errorOf(() -> new CliRunner(launcher, parentEnv, true,
-            new CliResources("acme")).run(
-            server().build(), USER, Secret.of(PASSWORD), CliCommand.kill("1"),
-            Duration.ofSeconds(5), guard()));
-
-        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
-        assertThat(error.likelyCause())
-            .isEqualTo("CLI tools are not supported on Windows in this version");
-        assertThat(launcher.launchCount()).isZero();
     }
 
     @Test
@@ -548,7 +624,7 @@ class CliRunnerTest {
         assertThat(env.keySet()).containsExactlyInAnyOrder("PATH", "HOME", "TMPDIR", "LANG",
             "LC_ALL", "USER", "JAVA_HOME", "JAVA_TOOL_OPTIONS");
         assertThat(env).containsEntry("JAVA_HOME", JAVA_HOME.toString())
-            .containsEntry("JAVA_TOOL_OPTIONS", CliRunner.JAVA_TOOL_OPTIONS);
+            .containsEntry("JAVA_TOOL_OPTIONS", StartCliEnvironment.JAVA_TOOL_OPTIONS);
         assertThat(String.join(" ", env.values())).doesNotContain(PASSWORD);
         assertThat(launcher.last().spec().workingDirectory()).isEqualTo(cliHome);
     }
@@ -718,7 +794,7 @@ class CliRunnerTest {
         assertThat(process.spec().command()).containsExactly(script.toString(), "-u", USER,
             "--trustStoreFilePath", trustStore.toString(), URL);
         assertThat(process.spec().environment())
-            .containsEntry("JAVA_TOOL_OPTIONS", CliRunner.JAVA_TOOL_OPTIONS);
+            .containsEntry("JAVA_TOOL_OPTIONS", StartCliEnvironment.JAVA_TOOL_OPTIONS);
     }
 
     @Test
@@ -731,7 +807,7 @@ class CliRunnerTest {
 
         assertThat(process.spec().command()).containsExactly(script.toString(), "-u", USER, URL);
         assertThat(process.spec().environment()).containsEntry("JAVA_TOOL_OPTIONS",
-            CliRunner.JAVA_TOOL_OPTIONS + " -Djavax.net.ssl.trustStore=" + trustStore
+            StartCliEnvironment.JAVA_TOOL_OPTIONS + " -Djavax.net.ssl.trustStore=" + trustStore
                 + " -Djavax.net.ssl.trustStoreType=PKCS12");
     }
 
@@ -743,7 +819,7 @@ class CliRunnerTest {
             session(server().trustStore(trustStore).build(), NO_OPTIONS);
 
         assertThat(process.spec().environment()).containsEntry("JAVA_TOOL_OPTIONS",
-            CliRunner.JAVA_TOOL_OPTIONS + " -Djavax.net.ssl.trustStore=" + trustStore
+            StartCliEnvironment.JAVA_TOOL_OPTIONS + " -Djavax.net.ssl.trustStore=" + trustStore
                 + " -Djavax.net.ssl.trustStoreType=JKS");
     }
 
@@ -755,7 +831,7 @@ class CliRunnerTest {
             assertThat(process.spec().command()).as("%s", options)
                 .containsExactly(script.toString(), "-u", USER, URL);
             assertThat(process.spec().environment()).as("%s", options)
-                .containsEntry("JAVA_TOOL_OPTIONS", CliRunner.JAVA_TOOL_OPTIONS);
+                .containsEntry("JAVA_TOOL_OPTIONS", StartCliEnvironment.JAVA_TOOL_OPTIONS);
         }
     }
 
@@ -829,8 +905,435 @@ class CliRunnerTest {
             assertThat(process.spec().command())
                 .containsExactly(script.toString(), "-u", USER, URL);
             assertThat(process.spec().environment())
-                .containsEntry("JAVA_TOOL_OPTIONS", CliRunner.JAVA_TOOL_OPTIONS);
+                .containsEntry("JAVA_TOOL_OPTIONS", StartCliEnvironment.JAVA_TOOL_OPTIONS);
         });
+    }
+
+    // --- feature 013 T013: the Windows launch, on every host with a simulated Windows runner ---
+
+    private static final String SYSTEM_DIRECTORY = TestCliRunners.SYSTEM_DIRECTORY;
+    private static final String COMMAND = "processErrorStart 110190387";
+
+    /** {@code <cliHome>/bin/startcli.bat}, which the Windows runner starts. */
+    private Path batchFile(Path home) throws IOException {
+        Path bat = Files.createDirectories(home.resolve("bin")).resolve("startcli.bat");
+        Files.writeString(bat, "@echo off\r\n");
+        return bat;
+    }
+
+    private CliRunner windowsRunner(FakeProcessLauncher launcher) {
+        return TestCliRunners.simulatedWindows(launcher, parentEnv,
+            new ProcessContainment.Bound(), new CliResources("acme", PrivateFiles.forHost()));
+    }
+
+    private CliResult runOnWindows(CliRunner runner, EffectiveNodeConfig config,
+        CliCommand command) {
+        return runner.run(config, USER, Secret.of(PASSWORD), command, Duration.ofSeconds(5),
+            guard());
+    }
+
+    /** {@code export} with diagram groups, whose command line has exactly {@code length} chars. */
+    private static CliCommand commandOfLength(int length) {
+        CliCommand.Builder builder = CliCommand.command("export");
+        int remaining = length - "export".length();
+        // each group adds " --exportWorkflowGroup '<value>'": 25 characters plus the value
+        while (remaining > 225) {
+            int value = Math.min(190, remaining - 25 - 26);
+            builder.quoted("--exportWorkflowGroup", "G".repeat(value));
+            remaining -= 25 + value;
+        }
+        builder.quoted("--exportWorkflowGroup", "G".repeat(remaining - 25));
+        CliCommand command = builder.build();
+        assertThat(command.commandLine()).hasSize(length);
+        return command;
+    }
+
+    /**
+     * The length of the command that makes the inner line of {@code -u <user> --execCommand
+     * <command> <url>} exactly {@link WindowsCommandLine#MAX_INNER_LENGTH} long: the outer
+     * quotes, {@code "<script>"} and {@code  "<arg>"} per argument.
+     */
+    private int longestCommand(Path bat) {
+        int configured = 4 + bat.toString().length()
+            + List.of("-u", USER, "--execCommand", URL).stream()
+                .mapToInt(argument -> 3 + argument.length()).sum();
+        return WindowsCommandLine.MAX_INNER_LENGTH - configured - 3;
+    }
+
+    private ToolError windowsRefusal(EffectiveNodeConfig config) {
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+        ToolError error = errorOf(() -> runOnWindows(windowsRunner(launcher), config,
+            CliCommand.processErrorStart("110190387")));
+        assertThat(launcher.launchCount()).as("nothing is started").isZero();
+        return error;
+    }
+
+    /** Runs on simulated Windows as {@code username} with {@code password}; nothing may start. */
+    private ToolError windowsCredentialRefusal(String username, String password,
+        CredentialGuard guard) throws IOException {
+        batchFile(cliHome);
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+        ToolError error = errorOf(() -> windowsRunner(launcher).run(server().build(), username,
+            Secret.of(password), CliCommand.processErrorStart("110190387"),
+            Duration.ofSeconds(5), guard));
+        assertThat(launcher.launchCount()).as("nothing is started").isZero();
+        return error;
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', quoteCharacter = '`', value = {
+        "j\"doe|double quote", "j%doe|percent sign", "j!doe|exclamation mark", "j^doe|caret",
+        "j&doe|ampersand", "`j|doe`|vertical bar", "j<doe|less-than sign",
+        "j>doe|greater-than sign", "j\tdoe|control character", "jd\u00f6e|non-ASCII character"})
+    void onWindowsAUsernameWithARefusedCharacterIsAuthFailedWithoutALoginAttempt(String username,
+        String characterClass) throws IOException {
+        CredentialGuard guard = guard();
+        ToolError error = windowsCredentialRefusal(username, PASSWORD, guard);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(error.message()).contains("dev/node1", "username",
+            "credential store entry", "(" + characterClass + ")");
+        assertThat(error.nextStep()).contains("credential store entry", "restart");
+        assertThat(error.toString()).doesNotContain(username, PASSWORD);
+        // no failed-login count: the guard neither pauses nor confirms
+        assertThat(guard.confirmed()).isFalse();
+        try (CredentialGuard.Permit permit = guard.acquire()) {
+            assertThat(permit).isNotNull();
+        }
+    }
+
+    @Test
+    void onWindowsAPasswordWithANonAsciiCharacterIsAuthFailedWithoutALoginAttempt()
+        throws IOException {
+        CredentialGuard guard = guard();
+        String password = "S3cr3t-p\u00e4ss";
+
+        ToolError error = windowsCredentialRefusal(USER, password, guard);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(error.message()).contains("dev/node1", "password", "credential store entry",
+            "non-ASCII character");
+        assertThat(error.toString()).doesNotContain(password);
+        try (CredentialGuard.Permit permit = guard.acquire()) {
+            assertThat(permit).isNotNull();
+        }
+    }
+
+    @Test
+    void onWindowsAPasswordWithInterpretedAsciiCharactersIsPassedOnStdin() throws IOException {
+        batchFile(cliHome);
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+
+        windowsRunner(launcher).run(server().build(), USER, Secret.of("p%w^d!&\"<>|"),
+            CliCommand.processErrorStart("110190387"), Duration.ofSeconds(5), guard());
+
+        assertThat(launcher.launchCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "runner(…) is the host's; the Windows"
+        + " refusal has its own cases")
+    void offWindowsTheCredentialsAreNotCheckedForTheCommandInterpreter() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+
+        runner(launcher).run(server().build(), "j^d\u00f6e", Secret.of("p\u00e4ss"),
+            CliCommand.processErrorStart("110190387"), Duration.ofSeconds(5), guard());
+
+        assertThat(launcher.launchCount()).isEqualTo(1);
+    }
+
+    @Test
+    void onWindowsTheInterpreterStartsTheBatchFileWithEveryArgumentQuoted() throws IOException {
+        Path bat = batchFile(cliHome);
+        Path trustStore = Path.of("C:\\certs\\trust store.p12");
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+
+        runOnWindows(windowsRunner(launcher), server().trustStore(trustStore)
+            .disableHostnameVerification("AB".repeat(32)).build(),
+            CliCommand.processErrorStart("110190387"));
+
+        ProcessLauncher.LaunchSpec spec = launcher.last().spec();
+        assertThat(spec.command()).containsExactly(SYSTEM_DIRECTORY + "\\cmd.exe", "/d",
+            "/v:off", "/s", "/c",
+            "\"\"" + bat + "\" \"-u\" \"" + USER + "\" \"--trustStoreFilePath\" \"" + trustStore
+                + "\" \"--disableHostNameVerification\" \"--execCommand\" \"" + COMMAND + "\" \""
+                + URL + "\"\"");
+        assertThat(spec.startCliArguments()).containsExactly("-u", USER, "--trustStoreFilePath",
+            trustStore.toString(), "--disableHostNameVerification", "--execCommand", COMMAND,
+            URL);
+        assertThat(spec.workingDirectory()).isEqualTo(cliHome);
+        assertThat(new String(launcher.last().stdinBytes(), StandardCharsets.UTF_8))
+            .isEqualTo(PASSWORD + "\n");
+        assertThat(String.join(" ", spec.command())).doesNotContain(PASSWORD);
+    }
+
+    @Test
+    void onWindowsTheEnvironmentIsTheWindowsAllowlist() throws IOException {
+        batchFile(cliHome);
+        parentEnv.put("SystemRoot", "C:\\Windows");
+        parentEnv.put("USERPROFILE", "C:\\Users\\jdoe");
+        parentEnv.put("INUBIT_DEV_PASSWORD", "dev-secret");
+        parentEnv.put("JAVA_TOOL_OPTIONS", "-javaagent:C:\\evil.jar");
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+
+        runOnWindows(windowsRunner(launcher), server().build(),
+            CliCommand.processErrorStart("110190387"));
+
+        Map<String, String> environment = launcher.last().spec().environment();
+        assertThat(environment).isEqualTo(StartCliEnvironment.windows(parentEnv,
+            JAVA_HOME.toString(), SYSTEM_DIRECTORY));
+        assertThat(environment).containsEntry("PATH",
+                JAVA_HOME + "\\bin;" + SYSTEM_DIRECTORY)
+            .containsEntry("ComSpec", SYSTEM_DIRECTORY + "\\cmd.exe")
+            .containsEntry("JAVA_TOOL_OPTIONS", StartCliEnvironment.WINDOWS_JAVA_TOOL_OPTIONS)
+            .containsEntry("USERPROFILE", "C:\\Users\\jdoe")
+            .doesNotContainKeys("HOME", "INUBIT_DEV_PASSWORD");
+        assertThat(environment.values()).doesNotContain("dev-secret", PASSWORD);
+    }
+
+    @Test
+    void onWindowsTheServersJavaHomeIsFoundInAnySpelling() throws IOException {
+        batchFile(cliHome);
+        parentEnv.put("Java_Home", "C:\\Program Files\\Java\\jdk-17");
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+
+        runOnWindows(windowsRunner(launcher), TestNodeConfig.node().cliHome(cliHome).build(),
+            CliCommand.processErrorStart("110190387"));
+
+        assertThat(launcher.last().spec().environment())
+            .containsEntry("JAVA_HOME", "C:\\Program Files\\Java\\jdk-17")
+            .containsEntry("PATH", "C:\\Program Files\\Java\\jdk-17\\bin;" + SYSTEM_DIRECTORY);
+    }
+
+    @Test
+    void onWindowsTheOutputIsDecodedWithCrlfAsLf() throws IOException {
+        batchFile(cliHome);
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("line 1\r\nline 2\r\n",
+            "warning\r\n", 0);
+
+        CliResult result = runOnWindows(windowsRunner(launcher), server().build(),
+            CliCommand.processErrorStart("110190387"));
+
+        assertThat(result.stdout()).isEqualTo("line 1\nline 2\n");
+        assertThat(result.stderr()).isEqualTo("warning\n");
+    }
+
+    @Test
+    void onWindowsTheLongestAllowedCommandRuns() throws IOException {
+        Path bat = batchFile(cliHome);
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+
+        runOnWindows(windowsRunner(launcher), server().cliUrl(URL).build(),
+            commandOfLength(longestCommand(bat)));
+
+        assertThat(launcher.launchCount()).isOne();
+        assertThat(launcher.last().spec().command().get(5))
+            .hasSize(WindowsCommandLine.MAX_INNER_LENGTH);
+    }
+
+    @Test
+    void onWindowsAToolInputOverTheLimitIsInvalidInputAndNothingStarts() throws IOException {
+        Path bat = batchFile(cliHome);
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+        CliCommand command = commandOfLength(longestCommand(bat) + 1);
+
+        ToolError error = errorOf(() -> runOnWindows(windowsRunner(launcher),
+            server().cliUrl(URL).build(), command));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(error.message()).contains("6144", "6143");
+        assertThat(error.toString()).doesNotContain("GGGG");
+        assertThat(launcher.launchCount()).isZero();
+    }
+
+    @Test
+    void onWindowsConfiguredValuesOverTheLimitAreCliUnavailableNamingTheSetting()
+        throws IOException {
+        batchFile(cliHome);
+        Path trustStore = Path.of("C:\\" + "t".repeat(6200) + ".p12");
+
+        ToolError error = windowsRefusal(server().trustStore(trustStore).build());
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(error.message()).contains("dev/node1",
+            "the StartCLI command line would exceed 6143 characters (tls.trustStore)");
+        assertThat(error.toString()).doesNotContain("tttt");
+    }
+
+    @Test
+    void onWindowsACliHomeWithAnInterpretedCharacterIsRefusedWithoutTheValue()
+        throws IOException {
+        Path home = Files.createDirectories(cliHome.resolve("client%PATH%"));
+        batchFile(home);
+
+        ToolError error = windowsRefusal(server().cliHome(home).build());
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(error.message()).contains("cli.home contains a character the Windows command"
+            + " interpreter interprets (percent sign)");
+        assertThat(error.toString()).doesNotContain("client%PATH%");
+    }
+
+    @Test
+    void onWindowsANetworkCliHomeIsRefused() {
+        Path unc = Path.of("\\\\fileserver\\share\\inubit-client");
+
+        ToolError error = windowsRefusal(server().cliHome(unc).build());
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(error.message()).contains("cli.home is a network path (\\\\…)");
+        assertThat(error.nextStep()).contains("local drive");
+        assertThat(error.toString()).doesNotContain("fileserver");
+    }
+
+    @Test
+    void onWindowsATrustStoreWithAnInterpretedCharacterIsRefusedWithoutTheValue()
+        throws IOException {
+        batchFile(cliHome);
+
+        ToolError error = windowsRefusal(server()
+            .trustStore(Path.of("C:\\certs\\a&calc.p12")).build());
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(error.message()).contains("tls.trustStore contains a character the Windows"
+            + " command interpreter interprets (ampersand)");
+        assertThat(error.toString()).doesNotContain("calc");
+    }
+
+    @Test
+    void onWindowsAStartCliUrlWithAnInterpretedCharacterIsRefusedWithoutTheValue()
+        throws IOException {
+        batchFile(cliHome);
+
+        ToolError error = windowsRefusal(server()
+            .cliUrl("https://cli.example.test/ibis!x!/servlet/IBISSoapServlet").build());
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(error.message()).contains("cli.url contains a character the Windows command"
+            + " interpreter interprets (exclamation mark)");
+        assertThat(error.toString()).doesNotContain("ibis!x!");
+    }
+
+    @Test
+    void onWindowsAJavaHomeWithASemicolonIsRefusedBecauseItGoesIntoPath() throws IOException {
+        batchFile(cliHome);
+
+        ToolError error = windowsRefusal(server()
+            .cliJavaHome(Path.of("C:\\jdk17;decoy")).build());
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(error.message()).contains("cli.javaHome contains a character the Windows"
+            + " command interpreter interprets (semicolon)");
+        assertThat(error.toString()).doesNotContain("decoy");
+    }
+
+    @Test
+    void onWindowsTheServersJavaHomeWithAnInterpretedCharacterIsRefusedNamingJavaHome()
+        throws IOException {
+        batchFile(cliHome);
+        parentEnv.put("JAVA_HOME", "C:\\jdk^17");
+
+        ToolError error = windowsRefusal(TestNodeConfig.node().cliHome(cliHome).build());
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(error.message()).contains("JAVA_HOME contains a character the Windows"
+            + " command interpreter interprets (caret)");
+        assertThat(error.toString()).doesNotContain("jdk^17");
+    }
+
+    @Test
+    void onWindowsUnboundStartCliProcessesMakeTheCliUnavailable() throws IOException {
+        batchFile(cliHome);
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+        CliRunner runner = TestCliRunners.simulatedWindows(launcher, parentEnv,
+            new ProcessContainment.Unavailable("AssignProcessToJobObject failed (Windows error"
+                + " 5)"), new CliResources("acme", PrivateFiles.forHost()));
+
+        ToolError check = errorOf(() -> runner.checkAvailable(server().build()));
+        ToolError run = errorOf(() -> runOnWindows(runner, server().build(),
+            CliCommand.processErrorStart("110190387")));
+
+        assertThat(check.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(run).isEqualTo(check);
+        assertThat(run.message()).contains("StartCLI processes could not be bound to the server"
+            + " (AssignProcessToJobObject failed (Windows error 5))");
+        assertThat(launcher.launchCount()).isZero();
+    }
+
+    @Test
+    void buildingAWindowsRunnerAsksTheSystemNothing() {
+        CliSystem untouched = new CliSystem() {
+            @Override
+            public SystemDirectory systemDirectory() {
+                throw new AssertionError("system directory read while building the runner");
+            }
+
+            @Override
+            public java.nio.charset.Charset oemCharset() {
+                throw new AssertionError("OEM code page read while building the runner");
+            }
+        };
+
+        new CliRunner(FakeProcessLauncher.replaying("processErrorStart_ok"), parentEnv, true,
+            untouched, ProcessContainment.Bound::new,
+                new CliResources("acme", PrivateFiles.forHost()));
+    }
+
+    @Test
+    void onWindowsAnUnreadableSystemDirectoryMakesTheCliUnavailable() throws IOException {
+        batchFile(cliHome);
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+        CliRunner runner = new CliRunner(launcher, parentEnv, true,
+            new TestCliRunners.FixedSystem(new CliSystem.Unreadable(
+                "GetSystemDirectoryW failed (Windows error 87)"), StandardCharsets.ISO_8859_1),
+            ProcessContainment.Bound::new, new CliResources("acme", PrivateFiles.forHost()));
+
+        ToolError error = errorOf(() -> runOnWindows(runner, server().build(),
+            CliCommand.processErrorStart("110190387")));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(error.message()).contains("the Windows system directory could not be read"
+            + " (GetSystemDirectoryW failed (Windows error 87))");
+        assertThat(launcher.launchCount()).isZero();
+    }
+
+    /**
+     * The client directory without a batch file is a fresh one: on a Windows host the
+     * {@code @BeforeEach} substitute is a real {@code bin\\startcli.bat} in {@link #cliHome}.
+     */
+    @Test
+    void onWindowsTheNextStepsNameTheBatchFileOrTheInterpreter() throws IOException {
+        Path withoutScript = Files.createDirectories(cliHome.resolve("without-script"));
+        FakeProcessLauncher missing = FakeProcessLauncher.replaying("processErrorStart_ok");
+        ToolError notFound = errorOf(() -> runOnWindows(windowsRunner(missing),
+            server().cliHome(withoutScript).build(), CliCommand.processErrorStart("110190387")));
+        batchFile(cliHome);
+        FakeProcessLauncher failing = FakeProcessLauncher.replaying("processErrorStart_ok")
+            .failingToLaunch(new IOException("CreateProcess error=267"));
+        ToolError notStarted = errorOf(() -> runOnWindows(windowsRunner(failing),
+            server().build(), CliCommand.processErrorStart("110190387")));
+
+        assertThat(notFound.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(notFound.nextStep()).contains("bin\\startcli.bat").doesNotContain(".sh");
+        assertThat(missing.launchCount()).isZero();
+        // the JDK could not create the interpreter process: its path or the working directory
+        assertThat(notStarted.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(notStarted.likelyCause()).contains(SYSTEM_DIRECTORY + "\\cmd.exe",
+            "cli.home");
+        assertThat(notStarted.likelyCause() + notStarted.nextStep())
+            .doesNotContain("startcli.sh", "permissions", "cli.javaHome");
+    }
+
+    @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "the POSIX runner of the host")
+    void onPosixTheWindowsCharacterRulesDoNotApply() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+        Path trustStore = Path.of("/etc/inubit/trust%x%&!.p12");
+
+        run(launcher, server().trustStore(trustStore).build());
+
+        assertThat(launcher.last().spec().startCliArguments()).contains(trustStore.toString());
+        assertThat(launcher.last().spec().command().get(0)).isEqualTo(script.toString());
     }
 
     // --- feature 014 T012: the StartCLI pin probe of a marked stage (FR-005a, R-15) -------------
@@ -854,7 +1357,8 @@ class CliRunnerTest {
     }
 
     private CliRunner runner(FakeProcessLauncher launcher, StartCliPinProbe probe) {
-        return new CliRunner(launcher, parentEnv, false, new CliResources("acme"), probe);
+        return TestCliRunners.forHost(launcher, parentEnv,
+            new CliResources("acme", PrivateFiles.forHost()), probe);
     }
 
     /** {@code server} as a server of a stage marked with {@code tls.pinPerServer}. */
@@ -927,8 +1431,8 @@ class CliRunnerTest {
 
             assertThat(own.handshakes()).isEqualTo(1);
             assertThat(launcher.launchCount()).isEqualTo(1);
-            assertThat(launcher.last().spec().command()).containsExactly(
-                script.toString(), "-u", USER,
+            // feature 013: on Windows the script runs through the interpreter
+            assertThat(launcher.last().spec().startCliArguments()).containsExactly("-u", USER,
                 "--trustStoreFilePath", CERTS.trustStore().toString(),
                 "--execCommand", "processErrorStart 110190387",
                 "https://localhost:" + own.port() + EffectiveNodeConfig.DEFAULT_CLI_PATH);

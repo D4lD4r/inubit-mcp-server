@@ -21,6 +21,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.testing.GitFreeTempDir;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
+import de.dadecker.inubit.mcp.testing.TestValidators;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -140,7 +141,7 @@ class V61RefusalTest {
             "INUBIT_ACME_LAB_USERNAME", "jdoe", "INUBIT_ACME_LAB_PASSWORD", "v61-refusal-pw",
             "INUBIT_ACME_OLD_USERNAME", "jdoe", "INUBIT_ACME_OLD_PASSWORD", "v61-refusal-pw"));
         // a configuration the server starts with: only the version keeps the tools from running
-        assertThat(new ConfigValidator(path -> true, Map.of(), false)
+        assertThat(TestValidators.of(path -> true, Map.of(), false)
             .validate(loaded).errors()).isEmpty();
         ProcessLauncher failing = spec -> {
             launches.add(spec);

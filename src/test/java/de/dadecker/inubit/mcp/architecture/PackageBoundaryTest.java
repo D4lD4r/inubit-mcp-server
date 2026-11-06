@@ -70,6 +70,11 @@ import org.junit.jupiter.api.Test;
  * store adapters {@code adapter.os}. The process rule is unchanged: {@code adapter.os} starts its
  * tools through the {@code ProcessLauncher} interface of {@code adapter.cli}.
  *
+ * <p>Feature 013 (T008, plan "Project Structure"): {@code adapter.os} also holds the Windows
+ * system queries (JNA), which reach {@code adapter.cli} through its port {@code CliSystem};
+ * {@code adapter.cli} never references {@code adapter.os}.
+ * <p>Feature 013 (T026): {@code config} never references an adapter; the launcher passes the
+ * host's private files in (no cycle with {@code adapter.os}, which reads the configuration).
  * <p>Feature 015 (T015, research R-10): the drive-type probe {@code JnaDriveTypeApi}
  * ({@code GetDriveTypeW}) joins the JNA users in {@code adapter.os}; the rule is unchanged.
  */
@@ -183,6 +188,18 @@ class PackageBoundaryTest {
     }
 
     @Test
+    void theCliAdapterDoesNotReachTheOsAdapter() {
+        assertThat(violations(inPackage("adapter/cli"), forbidden(BASE + OS_ADAPTER + "/")))
+            .as("adapter.cli → adapter.os (use the CliSystem port)").isEmpty();
+    }
+
+    @Test
+    void theConfigurationDoesNotReachTheAdapters() {
+        assertThat(violations(inPackage("config"), forbidden(BASE + "adapter/")))
+            .as("config → adapter (the launcher passes the adapters in)").isEmpty();
+    }
+
+    @Test
     void theOsAdapterReachesNeitherTheMcpLayerNorTheApplication() {
         assertThat(violations(inPackage(OS_ADAPTER), forbidden(BASE + "mcp/",
             BASE + "application/")))
@@ -246,6 +263,8 @@ class PackageBoundaryTest {
         assertThat(types(BASE + "adapter/aws/SsmParameterStore"))
             .anyMatch(t -> t.startsWith(AWS_SDK));
         assertThat(types(BASE + "adapter/os/JnaCredApi")).anyMatch(t -> t.startsWith(JNA));
+        assertThat(types(BASE + "adapter/os/WindowsSystem"))
+            .contains(BASE + "adapter/cli/CliSystem");
         assertThat(types(BASE + "adapter/os/JnaDriveTypeApi")).anyMatch(t -> t.startsWith(JNA));
         assertThat(types(BASE + "application/FanOut")).anyMatch(t -> t.startsWith("org/slf4j/"));
         assertThat(classes.get(BASE + "Wiring").members())

@@ -733,7 +733,8 @@ class RepositoryImportTest {
      * line; no line holds content of a repository file.
      */
     private List<JsonNode> auditLines() throws IOException {
-        AuditLog log = new AuditLog(auditDirectory, new SecretScrubber());
+        AuditLog log = new AuditLog(auditDirectory, new SecretScrubber(),
+                de.dadecker.inubit.mcp.testing.PrivateFiles.forHost());
         harness.audit("import_artifacts").forEach(log::append);
         List<JsonNode> lines = new ArrayList<>();
         try (Stream<Path> files = Files.list(auditDirectory)) {
@@ -1138,7 +1139,7 @@ class RepositoryImportTest {
                 + outcome.auditId() + "]\n\nServer-State: dev\nReason: Schemas");
         assertThat(harness.exports.git("show", "--name-only", "--format=", commit))
             .contains(WorkspacePath.repository(ImportHarness.DEV.group(), "jdoe", A).metaPath()
-                .toString(), file(B));
+                .toString().replace('\\', '/'), file(B));
 
         // FR-016: the commit is the new base, also of a.xsd, whose content it left unchanged
         ImportService.Response again = service.importArtifacts(harness.repositoryPaths(

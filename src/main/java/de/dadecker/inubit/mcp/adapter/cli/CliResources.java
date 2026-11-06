@@ -5,6 +5,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileVisitResult;
@@ -14,11 +15,11 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.nio.file.attribute.UserPrincipal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -47,8 +48,15 @@ import org.slf4j.LoggerFactory;
  *       {@code inubit-mcp-export-<profile>-<pid>-<random>} ({@link #exportPrefix()}), and
  *       {@link #sweepStale} deletes, at startup, the directories of this profile and this user
  *       whose MCP server process is no longer alive (plus such directories of feature 001);
- *       never those of another profile (002 research D-8).
- *   <li>Deleting never follows symbolic links: a link is removed, its target stays.
+ *       never those of another profile (002 research D-8). On Windows too (feature 013, R-10):
+ *       the owner is compared by the {@link PrivateFileSystem}, with the user of the token.
+ *   <li>Deleting never follows symbolic links or Windows junctions: a link is removed, its target
+ *       stays. A file that cannot be deleted (on Windows: held open by another process) is tried
+ *       again, {@link #DELETE_ATTEMPTS} times within {@link #DELETE_WITHIN} (FR-008); then the
+ *       directory, never a file in it, is logged.
+ *   <li>Export and import directories are created through the {@link #files() private file
+ *       system} (feature 013, FR-007): owner-only on POSIX, on Windows only this account and
+ *       {@code SYSTEM}.
  * </ul>
  */
 public final class CliResources implements AutoCloseable {
@@ -61,6 +69,12 @@ public final class CliResources implements AutoCloseable {
     private static final Pattern LEGACY_DIRECTORY =
         Pattern.compile("^" + EXPORT_PREFIX + "([0-9]{1,19})-[0-9]+$");
     private static final Duration POLL = Duration.ofMillis(20);
+    /** How often a directory is walked to delete it (feature 013, FR-008). */
+    static final int DELETE_ATTEMPTS = 5;
+    /** The bound of all attempts of one deletion (FR-008). */
+    static final Duration DELETE_WITHIN = Duration.ofSeconds(2);
+    /** The pause between two attempts: the attempts with their pauses stay within the bound. */
+    static final Duration DELETE_PAUSE = Duration.ofMillis(400);
     private static final Logger LOG = LoggerFactory.getLogger(CliResources.class);
 
     /** Ends one registration; idempotent. */
@@ -68,6 +82,27 @@ public final class CliResources implements AutoCloseable {
         @Override
         void close();
     }
+
+    /** Deletes one file or empty directory, as {@link Files#deleteIfExists}. */
+    @FunctionalInterface
+    interface Deleter {
+        void delete(Path path) throws IOException;
+    }
+
+    /** Waits between two deletion attempts. */
+    @FunctionalInterface
+    interface Pause {
+        void pause(Duration duration) throws InterruptedException;
+    }
+
+    /** Whether the current user owns {@code path}; {@link PrivateFileSystem#ownedByCurrentUser}. */
+    @FunctionalInterface
+    interface OwnerCheck {
+        boolean ownedByCurrentUser(Path path) throws IOException;
+    }
+
+    private static final Deleter FILES_DELETE = path -> Files.deleteIfExists(path);
+    private static final Pause SLEEP = duration -> Thread.sleep(duration);
 
     /** How long {@link #close()} waits for announced launches and directories to register. */
     static final Duration RESERVATION_WAIT = Duration.ofSeconds(10);
@@ -90,21 +125,30 @@ public final class CliResources implements AutoCloseable {
     private final Duration reservationWait;
     /** The profile this MCP server serves; part of the export directory names. */
     private final String profile;
+    /** Creates the export and import directories and files (feature 013, FR-007). */
+    private final PrivateFileSystem files;
 
     /**
      * Resources whose {@link #close()} waits at most {@link #RESERVATION_WAIT}.
      *
      * @param profile the profile name ({@code ^[a-z0-9][a-z0-9-]{0,31}$}), part of the export
      *     directory names (002 research D-8)
+     * @param files creates the export and import directories and files (feature 013, FR-007)
      */
-    public CliResources(String profile) {
-        this(profile, RESERVATION_WAIT);
+    public CliResources(String profile, PrivateFileSystem files) {
+        this(profile, RESERVATION_WAIT, files);
     }
 
     /** For tests: resources whose {@link #close()} waits at most {@code reservationWait}. */
-    CliResources(String profile, Duration reservationWait) {
+    CliResources(String profile, Duration reservationWait, PrivateFileSystem files) {
         this.profile = validProfile(profile);
         this.reservationWait = reservationWait;
+        this.files = Objects.requireNonNull(files, "files");
+    }
+
+    /** Creates the export and import directories and files (feature 013, FR-007). */
+    public PrivateFileSystem files() {
+        return files;
     }
 
     /**
@@ -372,44 +416,88 @@ public final class CliResources implements AutoCloseable {
     }
 
     /**
-     * Deletes {@code directory} with its content, deepest first, without following links; every
-     * entry is attempted, failures are logged, never thrown.
+     * Deletes {@code directory} with its content, deepest first, without following links or
+     * Windows junctions; every entry is attempted. Whatever could not be deleted (on Windows: a
+     * file held open by another process) is tried again, {@link #DELETE_ATTEMPTS} times within
+     * {@link #DELETE_WITHIN} (feature 013, FR-008); then the directory is logged, never a file in
+     * it. Never throws.
+     *
+     * @return true if {@code directory} is gone
      */
-    public static void deleteRecursively(Path directory) {
+    public static boolean deleteRecursively(Path directory) {
+        return deleteRecursively(directory, FILES_DELETE, SLEEP);
+    }
+
+    /** As {@link #deleteRecursively(Path)}, with the deletion and the pause of tests. */
+    static boolean deleteRecursively(Path directory, Deleter deleter, Pause pause) {
+        long deadline = System.nanoTime() + DELETE_WITHIN.toNanos();
+        for (int attempt = 1; ; attempt++) {
+            if (deleteOnce(directory, deleter)) {
+                return true;
+            }
+            if (attempt == DELETE_ATTEMPTS
+                || System.nanoTime() + DELETE_PAUSE.toNanos() > deadline) {
+                break;
+            }
+            try {
+                pause.pause(DELETE_PAUSE);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        LOG.warn("Export directory {} could not be deleted completely; a file in it may be open"
+            + " in another process", directory);
+        return false;
+    }
+
+    /** One walk over {@code directory}; true if it is gone afterwards. */
+    private static boolean deleteOnce(Path directory, Deleter deleter) {
         try {
             Files.walkFileTree(directory, new SimpleFileVisitor<>() {
                 @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attributes) {
+                    if (attributes.isOther()) {
+                        // a Windows junction is a directory to the walk: remove the link only
+                        delete(dir, deleter);
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
-                    delete(file);
+                    delete(file, deleter);
                     return FileVisitResult.CONTINUE;
                 }
 
                 @Override
                 public FileVisitResult visitFileFailed(Path file, IOException e) {
-                    delete(file);
+                    delete(file, deleter);
                     return FileVisitResult.CONTINUE;
                 }
 
                 @Override
                 public FileVisitResult postVisitDirectory(Path dir, IOException e) {
-                    delete(dir);
+                    delete(dir, deleter);
                     return FileVisitResult.CONTINUE;
                 }
             });
         } catch (NoSuchFileException e) {
-            // already gone
+            return true;
         } catch (IOException e) {
-            LOG.warn("Export directory {} could not be deleted ({})", directory,
+            LOG.debug("Walking export directory {} failed ({})", directory,
                 e.getClass().getSimpleName());
         }
+        return !Files.exists(directory, LinkOption.NOFOLLOW_LINKS);
     }
 
-    private static void delete(Path path) {
+    /** Failures are retried by the caller and reported for the directory, not per file. */
+    private static void delete(Path path, Deleter deleter) {
         try {
-            Files.deleteIfExists(path);
+            deleter.delete(path);
         } catch (IOException e) {
-            LOG.warn("Export file {} could not be deleted ({})", path,
-                e.getClass().getSimpleName());
+            LOG.debug("Deleting an export file failed ({})", e.getClass().getSimpleName());
         }
     }
 
@@ -427,9 +515,25 @@ public final class CliResources implements AutoCloseable {
      * temp cleaning) rather than risking the export directory of a running server. The sweep
      * never deletes the directories of the current process.
      *
+     * <p>The owner is compared by {@code files} (feature 013, R-10): on Windows with the user of
+     * the process token, elsewhere with {@code user.name}; an owner that cannot be read is not
+     * the current user's. A directory that could not be deleted completely (a file held open) is
+     * not counted and stays for a later sweep.
+     *
      * @return the number of directories deleted
      */
-    public static int sweepStale(Path root, String profile, UserPrincipal owner) {
+    public static int sweepStale(Path root, String profile, PrivateFileSystem files) {
+        return sweepStale(root, profile, files::ownedByCurrentUser, FILES_DELETE, SLEEP);
+    }
+
+    /** As {@link #sweepStale(Path, String, PrivateFileSystem)}, with the owner check of tests. */
+    static int sweepStale(Path root, String profile, OwnerCheck owner) {
+        return sweepStale(root, profile, owner, FILES_DELETE, SLEEP);
+    }
+
+    /** As {@link #sweepStale(Path, String, OwnerCheck)}, with the deletion of tests. */
+    static int sweepStale(Path root, String profile, OwnerCheck owner, Deleter deleter,
+        Pause pause) {
         if (!Files.isDirectory(root)) {
             return 0;
         }
@@ -458,12 +562,12 @@ public final class CliResources implements AutoCloseable {
                 }
                 BasicFileAttributes attributes = Files.readAttributes(entry,
                     BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-                if (!attributes.isDirectory()
-                    || !owner.equals(Files.getOwner(entry, LinkOption.NOFOLLOW_LINKS))) {
+                if (!attributes.isDirectory() || attributes.isOther() || !owned(owner, entry)) {
                     continue;
                 }
-                deleteRecursively(entry);
-                deleted++;
+                if (deleteRecursively(entry, deleter, pause)) {
+                    deleted++;
+                }
             }
         } catch (IOException e) {
             LOG.warn("Stale export directories in {} could not be listed ({})", root,
@@ -472,19 +576,39 @@ public final class CliResources implements AutoCloseable {
         return deleted;
     }
 
-    /**
-     * {@link #sweepStale(Path, String, UserPrincipal)} for the current user ({@code user.name}).
-     */
-    public static int sweepStale(Path root, String profile) {
+    private static boolean owned(OwnerCheck owner, Path entry) {
         try {
-            UserPrincipal me = root.getFileSystem().getUserPrincipalLookupService()
-                .lookupPrincipalByName(System.getProperty("user.name"));
-            return sweepStale(root, profile, me);
-        } catch (IOException | UnsupportedOperationException e) {
-            LOG.warn("Stale export directories are not swept ({})", e.getClass().getSimpleName());
-            return 0;
+            return owner.ownedByCurrentUser(entry);
+        } catch (IOException | RuntimeException e) {
+            LOG.debug("The owner of {} could not be read ({})", entry.getFileName(),
+                e.getClass().getSimpleName());
+            return false;
         }
     }
+
+    /**
+     * The next step when no private directory can be created in {@code parent} (feature 013,
+     * FR-007): it names the directory and the access the server needs there.
+     */
+    static String privateDirectoryStep(Path parent, boolean windows) {
+        return "Make sure the account of the MCP server can create directories in " + parent
+            + (windows ? " whose access is granted only to this account and SYSTEM (a protected"
+                + " access list without inherited entries)"
+                : " with owner-only permissions (rwx------)")
+            + ", or point java.io.tmpdir of the MCP server to such a directory";
+    }
+
+    /** As {@link #privateDirectoryStep} for a private file below {@code parent}. */
+    static String privateFileStep(Path parent, boolean windows) {
+        return "Make sure the account of the MCP server can create files below " + parent
+            + (windows ? " whose access is granted only to this account and SYSTEM"
+                : " with owner-only permissions (rw-------)")
+            + ", or point java.io.tmpdir of the MCP server to such a directory";
+    }
+
+    /** The cause when a private directory or file cannot be created. */
+    static final String NO_PRIVATE_ACCESS = "The temporary directory is not writable, or the"
+        + " access to what is created in it cannot be restricted to the MCP server's account";
 
     private static ToolErrorException shuttingDown() {
         return new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
