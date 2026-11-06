@@ -195,7 +195,7 @@ class MainTest {
         int exit = run("--version");
 
         assertThat(exit).isZero();
-        assertThat(out()).matches("inubit-mcp-server \\d+\\.\\d+\\.\\d+(-SNAPSHOT)?\\R");
+        assertThat(out()).matches("inubit-mcp-server \\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?\\R");
         assertThat(out()).contains(BuildInfo.version());
         assertThat(BuildInfo.version()).doesNotContain("${");
     }

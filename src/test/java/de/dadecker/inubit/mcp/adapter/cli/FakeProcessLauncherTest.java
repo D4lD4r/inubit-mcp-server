@@ -20,7 +20,8 @@ import org.junit.jupiter.api.Test;
 class FakeProcessLauncherTest {
 
     private static final LaunchSpec SPEC = new LaunchSpec(
-        List.of("startcli.sh", "--execCommand", "replay"), Map.of(), Path.of("."));
+        List.of("startcli.sh", "--execCommand", "replay"), Map.of(), Path.of("."),
+        List.of("--execCommand", "replay"));
 
     @Test
     void replaysAV61Case() throws Exception {
