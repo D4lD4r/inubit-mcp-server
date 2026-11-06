@@ -9,8 +9,10 @@ switches workflows on or off, tags tested states, restores backups and sends SOA
 Along a configured **stage chain** it deploys a tagged release into the next group, node by node
 — or, for a package-only group such as production, prepares import packages for a person. It uses
 the INUBIT REST API wherever possible and the INUBIT command-line client (StartCLI) only where REST
-cannot do the job. One server process serves one **profile** (one customer or project, one YAML
-file); several profiles run side by side as separate registrations.
+cannot do the job. Nodes of an older **INUBIT 6.1** installation can be configured read-only:
+they are reached through StartCLI only, never over REST (see [Requirements](#requirements)). One
+server process serves one **profile** (one customer or project, one YAML file); several profiles
+run side by side as separate registrations.
 
 ## Tools
 
@@ -39,8 +41,9 @@ own explicit setting:
 
 | Tools | Offered when |
 |---|---|
-| the six read-only tools and `check_artifacts` | always |
-| `export_artifacts`, `export_archives` | a node has a StartCLI installation |
+| `list_nodes`, `get_health`, `check_artifacts` | always |
+| `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item` | a node is not pinned to an INUBIT version that refuses the tool (none of them is offered, e.g., in a profile of INUBIT 6.1 nodes only) |
+| `export_artifacts`, `export_archives` | a node has a StartCLI installation and is not pinned to an INUBIT version that refuses the export |
 | `restart_process`, `kill_process` | a node has effective write access (`write.enabled`) |
 | `import_artifacts`, `restore_backup`, `set_active`, `tag_artifacts` | a node has `development.enabled: true` (never on production) |
 | `deploy_release` | a group has a `deploy` record (stage chain); with a target in mode `EXECUTE` also `restore_backup` for deployment backups |
@@ -63,7 +66,8 @@ development stages and the stage chain: [docs/setup.md](docs/setup.md).
   but the version detection is sent on an unknown version (also after a failed detection), on
   any version other than 8.1 (INUBIT 9.x, `V9_X`) and while `get_health` reads a version that
   contradicts the pin. On an unknown version and on versions other than 8.1, read tools run with
-  a warning that their results are unverified. StartCLI-backed tools are also refused where the
+  a warning that their results are unverified — except on INUBIT 6.1, where every tool not
+  declared supported for 6.1 is refused. StartCLI-backed tools are also refused where the
   local StartCLI client does not support the node's INUBIT major.minor, and `deploy_release`
   deploys only between nodes of the same minor version.
   `list_nodes` shows per node the version, the client and the usable capabilities without
@@ -125,15 +129,24 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
 - **INUBIT 8.1** servers reachable over HTTPS, and an INUBIT account per group or node with rights
   to read logs, monitoring and models; where the development tools or deployments are used, also
   with rights to export, import and tag the owner's diagrams and modules.
+- **INUBIT 6.1** is supported read-only, through StartCLI only, for nodes pinned with
+  `versionLine: V6_1` (or a concrete 6.1 version): the server sends them no REST request and
+  never writes to them. In this version every tool except `list_nodes` and the offline checks
+  of `check_artifacts` is still refused on 6.1 (`UNSUPPORTED_VERSION`); health and the process
+  listing (`get_health`, `find_processes`) become available once they have been verified against
+  recorded outputs of a real 6.1 node. Such nodes need a StartCLI client that supports INUBIT 6.1
+  and its Java runtime ([INUBIT 6.1 nodes](docs/setup.md#inubit-61-nodes-v6_1)); like every
+  StartCLI-backed part, not on Windows.
 - Only for the CLI-based parts (`restart_process`, `kill_process`, the module list and version
   histories of the inventory tools, and every tool that exports, imports or tags artifacts —
   `export_artifacts`, `export_archives`, the development tools and `deploy_release`, which needs
   it for the nodes of the source and the target group): a local **INUBIT 8.1 Workbench client
-  installation** with StartCLI (`bin/startcli.sh`) matching the servers' patch level, a Java 17
-  runtime for StartCLI, and "CLI login access" for the account. The INUBIT client is **not
-  included** in this project. Without it, the REST-based tools work and CLI-based parts report
-  `CLI_UNAVAILABLE`. CLI-based tools are not supported on Windows in this version: on Windows the
-  server offers the REST-based tools only.
+  installation** with StartCLI (`bin/startcli.sh`; on Windows `bin\startcli.bat` on a local
+  drive) matching the servers' patch level, a Java 17 runtime for StartCLI, and "CLI login
+  access" for the account. The INUBIT client is **not included** in this project. Without it, the
+  REST-based tools work and CLI-based parts report `CLI_UNAVAILABLE`. On Windows the CLI-based
+  tools work as on macOS, with a few rules for paths and characters
+  ([StartCLI on Windows](docs/setup.md#startcli-on-windows)).
 - Only for the artifact workspace (`export_artifacts`, the development tools and
   `deploy_release`): **git 2.32** or newer on `PATH`.
 - For the credentials: the credential store of the system — the macOS Keychain and the Windows
@@ -169,6 +182,11 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
 
    Release JARs also carry a build provenance attestation, which the GitHub CLI can check:
    `gh attestation verify <path to the JAR> --repo D4lD4r/inubit-mcp-server`.
+
+   The JAR names its own version in its manifest (`Implementation-Version`); `java -jar <JAR>
+   --version` prints it, whatever the file is called. You may therefore also keep it under a
+   version-free name such as `inubit-mcp-server.jar`, so the registration of step 6 stays the same
+   after an update.
 
 3. **Create the profile** `~/.config/inubit-mcp/<profile>.yaml` (Windows:
    `%APPDATA%\inubit-mcp\<profile>.yaml`). Minimal read-only example for a profile `acme` with one
@@ -284,6 +302,38 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
 
 Several profiles: one YAML file and one registration (`inubit-acme`, `inubit-globex`, …) each; see
 [docs/setup.md](docs/setup.md#several-profiles-side-by-side).
+
+## Updates
+
+The server checks at start and then every 24 hours whether a newer release exists. It **never
+downloads or installs** anything: update by hand with steps 1 and 2 above (replace the JAR the
+registration runs) and restart the client.
+
+- **What is sent**: one anonymous request to
+  `https://api.github.com/repos/D4lD4r/inubit-mcp-server/releases/latest` with the user agent
+  `inubit-mcp-server/<version>`. No profile, node, host name or credential leaves the machine.
+- **No waiting**: the check runs in the background with short timeouts; it delays neither the start
+  nor a tool call. A failure (offline, proxy, rate limit) is logged at DEBUG only and retried at the
+  next daily check.
+- **Where a newer release shows up** (each once per version):
+  - a WARN line on stderr (the client's MCP log);
+  - `serverUpdate` in the result of `get_health` ([tools.md](docs/tools.md#get_health));
+  - a short note block in the first successful tool result of a session, so the assistant can
+    mention it;
+  - after a restart, in the server instructions, from the cache `~/.inubit-mcp/update-check.json`
+    (also offline);
+  - in clients that support MCP forms (elicitation), a dialog with the release link and the option
+    "Do not remind me of this version again"; it opens after the first tool call and does not hold
+    it up.
+- **Switching it off**: `updateCheck: {enabled: false}` in the profile, or the environment variable
+  `INUBIT_MCP_UPDATE_CHECK=off` for every profile the client starts. Then the server sends no
+  request, reads and writes no cache and shows no notice.
+- **Proxy**: the check uses the JVM's standard proxy settings; add them before `-jar` in the
+  registration, e.g. `-Dhttps.proxyHost=proxy.example.test -Dhttps.proxyPort=3128`, or
+  `-Djava.net.useSystemProxies=true`. A proxy that requires authentication is not supported;
+  switch the check off there.
+
+Details: [docs/setup.md](docs/setup.md#update-check-updatecheck).
 
 ## Build from source
 

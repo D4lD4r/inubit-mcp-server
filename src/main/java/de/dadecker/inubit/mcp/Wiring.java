@@ -9,13 +9,22 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81WorkflowArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
 import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
+import de.dadecker.inubit.mcp.adapter.cli.CliClientProbe;
+import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
+import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
 import de.dadecker.inubit.mcp.adapter.os.JnaDriveTypeApi;
+import de.dadecker.inubit.mcp.adapter.os.NoJob;
+import de.dadecker.inubit.mcp.adapter.os.OsPrivateFileSystem;
+import de.dadecker.inubit.mcp.adapter.os.PosixSystem;
 import de.dadecker.inubit.mcp.adapter.os.WindowsNetworkPaths;
+import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
 import de.dadecker.inubit.mcp.adapter.soap.SoapE2eClient;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
 import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
@@ -50,6 +59,7 @@ import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TagService;
 import de.dadecker.inubit.mcp.application.TargetFolderRules;
 import de.dadecker.inubit.mcp.application.TargetResolver;
+import de.dadecker.inubit.mcp.application.UpdateStatus;
 import de.dadecker.inubit.mcp.application.WorkspaceService;
 import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
 import de.dadecker.inubit.mcp.application.WriteGuard;
@@ -77,6 +87,7 @@ import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.E2ePort;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.NetworkPathProbe;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.infra.AuditLog;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.ResultJson;
@@ -85,6 +96,7 @@ import de.dadecker.inubit.mcp.mcp.McpServerFactory;
 import de.dadecker.inubit.mcp.mcp.ResultMapper;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import de.dadecker.inubit.mcp.mcp.UpdateNotice;
 import de.dadecker.inubit.mcp.mcp.tools.CheckArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.ExportArchivesTool;
 import de.dadecker.inubit.mcp.mcp.tools.ExportArtifactsTool;
@@ -127,6 +139,9 @@ import java.util.stream.Collectors;
  * {@code query_logs}; US3: {@code list_inventory}, {@code get_inventory_item}; feature 003:
  * {@code export_artifacts}, only if a node has a CLI installation, and {@code check_artifacts};
  * feature 015: {@code export_archives} under the same condition as {@code export_artifacts}).
+ * Feature 012 (research D-12): the read tools other than {@code list_nodes}, {@code get_health}
+ * and {@code check_artifacts} are announced only if some node may run their capability
+ * ({@link #possiblyCapable}).
  * The write tools
  * of US4 ({@code restart_process}, {@code kill_process}) are added only if
  * {@link #anyWriteEnabled()} (contracts/mcp-tools.md, Story 4 / AS 6); their service, the write
@@ -147,9 +162,9 @@ import java.util.stream.Collectors;
  */
 final class Wiring implements AutoCloseable {
 
-    private static final CapabilityMatrix MATRIX = CapabilityMatrix.production();
-
     private final ProfileInfo profile;
+    /** Feature 012 (research D-12): the capability matrix, injectable for tests. */
+    private final CapabilityMatrix matrix;
     private final SecretScrubber scrubber;
     private final List<EffectiveNodeConfig> servers;
     private final TargetResolver targets;
@@ -162,6 +177,8 @@ final class Wiring implements AutoCloseable {
     /** Feature 009 (research D-9): the {@code list_nodes} view with the version state. */
     private final NodeOverview overview;
     private final HealthService health;
+    /** Feature 016: the last update check, shown by {@code get_health}. */
+    private final UpdateStatus updateStatus = new UpdateStatus();
     private final DiagnosisService diagnosis;
     private final InventoryService inventory;
     private final ProcessControlService processControl;
@@ -220,18 +237,70 @@ final class Wiring implements AutoCloseable {
 
     /**
      * As above, with the Parameter Store of the AWS nodes (feature 010), created only if a node
-     * reads its secrets from it; nothing is fetched here (FR-006a).
+     * reads its secrets from it; nothing is fetched here (FR-006a). StartCLI's processes count as
+     * contained ({@link NoJob}): tests never bind their JVM to a job.
      */
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment, Supplier<ParameterStore> parameterStore,
         ConfigLocation configLocation) {
+        this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
+            parameterStore, configLocation, new NoJob());
+    }
+
+    /** As above, with a capability matrix other than the production one (tests, feature 012). */
+    Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
+        ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
+        Map<String, String> environment, Supplier<ParameterStore> parameterStore,
+        ConfigLocation configLocation, CapabilityMatrix matrix) {
+        this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
+            parameterStore, configLocation, new NoJob(), OsPrivateFileSystem.forHost(), matrix);
+    }
+
+    /**
+     * As above, with the containment of StartCLI's processes that {@code Launcher} set up once for
+     * the process (feature 013, research R-7): the StartCLI runner refuses to start StartCLI while
+     * it is unavailable. The runner's system queries are those of the platform ({@code windows}).
+     */
+    Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
+        ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
+        Map<String, String> environment, Supplier<ParameterStore> parameterStore,
+        ConfigLocation configLocation, ProcessContainment containment) {
+        this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
+            parameterStore, configLocation, containment, OsPrivateFileSystem.forHost());
+    }
+
+    /**
+     * As above, with the private file system that {@code Launcher} uses too (feature 013,
+     * FR-007): the export and import directories and the audit directory and log are created
+     * through it.
+     */
+    Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
+        ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
+        Map<String, String> environment, Supplier<ParameterStore> parameterStore,
+        ConfigLocation configLocation, ProcessContainment containment,
+        PrivateFileSystem privateFiles) {
+        this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
+            parameterStore, configLocation, containment, privateFiles,
+            CapabilityMatrix.production());
+    }
+
+    /** As above, with the capability matrix of the INUBIT versions (feature 012). */
+    Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
+        ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
+        Map<String, String> environment, Supplier<ParameterStore> parameterStore,
+        ConfigLocation configLocation, ProcessContainment containment,
+        PrivateFileSystem privateFiles, CapabilityMatrix matrix) {
+        Objects.requireNonNull(containment, "containment");
+        Objects.requireNonNull(privateFiles, "privateFiles");
         this.configLocation = Objects.requireNonNull(configLocation, "configLocation");
         this.networkPathProbe = new WindowsNetworkPaths(windows, JnaDriveTypeApi::new);
         this.profile = config.profileInfo();
+        this.matrix = matrix;
         this.scrubber = scrubber;
         // 002 research D-8: the export directories carry the profile name
-        this.cliResources = new CliResources(profile.name());
+        // feature 013 (FR-007): the export and import directories are private on every platform
+        this.cliResources = new CliResources(profile.name(), privateFiles);
         this.cleanupHook = new Thread(cliResources::close, "inubit-mcp-cli-cleanup");
         Terminology terms = profile.terminology();
         this.servers = config.effectiveNodes();
@@ -246,12 +315,20 @@ final class Wiring implements AutoCloseable {
         // feature 009 (research D-4): the per-node version state, fed by the adapters
         NodeVersions versions = new NodeVersions(clock.clock(),
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
-        CliRunner cliRunner = new CliRunner(launcher, environment, windows, cliResources);
-        // feature 009 (research D-16): only the 8.1 port set, as default for every version
+        CliRunner cliRunner = new CliRunner(launcher, environment, windows,
+            windows ? new WindowsSystem() : new PosixSystem(), containment, cliResources);
+        // feature 009 (research D-16): the 8.1 port set, as default for every version; feature
+        // 012 (research D-4): the 6.1 port set and health port, CLI-only (no REST client)
         Map<NodeId, NodeSecrets> secrets = secrets(servers, credentialStore, scrubber, clock,
             parameterStore);
+        // one client-option probe and one concurrency limiter for all 6.1 nodes (D-8, D-9)
+        CliClientProbe clientOptions = new CliClientProbe(cliRunner, byId::get, matrix,
+            clock.clock());
+        CliConcurrencyLimiter cliLimiter = new CliConcurrencyLimiter(matrix);
         this.gateways = new AdapterGatewayFactory(servers, secrets, scrubber, clock.clock(),
-            cliRunner, versions, PortSetRegistry.v81Default());
+            cliRunner, versions, PortSetRegistry.v81Default()
+                .register(V61PortSet.RANGE, V61PortSet.factory(clientOptions, cliLimiter),
+                    V61QueryRules.INSTANCE, V61PortSet.cliHealth(clientOptions, cliLimiter)));
         // feature 009 (research D-7): the StartCLI client probe, on the same runner so that a
         // shutdown also stops a running probe
         this.clientVersions = new CliVersionProbe(cliRunner, byId::get);
@@ -260,7 +337,7 @@ final class Wiring implements AutoCloseable {
         Set<NodeId> withClient = servers.stream()
             .filter(server -> server.cliAvailable(exists, windows))
             .map(EffectiveNodeConfig::id).collect(Collectors.toUnmodifiableSet());
-        VersionGate versionGate = new VersionGate(versions, gateways, MATRIX, clientVersions,
+        VersionGate versionGate = new VersionGate(versions, gateways, matrix, clientVersions,
             withClient::contains, id -> byId.get(id).cliTimeout(), terms);
         Map<NodeId, Duration> timeouts = new HashMap<>();
         servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
@@ -280,7 +357,8 @@ final class Wiring implements AutoCloseable {
         SecretTiming secretTiming = new SecretTiming(fetchWaits,
             id -> secrets.get(id).held().isPresent(), stores);
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
-            hangingThresholds::get, clock.clock(), ResultJson::size, versionGate, secretTiming);
+            id -> byId.get(id).cliTimeout(), hangingThresholds::get, clock.clock(),
+            ResultJson::size, versionGate, secretTiming);
         this.inventory = new InventoryService(gateways, targets, fanOut, limiter,
             new InventoryCache(clock.clock(), id -> byId.get(id).inventory().cacheTtl()),
             id -> byId.get(id).inventory().owner(), timeouts::get,
@@ -292,7 +370,7 @@ final class Wiring implements AutoCloseable {
         // which the guard treats as no write access
         Function<NodeId, WritePolicy> policies = id -> byId.containsKey(id)
             ? policy(byId.get(id), secrets.get(id)) : null;
-        AuditLog audit = new AuditLog(config.auditDirectory(), scrubber);
+        AuditLog audit = new AuditLog(config.auditDirectory(), scrubber, privateFiles);
         this.processControl = new ProcessControlService(
             new WriteGuard(targets, policies, gateways, versionGate), policies,
             gateways, new ConfirmationRegistry(clock.clock()), audit, clock.clock(),
@@ -300,7 +378,8 @@ final class Wiring implements AutoCloseable {
         // feature 003: the workspace history uses the system git (not the StartCLI launcher)
         Path workspace = config.workspace();
         this.exportArtifacts = new ExportArtifactsTool(new WorkspaceService(workspace,
-            new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
+            new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment,
+                privateFiles),
             new ArchiveCodec(), gateways::artifacts, gateways::inventory, versionGate), targets,
             id -> byId.get(id).inventory().owner(), limiter);
         // feature 015: the archives go to a user-chosen local folder outside the server's
@@ -331,7 +410,7 @@ final class Wiring implements AutoCloseable {
         servers.forEach(server -> allowed.put(server.id(), allowed(server,
             withClient.contains(server.id()))));
         this.overview = new NodeOverview(servers.stream()
-            .map(server -> server.summary(exists, windows)).toList(), versions, MATRIX,
+            .map(server -> server.summary(exists, windows)).toList(), versions, matrix,
             allowed::get);
         DevelopmentGuard developmentGuard = new DevelopmentGuard(targets, development::get,
             node -> gateways.imports(node).checkAvailable(), versionGate,
@@ -374,12 +453,12 @@ final class Wiring implements AutoCloseable {
         if (chain.isEmpty()) {
             this.deployRelease = Optional.empty();
         } else {
-            Path deployments = Path.of(System.getProperty("user.home")).resolve(".inubit-mcp")
-                .resolve(profile.name()).resolve("deployments");
+            Path deployments = DeploymentLedger.defaultDirectory(
+                Path.of(System.getProperty("user.home")), profile.name());
             ArchiveCodec codec = new ArchiveCodec();
             V81ReleaseArchives releases = new V81ReleaseArchives();
             V81ImportArchives importArchives = new V81ImportArchives();
-            DeploymentLedger ledger = new DeploymentLedger(deployments);
+            DeploymentLedger ledger = new DeploymentLedger(deployments, privateFiles);
             ReleasePlanner planner = new ReleasePlanner(new ReleasePlanner.Dependencies(
                 gateways::artifacts, gateways::inventory, codec, releases, importArchives,
                 (releaseRoot, paths) -> new ArtifactCheckService(releaseRoot,
@@ -389,9 +468,10 @@ final class Wiring implements AutoCloseable {
                 clock.clock()));
             NodeDeployer nodeDeployer = new NodeDeployer(new NodeDeployer.Dependencies(planner,
                 releases, importArchives, codec, gateways::imports, gateways::tags, accounts,
-                new BackupStore(backups, clock.clock()), ledger, audit, profile.name(),
-                clock.clock(), UUID::randomUUID, workspace, new DiagramGroupTagger(workspace),
-                new PackageWriter(deployments.resolveSibling("packages"), clock.clock())));
+                new BackupStore(backups, clock.clock(), privateFiles), ledger, audit,
+                profile.name(), clock.clock(), UUID::randomUUID, workspace,
+                new DiagramGroupTagger(workspace), new PackageWriter(
+                    deployments.resolveSibling("packages"), clock.clock(), privateFiles)));
             deployer = Optional.of(nodeDeployer);
             DeployService deploy = new DeployService(new DeployService.Dependencies(workspace,
                 deployments, profile.name(), new DeployGuard(chain, targets, group ->
@@ -401,7 +481,8 @@ final class Wiring implements AutoCloseable {
                 new ReleaseDiscovery(gateways::artifacts, codec, releases, workspace), planner,
                 ledger, challenges, config.defaults().effectiveDeployConfirmationTtl(), audit,
                 clock.clock(), UUID::randomUUID, nodeDeployer, new GitCli(workspace, profile.name(),
-                    new SystemProcessLauncher(), environment), importArchives));
+                    new SystemProcessLauncher(), environment, privateFiles), importArchives,
+                privateFiles));
             this.deployRelease = Optional.of(new DeployReleaseTool(deploy,
                 config.resultLimits().maxItems()));
         }
@@ -409,12 +490,13 @@ final class Wiring implements AutoCloseable {
         ImportService imports = new ImportService(
             new ImportService.Dependencies(workspace, profile.name(), developmentGuard,
                 development::get,
-                new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
+                new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment,
+                    privateFiles),
                 new WorkspaceInspector(), checks, new ArchiveCodec(), new V81ImportArchives(),
                 new V81ReleaseArchives(), gateways::artifacts, gateways::imports, gateways::tags,
                 gateways::inventory,
                 id -> byId.get(id).inventory().owner(), accounts, challenges,
-                new BackupStore(backups, clock.clock()),
+                new BackupStore(backups, clock.clock(), privateFiles),
                 audit, clock.clock(), UUID::randomUUID, deployer));
         this.importArtifacts = new ImportArtifactsTool(imports);
         this.restoreBackup = new RestoreBackupTool(imports);
@@ -472,12 +554,20 @@ final class Wiring implements AutoCloseable {
     List<ToolHandler> toolHandlers() {
         List<ToolHandler> handlers = new ArrayList<>();
         handlers.add(new ListNodesTool(profile, overview::nodes));
-        handlers.add(new GetHealthTool(health));
-        handlers.add(new FindProcessesTool(diagnosis));
-        handlers.add(new QueryLogsTool(diagnosis));
-        handlers.add(new ListInventoryTool(inventory));
-        handlers.add(new GetInventoryItemTool(inventory));
-        if (servers.stream().anyMatch(server -> server.cli().home().isPresent())) {
+        handlers.add(new GetHealthTool(health, updateStatus::current));
+        // feature 012 (research D-12): a read tool only if some node may run its capability
+        if (anyPossiblyCapable(Capability.PROCESS_DIAGNOSIS)) {
+            handlers.add(new FindProcessesTool(diagnosis));
+        }
+        if (anyPossiblyCapable(Capability.LOG_DIAGNOSIS)) {
+            handlers.add(new QueryLogsTool(diagnosis));
+        }
+        if (anyPossiblyCapable(Capability.INVENTORY)) {
+            handlers.add(new ListInventoryTool(inventory));
+            handlers.add(new GetInventoryItemTool(inventory));
+        }
+        if (servers.stream().anyMatch(server -> server.cli().home().isPresent()
+            && possiblyCapable(server, Capability.WORKSPACE_EXPORT))) {
             handlers.add(exportArtifacts);
             handlers.add(exportArchives);
         }
@@ -514,8 +604,14 @@ final class Wiring implements AutoCloseable {
      * shared scrubber.
      */
     McpServerFactory serverFactory(String version, List<ToolHandler> handlers) {
+        return serverFactory(version, handlers, UpdateNotice.NONE);
+    }
+
+    /** As above, with the update notice of feature 016 (FR-017 to FR-019). */
+    McpServerFactory serverFactory(String version, List<ToolHandler> handlers,
+        UpdateNotice updateNotice) {
         return new McpServerFactory(version, profile, handlers, SchemaResources.forClasspath(),
-            new ResultMapper(scrubber));
+            new ResultMapper(scrubber), updateNotice);
     }
 
     GatewayFactory gateways() {
@@ -523,6 +619,11 @@ final class Wiring implements AutoCloseable {
     }
 
     /** The configuration location the server runs with (feature 015, research R-9). */
+    /** Feature 016: the status the update check records and {@code get_health} shows. */
+    UpdateStatus updateStatus() {
+        return updateStatus;
+    }
+
     ConfigLocation configLocation() {
         return configLocation;
     }
@@ -594,8 +695,8 @@ final class Wiring implements AutoCloseable {
      * receives them, end-to-end tests where allowed, process control with write access.
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
-        Set<Capability> allowed = EnumSet.of(Capability.MONITORING, Capability.DIAGNOSIS,
-            Capability.INVENTORY);
+        Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
+            Capability.PROCESS_DIAGNOSIS, Capability.LOG_DIAGNOSIS, Capability.INVENTORY);
         if (withClient) {
             allowed.add(Capability.WORKSPACE_EXPORT);
         }
@@ -623,17 +724,22 @@ final class Wiring implements AutoCloseable {
             && possiblyCapable(server, Capability.PROCESS_CONTROL));
     }
 
+    /** True if some node may run {@code capability} ({@link #possiblyCapable}). */
+    private boolean anyPossiblyCapable(Capability capability) {
+        return servers.stream().anyMatch(server -> possiblyCapable(server, capability));
+    }
+
     /**
      * Feature 009 (research D-12, FR-007): false only if {@code server} is pinned to a line or
      * version on which the matrix declares {@code capability} unsupported; an {@code AUTO} node
      * may turn out to run a capable version.
      */
-    private static boolean possiblyCapable(EffectiveNodeConfig server, Capability capability) {
+    private boolean possiblyCapable(EffectiveNodeConfig server, Capability capability) {
         return switch (server.versionLine()) {
             case VersionSetting.Auto auto -> true;
-            case VersionSetting.Line line -> MATRIX.stateOfLine(line.major(), line.minor(),
+            case VersionSetting.Line line -> matrix.stateOfLine(line.major(), line.minor(),
                 capability) != SupportState.UNSUPPORTED;
-            case VersionSetting.Pinned pinned -> MATRIX.state(Optional.of(pinned.version()),
+            case VersionSetting.Pinned pinned -> matrix.state(Optional.of(pinned.version()),
                 capability) != SupportState.UNSUPPORTED;
         };
     }

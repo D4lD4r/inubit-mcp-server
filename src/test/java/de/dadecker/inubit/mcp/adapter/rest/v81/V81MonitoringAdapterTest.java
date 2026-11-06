@@ -353,11 +353,11 @@ class V81MonitoringAdapterTest {
             assertThat(load.freeMemoryMb()).isEqualTo(3716.0);
             assertThat(load.maxMemoryMb()).isEqualTo(9216.0);
             assertThat(load.memoryUsedPercent()).contains(59.7);
-            assertThat(load.threadsInUse()).isZero();
-            assertThat(load.licensedThreads()).isEqualTo(999_999);
-            assertThat(load.maxThreads()).isEqualTo(401);
-            assertThat(load.blockingQueueEntries()).isZero();
-            assertThat(load.maxBlockingQueueSize()).isEqualTo(200_000);
+            assertThat(load.threadsInUse()).contains(0L);
+            assertThat(load.licensedThreads()).contains(999_999L);
+            assertThat(load.maxThreads()).contains(401L);
+            assertThat(load.blockingQueueEntries()).contains(0L);
+            assertThat(load.maxBlockingQueueSize()).contains(200_000L);
             assertThat(load.blockingQueuePercent()).contains(0.0);
         });
         wireMock.verify(getRequestedFor(urlEqualTo(METRICS + "?format=json"))

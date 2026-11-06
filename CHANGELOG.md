@@ -7,6 +7,121 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Test build `0.8.0-test.1` (branch `0.8.0`, not released): features 012, 013 and 016 together for a
+live check. As a SemVer pre-release of 0.8.0 it is newer than 0.7.1, so the update check reports
+no newer release against 0.7.1, but would report a released 0.8.0.
+
+Feature 012, read-only INUBIT 6.1 nodes reached through StartCLI only. The recordings of a real
+6.1 node have not been made yet, so every capability is still declared unsupported for 6.1: on a
+6.1 node only `list_nodes` and the offline checks of `check_artifacts` run, and every other tool
+(`export_archives` included) refuses it.
+
+### Added
+
+- Read-only INUBIT 6.1 nodes (feature 012), reached through StartCLI only: the server sends a 6.1
+  node no REST or SOAP request (also no version detection) and never writes to it. A capability
+  is declared supported for 6.1 only once its StartCLI outputs are verified against recordings of
+  a real 6.1 node. These recordings are not made yet, so in this version every tool that would
+  contact a 6.1 node, `get_health` included, refuses it with `UNSUPPORTED_VERSION` before any
+  contact. The StartCLI health check and process listing for 6.1 (`get_health`,
+  `find_processes`) are built and become available with that verification; logs, the inventory,
+  the workspace export and every write stay refused on 6.1. What changes for existing profiles is
+  listed under "Changed".
+  - `versionLine: V6_1`, or a concrete 6.1 version such as `"6.1.0"` or `"6.1.0.89"` (a fourth
+    version part is kept for display and ignored for matching). `AUTO` never selects 6.1.
+  - A refusal on a 6.1 node names the tool, the version, the node and the capability, with a next
+    step per capability (e.g. `read the logs of INUBIT 6.1 in the Workbench` for `query_logs`);
+    `find_processes` with `tag` is refused because the 6.1 process listing has no tag. Tools
+    with one entry per node refuse the 6.1 node in its own entry and still serve the other nodes.
+    `check_artifacts` skips the module lookup on a 6.1 node and reports the modules as
+    `MODULE_UNVERIFIED`.
+  - `list_nodes` reports how a node is reached in the new field `version.access`
+    (`rest_and_cli`, or `cli_only` for a 6.1 node).
+  - `--check-config` shows a 6.1 node as `(INUBIT 6.1, StartCLI only; available: …; refused: …)`
+    and the options of its StartCLI client (`options: [no ]trust-store option, [no ]host-name
+    option`), and warns about a 6.1 node without StartCLI installation and about a trust-store or
+    host-name setting that the node's client cannot be given.
+  - StartCLI client options of a 6.1 node: the server runs `startcli.sh -h` locally (no server
+    URL, no credentials) and reads the Java version of the client's runtime. A client without
+    `--trustStoreFilePath` gets the trust store through `JAVA_TOOL_OPTIONS`; a PKCS12 trust store
+    with a runtime older than Java 8, a trust-store path with spaces on that route and
+    `disableHostnameVerification` with a client without `--disableHostNameVerification` are
+    refused with `TLS_ERROR`.
+  - Once a capability is available on 6.1, each StartCLI session on a 6.1 node is preceded by
+    the server's own TLS handshake against the trust store and the pin (on failure no StartCLI
+    process starts, so no login is attempted), the password reaches StartCLI only on its
+    standard input, and at most two StartCLI sessions run at once per 6.1 node.
+
+  See `docs/setup.md` ("INUBIT 6.1 nodes (`V6_1`)") and `docs/tools.md` ("INUBIT 6.1
+  (feature 012)").
+
+- Feature 013, StartCLI-backed tools on Windows: process restart and kill, the module list and
+  version histories of the inventory, `export_artifacts`, `export_archives`, the development tools
+  and `deploy_release` now run on Windows with the INUBIT client's `bin\startcli.bat`, started
+  through the command interpreter of the system directory (setup.md "StartCLI on Windows").
+  - Values passed outside the StartCLI command that the interpreter would interpret (`"` `%` `!`
+    `^` `&` `|` `<` `>`, control characters, non-ASCII) are refused before any process starts: a
+    setting with `CLI_UNAVAILABLE` and a warning in `--check-config`, a username with
+    `AUTH_FAILED`; a `cli.home` on a network path is refused; a password outside ASCII is refused
+    until the live check has shown that it reaches the client unchanged. For an INUBIT 6.1
+    node these are refused before the TLS pre-check, so the node is not contacted.
+  - The password reaches StartCLI only through its standard input; StartCLI gets an allowlisted
+    environment with a fixed `PATH`, English messages and UTF-8 output, which is decoded
+    independently of the console code page and of CRLF line endings.
+  - File paths inside the command follow a drive-letter rule with `/` separators (at most 259
+    characters, 8.3 names expanded); command lines over 6143 characters are refused.
+  - Every StartCLI process tree is bound to the server through a Windows job and ends with a
+    timeout, an interrupted call or the server.
+  - What the server creates privately (temporary data, backups, packages, deployment lock and
+    ledger, workspace and its history, git hooks directory, audit directory and log) gets an
+    access list for the account and SYSTEM only, without inherited entries; existing files with
+    broader access are reported with an `icacls` command instead of being changed.
+  - git runs with `core.longpaths=true`.
+  - The offline suite runs on Windows in CI, including every StartCLI-backed, safety and secret
+    test against a substitute of `startcli.bat`.
+
+- Feature 016, update check: at start and then every 24 hours the server asks the public GitHub
+  API for the latest release of this project (one anonymous request with the user agent
+  `inubit-mcp-server/<version>`; no profile, node, host name or credential is sent) and only tells
+  about a newer one; it never downloads or installs anything. A newer release shows up as a WARN
+  line on stderr, as the new field `serverUpdate` of `get_health`, as a note block in the first
+  successful tool result of a session, in the server instructions after a restart (from the cache
+  `~/.inubit-mcp/update-check.json`, also offline), and in clients that support MCP elicitation
+  as a dialog with "Do not remind me of this version again". The check never delays the start or a
+  tool call; failures are logged at DEBUG only. It honours the JVM's proxy settings
+  (`-Dhttps.proxyHost`/`-Dhttps.proxyPort`, `-Djava.net.useSystemProxies=true`) and is switched off
+  with `updateCheck.enabled: false` in the profile or `INUBIT_MCP_UPDATE_CHECK=off`; then it sends
+  nothing and reads or writes no cache. `--version` and `--check-config` never check.
+
+### Changed
+
+- Deliberate changes of feature 012 for existing profiles; otherwise 8.1 and 9.x nodes behave as
+  before, and the `AUTO` detection stays REST-based:
+  - The capability `diagnosis` is split into `process_diagnosis` (`find_processes`) and
+    `log_diagnosis` (`query_logs`), with the same states as before on every version other than
+    6.1. `list_nodes` (`capabilities`) and the 6.1 part of `--check-config` show the two names;
+    refusal and warning texts name them in words, e.g. "INUBIT 9.0.7 on dev/node1 is not
+    verified for process diagnosis; results may be incomplete" (before: "… for diagnosis …").
+  - When the `AUTO` detection request was answered with HTTP 404, the unknown-version warning
+    adds a conditional hint: "the INUBIT version of dev/node1 is unknown (UNEXPECTED_RESPONSE at
+    …); if dev/node1 runs INUBIT 6.1, pin V6_1; results are unverified".
+  - The read tools `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item`,
+    `export_artifacts` and `export_archives` are no longer announced when every node that could
+    run them is pinned to a version that does not support their capability (e.g. a profile of
+    INUBIT 6.1 nodes only), as write tools already are since feature 009. `list_nodes`, `get_health` and
+    `check_artifacts` are always offered; `AUTO` nodes count as capable.
+  - The `versionLine` error message lists `V6_1` among the accepted values.
+
+- Feature 016: the JAR manifest carries `Implementation-Title` and `Implementation-Version`, so
+  the version of a JAR can be read without starting it and independent of its file name; the
+  server (`--version`, `serverInfo.version`) takes its version from there. The JAR may be renamed,
+  e.g. to `inubit-mcp-server.jar`, so the MCP registration stays the same across updates.
+
+### Removed
+
+- The statement and the `CLI_UNAVAILABLE` "CLI tools are not supported on Windows in this
+  version", and the matching warning of `--check-config`.
+
 ## [0.7.1] - 2026-11-06
 
 The manual checks left open in 0.7.0 have run; no functional change.

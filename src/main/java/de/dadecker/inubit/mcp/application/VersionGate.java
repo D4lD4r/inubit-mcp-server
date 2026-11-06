@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
+import de.dadecker.inubit.mcp.domain.model.NodeVersionState.DetectionFailure;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState.Timed;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
@@ -35,11 +36,15 @@ import org.slf4j.LoggerFactory;
  *   <li>detect the version of an {@code AUTO} node through {@link GatewayFactory#detect} when
  *       {@link NodeVersions#needsDetection} says so (never for pinned nodes, never for
  *       {@code MONITORING}, whose {@code get_health} read is the detection itself);</li>
- *   <li>refuse a write when a pin is contradicted by {@code get_health};</li>
+ *   <li>refuse a write when a pin is contradicted by {@code get_health}; for a pin of a
+ *       {@linkplain CapabilityMatrix#isCliOnly CLI-only} version every capability except
+ *       {@code MONITORING} (feature 012, research D-11);</li>
  *   <li>look up the {@link CapabilityMatrix}: {@code SUPPORTED} admits, {@code UNVERIFIED} admits
  *       a read with a warning, anything else refuses ({@code MONITORING} is never refused and gets
- *       a warning instead);</li>
- *   <li>only when {@link Channel#CLI} is among the call's channels: probe the StartCLI client of
+ *       a warning instead); on a CLI-only version anything but {@code SUPPORTED} refuses,
+ *       {@code MONITORING} and reads included (feature 012, research D-3);</li>
+ *   <li>only when {@link Channel#CLI} is among the call's channels (on a CLI-only version the
+ *       channels of its matrix entry): probe the StartCLI client of
  *       a node with a StartCLI installation when no client result is known and no failed probe
  *       lies within the last 60 s ({@link NodeVersions#needsClientProbe}; FR-002), bounded by the
  *       node's {@code cliTimeout}, a run of its own before the tool's StartCLI call; then check
@@ -65,10 +70,16 @@ public final class VersionGate {
     /** The end of every refusal message. */
     private static final String NOTHING_SENT = "; nothing was sent";
 
-    /** An admitted call (data-model.md → Admission): the warnings for the call's result. */
-    public record Admission(List<String> warnings) {
+    /**
+     * An admitted call (data-model.md → Admission): the warnings for the call's result, and the
+     * version notes of the node's version (feature 012, FR-010: what the version lacks next to the
+     * admitted capability, e.g. "logs of INUBIT 6.1 cannot be read with query_logs; read them in
+     * the Workbench"), which the caller adds to its result.
+     */
+    public record Admission(List<String> warnings, List<String> notes) {
         public Admission {
             warnings = List.copyOf(warnings);
+            notes = List.copyOf(notes);
         }
     }
 
@@ -148,7 +159,7 @@ public final class VersionGate {
         if (evaluation.refusal().isPresent()) {
             throw new ToolErrorException(evaluation.refusal().get());
         }
-        return new Admission(evaluation.warnings());
+        return new Admission(evaluation.warnings(), notes(capability, evaluation.version()));
     }
 
     /**
@@ -174,7 +185,7 @@ public final class VersionGate {
         String versionName = name(state, version).orElse("INUBIT version unknown");
         try {
             return new Evaluation(version, versionName,
-                judge(node, capability, purpose, channels, state, version).warnings(),
+                judge(node, capability, purpose, channels, state, version),
                 Optional.empty(), Optional.empty());
         } catch (Refusal e) {
             return new Evaluation(version, versionName, List.of(), Optional.of(e.error()),
@@ -183,10 +194,49 @@ public final class VersionGate {
     }
 
     /**
-     * The {@code MONITORING} admission of one {@code get_health} call: never detects and never
-     * refuses. It is judged on the version this call's own {@code /system/info} read returned;
-     * without one (the read failed or gave no parsable version) on the node's known state, so a
-     * failed {@code AUTO} detection gives the "unknown (&lt;code&gt; at &lt;time&gt;)" warning.
+     * How one {@code get_health} call reaches the node, decided before any contact (FR-001,
+     * research D-11): {@link Channel#CLI} for a node pinned to a CLI-only version whose
+     * {@code MONITORING} is {@code SUPPORTED}, {@link Channel#REST} for every other node, whose
+     * call then goes on with {@link #admitMonitoring} after its reads. Decided on the pin, not on
+     * an observation, so a contradicted 6.1 pin still gets no REST request (FR-002). Never detects
+     * and never probes the client: {@code get_health} probes it in parallel with its own calls.
+     *
+     * @throws ToolErrorException {@code UNSUPPORTED_VERSION} if the node is pinned to a CLI-only
+     *     version whose {@code MONITORING} is not {@code SUPPORTED}
+     */
+    public Channel monitoringAccess(NodeId node) {
+        Objects.requireNonNull(node, "node");
+        NodeVersionState state = versions.state(node);
+        Optional<InubitVersion> pin = pinnedVersion(state);
+        if (!matrix.isCliOnly(pin)) {
+            return Channel.REST;
+        }
+        if (matrix.state(pin, Capability.MONITORING) != SupportState.SUPPORTED) {
+            throw refuseUnsupported(node, Capability.MONITORING, Capability.Kind.READ, state, pin,
+                name(state, pin));
+        }
+        return Channel.CLI;
+    }
+
+    /**
+     * The channels through which {@code capability} reaches {@code node}, decided on the pin
+     * before any contact like {@link #monitoringAccess}: the matrix entry's channels of the
+     * pinned version (StartCLI for process diagnosis on 6.1), else the capability's own. Callers
+     * size their deadlines by it (feature 012, research D-10). Never detects, never probes and
+     * never refuses; the admission still decides.
+     */
+    public Set<Channel> channels(NodeId node, Capability capability) {
+        Objects.requireNonNull(node, "node");
+        Objects.requireNonNull(capability, "capability");
+        return matrix.channels(pinnedVersion(versions.state(node)), capability);
+    }
+
+    /**
+     * The {@code MONITORING} admission of one {@code get_health} call over REST: never detects
+     * and never refuses, except on a CLI-only version (research D-3). It is judged on the version
+     * this call's own {@code /system/info} read returned; without one (the read failed or gave no
+     * parsable version) on the node's known state, so a failed {@code AUTO} detection gives the
+     * "unknown (&lt;code&gt; at &lt;time&gt;)" warning.
      *
      * @param read the version the call read, if any
      */
@@ -194,29 +244,39 @@ public final class VersionGate {
         Objects.requireNonNull(node, "node");
         Objects.requireNonNull(read, "read");
         NodeVersionState state = versions.state(node);
-        return judge(node, Capability.MONITORING, Capability.Kind.READ, Set.of(Channel.REST),
-            state, read.or(state::effectiveVersion));
+        return new Admission(judge(node, Capability.MONITORING, Capability.Kind.READ,
+            Set.of(Channel.REST), state, read.or(state::effectiveVersion)), List.of());
     }
 
-    private Admission judge(NodeId node, Capability capability, Capability.Kind purpose,
+    /** @return the warnings of the admission */
+    private List<String> judge(NodeId node, Capability capability, Capability.Kind purpose,
         Set<Channel> channels, NodeVersionState state, Optional<InubitVersion> version) {
         Optional<String> name = name(state, version);
         List<String> warnings = new ArrayList<>();
+        boolean cliOnly = matrix.isCliOnly(version);
+        // the pinned version itself: version is the observed one while the pin is contradicted
+        boolean cliOnlyPin = matrix.isCliOnly(pinnedVersion(state));
 
-        if (purpose == Capability.Kind.WRITE && state.pinContradiction()) {
+        // a contradicted pin of a CLI-only version leaves only get_health (research D-11)
+        if (state.pinContradiction() && (purpose == Capability.Kind.WRITE
+            || cliOnlyPin && capability != Capability.MONITORING)) {
             throw refuseContradiction(node, capability, state);
         }
         SupportState support = support(state, version, capability);
+        if (cliOnly && support != SupportState.SUPPORTED) {
+            // no warning path on a CLI-only version: it has no 8.1 adapters to fall back to
+            throw refuseUnsupported(node, capability, purpose, state, version, name);
+        }
         if (support == SupportState.UNVERIFIED && purpose == Capability.Kind.READ
             || support == SupportState.UNSUPPORTED && capability == Capability.MONITORING) {
             warnings.add(name.map(n -> n + " on " + node + " is not "
                     + (support == SupportState.UNVERIFIED ? "verified" : "supported") + " for "
-                    + label(capability) + "; results may be incomplete")
+                    + capability.label() + "; results may be incomplete")
                 .orElseGet(() -> unknown(node, state) + "; results are unverified"));
         } else if (support != SupportState.SUPPORTED) {
-            throw refuseUnsupported(node, capability, purpose, state, name);
+            throw refuseUnsupported(node, capability, purpose, state, version, name);
         }
-        if (channels.contains(Channel.CLI)) {
+        if ((cliOnly ? matrix.channels(version, capability) : channels).contains(Channel.CLI)) {
             boolean probe = withClient.test(node) && versions.needsClientProbe(node);
             if (probe) {
                 probeClient(node);
@@ -224,7 +284,7 @@ public final class VersionGate {
             checkClient(node, capability, probe ? versions.state(node) : state, version, name,
                 warnings);
         }
-        return new Admission(warnings);
+        return warnings;
     }
 
     /**
@@ -279,6 +339,14 @@ public final class VersionGate {
         }
     }
 
+    /**
+     * The version the node's setting pins, whatever was observed; empty for {@code AUTO} and a
+     * major-only line.
+     */
+    private static Optional<InubitVersion> pinnedVersion(NodeVersionState state) {
+        return NodeVersionState.initial(state.setting()).effectiveVersion();
+    }
+
     private SupportState support(NodeVersionState state, Optional<InubitVersion> version,
         Capability capability) {
         if (version.isEmpty() && state.setting() instanceof VersionSetting.Line line) {
@@ -306,7 +374,7 @@ public final class VersionGate {
                 "StartCLI client " + client.version().raw() + " of " + node + " supports INUBIT "
                     + client.supportedFrom().orElseThrow().raw() + " to "
                     + client.supportedTo().orElseThrow().raw() + ", which excludes "
-                    + name.orElseThrow() + "; " + label(capability)
+                    + name.orElseThrow() + "; " + capability.label()
                     + " via StartCLI refused",
                 terms.render("The local StartCLI client does not support the INUBIT version of"
                     + " the {node}"),
@@ -335,39 +403,94 @@ public final class VersionGate {
             + " run, but their results may be unreliable";
     }
 
+    /** On a pin of a CLI-only version the message carries the next step (feature 012, FR-006). */
     private Refusal refuseContradiction(NodeId node, Capability capability,
         NodeVersionState state) {
         Timed<InubitVersion> observed = state.observed().orElseThrow();
         return refuse(node, capability,
             "versionLine " + state.setting().text() + " of " + node + " contradicts INUBIT "
                 + observed.value().raw() + " observed by get_health at " + time(observed) + "; "
-                + label(capability) + " refused",
+                + capability.label() + " refused"
+                + (matrix.isCliOnly(pinnedVersion(state))
+                    ? "; check the version with get_health and correct versionLine" : ""),
             terms.render("The configured version does not match the version the {node} runs"
                 + " (for example after an upgrade)"),
             "Correct versionLine of " + node + " (get_health observed INUBIT "
                 + observed.value().raw() + ") and restart the server");
     }
 
+    /**
+     * On a CLI-only version the message names the configured line and ends with the next step of
+     * the capability (feature 012, FR-007), e.g. "INUBIT 6.1 (versionLine V6_1) on old/node1 does
+     * not support log diagnosis; read the logs of INUBIT 6.1 in the Workbench".
+     *
+     * @param version the version {@code name} was built from
+     */
     private Refusal refuseUnsupported(NodeId node, Capability capability,
-        Capability.Kind purpose, NodeVersionState state, Optional<String> name) {
+        Capability.Kind purpose, NodeVersionState state, Optional<InubitVersion> version,
+        Optional<String> name) {
         if (name.isEmpty()) {
             return refuse(node, capability,
-                capitalized(label(capability)) + " refused: " + unknown(node, state),
-                capitalized(label(capability)) + " needs a known INUBIT version that supports"
+                capitalized(capability.label()) + " refused: " + unknown(node, state),
+                capitalized(capability.label()) + " needs a known INUBIT version that supports"
                     + " it, and the version could not be detected",
                 "Fix the cause of the failed version detection and retry in a minute, or set"
                     + " versionLine of " + node + terms.render(" to the version the {node}"
                     + " actually runs and restart the server"));
         }
+        String likelyCause = purpose == Capability.Kind.WRITE
+            ? terms.render("The {node} runs a version for which no verified write access exists")
+            : "This server declares " + capability.label() + " unsupported for that version";
+        if (matrix.isCliOnly(version)) {
+            String release = majorMinor(state, version);
+            String step = cliOnlyStep(capability, release);
+            return refuse(node, capability,
+                name.get() + (state.setting() instanceof VersionSetting.Line line
+                    ? " (versionLine " + line.text() + ")" : "")
+                    + " on " + node + " does not support " + capability.label()
+                    + (capability == Capability.INVENTORY
+                        ? "; modules of INUBIT " + release + " cannot be looked up" : "")
+                    + "; " + step,
+                likelyCause, capitalized(step));
+        }
         return refuse(node, capability,
-            name.get() + " on " + node + " does not support " + label(capability) + " yet",
-            purpose == Capability.Kind.WRITE
-                ? terms.render("The {node} runs a version for which no verified write access"
-                    + " exists")
-                : "This server declares " + label(capability) + " unsupported for that version",
-            terms.render("Use another {node} whose INUBIT version supports ") + label(capability)
+            name.get() + " on " + node + " does not support " + capability.label() + " yet",
+            likelyCause,
+            terms.render("Use another {node} whose INUBIT version supports ") + capability.label()
                 + terms.render(" (list_nodes shows the usable capabilities per {node}), or wait"
                 + " for a version of this server that supports that INUBIT version"));
+    }
+
+    /**
+     * The next step of a refusal on a CLI-only version (contracts/mcp-tools-delta.md, "Refusals on
+     * a 6.1 node").
+     *
+     * @param release the version's major.minor, e.g. "6.1"
+     */
+    private String cliOnlyStep(Capability capability, String release) {
+        return switch (capability) {
+            case LOG_DIAGNOSIS -> "read the logs of INUBIT " + release + " in the Workbench";
+            case WORKSPACE_EXPORT -> "use the Workbench export";
+            case MONITORING, PROCESS_DIAGNOSIS, INVENTORY ->
+                terms.render("use the Workbench, or another {node} with a different INUBIT"
+                    + " version");
+            case DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL -> "use the Workbench";
+        };
+    }
+
+    /**
+     * The version notes of an admission (feature 012, FR-010): process diagnosis on a CLI-only
+     * version that does not support log diagnosis notes where its logs can be read.
+     */
+    private List<String> notes(Capability capability, Optional<InubitVersion> version) {
+        if (capability != Capability.PROCESS_DIAGNOSIS || !matrix.isCliOnly(version)
+            || matrix.state(version, Capability.LOG_DIAGNOSIS) == SupportState.SUPPORTED) {
+            return List.of();
+        }
+        InubitVersion known = version.orElseThrow();
+        // the find_processes warning of contracts/mcp-tools-delta.md; T033 returns it verbatim
+        return List.of("logs of INUBIT " + known.major() + "." + known.minor()
+            + " cannot be read with query_logs; read them in the Workbench");
     }
 
     /** @param cause the message without its closing "; nothing was sent" */
@@ -401,10 +524,18 @@ public final class VersionGate {
         return line.major() + ".x";
     }
 
-    /** "the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T08:00:00Z)". */
+    /**
+     * "the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T08:00:00Z)"; after a
+     * detection answered with HTTP 404 followed by "; if dev/node1 runs INUBIT 6.1, pin V6_1"
+     * (feature 012 FR-003).
+     */
     static String unknown(NodeId node, NodeVersionState state) {
+        Optional<Timed<DetectionFailure>> failure = state.detectionFailure();
+        String hint = failure.filter(f -> f.value().endpointMissing()).isPresent()
+            ? "; if " + node + " runs INUBIT 6.1, pin V6_1" : "";
         return "the INUBIT version of " + node + " is unknown ("
-            + state.detectionFailure().map(VersionGate::timed).orElse("not yet detected") + ")";
+            + failure.map(f -> f.value().code() + " at " + time(f)).orElse("not yet detected")
+            + ")" + hint;
     }
 
     private static String timed(Timed<ErrorCode> failure) {
@@ -417,19 +548,5 @@ public final class VersionGate {
 
     private static String capitalized(String text) {
         return Character.toUpperCase(text.charAt(0)) + text.substring(1);
-    }
-
-    /** The capability as named in the spec's tool classification. */
-    static String label(Capability capability) {
-        return switch (capability) {
-            case MONITORING -> "monitoring";
-            case DIAGNOSIS -> "diagnosis";
-            case INVENTORY -> "inventory";
-            case WORKSPACE_EXPORT -> "workspace export";
-            case DEVELOPMENT_WRITE -> "development writes";
-            case DEPLOYMENT -> "deployment";
-            case E2E_TEST -> "end-to-end test";
-            case PROCESS_CONTROL -> "process control";
-        };
     }
 }

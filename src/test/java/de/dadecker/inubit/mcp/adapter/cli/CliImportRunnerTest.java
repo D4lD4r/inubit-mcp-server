@@ -6,17 +6,25 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
+import de.dadecker.inubit.mcp.config.CliPaths;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.domain.port.ImportPort.Mode;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
+import de.dadecker.inubit.mcp.testing.WindowsAcl;
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -44,6 +52,9 @@ class CliImportRunnerTest {
     private static final String PASSWORD = "S3cr3t-import-pw";
     private static final byte[] ARCHIVE = {'P', 'K', 3, 4, 'i', 'm', 'p'};
     private static final Pattern IMPORT_FILE = Pattern.compile("--importFile '([^']+)'");
+    /** Owner-only permissions on POSIX; the Windows access list is checked on Windows (T019). */
+    private static final boolean POSIX =
+        FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
 
     @TempDir
     Path cliHome;
@@ -55,19 +66,22 @@ class CliImportRunnerTest {
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
     }
 
     private CliImportRunner runner(ScriptedProcessLauncher cli) {
+        return runner(cli, PrivateFiles.forHost());
+    }
+
+    private CliImportRunner runner(ScriptedProcessLauncher cli, PrivateFileSystem files) {
         NodeCredentials credentials = new NodeCredentials(DEV,
             Optional.of(new SourcedValue<>("jdoe", "INUBIT_DEV_USERNAME")),
             Optional.of(new SourcedValue<>(Secret.of(PASSWORD), "INUBIT_DEV_PASSWORD")),
             Optional.empty(), Optional.empty());
         return new CliImportRunner(TestNodeConfig.node().cliHome(cliHome)
             .cliJavaHome(Path.of("/opt/jdk-17")).cliExportTimeout(Duration.ofMillis(500)).build(),
-            credentials, guard, new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
-                new CliResources("acme")), new CliOutputClassifier(new SecretScrubber()),
+            credentials, guard, TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
+                new CliResources("acme", files)), new CliOutputClassifier(new SecretScrubber()),
             tempRoot);
     }
 
@@ -96,7 +110,9 @@ class CliImportRunnerTest {
         assertThat(protocol.created()).hasSize(5);
         assertThat(cli.launches().get(0).importFile()).isEqualTo(ARCHIVE);
         Path file = importFile(cli.execCommands().get(0));
-        assertThat(file.getParent().getParent()).isEqualTo(tempRoot);
+        // on Windows the runner expands 8.3 names such as RUNNER~1 of the runner's %TEMP% (R-3)
+        assertThat(file.getParent().getParent())
+            .isEqualTo(CliPaths.forCommand(tempRoot, Platform.windows()));
         assertThat(file).doesNotExist();
         assertThat(leftovers()).isEmpty();
         cli.verifyComplete();
@@ -107,19 +123,78 @@ class CliImportRunnerTest {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher().expect("import ")
             .replying("import_workflow_only").then(spec -> {
                 Path file = importFile(ScriptedProcessLauncher.execCommand(spec));
-                try {
-                    assertThat(java.nio.file.attribute.PosixFilePermissions.toString(
-                        Files.getPosixFilePermissions(file.getParent()))).isEqualTo("rwx------");
-                    assertThat(java.nio.file.attribute.PosixFilePermissions.toString(
-                        Files.getPosixFilePermissions(file))).isEqualTo("rw-------");
-                } catch (IOException e) {
-                    throw new java.io.UncheckedIOException(e);
+                if (POSIX) {
+                    try {
+                        assertThat(java.nio.file.attribute.PosixFilePermissions.toString(
+                            Files.getPosixFilePermissions(file.getParent())))
+                            .isEqualTo("rwx------");
+                        assertThat(java.nio.file.attribute.PosixFilePermissions.toString(
+                            Files.getPosixFilePermissions(file))).isEqualTo("rw-------");
+                    } catch (IOException e) {
+                        throw new java.io.UncheckedIOException(e);
+                    }
+                }
+                if (Platform.windows()) {
+                    // feature 013 (T019, FR-007): only this account and SYSTEM, the archive with
+                    // a protected list of its own
+                    try {
+                        WindowsAcl.assertPrivate(file.getParent(),
+                            WindowsAcl.DIRECTORY_INHERITANCE);
+                        WindowsAcl.assertPrivate(file, "None");
+                    } catch (IOException e) {
+                        throw new java.io.UncheckedIOException(e);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(e);
+                    }
                 }
             });
 
         runner(cli).importArchive(ARCHIVE, Mode.WORKFLOW, "jdoe");
 
         cli.verifyComplete();
+    }
+
+    @Test
+    void aDirectoryWhoseAccessCannotBeRestrictedFailsTheImportBeforeAnythingIsSent()
+        throws IOException {
+        // feature 013 (T019, FR-007): the next step names the directory and the access
+        ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
+
+        assertThatThrownBy(() -> runner(cli, PrivateFiles.failing())
+            .importArchive(ARCHIVE, Mode.WORKFLOW, "jdoe"))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.INTERNAL);
+                assertThat(e.error().node()).contains(DEV);
+                assertThat(e.error().message()).contains("nothing was sent");
+                assertThat(e.error().nextStep())
+                    .contains(CliPaths.forCommand(tempRoot, Platform.windows()).toString())
+                    .contains(Platform.windows() ? "only to this account and SYSTEM"
+                        : "rwx------");
+            });
+
+        assertThat(cli.launches()).isEmpty();
+        assertThat(leftovers()).isEmpty();
+    }
+
+    @Test
+    void anArchiveWhoseAccessCannotBeRestrictedFailsTheImportAndLeavesNothing()
+        throws IOException {
+        ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
+
+        assertThatThrownBy(() -> runner(cli, PrivateFiles.failingFiles())
+            .importArchive(ARCHIVE, Mode.WORKFLOW, "jdoe"))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.INTERNAL);
+                assertThat(e.error().message()).contains("nothing was sent");
+                assertThat(e.error().nextStep())
+                    .contains(CliPaths.forCommand(tempRoot, Platform.windows()).toString())
+                    .contains(Platform.windows() ? "only to this account and SYSTEM"
+                        : "rw-------");
+            });
+
+        assertThat(cli.launches()).isEmpty();
+        assertThat(leftovers()).isEmpty();
     }
 
     @Test

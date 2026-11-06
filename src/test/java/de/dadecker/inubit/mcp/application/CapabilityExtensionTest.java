@@ -57,6 +57,8 @@ import de.dadecker.inubit.mcp.mcp.tools.ListInventoryTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
@@ -90,8 +92,9 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * T025 (US3, FR-013, FR-014, SC-004): a new INUBIT version needs only a matrix entry and a port
  * set. A test-only {@link CapabilityMatrix} (the production declaration plus a fictitious 7.9
- * range with {@code DIAGNOSIS} and {@code PROCESS_CONTROL} only) and a test-only {@link PortSet}
- * registered for 7.9 are wired with the unchanged production services and tools.
+ * range with {@code PROCESS_DIAGNOSIS}, {@code LOG_DIAGNOSIS} and {@code PROCESS_CONTROL} only)
+ * and a test-only {@link PortSet} registered for 7.9 are wired with the unchanged production
+ * services and tools.
  *
  * <p>{@code dev/node1} runs INUBIT 7.9.3, {@code qa/node1} 8.1.17 and {@code qa/node2} 9.0.2, each
  * on its own HTTPS WireMock server and detected ({@code versionLine: AUTO}). Every node allows
@@ -119,7 +122,8 @@ class CapabilityExtensionTest {
     private static final CapabilityMatrix MATRIX = new CapabilityMatrix(List.of(
         new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1), production("8.1.17")),
         new CapabilityMatrix.Entry(new VersionRange(9, 0, 9, 0), production("9.0.2")),
-        new CapabilityMatrix.Entry(V7_9, Map.of(Capability.DIAGNOSIS, SupportState.SUPPORTED,
+        new CapabilityMatrix.Entry(V7_9, Map.of(Capability.PROCESS_DIAGNOSIS,
+            SupportState.SUPPORTED, Capability.LOG_DIAGNOSIS, SupportState.SUPPORTED,
             Capability.PROCESS_CONTROL, SupportState.SUPPORTED))),
         production(null));
 
@@ -184,14 +188,15 @@ class CapabilityExtensionTest {
         gateways = new AdapterGatewayFactory(servers, TestSecrets.credentialStore(servers, Map.of(
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber), scrubber,
-            clock, new CliRunner(spec -> {
+            clock, TestCliRunners.forHost(spec -> {
                 throw new AssertionError("no StartCLI run expected: " + spec.command());
-            }, Map.of(), false, new CliResources("acme")), versions, portSets);
+            }, Map.of(), new CliResources("acme", PrivateFiles.forHost())), versions, portSets);
         VersionGate gate = gateWithoutClients(versions, gateways, MATRIX);
         TargetResolver targets = new TargetResolver(ids);
         Function<NodeId, Duration> timeouts = id -> byId.get(id).timeout();
         DiagnosisService diagnosis = new DiagnosisService(gateways, targets, new FanOut(),
-            ResultLimiter.withDefaults(), timeouts, id -> byId.get(id).hangingThreshold(), clock,
+            ResultLimiter.withDefaults(), timeouts, id -> byId.get(id).cliTimeout(),
+            id -> byId.get(id).hangingThreshold(), clock,
             ResultJson::size, gate, SecretTiming.NONE);
         InventoryService inventory = new InventoryService(gateways, targets, new FanOut(),
             ResultLimiter.withDefaults(), new InventoryCache(clock,
@@ -208,7 +213,8 @@ class CapabilityExtensionTest {
             WritePolicy.Confirmation.CLIENT, Duration.ofMinutes(5), Optional.of("jdoe"))));
         ProcessControlService processControl = new ProcessControlService(
             new WriteGuard(targets, policies::get, gateways, gate), policies::get, gateways,
-            new ConfirmationRegistry(clock), new AuditLog(temp.resolve("audit"), scrubber), clock,
+            new ConfirmationRegistry(clock), new AuditLog(temp.resolve("audit"), scrubber,
+                PrivateFiles.forHost()), clock,
             UUID::randomUUID, "acme");
         NodeOverview overview = new NodeOverview(servers.stream()
             .map(server -> server.summary(path -> false, false)).toList(), versions, MATRIX,
@@ -451,7 +457,7 @@ class CapabilityExtensionTest {
         assertThat(version.path("server").path("version").asString()).isEqualTo("7.9.3");
         assertThat(version.path("status").asString()).isEqualTo("partially_supported");
         assertThat(texts(version.path("capabilities").path("usable")))
-            .containsExactly("diagnosis", "process_control");
+            .containsExactly("process_diagnosis", "log_diagnosis", "process_control");
         assertThat(notUsable(version)).containsExactly("monitoring", "inventory",
             "workspace_export", "development_writes", "deployment", "e2e_test");
     }
@@ -470,8 +476,8 @@ class CapabilityExtensionTest {
         JsonNode version = listVersions().get("qa/node1");
         assertThat(version.path("status").asString()).isEqualTo("supported");
         assertThat(texts(version.path("capabilities").path("usable"))).containsExactly(
-            "monitoring", "diagnosis", "inventory", "workspace_export", "development_writes",
-            "deployment", "e2e_test", "process_control");
+            "monitoring", "process_diagnosis", "log_diagnosis", "inventory", "workspace_export",
+            "development_writes", "deployment", "e2e_test", "process_control");
         assertThat(built79).isEmpty();
         assertThat(calls79).isEmpty();
     }
@@ -479,8 +485,8 @@ class CapabilityExtensionTest {
     @Test
     void aNineZeroNodeBehavesAsInUs2() {
         // US3-1: REST reads run with a warning on the 8.1 adapters, writes are refused
-        String unverified = "INUBIT 9.0.2 on qa/node2 is not verified for diagnosis; results may"
-            + " be incomplete";
+        String unverified = "INUBIT 9.0.2 on qa/node2 is not verified for process diagnosis;"
+            + " results may be incomplete";
         JsonNode processes = structured(call("find_processes",
             Map.of("target", "qa/node2", "states", List.of("ERROR")))).path("results").get(0);
         assertThat(texts(processes.path("warnings"))).containsExactly(unverified);
@@ -504,7 +510,7 @@ class CapabilityExtensionTest {
         JsonNode version = listVersions().get("qa/node2");
         assertThat(version.path("status").asString()).isEqualTo("partially_supported");
         assertThat(texts(version.path("capabilities").path("usable")))
-            .containsExactly("monitoring", "diagnosis", "inventory");
+            .containsExactly("monitoring", "process_diagnosis", "log_diagnosis", "inventory");
         assertThat(notUsable(version)).containsExactly("inventory (StartCLI parts)",
             "workspace_export", "development_writes", "deployment", "e2e_test",
             "process_control");

@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -17,11 +18,32 @@ import java.util.concurrent.TimeUnit;
  * {@code startcli.sh} runs the JVM as a child process: {@code destroy} snapshots the whole tree,
  * and {@code destroyForcibly} kills every snapshot member still alive (also after the root has
  * exited and its children were re-parented) plus their current descendants.
+ *
+ * <p>On Windows (feature 013, research R-1) the argument array is started unchanged as well:
+ * StartCLI arrives as the interpreter call of {@link WindowsCommandLine}, whose last element starts
+ * and ends with {@code "}, so the JDK passes it without quoting it again (pinned by
+ * {@code SystemProcessLauncherTest} on Windows). A batch file ({@code .bat}, {@code .cmd}) as the
+ * program is refused: the JDK would start it through the interpreter with its own quoting rules.
  */
 public final class SystemProcessLauncher implements ProcessLauncher {
 
+    private final boolean windows;
+
+    /** For the host; Windows is decided from {@code os.name} as {@code Launcher} does. */
+    public SystemProcessLauncher() {
+        this(System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows"));
+    }
+
+    SystemProcessLauncher(boolean windows) {
+        this.windows = windows;
+    }
+
     @Override
     public LaunchedProcess launch(LaunchSpec spec) throws IOException {
+        if (windows && batchFile(spec.command().get(0))) {
+            throw new IllegalArgumentException("A batch file must be started through the"
+                + " interpreter call of WindowsCommandLine, never handed to the JDK directly");
+        }
         ProcessBuilder builder = new ProcessBuilder(spec.command())
             .directory(spec.workingDirectory().toFile())
             .redirectInput(ProcessBuilder.Redirect.PIPE)
@@ -30,6 +52,15 @@ public final class SystemProcessLauncher implements ProcessLauncher {
         builder.environment().clear();
         builder.environment().putAll(spec.environment());
         return new SystemProcess(builder.start());
+    }
+
+    /**
+     * True for a {@code .bat} or {@code .cmd} program, in any case; trailing dots and spaces are
+     * ignored, as Windows drops them from a file name.
+     */
+    private static boolean batchFile(String program) {
+        String name = program.replaceFirst("[. ]+$", "").toLowerCase(Locale.ROOT);
+        return name.endsWith(".bat") || name.endsWith(".cmd");
     }
 
     private static final class SystemProcess implements LaunchedProcess {

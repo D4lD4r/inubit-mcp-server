@@ -333,6 +333,7 @@ public final class ConfigLoader {
         checkCredentialsSections(rootObject, source);
         rejectEmptyListEntries(rootObject, "", source);
         requireStrictArchivesOptIn(rootObject, source);
+        requireStrictUpdateCheck(rootObject, source);
         List<String> urlProblems = new ArrayList<>();
         sanitizeUrls(rootObject, source, urlProblems);
         if (!rootObject.hasNonNull("auditDirectory")) {
@@ -601,6 +602,19 @@ public final class ConfigLoader {
         }
     }
 
+    /**
+     * Feature 016 (contracts/configuration-delta.md): {@code updateCheck.enabled} must be a YAML
+     * boolean, so that a quoted {@code "false"} does not silently leave the check on. The value is
+     * never echoed.
+     */
+    private static void requireStrictUpdateCheck(ObjectNode root, Path source) {
+        JsonNode enabled = root.path("updateCheck").path("enabled");
+        if (!enabled.isMissingNode() && !enabled.isNull() && !enabled.isBoolean()) {
+            throw new ConfigException("Invalid value at updateCheck.enabled in " + source
+                + ": expected true or false");
+        }
+    }
+
     private static void rejectEmptyListEntries(JsonNode node, String path, Path source) {
         if (node.isArray()) {
             for (int i = 0; i < node.size(); i++) {
@@ -723,7 +737,7 @@ public final class ConfigLoader {
             return "an ISO-8601 duration such as PT5S";
         }
         if (type == VersionSetting.class) {
-            return "AUTO, V8_1, V9_X or a full version such as \"8.1.17\"";
+            return "AUTO, V6_1, V8_1, V9_X or a full version such as \"8.1.17\"";
         }
         if (type.isEnum()) {
             return "one of " + String.join(", ", Arrays.stream(type.getEnumConstants())

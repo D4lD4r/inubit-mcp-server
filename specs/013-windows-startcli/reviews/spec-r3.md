@@ -1,0 +1,15 @@
+SPEC: specs/013-windows-startcli/spec.md  ROUND: 3
+
+Round 2 status: all 4 round-2 majors are fixed (username checked when read, AUTH_FAILED; workspace edge case corrected; `\` listed as an unknown; FR-007 requires inherited access). All 14 round-2 minors are fixed. This round finds 1 new major (a sequencing gap) and 7 minors.
+
+FINDINGS:
+- [major] FR-009 / FR-003 / FR-013 / FR-010 vs US6 – several plan decisions depend on observations on Windows (FR-009 separator, FR-003 stdin encoding and line ending, FR-013 substitute forwarding "like the shipped startcli.bat", FR-010 direct launch "verified against those files"), but the observations (FR-014 recordings, FR-015 live checks) sit in US6, P3, after the implementation; the plan and the US2 safety tests would rest on guesses. FR-015's list of unknowns also leaves out `\`. – Either require the read-only recordings (argument list from the shipped startcli.bat, `\` inside a quoted command value, password from stdin and its encoding, output encoding) before the plan is approved and have the plan cite them, or give a default for each decision (FR-003 has one; FR-009 e.g. "`/` until the live check shows `\` is taken literally"). Add `\` to FR-015's list in both cases.
+- [minor] FR-002 / SC-002 – missing Windows cases: `\`, a value ending in `\` (escapes a closing double quote, can merge arguments), and `*` / `?` in the StartCLI URL (the Java launcher expands wildcards in unquoted arguments on Windows). – Add "`\`, a value ending in `\`, `*` and `?` (reach StartCLI unchanged)".
+- [minor] FR-001 – "and only these" leaves out FR-005 (cause and next step at the password prompt), FR-007 (failure instead of the POSIX fallback) and FR-007/US3 AS4 (warn instead of tighten; on macOS `Launcher.createAuditDirectory` and `AuditLog.ensureDirectory`/`append` tighten an existing directory and file). – Add them and state the deliberate difference.
+- [minor] FR-007 (existing directories) – unclear whether the warning covers user-provided directories; a user-created directory on Windows usually inherits Administrators entries, so every start would warn; on macOS an existing workspace is neither tightened nor warned about. – E.g. warn only for directories the server would have created (default audit directory, a workspace it created) and files it created there; use user-provided directories as is.
+- [minor] FR-007 ("the operation MUST fail") – error code and next step of the failing call, and the startup behaviour when the directory is created at startup, are not stated. – Name them.
+- [minor] FR-005 – "the server stops" does not say whether forced termination counts (MCP clients on Windows often terminate the server outright). – Decide; it determines the process-tree mechanism.
+- [minor] FR-011 – the 8 191 limit must count the longest line the launch mechanism builds, including what startcli.bat adds (`%*` expanded into the java command line). – Reword; the plan derives the margin from the batch files of the supported client versions.
+- [minor] FR-003 / Edge Cases – the refusal of a non-ASCII password on Windows has no acceptance scenario. – Add one to US2.
+
+VERDICT: CHANGES_REQUESTED

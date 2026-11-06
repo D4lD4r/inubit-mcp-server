@@ -73,7 +73,8 @@ public final class CliVersionProbe implements ClientVersionPort {
             throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
                     "StartCLI did not report its version (exit code " + result.exitCode() + ")",
                     "cliHome is not an INUBIT client, or the JDK in cli.javaHome does not fit",
-                    "Run bin/startcli.sh -v in cliHome with that JDK and check the output")
+                    "Run " + runner.scriptName() + " -v in cliHome with that JDK and check the"
+                        + " output")
                 .withNode(node)
                 .withExcerpt(URL.matcher(excerpt).replaceAll(URL_REMOVED)));
         }

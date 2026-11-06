@@ -9,7 +9,10 @@ import java.util.Set;
  */
 public enum Capability {
     MONITORING(Kind.READ, Set.of(Channel.REST)),
-    DIAGNOSIS(Kind.READ, Set.of(Channel.REST)),
+    /** {@code find_processes}. */
+    PROCESS_DIAGNOSIS(Kind.READ, Set.of(Channel.REST)),
+    /** {@code query_logs}. */
+    LOG_DIAGNOSIS(Kind.READ, Set.of(Channel.REST)),
     /** Diagrams via REST; modules and the history via StartCLI. */
     INVENTORY(Kind.READ, Set.of(Channel.REST, Channel.CLI)),
     WORKSPACE_EXPORT(Kind.READ, Set.of(Channel.CLI)),
@@ -41,5 +44,23 @@ public enum Capability {
     /** The channels the capability's tools use (unmodifiable). */
     public Set<Channel> channels() {
         return channels;
+    }
+
+    /**
+     * The capability as named in the spec's tool classification, in refusals and in
+     * {@code --check-config}.
+     */
+    public String label() {
+        return switch (this) {
+            case MONITORING -> "monitoring";
+            case PROCESS_DIAGNOSIS -> "process diagnosis";
+            case LOG_DIAGNOSIS -> "log diagnosis";
+            case INVENTORY -> "inventory";
+            case WORKSPACE_EXPORT -> "workspace export";
+            case DEVELOPMENT_WRITE -> "development writes";
+            case DEPLOYMENT -> "deployment";
+            case E2E_TEST -> "end-to-end test";
+            case PROCESS_CONTROL -> "process control";
+        };
     }
 }

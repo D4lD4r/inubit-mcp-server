@@ -209,17 +209,21 @@ public final class CliCommand {
             return this;
         }
 
-        /** {@code <option> '<absolute path>'}, e.g. the export file in a private directory. */
-        public Builder path(String option, Path value) {
+        /**
+         * {@code <option> '<absolute path>'}, e.g. the export file in a private directory; on
+         * Windows ({@code windows}) with {@code /} separators and the Windows rule (feature 013,
+         * research R-3).
+         */
+        public Builder path(String option, Path value, boolean windows) {
             String checked = valueOption(option);
-            String text = value == null ? "" : value.toString();
-            if (!CliPaths.passable(value)) {
+            if (!CliPaths.passable(value, windows)) {
                 throw invalid("The path for " + checked + " cannot be passed to StartCLI safely",
-                    "It must be absolute, match " + CliPaths.PATH_VALUE.pattern()
-                        + " and contain no '.' or '..' segment");
+                    "It must be " + (windows ? "a local drive path" : "absolute") + ", match "
+                        + CliPaths.rule(windows).pattern() + " and contain no '.' or '..'"
+                        + " segment");
             }
             tokens.add(checked);
-            tokens.add("'" + text + "'");
+            tokens.add("'" + CliPaths.render(value, windows) + "'");
             return this;
         }
 

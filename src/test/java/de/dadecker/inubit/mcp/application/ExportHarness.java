@@ -21,6 +21,7 @@ import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -69,7 +70,8 @@ public final class ExportHarness {
         this.root = root;
         SystemProcessLauncher system = new SystemProcessLauncher();
         this.history = new GitCli(root, "acme", system::launch,
-            Map.of("PATH", System.getenv().getOrDefault("PATH", "/usr/bin")));
+            Map.of("PATH", System.getenv().getOrDefault("PATH", "/usr/bin")),
+            PrivateFiles.forHost());
     }
 
     public WorkspaceService service() {

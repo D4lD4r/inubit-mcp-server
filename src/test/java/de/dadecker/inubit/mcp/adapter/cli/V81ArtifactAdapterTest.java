@@ -16,7 +16,11 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -47,13 +51,12 @@ class V81ArtifactAdapterTest {
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        Files.writeString(Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh"),
-            "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
     }
 
     private ArtifactPort adapter(FakeProcessLauncher launcher) {
-        CliRunner runner = new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false,
-            new CliResources("acme"));
+        CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
+            new CliResources("acme", PrivateFiles.forHost()));
         NodeCredentials credentials = new NodeCredentials(DEV,
             Optional.of(new SourcedValue<>("jdoe", "INUBIT_DEV_USERNAME")),
             Optional.of(new SourcedValue<>(Secret.of("adapter-test-pw"), "INUBIT_DEV_PASSWORD")),
@@ -70,7 +73,7 @@ class V81ArtifactAdapterTest {
         return FakeProcessLauncher.of("1-OK: " + ok + " exported successfully.\n", "", 0)
             .onLaunch(spec -> {
                 events.add("launch");
-                List<String> command = spec.command();
+                List<String> command = spec.startCliArguments();
                 Matcher file = EXPORT_FILE.matcher(command.get(command.indexOf("--execCommand")
                     + 1));
                 assertThat(file.find()).isTrue();
@@ -88,9 +91,9 @@ class V81ArtifactAdapterTest {
         FakeProcessLauncher launcher = exporting("Workflow group", zip);
 
         assertThat(adapter(launcher).exportWorkflowGroup("jdoe", "GRP-01")).isEqualTo(zip);
-        assertThat(launcher.last().spec().command()).anyMatch(argument -> argument.startsWith(
-            "export --exportWorkflowUser 'jdoe' --exportWorkflowType 'technical'"
-                + " --exportWorkflowGroup 'GRP-01'"));
+        assertThat(launcher.last().spec().startCliArguments()).anyMatch(argument ->
+            argument.startsWith("export --exportWorkflowUser 'jdoe' --exportWorkflowType"
+                + " 'technical' --exportWorkflowGroup 'GRP-01'"));
         assertThat(events).as("credentials confirmed before StartCLI holds the guard")
             .containsExactly("confirm", "launch");
     }
@@ -138,9 +141,9 @@ class V81ArtifactAdapterTest {
         FakeProcessLauncher launcher = exporting("Workflow group", zip);
 
         assertThat(adapter(launcher).exportRelease("jdoe", "TAG-01")).isEqualTo(zip);
-        assertThat(launcher.last().spec().command()).anyMatch(argument -> argument.startsWith(
-            "export --exportWorkflowUser 'jdoe' --exportWorkflowType 'technical'"
-                + " --exportWorkflowGroup '' --exportTag 'TAG-01'"));
+        assertThat(launcher.last().spec().startCliArguments()).anyMatch(argument ->
+            argument.startsWith("export --exportWorkflowUser 'jdoe' --exportWorkflowType"
+                + " 'technical' --exportWorkflowGroup '' --exportTag 'TAG-01'"));
         assertThat(events).containsExactly("confirm", "launch");
     }
 
@@ -150,8 +153,8 @@ class V81ArtifactAdapterTest {
         FakeProcessLauncher launcher = exporting("Repository path", zip);
 
         assertThat(adapter(launcher).exportRepository("/Root/jdoe/xsd")).isEqualTo(zip);
-        assertThat(launcher.last().spec().command()).anyMatch(argument -> argument.startsWith(
-            "export --exportRepositoryPath '/Root/jdoe/xsd'"));
+        assertThat(launcher.last().spec().startCliArguments()).anyMatch(argument ->
+            argument.startsWith("export --exportRepositoryPath '/Root/jdoe/xsd'"));
         assertThat(events).containsExactly("confirm", "launch");
     }
 

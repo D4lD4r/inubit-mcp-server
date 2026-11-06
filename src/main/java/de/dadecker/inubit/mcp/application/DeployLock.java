@@ -4,14 +4,14 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Objects;
 
 /**
@@ -21,10 +21,15 @@ import java.util.Objects;
  * across the server processes of the profile and within one — then the {@link WorkspaceLock}
  * (busy is {@code PRECONDITION_FAILED}; the group lock is given back then). Both are held for
  * the preview and for the execute call and released by {@link #close()}, and by the operating
- * system when the process ends. The directory ({@code rwx------}) and the lock files
- * ({@code rw-------}) are owner-only; the lock files stay.
+ * system when the process ends. The directory and the lock files are owner-only, created
+ * through the {@link PrivateFileSystem} (feature 013, FR-007: {@code rwx------} and
+ * {@code rw-------} on POSIX, on Windows a protected access list for the current user and
+ * {@code SYSTEM}); an existing directory or lock file is used as it is. The lock files stay.
  */
 public final class DeployLock implements AutoCloseable {
+
+    /** The file name of a target group's lock: {@code <group>.lock}. */
+    public static final String SUFFIX = ".lock";
 
     private final GroupLock group;
     private final WorkspaceLock workspace;
@@ -38,12 +43,14 @@ public final class DeployLock implements AutoCloseable {
      * Locks the deployments into {@code group}, then the workspace.
      *
      * @param deployments {@code ~/.inubit-mcp/<profile>/deployments}
+     * @param files       creates the private directory and lock file
      * @throws ToolErrorException {@code DEPLOY_LOCKED} if another deployment into the group
      *     runs, {@code PRECONDITION_FAILED} if the workspace is busy or a lock file cannot be
      *     used
      */
-    public static DeployLock acquire(Path deployments, GroupId group, Path workspace) {
-        GroupLock groupLock = groupLock(deployments, group);
+    public static DeployLock acquire(Path deployments, GroupId group, Path workspace,
+        PrivateFileSystem files) {
+        GroupLock groupLock = groupLock(deployments, group, files);
         try {
             return new DeployLock(groupLock, WorkspaceLock.acquire(workspace));
         } catch (RuntimeException e) {
@@ -53,18 +60,23 @@ public final class DeployLock implements AutoCloseable {
     }
 
     /** The lock of {@code group} alone (also for a second test JVM). */
-    static GroupLock groupLock(Path deployments, GroupId group) {
+    static GroupLock groupLock(Path deployments, GroupId group, PrivateFileSystem files) {
         Objects.requireNonNull(group, "group");
-        Path file = deployments.resolve(group.value() + ".lock");
+        Objects.requireNonNull(files, "files");
+        Path file = deployments.resolve(group.value() + SUFFIX);
         FileChannel channel;
         try {
             if (!Files.isDirectory(deployments)) {
-                Files.createDirectories(deployments, PosixFilePermissions.asFileAttribute(
-                    PosixFilePermissions.fromString("rwx------")));
+                files.createDirectories(deployments);
             }
-            channel = FileChannel.open(file, java.util.Set.of(StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE), PosixFilePermissions.asFileAttribute(
-                    PosixFilePermissions.fromString("rw-------")));
+            if (!Files.exists(file)) {
+                try {
+                    files.createFile(file);
+                } catch (FileAlreadyExistsException e) {
+                    // created meanwhile by another process of the profile
+                }
+            }
+            channel = files.openLockFile(file);
         } catch (IOException | UnsupportedOperationException e) {
             throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
                 "The deploy lock " + file + " cannot be opened (" + e.getClass().getSimpleName()

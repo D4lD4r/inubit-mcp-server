@@ -3,13 +3,20 @@ package de.dadecker.inubit.mcp.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import de.dadecker.inubit.mcp.application.BackupStore.Manifest;
 import de.dadecker.inubit.mcp.application.BackupStore.Removed;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.WindowsAcl;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -21,6 +28,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -33,6 +42,10 @@ class BackupStoreTest {
     private static final NodeId DEV = NodeId.parse("dev/node1");
     private static final Instant NOW = Instant.parse("2026-10-06T08:00:00Z");
     private static final String SECRET = "S3cr3t-pw-in-backup";
+    /** Owner-only permissions are checked on POSIX; the Windows access list below (T025). */
+    private static final boolean POSIX =
+        FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
+    private static final PrivateFileSystem FILES = PrivateFiles.forHost();
 
     @TempDir
     Path home;
@@ -44,7 +57,7 @@ class BackupStoreTest {
     }
 
     private BackupStore store() {
-        return new BackupStore(root(), clock);
+        return new BackupStore(root(), clock, FILES);
     }
 
     private static Manifest manifest(String auditId, NodeId node, String owner, String scope,
@@ -77,17 +90,23 @@ class BackupStoreTest {
             .isEqualTo(export("first " + SECRET));
         assertThat(Files.readAllBytes(root().resolve(id + "-2.zip"))).isEqualTo(export("second"));
         assertThat(root().resolve(id + ".json")).isRegularFile();
-        assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(root())))
-            .isEqualTo("rwx------");
         try (Stream<Path> files = Files.list(root())) {
-            assertThat(files.toList()).hasSize(3).allSatisfy(file -> assertThat(
-                PosixFilePermissions.toString(Files.getPosixFilePermissions(file)))
-                .as(file.getFileName().toString()).isEqualTo("rw-------"));
+            assertThat(files.toList()).hasSize(3);
+        }
+        if (POSIX) {
+            assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(root())))
+                .isEqualTo("rwx------");
+            try (Stream<Path> files = Files.list(root())) {
+                assertThat(files.toList()).allSatisfy(file -> assertThat(
+                    PosixFilePermissions.toString(Files.getPosixFilePermissions(file)))
+                    .as(file.getFileName().toString()).isEqualTo("rw-------"));
+            }
         }
     }
 
     @Test
     void anExistingDirectoryWithWiderPermissionsIsTightened() throws IOException {
+        assumeTrue(POSIX);
         Files.createDirectories(root(), PosixFilePermissions.asFileAttribute(
             PosixFilePermissions.fromString("rwxr-xr-x")));
 
@@ -390,5 +409,67 @@ class BackupStoreTest {
             .isNotEqualTo(BackupStore.repositoryState(Map.of("/Root/jdoe/xsd/c.xsd",
                 content)).get("repository:/Root/jdoe/xsd/c.xsd"));
     }
-}
 
+    // --- feature 013 T025 (FR-007): created through the PrivateFileSystem port -------------
+
+    @Test
+    void aDirectoryThatCannotBeMadePrivateFailsTheBackupAndIsNotCreated() {
+        BackupStore store = new BackupStore(root(), clock, PrivateFiles.failing());
+        String id = UUID.randomUUID().toString();
+
+        assertThatThrownBy(() -> store.write(manifest(id, DEV, "jdoe", "g", NOW),
+            List.of(export("1")))).isInstanceOf(UncheckedIOException.class)
+            .hasMessage("The backup cannot be written to " + root());
+        assertThat(home.resolve(".inubit-mcp")).doesNotExist();
+    }
+
+    @Test
+    void aFileThatCannotBeMadePrivateFailsTheBackupAndNothingIsWritten() throws IOException {
+        BackupStore store = new BackupStore(root(), clock, PrivateFiles.failingFiles());
+        String id = UUID.randomUUID().toString();
+
+        assertThatThrownBy(() -> store.write(manifest(id, DEV, "jdoe", "g", NOW),
+            List.of(export("1 " + SECRET)))).isInstanceOf(UncheckedIOException.class)
+            .hasMessage("The backup cannot be written to " + root());
+        try (Stream<Path> files = Files.list(root())) {
+            assertThat(files).isEmpty();
+        }
+        assertThat(store().find(id)).isEmpty();
+    }
+
+    @Test
+    void aManifestThatCannotBeMadePrivateFailsTheUpdateAndTheOldOneIsKept() throws IOException {
+        String id = UUID.randomUUID().toString();
+        Manifest written = store().write(manifest(id, DEV, "jdoe", "g", NOW),
+            List.of(export("1")));
+        BackupStore failing = new BackupStore(root(), clock, PrivateFiles.failingFiles());
+
+        assertThatThrownBy(() -> failing.update(written.with("EXECUTED", Map.of())))
+            .isInstanceOf(UncheckedIOException.class)
+            .hasMessage("The backup manifest cannot be written");
+        assertThat(store().find(id)).contains(written);
+        try (Stream<Path> files = Files.list(root())) {
+            assertThat(files.map(file -> file.getFileName().toString()))
+                .containsExactlyInAnyOrder(id + "-1.zip", id + ".json");
+        }
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void onWindowsTheDirectoryAndEveryFileArePrivate() throws Exception {
+        String id = UUID.randomUUID().toString();
+        Manifest written = store().write(manifest(id, DEV, "jdoe", "g", NOW),
+            List.of(export("1 " + SECRET), export("2")));
+        store().update(written.with("EXECUTED", Map.of())); // a moved temporary manifest
+
+        WindowsAcl.assertPrivate(home.resolve(".inubit-mcp"), WindowsAcl.DIRECTORY_INHERITANCE);
+        WindowsAcl.assertPrivate(root().getParent(), WindowsAcl.DIRECTORY_INHERITANCE);
+        WindowsAcl.assertPrivate(root(), WindowsAcl.DIRECTORY_INHERITANCE);
+        try (Stream<Path> files = Files.list(root())) {
+            for (Path file : files.toList()) {
+                WindowsAcl.assertPrivate(file, "None");
+            }
+        }
+        assertThat(store().find(id).orElseThrow().outcome()).isEqualTo("EXECUTED");
+    }
+}

@@ -47,7 +47,7 @@ import org.junit.jupiter.api.Test;
  * {@code application} only on {@code java.*}, {@code domain}, itself and SLF4J; only
  * {@code mcp} uses the MCP SDK; {@code mcp} never reaches into {@code adapter} or
  * {@code config}; only {@code adapter.rest} uses {@code java.net.http} (feature 004: and
- * {@code adapter.soap}); only {@code adapter.cli}
+ * {@code adapter.soap}; feature 016: and {@code adapter.github}); only {@code adapter.cli}
  * starts or inspects OS processes ({@code ProcessBuilder}, {@code Process},
  * {@code ProcessHandle}, {@code Runtime.exec}).
  *
@@ -70,6 +70,11 @@ import org.junit.jupiter.api.Test;
  * store adapters {@code adapter.os}. The process rule is unchanged: {@code adapter.os} starts its
  * tools through the {@code ProcessLauncher} interface of {@code adapter.cli}.
  *
+ * <p>Feature 013 (T008, plan "Project Structure"): {@code adapter.os} also holds the Windows
+ * system queries (JNA), which reach {@code adapter.cli} through its port {@code CliSystem};
+ * {@code adapter.cli} never references {@code adapter.os}.
+ * <p>Feature 013 (T026): {@code config} never references an adapter; the launcher passes the
+ * host's private files in (no cycle with {@code adapter.os}, which reads the configuration).
  * <p>Feature 015 (T015, research R-10): the drive-type probe {@code JnaDriveTypeApi}
  * ({@code GetDriveTypeW}) joins the JNA users in {@code adapter.os}; the rule is unchanged.
  */
@@ -150,10 +155,11 @@ class PackageBoundaryTest {
     }
 
     @Test
-    void onlyTheRestAndSoapAdaptersUseTheHttpClient() {
-        assertThat(violations(inPackage("adapter/rest").or(inPackage(SOAP_ADAPTER)).negate(),
-            forbidden(HTTP_CLIENT)))
-            .as("java.net.http outside adapter.rest and adapter.soap").isEmpty();
+    void onlyTheRestSoapAndGitHubAdaptersUseTheHttpClient() {
+        // feature 016: adapter.github asks GitHub for the latest release of this server
+        assertThat(violations(inPackage("adapter/rest").or(inPackage(SOAP_ADAPTER))
+            .or(inPackage("adapter/github")).negate(), forbidden(HTTP_CLIENT)))
+            .as("java.net.http outside adapter.rest, adapter.soap and adapter.github").isEmpty();
     }
 
     @Test
@@ -180,6 +186,18 @@ class PackageBoundaryTest {
     void onlyTheOsAdapterUsesJna() {
         assertThat(violations(inPackage(OS_ADAPTER).negate(), forbidden(JNA)))
             .as("com.sun.jna outside adapter.os").isEmpty();
+    }
+
+    @Test
+    void theCliAdapterDoesNotReachTheOsAdapter() {
+        assertThat(violations(inPackage("adapter/cli"), forbidden(BASE + OS_ADAPTER + "/")))
+            .as("adapter.cli → adapter.os (use the CliSystem port)").isEmpty();
+    }
+
+    @Test
+    void theConfigurationDoesNotReachTheAdapters() {
+        assertThat(violations(inPackage("config"), forbidden(BASE + "adapter/")))
+            .as("config → adapter (the launcher passes the adapters in)").isEmpty();
     }
 
     @Test
@@ -246,6 +264,8 @@ class PackageBoundaryTest {
         assertThat(types(BASE + "adapter/aws/SsmParameterStore"))
             .anyMatch(t -> t.startsWith(AWS_SDK));
         assertThat(types(BASE + "adapter/os/JnaCredApi")).anyMatch(t -> t.startsWith(JNA));
+        assertThat(types(BASE + "adapter/os/WindowsSystem"))
+            .contains(BASE + "adapter/cli/CliSystem");
         assertThat(types(BASE + "adapter/os/JnaDriveTypeApi")).anyMatch(t -> t.startsWith(JNA));
         assertThat(types(BASE + "application/FanOut")).anyMatch(t -> t.startsWith("org/slf4j/"));
         assertThat(classes.get(BASE + "Wiring").members())
