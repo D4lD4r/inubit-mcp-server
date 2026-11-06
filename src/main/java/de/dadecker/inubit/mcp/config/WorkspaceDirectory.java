@@ -1,6 +1,5 @@
 package de.dadecker.inubit.mcp.config;
 
-import de.dadecker.inubit.mcp.adapter.os.OsPrivateFileSystem;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -42,13 +41,6 @@ public final class WorkspaceDirectory {
     }
 
     private WorkspaceDirectory() {
-    }
-
-    /**
-     * {@link #prepare(Path, PrivateFileSystem)} with the private files of the host.
-     */
-    public static Result prepare(Path workspace) {
-        return prepare(workspace, OsPrivateFileSystem.forHost());
     }
 
     /**

@@ -12,8 +12,11 @@ import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
 import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
+import de.dadecker.inubit.mcp.config.WorkspaceDirectory;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -82,7 +85,10 @@ class HealthOverviewPerformanceTest {
         Path file = Files.writeString(home.resolve("config.yaml"), yaml);
         LoadedConfig loaded = new ConfigLoader(Map.of(), home, false).loadFile(file);
         SecretScrubber scrubber = new SecretScrubber();
-        assertThat(ConfigValidator.forSystem().validate(loaded).errors())
+        assertThat(new ConfigValidator(Files::exists, System.getenv(), Platform.windows(),
+            Path.of(System.getProperty("java.io.tmpdir")), source -> List.of(),
+            workspace -> WorkspaceDirectory.prepare(workspace, PrivateFiles.forHost()))
+            .validate(loaded).errors())
             .isEmpty();
         assertThat(loaded.config().effectiveNodes()).hasSize(10)
             .allSatisfy(server -> assertThat(server.timeout()).as("default timeout")

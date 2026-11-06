@@ -20,11 +20,13 @@ import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.ValidationReport;
+import de.dadecker.inubit.mcp.config.WorkspaceDirectory;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -161,7 +163,8 @@ class TwoProfilesTest {
         SecretScrubber scrubber = new SecretScrubber();
         // feature 011: the values are credential store entries, not environment variables
         ValidationReport report = new ConfigValidator(Files::exists, Map.of(), Platform.windows(),
-            Path.of(System.getProperty("java.io.tmpdir")), loader::otherProfiles)
+            Path.of(System.getProperty("java.io.tmpdir")), loader::otherProfiles,
+            workspace -> WorkspaceDirectory.prepare(workspace, PrivateFiles.forHost()))
             .validate(loaded);
         assertThat(report.errors()).as(name).isEmpty();
         assertThat(report.warnings()).as(name + ": nothing shared with the other profile")

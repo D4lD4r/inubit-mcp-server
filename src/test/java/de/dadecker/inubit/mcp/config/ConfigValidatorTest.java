@@ -1139,7 +1139,9 @@ class ConfigValidatorTest {
             ProfileConfig config = loaded.config();
             
             return new ConfigValidator(existing::contains, env, false, tempDirectory,
-                loader::otherProfiles).validate(loaded);
+                loader::otherProfiles,
+                workspace -> WorkspaceDirectory.prepare(workspace, PrivateFiles.forHost()))
+                .validate(loaded);
         }
 
         @Test
@@ -1631,7 +1633,8 @@ class ConfigValidatorTest {
                 home.resolve("config.yaml"));
 
             ValidationReport report = new ConfigValidator(existing::contains, env, false,
-                tempDirectory, source -> List.of()).validate(loaded);
+                tempDirectory, source -> List.of(),
+                workspace -> WorkspaceDirectory.prepare(workspace, FILES)).validate(loaded);
 
             assertThat(report.errors()).isEmpty();
             assertThat(home.resolve(".inubit-mcp/acme/workspace")).isDirectory();

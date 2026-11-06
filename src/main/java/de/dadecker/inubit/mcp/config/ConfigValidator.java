@@ -64,40 +64,19 @@ public final class ConfigValidator {
     private final StartCliHost host;
 
     /**
-     * @param exists      file-system check, injectable for tests
-     * @param environment the process environment (for the {@code JAVA_HOME} fallback and the
+     * @param exists        file-system check, injectable for tests
+     * @param environment   the process environment (for the {@code JAVA_HOME} fallback and the
      *     names of leftover credential variables; no credential value is read from it)
-     * @param windows     whether the server runs on Windows, where StartCLI receives its values
-     *     through the command interpreter (feature 013)
-     */
-    public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
-        boolean windows) {
-        this(exists, environment, windows, Path.of(System.getProperty("java.io.tmpdir")));
-    }
-
-    /**
+     * @param windows       whether the server runs on Windows, where StartCLI receives its
+     *     values through the command interpreter (feature 013)
      * @param tempDirectory {@code java.io.tmpdir}, below which the inventory exports are written
      *     (its path is passed to StartCLI, review I9)
-     */
-    public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
-        boolean windows, Path tempDirectory) {
-        this(exists, environment, windows, tempDirectory, source -> List.of());
-    }
-
-    /**
      * @param otherProfiles the other profile files of the default configuration directory, given
      *     the file being checked ({@link ConfigLoader#otherProfiles}); compared best effort for a
      *     shared audit directory, credential prefix or profile name (002 T031)
-     */
-    public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
-        boolean windows, Path tempDirectory, Function<Path, List<LoadedConfig>> otherProfiles) {
-        this(exists, environment, windows, tempDirectory, otherProfiles,
-            WorkspaceDirectory::prepare);
-    }
-
-    /**
-     * @param workspaces creates and checks the workspace directory ({@link
-     *     WorkspaceDirectory#prepare} unless a test injects another)
+     * @param workspaces    creates and checks the workspace directory ({@link
+     *     WorkspaceDirectory#prepare} with the private files of the host, built by the launcher;
+     *     feature 013 T026)
      */
     public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
         boolean windows, Path tempDirectory, Function<Path, List<LoadedConfig>> otherProfiles,
@@ -120,12 +99,6 @@ public final class ConfigValidator {
         this.environment = Map.copyOf(environment);
         this.windows = windows;
         this.otherProfiles = Objects.requireNonNull(otherProfiles, "otherProfiles");
-    }
-
-    /** A validator for the current process. */
-    public static ConfigValidator forSystem() {
-        return new ConfigValidator(Files::exists, System.getenv(),
-            System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows"));
     }
 
     /**

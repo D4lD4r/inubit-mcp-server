@@ -73,6 +73,8 @@ import org.junit.jupiter.api.Test;
  * <p>Feature 013 (T008, plan "Project Structure"): {@code adapter.os} also holds the Windows
  * system queries (JNA), which reach {@code adapter.cli} through its port {@code CliSystem};
  * {@code adapter.cli} never references {@code adapter.os}.
+ * <p>Feature 013 (T026): {@code config} never references an adapter; the launcher passes the
+ * host's private files in (no cycle with {@code adapter.os}, which reads the configuration).
  * <p>Feature 015 (T015, research R-10): the drive-type probe {@code JnaDriveTypeApi}
  * ({@code GetDriveTypeW}) joins the JNA users in {@code adapter.os}; the rule is unchanged.
  */
@@ -189,6 +191,12 @@ class PackageBoundaryTest {
     void theCliAdapterDoesNotReachTheOsAdapter() {
         assertThat(violations(inPackage("adapter/cli"), forbidden(BASE + OS_ADAPTER + "/")))
             .as("adapter.cli → adapter.os (use the CliSystem port)").isEmpty();
+    }
+
+    @Test
+    void theConfigurationDoesNotReachTheAdapters() {
+        assertThat(violations(inPackage("config"), forbidden(BASE + "adapter/")))
+            .as("config → adapter (the launcher passes the adapters in)").isEmpty();
     }
 
     @Test
