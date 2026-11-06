@@ -49,10 +49,10 @@ the checkout; never two builds in parallel).
 **Goal**: one background check after start; notice in log (WARN once) and `get_health.serverUpdate`.
 **Independent test**: Launcher test with a fake source announcing a higher version.
 
-- [ ] T005 [P] [US1] Port `ReleaseSource` (`LatestRelease latest() throws ReleaseCheckException`),
+- [X] T005 [P] [US1] Port `ReleaseSource` (`LatestRelease latest() throws ReleaseCheckException`),
   `record LatestRelease(SemVer version)`, `ReleaseCheckException` (message only, no stack trace
   needed) in `src/main/java/de/dadecker/inubit/mcp/application/ReleaseSource.java`
-- [ ] T006 [P] [US1] `ServerUpdate` record per data-model.md ("`notice` only if `updateAvailable`",
+- [X] T006 [P] [US1] `ServerUpdate` record per data-model.md ("`notice` only if `updateAvailable`",
   URL `https://github.com/D4lD4r/inubit-mcp-server/releases/tag/v<latest>`) with factory
   `of(SemVer current, SemVer latest, Instant checkedAt)` and tests in
   `src/main/java/de/dadecker/inubit/mcp/domain/model/ServerUpdate.java`,
