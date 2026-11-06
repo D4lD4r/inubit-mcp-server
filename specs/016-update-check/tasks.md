@@ -13,7 +13,7 @@ the checkout; never two builds in parallel).
 
 ## Phase 1: Setup
 
-- [ ] T001 Add `maven-failsafe-plugin` (version property `maven-failsafe-plugin.version` = 3.6.1, in
+- [X] T001 Add `maven-failsafe-plugin` (version property `maven-failsafe-plugin.version` = 3.6.1, in
   `pluginManagement` and `plugins` with goals `integration-test` and `verify`, honouring
   `${argLine}`) in `pom.xml`; confirm it resolves offline (`mvn -o -q verify` stays green)
 
