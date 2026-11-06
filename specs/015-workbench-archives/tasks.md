@@ -438,7 +438,7 @@ was not written.
 **Independent test**: Q16–Q20, Q22: a successful call, a StartCLI failure, a failure after the
 export and a write failure are each audited, and the folder never holds a partial archive.
 
-- [ ] T019 [P] [US3] Write failures in the writer (research R-11, FR-009, FR-011): test first, extending
+- [X] T019 [P] [US3] Write failures in the writer (research R-11, FR-009, FR-011): test first, extending
   `test/application/ArchiveFolderWriterTest.java` with the `FileOps` seam: a write that fails on the
   second of three archives (disk full) → first written, second in `failed` (`INTERNAL`, message
   without content), third in `notWritten`, no `.part` and no partial file left; a name that appears
