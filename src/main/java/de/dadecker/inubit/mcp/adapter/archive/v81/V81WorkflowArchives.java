@@ -62,8 +62,9 @@ import java.util.stream.Collectors;
 public final class V81WorkflowArchives implements WorkflowArchivePort {
 
     /**
-     * The plug-in type of a Workflow Connector. Unverified (research R-5): taken from a REST log,
-     * not from a recorded {@code module/module.xml}; confirmed in the manual check (T026).
+     * The plug-in type of a Workflow Connector (research R-5): first taken from a REST log, confirmed
+     * 2026-11-06 against the {@code ModuleGroupName} in a real {@code module/module.xml} of INUBIT
+     * 8.1.14 (manual check T026).
      */
     static final String WORKFLOW_CONNECTOR = "Workflow Connector";
 

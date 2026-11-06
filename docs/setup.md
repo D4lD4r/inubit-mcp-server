@@ -1426,7 +1426,7 @@ ignores `x-*` keys):
 ```yaml
 x-cert-check:
   java: /Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home/bin/java  # keytool: same directory
-  serverJar: ~/lib/inubit-mcp-server-0.7.0.jar
+  serverJar: ~/lib/inubit-mcp-server-0.7.1.jar
 ```
 
 Update `serverJar` together with the JAR the registration (or the start script below) runs, and
@@ -1553,6 +1553,11 @@ when its servers really create their own certificates.
 
 **Converting a stage.** The tool does not convert a stage; edit the profile by hand:
 
+0. First install the `inubit-cert-check` of the release (section 5, "Install") and set
+   `serverJar` in the profile to that release's jar (0.7.0 or later). An older tool refuses the
+   profile (`stage int.tls: unknown key 'pinPerServer'`), and with an older `serverJar` every
+   adoption is rolled back (`adoption failed, original files restored: --check-config refused the
+   changed profile: exit 1`), because the tool checks the changed profile with that jar.
 1. In the stage's `tls`: add `pinPerServer: true`, keep `trustStore`, remove
    `pinnedCertificateSha256`.
 2. In each https node: add a `tls` block (block form) with that server's
