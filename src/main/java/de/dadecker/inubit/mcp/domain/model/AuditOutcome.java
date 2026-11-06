@@ -15,5 +15,10 @@ public enum AuditOutcome {
     EXECUTED,
     REFUSED,
     FAILED,
+    /**
+     * Feature 015 (research R-12): writing failed: some or no archives were written, one failed,
+     * the rest not attempted.
+     */
+    PARTIALLY_COMPLETED,
     PACKAGED
 }

@@ -35,7 +35,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
@@ -52,11 +51,11 @@ import java.util.stream.Stream;
  *       entry; a module listed twice is written once) and one file per embedded document.
  *   <li>The repository files of the export's {@code Repository.zip} that the exported artifacts
  *       (workflows, module index entries, module files, embedded documents) reach by structural
- *       references ({@link RepositoryReferences#scan}), also through other
- *       repository files ({@link RepositoryClosure}, research D-3), and only those; a URI in a
- *       string literal is no reference. Files below another owner's root are never written, a
- *       warning counts them. A file withheld as key material is not written, its {@code .meta/}
- *       record holds a placeholder (review I3).
+ *       references ({@link RepositoryReferences#scan}, collected by {@link ArchiveReferences}),
+ *       also through other repository files ({@link RepositoryClosure}, research D-3), and only
+ *       those; a URI in a string literal is no reference. Files below another owner's root are
+ *       never written, a warning counts them. A file withheld as key material is not written,
+ *       its {@code .meta/} record holds a placeholder (review I3).
  *   <li>Every XML file goes through {@link XmlNormalizer}; embedded documents are written as
  *       decoded. Volatile values go to {@code .meta/} ({@link MetaStore}): UIDs, the export suffix
  *       of check-in comments, the enclosing XML context, module file names and encodings,
@@ -169,7 +168,7 @@ public final class WorkspaceWriter {
                     "groupPosition", workflow.context().groupPosition(),
                     "position", workflow.context().position()));
                 files.put(slash(path.metaPath()), MetaStore.serialize(meta));
-                references.addAll(RepositoryReferences.scan(path, xml));
+                references.addAll(ArchiveReferences.workflow(path, xml));
                 workflow.element().child("CheckoutUser").map(Element::text)
                     .filter(user -> !user.isBlank())
                     .ifPresent(user -> warnings.add("Workflow " + workflow.name()
@@ -190,7 +189,7 @@ public final class WorkspaceWriter {
             Split split = MetaStore.split(entry.element());
             byte[] indexXml = XmlNormalizer.normalize(split.element());
             files.put(slash(indexPath.toRelativePath()), indexXml);
-            references.addAll(RepositoryReferences.scan(indexPath, indexXml));
+            references.addAll(ArchiveReferences.indexEntry(indexPath, indexXml));
             Map<String, Object> meta = new LinkedHashMap<>(split.values());
             meta.put("context", Map.of("documentVersion", entry.documentVersion(),
                 "positions", entries.stream().map(e -> Map.of("groupPosition",
@@ -230,9 +229,8 @@ public final class WorkspaceWriter {
 
         Map<String, RepositoryFile> repository = new HashMap<>();
         export.repository().values().forEach(file -> repository.put("/" + file.path(), file));
-        RepositoryClosure closure = RepositoryClosure.of(owner, references, reference ->
-            Optional.ofNullable(repository.get(reference)).map(file -> RepositoryReferences.scan(
-                WorkspacePath.repository(group, owner, reference), file.content())));
+        RepositoryClosure closure = ArchiveReferences.closure(owner, references,
+            export.repository().values(), group);
         int withheld = 0;
         for (String reference : closure.included()) {
             RepositoryFile file = repository.get(reference);
@@ -319,16 +317,13 @@ public final class WorkspaceWriter {
         Extracted extracted = EmbeddedDocuments.extract(module.element());
         WorkspacePath path = WorkspacePath.module(group, owner, module.pluginType(),
             module.name());
-        byte[] xml = XmlNormalizer.normalize(extracted.properties());
-        files.put(slash(path.toRelativePath()), xml);
-        references.addAll(RepositoryReferences.scan(path, xml));
+        files.put(slash(path.toRelativePath()), XmlNormalizer.normalize(extracted.properties()));
+        references.addAll(ArchiveReferences.moduleFile(path,
+            XmlNormalizer.normalize(module.element())));
         SortedMap<String, Object> embedded = new TreeMap<>();
         for (Document document : extracted.documents()) {
-            int dot = document.fileName().lastIndexOf('.');
-            WorkspacePath file = WorkspacePath.embedded(group, owner, module.pluginType(),
-                module.name(), document.property(), document.fileName().substring(dot + 1));
+            WorkspacePath file = ArchiveReferences.embedded(path, document);
             files.put(slash(file.toRelativePath()), document.content());
-            references.addAll(RepositoryReferences.scan(file, document.content()));
             embedded.put(document.fileName(), Map.of("property", document.property(),
                 "encoding", document.encoding().name()));
         }

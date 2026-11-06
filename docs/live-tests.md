@@ -302,6 +302,38 @@ The selection of the stores by the live tests is covered offline by `live/LiveTa
 (`theWiringReadsEachNodeFromItsOwnSourceLikeTheServer`); the opt-in gate by
 `live/CredentialStoreLiveOptInTest`.
 
+## Network drive check on Windows (feature 015)
+
+`export_archives` refuses a target folder on a mapped network drive (research R-10, FR-008): the
+server asks Windows for the drive type (`GetDriveTypeW("<X>:\")` of `kernel32`, through JNA) and
+refuses `DRIVE_REMOTE`. The offline build covers this only through a fake drive-type API
+(`adapter/os/WindowsNetworkPathsTest`) and a fake probe (`application/TargetFolderRulesTest`); the
+native call itself is checked by hand on a Windows machine. The refusal happens before StartCLI
+runs, so no archive is exported and no secret is read from INUBIT. If the native call cannot be
+loaded, the check answers "local" for every drive letter and the server logs one warning ("The
+Windows drive-type API could not be loaded …"); look for it in the server log during this check.
+
+1. Map a share as a network drive that is not otherwise in use, e.g. `Z:` (any share you may
+   write to; the folder is never created):
+
+   ```bat
+   net use Z: \\fileserver.example.test\share
+   ```
+
+2. Start the server on that machine with a configuration that has a non-production group, and
+   call `export_archives` for one of its nodes with `acknowledgeClearTextSecrets: true` and, in
+   turn, `targetFolder` `Z:\inubit-archives`, `z:/inubit-archives` and
+   `\\fileserver.example.test\share\inubit-archives`. Each call must end with `INVALID_INPUT`
+   naming the network-path rule ("is a network path (Z: is a mapped network drive)", for the UNC
+   path "is a network path (a UNC path)"), not "relative"; the audit file holds a `REFUSED` record
+   per call, and nothing appears on the share.
+3. Counter-check: the same call with a new folder on a local disk (e.g. `C:\Temp\inubit-archives`)
+   is not refused by the network-path rule. A `subst` of a local folder (`subst Y: C:\Temp`, then
+   `Y:\inubit-archives`) counts as local; a `subst` of a UNC path counts as remote, as Windows
+   reports it.
+4. Remove the mapping (`net use Z: /delete`, `subst Y: /d`) and record the outcome (refused or
+   not, per path form; no paths of the real share) in `specs/015-workbench-archives/quickstart.md`.
+
 ## Manual write checks (approval only)
 
 There is **no automated live test for `restart_process` / `kill_process`**: every state-changing

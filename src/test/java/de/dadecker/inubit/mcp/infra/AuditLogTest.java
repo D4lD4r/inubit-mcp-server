@@ -108,6 +108,17 @@ class AuditLogTest {
     }
 
     @Test
+    void thePartiallyCompletedOutcomeIsWrittenByName() throws IOException {
+        // feature 015, research R-12
+        new AuditLog(directory, scrubber).append(record(AuditOutcome.PARTIALLY_COMPLETED));
+
+        assertThat(Files.readString(file(), StandardCharsets.UTF_8))
+            .contains("\"outcome\":\"PARTIALLY_COMPLETED\"");
+        assertThat(lines(file())).singleElement().satisfies(node -> assertThat(
+            node.path("outcome").asString()).isEqualTo("PARTIALLY_COMPLETED"));
+    }
+
+    @Test
     void theFieldsAreExactlyThoseOfTheDataModelInOrder() throws IOException {
         new AuditLog(directory, scrubber).append(record(OCTOBER, Map.of("processId", "1"),
             AuditOutcome.REFUSED, Optional.of("WRITE_DISABLED: disabled")));

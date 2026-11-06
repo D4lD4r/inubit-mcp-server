@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "required": ["node", "owner", "diagramGroup", "targetFolder", "auditId", "clearTextSecrets",
+               "archives", "failed", "notWritten", "truncated", "warnings"],
+  "properties": {
+    "node": { "type": "string" },
+    "owner": { "type": "string" },
+    "diagramGroup": { "type": "string" },
+    "targetFolder": { "type": "string", "description": "Absolute path of the folder" },
+    "auditId": { "type": "string" },
+    "clearTextSecrets": { "type": "string" },
+    "archives": { "type": "array", "items": {
+      "type": "object",
+      "required": ["workflow", "file", "path", "size", "moduleCount", "modules",
+                   "missingModuleCount", "missingModules", "repositoryFileCount",
+                   "repositoryPaths", "warnings"],
+      "properties": {
+        "workflow": { "type": "string" },
+        "file": { "type": "string", "description": "File name in targetFolder" },
+        "path": { "type": "string", "description": "Absolute path of the archive" },
+        "size": { "type": "integer", "minimum": 0 },
+        "moduleCount": { "type": "integer", "minimum": 0 },
+        "modules": { "type": "array", "items": { "type": "object",
+          "required": ["name", "pluginType"],
+          "properties": { "name": { "type": "string" }, "pluginType": { "type": "string" } },
+          "additionalProperties": false } },
+        "missingModuleCount": { "type": "integer", "minimum": 0 },
+        "missingModules": { "type": "array", "items": { "type": "object",
+          "required": ["name"], "properties": { "name": { "type": "string" } },
+          "additionalProperties": false } },
+        "repositoryFileCount": { "type": "integer", "minimum": 0 },
+        "repositoryPaths": { "type": "array", "items": { "type": "string" } },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false } },
+    "failed": { "type": "array", "items": { "type": "object",
+      "required": ["workflow", "code", "message"],
+      "properties": { "workflow": { "type": "string" }, "code": { "type": "string" },
+                      "message": { "type": "string" } },
+      "additionalProperties": false } },
+    "notWritten": { "type": "array", "items": { "type": "string" } },
+    "truncated": { "type": "boolean" },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}
