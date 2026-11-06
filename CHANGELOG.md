@@ -7,6 +7,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-06
+
+The manual checks left open in 0.7.0 have run; no functional change.
+
+### Changed
+
+- Feature 015, Workbench import (SC-001) checked by hand on 2026-11-06 against INUBIT 8.1.14:
+  archives written by `export_archives` on a development stage imported in the Workbench without
+  error; workflow, modules and repository files equal to the original. The plug-in type string
+  `Workflow Connector` (`ModuleGroupName` in `module/module.xml`) is confirmed; only the comment of
+  `V81WorkflowArchives` changes.
+- Feature 014, start-up dialogs and live step checked by hand on 2026-11-06: one dialog per server,
+  rejection memory per server, `--forget STAGE/SERVER`, migration of stage-keyed rejections, an
+  `--accept` from a terminal while a dialog holds the profile lock, and on a real stage marked with
+  `tls.pinPerServer` a per-server adoption and prune. A real `TLS_ERROR` inside a Claude session
+  did not occur, so the in-session rule was not exercised.
+- `docs/setup.md` "Converting a stage": before marking a stage, install the `inubit-cert-check` of
+  the release and set the profile's `serverJar` to 0.7.0 or later; an older tool refuses
+  `pinPerServer`, and an older `serverJar` makes every adoption roll back.
+
 ## [0.7.0] - 2026-11-06
 
 Feature 011: credentials only from the credential store of the system or from AWS Parameter
@@ -685,7 +705,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.4...v0.7.0
 [0.6.4]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.2...v0.6.3

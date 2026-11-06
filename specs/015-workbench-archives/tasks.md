@@ -538,7 +538,7 @@ export and a write failure are each audited, and the folder never holds a partia
   table Q1–Q29 and Q31 and tick each test; re-check the plan's Constitution Check; record the run in
   the validation record of `specs/015-workbench-archives/quickstart.md`.
 
-- [ ] T026 Manual Workbench import (SC-001) — **only with the operator's explicit approval, on
+- [X] T026 Manual Workbench import (SC-001) — **only with the operator's explicit approval, on
   their machine**: ask the operator before any call to a real server. Following quickstart "Manual
   check SC-001": `export_archives` on the development stage for one workflow with modules and
   repository files into a new folder outside every git working tree; the operator imports the archive
@@ -550,6 +550,8 @@ export and a write failure are each audited, and the folder never holds a partia
   a Workflow Connector node, the `ModuleGroupName` of that module's entry in `module/module.xml`
   equals the constant of `V81WorkflowArchives` (record only the string, no names); a different
   string is fixed in the constant and its T007 test before the release.
+  - Done 2026-11-06 (INUBIT 8.1.14): import without error, workflow, modules and repository files
+    equal; `Workflow Connector` confirmed; archives deleted (quickstart validation record).
 
 ---
 

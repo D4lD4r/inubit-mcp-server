@@ -168,8 +168,8 @@ stub `secret-tool`; the Keychain was not used. The tool ran from the repository
   - f: certificate A on `int/b` produced the note "expected for int/a", exit 10.
   - g: `int/b` silent; `--accept` refused after 5.2 s (`unreachable (timeout)`), exit 3, files unchanged,
     one `failed` line.
-- Q5 open: not run, because no macOS dialogs were allowed (user decision). It stays with the
-  operator together with T032.
+- Q5: not run in T031 (no macOS dialogs, user decision); run by the operator on 2026-11-06, see
+  "Outcome (Q5, Q6 dialog variant, T032)" below.
 - Q6 pass without a dialog:
   - A second process held the profile lock the way the dialog does. With the lock held for 8 s,
     `--accept int/a` waited and was adopted (exit 0).
@@ -177,7 +177,7 @@ stub `secret-tool`; the Keychain was not used. The tool ran from the repository
     another process … for more than 30 s", exit 3, files unchanged). Repeating it succeeded.
   - Two concurrent `--accept` runs for `int/a` and `int/b` were both adopted.
   - `--interactive` while the lock was held: "dialog open in another session", exit 0.
-  - The dialog variant stays open with Q5.
+  - The dialog variant: run on 2026-11-06, see below.
 - Q7 pass:
   - The 006 scenarios 1–5 ran on a uniform `int`, once with this branch's tool and once with the
     `main` tool, on identical copies. Text output, JSON and change-log lines were identical; only
@@ -186,3 +186,48 @@ stub `secret-tool`; the Keychain was not used. The tool ran from the repository
     rejection instead of the dialog Reject.
   - Scenario 4 used a silent `127.0.0.1` listener instead of `192.0.2.1`: exit 20 after 5.3 s.
   - `get_health` was not run, because it needs INUBIT.
+
+## Outcome (Q5, Q6 dialog variant, T032)
+
+2026-11-06, release 0.7.0 (`v0.7.0`), macOS. Q5 and Q6 ran on copies under a scratch directory
+(the T031 setup: profile `acme`, `int/a` and `int/b` with `tls.pinPerServer`, local TLS servers on
+`127.0.0.1`, stub `secret-tool`, tool from the repository); the operator clicked the dialogs.
+
+- Q5 pass:
+  - Dialogs: `--interactive` with both servers changed showed two dialogs, each naming its server;
+    exit 0 after 11 s. "Accept" for `int/a` adopted it ("Accept given, certificate adopted");
+    "Reject" for `int/b` was remembered under the key `int/b`. One change-log line each, with
+    `server=int/a outcome=adopted` and `server=int/b outcome=rejected`.
+  - Second run (`int/a` with yet another certificate, `int/b` unchanged): only the dialog for
+    `int/a`, adopted; for `int/b` no dialog, only the stderr warning "… was rejected earlier; no
+    dialog (to be asked again: … --forget int/b)".
+  - Forget: `--forget int/b` ("remembered rejection removed"), then `--interactive` showed the
+    dialog for `int/b` again; "Reject" remembered it again.
+  - Migration: a stage-keyed entry `"int"` added to `cert-rejections.json` was removed by the
+    next `--check`; `"int/b"` stayed.
+- Q6 dialog variant pass: `--interactive` with dialogs for `int/a` and `int/b` open; the start
+  continued after 20 s ("the dialog is still open; the start continues"). `--accept int/a <fp>`
+  from a terminal, started 8 s later, was refused after 30 s ("the profile lock is held by another
+  process … for more than 30 s", exit 3, files unchanged). After "Accept" in both dialogs both
+  adoptions were logged; the repeated terminal `--accept` ended with exit 0 ("already pins …;
+  nothing changed"), `--check` exit 0.
+- T032 (operator, real profile, operator's approval at each step):
+  - C-8′: the operator's `~/.claude/CLAUDE.md` was backed up and its rule block changed to the
+    C-8′ trigger (`CertPathValidatorException`, `SunCertPathBuilderException` or a pin mismatch
+    `CertificateException`), target `<stage>` or `<stage>/<server>`, `expectedBy` note, prune hint
+    with the stage part, after the operator's "yes".
+  - The operator marked one real stage with two servers by hand; the server's `--check-config`
+    ended with `Result: OK`.
+  - Finding (documentation, not code): the installed `inubit-cert-check` predated feature 014 and
+    refused the profile (`unknown key 'pinPerServer'`); after reinstalling it, the first
+    adoption was rolled back (`--check-config refused the changed profile: exit 1`) because the
+    profile's `serverJar` still named a 0.6.x jar. After the operator set `serverJar` to 0.7.0 the
+    adoption succeeded. `docs/setup.md` "Converting a stage" now has a step 0 for both.
+  - `--check` reported one server changed (self-signed, notBefore 2026-10-30, no `expectedBy`
+    note) and the other unreachable (connection refused). After the operator's explicit "yes"
+    `--accept <stage>/<server> <fp> --by claude` adopted it (profile and trust-store backups);
+    after the reconnect `get_health` for the stage was OK. `--prune <stage>` first without
+    `--yes` listed one superseded entry and kept the pins of both servers (including the
+    unreachable one); with `--yes` it removed that entry (backup).
+  - A real `TLS_ERROR` inside a Claude session did not occur; the in-session rule was not
+    exercised (not checkable).

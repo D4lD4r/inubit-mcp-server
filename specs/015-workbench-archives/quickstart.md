@@ -58,7 +58,7 @@ mvn -q -o clean verify
 2. In the INUBIT 8.1 Workbench: import the archive (diagram import), open the workflow, compare
    with the original (nodes, modules, repository files).
 3. In a real export with a Workflow Connector node, check that the `ModuleGroupName` of its
-   module's entry in `module/module.xml` is `Workflow Connector` (research R-5, unverified so far);
+   module's entry in `module/module.xml` is `Workflow Connector` (research R-5; confirmed 2026-11-06);
    record only the string.
 4. Delete the archive afterwards (it holds clear-text secrets). Record date, INUBIT version and the
    result (no names of the customer) in the validation record below and in `CHANGELOG.md`.
@@ -68,6 +68,7 @@ mvn -q -o clean verify
 | Date | Build | Result |
 |---|---|---|
 | 2026-11-06 | `015-workbench-archives` at `d131f95` (after merging `main` with feature 014), JDK 25, Maven 3.10, offline | `mvn -q -o clean verify` green: 3985 tests, 0 failures, 0 errors, 3 skipped; `security/NoCustomerIdentifiersTest.repositoryContainsNoCustomerIdentifiers` **ran and passed** (local identifier lists present: 21 denylist rules, 1430 files scanned); `PackageBoundaryTest` 20/20; `python3 -I -m unittest discover -s tools/tests` 411 OK. Q1–Q29 and Q31 walked below; plan's Constitution Check re-checked, still PASS. SC-001 (Q30, T026) open for the operator. |
+| 2026-11-06 | release 0.7.0 (`v0.7.0`), INUBIT 8.1.14 development stage | SC-001 (Q30, T026, operator, with approval): `export_archives` wrote 5 archives into a new folder outside every git working tree, each with `workflow`, 13 `module` entries, `Repository.zip` and `archive.properties`; the operator imported them in the INUBIT 8.1 Workbench without error; workflow, modules and repository files equal to the original. `ModuleGroupName` of the Workflow Connector modules in `module/module.xml`: `Workflow Connector`, equal to `V81WorkflowArchives.WORKFLOW_CONNECTOR` (R-5 confirmed). Archives deleted afterwards. **PASS** |
 
 Scenario walk (T025, from the Surefire reports of that run; every class 0 failures, 0 errors, 0
 skipped):

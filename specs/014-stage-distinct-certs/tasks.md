@@ -670,7 +670,9 @@ brings the dialog back (Q5).
   only; record the outcome without real names in `quickstart.md`.
   - Note (T031 run): Q5 and the dialog part of Q6 were not run (user decision: no macOS dialogs);
     they stay open for the operator together with T032.
-- [ ] T032 Manual live step — operator only, needs the operator's explicit approval, never automated
+  - Done 2026-11-06 with T032: Q5 and the Q6 dialog variant pass (quickstart "Outcome (Q5, Q6
+    dialog variant, T032)").
+- [X] T032 Manual live step — operator only, needs the operator's explicit approval, never automated
   (FR-016, FR-017, SC-006, Story 3 AS 3):
   - show the C-8′ diff for the operator's `~/.claude/CLAUDE.md` (back it up first; the trigger now
     names `CertPathValidatorException`, `SunCertPathBuilderException` or a pin mismatch
@@ -686,6 +688,9 @@ brings the dialog back (Q5).
     explicit "Ja"; then asks for the reconnect, checks `get_health` and points to
     `--prune <stage>` (first without `--yes`);
   - record the outcome without real names; nothing is committed before the operator asks.
+  - Done 2026-11-06 (quickstart "Outcome (Q5, Q6 dialog variant, T032)"): C-8′ applied after
+    "yes"; one real stage marked by the operator, one server adopted after "yes", prune done; a
+    real in-session `TLS_ERROR` did not occur (not checkable).
 
 ---
 
