@@ -7,11 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Planned as **0.7.0**: feature 011, credentials only from the credential store of the system or
-from AWS Parameter Store. The live check against the real credential store (`docs/live-tests.md`)
-ran on macOS: entries read, a value with non-ASCII characters decoded, a missing entry "not found",
-a denied access dialog `ACCESS_DENIED`. It has not run on Windows and Linux; there the adapters are
-covered by tests with fakes only.
+## [0.7.0] - 2026-11-06
+
+Feature 011: credentials only from the credential store of the system or from AWS Parameter
+Store. Feature 014: stages whose servers present different certificates (`tls.pinPerServer`).
+Feature 015: Workbench archives (`export_archives`). Contains the fixes of 0.6.3 and 0.6.4. The
+live check against the real credential store (`docs/live-tests.md`) ran on macOS: entries read, a
+value with non-ASCII characters decoded, a missing entry "not found", a denied access dialog
+`ACCESS_DENIED`. It has not run on Windows and Linux; there the adapters are covered by tests with
+fakes only. The manual live check of feature 014 against stages with different certificates and
+its start-up dialogs have not run yet.
 
 ### Breaking
 
@@ -125,6 +130,19 @@ covered by tests with fakes only.
   import the workspace holds the server's value, as for every verified import. The preview of
   `deploy_release` lists a module that differs from the target only in this rewrite as
   `UNCHANGED`, so redeploying such a release no longer imports it again.
+
+## [0.6.4] - 2026-11-04
+
+Bug fix release from the 0.6.x line (branch `release/0.6.x`, based on 0.6.3); it does not contain
+the credential store changes planned for 0.7.0. Live checks are unchanged since 0.6.1.
+
+### Fixed
+
+- `import_artifacts` (and the import step of `deploy_release`) no longer rolls back a successful
+  import of an artifact that has a Workbench user comment. The export appends the user comment to
+  the check-in comment as one more `###` segment; the verification read it as part of the
+  check-in comment and reported `VERIFY_MISMATCH` ("the check-in comment does not carry exactly
+  the reason"). The appended user comment is now removed before the reason is compared.
 
 ## [0.6.3] - 2026-11-02
 
@@ -667,7 +685,9 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.4...v0.7.0
+[0.6.4]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.0...v0.6.1

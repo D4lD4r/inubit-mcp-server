@@ -8,7 +8,7 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
 /**
- * T024 (feature 015, FR-016): {@code CHANGELOG.md} {@code [Unreleased]} (planned as 0.7.0) has an
+ * T024 (feature 015, FR-016): {@code CHANGELOG.md} {@code [0.7.0]} (released 2026-11-06) has an
  * {@code ### Added} entry for {@code export_archives} naming the clear-text secrets, the
  * acknowledgement, the client confirmation, the folder rules (including the configuration
  * directory), the inherited Windows ACLs and {@code archives.productionOptIn}; the 0.7.0 text of
@@ -18,10 +18,10 @@ class ArchiveChangelogTest {
 
     private static final Path CHANGELOG = Path.of("CHANGELOG.md");
 
-    /** The {@code [Unreleased]} section with line breaks folded into single spaces. */
-    private static String unreleased() throws IOException {
+    /** The {@code [0.7.0]} section with line breaks folded into single spaces. */
+    private static String release070() throws IOException {
         String text = Files.readString(CHANGELOG);
-        int start = text.indexOf("## [Unreleased]");
+        int start = text.indexOf("## [0.7.0]");
         assertThat(start).isNotNegative();
         int end = text.indexOf("\n## [", start + 1);
         return text.substring(start, end < 0 ? text.length() : end).replaceAll("\\s+", " ");
@@ -36,16 +36,16 @@ class ArchiveChangelogTest {
     }
 
     @Test
-    void theUnreleasedSectionIsStillPlannedAs070AndKeepsFeature011() throws IOException {
-        String section = unreleased();
-        assertThat(section).contains("Planned as **0.7.0**: feature 011",
+    void theReleaseSection070KeepsFeature011() throws IOException {
+        String section = release070();
+        assertThat(section).contains("Feature 011: credentials only from the credential store",
             "**Environment variables are no longer read for INUBIT credentials.**",
             "Credential store adapters:");
     }
 
     @Test
     void addedHasAnEntryForExportArchivesWithItsSafeguards() throws IOException {
-        String added = subsection(unreleased(), "### Added");
+        String added = subsection(release070(), "### Added");
         assertThat(added).contains("Feature 015", "`export_archives`", "Workbench",
             "in clear text", "`acknowledgeClearTextSecrets: true`", "client confirmation",
             "the configuration directory", "network share", "cloud-synchronized",
@@ -54,7 +54,7 @@ class ArchiveChangelogTest {
 
     @Test
     void theEntryStatesAuditingAndThePartialOutcomePrecisely() throws IOException {
-        String added = subsection(unreleased(), "### Added");
+        String added = subsection(release070(), "### Added");
         assertThat(added).contains("No archive is written without",
             "Every call that passes the input schema is audited",
             "A failure while writing the archives (after all checks passed) ends as"
