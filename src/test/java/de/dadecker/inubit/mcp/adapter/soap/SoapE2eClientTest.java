@@ -27,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -188,5 +189,89 @@ class SoapE2eClientTest {
                 .isInstanceOfSatisfying(ToolErrorException.class, e ->
                     assertThat(e.error().code()).isEqualTo(ErrorCode.UNREACHABLE));
         }
+    }
+
+    /**
+     * Feature 014 T029a (SC-004, FR-005): a marked stage whose two servers present different
+     * certificates; both share the stage's trust store and each has its own node pin, as
+     * {@code EffectiveNodeConfig.resolve} yields for a stage without a group pin.
+     */
+    @Test
+    void eachServerOfAStageWithDistinctCertificatesPostsWithItsOwnPin() {
+        WireMockServer serverB = TestCertificates.httpsWireMock(
+            TestCertificates.get().selfsignedKeyStore());
+        try {
+            wireMock.stubFor(post(urlEqualTo(PATH)).willReturn(aResponse().withStatus(200)));
+            serverB.stubFor(post(urlEqualTo(PATH)).willReturn(aResponse().withStatus(200)));
+            EffectiveNodeConfig a = stageServerA();
+            EffectiveNodeConfig b = stageServerB(serverB);
+
+            for (var entry : Map.of(a, wireMock, b, serverB).entrySet()) {
+                try (SoapE2eClient client = new SoapE2eClient(entry.getKey(),
+                    address(entry.getValue()), Optional.empty(), Optional.empty())) {
+                    assertThat(client.post(message(PATH, Duration.ofSeconds(5))).status())
+                        .as(entry.getKey().id().toString()).contains(200);
+                }
+            }
+            wireMock.verify(1, postRequestedFor(urlEqualTo(PATH)));
+            serverB.verify(1, postRequestedFor(urlEqualTo(PATH)));
+        } finally {
+            serverB.stop();
+        }
+    }
+
+    @Test
+    void aServerReachedAtTheOtherServersAddressIsATlsErrorNamingTheNode() {
+        WireMockServer serverB = TestCertificates.httpsWireMock(
+            TestCertificates.get().selfsignedKeyStore());
+        try {
+            wireMock.stubFor(post(urlEqualTo(PATH)).willReturn(aResponse().withStatus(200)));
+            serverB.stubFor(post(urlEqualTo(PATH)).willReturn(aResponse().withStatus(200)));
+            EffectiveNodeConfig a = stageServerA();
+            EffectiveNodeConfig b = stageServerB(serverB);
+
+            // each node's own pin, but the other server's address (and certificate)
+            // a → serverB is already refused by the host-name check; b → wireMock (host name not
+            // verified) passes the trust store and fails only on b's own pin.
+            for (var entry : Map.of(a, serverB, b, wireMock).entrySet()) {
+                try (SoapE2eClient client = new SoapE2eClient(entry.getKey(),
+                    address(entry.getValue()), Optional.empty(), Optional.empty())) {
+                    assertThatThrownBy(() -> client.post(message(PATH, Duration.ofSeconds(5))))
+                        .as(entry.getKey().id().toString())
+                        .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                            assertThat(e.error().code()).isEqualTo(ErrorCode.TLS_ERROR);
+                            assertThat(e.error().node()).contains(entry.getKey().id());
+                            assertThat(e.error().message())
+                                .contains(entry.getKey().id().toString())
+                                .contains("(" + PATH + ", CertificateException)")
+                                .doesNotContain("CertPathValidatorException");
+                        });
+                }
+            }
+            assertThat(wireMock.getAllServeEvents()).isEmpty();
+            assertThat(serverB.getAllServeEvents()).isEmpty();
+        } finally {
+            serverB.stop();
+        }
+    }
+
+    private static EffectiveNodeConfig stageServerA() {
+        return TestNodeConfig.node().id("int/a").baseUrl(address(wireMock).toString())
+            .trustStore(TestCertificates.get().trustStore())
+            .pin(TestCertificates.fingerprint(TestCertificates.get().localhostCertificate()))
+            .build();
+    }
+
+    /** The self-signed server has no matching host name, so only the pin decides. */
+    private static EffectiveNodeConfig stageServerB(WireMockServer serverB) {
+        return TestNodeConfig.node().id("int/b").baseUrl(address(serverB).toString())
+            .trustStore(TestCertificates.get().trustStore())
+            .disableHostnameVerification(TestCertificates.fingerprint(
+                TestCertificates.get().selfsignedCertificate()))
+            .build();
+    }
+
+    private static URI address(WireMockServer server) {
+        return URI.create("https://localhost:" + server.httpsPort());
     }
 }

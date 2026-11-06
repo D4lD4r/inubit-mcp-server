@@ -128,6 +128,7 @@ public final class ConfigValidator {
         checkProfile(config, findings);
         Optional<WorkspaceDirectory.Result> workspace = checkWorkspace(config, findings);
         checkStructure(config, findings);
+        checkPinPerServer(config, findings);
         checkResultLimits(config.resultLimits(), findings);
         checkDeployConfirmationTtl(config.defaults(), findings);
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
@@ -138,6 +139,7 @@ public final class ConfigValidator {
         checkIgnoredParameterNames(config, findings);
         checkOneDevelopmentNodePerGroup(config, findings);
         checkRepositorySwitch(config, findings);
+        checkArchivesOptIn(config, findings);
         checkE2eNodeNames(config, findings);
         checkChain(config, findings);
         boolean cliConfigured = config.resolvableNodes().stream()
@@ -506,6 +508,64 @@ public final class ConfigValidator {
                         ? stage.name() + "/" + server.name()
                         : "groups[" + i + "].nodes[" + j + "]";
                     findings.error(label + ": baseUrl is missing");
+                }
+            }
+        }
+    }
+
+    /**
+     * Feature 014 (FR-004, research R-3): {@code tls.pinPerServer} rules V-1, V-3 … V-6, V-10 and
+     * V-11, checked on the values as written, not the effective ones, because the rules are about
+     * where a value is set — except the https test of V-6, which looks at every address the
+     * server is reached at, inherited ones included (T029b). YAML aliases are resolved before
+     * binding, so an alias counts as written there.
+     */
+    private static void checkPinPerServer(ProfileConfig config, Findings findings) {
+        for (GroupConfig stage : config.groups()) {
+            TlsConfig stageTls = stage.tls();
+            if (stageTls.marksStage() && stageTls.pinnedCertificateSha256().isPresent()) {
+                findings.termError("{group} '%s': tls.pinnedCertificateSha256 is not allowed with"
+                    + " tls.pinPerServer; set it on each {node}", stage.name());
+            }
+            if (stageTls.marksStage() && stageTls.trustStore().isEmpty()) {
+                findings.termError("{group} '%s': tls.pinPerServer needs tls.trustStore on the"
+                    + " {group}", stage.name());
+            }
+            for (NodeConfig server : stage.nodes()) {
+                String id = stage.name() + "/" + server.name();
+                TlsConfig serverTls = server.tls();
+                if (serverTls.pinPerServer().isPresent()) {
+                    findings.termError("%s: tls.pinPerServer is only valid on the {group}", id);
+                }
+                if (!stageTls.marksStage()) {
+                    continue;
+                }
+                if (serverTls.trustStore().isPresent()) {
+                    findings.termError("%s: tls.trustStore is not allowed on this {node} of {group}"
+                        + " '%s' with tls.pinPerServer; set it on the {group}", id, stage.name());
+                }
+                // cli.url defaults to baseUrl (EffectiveNodeConfig), so baseUrl covers that case
+                boolean https = Stream.of(server.baseUrl(),
+                        server.cli().url().or(stage.cli()::url),
+                        server.e2e().soap().baseUrl().or(stage.e2e().soap()::baseUrl))
+                    .flatMap(Optional::stream)
+                    .anyMatch(url -> "https".equalsIgnoreCase(url.getScheme()));
+                if (https && serverTls.pinnedCertificateSha256().isEmpty()) {
+                    findings.termError("%s: tls.pinPerServer on {group} '%s' needs"
+                        + " tls.pinnedCertificateSha256 on this {node}", id, stage.name());
+                }
+                if (stage.nodes().size() < 2) {
+                    continue;
+                }
+                if (stage.cli().url().isPresent() && server.cli().url().isEmpty()) {
+                    findings.termError("%s: cli.url is inherited from {group} '%s' with"
+                        + " tls.pinPerServer; set cli.url on each {node}", id, stage.name());
+                }
+                if (stage.e2e().soap().baseUrl().isPresent()
+                    && server.e2e().soap().baseUrl().isEmpty()) {
+                    findings.termError("%s: e2e.soap.baseUrl is inherited from {group} '%s' with"
+                        + " tls.pinPerServer; set e2e.soap.baseUrl on each {node}", id,
+                        stage.name());
                 }
             }
         }
@@ -890,6 +950,21 @@ public final class ConfigValidator {
             if (!anyDevelopmentNode && isWrite(group.development())) {
                 findings.termWarning("{Group} '%s': development.repository: WRITE has no effect;"
                     + " the {group} has no {node} with development.enabled: true", group.name());
+            }
+        }
+    }
+
+    /**
+     * Feature 015 (research R-15, contracts/configuration-delta.md): {@code
+     * archives.productionOptIn: true} on a group without {@code production: true} is a warning;
+     * {@code export_archives} needs no opt-in there.
+     */
+    private static void checkArchivesOptIn(ProfileConfig config, Findings findings) {
+        for (GroupConfig group : config.groups()) {
+            if (!group.production()
+                && group.archives().productionOptIn().equals(Optional.of(true))) {
+                findings.termWarning("archives.productionOptIn has no effect on {group} %s"
+                    + " (not production)", group.name());
             }
         }
     }

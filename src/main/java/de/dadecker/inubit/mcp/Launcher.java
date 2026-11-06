@@ -13,11 +13,13 @@ import de.dadecker.inubit.mcp.adapter.os.WindowsJob;
 import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
 import de.dadecker.inubit.mcp.config.ConfigException;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
+import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.ConfigSummary;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
 import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.EntryCheck;
+import de.dadecker.inubit.mcp.config.GroupConfig;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.ParameterCheck;
 import de.dadecker.inubit.mcp.config.ParameterStore;
@@ -56,6 +58,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -223,7 +226,8 @@ final class Launcher {
         }
         printFindings("Warnings:", report.warnings());
         try {
-            return serve(loaded.config(), report.warnings());
+            return serve(loaded.config(), new ConfigLocation(loader.defaultDirectory(),
+                loaded.source()), report.warnings());
         } catch (RuntimeException e) {
             context.err().println(oneLine("Startup failed: " + e.getClass().getSimpleName()
                 + ": " + e.getMessage()));
@@ -270,7 +274,7 @@ final class Launcher {
         return new ValidationReport(report.errors(), warnings, report.workspace());
     }
 
-    private int serve(ProfileConfig config, List<String> warnings) {
+    private int serve(ProfileConfig config, ConfigLocation location, List<String> warnings) {
         // feature 013 (research R-7): first, so that every process the server starts is bound
         ProcessContainment containment = context.containment().get();
         LogLevels.apply(config.logLevel().name());
@@ -294,13 +298,19 @@ final class Launcher {
         try (Wiring wiring = new Wiring(config, context.credentialStore().get(), context.scrubber(),
             ClockProvider.system(), context.exists(), context.windows(),
             new SystemProcessLauncher(), System.getenv(), context.parameterStore(),
-            containment)) {
+            location, containment)) {
             McpServerFactory factory = wiring.serverFactory(BuildInfo.version(),
                 toolHandlers.apply(wiring));
             try (McpServerFactory.RunningServer server = factory.start(context.in(),
                 context.out())) {
                 LOG.info("INUBIT MCP server {} started for profile {} with {} node(s)",
                     BuildInfo.version(), config.profile().name(), config.nodeIds().size());
+                String marked = config.groups().stream().filter(group -> group.tls().marksStage())
+                    .map(GroupConfig::name).collect(Collectors.joining(", "));
+                if (!marked.isEmpty()) {
+                    LOG.info("Stages with one pinned certificate per server (tls.pinPerServer): {}",
+                        marked);
+                }
                 server.awaitInputClosed();
                 LOG.info("stdin closed; shutting down");
                 wiring.stopCliWork();

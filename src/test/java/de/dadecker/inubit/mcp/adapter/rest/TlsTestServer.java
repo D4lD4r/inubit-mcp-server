@@ -7,24 +7,45 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLSocket;
 
-/** A minimal TLS endpoint on 127.0.0.1 that completes handshakes with a given key store. */
-final class TlsTestServer implements AutoCloseable {
+/**
+ * A minimal TLS endpoint on 127.0.0.1 that completes handshakes with a given key store. In silent
+ * mode it accepts TCP connections but never answers the handshake.
+ */
+public final class TlsTestServer implements AutoCloseable {
 
     private final SSLServerSocket socket;
+    private final boolean silent;
+    private final AtomicInteger handshakes = new AtomicInteger();
+    private final List<SSLSocket> held = new CopyOnWriteArrayList<>();
     private final Thread acceptor;
 
-    private TlsTestServer(SSLServerSocket socket) {
+    private TlsTestServer(SSLServerSocket socket, boolean silent) {
         this.socket = socket;
+        this.silent = silent;
         this.acceptor = Thread.ofVirtual().start(this::serve);
     }
 
-    static TlsTestServer start(Path keyStore) throws IOException, GeneralSecurityException {
+    public static TlsTestServer start(Path keyStore) throws IOException, GeneralSecurityException {
+        return start(keyStore, false);
+    }
+
+    /** A listener that accepts connections but never answers the TLS handshake. */
+    public static TlsTestServer startSilent(Path keyStore)
+        throws IOException, GeneralSecurityException {
+        return start(keyStore, true);
+    }
+
+    private static TlsTestServer start(Path keyStore, boolean silent)
+        throws IOException, GeneralSecurityException {
         KeyStore store = KeyStore.getInstance("PKCS12");
         try (InputStream in = Files.newInputStream(keyStore)) {
             store.load(in, TestCertificates.PASSWORD.toCharArray());
@@ -36,11 +57,16 @@ final class TlsTestServer implements AutoCloseable {
         context.init(keyManagers.getKeyManagers(), null, null);
         SSLServerSocket socket = (SSLServerSocket) context.getServerSocketFactory()
             .createServerSocket(0, 50, InetAddress.getLoopbackAddress());
-        return new TlsTestServer(socket);
+        return new TlsTestServer(socket, silent);
     }
 
-    int port() {
+    public int port() {
         return socket.getLocalPort();
+    }
+
+    /** Number of completed or attempted TLS handshakes, counted per accepted connection. */
+    public int handshakes() {
+        return handshakes.get();
     }
 
     /** Connects as a client to {@code host} and completes a handshake with HTTPS identification. */
@@ -58,6 +84,11 @@ final class TlsTestServer implements AutoCloseable {
         while (!socket.isClosed()) {
             try {
                 SSLSocket connection = (SSLSocket) socket.accept();
+                handshakes.incrementAndGet();
+                if (silent) {
+                    held.add(connection);
+                    continue;
+                }
                 Thread.ofVirtual().start(() -> {
                     try (connection) {
                         connection.startHandshake();
@@ -92,6 +123,9 @@ final class TlsTestServer implements AutoCloseable {
     @Override
     public void close() throws IOException, InterruptedException {
         socket.close();
+        for (SSLSocket connection : held) {
+            connection.close();
+        }
         acceptor.join(2000);
     }
 }

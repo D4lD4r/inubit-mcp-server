@@ -125,6 +125,16 @@ public final class V81ReleaseArchives implements ReleaseArchivePort {
         return Arrays.equals(compared(left, true), compared(right, true));
     }
 
+    /**
+     * {@link #equivalent}, or equivalent after the rewrite of {@link SaxonFactoryRewrite}
+     * (issue #55).
+     */
+    @Override
+    public boolean importedAs(String path, byte[] release, byte[] target) {
+        return equivalent(path, release, target) || SaxonFactoryRewrite.asImported(path,
+            release, target).filter(imported -> equivalent(path, imported, target)).isPresent();
+    }
+
     @Override
     public boolean layoutOnly(String path, byte[] release, byte[] target) {
         try {

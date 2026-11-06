@@ -72,7 +72,9 @@ public final class CliRunner {
     private final CliSystem system;
     private final ProcessContainment containment;
     private final CliResources resources;
-    private final OutputDecoder decoder;
+    /** Created on the first decoded output: building a runner never loads native code. */
+    private volatile OutputDecoder decoder;
+    private final StartCliPinProbe pinProbe;
 
     /**
      * @param windows whether StartCLI runs on Windows ({@code bin\startcli.bat} through the
@@ -84,13 +86,34 @@ public final class CliRunner {
     public CliRunner(ProcessLauncher launcher, Map<String, String> parentEnvironment,
         boolean windows, CliSystem system, ProcessContainment containment,
         CliResources resources) {
+        this(launcher, parentEnvironment, windows, system, containment, resources,
+            new HandshakeStartCliPinProbe());
+    }
+
+    /**
+     * @param pinProbe checks the StartCLI address of a server of a stage with
+     *     {@code tls.pinPerServer} before StartCLI is started (feature 014, research R-15)
+     */
+    public CliRunner(ProcessLauncher launcher, Map<String, String> parentEnvironment,
+        boolean windows, CliSystem system, ProcessContainment containment,
+        CliResources resources, StartCliPinProbe pinProbe) {
         this.resources = Objects.requireNonNull(resources, "resources");
+        this.pinProbe = Objects.requireNonNull(pinProbe, "pinProbe");
         this.launcher = launcher;
         this.parentEnvironment = Map.copyOf(parentEnvironment);
         this.windows = windows;
         this.system = Objects.requireNonNull(system, "system");
         this.containment = Objects.requireNonNull(containment, "containment");
-        this.decoder = windows ? OutputDecoder.windows(system.oemCharset()) : OutputDecoder.posix();
+        this.decoder = windows ? null : OutputDecoder.posix();
+    }
+
+    private OutputDecoder decoder() {
+        OutputDecoder current = decoder;
+        if (current == null) {
+            current = OutputDecoder.windows(system.oemCharset());
+            decoder = current;
+        }
+        return current;
     }
 
     /** The registry of running StartCLI processes (and export directories). */
@@ -125,9 +148,14 @@ public final class CliRunner {
      * after a rejected login the cached {@code AUTH_FAILED} is thrown without starting
      * StartCLI; a {@code LoginFailure} rejects and an exit code 0 confirms the credentials.
      *
+     * <p>For a server of a stage with {@code tls.pinPerServer} the certificate at the StartCLI
+     * address is checked against the server's own pin first, before the guard (feature 014,
+     * research R-15).
+     *
      * @throws ToolErrorException {@code AUTH_FAILED} from the guard, {@code CLI_UNAVAILABLE} if
      *     StartCLI cannot be started, {@code TIMEOUT} if it does not finish within
-     *     {@code timeout}
+     *     {@code timeout}; {@code TLS_ERROR}, {@code UNREACHABLE} or {@code TIMEOUT} from the
+     *     pin check, StartCLI then not started
      */
     public CliResult run(EffectiveNodeConfig server, String username, Secret password,
         CliCommand command, Duration timeout, CredentialGuard guard) {
@@ -140,6 +168,10 @@ public final class CliRunner {
      */
     public CliResult run(EffectiveNodeConfig server, String username, Secret password,
         CliCommand command, Duration timeout, String timeoutSetting, CredentialGuard guard) {
+        // before the guard: a refused address must neither wait for nor count as a login
+        if (server.tls().pinPerServer()) {
+            pinProbe.check(server);
+        }
         try (CredentialGuard.Permit permit = guard.acquire()) {
             CliResult result = runUnguarded(server, username, password, command, timeout,
                 timeoutSetting);
@@ -398,7 +430,7 @@ public final class CliRunner {
         }
         stdout.await(KILL_GRACE);
         stderr.await(KILL_GRACE);
-        return new CliResult(process.exitValue(), stdout.text(decoder), stderr.text(decoder),
+        return new CliResult(process.exitValue(), stdout.text(decoder()), stderr.text(decoder()),
             Duration.ofNanos(System.nanoTime() - start), stdout.truncated() || stderr.truncated());
     }
 

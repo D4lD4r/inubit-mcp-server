@@ -27,10 +27,14 @@ class RedactionGateTest {
     /**
      * The classes allowed to take an {@link ExportArchive} (outer class names). Feature 004
      * (research D-6): {@link SecretValues} reads the target's values from a raw export; it only
-     * answers lookups and produces nothing a writer accepts.
+     * answers lookups and produces nothing a writer accepts. Feature 015 (research R-3):
+     * {@link V81WorkflowArchives} slices an export into Workbench archives that hold the secrets
+     * in clear text on purpose; it produces plans and archive bytes for {@code export_archives},
+     * nothing a workspace writer accepts.
      */
     private static final Set<String> MAY_TAKE_UNREDACTED = Set.of("ArchiveReader",
-        "SecretRedactor", "ExportArchive", "RedactedArchive", "SecretValues");
+        "SecretRedactor", "ExportArchive", "RedactedArchive", "SecretValues",
+        "V81WorkflowArchives");
 
     @Test
     void onlyTheRedactorCanSealAnArchive() {

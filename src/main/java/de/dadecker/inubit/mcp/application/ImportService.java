@@ -1799,7 +1799,7 @@ public final class ImportService {
             for (String path : paths) {
                 byte[] expected = plan.expected().apply(path);
                 byte[] actual = rendered.get(path);
-                if (!d.archives().equivalent(path, expected, actual)) {
+                if (!d.archives().importedAs(path, expected, actual)) {
                     differences.add("=== " + path);
                     differences.add("--- intended: " + (expected == null ? "(missing)"
                         : expected.length + " bytes"));
@@ -1919,7 +1919,7 @@ public final class ImportService {
             Set<String> paths = new TreeSet<>(artifactFiles(before, artifact).keySet());
             paths.addAll(artifactFiles(now, artifact).keySet());
             for (String path : paths) {
-                if (!d.archives().equivalent(path, before.get(path), now.get(path))) {
+                if (!d.archives().importedAs(path, before.get(path), now.get(path))) {
                     return false;
                 }
             }

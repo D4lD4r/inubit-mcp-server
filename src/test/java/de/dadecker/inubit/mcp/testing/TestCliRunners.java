@@ -5,6 +5,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliSystem;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.StartCliPinProbe;
 import de.dadecker.inubit.mcp.adapter.os.PosixSystem;
 import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
 import java.nio.charset.Charset;
@@ -35,6 +36,16 @@ public final class TestCliRunners {
         return new CliRunner(launcher, parentEnvironment, windows,
             windows ? new WindowsSystem() : new PosixSystem(), ProcessContainment.Bound::new,
             resources);
+    }
+
+    /** As above, with the StartCLI pin probe of feature 014 (research R-15). */
+    public static CliRunner forHost(ProcessLauncher launcher,
+        Map<String, String> parentEnvironment, CliResources resources,
+        StartCliPinProbe pinProbe) {
+        boolean windows = Platform.windows();
+        return new CliRunner(launcher, parentEnvironment, windows,
+            windows ? new WindowsSystem() : new PosixSystem(), ProcessContainment.Bound::new,
+            resources, pinProbe);
     }
 
     /**

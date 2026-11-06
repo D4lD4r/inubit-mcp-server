@@ -73,6 +73,8 @@ import org.junit.jupiter.api.Test;
  * <p>Feature 013 (T008, plan "Project Structure"): {@code adapter.os} also holds the Windows
  * system queries (JNA), which reach {@code adapter.cli} through its port {@code CliSystem};
  * {@code adapter.cli} never references {@code adapter.os}.
+ * <p>Feature 015 (T015, research R-10): the drive-type probe {@code JnaDriveTypeApi}
+ * ({@code GetDriveTypeW}) joins the JNA users in {@code adapter.os}; the rule is unchanged.
  */
 class PackageBoundaryTest {
 
@@ -255,6 +257,7 @@ class PackageBoundaryTest {
         assertThat(types(BASE + "adapter/os/JnaCredApi")).anyMatch(t -> t.startsWith(JNA));
         assertThat(types(BASE + "adapter/os/WindowsSystem"))
             .contains(BASE + "adapter/cli/CliSystem");
+        assertThat(types(BASE + "adapter/os/JnaDriveTypeApi")).anyMatch(t -> t.startsWith(JNA));
         assertThat(types(BASE + "application/FanOut")).anyMatch(t -> t.startsWith("org/slf4j/"));
         assertThat(classes.get(BASE + "Wiring").members())
             .contains("java/lang/Runtime.getRuntime");

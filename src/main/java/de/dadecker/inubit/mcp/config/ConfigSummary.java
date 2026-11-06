@@ -35,6 +35,9 @@ import java.util.function.Predicate;
  * credential store node shows per kind the entry found (or both names) with the outcome of
  * {@link EntryCheck}, and the {@code Credential store entries:} line names the scheme once some
  * node reads entries under the profile prefix.
+ * Feature 015 (research R-15): every group line ends with {@code archives: allowed},
+ * {@code archives: refused (no archives.productionOptIn)} or
+ * {@code archives: allowed (archives.productionOptIn)}.
  * Groups and nodes are named with the profile's display names (FR-007). Values and URLs are never
  * printed.
  */
@@ -104,7 +107,8 @@ public final class ConfigSummary {
             if (!server.id().group().equals(group)) {
                 group = server.id().group();
                 out.append(terms.render("{Group} ")).append(group)
-                    .append(server.production() ? " (production)" : "").append(":\n");
+                    .append(server.production() ? " (production)" : "").append(": archives: ")
+                    .append(archives(server)).append('\n');
             }
             out.append("  ").append(terms.render("{Node} ")).append(server.id()).append(": ")
                 .append(writeFlag(server))
@@ -264,6 +268,18 @@ public final class ConfigSummary {
         } catch (URISyntaxException e) {
             return url.getScheme() + "://" + url.getHost();
         }
+    }
+
+    /**
+     * Feature 015 (research R-15): whether {@code export_archives} may run on the group;
+     * {@code archives.productionOptIn} is a group setting, so any node of the group tells.
+     */
+    private static String archives(EffectiveNodeConfig server) {
+        if (!server.production()) {
+            return "allowed";
+        }
+        return server.archivesProductionOptIn() ? "allowed (archives.productionOptIn)"
+            : "refused (no archives.productionOptIn)";
     }
 
     private static String writeFlag(EffectiveNodeConfig server) {

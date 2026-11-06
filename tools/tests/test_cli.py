@@ -124,6 +124,60 @@ class UsageTest(unittest.TestCase):
                 "~/.config/inubit-mcp/NAME.yaml", "~/.inubit-mcp/<profile.name>"):
             self.assertIn(fragment, text)
 
+    def test_help_names_server_targets(self):
+        _code, out, _err = run_main(self.tool, ["--help"])
+        options = {}
+        current = None
+        for line in out.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("--"):
+                current = stripped.split()[0]
+                options[current] = stripped
+            elif current and line.startswith(" " * 6) and stripped:
+                options[current] += " " + stripped
+            else:
+                current = None
+        for option, synopsis in (("--accept", "--accept TARGET FINGERPRINT"),
+                                 ("--forget", "--forget TARGET")):
+            with self.subTest(option=option):
+                entry = options.get(option, "")
+                self.assertTrue(entry.startswith(synopsis), entry)
+                self.assertIn("TARGET is <stage> or <stage>/<server>", entry)
+        self.assertTrue(options.get("--prune", "").startswith("--prune STAGE"))
+        self.assertIn("specs/014-stage-distinct-certs/contracts/cli.md", self.tool.__doc__)
+        self.assertNotIn("--forget STAGE", self.tool.__doc__)
+        self.assertIn("--forget TARGET", self.tool.__doc__)
+
+    def test_accept_and_forget_take_a_target(self):
+        fingerprint = "AA" * 32
+        for argv, stage, node, by in (
+                (["--accept", "int/b", fingerprint], "int", "b", None),
+                (["--accept", "dev", fingerprint, "--by", "claude"], "dev", None, "claude"),
+                (["--forget", "int/b"], "int", "b", None),
+                (["--forget", "int"], "int", None, None)):
+            with self.subTest(argv=argv):
+                args = self.tool.parse_args(["--config", self.config] + argv)
+                self.assertEqual(stage, args.target.stage)
+                self.assertEqual(node, args.target.node)
+                self.assertEqual(f"{stage}/{node}" if node else stage, args.target.id)
+                self.assertEqual(by, args.by)
+                if args.command == "accept":
+                    self.assertEqual(fingerprint, args.fingerprint)
+
+    def test_target_parts_follow_the_name_rule(self):
+        for target in ("int/b/c", "/b", "int/", "INT/b", "int/B", "/", "", "-int/b",
+                       "int/" + "b" * 33, "in t/b", "int\\b"):
+            with self.subTest(target=target):
+                self.assertUsageError(["--config", self.config, "--accept", target, "AA" * 32])
+                self.assertUsageError(["--config", self.config, "--forget", target])
+
+    def test_prune_keeps_taking_a_stage(self):
+        args = self.tool.parse_args(["--config", self.config, "--prune", "int"])
+        self.assertEqual("int", args.prune)
+        for stage in ("int/b", "INT", "/b", ""):
+            with self.subTest(stage=stage):
+                self.assertUsageError(["--config", self.config, "--prune", stage])
+
 
 class ProfilePathTest(unittest.TestCase):
 

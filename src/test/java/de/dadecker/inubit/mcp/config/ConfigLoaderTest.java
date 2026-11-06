@@ -764,7 +764,7 @@ class ConfigLoaderTest {
                 java.util.Optional.of(URI.create("https://u:secretpw@h.example.test")), false, null,
                 null, null, null, null, null, null, null, null, null, null, null, null, null);
             GroupConfig stage = new GroupConfig("dev", false, List.of(entry), null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null);
 
             assertThatThrownBy(() -> EffectiveNodeConfig.resolve(Defaults.EMPTY, stage, entry,
                 "INUBIT_ACME", SecretPlan.resolve(CredentialsConfig.EMPTY, "INUBIT_ACME", stage,
@@ -781,7 +781,7 @@ class ConfigLoaderTest {
                 java.util.Optional.of(URI.create(url)), false, null,
                 null, null, null, null, null, null, null, null, null, null, null, null, null);
             GroupConfig stage = new GroupConfig("dev", false, List.of(entry), null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null);
 
             assertThatThrownBy(() -> EffectiveNodeConfig.resolve(Defaults.EMPTY, stage, entry,
                 "INUBIT_ACME", SecretPlan.resolve(CredentialsConfig.EMPTY, "INUBIT_ACME", stage,
@@ -1267,6 +1267,68 @@ class ConfigLoaderTest {
         }
     }
 
+    /** Feature 015 (T016, research R-15, contracts/configuration-delta.md). */
+    @Nested
+    class Archives {
+
+        private LoadedConfig parse(String yaml) {
+            return loader().parse(yaml, home.resolve("a.yaml"));
+        }
+
+        private static String onGroup(String archives) {
+            return MINIMAL.replace("    nodes:", "    archives:\n" + archives + "    nodes:");
+        }
+
+        @Test
+        void theOptInIsReadPerGroup() {
+            assertThat(parse(onGroup("      productionOptIn: true\n")).config().groups().get(0)
+                .archives()).isEqualTo(new ArchivesConfig(Optional.of(true)));
+            assertThat(parse(onGroup("      productionOptIn: false\n")).config().groups().get(0)
+                .archives().productionOptIn()).contains(false);
+            assertThat(parse(MINIMAL).config().groups().get(0).archives())
+                .isEqualTo(ArchivesConfig.EMPTY);
+            assertThat(ArchivesConfig.EMPTY.productionOptIn()).isEmpty();
+            assertThat(parse(onGroup("")).config().groups().get(0).archives())
+                .isEqualTo(ArchivesConfig.EMPTY);
+            assertThat(parse(onGroup("      productionOptIn:\n")).config().groups().get(0)
+                .archives()).as("an empty value is the default").isEqualTo(ArchivesConfig.EMPTY);
+        }
+
+        @Test
+        void archivesOnANodeIsAnUnknownKey() {
+            assertThatThrownBy(() -> parse(MINIMAL + "        archives:\n"
+                + "          productionOptIn: true\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'archives' at groups[0].nodes[0]");
+        }
+
+        @Test
+        void archivesInTheDefaultsIsAnUnknownKey() {
+            assertThatThrownBy(() -> parse(MINIMAL + "defaults:\n  archives:\n"
+                + "    productionOptIn: true\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'archives' at defaults");
+        }
+
+        @Test
+        void anUnknownKeyBelowArchivesIsRejected() {
+            assertThatThrownBy(() -> parse(onGroup("      productionOptin: true\n")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'productionOptin' at groups[0].archives");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"yes", "\"maybe\"", "1", "0", "\"true\"", "[true]",
+            "{ on: true }"})
+        void aNonBooleanValueIsRejectedNamingTheKey(String value) {
+            assertThatThrownBy(() -> parse(onGroup("      productionOptIn: " + value + "\n")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("groups[0].archives.productionOptIn")
+                .hasMessageContaining("true or false")
+                .hasMessageNotContaining("maybe");
+        }
+    }
+
     /** Feature 010 (T003, research R-4): the {@code credentials} section at three levels. */
     @Nested
     class CredentialsSections {
@@ -1550,6 +1612,74 @@ class ConfigLoaderTest {
             assertThat(loaded.toString()).doesNotContain(PASTED);
             assertThat(loaded.config().groups().get(0).credentials().parameters()
                 .orElseThrow().username()).contains("/inubit/dev/username");
+        }
+    }
+
+    /** Feature 014: {@code tls.pinPerServer} binds on stages and servers (FR-001, research R-1, R-2). */
+    @Nested
+    class PinPerServer {
+
+        private GroupConfig group(LoadedConfig loaded, String name) {
+            return loaded.config().groups().stream()
+                .filter(g -> g.name().equals(name))
+                .findFirst()
+                .orElseThrow();
+        }
+
+        @Test
+        void bindsOnTheMarkedStageOnly() {
+            LoadedConfig loaded = load("pin-per-server.yaml");
+
+            assertThat(group(loaded, "int").tls().pinPerServer()).contains(true);
+            assertThat(group(loaded, "int").tls().marksStage()).isTrue();
+            assertThat(group(loaded, "dev").tls().pinPerServer()).isEmpty();
+            assertThat(group(loaded, "dev").tls().marksStage()).isFalse();
+            assertThat(group(loaded, "int").nodes())
+                .allSatisfy(n -> assertThat(n.tls().pinPerServer()).isEmpty());
+        }
+
+        @Test
+        void falseBindsAndDoesNotMarkTheStage() {
+            String yaml = MINIMAL.replace("    nodes:\n",
+                "    tls:\n      pinPerServer: false\n    nodes:\n");
+
+            TlsConfig tls = loader().parse(yaml, home.resolve("false.yaml")).config()
+                .groups().get(0).tls();
+
+            assertThat(tls.pinPerServer()).contains(false);
+            assertThat(tls.marksStage()).isFalse();
+        }
+
+        @Test
+        void bindsOnAServerSoThatTheValidatorCanRefuseIt() {
+            String yaml = MINIMAL + "        tls:\n          pinPerServer: true\n";
+
+            NodeConfig node = loader().parse(yaml, home.resolve("node.yaml")).config()
+                .groups().get(0).nodes().get(0);
+
+            assertThat(node.tls().pinPerServer()).contains(true);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"  pinPerServer: true\n", "  trustStore: ~/ts.p12\n"})
+        void defaultsTlsIsRefusedAsAnUnknownKey(String entry) {
+            String yaml = MINIMAL + "defaults:\n  tls:\n  " + entry;
+
+            assertThatThrownBy(() -> loader().parse(yaml, home.resolve("defaults.yaml")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'tls'");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"full.yaml", "anchors.yaml"})
+        void existingProfilesHaveNoMarkedStage(String resourceName) {
+            ProfileConfig config = load(resourceName).config();
+
+            assertThat(config.groups()).allSatisfy(g -> {
+                assertThat(g.tls().pinPerServer()).isEmpty();
+                assertThat(g.tls().marksStage()).isFalse();
+                assertThat(g.nodes()).allSatisfy(n -> assertThat(n.tls().pinPerServer()).isEmpty());
+            });
         }
     }
 }

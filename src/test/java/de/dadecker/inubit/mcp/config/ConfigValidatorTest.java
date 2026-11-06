@@ -20,6 +20,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * One test per row of "Startup validation outcomes" in contracts/configuration.md, plus the
@@ -2270,6 +2272,452 @@ class ConfigValidatorTest {
             assertThat(aws.errors()).isEmpty();
             assertThat(environment.errors()).anySatisfy(error -> assertThat(error)
                 .contains("dev/e2e", "clashes", "INUBIT_ACME_DEV_E2E_USERNAME"));
+        }
+    }
+
+    /** Feature 015 (T016, research R-15, contracts/configuration-delta.md). */
+    @Nested
+    class Archives {
+
+        private static String profile(boolean production, String archives) {
+            return """
+                profile:
+                  name: acme
+                groups:
+                  - name: dev
+                    production: %s
+                %s    nodes:
+                      - name: node1
+                        baseUrl: https://inubit.example.test:8443
+                """.formatted(production, archives);
+        }
+
+        private static String optIn(boolean value) {
+            return "    archives:\n      productionOptIn: " + value + "\n";
+        }
+
+        @Test
+        void theOptInOnANonProductionGroupIsAWarning() {
+            ValidationReport report = validate(profile(false, optIn(true)));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly(
+                "archives.productionOptIn has no effect on group dev (not production)");
+        }
+
+        @Test
+        void theWarningUsesTheProfileTerminology() {
+            ValidationReport report = validate(profile(false, optIn(true)).replace(
+                "groups:\n", "terminology:\n  group: { singular: stage, plural: stages }\n"
+                    + "  node: { singular: server, plural: servers }\ngroups:\n"));
+
+            assertThat(report.warnings()).containsExactly(
+                "archives.productionOptIn has no effect on stage dev (not production)");
+        }
+
+        @Test
+        void theOptInOnAProductionGroupAndAFalseOrAbsentOptInAreNoFinding() {
+            for (String yaml : List.of(profile(true, optIn(true)), profile(true, optIn(false)),
+                profile(false, optIn(false)), profile(false, ""), profile(true, ""))) {
+                ValidationReport report = validate(yaml);
+
+                assertThat(report.errors()).as(yaml).isEmpty();
+                assertThat(report.warnings()).as(yaml).isEmpty();
+            }
+        }
+    }
+
+    /** Feature 014: rules V-1 and V-3 … V-11 of contracts/configuration.md (research R-3). */
+    @Nested
+    class PinPerServer {
+
+        private static final String PIN_B =
+            "CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:CC:33:0E:04";
+        private static final String MARKED_TLS = """
+                tls:
+                  pinPerServer: true
+                  trustStore: /opt/truststore.p12
+            """;
+        private static final String B_PINNED = """
+                    baseUrl: https://int-b.example.test:8443
+                    tls:
+                      pinnedCertificateSha256: "%s"
+            """.formatted(PIN_B);
+
+        /**
+         * Stage {@code int} with server {@code a} (https, own pin) and server {@code b}; the
+         * stage's {@code tls} line(s) and the body of {@code b} are inserted as given.
+         */
+        private static String profile(String top, String stageTls, String nodeB) {
+            return "profile:\n  name: acme\n" + top + "groups:\n  - name: int\n" + stageTls + """
+                    nodes:
+                      - name: a
+                        baseUrl: https://int-a.example.test:8443
+                        tls:
+                          pinnedCertificateSha256: "%s"
+                      - name: b
+                """.formatted(PIN) + nodeB;
+        }
+
+        @Test
+        void aServersOwnPinWithASharedStageTrustStoreIsValid() {
+            assertThat(validate(profile("", MARKED_TLS, B_PINNED)).errors()).isEmpty();
+        }
+
+        @Test
+        void theFixtureIsValid() throws Exception {
+            existing.add(HOME.resolve(".config/inubit-mcp/acme-dev-truststore.p12"));
+            existing.add(HOME.resolve(".config/inubit-mcp/acme-int-truststore.p12"));
+            String yaml = Files.readString(Path.of(
+                ConfigValidatorTest.class.getResource("/config/pin-per-server.yaml").toURI()));
+
+            assertThat(validate(yaml).errors()).isEmpty();
+        }
+
+        @Test
+        void v1PinPerServerOnAServerIsAnError() {
+            String nodeB = B_PINNED + "          pinPerServer: true\n";
+
+            assertThat(validate(profile("", MARKED_TLS, nodeB)).errors())
+                .containsExactly("int/b: tls.pinPerServer is only valid on the group");
+        }
+
+        @Test
+        void v1PinPerServerOnAServerThroughAnAliasIsAnError() {
+            String top = """
+                x-int-b: &x-int-b
+                  pinPerServer: true
+                  pinnedCertificateSha256: "%s"
+                """.formatted(PIN_B);
+            String nodeB = """
+                        baseUrl: https://int-b.example.test:8443
+                        tls: *x-int-b
+                """;
+
+            assertThat(validate(profile(top, MARKED_TLS, nodeB)).errors())
+                .containsExactly("int/b: tls.pinPerServer is only valid on the group");
+        }
+
+        @Test
+        void v3AStagePinIsAnError() {
+            String stageTls = MARKED_TLS + "      pinnedCertificateSha256: \"" + PIN + "\"\n";
+
+            assertThat(validate(profile("", stageTls, B_PINNED)).errors())
+                .containsExactly("group 'int': tls.pinnedCertificateSha256 is not allowed with"
+                    + " tls.pinPerServer; set it on each node");
+        }
+
+        @Test
+        void v3AStagePinThroughAnAliasIsAnError() {
+            String top = """
+                x-int: &x-int
+                  pinPerServer: true
+                  trustStore: /opt/truststore.p12
+                  pinnedCertificateSha256: "%s"
+                """.formatted(PIN);
+
+            assertThat(validate(profile(top, "    tls: *x-int\n", B_PINNED)).errors())
+                .containsExactly("group 'int': tls.pinnedCertificateSha256 is not allowed with"
+                    + " tls.pinPerServer; set it on each node");
+        }
+
+        @Test
+        void v4AStageWithoutTrustStoreIsAnError() {
+            String stageTls = """
+                    tls:
+                      pinPerServer: true
+                """;
+
+            assertThat(validate(profile("", stageTls, B_PINNED)).errors())
+                .containsExactly("group 'int': tls.pinPerServer needs tls.trustStore on the group");
+        }
+
+        @Test
+        void v5ATrustStoreOnAServerIsAnError() {
+            String nodeB = B_PINNED + "          trustStore: /opt/truststore.p12\n";
+
+            assertThat(validate(profile("", MARKED_TLS, nodeB)).errors())
+                .containsExactly("int/b: tls.trustStore is not allowed on this node of group 'int'"
+                    + " with tls.pinPerServer; set it on the group");
+        }
+
+        @Test
+        void v6AnHttpsServerWithoutItsOwnPinIsAnError() {
+            String nodeB = "        baseUrl: https://int-b.example.test:8443\n";
+
+            assertThat(validate(profile("", MARKED_TLS, nodeB)).errors())
+                .containsExactly("int/b: tls.pinPerServer on group 'int' needs"
+                    + " tls.pinnedCertificateSha256 on this node");
+        }
+
+        @Test
+        void v7AnHttpServerWithoutAPinIsValid() {
+            String nodeB = """
+                        baseUrl: http://int-b.example.test:8080
+                        allowInsecureHttp: true
+                """;
+
+            assertThat(validate(profile("", MARKED_TLS, nodeB)).errors()).isEmpty();
+        }
+
+        @Test
+        void v8AServerPinThroughAnAliasIsValid() {
+            String top = """
+                x-int-b: &x-int-b
+                  pinnedCertificateSha256: "%s"
+                """.formatted(PIN_B);
+            String nodeB = """
+                        baseUrl: https://int-b.example.test:8443
+                        tls: *x-int-b
+                """;
+
+            assertThat(validate(profile(top, MARKED_TLS, nodeB)).errors()).isEmpty();
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"      pinPerServer: false\n", ""})
+        void v9AnUnmarkedStageKeepsTheUniformRules(String pinPerServer) {
+            // a stage pin, a server trust store and a server without own pin: all valid here
+            String stageTls = "    tls:\n" + pinPerServer
+                + "      trustStore: /opt/truststore.p12\n"
+                + "      pinnedCertificateSha256: \"" + PIN + "\"\n";
+            String nodeB = """
+                        baseUrl: https://int-b.example.test:8443
+                        tls:
+                          trustStore: /opt/truststore.p12
+                """;
+
+            assertThat(validate(profile("", stageTls, nodeB)).errors()).isEmpty();
+        }
+
+        @Test
+        void aMalformedServerPinIsStillReported() {
+            String nodeB = """
+                        baseUrl: https://int-b.example.test:8443
+                        tls:
+                          pinnedCertificateSha256: "not-a-fingerprint"
+                """;
+
+            assertThat(validate(profile("", MARKED_TLS, nodeB)).errors())
+                .containsExactly("int/b: tls.pinnedCertificateSha256 must be a SHA-256"
+                    + " fingerprint (64 hex digits, optionally colon-separated)");
+        }
+
+        @Test
+        void theMessagesUseTheProfilesTerminology() {
+            String top = """
+                terminology:
+                  group: { singular: Umgebung, plural: Umgebungen }
+                  node: { singular: Knoten, plural: Knoten }
+                """;
+            String stageTls = """
+                    tls:
+                      pinPerServer: true
+                      pinnedCertificateSha256: "%s"
+                """.formatted(PIN);
+            String nodeB = """
+                        baseUrl: https://int-b.example.test:8443
+                        tls:
+                          pinPerServer: true
+                          trustStore: /opt/truststore.p12
+                """;
+
+            assertThat(validate(profile(top, stageTls, nodeB)).errors())
+                .containsExactlyInAnyOrder(
+                    "int/b: tls.pinPerServer is only valid on the Umgebung",
+                    "Umgebung 'int': tls.pinnedCertificateSha256 is not allowed with"
+                        + " tls.pinPerServer; set it on each Knoten",
+                    "Umgebung 'int': tls.pinPerServer needs tls.trustStore on the Umgebung",
+                    "int/b: tls.trustStore is not allowed on this Knoten of Umgebung 'int' with"
+                        + " tls.pinPerServer; set it on the Umgebung",
+                    "int/b: tls.pinPerServer on Umgebung 'int' needs"
+                        + " tls.pinnedCertificateSha256 on this Knoten");
+        }
+
+        private static final String UNMARKED_TLS = """
+                tls:
+                  trustStore: /opt/truststore.p12
+            """;
+        private static final String STAGE_CLI = """
+                cli:
+                  url: https://int.example.test:8443/ibis/servlet/IBISSoapServlet
+            """;
+        private static final String STAGE_SOAP = """
+                e2e:
+                  soap:
+                    baseUrl: https://int.example.test:8443
+            """;
+        private static final String CLI_INHERITED_B = "int/b: cli.url is inherited from group"
+            + " 'int' with tls.pinPerServer; set cli.url on each node";
+        private static final String SOAP_INHERITED_B = "int/b: e2e.soap.baseUrl is inherited from"
+            + " group 'int' with tls.pinPerServer; set e2e.soap.baseUrl on each node";
+
+        /**
+         * Stage {@code int} with the https servers {@code a} and {@code b}, each with its own pin;
+         * {@code stage} is added to the stage, {@code nodeA} and {@code nodeB} to each server.
+         */
+        private static String twoServers(String stageTls, String stage, String nodeA,
+            String nodeB) {
+            return "profile:\n  name: acme\ngroups:\n  - name: int\n" + stageTls + stage + """
+                    nodes:
+                      - name: a
+                        baseUrl: https://int-a.example.test:8443
+                        tls:
+                          pinnedCertificateSha256: "%s"
+                """.formatted(PIN) + nodeA + "      - name: b\n" + B_PINNED + nodeB;
+        }
+
+        private static String ownCli(String server) {
+            return "        cli:\n          url: https://int-" + server
+                + ".example.test:8443/ibis/servlet/IBISSoapServlet\n";
+        }
+
+        private static String ownSoap(String server) {
+            return "        e2e:\n          soap:\n            baseUrl: https://int-" + server
+                + ".example.test:8443\n";
+        }
+
+        @Test
+        void v10EachServerInheritingTheStagesCliUrlIsAnError() {
+            ValidationReport report = validate(twoServers(MARKED_TLS, STAGE_CLI, "", ""));
+
+            assertThat(report.errors()).containsExactly(
+                "int/a: cli.url is inherited from group 'int' with tls.pinPerServer; set cli.url"
+                    + " on each node",
+                CLI_INHERITED_B);
+        }
+
+        @Test
+        void v10OnlyTheServerWithoutItsOwnCliUrlIsReported() {
+            ValidationReport report = validate(
+                twoServers(MARKED_TLS, STAGE_CLI, ownCli("a"), ""));
+
+            assertThat(report.errors()).containsExactly(CLI_INHERITED_B);
+            // the existing stage-level warning stays for every stage (contract V-10)
+            assertThat(report.warnings()).contains("Group 'int': cli.url is set for 2 nodes, so"
+                + " all of them use the same StartCLI endpoint; set cli.url per node instead");
+        }
+
+        @Test
+        void v10EveryServerWithItsOwnCliUrlIsValid() {
+            assertThat(validate(twoServers(MARKED_TLS, STAGE_CLI, ownCli("a"), ownCli("b")))
+                .errors()).isEmpty();
+        }
+
+        @Test
+        void v11EachServerInheritingTheStagesSoapAddressIsAnError() {
+            ValidationReport report = validate(twoServers(MARKED_TLS, STAGE_SOAP, "", ""));
+
+            assertThat(report.errors()).containsExactly(
+                "int/a: e2e.soap.baseUrl is inherited from group 'int' with tls.pinPerServer;"
+                    + " set e2e.soap.baseUrl on each node",
+                SOAP_INHERITED_B);
+        }
+
+        @Test
+        void v11OnlyTheServerWithoutItsOwnSoapAddressIsReported() {
+            assertThat(validate(twoServers(MARKED_TLS, STAGE_SOAP, ownSoap("a"), "")).errors())
+                .containsExactly(SOAP_INHERITED_B);
+        }
+
+        @Test
+        void v11EveryServerWithItsOwnSoapAddressIsValid() {
+            assertThat(validate(twoServers(MARKED_TLS, STAGE_SOAP, ownSoap("a"), ownSoap("b")))
+                .errors()).isEmpty();
+        }
+
+        @Test
+        void v10V11AMarkedStageWithOneServerMaySetBothAddressesOnTheStage() {
+            String yaml = "profile:\n  name: acme\ngroups:\n  - name: int\n" + MARKED_TLS
+                + STAGE_CLI + STAGE_SOAP + """
+                    nodes:
+                      - name: a
+                        baseUrl: https://int-a.example.test:8443
+                        tls:
+                          pinnedCertificateSha256: "%s"
+                """.formatted(PIN);
+
+            assertThat(validate(yaml).errors()).isEmpty();
+        }
+
+        @Test
+        void v10V11AnUnmarkedStageMayShareBothAddressesAndKeepsTheWarning() {
+            ValidationReport report = validate(
+                twoServers(UNMARKED_TLS, STAGE_CLI + STAGE_SOAP, "", ""));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).contains("Group 'int': cli.url is set for 2 nodes, so"
+                + " all of them use the same StartCLI endpoint; set cli.url per node instead");
+        }
+
+        @Test
+        void v10V11TheMessagesUseTheProfilesTerminology() {
+            String yaml = twoServers(MARKED_TLS, STAGE_CLI + STAGE_SOAP, ownCli("a"), ownSoap("b"))
+                .replace("profile:\n  name: acme\n", """
+                    profile:
+                      name: acme
+                    terminology:
+                      group: { singular: Umgebung, plural: Umgebungen }
+                      node: { singular: Knoten, plural: Knoten }
+                    """);
+
+            assertThat(validate(yaml).errors()).containsExactlyInAnyOrder(
+                "int/a: e2e.soap.baseUrl is inherited from Umgebung 'int' with tls.pinPerServer;"
+                    + " set e2e.soap.baseUrl on each Knoten",
+                "int/b: cli.url is inherited from Umgebung 'int' with tls.pinPerServer; set"
+                    + " cli.url on each Knoten");
+        }
+
+        private static final String HTTP_B = """
+                    baseUrl: http://int-b.example.test:8080
+                    allowInsecureHttp: true
+            """;
+        private static final String PIN_MISSING_B = "int/b: tls.pinPerServer on group 'int' needs"
+            + " tls.pinnedCertificateSha256 on this node";
+
+        /** Marked stage {@code int} with the single http server {@code b}; {@code stage} is added. */
+        private static String oneHttpServer(String stage, String nodeB) {
+            return "profile:\n  name: acme\ngroups:\n  - name: int\n" + MARKED_TLS + stage
+                + "    nodes:\n      - name: b\n" + HTTP_B + nodeB;
+        }
+
+        @Test
+        void v6AnHttpServerWithAnHttpsCliUrlOrSoapAddressNeedsItsOwnPin() {
+            // T029b: the StartCLI probe and the SOAP client connect to these addresses via https
+            assertThat(validate(profile("", MARKED_TLS, HTTP_B + ownCli("b"))).errors())
+                .containsExactly(PIN_MISSING_B);
+            assertThat(validate(profile("", MARKED_TLS, HTTP_B + ownSoap("b"))).errors())
+                .containsExactly(PIN_MISSING_B);
+        }
+
+        @Test
+        void v6AnHttpServerInheritingAnHttpsAddressOfItsMarkedStageNeedsItsOwnPin() {
+            assertThat(validate(oneHttpServer(STAGE_CLI, "")).errors())
+                .containsExactly(PIN_MISSING_B);
+            assertThat(validate(oneHttpServer(STAGE_SOAP, "")).errors())
+                .containsExactly(PIN_MISSING_B);
+        }
+
+        @Test
+        void v6AnHttpServerWithAnHttpsAddressAndItsOwnPinIsValid() {
+            String pinB = "        tls:\n          pinnedCertificateSha256: \"" + PIN_B + "\"\n";
+
+            assertThat(validate(profile("", MARKED_TLS, HTTP_B + ownCli("b") + pinB)).errors())
+                .isEmpty();
+            assertThat(validate(oneHttpServer(STAGE_CLI + STAGE_SOAP, pinB)).errors()).isEmpty();
+        }
+
+        @Test
+        void v7AnHttpServerWithHttpAddressesNeedsNoPin() {
+            String httpAddresses = """
+                        cli:
+                          url: http://int-b.example.test:8080/ibis/servlet/IBISSoapServlet
+                        e2e:
+                          soap:
+                            baseUrl: http://int-b.example.test:8080
+                """;
+
+            assertThat(validate(oneHttpServer("", httpAddresses)).errors()).isEmpty();
         }
     }
 }

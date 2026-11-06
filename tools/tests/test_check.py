@@ -292,6 +292,97 @@ class RejectionTest(CheckTestCase):
         with open(state.diag_log, encoding="utf-8") as handle:
             self.assertIn("rejection", handle.read())
 
+    def write_marked_int(self, nodes, pin_a, pin_b, dev_url=None):
+        """dev: uniform stage with one server (dev_url, else certificate A); int: marked stage
+        with int/a and int/b, each presenting its own certificate, pinned to pin_a / pin_b."""
+        int_servers = [(node, f"https://int-{node}.example.test:{nodes[node].port}", {"pin": pin})
+                       for node, pin in (("a", pin_a), ("b", pin_b))]
+        self.write([{"name": "dev", "pin": self.fp_a, "store": self.stores["dev"],
+                     "servers": [("node1", dev_url or self.serve_a())]},
+                    {"name": "int", "pin_per_server": True, "store": self.stores["int"],
+                     "servers": int_servers}])
+
+    def run_check_counting_writes(self):
+        with mock.patch.object(self.tool, "write_atomically",
+                               wraps=self.tool.write_atomically) as write:
+            code, report, err = self.run_check()
+        return code, report, err, [call[0][0] for call in write.call_args_list]
+
+    def test_marked_stage_drops_stage_keyed_entry(self):
+        nodes = support.marked_stage(self)
+        self.write_marked_int(nodes, nodes["a"].fingerprint, OTHER)
+        state = self.tool.State(self.state_dir, "acme")
+        state.remember_rejection("int", nodes["b"].fingerprint, None, "rejected")
+        code, report, _err, writes = self.run_check_counting_writes()
+        self.assertEqual(10, code, "int/b is still changed")
+        self.assertIsNone(state.rejection("int"), "a stage key never applies to a marked stage")
+        self.assertEqual([state.rejections_file], writes)
+        self.assertFalse(self.server_of(report, "int/b")["rejected"],
+                         "the leftover stage key never suppresses an offer")
+
+    def test_marked_server_entry_cleared_when_its_pin_is_presented(self):
+        nodes = support.marked_stage(self)
+        self.write_marked_int(nodes, nodes["a"].fingerprint, nodes["b"].fingerprint)
+        state = self.tool.State(self.state_dir, "acme")
+        state.remember_rejection("int/b", OTHER, None, "timed-out")
+        code, _report, _err, writes = self.run_check_counting_writes()
+        self.assertEqual(0, code)
+        self.assertIsNone(state.rejection("int/b"))
+        self.assertEqual([state.rejections_file], writes)
+
+    def test_marked_server_entry_kept_for_another_fingerprint(self):
+        nodes = support.marked_stage(self)
+        self.write_marked_int(nodes, nodes["a"].fingerprint, OTHER)
+        state = self.tool.State(self.state_dir, "acme")
+        state.remember_rejection("int/b", self.fp_b, None, "rejected")
+        before = state.load_rejections()
+        code, report, _err, writes = self.run_check_counting_writes()
+        self.assertEqual(10, code)
+        server_b = self.server_of(report, "int/b")
+        self.assertEqual((nodes["b"].fingerprint, False), (server_b["offer"],
+                                                           server_b["rejected"]))
+        self.assertEqual(before, state.load_rejections(), "F stays until G is decided")
+        self.assertEqual([], writes, "nothing to remove: no write")
+
+    def test_housekeeping_in_one_write_and_uniform_entries_untouched(self):
+        nodes = support.marked_stage(self)
+        self.write_marked_int(nodes, nodes["a"].fingerprint, OTHER, dev_url=self.serve_b())
+        state = self.tool.State(self.state_dir, "acme")
+        state.remember_rejection("dev", OTHER, None, "rejected")
+        state.remember_rejection("int", nodes["b"].fingerprint, None, "rejected")
+        state.remember_rejection("int/a", OTHER, None, "rejected")
+        state.remember_rejection("int/b", self.fp_b, None, "timed-out")
+        before = state.load_rejections()
+        state_files = sorted(os.listdir(self.state_dir))
+        code, _report, _err, writes = self.run_check_counting_writes()
+        self.assertEqual(10, code)
+        after = state.load_rejections()
+        self.assertEqual(["dev", "int/b"], sorted(after))
+        self.assertEqual(before["dev"], after["dev"], "a uniform stage's entry is not touched")
+        self.assertEqual(before["int/b"], after["int/b"])
+        self.assertEqual([state.rejections_file], writes, "one write for all removals")
+        self.assertFalse(os.path.exists(state.changes_log), "--check logs no decision")
+        self.assertEqual(state_files, sorted(name for name in os.listdir(self.state_dir)
+                                             if name != "cert-check.log"))
+
+    def test_uniform_stage_entries_untouched_next_to_marked_stage(self):
+        nodes = support.marked_stage(self)
+        self.write_marked_int(nodes, nodes["a"].fingerprint, nodes["b"].fingerprint,
+                              dev_url=self.serve_b())
+        state = self.tool.State(self.state_dir, "acme")
+        state.remember_rejection("dev", self.fp_b, None, "rejected")
+        state.remember_rejection("dev/node1", self.fp_b, None, "rejected")
+        before = state.load_rejections()
+        code, report, _err, writes = self.run_check_counting_writes()
+        self.assertEqual(10, code)
+        self.assertTrue(self.stage(report, "dev")["rejected"])
+        self.assertEqual(before, state.load_rejections())
+        self.assertEqual([], writes)
+
+    def server_of(self, report, server_id):
+        return next(server for stage in report["stages"] for server in stage["servers"]
+                    if server["id"] == server_id)
+
 
 class TrustStoreTest(CheckTestCase):
 
@@ -344,6 +435,55 @@ class TrustStoreTest(CheckTestCase):
         result = self.tool.run_check(profile, state, list_store=False)
         self.assertEqual(0, result.exit_code)
         self.assertEqual([], self.keytool.calls, "no keytool on the start-up path")
+
+    def test_marked_stage_superseded_entries(self):
+        marked = support.marked_stage(self)
+        fp_a, fp_b = marked["a"].fingerprint, marked["b"].fingerprint
+        self.keytool.entries[self.stores["int"]] = [
+            self.tool.TrustEntry("int-a", fp_a), self.tool.TrustEntry("int-b-old", fp_b),
+            self.tool.TrustEntry("int-b-new", OTHER)]
+        self.write([{"name": "int", "pin_per_server": True, "store": self.stores["int"],
+                     "servers": [("a", f"https://int-a.example.test:{marked['a'].port}",
+                                  {"pin": fp_a}),
+                                 ("b", f"https://int-b.example.test:{marked['b'].port}",
+                                  {"pin": OTHER})]}])
+        code, report, _err = self.run_check()
+        self.assertEqual(10, code)
+        self.assertEqual([{"alias": "int-b-old", "fingerprint": fp_b}],
+                         self.stage(report, "int")["supersededTrustStoreEntries"])
+        _code, text, _err = self.run_check(json_output=False)
+        self.assertIn(f"      int-b-old  {fp_b}\n", text)
+        self.assertNotIn("int-b-new", text)
+        self.assertNotIn("      int-a  ", text)
+
+    def test_marked_stage_keeps_the_pin_of_an_http_server(self):
+        # T029c: int/c is http with an https cli.url and pins D; it is still not contacted
+        pin_d = "DD:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:32:42:52:62:72:82:92:A2:B2:" \
+                "C2:D2:E2:F2:02:06:07"
+        marked = support.marked_stage(self)
+        fp_a, fp_b = marked["a"].fingerprint, marked["b"].fingerprint
+        self.keytool.entries[self.stores["int"]] = [
+            self.tool.TrustEntry("int-a", fp_a), self.tool.TrustEntry("int-b", fp_b),
+            self.tool.TrustEntry("int-c", pin_d), self.tool.TrustEntry("int-old", OTHER)]
+        self.write([{"name": "int", "pin_per_server": True, "store": self.stores["int"],
+                     "servers": [("a", f"https://int-a.example.test:{marked['a'].port}",
+                                  {"pin": fp_a}),
+                                 ("b", f"https://int-b.example.test:{marked['b'].port}",
+                                  {"pin": fp_b}),
+                                 ("c", "http://int-c.example.test:8080", {"pin": pin_d})]}])
+        support.insert_after(self.profile, "baseUrl: http://int-c.example.test:8080",
+                             f"        cli:\n          url: https://int-c.example.test:"
+                             f"{closed_port()}\n")
+        code, report, _err = self.run_check()
+        self.assertEqual(0, code)
+        int_ = self.stage(report, "int")
+        self.assertEqual([{"alias": "int-old", "fingerprint": OTHER}],
+                         int_["supersededTrustStoreEntries"])
+        self.assertEqual(["int/a", "int/b"], [server["id"] for server in int_["servers"]])
+        self.assertEqual([{"id": "int/c", "reason": "no TLS"}], report["skippedServers"])
+        _code, text, _err = self.run_check(json_output=False)
+        self.assertIn("int/c        skipped (no TLS)", text)
+        self.assertNotIn("      int-c  ", text)
 
 
 class OutputTest(CheckTestCase):
@@ -450,6 +590,524 @@ class OutputTest(CheckTestCase):
             code = self.tool.main(["--config", self.profile, "--check"])
         self.assertEqual(0, code)
         self.assertTrue(os.path.isdir(os.path.join(self.home, ".inubit-mcp", "acme")))
+
+    def shown(self, server_id, ip, fingerprint, name):
+        return self.tool.Presented(server_id=server_id, ip=ip, fingerprint=fingerprint,
+                                   subject=f"CN={name}.selfsigned.test",
+                                   issuer=f"CN={name}.selfsigned.test",
+                                   not_before="2026-11-03T08:00:00Z",
+                                   not_after="2036-10-31T08:00:00Z", valid_now=True,
+                                   pem="-----BEGIN CERTIFICATE-----")
+
+    def marked_text(self, presented_b, b_tls=None, int_extra=None, dev_store=None, head="",
+                    rejections=None):
+        """check_text of a profile with a uniform stage dev and a marked stage int
+        (int/a ok, int/b presents presented_b); the lines of the int block."""
+        int_stage = {"name": "int", "pin_per_server": True, "store": self.stores["int"],
+                     "servers": [("a", "https://int-a.example.test:8443", {"pin": MARKED_A}),
+                                 ("b", "https://int-b.example.test:8443",
+                                  b_tls or {"pin": MARKED_C})]}
+        int_stage.update(int_extra or {})
+        self.write([{"name": "dev", "pin": self.fp_a, "store": dev_store or self.stores["dev"],
+                     "servers": [("node1", "https://dev-1.example.test:8443")]}, int_stage],
+                   head=head)
+        profile = self.tool.read_profile(self.profile)
+        presented = {"dev/node1": self.shown("dev/node1", "203.0.113.11", self.fp_a, "dev-1"),
+                     "int/a": self.shown("int/a", "203.0.113.21", MARKED_A, "int-a"),
+                     "int/b": self.shown("int/b", "203.0.113.22", presented_b, "int-b")}
+        stages = tuple(self.tool.evaluate_stage(stage, presented, None, (), None,
+                                                rejections=rejections or {})
+                       for stage in profile.stages)
+        result = self.tool.CheckResult(profile=profile, checked_at="2026-11-03T10:00:00Z",
+                                       stages=stages, exit_code=10)
+        text = self.tool.check_text(result, "--profile acme")
+        self.assertTrue(text.startswith("Stage dev  OK  (pin "), text)
+        return ("Stage int" + text.split("Stage int", 1)[1]).splitlines()
+
+    def test_marked_stage_text_report(self):
+        offer = f"      offer: inubit-cert-check --profile acme --accept int/b {MARKED_D}"
+        self.assertEqual([
+            "Stage int  CHANGED  (one pin per server)",
+            "  int/a        ok           203.0.113.21",
+            "  int/b        changed      203.0.113.22",
+            f"      old  {MARKED_C}",
+            f"      new  {MARKED_D}",
+            "      subject CN=int-b.selfsigned.test  issuer CN=int-b.selfsigned.test",
+            "      valid 2026-11-03T08:00:00Z … 2036-10-31T08:00:00Z",
+            offer,
+            "  superseded trust-store entries: none"], self.marked_text(MARKED_D))
+
+        lines = self.marked_text(MARKED_A)
+        self.assertEqual([f"      new  {MARKED_A}",
+                          "      subject CN=int-b.selfsigned.test  issuer CN=int-b.selfsigned.test",
+                          "      valid 2026-11-03T08:00:00Z … 2036-10-31T08:00:00Z",
+                          f"      offer: inubit-cert-check --profile acme --accept int/b {MARKED_A}",
+                          "      note: this is the certificate expected for int/a"], lines[4:9])
+
+        rejection = {"fingerprint": MARKED_D, "notBefore": None, "outcome": "rejected",
+                     "at": "2026-11-03T09:00:00Z"}
+        lines = self.marked_text(MARKED_D, rejections={"int/b": rejection})
+        self.assertEqual([offer, f"      rejected earlier: {MARKED_D} (offered again only after "
+                                 "--forget int/b)"], lines[7:9])
+
+        problem = ("stage 'int': tls.pinnedCertificateSha256 is not allowed with "
+                   "tls.pinPerServer; set it on each server")
+        cases = (
+            ("pin through alias", {"b_tls": {"alias": "pinB"},
+                                   "head": f"x-acme-pin-b: &pinB\n  pinnedCertificateSha256: "
+                                           f"{MARKED_C}\n"}),
+            ("trust store not the stage's own", {"dev_store": self.stores["int"]}),
+            ("configuration problem", {"int_extra": {"pin": MARKED_A}}))
+        for reason, options in cases:
+            with self.subTest(reason):
+                lines = self.marked_text(MARKED_D, **options)
+                self.assertEqual("Stage int  CHANGED  (one pin per server)", lines[0])
+                self.assertEqual(f"      no offer: {reason}", lines[7])
+                self.assertFalse([line for line in lines if "offer:" in line
+                                  and "no offer:" not in line], lines)
+                self.assertNotIn(SHARED_TEXT, "\n".join(lines))
+                self.assertNotIn("no pin configured", "\n".join(lines))
+                expected = [f"  configuration problem: {problem} - run --check-config"] \
+                    if reason == "configuration problem" else []
+                self.assertEqual(expected, [line for line in lines
+                                            if line.startswith("  configuration problem:")])
+
+    def test_uniform_stage_text_report_is_unchanged(self):
+        support.write_profile(self.profile, [
+            {"name": "dev", "pin": self.fp_a, "store": self.stores["dev"],
+             "servers": [("node1", "https://dev-1.example.test:8443")]},
+            {"name": "int", "pin": self.fp_a, "store": self.stores["int"],
+             "servers": [("node1", "https://int-1.example.test:8443"),
+                         ("node2", "https://int-2.example.test:8443"),
+                         ("node3", "http://int-3.example.test:8080")]},
+            {"name": "qa", "pin": self.fp_a, "store": self.stores["int"],
+             "servers": [("node1", "https://qa-1.example.test:8443")]}])
+        profile = self.tool.read_profile(self.profile)
+        tool = self.tool
+        presented = {
+            "dev/node1": self.shown("dev/node1", "203.0.113.11", OTHER, "dev-1"),
+            "int/node1": self.shown("int/node1", "203.0.113.21", self.fp_a, "int-1"),
+            "int/node2": tool.Presented(server_id="int/node2", ip=None, error="connect"),
+            "qa/node1": self.shown("qa/node1", "203.0.113.31", OTHER, "qa-1")}
+        dev = tool.evaluate_stage(profile.stage("dev"), presented,
+                                  {"fingerprint": OTHER, "notBefore": None,
+                                   "outcome": "rejected", "at": "2026-11-03T09:00:00Z"},
+                                  (tool.TrustEntry("dev-older", OTHER),), None)
+        int_ = tool.evaluate_stage(profile.stage("int"), presented, None, None, "keytool failed")
+        qa = tool.evaluate_stage(profile.stage("qa"), presented, None, (), None)
+        result = tool.CheckResult(profile=profile, checked_at="2026-11-03T10:00:00Z",
+                                  stages=(dev, int_, qa), exit_code=10)
+        self.assertEqual(GOLDEN_006_TEXT % {"pin": self.fp_a, "other": OTHER,
+                                            "short": tool.short_fingerprint(self.fp_a)},
+                         tool.check_text(result, "--profile acme"))
+
+
+MARKED_STAGE_KEYS = STAGE_KEYS | {"pinPerServer", "problem"}
+MARKED_SERVER_KEYS = SERVER_KEYS | {"offer", "rejected", "expectedBy", "noOfferReason"}
+NO_OFFER_REASONS = {"pin through alias", "trust store not the stage's own",
+                    "configuration problem"}
+MARKED_A = ":".join(["AA"] * 31 + ["01"])
+MARKED_C = ":".join(["CC"] * 31 + ["03"])
+MARKED_D = ":".join(["DD"] * 31 + ["04"])
+
+# The --check text report of feature 006 for uniform stages, byte for byte (FR-007, SC-005).
+GOLDEN_006_TEXT = """\
+Stage dev  CHANGED  (pin %(short)s)
+  dev/node1    changed      203.0.113.11
+      old  %(pin)s
+      new  %(other)s
+      subject CN=dev-1.selfsigned.test  issuer CN=dev-1.selfsigned.test
+      valid 2026-11-03T08:00:00Z … 2036-10-31T08:00:00Z
+  superseded trust-store entries:
+      dev-older  %(other)s
+  offer: inubit-cert-check --profile acme --accept dev %(other)s  (rejected earlier in the dialog)
+Stage int  UNREACHABLE  (pin %(short)s)
+  int/node1    ok           203.0.113.21
+  int/node2    unreachable  -  (connect)
+  int/node3    skipped (no TLS)
+  trust store not inspected: keytool failed
+Stage qa  CHANGED  (pin %(short)s)
+  qa/node1     changed      203.0.113.31
+      old  %(pin)s
+      new  %(other)s
+      subject CN=qa-1.selfsigned.test  issuer CN=qa-1.selfsigned.test
+      valid 2026-11-03T08:00:00Z … 2036-10-31T08:00:00Z
+  superseded trust-store entries: none
+  shared TLS settings — give the stage its own tls block first
+"""
+
+# The --check --json document of feature 006 for uniform stages, byte for byte (FR-007, SC-005).
+GOLDEN_006_JSON = """{
+  "profile": "acme",
+  "checkedAt": "2026-11-03T10:00:00Z",
+  "exitCode": 10,
+  "stages": [
+    {
+      "stage": "dev",
+      "pin": "%(pin)s",
+      "status": "changed",
+      "conflict": false,
+      "offer": "%(other)s",
+      "rejected": true,
+      "pinSource": "stage",
+      "ownTls": true,
+      "supersededTrustStoreEntries": [
+        {
+          "alias": "dev-older",
+          "fingerprint": "%(other)s"
+        }
+      ],
+      "servers": [
+        {
+          "id": "dev/node1",
+          "baseUrl": "https://dev-1.example.test:8443",
+          "ip": "203.0.113.11",
+          "status": "changed",
+          "pinned": "%(pin)s",
+          "presented": "%(other)s",
+          "subject": "CN=dev-1.selfsigned.test",
+          "issuer": "CN=dev-1.selfsigned.test",
+          "notBefore": "2026-11-03T08:00:00Z",
+          "notAfter": "2036-10-31T08:00:00Z",
+          "validNow": true,
+          "error": null
+        }
+      ]
+    },
+    {
+      "stage": "int",
+      "pin": "%(pin)s",
+      "status": "unreachable",
+      "conflict": false,
+      "offer": null,
+      "rejected": false,
+      "pinSource": "stage",
+      "ownTls": true,
+      "supersededTrustStoreEntries": null,
+      "servers": [
+        {
+          "id": "int/node1",
+          "baseUrl": "https://int-1.example.test:8443",
+          "ip": "203.0.113.21",
+          "status": "ok",
+          "pinned": "%(pin)s",
+          "presented": "%(pin)s",
+          "subject": "CN=int-1.selfsigned.test",
+          "issuer": "CN=int-1.selfsigned.test",
+          "notBefore": "2026-11-03T08:00:00Z",
+          "notAfter": "2036-10-31T08:00:00Z",
+          "validNow": true,
+          "error": null
+        },
+        {
+          "id": "int/node2",
+          "baseUrl": "https://int-2.example.test:8443",
+          "ip": null,
+          "status": "unreachable",
+          "pinned": "%(pin)s",
+          "presented": null,
+          "subject": null,
+          "issuer": null,
+          "notBefore": null,
+          "notAfter": null,
+          "validNow": null,
+          "error": "connect"
+        }
+      ]
+    }
+  ],
+  "skippedServers": [
+    {
+      "id": "int/node3",
+      "reason": "no TLS"
+    }
+  ]
+}
+"""
+
+
+class PinPerServerCheckTest(CheckTestCase):
+    """--check of a stage with tls.pinPerServer (feature 014, T013, C-1′, research R-8)."""
+
+    def setUp(self):
+        super().setUp()
+        self.marked = support.marked_stage(self)
+
+    def url(self, node, port=None):
+        port = self.marked[node].port if port is None else port
+        return f"https://int-{node}.example.test:{port}"
+
+    def serve_node_cert(self, node):
+        """A further TlsServer presenting the certificate of `node`; its URL."""
+        server = TlsServer(self.marked[node].cert, self.marked[node].key)
+        self.addCleanup(server.close)
+        return f"https://int-x.example.test:{server.port}"
+
+    def fp(self, node):
+        return self.marked[node].fingerprint
+
+    def write_marked(self, servers, int_extra=None, dev_store=None, head=""):
+        """dev: uniform stage, one ok server; int: marked stage with the given servers
+        ((node, url, tls dict))."""
+        int_stage = {"name": "int", "pin_per_server": True, "store": self.stores["int"],
+                     "servers": servers}
+        int_stage.update(int_extra or {})
+        self.write([{"name": "dev", "pin": self.fp_a, "store": dev_store or self.stores["dev"],
+                     "servers": [("node1", self.serve_a())]}, int_stage], head=head)
+
+    def own_pins(self):
+        return [("a", self.url("a"), {"pin": self.fp("a")}),
+                ("b", self.url("b"), {"pin": self.fp("b")})]
+
+    def server(self, stage, server_id):
+        return next(server for server in stage["servers"] if server["id"] == server_id)
+
+    def assertNoOfferFields(self, server):
+        self.assertEqual((None, False, None),
+                         (server["offer"], server["rejected"], server["noOfferReason"]))
+
+    def test_distinct_certificates_are_ok_without_conflict(self):
+        self.write_marked(self.own_pins())
+        code, report, _err = self.run_check()
+        self.assertEqual((0, 0), (code, report["exitCode"]))
+        int_ = self.stage(report, "int")
+        self.assertEqual(("ok", False, None, None),
+                         (int_["status"], int_["conflict"], int_["offer"], int_["rejected"]))
+        for node in ("a", "b"):
+            server = self.server(int_, f"int/{node}")
+            self.assertEqual(("ok", self.fp(node), self.fp(node), []),
+                             (server["status"], server["pinned"], server["presented"],
+                              server["expectedBy"]))
+            self.assertNoOfferFields(server)
+
+    def test_one_server_marked_stage(self):
+        self.write_marked([("a", self.url("a"), {"pin": self.fp("a")})])
+        code, report, err = self.run_check()
+        self.assertEqual((0, ""), (code, err))
+        int_ = self.stage(report, "int")
+        self.assertEqual(("ok", False, True, None),
+                         (int_["status"], int_["conflict"], int_["pinPerServer"], int_["problem"]))
+        self.assertEqual([], int_["servers"][0]["expectedBy"])
+        self.assertNoOfferFields(int_["servers"][0])
+
+    def test_all_servers_same_certificate(self):
+        self.write_marked([("a", self.url("a"), {"pin": self.fp("a")}),
+                           ("b", self.serve_node_cert("a"), {"pin": self.fp("a")})])
+        code, report, err = self.run_check()
+        self.assertEqual((0, ""), (code, err))
+        int_ = self.stage(report, "int")
+        self.assertEqual(("ok", False), (int_["status"], int_["conflict"]))
+        for server in int_["servers"]:
+            self.assertEqual(("ok", []), (server["status"], server["expectedBy"]),
+                             "no warning when every server presents its own pin")
+            self.assertNoOfferFields(server)
+
+    def test_server_presenting_other_servers_certificate_is_changed(self):
+        self.write_marked([("a", self.serve_node_cert("b"), {"pin": self.fp("a")}),
+                           ("b", self.url("b"), {"pin": self.fp("b")})])
+        code, report, _err = self.run_check()
+        self.assertEqual((10, 10), (code, report["exitCode"]))
+        int_ = self.stage(report, "int")
+        self.assertEqual(("changed", False), (int_["status"], int_["conflict"]))
+        server_a = self.server(int_, "int/a")
+        self.assertEqual(("changed", self.fp("a"), self.fp("b"), ["int/b"], self.fp("b")),
+                         (server_a["status"], server_a["pinned"], server_a["presented"],
+                          server_a["expectedBy"], server_a["offer"]))
+        server_b = self.server(int_, "int/b")
+        self.assertEqual(("ok", []), (server_b["status"], server_b["expectedBy"]))
+
+    def test_changed_server_gets_offer(self):
+        self.write_marked([("a", self.url("a"), {"pin": self.fp("a")}),
+                           ("b", self.url("b"), {"pin": OTHER})])
+        code, report, _err = self.run_check()
+        self.assertEqual(10, code)
+        int_ = self.stage(report, "int")
+        self.assertEqual(("changed", False, None, None),
+                         (int_["status"], int_["conflict"], int_["offer"], int_["rejected"]))
+        server_b = self.server(int_, "int/b")
+        self.assertEqual(("changed", OTHER, self.fp("b"), self.fp("b"), False, [], None),
+                         (server_b["status"], server_b["pinned"], server_b["presented"],
+                          server_b["offer"], server_b["rejected"], server_b["expectedBy"],
+                          server_b["noOfferReason"]))
+        server_a = self.server(int_, "int/a")
+        self.assertEqual("ok", server_a["status"])
+        self.assertNoOfferFields(server_a)
+
+    def test_changed_and_unreachable(self):
+        self.write_marked([("a", self.url("a", closed_port()), {"pin": self.fp("a")}),
+                           ("b", self.url("b"), {"pin": OTHER})])
+        code, report, _err = self.run_check()
+        self.assertEqual(10, code)
+        int_ = self.stage(report, "int")
+        self.assertEqual(("changed", False, None), (int_["status"], int_["conflict"],
+                                                   int_["offer"]))
+        server_a = self.server(int_, "int/a")
+        self.assertEqual(("unreachable", "connect", None, None, []),
+                         (server_a["status"], server_a["error"], server_a["offer"],
+                          server_a["noOfferReason"], server_a["expectedBy"]))
+        self.assertEqual(("changed", self.fp("b")), (self.server(int_, "int/b")["status"],
+                                                     self.server(int_, "int/b")["offer"]))
+
+    def test_unreachable_only_exits_20(self):
+        self.write_marked([("a", self.url("a", closed_port()), {"pin": self.fp("a")}),
+                           ("b", self.url("b"), {"pin": self.fp("b")})])
+        code, report, _err = self.run_check()
+        self.assertEqual(20, code)
+        self.assertEqual("unreachable", self.stage(report, "int")["status"])
+        self.assertNoOfferFields(self.server(self.stage(report, "int"), "int/a"))
+
+    def test_no_offer_reasons(self):
+        alias_head = f"x-acme-pin-b: &pinB\n  pinnedCertificateSha256: {OTHER}\n"
+        cases = (
+            ("pin through alias", {"servers": [("a", self.url("a"), {"pin": self.fp("a")}),
+                                               ("b", self.url("b"), {"alias": "pinB"})]},
+             alias_head, None),
+            ("trust store not the stage's own", {}, "", self.stores["int"]),
+            ("configuration problem", {"pin": self.fp("a")}, "", None))
+        for reason, extra, head, dev_store in cases:
+            with self.subTest(reason):
+                servers = extra.pop("servers", [("a", self.url("a"), {"pin": self.fp("a")}),
+                                                ("b", self.url("b"), {"pin": OTHER})])
+                self.write_marked(servers, int_extra=extra, dev_store=dev_store, head=head)
+                code, report, _err = self.run_check()
+                self.assertEqual(10, code)
+                int_ = self.stage(report, "int")
+                server_b = self.server(int_, "int/b")
+                self.assertEqual(("changed", None, False, reason),
+                                 (server_b["status"], server_b["offer"], server_b["rejected"],
+                                  server_b["noOfferReason"]))
+                self.assertIn(server_b["noOfferReason"], NO_OFFER_REASONS)
+                self.assertEqual(reason == "configuration problem", int_["problem"] is not None)
+                self.assertEqual(reason != "trust store not the stage's own", int_["ownTls"])
+                self.assertNoOfferFields(self.server(int_, "int/a"))
+
+    def test_unreadable_address_is_a_problem_of_the_stage_only(self):
+        # T029c r1: an alias as cli of int/b makes int unusable, not the profile unreadable
+        self.write_marked([("a", self.url("a"), {"pin": self.fp("a")}),
+                           ("b", self.url("b"), {"pin": OTHER})])
+        support.insert_after(self.profile, f"baseUrl: {self.url('b')}", "        cli: *nowhere\n")
+        code, report, err = self.run_check()
+        self.assertEqual(10, code, err)
+        self.assertEqual("ok", self.stage(report, "dev")["status"])
+        int_ = self.stage(report, "int")
+        self.assertTrue(int_["problem"].startswith("int/b: cannot read cli.url here (line "),
+                        int_["problem"])
+        server_b = self.server(int_, "int/b")
+        self.assertEqual(("changed", self.fp("b"), None, "configuration problem"),
+                         (server_b["status"], server_b["presented"], server_b["offer"],
+                          server_b["noOfferReason"]), "servers are still compared")
+        _code, text, _err = self.run_check(json_output=False)
+        self.assertIn(f"  configuration problem: {int_['problem']} - run --check-config", text)
+
+    def test_problem_reported(self):
+        self.write_marked([("a", self.url("a"), {"pin": OTHER, "store": self.stores["int"]}),
+                           ("b", self.url("b"), {"pin": OTHER})])
+        code, report, _err = self.run_check()
+        self.assertEqual(10, code)
+        int_ = self.stage(report, "int")
+        self.assertIn("int/a: tls.trustStore is not allowed", int_["problem"])
+        self.assertEqual(("changed", False, None), (int_["status"], int_["conflict"],
+                                                   int_["offer"]))
+        for node in ("a", "b"):
+            server = self.server(int_, f"int/{node}")
+            self.assertEqual(("changed", self.fp(node), None, "configuration problem"),
+                             (server["status"], server["presented"], server["offer"],
+                              server["noOfferReason"]), "servers are still compared")
+
+    def test_rejected_per_server(self):
+        self.write_marked([("a", self.url("a"), {"pin": OTHER}),
+                           ("b", self.url("b"), {"pin": OTHER})])
+        state = self.tool.State(self.state_dir, "acme")
+        state.remember_rejection("int/b", self.fp("b"), None, "rejected")
+        code, report, _err = self.run_check()
+        self.assertEqual(10, code)
+        int_ = self.stage(report, "int")
+        server_b = self.server(int_, "int/b")
+        self.assertEqual(state.rejection("int/b")["fingerprint"], server_b["offer"])
+        self.assertEqual(("changed", self.fp("b"), True, None),
+                         (server_b["status"], server_b["offer"], server_b["rejected"],
+                          server_b["noOfferReason"]))
+        server_a = self.server(int_, "int/a")
+        self.assertEqual(("changed", self.fp("a"), False),
+                         (server_a["status"], server_a["offer"], server_a["rejected"]))
+        self.assertIsNone(int_["rejected"])
+
+    def test_check_never_changes_profile_or_store(self):
+        self.write_marked([("a", self.url("a"), {"pin": self.fp("a")}),
+                           ("b", self.url("b"), {"pin": OTHER})])
+        files = [self.profile] + list(self.stores.values())
+        before = [support.sha256_of(path) for path in files]
+        code, _report, _err = self.run_check()
+        self.assertEqual(10, code)
+        self.assertEqual(before, [support.sha256_of(path) for path in files])
+        self.assertTrue(all(call[0] == "list" for call in self.keytool.calls))
+
+    def test_unmarked_stage_with_two_certificates_still_conflicts(self):
+        self.write([{"name": "int", "pin": OTHER, "store": self.stores["int"],
+                     "servers": [("a", self.url("a")), ("b", self.url("b"))]}])
+        code, report, _err = self.run_check()
+        self.assertEqual(10, code)
+        int_ = self.stage(report, "int")
+        self.assertEqual(("changed", True, None, False),
+                         (int_["status"], int_["conflict"], int_["offer"], int_["rejected"]))
+        self.assertEqual(STAGE_KEYS, set(int_))
+        for server in int_["servers"]:
+            self.assertEqual(SERVER_KEYS, set(server))
+
+    def test_json_of_a_marked_stage(self):
+        self.write_marked([("a", self.url("a"), {"pin": self.fp("a")}),
+                           ("b", self.url("b"), {"pin": OTHER})])
+        _code, report, _err = self.run_check()
+        self.assertEqual(TOP_KEYS, set(report))
+        int_ = self.stage(report, "int")
+        self.assertEqual(MARKED_STAGE_KEYS, set(int_))
+        self.assertEqual((True, None, "server", False, None, None, True, None),
+                         (int_["pinPerServer"], int_["pin"], int_["pinSource"], int_["conflict"],
+                          int_["offer"], int_["rejected"], int_["ownTls"], int_["problem"]))
+        self.assertEqual(["int/a", "int/b"], [server["id"] for server in int_["servers"]])
+        for server, pin in zip(int_["servers"], (self.fp("a"), OTHER)):
+            self.assertEqual(MARKED_SERVER_KEYS, set(server))
+            self.assertEqual(pin, server["pinned"], "its own pin")
+            self.assertIsInstance(server["expectedBy"], list)
+            self.assertIsInstance(server["rejected"], bool)
+        dev = self.stage(report, "dev")
+        self.assertEqual(STAGE_KEYS, set(dev), "no new key on a uniform stage")
+        for server in dev["servers"]:
+            self.assertEqual(SERVER_KEYS, set(server))
+        self.assertNotIn("BEGIN CERTIFICATE", json.dumps(report))
+
+    def test_uniform_stage_json_is_byte_identical_to_006(self):
+        support.write_profile(self.profile, [
+            {"name": "dev", "pin": self.fp_a, "store": self.stores["dev"],
+             "servers": [("node1", "https://dev-1.example.test:8443")]},
+            {"name": "int", "pin": self.fp_a, "store": self.stores["int"],
+             "servers": [("node1", "https://int-1.example.test:8443"),
+                         ("node2", "https://int-2.example.test:8443"),
+                         ("node3", "http://int-3.example.test:8080")]}])
+        profile = self.tool.read_profile(self.profile)
+        tool = self.tool
+
+        def shown(server_id, ip, fingerprint, name):
+            return tool.Presented(server_id=server_id, ip=ip, fingerprint=fingerprint,
+                                  subject=f"CN={name}.selfsigned.test",
+                                  issuer=f"CN={name}.selfsigned.test",
+                                  not_before="2026-11-03T08:00:00Z",
+                                  not_after="2036-10-31T08:00:00Z", valid_now=True,
+                                  pem="-----BEGIN CERTIFICATE-----")
+
+        presented = {
+            "dev/node1": shown("dev/node1", "203.0.113.11", OTHER, "dev-1"),
+            "int/node1": shown("int/node1", "203.0.113.21", self.fp_a, "int-1"),
+            "int/node2": tool.Presented(server_id="int/node2", ip=None, error="connect")}
+        dev = tool.evaluate_stage(profile.stage("dev"), presented,
+                                  {"fingerprint": OTHER, "notBefore": None,
+                                   "outcome": "rejected", "at": "2026-11-03T09:00:00Z"},
+                                  (tool.TrustEntry("dev-older", OTHER),), None)
+        int_ = tool.evaluate_stage(profile.stage("int"), presented, None, None, "keytool failed")
+        result = tool.CheckResult(profile=profile, checked_at="2026-11-03T10:00:00Z",
+                                  stages=(dev, int_), exit_code=10)
+        text = json.dumps(tool.check_json(result), indent=2, ensure_ascii=False) + "\n"
+        self.assertEqual(GOLDEN_006_JSON % {"pin": self.fp_a, "other": OTHER}, text)
 
 
 if __name__ == "__main__":

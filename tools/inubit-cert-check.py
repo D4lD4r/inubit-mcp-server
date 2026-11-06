@@ -5,6 +5,15 @@ An operator tool for the TLS pins of an inubit-mcp profile (feature 006). It is 
 everything profile-specific comes from the profile file named by --profile or --config. The
 command line, outputs, exit codes and files are specified in
 specs/006-tls-pin-rotation/contracts/cli.md; the entities in data-model.md of the same feature.
+Stages with tls.pinPerServer (feature 014) keep one pin per server; the differences for them are
+specified in specs/014-stage-distinct-certs/contracts/cli.md (C-1' ... C-8'), the entities in
+data-model.md of that feature.
+
+Targets: --accept and --forget take a TARGET, which is <stage> (e.g. dev) or <stage>/<server>
+(e.g. int/b, the server id printed by the check). <stage>/<server> names a server of a stage with
+tls.pinPerServer; --accept takes <stage> only for a uniform stage, --forget takes <stage> for any
+stage (on a marked stage it forgets the rejections of all its servers). --prune keeps taking a
+stage.
 
 Usage:
   inubit-cert-check (--profile NAME | --config PATH) COMMAND [--state-dir DIR] [--java PATH]
@@ -16,16 +25,19 @@ Commands (exactly one):
                         each, in parallel), compares the presented certificate with the pin and
                         lists superseded trust-store entries. Exit 0 all ok, 10 a certificate
                         changed (conflicts included), 20 a server unreachable.
-  --accept STAGE FINGERPRINT [--by cli|claude]
+  --accept TARGET FINGERPRINT [--by cli|claude]
                         C-2: re-verifies that every server of the stage presents FINGERPRINT,
                         backs up profile and trust store, imports the certificate, replaces the
                         pin line, validates with the server's --check-config; restores both
                         files on any failure or interrupt. Exit 0 adopted, 3 refused (nothing
-                        changed), 4 failed and rolled back.
-  --interactive         C-3, the launcher's start-up check: a desktop dialog per changed stage,
-                        the start waits at most 20 s; always exit 0, nothing on stdout, stdin
-                        never read.
-  --forget STAGE        C-4: forgets the remembered rejection of a stage. Exit 0, 3 unknown stage.
+                        changed), 4 failed and rolled back. C-2': for a <stage>/<server> target
+                        only that server is re-verified and only its own pin line replaced.
+  --interactive         C-3, the launcher's start-up check: a desktop dialog per changed stage
+                        (C-3': per changed server of a stage with tls.pinPerServer), the start
+                        waits at most 20 s; always exit 0, nothing on stdout, stdin never read.
+  --forget TARGET       C-4: forgets the remembered rejection of a stage (C-4': of a server, or of
+                        all servers of a marked stage). Exit 0, 3 unknown stage or server, or a
+                        server of a uniform stage.
   --prune STAGE [--yes] C-5: lists the trust-store entries that differ from the pin; with --yes
                         removes them (backup first). Exit 0, 3 refused, 4 failed and rolled back.
 
@@ -69,7 +81,7 @@ import time
 import unicodedata
 import urllib.parse
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from typing import FrozenSet, Optional, Tuple
 
 PROG = "inubit-cert-check"
 
@@ -139,14 +151,19 @@ def normalize_fingerprint(text):
 STAGE_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")  # group and node names (ProfileInfo)
 ENV_PREFIX = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
 DEFAULT_ENV_PREFIX_START = "INUBIT_"
-TLS_KEYS = ("trustStore", "disableHostnameVerification", "pinnedCertificateSha256")
+TLS_KEYS = ("trustStore", "disableHostnameVerification", "pinnedCertificateSha256",
+            "pinPerServer")
 CERT_CHECK_KEYS = ("java", "serverJar")
 PIN_KEY = "pinnedCertificateSha256"
+PER_SERVER_KEY = "pinPerServer"
+BOOLEANS = {"true": True, "True": True, "TRUE": True, "false": False, "False": False,
+            "FALSE": False}
 DEFAULT_HTTPS_PORT = 443
 
 _KEY = re.compile(r"""([A-Za-z0-9_][A-Za-z0-9_.-]*|"[^"\\]*"|'[^']*')[ ]*:(?:[ ]+(.*))?$""")
 _ANCHOR = re.compile(r"&([^\s\[\]{},]+)(?:[ ]+(.*))?$")
 _ALIAS = re.compile(r"\*([^\s\[\]{},]+)$")
+_SCHEME = re.compile(r"\s*([A-Za-z][A-Za-z0-9+.-]*):")
 _ANCHOR_TOKEN = re.compile(r"(?:^|[\s\[{,])&([^\s\[\]{},]+)")
 _MERGE_KEY = re.compile(r"(?:^(?:-[ ]+)*|[{,][ ]*)<<[ ]*:")
 _ESCAPES = {"\\": "\\", '"': '"', "/": "/", "n": "\n", "t": "\t", "r": "\r", "0": "\0",
@@ -160,7 +177,9 @@ class ConfigError(ToolError):
 @dataclass(frozen=True)
 class Server:
     """One INUBIT endpoint of a stage; pin and trust store are the effective ones (server ->
-    stage -> defaults)."""
+    stage -> defaults). pin_source: "server" (the server's own inline tls block has the pin),
+    "alias" (the server's tls is an alias) or "stage" (inherited); pin_line is the line of the pin
+    when pin_source is "server", else None."""
     id: str
     stage: str
     name: str
@@ -169,23 +188,30 @@ class Server:
     port: int
     pin: Optional[str] = None
     trust_store: Optional[str] = None
+    pin_source: str = "stage"
+    pin_line: Optional[int] = None
 
 
 @dataclass(frozen=True)
 class SkippedServer:
-    """A server that is not contacted: an http:// server has no certificate (reason "no TLS")."""
+    """A server that is not contacted: an http:// server has no certificate (reason "no TLS").
+    pin is the server's own pin in a marked stage (kept by --prune, research R-13), else None."""
     id: str
     stage: str
     name: str
     base_url: str
     reason: str = "no TLS"
+    pin: Optional[str] = None
 
 
 @dataclass(frozen=True)
 class Stage:
     """A group of the profile (data-model "Stage"). pin and trust_store are the stage-level
     effective values (stage -> defaults); pin_line is the line of the pin in the stage's own
-    inline tls block (pin_source "stage"), else None. servers are the https servers only."""
+    inline tls block (pin_source "stage"), else None. servers are the https servers only.
+    A marked stage (pin_per_server, tls.pinPerServer: true) has pin None, pin_source "server",
+    expected = the pins of its servers (http servers' own pins included), and problem = the
+    first broken rule of research R-7 or None."""
     name: str
     pin: Optional[str]
     pin_source: str  # stage | alias | defaults | server
@@ -195,6 +221,9 @@ class Stage:
     servers: Tuple[Server, ...]
     skipped_servers: Tuple[SkippedServer, ...] = ()
     server_ids: Tuple[str, ...] = ()  # every server of the stage, in file order
+    pin_per_server: bool = False
+    expected: FrozenSet[str] = frozenset()
+    problem: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -520,43 +549,57 @@ def _scalar(number, text):
     return text
 
 
-def _split_flow(text, number):
-    """The comma-separated parts of a one-line flow mapping without nested collections."""
-    parts, current, quote = [], [], None
+def _split_flow(text, number, nested=False):
+    """The comma-separated parts of a one-line flow mapping; nested collections only when nested
+    (their commas do not split)."""
+    parts, current, quote, depth = [], [], None, 0
     for c in text:
         if quote:
             if c == quote:
                 quote = None
         elif c in "'\"":
             quote = c
-        elif c in "{}[]":
+        elif c in "{}[]" and not nested:
             _fail(number, "nested flow collections are not supported here")
-        elif c == ",":
+        elif c in "{[":
+            depth += 1
+        elif c in "}]":
+            depth -= 1
+            if depth < 0:
+                _fail(number, "unbalanced flow collection")
+        elif c == "," and depth == 0:
             parts.append("".join(current))
             current = []
             continue
         current.append(c)
     if quote:
         _fail(number, "unterminated quoted value")
+    if depth:
+        _fail(number, "unbalanced flow collection")
     parts.append("".join(current))
     return [part.strip() for part in parts if part.strip()]
 
 
-def _simple_flow_mapping(node):
-    """A one-line flow mapping of plain or quoted scalars, e.g. "profile: {name: acme}"."""
+def _simple_flow_mapping(node, nested=False):
+    """A one-line flow mapping of plain or quoted scalars, e.g. "profile: {name: acme}"; when
+    nested, a value may itself be a flow collection (kept as a one-line _Opaque)."""
     text = node.text.strip()
     if node.what != "flow collection on one line" or not (text.startswith("{")
                                                           and text.endswith("}")):
         _fail(node.number, "expected a block mapping or a one-line flow mapping")
     entries = {}
-    for part in _split_flow(text[1:-1], node.number):
+    for part in _split_flow(text[1:-1], node.number, nested):
         match = _KEY.match(part)
         if not match or not (match.group(2) or "").strip():
             _fail(node.number, "expected 'key: value' in the flow mapping")
         key = match.group(1).strip("'\"")
         if key in entries:
             _fail(node.number, f"duplicate key '{key}'")
-        entries[key] = _Scalar(node.number, _scalar(node.number, match.group(2).strip()))
+        value = match.group(2).strip()
+        if nested and value[0] in "{[":
+            entries[key] = _Opaque(node.number, "flow collection on one line", value)
+        else:
+            entries[key] = _Scalar(node.number, _scalar(node.number, value))
     return _Mapping(node.number, entries)
 
 
@@ -642,6 +685,10 @@ def _tls_block(node, anchors, what):
                 _fail(node.key_line(key), f"{what}.tls.{PIN_KEY}: {e}")
         elif key == "trustStore":
             value = _expand(value)
+        elif key == PER_SERVER_KEY:
+            if value not in BOOLEANS:
+                _fail(node.key_line(key), f"{what}.tls.{PER_SERVER_KEY} must be true or false")
+            value = BOOLEANS[value]
         values[key] = value
         lines[key] = node.key_line(key)
     return _TlsBlock(kind, values, lines)
@@ -671,6 +718,42 @@ def _base_url(text, number, what):
     if parts.username is not None or parts.password is not None:
         _fail(number, f"{what}: baseUrl must not contain credentials")
     return text.rstrip("/"), scheme, parts.hostname, port or DEFAULT_HTTPS_PORT
+
+
+def _address_block(mapping, key, what):
+    """mapping[key] (a cli, e2e or soap block) as a mapping: a block mapping or a one-line flow
+    mapping, whose values may be one-line flow mappings (e2e: { soap: { baseUrl: ... } })."""
+    node = None if mapping is None else mapping.get(key)
+    if node is None or (isinstance(node, _Scalar) and node.value is None
+                        and node.anchor is None):
+        return None
+    if node.anchor is None:
+        if isinstance(node, _Mapping):
+            return node
+        if isinstance(node, _Opaque) and node.what == "flow collection on one line" \
+                and node.text.strip().startswith("{"):
+            return _simple_flow_mapping(node, nested=True)
+    _fail(node.number, f"{what}.{key} must be a block mapping or a one-line flow mapping")
+
+
+def _addresses(mapping, what, who):
+    """(cli.url, e2e.soap.baseUrl, problem) of a stage or server as written, None when absent.
+    An unreadable shape is a problem of the marked stage, not of the profile (T029c)."""
+    try:
+        cli = _string(_address_block(mapping, "cli", what), "url", f"{what}.cli")
+    except ConfigError as error:
+        return None, None, f"{who}: cannot read cli.url here ({error})"
+    try:
+        soap = _address_block(_address_block(mapping, "e2e", what), "soap", f"{what}.e2e")
+        soap_url = _string(soap, "baseUrl", f"{what}.e2e.soap")
+    except ConfigError as error:
+        return None, None, f"{who}: cannot read e2e.soap.baseUrl here ({error})"
+    return cli, soap_url, None
+
+
+def _is_https(url):
+    scheme = None if url is None else _SCHEME.match(url)
+    return scheme is not None and scheme.group(1).lower() == "https"
 
 
 def _same_file_key(path):
@@ -770,6 +853,8 @@ class _StageDraft:
     servers: list
     skipped: list
     server_ids: list
+    pin_per_server: bool = False
+    problem: Optional[str] = None
 
 
 def _read_stage(item, anchors, defaults_tls):
@@ -780,10 +865,14 @@ def _read_stage(item, anchors, defaults_tls):
         _fail(item.number, f"stage name missing or invalid (expected {STAGE_NAME.pattern})")
     what = f"stage {stage_name}"
     group_tls = _tls_block(item.get("tls"), anchors, what)
+    marked = group_tls is not None and group_tls.get(PER_SERVER_KEY) is True
+    # cli.url and e2e.soap.baseUrl matter for a marked stage only (V-6, T029b)
+    stage_cli, stage_soap, address_problem = (_addresses(item, what, f"stage '{stage_name}'")
+                                              if marked else (None, None, None))
     nodes = item.get("nodes")
     if not isinstance(nodes, _Sequence) or not nodes.items:
         _fail(item.number, f"{what}: nodes must be a non-empty block sequence")
-    servers, skipped, node_names, node_blocks = [], [], [], []
+    servers, skipped, node_names, node_blocks, all_nodes = [], [], [], [], []
     for node in nodes.items:
         if not isinstance(node, _Mapping) or node.anchor is not None:
             _fail(node.number, f"{what}: unsupported shape inside nodes: each server must be a "
@@ -801,16 +890,44 @@ def _read_stage(item, anchors, defaults_tls):
         base_url, scheme, host, port = _base_url(_string(node, "baseUrl", server_what),
                                                  url_line, server_what)
         node_tls = _tls_block(node.get("tls"), anchors, server_what)
+        needs_pin = scheme == "https"
+        if marked:
+            # as ConfigValidator.checkPinPerServer: any https address, each node -> stage
+            cli_url, soap_url, problem = _addresses(node, server_what, server_id)
+            address_problem = address_problem or problem
+            needs_pin = needs_pin or _is_https(cli_url or stage_cli) \
+                or _is_https(soap_url or stage_soap)
+        all_nodes.append((server_id, needs_pin, node_tls))
         if scheme == "http":  # no certificate: not contacted, not part of the evaluation
             skipped.append(SkippedServer(id=server_id, stage=stage_name, name=node_name,
-                                         base_url=base_url))
+                                         base_url=base_url,
+                                         pin=_effective(PIN_KEY, node_tls) if marked else None))
             continue
         node_blocks.append(node_tls)
+        if node_tls is not None and node_tls.kind == "alias":
+            server_pin_source = "alias"
+        elif node_tls is not None and node_tls.get(PIN_KEY) is not None:
+            server_pin_source = "server"
+        else:
+            server_pin_source = "stage"
         servers.append(Server(
             id=server_id, stage=stage_name, name=node_name, base_url=base_url, host=host,
             port=port, pin=_effective(PIN_KEY, node_tls, group_tls, defaults_tls),
-            trust_store=_effective("trustStore", node_tls, group_tls, defaults_tls)))
+            trust_store=_effective("trustStore", node_tls, group_tls, defaults_tls),
+            pin_source=server_pin_source,
+            pin_line=node_tls.lines[PIN_KEY] if server_pin_source == "server" else None))
 
+    trust_store = _effective("trustStore", group_tls, defaults_tls)
+    if marked:
+        return _StageDraft(
+            name=stage_name, pin=None, pin_source="server", pin_line=None,
+            trust_store=trust_store,
+            own_store=group_tls.kind == "inline" and group_tls.get("trustStore") is not None,
+            servers=servers, skipped=skipped,
+            server_ids=[f"{stage_name}/{node_name}" for node_name in node_names],
+            pin_per_server=True,
+            problem=address_problem
+            or _pin_per_server_problem(stage_name, group_tls, all_nodes, trust_store))
     if any(block is not None and (block.get(PIN_KEY) or block.get("trustStore"))
            for block in node_blocks):
         pin_source = "server"
@@ -825,29 +942,57 @@ def _read_stage(item, anchors, defaults_tls):
         name=stage_name, pin=_effective(PIN_KEY, group_tls, defaults_tls),
         pin_source=pin_source,
         pin_line=group_tls.lines.get(PIN_KEY) if pin_source == "stage" else None,
-        trust_store=_effective("trustStore", group_tls, defaults_tls),
+        trust_store=trust_store,
         own_store=pin_source == "stage" and group_tls.get("trustStore") is not None,
         servers=servers, skipped=skipped,
         server_ids=[f"{stage_name}/{node_name}" for node_name in node_names])
 
 
+def _pin_per_server_problem(stage_name, group_tls, nodes, trust_store):
+    """The first rule of research R-7 that a marked stage breaks, as a short text, or None.
+    nodes: (server id, needs pin, tls block) of every server of the stage, in file order; needs
+    pin: baseUrl, cli.url or e2e.soap.baseUrl is https. The server's --check-config reports the
+    full list."""
+    if group_tls.get(PIN_KEY) is not None:
+        return f"stage '{stage_name}': tls.pinnedCertificateSha256 is not allowed with " \
+               "tls.pinPerServer; set it on each server"
+    for server_id, _scheme, tls in nodes:
+        if tls is not None and tls.get("trustStore") is not None:
+            return f"{server_id}: tls.trustStore is not allowed on a server of a stage with " \
+                   "tls.pinPerServer; set it on the stage"
+    for server_id, needs_pin, tls in nodes:
+        if needs_pin and (tls is None or tls.get(PIN_KEY) is None):
+            return f"{server_id}: tls.pinPerServer on stage '{stage_name}' needs " \
+                   "tls.pinnedCertificateSha256 on this server"
+    for server_id, _scheme, tls in nodes:
+        if tls is not None and tls.get(PER_SERVER_KEY) is not None:
+            return f"{server_id}: tls.pinPerServer is only valid on a stage"
+    if trust_store is None:
+        return f"stage '{stage_name}': tls.pinPerServer needs tls.trustStore on the stage"
+    return None
+
+
 def _finish_stages(drafts):
-    """Stages with own_tls: own pin line, own trustStore in the stage's inline tls block, and a
-    trust store (compared by real path) no other stage uses."""
+    """Stages with own_tls: own trustStore in the stage's inline tls block, a trust store
+    (compared by real path) no other stage uses, and (uniform stage only) an own pin line."""
     stores = {}
     for draft in drafts:
         for server in draft.servers:
             if server.trust_store is not None:
                 stores.setdefault(_same_file_key(server.trust_store), set()).add(draft.name)
     for draft in drafts:
-        own_tls = (draft.pin_source == "stage" and draft.pin_line is not None
-                   and draft.own_store
+        own_pin = draft.pin_per_server or (draft.pin_source == "stage"
+                                           and draft.pin_line is not None)
+        own_tls = (own_pin and draft.own_store
                    and stores.get(_same_file_key(draft.trust_store), {draft.name})
                    == {draft.name})
+        expected = frozenset(server.pin for server in draft.servers + draft.skipped
+                             if server.pin is not None) if draft.pin_per_server else frozenset()
         yield Stage(name=draft.name, pin=draft.pin, pin_source=draft.pin_source,
                     pin_line=draft.pin_line, trust_store=draft.trust_store, own_tls=own_tls,
                     servers=tuple(draft.servers), skipped_servers=tuple(draft.skipped),
-                    server_ids=tuple(draft.server_ids))
+                    server_ids=tuple(draft.server_ids), pin_per_server=draft.pin_per_server,
+                    expected=expected, problem=draft.problem)
 
 
 # --- child processes -----------------------------------------------------------------------------
@@ -1256,14 +1401,21 @@ class State:
 
     # change log ----------------------------------------------------------------------------------
 
-    def log_change(self, stage, outcome, old, new, not_before, by, now=None):
-        """Appends one decision line (contract C-6); values must not contain spaces."""
+    def log_change(self, stage, outcome, old, new, not_before, by, now=None, server=None):
+        """Appends one decision line (contract C-6); values must not contain spaces.
+
+        `server` (014 FR-011) names the server of a marked stage and goes right after `stage=`;
+        without it the line keeps the 006 format.
+        """
         if outcome not in OUTCOMES:
             raise ValueError(f"unknown outcome {outcome!r}")
         if by not in ACTORS:
             raise ValueError(f"unknown actor {by!r}")
-        values = [("profile", self.profile_name), ("stage", stage), ("outcome", outcome),
-                  ("old", old), ("new", new), ("notBefore", not_before), ("by", by)]
+        values = [("profile", self.profile_name), ("stage", stage)]
+        if server is not None:
+            values.append(("server", server))
+        values += [("outcome", outcome), ("old", old), ("new", new), ("notBefore", not_before),
+                   ("by", by)]
         fields = []
         for key, value in values:
             value = "-" if value is None else str(value)
@@ -1335,7 +1487,8 @@ class State:
             os.close(fd)  # closing the only descriptor releases the flock
 
     def remember_rejection(self, stage, fingerprint, not_before, outcome, now=None):
-        """Remembers a rejected or timed-out fingerprint of a stage (FR-019a)."""
+        """Remembers a rejected or timed-out fingerprint of a target: a stage, or a server id of a
+        marked stage (FR-019a, 014 FR-015)."""
         if outcome not in REMEMBERED_OUTCOMES:
             raise ValueError(f"only {' and '.join(REMEMBERED_OUTCOMES)} are remembered")
         with self._rejections_locked():
@@ -1353,6 +1506,22 @@ class State:
             del rejections[stage]
             self.save_rejections(rejections)
             return True
+
+    def clear_rejections(self, keys, prefix=None):
+        """Forgets the remembered rejections of several keys, plus every remembered key starting
+        with prefix, in one write under the rejections lock; the keys that were there (no write
+        when none was)."""
+        with self._rejections_locked():
+            rejections = self.load_rejections()
+            removed = [key for key in dict.fromkeys(keys) if key in rejections]
+            if prefix:
+                removed += sorted(key for key in rejections
+                                  if key.startswith(prefix) and key not in removed)
+            if removed:
+                for key in removed:
+                    del rejections[key]
+                self.save_rejections(rejections)
+            return removed
 
     # lock ----------------------------------------------------------------------------------------
 
@@ -1415,11 +1584,13 @@ class TrustEntry:
     fingerprint: str
 
 
-def trust_alias(stage, fingerprint, date=None):
+def trust_alias(stage, fingerprint, date=None, node=None):
     """The alias of an adopted certificate: <stage>-<first 8 hex digits, lower case>-<yyyymmdd>
-    (date in UTC, default today)."""
+    (date in UTC, default today); with node (a server of a marked stage, feature 014)
+    <stage>-<node>-<8 hex>-<yyyymmdd>."""
     day = date or utc_now().date()
-    return f"{stage}-{normalize_fingerprint(fingerprint).replace(':', '')[:8].lower()}-" \
+    prefix = stage if node is None else f"{stage}-{node}"
+    return f"{prefix}-{normalize_fingerprint(fingerprint).replace(':', '')[:8].lower()}-" \
            f"{day.strftime('%Y%m%d')}"
 
 
@@ -1507,6 +1678,11 @@ class ServerResult:
     server: Server
     presented: Presented
     status: str  # ok | changed | unreachable
+    # marked stages only (research R-8):
+    offer: Optional[str] = None
+    rejected: bool = False
+    expected_by: Tuple[str, ...] = ()
+    no_offer_reason: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -1516,7 +1692,7 @@ class StageResult:
     status: str
     conflict: bool
     offer: Optional[str]
-    rejected: bool
+    rejected: Optional[bool]  # None for a marked stage
     superseded: Optional[Tuple[TrustEntry, ...]]  # None: not inspected
     not_inspected: Optional[str]  # why the trust store was not inspected
 
@@ -1564,8 +1740,48 @@ def server_status(pin, presented):
     return "ok" if pin is not None and presented.fingerprint == pin else "changed"
 
 
-def evaluate_stage(stage, presented, rejection=None, superseded=None, not_inspected=None):
-    """The stage's check result (pure): status, conflict, offer, rejected."""
+def no_offer_reason(stage, server):
+    """Why a changed server of a marked stage gets no offer, or None (research R-8)."""
+    if server.pin_source == "alias":
+        return "pin through alias"
+    if stage.problem is not None or server.pin_source != "server" or server.pin_line is None:
+        return "configuration problem"
+    if not stage.own_tls:
+        return "trust store not the stage's own"
+    return None
+
+
+def evaluate_marked_stage(stage, presented, rejections, superseded, not_inspected):
+    """The check result of a stage with tls.pinPerServer: each server against its own pin, an
+    offer per changed server, never a conflict (research R-8)."""
+    servers = []
+    for server in stage.servers:
+        shown = presented[server.id]
+        status = server_status(server.pin, shown)
+        offer, reason, expected_by = None, None, ()
+        if status == "changed":
+            reason = no_offer_reason(stage, server)
+            offer = shown.fingerprint if reason is None else None
+            expected_by = tuple(other.id for other in stage.servers
+                                if other.id != server.id and other.pin == shown.fingerprint)
+        rejection = rejections.get(server.id)
+        rejected = offer is not None and rejection is not None \
+            and rejection.get("fingerprint") == offer
+        servers.append(ServerResult(server, shown, status, offer=offer, rejected=rejected,
+                                    expected_by=expected_by, no_offer_reason=reason))
+    status = max((result.status for result in servers), key=STATUS_ORDER.get, default="ok")
+    return StageResult(stage=stage, servers=tuple(servers), status=status, conflict=False,
+                       offer=None, rejected=None, superseded=superseded,
+                       not_inspected=not_inspected)
+
+
+def evaluate_stage(stage, presented, rejection=None, superseded=None, not_inspected=None,
+                   rejections=None):
+    """The stage's check result (pure): status, conflict, offer, rejected. rejections: every
+    remembered rejection by key, used for a marked stage (keyed by server id)."""
+    if stage.pin_per_server:
+        return evaluate_marked_stage(stage, presented, rejections or {}, superseded,
+                                     not_inspected)
     servers = tuple(ServerResult(server, presented[server.id],
                                  server_status(server.pin, presented[server.id]))
                     for server in stage.servers)
@@ -1584,10 +1800,27 @@ def evaluate_stage(stage, presented, rejection=None, superseded=None, not_inspec
                        not_inspected=not_inspected)
 
 
+def server_pins(stage):
+    """{server id: own pin} of the servers of a marked stage that have one, http servers
+    included (research R-13), in file order."""
+    pins = {server.id: server.pin for server in stage.servers + stage.skipped_servers
+            if server.pin is not None}
+    return {server_id: pins[server_id] for server_id in stage.server_ids if server_id in pins}
+
+
+def kept_fingerprints(stage):
+    """The fingerprints the stage's trust store must keep: the stage pin, or for a marked stage
+    the pins of its servers, http servers included (research R-13); empty when nothing is
+    pinned."""
+    return stage.expected if stage.pin_per_server else frozenset({stage.pin} - {None})
+
+
 def superseded_entries(profile, stage):
     """(entries of the stage's trust store whose fingerprint differs from the pin, None) or
-    (None, reason) when the store cannot be inspected."""
-    if stage.pin is None:
+    (None, reason) when the store cannot be inspected. For a marked stage an entry is superseded
+    when no server of the stage expects it (research R-13)."""
+    expected = kept_fingerprints(stage)
+    if not expected:
         return None, "no pin configured"
     if profile.java is None:
         return None, "no x-cert-check.java configured"
@@ -1598,7 +1831,7 @@ def superseded_entries(profile, stage):
                                                           timeout=CHECK_LIST_TIMEOUT)
     except KeytoolError as e:
         return None, one_line(e)
-    return tuple(entry for entry in entries if entry.fingerprint != stage.pin), None
+    return tuple(entry for entry in entries if entry.fingerprint not in expected), None
 
 
 def superseded_all(profile):
@@ -1622,6 +1855,24 @@ def superseded_all(profile):
             for stage in profile.stages}
 
 
+def stale_rejections(result, rejections):
+    """{key: (subject, why)} of the remembered rejections the check result makes obsolete
+    (FR-019b, research R-9): a stage presenting its pin again; for a marked stage a leftover
+    stage-keyed entry and each server presenting its own pin again."""
+    stage = result.stage
+    if not stage.pin_per_server:
+        if result.status == "ok" and stage.name in rejections:
+            return {stage.name: (f"stage {stage.name}", "presents its pin again")}
+        return {}
+    stale = {}
+    if stage.name in rejections:
+        stale[stage.name] = (f"stage {stage.name}", "has a pin per server")
+    for server in result.servers:
+        if server.status == "ok" and server.server.id in rejections:
+            stale[server.server.id] = (f"server {server.server.id}", "presents its pin again")
+    return stale
+
+
 def run_check(profile, state, list_store=True, started=None):
     """Contract C-1 without output: fetch, evaluate, forget rejections of stages that are ok
     again (FR-019b); the trust-store listing only with list_store (never on the start-up path)."""
@@ -1632,20 +1883,22 @@ def run_check(profile, state, list_store=True, started=None):
     except StateError as e:
         state.diag(f"remembered rejections ignored: {one_line(e)}")
         rejections = {}
-    results = []
+    results, stale = [], {}
     listings = superseded_all(profile) if list_store else {}
     for stage in profile.stages:
         superseded, reason = listings.get(stage.name, (None, "not inspected on start-up"))
-        result = evaluate_stage(stage, presented, rejections.get(stage.name), superseded, reason)
-        if result.status == "ok" and stage.name in rejections:
-            try:
-                state.clear_rejection(stage.name)
-                state.diag(f"stage {stage.name} presents its pin again: remembered rejection "
-                           "cleared")
-            except StateError as e:
-                state.diag(f"stage {stage.name}: remembered rejection not cleared: "
-                           f"{one_line(e)}")
+        result = evaluate_stage(stage, presented, rejections.get(stage.name), superseded, reason,
+                                rejections=rejections)
+        stale.update(stale_rejections(result, rejections))
         results.append(result)
+    if stale:
+        try:
+            state.clear_rejections(stale)
+            for subject, why in stale.values():
+                state.diag(f"{subject} {why}: remembered rejection cleared")
+        except StateError as e:
+            for subject, _why in stale.values():
+                state.diag(f"{subject}: remembered rejection not cleared: {one_line(e)}")
     statuses = [server.status for result in results for server in result.servers]
     exit_code = CHANGED if "changed" in statuses else UNREACHABLE \
         if "unreachable" in statuses else OK
@@ -1658,8 +1911,11 @@ def check_json(result):
     stages = []
     for stage_result in result.stages:
         stage = stage_result.stage
-        stages.append({
-            "stage": stage.name,
+        marked = stage.pin_per_server
+        document = {"stage": stage.name}
+        if marked:
+            document["pinPerServer"] = True
+        document.update({
             "pin": stage.pin,
             "status": stage_result.status,
             "conflict": stage_result.conflict,
@@ -1667,10 +1923,12 @@ def check_json(result):
             "rejected": stage_result.rejected,
             "pinSource": stage.pin_source,
             "ownTls": stage.own_tls,
-            "supersededTrustStoreEntries": None if stage_result.superseded is None else [
-                {"alias": entry.alias, "fingerprint": entry.fingerprint}
-                for entry in stage_result.superseded],
-            "servers": [{
+        })
+        if marked:
+            document["problem"] = stage.problem
+        servers = []
+        for server in stage_result.servers:
+            entry = {
                 "id": server.server.id,
                 "baseUrl": server.server.base_url,
                 "ip": server.presented.ip,
@@ -1683,8 +1941,19 @@ def check_json(result):
                 "notAfter": server.presented.not_after,
                 "validNow": server.presented.valid_now,
                 "error": server.presented.error,
-            } for server in stage_result.servers],
+            }
+            if marked:
+                entry.update({"offer": server.offer, "rejected": server.rejected,
+                              "expectedBy": list(server.expected_by),
+                              "noOfferReason": server.no_offer_reason})
+            servers.append(entry)
+        document.update({
+            "supersededTrustStoreEntries": None if stage_result.superseded is None else [
+                {"alias": entry.alias, "fingerprint": entry.fingerprint}
+                for entry in stage_result.superseded],
+            "servers": servers,
         })
+        stages.append(document)
     return {
         "profile": result.profile.name,
         "checkedAt": result.checked_at,
@@ -1699,12 +1968,30 @@ def short_fingerprint(fingerprint):
     return f"{fingerprint[:11]}…{fingerprint[-8:]}" if fingerprint else "none"
 
 
+def marked_server_lines(server, profile_option):
+    """The offer lines of a changed server of a marked stage (contract C-1′)."""
+    out = []
+    if server.offer:
+        out.append(f"      offer: {PROG} {profile_option} --accept {server.server.id} "
+                   f"{server.offer}")
+    out.extend(f"      note: this is the certificate expected for {other}"
+               for other in server.expected_by)
+    if server.no_offer_reason:
+        out.append(f"      no offer: {server.no_offer_reason}")
+    if server.rejected:
+        out.append(f"      rejected earlier: {server.offer} (offered again only after --forget "
+                   f"{server.server.id})")
+    return out
+
+
 def check_text(result, profile_option):
     """The human-readable report of contract C-1; profile_option e.g. "--profile acme"."""
     out = []
     for stage_result in result.stages:
         stage = stage_result.stage
-        pin = f"pin {short_fingerprint(stage.pin)}" if stage.pin else "no pin configured"
+        marked = stage.pin_per_server
+        pin = "one pin per server" if marked else \
+            f"pin {short_fingerprint(stage.pin)}" if stage.pin else "no pin configured"
         out.append(f"Stage {stage.name}  {stage_result.status.upper()}  ({pin})")
         for server in stage_result.servers:
             presented = server.presented
@@ -1721,6 +2008,8 @@ def check_text(result, profile_option):
                     out.append("      WARNING: the new certificate has expired")
                 elif problem:
                     out.append("      WARNING: the new certificate is not yet valid")
+                if marked:
+                    out.extend(marked_server_lines(server, profile_option))
         for skipped in stage.skipped_servers:
             out.append(f"  {skipped.id:<12} skipped ({skipped.reason})")
         if not stage.servers:
@@ -1733,6 +2022,10 @@ def check_text(result, profile_option):
                        for entry in stage_result.superseded)
         else:
             out.append("  superseded trust-store entries: none")
+        if marked:
+            if stage.problem is not None:
+                out.append(f"  configuration problem: {stage.problem} - run --check-config")
+            continue
         if stage_result.conflict:
             out.append("  conflict: the servers of this stage present different certificates"
                        " — no offer")
@@ -1941,9 +2234,10 @@ def signals_ignored():
             signal.signal(number, old)
 
 
-def replace_pin_line(text, line_number, old_pin, new_pin):
+def replace_pin_line(text, line_number, old_pin, new_pin, what="the stage's pin line"):
     """text with the value on line line_number replaced; indentation, the (quoted or plain) key,
-    the value's quotes and the trailing comment are kept. Refuses a line without old_pin."""
+    the value's quotes and the trailing comment are kept. Refuses a line without old_pin (the
+    message says the line is no longer `what`)."""
     lines = text.split("\n")
     if not 1 <= line_number <= len(lines):
         raise VerificationFailed(f"line {line_number} no longer exists")
@@ -1955,7 +2249,7 @@ def replace_pin_line(text, line_number, old_pin, new_pin):
     except ValueError:
         current = None
     if current is None or current != old_pin:
-        raise VerificationFailed(f"line {line_number} is no longer the stage's pin line")
+        raise VerificationFailed(f"line {line_number} is no longer {what}")
     lines[line_number - 1] = (match.group(1) + match.group(2) + new_pin + match.group(2)
                               + match.group(4) + ending)
     return "\n".join(lines)
@@ -2075,12 +2369,48 @@ def _unwritable_directory(paths):
     return None
 
 
+def _resolve_target(profile, target):
+    """(stage, server, None) or (None, None, refusal message) for the target of --accept
+    (contract C-2′ step 1); server is None for a stage target."""
+    stage = profile.stage(target.stage)
+    if stage is None:
+        return None, None, f"unknown stage '{target.stage}'"
+    if target.node is None:
+        if stage.pin_per_server:
+            example = (stage.servers or stage.skipped_servers)[0].id
+            return None, None, (f"stage {stage.name} has one pin per server - name the server, "
+                                f"e.g. {example}")
+        return stage, None, None
+    if target.id not in stage.server_ids:
+        return None, None, f"unknown server '{target.id}'"
+    if not stage.pin_per_server:
+        return None, None, (f"stage {stage.name} has one pin for the stage - use --accept "
+                            f"{stage.name}")
+    server = next((server for server in stage.servers if server.id == target.id), None)
+    if server is None:
+        return None, None, f"server {target.id} is an http server - it has no certificate to pin"
+    if server.pin_source == "alias":
+        return None, None, (f"server {server.id}: the pin is reached through an alias - give "
+                            "the server its own tls block with tls.pinnedCertificateSha256")
+    if server.pin_source != "server" or server.pin_line is None:
+        return None, None, (f"server {server.id}: the pin is inherited - set "
+                            "tls.pinnedCertificateSha256 in the server's own tls block")
+    return stage, server, None
+
+
 def _usable_stage(profile, stage_name, command):
     """(stage, None) or (None, refusal message) for --accept / --prune."""
     stage = profile.stage(stage_name)
     if stage is None:
         return None, f"unknown stage '{stage_name}'"
-    if not stage.own_tls:
+    if stage.pin_per_server:
+        if stage.problem is not None:
+            return None, (f"configuration not valid for tls.pinPerServer: {stage.problem} — "
+                          "run --check-config")
+        if not stage.own_tls:
+            return None, (f"stage {stage_name}: trust store not the stage's own - set "
+                          "tls.trustStore in the stage's own tls block, used by no other stage")
+    elif not stage.own_tls:
         return None, f"stage {stage_name}: {SHARED_TLS}"
     if profile.java is None or (command == "accept" and profile.server_jar is None):
         needed = "x-cert-check.java and x-cert-check.serverJar" if command == "accept" \
@@ -2114,61 +2444,95 @@ def _read_bytes(path):
         return handle.read()
 
 
+def _accept_scope(profile, target):
+    """(stage, server, None) or (None, None, refusal message): every refusal of --accept that
+    needs only the profile (contracts C-2 and C-2′ step 1)."""
+    stage, server, problem = _resolve_target(profile, target)
+    if problem:
+        return None, None, problem
+    stage, problem = _usable_stage(profile, stage.name, "accept")
+    if problem:
+        return None, None, problem
+    return stage, server, None
+
+
 def cmd_accept(args):
-    stage_name, raw = args.accept
+    target = args.target
     profile = load_profile(args)
     state = state_for(args, profile)
     try:
-        fingerprint = normalize_fingerprint(raw)
+        fingerprint = normalize_fingerprint(args.fingerprint)
     except ValueError as e:
         return _refuse(f"malformed fingerprint: {e}")
-    _stage, problem = _usable_stage(profile, stage_name, "accept")
+    _stage, _server, problem = _accept_scope(profile, target)
     if problem:
         return _refuse(problem)
     lock, problem = _lock_profile(state)
     if problem:
         return _refuse(problem)
     try:
-        return accept_locked(args, stage_name, fingerprint, args.by or "cli", state)
+        return accept_locked(args, target, fingerprint, args.by or "cli", state)
     finally:
         lock.release()
 
 
-def accept_locked(args, stage_name, fingerprint, by, state):
-    """Contract C-2 steps 1-7; the caller holds the profile lock (--accept, dialog worker).
-    The profile bytes are read once here; parsing, backup, rollback and edit all use them."""
+def _fetch_server(state, stage, server, fingerprint, by):
+    """Contract C-2′ step 1 for one server of a marked stage: only this server is contacted.
+    (presented, None), or (None, refusal message) after logging `failed` with server=."""
+    presented = fetch_all([server], log=state.diag)[server.id]
+    if presented.reachable and presented.fingerprint == fingerprint:
+        return presented, None
+    detail = f"{server.id} presents {presented.fingerprint}" if presented.reachable \
+        else f"{server.id} unreachable ({presented.error})"
+    _try_log(state, stage.name, "failed", server.pin, fingerprint, None, by, None, server.id)
+    return None, f"server {server.id} does not present {fingerprint}: {detail}"
+
+
+def accept_locked(args, target, fingerprint, by, state):
+    """Contract C-2 / C-2′ steps 1-7; the caller holds the profile lock (--accept, dialog
+    worker). The profile bytes are read once here; parsing, backup, rollback and edit all use
+    them."""
     path = os.path.realpath(profile_file(args))
     try:
         data = _read_bytes(path)
     except OSError as e:
         raise ConfigError(f"cannot read the profile file {path}: {e.strerror or e}") from None
     profile = load_profile(args, data)
-    stage, problem = _usable_stage(profile, stage_name, "accept")
+    stage, server, problem = _accept_scope(profile, target)
     if problem:
         return _refuse(problem)
+    stage_name = stage.name
     try:
         state.check_appendable()
     except OSError as e:
         return _refuse(f"the change log {state.changes_log} is not writable: {e.strerror or e}")
-    if stage.pin == fingerprint:
-        emit(f"Stage {stage_name} already pins {fingerprint}; nothing changed.\n")
-        return OK
-    if not stage.servers:
-        return _refuse(f"stage {stage_name} has no https server to verify")
+    if server is not None:
+        if server.pin == fingerprint:
+            emit(f"Server {server.id} already pins {fingerprint}; nothing changed.\n")
+            return OK
+        leaf, problem = _fetch_server(state, stage, server, fingerprint, by)
+        if problem:
+            return _refuse(problem)
+    else:
+        if stage.pin == fingerprint:
+            emit(f"Stage {stage_name} already pins {fingerprint}; nothing changed.\n")
+            return OK
+        if not stage.servers:
+            return _refuse(f"stage {stage_name} has no https server to verify")
 
-    # step 1: every server of the stage presents exactly that fingerprint right now
-    presented = fetch_all(stage.servers, log=state.diag)
-    deviating = []
-    for server in stage.servers:
-        result = presented[server.id]
-        if not result.reachable:
-            deviating.append(f"{server.id} unreachable ({result.error})")
-        elif result.fingerprint != fingerprint:
-            deviating.append(f"{server.id} presents {result.fingerprint}")
-    if deviating:
-        return _refuse(f"stage {stage_name}: not every server presents {fingerprint}: "
-                       + "; ".join(deviating))
-    leaf = presented[stage.servers[0].id]
+        # step 1: every server of the stage presents exactly that fingerprint right now
+        presented = fetch_all(stage.servers, log=state.diag)
+        deviating = []
+        for each in stage.servers:
+            result = presented[each.id]
+            if not result.reachable:
+                deviating.append(f"{each.id} unreachable ({result.error})")
+            elif result.fingerprint != fingerprint:
+                deviating.append(f"{each.id} presents {result.fingerprint}")
+        if deviating:
+            return _refuse(f"stage {stage_name}: not every server presents {fingerprint}: "
+                           + "; ".join(deviating))
+        leaf = presented[stage.servers[0].id]
 
     # step 2: backups next to the real files
     store = os.path.realpath(stage.trust_store)
@@ -2183,23 +2547,35 @@ def accept_locked(args, stage_name, fingerprint, by, state):
 
     # steps 3-5, all-or-nothing (interruptions included). The trust store comes first: an
     # additional trusted certificate is harmless while the old pin still applies.
-    log_entry = (stage_name, "failed", stage.pin, fingerprint, leaf.not_before, by)
+    if server is None:
+        log_entry = (stage_name, "failed", stage.pin, fingerprint, leaf.not_before, by)
+        alias = trust_alias(stage_name, fingerprint)
+    else:
+        log_entry = (stage_name, "failed", server.pin, fingerprint, leaf.not_before, by, None,
+                     server.id)
+        alias = trust_alias(stage_name, fingerprint, node=server.name)
     keytool = make_keytool(profile.java)
-    alias = trust_alias(stage_name, fingerprint)
     expected = sha256_hex(data)
     guard = SignalGuard()
     try:
         return _change_and_report(args, state, profile, stage, change, leaf, keytool, alias,
                                   path, store, data, expected, fingerprint, by, guard,
-                                  log_entry)
+                                  log_entry, server)
     finally:
         guard.restore()
 
 
 def _change_and_report(args, state, profile, stage, change, leaf, keytool, alias, path, store,
-                       data, expected, fingerprint, by, guard, log_entry):
-    """Contract C-2 steps 3-7 for accept_locked (signals guarded by guard)."""
+                       data, expected, fingerprint, by, guard, log_entry, server=None):
+    """Contract C-2 / C-2′ steps 3-7 for accept_locked (signals guarded by guard); server is the
+    server of a marked stage, or None for a stage adoption."""
     stage_name = stage.name
+    if server is None:
+        pin_line, old_pin, what = stage.pin_line, stage.pin, "the stage's pin line"
+        key, subject = stage_name, f"Stage {stage_name}"
+    else:
+        pin_line, old_pin, what = server.pin_line, server.pin, f"the pin line of server {server.id}"
+        key, subject = server.id, f"Server {server.id}"
     try:
         with guard:
             if sha256_hex(_read_bytes(path)) != expected:
@@ -2208,11 +2584,12 @@ def _change_and_report(args, state, profile, stage, change, leaf, keytool, alias
             imported = fingerprint not in {entry.fingerprint for entry in entries}
             if imported:
                 keytool.import_cert(stage.trust_store, leaf.pem, alias)
-            edited = replace_pin_line(data.decode("utf-8"), stage.pin_line, stage.pin,
-                                      fingerprint)
+            edited = replace_pin_line(data.decode("utf-8"), pin_line, old_pin, fingerprint,
+                                      what=what)
             write_atomically(path, edited.encode("utf-8"), expect_sha256=expected)
             listed = verify_adoption(profile, args, stage_name, fingerprint, keytool,
-                                     stage.trust_store)
+                                     stage.trust_store,
+                                     server_id=None if server is None else server.id)
     except FileChanged:
         # Another program edited the profile: it is left as that program wrote it (no profile
         # restore), only the trust-store import is undone; a refusal, since nothing else changed.
@@ -2230,20 +2607,27 @@ def _change_and_report(args, state, profile, stage, change, leaf, keytool, alias
     except BaseException as e:  # noqa: BLE001 - every failure after the backup is rolled back
         with signals_ignored():
             return _rolled_back(state, change, e, "adoption", log_entry)
-    superseded = [entry for entry in listed if entry.fingerprint != fingerprint]
+    if server is None:
+        pinned = {fingerprint}
+    else:
+        # the re-read stage's expected pins (verified: the others unchanged), as superseded_entries
+        pinned = {pin for other, pin in server_pins(stage).items()
+                  if other != server.id} | {fingerprint}
+    superseded = [entry for entry in listed if entry.fingerprint not in pinned]
 
     # step 7
-    logged = _try_log(state, stage_name, "adopted", stage.pin, fingerprint, leaf.not_before, by)
+    logged = _try_log(state, stage_name, "adopted", old_pin, fingerprint, leaf.not_before, by,
+                      None, None if server is None else server.id)
     try:
-        if state.clear_rejection(stage_name):
-            state.diag(f"stage {stage_name}: remembered rejection cleared by the adoption")
+        if state.clear_rejection(key):
+            state.diag(f"{subject.lower()}: remembered rejection cleared by the adoption")
     except (StateError, OSError) as e:
-        _report(f"stage {stage_name}: remembered rejection not cleared: {one_line(e)}")
+        _report(f"{subject.lower()}: remembered rejection not cleared: {one_line(e)}")
     try:
-        state.diag(f"stage {stage_name}: adopted {fingerprint} (by {by})")
+        state.diag(f"{subject.lower()}: adopted {fingerprint} (by {by})")
     except OSError:
         pass
-    emit(f"Stage {stage_name}: adopted {fingerprint}\n"
+    emit(f"{subject}: adopted {fingerprint}\n"
          f"  profile      {profile.path}\n"
          f"               backup {change.backups[0]}\n"
          f"  trust store  {stage.trust_store}"
@@ -2258,14 +2642,16 @@ def _change_and_report(args, state, profile, stage, change, leaf, keytool, alias
     return OK
 
 
-def verify_adoption(before, args, stage_name, fingerprint, keytool, trust_store):
-    """Contract C-2 step 5: the server accepts the profile, the re-read profile has the new pin
-    for this stage only, the server ids match, the trust store holds the new certificate.
-    Returns the trust store's entries."""
+def verify_adoption(before, args, stage_name, fingerprint, keytool, trust_store, server_id=None):
+    """Contract C-2 / C-2′ step 5: the server accepts the profile, the re-read profile has the new
+    pin for this stage (or only for server_id of a marked stage) only, the server ids match, the
+    trust store holds the new certificate. Returns the trust store's entries."""
     ids = run_check_config(before, before.path)
     after = load_profile(args)
     stage = after.stage(stage_name)
-    if stage is None or stage.pin != fingerprint \
+    if server_id is not None:
+        _verify_server_pins(before, after, stage_name, server_id, fingerprint)
+    elif stage is None or stage.pin != fingerprint \
             or any(server.pin != fingerprint for server in stage.servers):
         raise VerificationFailed(f"the re-read profile does not pin {fingerprint} for stage "
                                  f"{stage_name}")
@@ -2284,15 +2670,37 @@ def verify_adoption(before, args, stage_name, fingerprint, keytool, trust_store)
     return listed
 
 
+def _verify_server_pins(before, after, stage_name, server_id, fingerprint):
+    """Contract C-2′ step 5 for the marked stage: server_id pins fingerprint, every other server
+    of the stage keeps its pin, and the server ids of the profile are unchanged."""
+    if after.server_ids() != before.server_ids():
+        raise VerificationFailed("the server ids of the re-read profile changed")
+    def pins(stage):
+        return {server.id: server.pin for server in stage.servers + stage.skipped_servers}
+
+    old_pins = pins(before.stage(stage_name))
+    stage = after.stage(stage_name)
+    new_pins = {} if stage is None else pins(stage)
+    if new_pins.get(server_id) != fingerprint:
+        raise VerificationFailed(f"the re-read profile does not pin {fingerprint} for server "
+                                 f"{server_id}")
+    for other, pin in old_pins.items():
+        if other != server_id and new_pins.get(other) != pin:
+            raise VerificationFailed(f"the pin of server {other} changed as well")
+
+
 def cmd_prune(args):
     profile = load_profile(args)
     state = state_for(args, profile)
     stage, problem = _usable_stage(profile, args.prune, "prune")
     if problem:
         return _refuse(problem)
+    if not kept_fingerprints(stage):
+        return _refuse(_NO_PIN.format(stage=stage.name))
     if not args.yes:
         entries = make_keytool(profile.java).list_entries(stage.trust_store)
-        superseded = [entry for entry in entries if entry.fingerprint != stage.pin]
+        expected = kept_fingerprints(stage)
+        superseded = [entry for entry in entries if entry.fingerprint not in expected]
         emit(_prune_listing(stage, superseded)
              + (f"Remove them with: {PROG} {command_options(args)} --prune {stage.name} --yes\n"
                 if superseded else ""))
@@ -2306,12 +2714,40 @@ def cmd_prune(args):
         lock.release()
 
 
+_NO_PIN = "stage {stage}: no pin configured; nothing removed"
+
+
+def _prune_expected(stage):
+    """{server id: fingerprint} naming the pins of kept_fingerprints in messages: for a marked
+    stage the pin of every server, http servers included (research R-13), else {None: the stage
+    pin}."""
+    if stage.pin_per_server:
+        return server_pins(stage)
+    return {None: stage.pin}
+
+
+def _pinned_certificate(server_id):
+    return "the pinned certificate" if server_id is None \
+        else f"the certificate pinned for server {server_id}"
+
+
 def _prune_listing(stage, superseded):
-    head = f"Stage {stage.name} trust store {stage.trust_store} (pin {stage.pin}):\n"
+    if stage.pin_per_server:
+        pins = ", ".join(f"{server_id} {fingerprint}"
+                         for server_id, fingerprint in _prune_expected(stage).items())
+        head = f"Stage {stage.name} trust store {stage.trust_store} (server pins {pins}):\n"
+    else:
+        head = f"Stage {stage.name} trust store {stage.trust_store} (pin {stage.pin}):\n"
     if not superseded:
         return head + "  superseded entries: none\n"
     return head + "  superseded entries:\n" + "".join(
         f"    {entry.alias}  {entry.fingerprint}\n" for entry in superseded)
+
+
+def _missing_pins(pins, entries):
+    present = {entry.fingerprint for entry in entries}
+    return [(server_id, fingerprint) for server_id, fingerprint in pins.items()
+            if fingerprint not in present]
 
 
 def _prune_locked(args, stage_name, state):
@@ -2319,12 +2755,18 @@ def _prune_locked(args, stage_name, state):
     stage, problem = _usable_stage(profile, stage_name, "prune")
     if problem:
         return _refuse(problem)
+    expected = kept_fingerprints(stage)
+    if not expected:
+        return _refuse(_NO_PIN.format(stage=stage_name))
     keytool = make_keytool(profile.java)
     entries = keytool.list_entries(stage.trust_store)
-    if stage.pin not in {entry.fingerprint for entry in entries}:
-        return _refuse(f"stage {stage_name}: the pinned certificate {stage.pin} is not in the "
-                       f"trust store {stage.trust_store}; nothing removed")
-    superseded = [entry for entry in entries if entry.fingerprint != stage.pin]
+    pins = _prune_expected(stage)
+    missing = _missing_pins(pins, entries)
+    if missing:
+        server_id, fingerprint = missing[0]
+        return _refuse(f"stage {stage_name}: {_pinned_certificate(server_id)} {fingerprint} is "
+                       f"not in the trust store {stage.trust_store}; nothing removed")
+    superseded = [entry for entry in entries if entry.fingerprint not in expected]
     if not superseded:
         emit(_prune_listing(stage, superseded))
         return OK
@@ -2343,8 +2785,10 @@ def _prune_locked(args, stage_name, state):
             for entry in superseded:
                 keytool.delete_entry(stage.trust_store, entry.alias)
             remaining = keytool.list_entries(stage.trust_store)
-            if stage.pin not in {entry.fingerprint for entry in remaining}:
-                raise VerificationFailed("the pinned certificate is no longer in the trust store")
+            missing = _missing_pins(pins, remaining)
+            if missing:
+                raise VerificationFailed(f"{_pinned_certificate(missing[0][0])} is no longer in "
+                                         "the trust store")
             if {entry.alias for entry in remaining} & {entry.alias for entry in superseded}:
                 raise VerificationFailed("a superseded entry is still in the trust store")
     except BaseException as e:  # noqa: BLE001 - every failure after the backup is rolled back
@@ -2401,6 +2845,9 @@ def ascii_fingerprint(fingerprint):
 
 
 def dialog_title(info):
+    if info.get("server"):
+        return (f"INUBIT certificate changed - server {info['server']} (stage {info['stage']}, "
+                f"profile {info['profile']})")
     return f"INUBIT certificate changed - stage {info['stage']} (profile {info['profile']})"
 
 
@@ -2410,6 +2857,9 @@ def dialog_text(info, now=None):
     established."""
     lines = [f"Server {server['id']} ({server['ip']}) presents a new certificate."
              for server in info["servers"]]
+    if info.get("expectedBy"):
+        lines.append("WARNING: this is the certificate expected for server "
+                     f"{', '.join(info['expectedBy'])}.")
     lines += ["", f"Old (pin): {ascii_fingerprint(info['pin'])}",
               f"New:       {ascii_fingerprint(info['fingerprint'])}",
               f"valid from: {_utc_text(info['notBefore'])}   until: {_utc_text(info['notAfter'])}"]
@@ -2458,13 +2908,18 @@ def reconnect_hint(profile_name):
             "(desktop Code tab)")
 
 
-def notification_text(stage, profile_name):
-    return (f"New certificate for stage {stage} adopted - reconnect inubit-{profile_name} "
-            f"(/mcp -> Reconnect, or start a new session)")
+def target_label(target):
+    """"server int/b" for a server id of a marked stage, "stage dev" for a stage name."""
+    return f"server {target}" if "/" in target else f"stage {target}"
 
 
-def not_adopted_text(stage, outcome):
-    return f"Accept for stage {stage} not adopted ({outcome}) - see cert-check.log"
+def notification_text(target, profile_name):
+    return (f"New certificate for {target_label(target)} adopted - reconnect "
+            f"inubit-{profile_name} (/mcp -> Reconnect, or start a new session)")
+
+
+def not_adopted_text(target, outcome):
+    return f"Accept for {target_label(target)} not adopted ({outcome}) - see cert-check.log"
 
 
 def notify(text, runner=None):
@@ -2479,15 +2934,26 @@ def notify(text, runner=None):
     return result.returncode == 0
 
 
-def offer_info(profile, stage_result):
-    """What the dialog worker asks about (the offers file holds a list of these)."""
-    first = stage_result.servers[0].presented
+def offer_info(profile, stage_result, server_result=None):
+    """What the dialog worker asks about (the offers file holds a list of these): the offer of
+    a uniform stage, or with server_result the offer of that server of a marked stage. target
+    is the stage name or the server id (research R-11)."""
+    if server_result is None:
+        first = stage_result.servers[0].presented
+        return {"stage": stage_result.stage.name, "profile": profile.name,
+                "pin": stage_result.stage.pin, "fingerprint": stage_result.offer,
+                "notBefore": first.not_before, "notAfter": first.not_after,
+                "validNow": all(server.presented.valid_now for server in stage_result.servers),
+                "servers": [{"id": server.server.id, "ip": server.presented.ip}
+                            for server in stage_result.servers],
+                "target": stage_result.stage.name, "server": None, "expectedBy": []}
+    shown, server_id = server_result.presented, server_result.server.id
     return {"stage": stage_result.stage.name, "profile": profile.name,
-            "pin": stage_result.stage.pin, "fingerprint": stage_result.offer,
-            "notBefore": first.not_before, "notAfter": first.not_after,
-            "validNow": all(server.presented.valid_now for server in stage_result.servers),
-            "servers": [{"id": server.server.id, "ip": server.presented.ip}
-                        for server in stage_result.servers]}
+            "pin": server_result.server.pin, "fingerprint": server_result.offer,
+            "notBefore": shown.not_before, "notAfter": shown.not_after,
+            "validNow": bool(shown.valid_now), "servers": [{"id": server_id, "ip": shown.ip}],
+            "target": server_id, "server": server_id,
+            "expectedBy": list(server_result.expected_by)}
 
 
 def offers_path(status_file):
@@ -2525,7 +2991,9 @@ def worker_options(args, state):
     return options
 
 
-def _no_dialog_reason(stage_result):
+def _no_dialog_reason(stage_result, server_result=None):
+    if server_result is not None:
+        return server_result.no_offer_reason
     if stage_result.stage.pin is None:
         return "no pin configured"
     if stage_result.conflict:
@@ -2545,7 +3013,9 @@ def cmd_interactive(args):
     offers = []
     for stage_result in result.stages:
         name = stage_result.stage.name
-        if stage_result.offer and stage_result.rejected:
+        if stage_result.stage.pin_per_server:
+            offers += _marked_offers(args, state, profile, stage_result)
+        elif stage_result.offer and stage_result.rejected:
             _report(f"WARNING: stage {name} presents the certificate {stage_result.offer} that "
                     f"was rejected earlier; no dialog (to be asked again: {PROG} "
                     f"{command_options(args)} --forget {name})")
@@ -2563,7 +3033,7 @@ def cmd_interactive(args):
     lock = state.try_lock()
     if lock is None:
         _report(f"dialog open in another session; no dialog for "
-                f"{', '.join(offer['stage'] for offer in offers)}")
+                f"{', '.join(offer['target'] for offer in offers)}")
         return OK
     status_file = state.dialog_status_file(os.getpid())
     offers_file = offers_path(status_file)
@@ -2611,45 +3081,68 @@ def cmd_interactive(args):
     return OK
 
 
+def _marked_offers(args, state, profile, stage_result):
+    """The offers of a marked stage, one per changed server, in check order (contract C-3′);
+    rejected ones get the warning, the others without an offer are only logged."""
+    offers = []
+    for server_result in stage_result.servers:
+        server_id = server_result.server.id
+        if server_result.offer and server_result.rejected:
+            _report(f"WARNING: server {server_id} presents the certificate "
+                    f"{server_result.offer} that was rejected earlier; no dialog (to be asked "
+                    f"again: {PROG} {command_options(args)} --forget {server_id})")
+        elif server_result.offer:
+            offers.append(offer_info(profile, stage_result, server_result))
+        elif server_result.status == "changed":
+            state.diag(f"server {server_id}: certificate changed, no dialog: "
+                       f"{_no_dialog_reason(stage_result, server_result)}")
+    down = [server.server.id for server in stage_result.servers
+            if not server.presented.reachable]
+    if down:
+        state.diag(f"stage {stage_result.stage.name}: unreachable: {', '.join(down)}")
+    return offers
+
+
 def _log_dialog_failed(state, offers):
     """FR-019: a dialog that was never shown is logged (dialog-failed), but not remembered."""
     for offer in offers:
         _try_log(state, offer["stage"], "dialog-failed", offer["pin"], offer["fingerprint"],
-                 offer["notBefore"], "dialog")
+                 offer["notBefore"], "dialog", None, offer.get("server"))
 
 
 def _report_dialog_outcomes(offers, status, profile):
-    """One stderr line per offered stage: what happened before the start continues."""
+    """One stderr line per offered target: what happened before the start continues."""
     done = status.get("done", {})
     for offer in offers:
-        stage = offer["stage"]
-        outcome = done.get(stage)
+        target = offer["target"]
+        label = target_label(target)
+        outcome = done.get(target)
         if outcome == "adopted":
-            _report(f"stage {stage}: Accept given, certificate adopted")
+            _report(f"{label}: Accept given, certificate adopted")
         elif outcome in ("refused", "failed"):
-            _report(f"stage {stage}: Accept given, adoption {outcome} - see cert-check.log")
+            _report(f"{label}: Accept given, adoption {outcome} - see cert-check.log")
         elif outcome == "rejected":
-            _report(f"stage {stage}: rejected in the dialog (remembered)")
+            _report(f"{label}: rejected in the dialog (remembered)")
         elif outcome == "timed-out":
-            _report(f"stage {stage}: the dialog timed out (remembered)")
+            _report(f"{label}: the dialog timed out (remembered)")
         elif outcome == "dialog-failed":
-            _report(f"stage {stage}: the dialog could not be shown (see cert-check.log)")
+            _report(f"{label}: the dialog could not be shown (see cert-check.log)")
         elif outcome:
-            _report(f"stage {stage}: no dialog, decided in another session")
-        elif status.get("adopting") == stage:
-            _report(f"adoption for stage {stage} in progress - reconnect when notified "
+            _report(f"{label}: no dialog, decided in another session")
+        elif status.get("adopting") == target:
+            _report(f"adoption for {label} in progress - reconnect when notified "
                     f"({reconnect_hint(profile.name)})")
         else:
-            _report(f"stage {stage}: the dialog is still open; the start continues (a later "
+            _report(f"{label}: the dialog is still open; the start continues (a later "
                     f"'{BUTTON_ACCEPT}' is still adopted; then reconnect: "
                     f"{reconnect_hint(profile.name)})")
 
 
 def cmd_dialog_worker(args):
-    """The detached worker of contract C-3 step 5: holds the profile lock, asks one stage after
-    the other, adopts on "Accept" (FR-011 re-verification included), writes its status file
-    after every decision and removes its files at the end, also after a failure. Never writes to
-    stdout."""
+    """The detached worker of contract C-3 step 5 / C-3′: holds the profile lock, asks one
+    target (stage or server of a marked stage) after the other, adopts on "Accept" (FR-011
+    re-verification included), writes its status file after every decision and removes its files
+    at the end, also after a failure. Never writes to stdout."""
     status_file = os.path.abspath(args.dialog_worker)
     own_name = bool(_STATUS_FILE.fullmatch(os.path.basename(status_file)))
     offers_file = offers_path(status_file) if own_name else None
@@ -2667,19 +3160,19 @@ def cmd_dialog_worker(args):
         if not isinstance(spec, dict) or not isinstance(spec.get("offers"), list):
             raise StateError(f"no usable offers file {offers_file}")
         lock = state.adopt_lock(int(spec["lockFd"]))
-        status = {"pending": [offer["stage"] for offer in spec["offers"]], "done": {}}
+        status = {"pending": [offer["target"] for offer in spec["offers"]], "done": {}}
         _write_json(status_file, status)
         for offer in spec["offers"]:
             try:
                 outcome = _decide(args, state, profile, offer, float(spec["parentDeadline"]),
                                   status, status_file)
-            except Exception as e:  # noqa: BLE001 - one stage must not stop the others
-                state.diag(f"dialog worker: stage {offer.get('stage')}: {type(e).__name__}: "
-                           f"{one_line(e)}")
+            except Exception as e:  # noqa: BLE001 - one target must not stop the others
+                state.diag(f"dialog worker: {target_label(str(offer.get('target')))}: "
+                           f"{type(e).__name__}: {one_line(e)}")
                 outcome = "failed"
             status.pop("adopting", None)
-            status["pending"].remove(offer["stage"])
-            status["done"][offer["stage"]] = outcome
+            status["pending"].remove(offer["target"])
+            status["done"][offer["target"]] = outcome
             _write_json(status_file, status)
     except Exception as e:  # noqa: BLE001 - the worker has no one to report to but the log
         if state is not None:
@@ -2701,60 +3194,90 @@ def cmd_dialog_worker(args):
 
 def _decide(args, state, profile, offer, parent_deadline, status, status_file):
     """Shows the dialog for one offer and acts on the answer; returns the outcome. Under the
-    held lock it first re-reads what another session may have decided meanwhile."""
+    held lock it first re-reads what another session may have decided meanwhile about this
+    target (the stage, or the server of a marked stage, research R-11)."""
     stage, fingerprint = offer["stage"], offer["fingerprint"]
+    target, server = offer["target"], offer.get("server")
+    label = target_label(target)
     try:
-        remembered = state.load_rejections().get(stage)
+        remembered = state.load_rejections().get(target)
     except StateError:
         remembered = None
     if remembered and remembered.get("fingerprint") == fingerprint:
-        _report(f"stage {stage}: {fingerprint} was rejected meanwhile in another session; "
+        _report(f"{label}: {fingerprint} was rejected meanwhile in another session; "
                 "no dialog")
         return "skipped-rejected"
     current = load_profile(args).stage(stage)
+    if current is not None and server is not None:
+        current = next((each for each in current.servers if each.id == server), None)
     if current is not None and current.pin == fingerprint:
-        _report(f"stage {stage}: {fingerprint} is already pinned (adopted meanwhile in another "
+        _report(f"{label}: {fingerprint} is already pinned (adopted meanwhile in another "
                 "session); no dialog")
         return "skipped-pinned"
     answer = show_dialog(offer)
     if answer == "accept":
-        status["adopting"] = stage
+        status["adopting"] = target
         _write_json(status_file, status)
         try:
-            code = accept_locked(args, stage, fingerprint, "dialog", state)
+            code = accept_locked(args, parse_target(target), fingerprint, "dialog", state)
         except Exception as e:  # noqa: BLE001 - reported like a failed adoption
-            _report(f"stage {stage}: adoption failed: {type(e).__name__}: {one_line(e)}")
+            _report(f"{label}: adoption failed: {type(e).__name__}: {one_line(e)}")
             code = INTERNAL
         if code == OK:
             if time.time() > parent_deadline:  # the start did not wait for it: reconnect
-                notify(notification_text(stage, profile.name))
+                notify(notification_text(target, profile.name))
             return "adopted"
         outcome = "refused" if code == REFUSED else "failed"
-        notify(not_adopted_text(stage, outcome))
+        notify(not_adopted_text(target, outcome))
         return outcome
     outcome = {"reject": "rejected", "timeout": "timed-out"}.get(answer, "dialog-failed")
-    _try_log(state, stage, outcome, offer["pin"], fingerprint, offer["notBefore"], "dialog")
+    _try_log(state, stage, outcome, offer["pin"], fingerprint, offer["notBefore"], "dialog",
+             None, server)
     if outcome in REMEMBERED_OUTCOMES:
         try:
-            state.remember_rejection(stage, fingerprint, offer["notBefore"], outcome)
+            state.remember_rejection(target, fingerprint, offer["notBefore"], outcome)
         except (StateError, OSError) as e:
-            state.diag(f"stage {stage}: rejection not remembered: {one_line(e)}")
+            state.diag(f"{label}: rejection not remembered: {one_line(e)}")
     return outcome
 
 
-# --- forget (contract C-4) -----------------------------------------------------------------------
+# --- forget (contracts C-4, C-4′) ----------------------------------------------------------------
 
 def cmd_forget(args):
     profile = load_profile(args)
     state = state_for(args, profile)
-    if profile.stage(args.forget) is None:
-        return _refuse(f"unknown stage '{args.forget}'")
-    removed = state.clear_rejection(args.forget)
-    state.diag(f"stage {args.forget}: remembered rejection "
-               f"{'removed' if removed else 'not present'} (--forget)")
-    emit(f"Stage {args.forget}: "
-         + ("remembered rejection removed; the dialog is offered again.\n" if removed
-            else "nothing was remembered.\n"))
+    target = args.target
+    stage = profile.stage(target.stage)
+    if stage is None:
+        return _refuse(f"unknown stage '{target.stage}'")
+    if target.node is not None:
+        if target.id not in stage.server_ids:
+            return _refuse(f"unknown server '{target.id}'")
+        if not stage.pin_per_server:
+            return _refuse(f"stage {stage.name} has one pin for the stage - use --forget "
+                           f"{stage.name}")
+    if not stage.pin_per_server:
+        removed = state.clear_rejection(stage.name)
+        state.diag(f"stage {stage.name}: remembered rejection "
+                   f"{'removed' if removed else 'not present'} (--forget)")
+        emit(f"Stage {stage.name}: "
+             + ("remembered rejection removed; the dialog is offered again.\n" if removed
+                else "nothing was remembered.\n"))
+        return OK
+    # a marked stage: the stage target also takes a leftover stage-keyed entry (research R-9)
+    # and the entries of servers no longer in the profile
+    if target.node is not None:
+        removed = state.clear_rejections([target.id])
+    else:
+        removed = state.clear_rejections([stage.name] + list(stage.server_ids),
+                                         prefix=f"{stage.name}/")
+    label = (("server", target.id) if target.node is not None else ("stage", stage.name))
+    state.diag(f"{label[0]} {label[1]}: remembered rejection "
+               + (f"removed for {', '.join(removed)}" if removed else "not present")
+               + " (--forget)")
+    emit(f"{label[0].capitalize()} {label[1]}: "
+         + (f"remembered rejection removed for {', '.join(removed)}; the dialog is offered "
+            "again.\n" if removed else "nothing was remembered.\n"))
     return OK
 
 
@@ -2775,7 +3298,8 @@ def build_parser():
                     "adopt a changed certificate only after an explicit operator decision.",
         epilog="Exit status: 0 ok, 1 internal error, 2 usage error, 3 refused (nothing changed), "
                "4 failed and rolled back, 10 a certificate changed, 20 a server unreachable. "
-               "Contract: specs/006-tls-pin-rotation/contracts/cli.md.")
+               "Contract: specs/006-tls-pin-rotation/contracts/cli.md; for stages with "
+               "tls.pinPerServer specs/014-stage-distinct-certs/contracts/cli.md.")
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--profile", metavar="NAME",
                         help="profile file ~/.config/inubit-mcp/NAME.yaml")
@@ -2784,16 +3308,20 @@ def build_parser():
     command.add_argument("--check", action="store_true",
                          help="read-only check of every server (exit 0 all ok, 10 a certificate "
                               "changed, 20 a server unreachable)")
-    command.add_argument("--accept", nargs=2, metavar=("STAGE", "FINGERPRINT"),
+    command.add_argument("--accept", nargs=2, metavar=("TARGET", "FINGERPRINT"),
                          help="adopt the certificate every server of the stage presents, after "
                               "re-verifying it (backup, trust store, pin, --check-config, rollback "
-                              "on failure)")
+                              "on failure); TARGET is <stage> or <stage>/<server>: <stage> for a "
+                              "uniform stage, <stage>/<server> for a server of a stage with "
+                              "tls.pinPerServer (only that server is re-verified and re-pinned)")
     command.add_argument("--interactive", action="store_true",
                          help="start-up check for the launcher: dialog for changed stages, "
                               "always exit 0, nothing on stdout, stdin never read")
-    command.add_argument("--forget", metavar="STAGE",
+    command.add_argument("--forget", metavar="TARGET",
                          help="forget the remembered rejection of a stage (the dialog asks "
-                              "again)")
+                              "again); TARGET is <stage> or <stage>/<server>: <stage>/<server> "
+                              "forgets one server of a stage with tls.pinPerServer, <stage> all "
+                              "rejections of the stage")
     command.add_argument("--prune", metavar="STAGE",
                          help="list the superseded trust-store entries of a stage (remove them "
                               "with --yes)")
@@ -2811,6 +3339,26 @@ def build_parser():
     return parser
 
 
+@dataclass(frozen=True)
+class Target:
+    """The stage, and the node for a server id (node None: the stage itself)."""
+    stage: str
+    node: Optional[str]
+
+    @property
+    def id(self):
+        return self.stage if self.node is None else f"{self.stage}/{self.node}"
+
+
+def parse_target(text):
+    """A target of --accept / --forget (research R-6): a stage name or a server id STAGE/NODE."""
+    parts = text.split("/")
+    if len(parts) > 2 or not all(STAGE_NAME.fullmatch(part) for part in parts):
+        raise UsageError(f"invalid target '{text}': expected STAGE or STAGE/SERVER, each part "
+                         f"{STAGE_NAME.pattern}")
+    return Target(parts[0], parts[1] if len(parts) == 2 else None)
+
+
 def parse_args(argv):
     """The parsed command line; raises UsageError for every rule argparse cannot express."""
     args = build_parser().parse_args(argv)
@@ -2825,6 +3373,14 @@ def parse_args(argv):
     if args.profile is not None and not valid_profile_name(args.profile):
         raise UsageError(f"invalid profile name: expected {PROFILE_NAME.pattern}, "
                          f"except {', '.join(sorted(RESERVED_PROFILE_NAMES))}")
+    args.target = None
+    if args.command == "accept":
+        args.target, args.fingerprint = parse_target(args.accept[0]), args.accept[1]
+    elif args.command == "forget":
+        args.target = parse_target(args.forget)
+    elif args.command == "prune" and not STAGE_NAME.fullmatch(args.prune):
+        raise UsageError(f"invalid stage '{args.prune}': expected {STAGE_NAME.pattern} "
+                         "(--prune takes a stage)")
     for option, owner in (("json", "check"), ("by", "accept"), ("yes", "prune")):
         if getattr(args, option) not in (None, False) and args.command != owner:
             raise UsageError(f"--{option} is only valid with --{owner}")
