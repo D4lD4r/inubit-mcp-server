@@ -58,7 +58,16 @@ public final class FakeStartCli {
      */
     public static FakeStartCli install(Path cliHome, Map<String, String> options)
         throws IOException {
-        return install(cliHome, options, false);
+        return install(cliHome, cliHome, options, false);
+    }
+
+    /**
+     * Installs a substitute that only records, into {@code recordDirectory} instead of
+     * {@code cliHome}, so that {@code cliHome} can be made read-only after the installation.
+     */
+    public static FakeStartCli installRecordingInto(Path cliHome, Path recordDirectory)
+        throws IOException {
+        return install(cliHome, recordDirectory, Map.of(), false);
     }
 
     /**
@@ -67,14 +76,14 @@ public final class FakeStartCli {
      * {@link #recorderCommand()} still names the test JVM's {@code java} in full.
      */
     public static FakeStartCli installCallingJavaUnqualified(Path cliHome) throws IOException {
-        return install(cliHome, Map.of(), true);
+        return install(cliHome, cliHome, Map.of(), true);
     }
 
-    private static FakeStartCli install(Path cliHome, Map<String, String> options,
-        boolean unqualifiedJava) throws IOException {
+    private static FakeStartCli install(Path cliHome, Path recordDirectory,
+        Map<String, String> options, boolean unqualifiedJava) throws IOException {
         boolean windows = Platform.windows();
         Path bin = Files.createDirectories(cliHome.resolve("bin"));
-        Path recordFile = cliHome.resolve("argv-record.json");
+        Path recordFile = Files.createDirectories(recordDirectory).resolve("argv-record.json");
         Map<String, String> properties = new TreeMap<>(options);
         properties.put(ArgvRecorder.RECORD, recordFile.toString());
         List<String> java = new ArrayList<>(List.of(Platform.javaExecutable().toString(), "-cp",
@@ -82,7 +91,7 @@ public final class FakeStartCli {
         properties.forEach((name, value) -> java.add("-D" + name + "=" + value));
         java.add(ArgvRecorder.class.getName());
         FakeStartCli cli = new FakeStartCli(bin.resolve(windows ? "startcli.bat" : "startcli.sh"),
-            recordFile, cliHome.resolve("cmdcmdline.txt"), java);
+            recordFile, recordDirectory.resolve("cmdcmdline.txt"), java);
         if (windows) {
             Files.writeString(cli.script, String.join("\r\n",
                 "@echo off",
