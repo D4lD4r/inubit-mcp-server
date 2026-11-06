@@ -41,7 +41,8 @@ the checkout; never two builds in parallel).
   `pom.xml`; Failsafe test `src/test/java/de/dadecker/inubit/mcp/JarVersionIT.java` (system
   properties `project.version` and `project.jar` from `pom.xml`): reads the manifest, copies the JAR
   to `inubit-mcp-server.jar` in a temp directory, runs `java -jar <copy> --version` and expects
-  `inubit-mcp-server <project.version>` (FR-010–FR-012, SC-004)
+  `inubit-mcp-server <project.version>` (FR-010–FR-012, SC-004; `serverInfo` uses the same
+  `BuildInfo.version()`, Launcher)
 
 ## Phase 4: User Story 1 – Learn about a newer release at start (P1)
 
@@ -59,14 +60,14 @@ the checkout; never two builds in parallel).
 - [ ] T007 [US1] `GitHubReleaseSource` (research R-1, R-2, R-5: fixed URL, headers `Accept`,
   `X-GitHub-Api-Version`, `User-Agent: inubit-mcp-server/<version>`; `ProxySelector.getDefault()`;
   connect 5 s, request 10 s; body ≤ 1 MiB; only `tag_name` = `v`+SemVer, `draft`/`prerelease` true
-  rejected; every failure → `ReleaseCheckException`), base URI injectable; WireMock tests incl.
+  rejected; every failure → `ReleaseCheckException`; default TLS verification, no custom `SSLContext`), base URI injectable; WireMock tests incl.
   404, 403 rate limit, malformed JSON, bad tag, oversized body, slow answer, and SC-005 (captured
   request contains no configuration name) in
   `src/main/java/de/dadecker/inubit/mcp/adapter/github/GitHubReleaseSource.java`,
   `src/test/java/de/dadecker/inubit/mcp/adapter/github/GitHubReleaseSourceTest.java`
 - [ ] T008 [US1] `UpdateStatus` (thread-safe holder) and `UpdateCheck.checkOnce()` (compare,
   record, WARN once per newer version, DEBUG on failure keeping the last status; FR-004, FR-007,
-  FR-008) with tests capturing log events in
+  FR-008; `Clock` injected for `checkedAt`) with tests capturing log events in
   `src/main/java/de/dadecker/inubit/mcp/application/UpdateStatus.java`,
   `src/main/java/de/dadecker/inubit/mcp/application/UpdateCheck.java`,
   `src/test/java/de/dadecker/inubit/mcp/application/UpdateCheckTest.java`
@@ -114,7 +115,9 @@ the checkout; never two builds in parallel).
 
 - [ ] T014 [P] Docs: README (install: manifest/`--version`, version-free file name allowed; update
   check section), `docs/setup.md` (configuration key, environment variable, proxy options, log
-  lines), `docs/tools.md` (`get_health.serverUpdate`), `CHANGELOG.md` `[Unreleased]`
+  lines), `docs/tools.md` (`get_health.serverUpdate`), `CHANGELOG.md` `[Unreleased]`; wherever docs tell
+  the version by the file name (`docs/setup.md` certificate section, start script) point to
+  `--version`/manifest; `docs/release-checks.md` gets a manifest check step
 - [ ] T015 Full verification: `mvn -o clean verify -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-016-tmp`
   and `python3 -I -m unittest discover -s tools/tests`; quickstart offline steps
 
