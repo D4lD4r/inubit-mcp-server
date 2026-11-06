@@ -353,9 +353,12 @@ public final class CliRunner {
             .orElseThrow(() -> unavailable(server, "No JDK for StartCLI on " + server.id(),
                 "Neither cli.javaHome (cliJavaHome) nor JAVA_HOME is set",
                 "Set cli.javaHome to the JDK the INUBIT client needs (8.1: JDK 17)"));
-        if (containment.state() instanceof ProcessContainment.Unavailable(String reason)) {
+        // type patterns, not record patterns: javac 21 emits an invalid stack map for the record
+        // patterns of this method (VerifyError at class load on JDK 21.0.13)
+        if (containment.state() instanceof ProcessContainment.Unavailable refused) {
             throw unavailable(server, "StartCLI cannot be used for " + server.id()
-                    + ": StartCLI processes could not be bound to the server (" + reason + ")",
+                    + ": StartCLI processes could not be bound to the server ("
+                    + refused.reason() + ")",
                 "Windows refused the job that ends StartCLI's processes with the MCP server",
                 "Start the MCP server outside a job that forbids nested jobs; the REST tools"
                     + " work meanwhile");
@@ -372,11 +375,12 @@ public final class CliRunner {
         refuseOnWindows(server, "cli.url",
             WindowsArguments.refusal(server.cli().url().toString()), "");
         return switch (system.systemDirectory()) {
-            case CliSystem.Read(String path) ->
-                new LaunchTarget(home, script, javaHome, Optional.of(path));
-            case CliSystem.Unreadable(String reason) -> throw unavailable(server,
+            case CliSystem.Read read ->
+                new LaunchTarget(home, script, javaHome, Optional.of(read.path()));
+            case CliSystem.Unreadable unreadable -> throw unavailable(server,
                 "StartCLI cannot be used for " + server.id()
-                    + ": the Windows system directory could not be read (" + reason + ")",
+                    + ": the Windows system directory could not be read ("
+                    + unreadable.reason() + ")",
                 "The command interpreter cannot be located",
                 "Restart the MCP server; the REST tools work meanwhile");
         };
