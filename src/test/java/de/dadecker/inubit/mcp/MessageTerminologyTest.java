@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.config.ConfigLoader;
+import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -123,7 +124,7 @@ class MessageTerminologyTest {
             SecretScrubber scrubber = new SecretScrubber();
             CredentialStore credentials = TestSecrets.store(env);
             wiring = new Wiring(loaded.config(), credentials, scrubber, ClockProvider.system(),
-                path -> true, false);
+                path -> true, false, new ConfigLocation(cliHome, loaded.source()));
         }
         return wiring.toolHandlers().stream().filter(h -> h.name().equals(name)).findFirst()
             .orElseThrow();

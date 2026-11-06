@@ -50,6 +50,7 @@ import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.WorkspaceService;
 import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
 import de.dadecker.inubit.mcp.application.WriteGuard;
+import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialNames;
 import de.dadecker.inubit.mcp.config.CredentialStore;
@@ -104,6 +105,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -177,6 +179,8 @@ final class Wiring implements AutoCloseable {
         .ConcurrentHashMap<>();
     private final CliResources cliResources;
     private final Thread cleanupHook;
+    /** Feature 015 (research R-9): the configuration roots an archive target stays out of. */
+    private final ConfigLocation configLocation;
 
     /**
      * @param config  a configuration that {@code ConfigValidator} reported no errors for
@@ -184,11 +188,14 @@ final class Wiring implements AutoCloseable {
      *     read here
      * @param exists  file-system check for the CLI availability of {@code list_nodes}
      * @param windows whether the server runs on Windows ({@code startcli.bat})
+     * @param configLocation the default configuration directory and the configuration file in use
+     *     (feature 015, research R-9)
      */
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
-        ClockProvider clock, Predicate<Path> exists, boolean windows) {
+        ClockProvider clock, Predicate<Path> exists, boolean windows,
+        ConfigLocation configLocation) {
         this(config, credentialStore, scrubber, clock, exists, windows, new SystemProcessLauncher(),
-            System.getenv(), SsmParameterStore::new);
+            System.getenv(), SsmParameterStore::new, configLocation);
     }
 
     /**
@@ -197,9 +204,9 @@ final class Wiring implements AutoCloseable {
      */
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
-        Map<String, String> environment) {
+        Map<String, String> environment, ConfigLocation configLocation) {
         this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
-            SsmParameterStore::new);
+            SsmParameterStore::new, configLocation);
     }
 
     /**
@@ -208,7 +215,9 @@ final class Wiring implements AutoCloseable {
      */
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
-        Map<String, String> environment, Supplier<ParameterStore> parameterStore) {
+        Map<String, String> environment, Supplier<ParameterStore> parameterStore,
+        ConfigLocation configLocation) {
+        this.configLocation = Objects.requireNonNull(configLocation, "configLocation");
         this.profile = config.profileInfo();
         this.scrubber = scrubber;
         // 002 research D-8: the export directories carry the profile name
@@ -495,6 +504,11 @@ final class Wiring implements AutoCloseable {
 
     GatewayFactory gateways() {
         return gateways;
+    }
+
+    /** The configuration location the server runs with (feature 015, research R-9). */
+    ConfigLocation configLocation() {
+        return configLocation;
     }
 
     TargetResolver targets() {

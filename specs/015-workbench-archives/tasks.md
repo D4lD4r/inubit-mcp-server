@@ -329,7 +329,7 @@ everything refused by the static input checks before StartCLI.
   `CheckedFolder(path, exists, nearestExisting, warnings)`). Messages use the rule names of
   contracts/mcp-tools-delta.md "Folder rules".
 
-- [ ] T014 [US2] Configuration location plumbing (research R-9): test first
+- [X] T014 [US2] Configuration location plumbing (research R-9): test first
   `test/config/ConfigLocationTest.java` (`roots()` is the default directory and the source's
   absolute parent, one entry when they are equal), `test/MainTest.java` (a server started by
   `Launcher` with `--config <tmp>/elsewhere/profile.yaml` and a `toolHandlers` function,

@@ -2,6 +2,8 @@ package de.dadecker.inubit.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.config.ConfigLoader;
+import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.ParameterType;
 import de.dadecker.inubit.mcp.config.StoreLocation;
@@ -1014,6 +1016,25 @@ class MainTest {
                 .isEqualTo("rwx------");
         }
         assertThat(err()).doesNotContain(PASSWORD);
+    }
+
+    @Test
+    void theWiringKnowsTheConfigurationFileInUseAndTheDefaultDirectory() throws Exception {
+        // feature 015 T014 (research R-9): LoadedConfig.source() reaches the Wiring
+        credentials();
+        Path file = Files.createDirectories(home.resolve("elsewhere")).resolve("profile.yaml");
+        Files.move(validConfig(), file);
+        AtomicReference<Wiring> captured = new AtomicReference<>();
+
+        int exit = main(new ByteArrayInputStream(new byte[0]), stdout, wiring -> {
+            captured.set(wiring);
+            return wiring.toolHandlers();
+        }).run("--config", file.toString());
+
+        assertThat(exit).as(err()).isZero();
+        assertThat(captured.get()).as("the server was started").isNotNull();
+        assertThat(captured.get().configLocation()).isEqualTo(new ConfigLocation(
+            new ConfigLoader(Map.copyOf(environment), home, false).defaultDirectory(), file));
     }
 
     @Test
