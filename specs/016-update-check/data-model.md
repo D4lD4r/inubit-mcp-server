@@ -52,3 +52,21 @@ State: `ReleaseSource`, running `SemVer`/text, `UpdateStatus`, `Clock`, `Set<Str
 
 `UpdateCheckSetting.resolve(config, environment)` → `enabled` + optional warning for an
 unrecognised `INUBIT_MCP_UPDATE_CHECK` value.
+
+## UpdateCache (application port, file adapter in infra)
+
+`Optional<CachedRelease> read()`, `void write(CachedRelease)`; `record CachedRelease(SemVer
+latestVersion, Instant checkedAt)`. File `~/.inubit-mcp/update-check.json`:
+`{"latestVersion": "<SemVer>", "checkedAt": "<ISO-8601 instant>"}`; unknown fields ignored; an
+invalid version or time makes the whole file ignored. Written via temp file + atomic move.
+`UpdateCheck` writes after every successful check; `Launcher` reads once at start and, if newer than
+the running version, records a `ServerUpdate` built from it (its `checkedAt` is the cached time).
+
+## UpdateNotice (mcp)
+
+State: `Supplier<Optional<ServerUpdate>>`, last announced latest version (`AtomicReference`).
+`decorate(CallToolResult)`: for a non-error result, if the status has `updateAvailable` and its
+`latestVersion` is higher than the last announced one, returns the result plus one text block
+"Note: inubit-mcp-server <latest> is available (installed <current>), see <releaseUrl>. Update
+manually; see get_health.serverUpdate." and remembers the version; otherwise returns the result
+unchanged.

@@ -46,6 +46,17 @@ safest option.
   and no change to how INUBIT connections use proxies (FR-016).
 - Q: At which log level is the notice written? → A: WARN, so that it stays visible with
   `logLevel: WARN`; failed checks at DEBUG (FR-007, FR-008).
+- Q (operator, later): "In Claude Code, can a notice dialog be shown, or where would I see the
+  version notice?" → A (coordinator's assumption, to be confirmed by the operator): no elicitation
+  dialog and no native OS dialog. The notice appears in four places: (1) the stderr log, once per
+  newer version; (2) `get_health.serverUpdate`; (3) once per MCP session, the first successful tool
+  result after a newer release became known gets one extra short text content block (structured
+  content unchanged), and a later, even newer release is announced once again; (4) the result of
+  the last successful check is cached locally in `~/.inubit-mcp/update-check.json`; at the next start a
+  cached newer release is added to the MCP `instructions` and seeds the update status, without the
+  handshake waiting for the network. With the check off, none of the four appears and the cache is
+  neither read nor written (FR-006, FR-017, FR-018). This supersedes the earlier answer's
+  "not in the MCP `instructions`".
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -74,6 +85,11 @@ as fast as without the check.
 3. **Given** the release source does not answer, **When** the server starts, **Then** the MCP
    handshake and tool calls are not delayed and no tool call fails because of the check (FR-002,
    FR-008).
+4. **Given** a newer release is known, **When** the model makes its first successful tool call
+   of the session, **Then** the result carries one extra short note naming both versions and the
+   release page, and later results carry none (FR-017).
+5. **Given** a previous run cached a newer release, **When** the server starts without network,
+   **Then** the MCP `instructions` already name the newer release (FR-018).
 
 ---
 
@@ -177,7 +193,7 @@ the source receives no request.
 - **FR-006**: The notice MUST be visible to the operator in the server's stderr log and to the model
   in the result of `get_health` as a server-level field `serverUpdate` (independent of the INUBIT
   nodes; present also when no node is reachable). `serverUpdate` is absent when the check is off or
-  no check has completed successfully yet.
+  neither a check of this process nor the local cache (FR-018) has produced a result yet.
 - **FR-007**: The stderr log MUST announce a given newer version once per server process, at level
   WARN; repeated checks finding the same version write nothing at INFO or above.
 - **FR-008**: A failed check (no network, DNS failure, timeout, TLS error, HTTP error, rate limit,
@@ -205,6 +221,22 @@ the source receives no request.
   that it works in networks that require a proxy configured for the JVM. The feature adds no proxy
   setting of its own and does not change how INUBIT connections use proxies.
 
+- **FR-017**: Once per MCP session (one server process serves one stdio session), the first
+  successful tool result after a newer release became known MUST carry one additional text content
+  block after the result's JSON text: "Note: inubit-mcp-server <latest> is available (installed
+  <current>), see <release URL>. Update manually; see get_health.serverUpdate." The structured
+  content and the first text block stay unchanged. Later results carry no note, unless a check
+  finds a release that is newer still, which is noted once in the same way. Error results carry no
+  note.
+- **FR-018**: After every successful check the server MUST store the latest release version and
+  the check time in a local cache file `~/.inubit-mcp/update-check.json` (shared by all profiles,
+  written atomically; a failure to write is logged at DEBUG). At start, before the MCP handshake,
+  the server reads this file (no network); if it names a release newer than the running version,
+  that release seeds the update status (so FR-006/FR-017 apply at once) and the MCP `instructions`
+  end with the sentence "A newer inubit-mcp-server <latest> is available (installed <current>):
+  <release URL>; update manually." A missing, unreadable or malformed cache is ignored (DEBUG).
+  When the check is off, the cache is neither read nor written.
+
 ### Key Entities
 
 - **Running version**: the version of the server process, from the JAR manifest (or the build
@@ -229,14 +261,17 @@ the source receives no request.
   (verified by the build), also after renaming the file.
 - **SC-005**: The outgoing request contains none of the configured profile, group, node, host or
   user names (verified by a test that inspects the captured request).
+- **SC-006**: With a cached newer release, the `initialize` result's `instructions` name it, and the
+  first successful tool call carries the note block exactly once, without any network access.
 
 ## Assumptions
 
 - The release source is the public GitHub REST API of `D4lD4r/inubit-mcp-server`
   (latest release endpoint); no authentication, so the anonymous rate limit (60 requests per hour
   per IP) is far above one request per day per process.
-- The 24-hour cadence is measured per process from its previous check; nothing is persisted between
-  processes, so every server start checks once.
+- The 24-hour cadence is measured per process from its previous check; every server start checks
+  once, also when the cache (FR-018) is recent. The cache only carries the last result to the next
+  start's handshake.
 - The notice is informational; it changes neither the health status of INUBIT nodes nor the exit
   code.
 - A check is also useful without internet: it fails silently, so the default can be "on".

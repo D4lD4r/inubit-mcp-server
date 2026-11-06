@@ -72,6 +72,31 @@ the operator) and the constitution.
 - **Why `get_health` and not a new tool**: Principle IV (small tool set); the model already calls
   `get_health` to diagnose.
 
+## R-11 Note in the first tool result (FR-017)
+
+- **Decision**: `McpServerFactory` passes every successful `CallToolResult` through an
+  `UpdateNotice` (mcp layer) that holds the last announced version; if the update status has an
+  available version newer than the last announced one, it returns a copy of the result with one
+  added `TextContent` block. stdio serves one session per process, so "per session" is "per
+  process".
+- **Why a content block**: the model reads every text block, while `_meta` is usually not shown to
+  it. `structuredContent` and the first text block (the JSON) stay byte-identical, so the output
+  schema validation and clients that parse the first block are unaffected.
+- **Alternatives**: an elicitation dialog (needs client support, interrupts, not wanted), a
+  logging notification (`notifications/message`, often not shown), `_meta` only (invisible).
+
+## R-12 Local cache for the handshake (FR-018)
+
+- **Decision**: `~/.inubit-mcp/update-check.json` with `{"latestVersion": "0.8.0",
+  "checkedAt": "<ISO-8601>"}`; written after every successful check via a temporary file and an
+  atomic move (several server processes may share it); read synchronously at start (a small local
+  file) before `factory.start`. A cached version newer than the running one seeds `UpdateStatus` and
+  adds one sentence to the `instructions`.
+- **Why the user's home `.inubit-mcp`**: it already holds the per-profile audit and workspace
+  directories; the cache is not configuration and not profile-specific.
+- **Alternatives**: the config directory (`~/.config/inubit-mcp`, holds operator-edited files),
+  a per-profile file (needless duplicates), the OS cache directory (no portable Java API).
+
 ## R-8 Version source and manifest
 
 - **Decision**: the shade plugin's `ManifestResourceTransformer` (the only manifest of the shaded

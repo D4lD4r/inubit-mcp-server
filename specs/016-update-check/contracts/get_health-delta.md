@@ -23,3 +23,13 @@ The result gains one optional top-level field; `reports` is unchanged.
 - Output schema: `serverUpdate` → `$defs/ServerUpdate` with `required: [currentVersion,
   latestVersion, updateAvailable, releaseUrl, checkedAt]`, `additionalProperties: false`.
 - Tool description gains: "`serverUpdate` tells whether a newer release of this MCP server exists."
+
+## Related MCP surface (FR-017, FR-018)
+
+- **Tool results**: the first successful result after a newer release became known gets one
+  extra `{"type": "text", "text": "Note: inubit-mcp-server 0.8.0 is available (installed 0.7.1),
+  see https://github.com/D4lD4r/inubit-mcp-server/releases/tag/v0.8.0. Update manually; see
+  get_health.serverUpdate."}` after the JSON text block. `structuredContent` is unchanged.
+- **`initialize.instructions`**: with a cached newer release, the existing text ends with
+  " A newer inubit-mcp-server 0.8.0 is available (installed 0.7.1):
+  https://github.com/D4lD4r/inubit-mcp-server/releases/tag/v0.8.0; update manually."

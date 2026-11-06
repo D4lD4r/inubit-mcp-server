@@ -111,26 +111,53 @@ the checkout; never two builds in parallel).
   not start the check; tests in `src/main/java/de/dadecker/inubit/mcp/config/UpdateCheckSetting.java`,
   `src/test/java/de/dadecker/inubit/mcp/config/UpdateCheckSettingTest.java`, `MainTest`
 
-## Phase 7: Polish
+## Phase 7: User Story 1 extension – note in the tool result and cached notice (P1)
 
-- [ ] T014 [P] Docs: README (install: manifest/`--version`, version-free file name allowed; update
+Added after the operator's question about a dialog in Claude Code (spec Clarifications, FR-017,
+FR-018, SC-006; coordinator's assumption).
+**Independent test**: Launcher test with a cache file naming a higher version and a release source
+that never answers: `instructions` name it, the first tool result has the note block once.
+
+- [ ] T014 [US1] `UpdateCache` port (`Optional<CachedRelease> read()`, `void write(CachedRelease)`,
+  `record CachedRelease(SemVer latestVersion, Instant checkedAt)`) and `FileUpdateCache` for
+  `~/.inubit-mcp/update-check.json` ("unknown fields ignored; an invalid version or time makes the
+  whole file ignored"; temp file + atomic move; IO failures → DEBUG, never thrown); `UpdateCheck`
+  writes after every successful check; tests in
+  `src/main/java/de/dadecker/inubit/mcp/application/UpdateCache.java`,
+  `src/main/java/de/dadecker/inubit/mcp/infra/FileUpdateCache.java`,
+  `src/test/java/de/dadecker/inubit/mcp/infra/FileUpdateCacheTest.java`, `UpdateCheckTest`
+- [ ] T015 [US1] `UpdateNotice` (data-model.md: non-error results only; one text block after the
+  JSON block; once per newer latest version) and `McpServerFactory`: results pass through it,
+  `instructions()` end with the cached-release sentence (contracts/get_health-delta.md); tests in
+  `src/main/java/de/dadecker/inubit/mcp/mcp/UpdateNotice.java`,
+  `src/main/java/de/dadecker/inubit/mcp/mcp/McpServerFactory.java`,
+  `src/test/java/de/dadecker/inubit/mcp/mcp/UpdateNoticeTest.java`, `McpServerFactoryTest`
+- [ ] T016 [US1] `Launcher`/`Wiring`: with the check on, read the cache before `factory.start`, seed
+  `UpdateStatus` if newer than the running version, pass the status to `UpdateNotice` and the
+  instructions; with the check off, neither read nor write the cache and add no note; `Context`
+  gets the cache (system: `FileUpdateCache` under `userHome`); tests in `MainTest` (SC-006,
+  opt-out)
+
+## Phase 8: Polish
+
+- [ ] T017 [P] Docs: README (install: manifest/`--version`, version-free file name allowed; update
   check section), `docs/setup.md` (configuration key, environment variable, proxy options, log
   lines), `docs/tools.md` (`get_health.serverUpdate`), `CHANGELOG.md` `[Unreleased]`; wherever docs tell
   the version by the file name (`docs/setup.md` certificate section, start script) point to
   `--version`/manifest; `docs/release-checks.md` gets a manifest check step
-- [ ] T015 Full verification: `mvn -o clean verify -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-016-tmp`
+- [ ] T018 Full verification: `mvn -o clean verify -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-016-tmp`
   and `python3 -I -m unittest discover -s tools/tests`; quickstart offline steps
 
 ## Dependencies
 
 - T001 → T004. T002 → T006, T007, T008. T005, T006 → T007, T008 → T009 → T010 → T011, T013.
-  T012 → T013. T014 after T013. T015 last.
+  T012 → T013. T008 → T014. T009 → T015. T013, T014, T015 → T016. T017 after T016. T018 last.
 - US3 (T003–T004) is independent of US1/US2/US4.
 
 ## Parallel opportunities
 
 - T002, T003, T005 touch different files and can run together; T006 with T005.
-- T014 (docs) can run alongside T011–T013 once contracts are fixed.
+- T017 (docs) can run alongside T011–T016 once contracts are fixed.
 
 ## Implementation strategy
 

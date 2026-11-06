@@ -12,7 +12,10 @@ back to `build.properties` outside a JAR; a Failsafe integration test proves man
 `--version` agree for a renamed JAR. (2) After the MCP server has started, a daemon scheduler asks
 the GitHub "latest release" endpoint once and then every 24 h; a strictly newer SemVer is logged once
 at WARN and exposed as `get_health.serverUpdate`. Off with `updateCheck.enabled: false` or
-`INUBIT_MCP_UPDATE_CHECK=off`; failures are DEBUG only; nothing is downloaded.
+`INUBIT_MCP_UPDATE_CHECK=off`; failures are DEBUG only; nothing is downloaded. The first successful
+tool result after a newer release is known carries a one-time note block, and a local cache
+(`~/.inubit-mcp/update-check.json`) lets the next start name a known newer release in the MCP
+`instructions` without waiting for the network.
 
 ## Technical Context
 
@@ -22,7 +25,7 @@ at WARN and exposed as `get_health.serverUpdate`. Off with `updateCheck.enabled:
 (existing) for the JSON answer, SLF4J/Logback (existing). Build: `maven-failsafe-plugin` 3.6.1
 (build-time only, same version as Surefire).
 
-**Storage**: none (in-memory status per process)
+**Storage**: in-memory status per process; one small JSON cache file `~/.inubit-mcp/update-check.json`
 
 **Testing**: JUnit 5 + AssertJ (unit), WireMock (existing test dependency) as release-source stub,
 Failsafe IT against the built JAR
@@ -76,6 +79,10 @@ src/main/java/de/dadecker/inubit/mcp/
 ├── application/ReleaseSource.java              # new port (+ LatestRelease, ReleaseCheckException)
 ├── application/UpdateStatus.java               # new
 ├── application/UpdateCheck.java                # new
+├── application/UpdateCache.java                # new port (+ CachedRelease)
+├── infra/FileUpdateCache.java                  # new; ~/.inubit-mcp/update-check.json
+├── mcp/UpdateNotice.java                       # new; note block in the first tool result
+├── mcp/McpServerFactory.java                   # instructions sentence, results through UpdateNotice
 ├── adapter/github/GitHubReleaseSource.java     # new
 ├── config/UpdateCheckConfig.java               # new; ProfileConfig + ConfigLoader (strict boolean)
 ├── config/UpdateCheckSetting.java              # new; key + environment variable

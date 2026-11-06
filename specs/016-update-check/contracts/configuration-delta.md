@@ -38,3 +38,13 @@ Implementation-Version: <project version>
   `A newer inubit-mcp-server is available: 0.8.0 (running 0.7.1): https://github.com/D4lD4r/inubit-mcp-server/releases/tag/v0.8.0 – update manually (no automatic download)`
 - INFO at start when off: `Update check is off (<updateCheck.enabled: false | INUBIT_MCP_UPDATE_CHECK>)`
 - DEBUG on failure: `Update check failed: <reason>`; next attempt at the next daily check.
+
+## Cache file (FR-018)
+
+`~/.inubit-mcp/update-check.json`, written by the server, not meant for editing:
+
+```json
+{"latestVersion": "0.8.0", "checkedAt": "2026-11-06T09:15:00Z"}
+```
+
+Not read or written when the check is off. Deleting it is always safe.
