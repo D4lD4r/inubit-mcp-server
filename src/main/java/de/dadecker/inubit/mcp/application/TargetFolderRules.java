@@ -256,7 +256,7 @@ public final class TargetFolderRules {
     }
 
     /** {@code text} with each control character as {@code ?} (the folder is caller input). */
-    private static String shown(String text) {
+    static String shown(String text) {
         return CONTROL.matcher(text).replaceAll("?");
     }
 

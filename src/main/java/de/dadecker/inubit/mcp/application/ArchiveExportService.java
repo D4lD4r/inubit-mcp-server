@@ -59,6 +59,7 @@ public final class ArchiveExportService {
     private static final int MAX_LOGGED = 100;
     private static final int MAX_NAME = 200;
     private static final int MAX_REASON = 500;
+    private static final String NO_RECORD = "audit record not written";
     private static final Pattern CONTROL = Pattern.compile("[\\u0000-\\u001F\\u007F]");
     private static final Pattern GROUP =
         Pattern.compile("^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$");
@@ -122,7 +123,11 @@ public final class ArchiveExportService {
      *     INTERNAL} if an audit record that must precede the export could not be written,
      *     {@code UNSUPPORTED_VERSION}, the errors of the StartCLI export and of slicing, and
      *     {@code INVALID_INPUT} for unknown workflow names, more than {@value #MAX_WORKFLOWS}
-     *     workflows, a file name over 255 bytes or colliding file names
+     *     workflows, a file name over 255 bytes or colliding file names; an error after the
+     *     {@code PENDING} record whose final record could not be written carries a sentence
+     *     naming the {@code auditId} (an unexpected runtime failure then becomes {@code
+     *     INTERNAL}); an unexpected runtime failure once the writes started is always {@code
+     *     INTERNAL} naming the target folder
      */
     public ArchiveExportResult export(ArchiveExportRequest request) {
         ArchiveExportAudit record = new ArchiveExportAudit(audit, request.target(),
@@ -132,11 +137,24 @@ public final class ArchiveExportService {
         try {
             checked = check(request, record);
         } catch (ToolErrorException e) {
-            LOG.info("{} on {}: REFUSED ({})", ArchiveExportAudit.CAPABILITY,
-                loggable(request.target()), e.error().code());
-            throw record.refused(e.error());
+            ToolErrorException refused = record.refused(e.error());
+            String counts = e.error().code() + ", nothing written";
+            if (refused.error().equals(e.error())) {
+                logEnd(loggable(request.target()), AuditOutcome.REFUSED.name(), request, counts,
+                    auditId(record));
+            } else {
+                logEnd(loggable(request.target()), ErrorCode.INTERNAL.name(), request, counts,
+                    NO_RECORD);
+            }
+            throw refused;
         }
-        record.pending();
+        try {
+            record.pending();
+        } catch (ToolErrorException e) {
+            logEnd(checked.node().value(), ErrorCode.INTERNAL.name(), request,
+                "nothing exported or written", NO_RECORD);
+            throw e;
+        }
         return run(request, record, checked);
     }
 
@@ -233,6 +251,7 @@ public final class ArchiveExportService {
         Static checked) {
         NodeId node = checked.node();
         boolean checking = false;
+        Prepared prepared;
         try {
             List<String> admission = gate.admit(ArchiveExportAudit.CAPABILITY, node,
                 Capability.WORKSPACE_EXPORT, Capability.Kind.READ, Set.of(Channel.CLI))
@@ -243,17 +262,16 @@ public final class ArchiveExportService {
             checking = true;
             List<String> selected = withNode(node, () -> select(request, sliced, record,
                 checked.folder()));
-            checking = false;
-            return write(request, record, checked, sliced, selected, admission);
+            prepared = new Prepared(admission, sliced, selected);
         } catch (ToolErrorException e) {
             ToolError error = e.error();
             boolean refused = error.code() == ErrorCode.UNSUPPORTED_VERSION
                 || checking && error.code() == ErrorCode.INVALID_INPUT;
             AuditOutcome outcome = refused ? AuditOutcome.REFUSED : AuditOutcome.FAILED;
-            LOG.info("{} on {}: {} ({}, audit id {})", ArchiveExportAudit.CAPABILITY, node,
-                outcome, error.code(), record.auditId());
             Optional<String> warning = record.outcome(outcome, error.code() + ": "
                 + error.message());
+            logEnd(node.value(), outcome.name(), request, error.code() + ", nothing written",
+                auditId(record));
             if (warning.isEmpty()) {
                 throw e;
             }
@@ -261,12 +279,94 @@ public final class ArchiveExportService {
                 + warning.get(), error.likelyCause(), error.nextStep(), error.node(),
                 error.excerpt()));
         } catch (RuntimeException e) {
-            LOG.info("{} on {}: FAILED ({}, audit id {})", ArchiveExportAudit.CAPABILITY, node,
-                e.getClass().getSimpleName(), record.auditId());
-            record.outcome(AuditOutcome.FAILED, ErrorCode.INTERNAL + ": "
-                + e.getClass().getSimpleName());
-            throw e;
+            throw unexpected(request, record, node, e, "", ", nothing written");
         }
+        return write(request, record, checked, prepared);
+    }
+
+    /** What the writes need: the gate's warnings, the sliced export, the selected workflows. */
+    private record Prepared(List<String> admission, SlicedExport sliced, List<String> selected) {
+    }
+
+    /**
+     * Audits an unexpected failure as {@code FAILED} (the audit text and the INFO line followed by
+     * what was written) and returns what to throw: the failure itself, or {@code INTERNAL}
+     * carrying the outcome warning.
+     */
+    private static RuntimeException unexpected(ArchiveExportRequest request,
+        ArchiveExportAudit record, NodeId node, RuntimeException e, String audited,
+        String logged) {
+        Optional<String> warning = failed(request, record, node, e, audited, logged);
+        if (warning.isEmpty()) {
+            return e;
+        }
+        // The tool layer's INTERNAL for an unexpected failure, carrying the outcome warning.
+        LOG.error("{} failed unexpectedly", ArchiveExportAudit.CAPABILITY, e);
+        return new ToolErrorException(ToolError.of(ErrorCode.INTERNAL, "The tool "
+                + ArchiveExportAudit.CAPABILITY + " failed unexpectedly ("
+                + e.getClass().getSimpleName() + "). " + warning.get(),
+            "An internal error of the INUBIT MCP server",
+            "Retry; if it persists, check the MCP server log on stderr and report the"
+                + " problem").withNode(node));
+    }
+
+    /**
+     * Audits an unexpected failure once the writes started like {@link #unexpected} and always
+     * returns {@code INTERNAL}: archives with clear-text secrets may already be in the folder, so
+     * the message names it ({@code written}: what was written, {@code null} while writing) and
+     * carries the outcome warning; never the failure's own message.
+     */
+    private static ToolErrorException unexpectedWrite(ArchiveExportRequest request,
+        ArchiveExportAudit record, Static checked, RuntimeException e,
+        ArchiveFolderWriter.Result written, String state) {
+        Optional<String> warning = failed(request, record, checked.node(), e, state, state);
+        LOG.error("{} failed unexpectedly", ArchiveExportAudit.CAPABILITY, e);
+        String folder = TargetFolderRules.shown(checked.folder().toString());
+        String failure = "The tool " + ArchiveExportAudit.CAPABILITY + " failed unexpectedly ("
+            + e.getClass().getSimpleName() + ")";
+        String message = written == null
+            ? failure + " while writing; archives may already be in " + folder + "; they contain"
+                + " secrets in clear text and must not be shared or committed as they are"
+            : failure + " after the writes: " + counts(written.written().size(), written)
+                + " in " + folder + "; the archives written there contain secrets in clear text"
+                + " and must not be shared or committed as they are";
+        return new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
+            message + warning.map(text -> ". " + text).orElse(""),
+            "An internal error of the INUBIT MCP server",
+            "Check " + folder + " for the archives written and keep or delete them as their"
+                + " secrets require (existing files are never overwritten, so move them before"
+                + " retrying into the same folder); report the problem with the MCP server log"
+                + " on stderr").withNode(checked.node()));
+    }
+
+    /**
+     * The {@code FAILED} outcome record and INFO line of an unexpected failure (its class name
+     * followed by {@code audited} / {@code logged}); returns the outcome warning, if any.
+     */
+    private static Optional<String> failed(ArchiveExportRequest request,
+        ArchiveExportAudit record, NodeId node, RuntimeException e, String audited,
+        String logged) {
+        String failure = e.getClass().getSimpleName();
+        Optional<String> warning = record.outcome(AuditOutcome.FAILED, ErrorCode.INTERNAL + ": "
+            + failure + audited);
+        logEnd(node.value(), AuditOutcome.FAILED.name(), request, ErrorCode.INTERNAL + " "
+            + failure + logged, auditId(record));
+        return warning;
+    }
+
+    /**
+     * The INFO line at the end of a call (R-13 step 8): node (a static refusal: the target as
+     * requested), outcome (or the code the call returns instead), diagram group, counts or code,
+     * and {@code auditId} (or that no record was written) only.
+     */
+    private static void logEnd(String node, String outcome, ArchiveExportRequest request,
+        String counts, String audited) {
+        LOG.info("{} on {}: {} (diagram group {}: {}; {})", ArchiveExportAudit.CAPABILITY, node,
+            outcome, loggable(request.diagramGroup()), counts, audited);
+    }
+
+    private static String auditId(ArchiveExportAudit record) {
+        return "audit id " + record.auditId();
     }
 
     /**
@@ -368,33 +468,52 @@ public final class ArchiveExportService {
         }
     }
 
+    /**
+     * The writes, the outcome record and the result. An unexpected failure once the writes
+     * started and before the outcome record is audited {@code FAILED} with what was written and
+     * ends in {@code INTERNAL} naming the folder; nothing after the outcome record is caught, so
+     * it is never recorded twice.
+     */
     private ArchiveExportResult write(ArchiveExportRequest request, ArchiveExportAudit record,
-        Static checked, SlicedExport sliced, List<String> selected, List<String> admission) {
-        ArchiveFolderWriter.Result written = writer.write(checked.folder(), selected.stream()
-            .map(workflow -> new ArchiveFolderWriter.Archive(workflow,
-                () -> sliced.archive(workflow)))
-            .toList());
-        Bounded bounded = bound(written.written().stream()
-            .map(archive -> written(checked.folder(), archive, sliced.plan(archive.workflow())))
-            .toList());
+        Static checked, Prepared prepared) {
+        SlicedExport sliced = prepared.sliced();
+        ArchiveFolderWriter.Result written = null;
+        Bounded bounded;
+        List<FailedArchive> failed;
+        try {
+            written = writer.write(checked.folder(), prepared.selected().stream()
+                .map(workflow -> new ArchiveFolderWriter.Archive(workflow,
+                    () -> sliced.archive(workflow)))
+                .toList());
+            bounded = bound(written.written().stream()
+                .map(archive -> written(checked.folder(), archive,
+                    sliced.plan(archive.workflow())))
+                .toList());
+            failed = written.failed().stream()
+                .map(f -> new FailedArchive(f.workflow(), f.code(), f.message())).toList();
+        } catch (RuntimeException e) {
+            String state = written == null ? " while writing" : " after the writes, "
+                + counts(written.written().size(), written);
+            throw unexpectedWrite(request, record, checked, e, written, state);
+        }
         List<WrittenArchive> archiveResults = bounded.archives();
-        List<FailedArchive> failed = written.failed().stream()
-            .map(f -> new FailedArchive(f.workflow(), f.code(), f.message())).toList();
         AuditOutcome outcome = failed.isEmpty() ? AuditOutcome.EXECUTED
             : AuditOutcome.PARTIALLY_COMPLETED;
-        String counts = archiveResults.size() + " written, " + failed.size() + " failed, "
-            + written.notWritten().size() + " not written";
-        List<String> warnings = new ArrayList<>(admission);
+        String counts = counts(archiveResults.size(), written);
+        List<String> warnings = new ArrayList<>(prepared.admission());
         warnings.addAll(checked.warnings());
         warnings.addAll(written.warnings());
         record.outcome(outcome, counts).ifPresent(warnings::add);
-        LOG.info("{} on {}: {} (diagram group {}: {}; audit id {})",
-            ArchiveExportAudit.CAPABILITY, checked.node(), outcome,
-            loggable(request.diagramGroup()), counts, record.auditId());
+        logEnd(checked.node().value(), outcome.name(), request, counts, auditId(record));
         return new ArchiveExportResult(checked.node().value(), checked.owner(),
             request.diagramGroup(), checked.folder().toString(), record.auditId(),
             ArchiveExportResult.CLEAR_TEXT_SECRETS, archiveResults, failed,
             written.notWritten(), bounded.truncated(), warnings);
+    }
+
+    private static String counts(int archives, ArchiveFolderWriter.Result written) {
+        return archives + " written, " + written.failed().size() + " failed, "
+            + written.notWritten().size() + " not written";
     }
 
     /** The archives with their lists bounded, and whether a list was cut. */

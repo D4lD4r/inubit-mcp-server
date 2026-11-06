@@ -455,7 +455,7 @@ export and a write failure are each audited, and the folder never holds a partia
   complete `main/application/ArchiveFolderWriter.java` (behaviour only: the result record of T009
   keeps its fields).
 
-- [ ] T020 [US3] Outcomes, partial results and audit precedence (research R-12, R-13, FR-011,
+- [X] T020 [US3] Outcomes, partial results and audit precedence (research R-12, R-13, FR-011,
   FR-013): test first, extending `test/application/ArchiveExportServiceTest.java` and a new
   `test/application/ArchiveExportConcurrencyTest.java`: StartCLI failure or timeout from the fake
   `ArtifactPort` → the same `ToolError` code, message and next step as `export_artifacts`, nothing

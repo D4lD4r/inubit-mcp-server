@@ -125,7 +125,7 @@ targetFolder: "/Users/jdoe/archives", acknowledgeClearTextSecrets: true, reason:
 | `NOT_CONFIGURED` | no owner in the call and no `inventory.owner` | static |
 | `PRODUCTION_PROTECTED` | production group without `archives.productionOptIn` (message names the setting) | static |
 | `INVALID_INPUT` | acknowledgement missing/false; workflow-name syntax or limits; `reason`; folder rules (below, R-9) | static |
-| `INTERNAL` | the audit record could not be written (for a refusal: carries the original code and message) | static / before StartCLI |
+| `INTERNAL` | the audit record could not be written (for a refusal: carries the original code and message); an unexpected failure during or after the writes (names the counts and the folder whose archives hold clear-text secrets) | static / before StartCLI / writes |
 | `UNSUPPORTED_VERSION` | version gate (as `export_artifacts`) | after `PENDING` |
 | `CLI_UNAVAILABLE`, `AUTH_FAILED`, `TIMEOUT`, `NOT_FOUND`, `UNEXPECTED_RESPONSE` | StartCLI export as `export_artifacts` (same messages, also the 128 MiB limit) | export |
 | `INVALID_INPUT` | unknown workflow names; > 50 workflows without `workflows`; file name > 255 bytes; colliding file names (between workflows or with the folder) | after export, before the first write |

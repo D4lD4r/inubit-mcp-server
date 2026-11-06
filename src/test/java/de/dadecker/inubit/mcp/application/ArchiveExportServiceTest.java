@@ -2,11 +2,17 @@ package de.dadecker.inubit.mcp.application;
 
 import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81WorkflowArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkflowArchiveFixtures;
+import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.ArchiveExportResult;
@@ -18,6 +24,7 @@ import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WorkflowArchivePlan;
@@ -25,12 +32,15 @@ import de.dadecker.inubit.mcp.domain.port.ArchiveCodecPort;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.AuditPort;
 import de.dadecker.inubit.mcp.domain.port.ImportArchivePort;
+import de.dadecker.inubit.mcp.domain.port.WorkflowArchivePort;
 import de.dadecker.inubit.mcp.domain.port.WorkflowArchivePort.SlicedExport;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.GitFreeTempDir;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.reflect.Constructor;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,15 +50,22 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.slf4j.LoggerFactory;
 
 /**
  * Feature 015 T010 (research R-2, R-13 steps 1, 4–8, FR-002, FR-003, FR-005, FR-012, FR-017):
@@ -57,7 +74,9 @@ import org.junit.jupiter.api.io.TempDir;
  * {@link V81WorkflowArchives}; T011 (research R-14, FR-012, Q25): the result bound; T017
  * (research R-13 steps 1–3, FR-007, FR-014, FR-017, Q9, Q10, Q13, Q15, Q23): the static input
  * checks with the real {@link TargetFolderRules} on server directories below the temporary
- * directory (outside every git tree) and a fake network probe.
+ * directory (outside every git tree) and a fake network probe; T020 (research R-12, R-13,
+ * FR-011, FR-013, Q17, Q18, Q20): outcomes, partial results, audit precedence and the INFO line,
+ * with failures injected through {@link HookedFileOps} and the fake audit log.
  */
 class ArchiveExportServiceTest {
 
@@ -97,6 +116,13 @@ class ArchiveExportServiceTest {
         }, node -> Duration.ofMinutes(10));
     private final FakeVersionDetection detection = new FakeVersionDetection(versions);
     private ResultLimiter limiter = ResultLimiter.withDefaults();
+    private CapabilityMatrix matrix = CapabilityMatrix.production();
+    private WorkflowArchivePort archivePort = new V81WorkflowArchives();
+    private final HookedFileOps ops = new HookedFileOps();
+    private final List<Logger> loggers = List.of(
+        (Logger) LoggerFactory.getLogger(ArchiveExportService.class),
+        (Logger) LoggerFactory.getLogger(ArchiveExportAudit.class));
+    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
     private final Map<NodeId, EffectiveNodeConfig> configs = Map.of(
         DEV1, TestNodeConfig.node().id("dev/node1").build(),
         DEV2, TestNodeConfig.node().id("dev/node2").build(),
@@ -107,6 +133,27 @@ class ArchiveExportServiceTest {
             .write(false, false, ConfirmationMode.SERVER).archivesProductionOptIn(true).build());
     private final Map<String, String> environment = new HashMap<>();
     private boolean windows;
+
+    /** The INFO and ERROR lines of the service and its audit (tests run at WARN otherwise). */
+    @BeforeEach
+    void captureLog() {
+        logs.start();
+        for (Logger logger : loggers) {
+            logger.addAppender(logs);
+            logger.setAdditive(false);
+            logger.setLevel(Level.INFO);
+        }
+    }
+
+    @AfterEach
+    void releaseLog() {
+        for (Logger logger : loggers) {
+            logger.setLevel(null);
+            logger.setAdditive(true);
+            logger.detachAppender(logs);
+        }
+        logs.stop();
+    }
 
     @Test
     void q1ThreeWorkflowsGiveThreeArchivesInAnEmptyFolder() throws IOException {
@@ -749,7 +796,7 @@ class ArchiveExportServiceTest {
         Path workspace = Files.createDirectories(tmp.resolve("workspace"));
         Files.createDirectories(tmp.resolve("repo").resolve(".git"));
         Path file = Files.writeString(tmp.resolve("file.txt"), "mine");
-        Map<String, String> cases = new java.util.LinkedHashMap<>();
+        Map<String, String> cases = new LinkedHashMap<>();
         cases.put("archives/out", "is not an absolute path");
         cases.put(tmp + "/a/../archives", "has a '.' or '..' element");
         cases.put(home().resolve(".inubit-mcp").resolve("x").toString(), SERVER_DIRECTORY);
@@ -856,7 +903,7 @@ class ArchiveExportServiceTest {
         for (int i = 1; i <= 51; i++) {
             fiftyOne.add("Workflow-%04d".formatted(i));
         }
-        Map<ArchiveExportRequest, String> cases = new java.util.LinkedHashMap<>();
+        Map<ArchiveExportRequest, String> cases = new LinkedHashMap<>();
         cases.put(request("dev/node1", true, GRP_B, fiftyOne, Optional.empty(), folder),
             "workflows");
         cases.put(request("dev/node1", true, GRP_B, List.of("Workflow-0004", "Workflow-0004"),
@@ -944,6 +991,646 @@ class ArchiveExportServiceTest {
         assertThat(artifacts.calls).isEmpty();
     }
 
+    static Stream<ToolError> startCliFailures() {
+        return Stream.of(
+            ToolError.of(ErrorCode.CLI_UNAVAILABLE, "StartCLI could not be started on dev/node1",
+                "cliHome does not point to an INUBIT client", "Check cliHome").withNode(DEV1),
+            ToolError.of(ErrorCode.TIMEOUT, "StartCLI did not finish within 120 s",
+                "The INUBIT server is slow or unreachable, or StartCLI waits for input",
+                "Check get_health; raise cliExportTimeout if the INUBIT server is just slow")
+                .withNode(DEV1),
+            ToolError.of(ErrorCode.AUTH_FAILED, "StartCLI rejected the credentials of dev/node1",
+                "The password is wrong or expired", "Check the credentials").withNode(DEV1),
+            ToolError.of(ErrorCode.NOT_FOUND, "StartCLI found no diagram group 'GRP-02'",
+                "The diagram group does not exist for the owner", "Check the name"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("startCliFailures")
+    void q17AStartCliFailureIsPassedThroughUnchangedNothingIsWrittenAndItIsAuditedFailed(
+        ToolError failure) throws IOException {
+        artifacts.export = () -> {
+            throw new ToolErrorException(failure);
+        };
+
+        ToolErrorException failed = refusal(request("dev/node1", Optional.empty(), GRP_B,
+            List.of(), tmp.resolve("archives")));
+
+        ToolError expected = failure.node().isPresent() ? failure : failure.withNode(DEV1);
+        assertThat(failed.error()).isEqualTo(expected);
+        assertFailedAfterThePendingRecord(failure.code());
+        assertThat(events).doesNotContain("slice");
+    }
+
+    @Test
+    void q17TheSizeLimitOfTheExportIsPassedThroughUnchangedAndNothingIsSlicedOrWritten()
+        throws IOException {
+        ToolError tooLarge = ToolError.of(ErrorCode.UNEXPECTED_RESPONSE, "The export of dev/node1"
+                + " is too large (more than " + CliExportRunner.MAX_ARCHIVE_BYTES + " bytes)",
+            "StartCLI or the export format behaved differently than recorded for INUBIT 8.1",
+            "Check the INUBIT client version (cliHome) and retry; see the MCP server's log")
+            .withNode(DEV1);
+        artifacts.export = () -> {
+            throw new ToolErrorException(tooLarge);
+        };
+
+        ToolErrorException failed = refusal(request("dev/node1", Optional.empty(), GRP_B,
+            List.of(), tmp.resolve("archives")));
+
+        assertThat(failed.error()).isEqualTo(tooLarge);
+        assertThat(events).doesNotContain("slice");
+        assertFailedAfterThePendingRecord(ErrorCode.UNEXPECTED_RESPONSE);
+    }
+
+    @Test
+    void anUnsupportedVersionIsRefusedByTheGateAfterThePendingRecordBeforeTheExport()
+        throws IOException {
+        matrix = new CapabilityMatrix(List.of(), Map.of());
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+
+        ToolErrorException refused = refusal(request("dev/node1", Optional.empty(), GRP_B,
+            List.of(), tmp.resolve("archives")));
+
+        assertThat(refused.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(audit.records).extracting(AuditRecord::outcome)
+            .containsExactly(AuditOutcome.PENDING, AuditOutcome.REFUSED);
+        assertThat(audit.records.get(1).reason()).hasValueSatisfying(
+            reason -> assertThat(reason).startsWith("UNSUPPORTED_VERSION: "));
+        assertThat(artifacts.calls).isEmpty();
+        assertThat(files(tmp)).isEmpty();
+    }
+
+    @Test
+    void q18AWriteFailureOnTheSecondOfThreeIsAPartialResultAuditedPartiallyCompleted()
+        throws IOException {
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+        ops.beforeWrite = (path, call) -> {
+            if (call == 2) {
+                throw new IOException("No space left on device");
+            }
+        };
+        Path folder = tmp.resolve("archives");
+
+        ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of("Workflow-0004", "Workflow-0005", "Workflow-0006"), folder));
+
+        assertThat(result.archives()).extracting(WrittenArchive::workflow)
+            .containsExactly("Workflow-0004");
+        assertThat(Files.readAllBytes(folder.resolve("Workflow-0004.diagram.zip")))
+            .isEqualTo(expectedArchive("Workflow-0004"));
+        assertThat(result.failed()).singleElement().satisfies(failed -> {
+            assertThat(failed.workflow()).isEqualTo("Workflow-0005");
+            assertThat(failed.code()).isEqualTo(ErrorCode.INTERNAL);
+            assertThat(failed.message()).contains("Workflow-0005.diagram.zip",
+                "No space left on device");
+        });
+        assertThat(result.notWritten()).containsExactly("Workflow-0006");
+        assertThat(result.clearTextSecrets()).isEqualTo(CLEAR_TEXT);
+        assertThat(result.warnings()).isEmpty();
+        assertThat(files(folder)).containsExactly("Workflow-0004.diagram.zip");
+        assertPartiallyCompleted("1 written, 1 failed, 1 not written");
+    }
+
+    @Test
+    void q18AFailureOnTheFirstArchiveIsAResultWithoutArchivesAuditedPartiallyCompleted()
+        throws IOException {
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+        ops.beforeWrite = (path, call) -> {
+            throw new IOException("No space left on device");
+        };
+        Path folder = tmp.resolve("archives");
+
+        ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of("Workflow-0004", "Workflow-0005", "Workflow-0006"), folder));
+
+        assertThat(result.archives()).isEmpty();
+        assertThat(result.failed()).extracting(ArchiveExportResult.FailedArchive::workflow)
+            .containsExactly("Workflow-0004");
+        assertThat(result.notWritten()).containsExactly("Workflow-0005", "Workflow-0006");
+        assertThat(folder).isDirectory();
+        assertThat(files(folder)).isEmpty();
+        assertPartiallyCompleted("0 written, 1 failed, 2 not written");
+    }
+
+    @Test
+    void q18ATargetFolderThatCannotBeCreatedIsAResultWithoutArchivesAuditedPartiallyCompleted()
+        throws IOException {
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+        ops.beforeCreateDirectory = (path, call) -> {
+            throw new AccessDeniedException(path.toString(), null, "Permission denied");
+        };
+        Path folder = tmp.resolve("archives");
+
+        ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of("Workflow-0004", "Workflow-0005"), folder));
+
+        assertThat(result.archives()).isEmpty();
+        assertThat(result.failed()).singleElement().satisfies(failed -> {
+            assertThat(failed.workflow()).isEqualTo("Workflow-0004");
+            assertThat(failed.code()).isEqualTo(ErrorCode.INTERNAL);
+            assertThat(failed.message()).contains("target folder", "Permission denied");
+        });
+        assertThat(result.notWritten()).containsExactly("Workflow-0005");
+        assertThat(folder).doesNotExist();
+        assertPartiallyCompleted("0 written, 1 failed, 1 not written");
+    }
+
+    @Test
+    void q18ALeftoverPartFileIsACallLevelWarningAndTheArchiveCountsAsWrittenAndExecuted()
+        throws IOException {
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+        ops.beforeDelete = (path, call) -> {
+            throw new AccessDeniedException(path.toString(), null, "Permission denied");
+        };
+        Path folder = tmp.resolve("archives");
+
+        ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of("Workflow-0006"), folder));
+
+        assertThat(result.archives()).extracting(WrittenArchive::workflow)
+            .containsExactly("Workflow-0006");
+        assertThat(result.archives().get(0).warnings()).isEmpty();
+        assertThat(result.failed()).isEmpty();
+        assertThat(result.notWritten()).isEmpty();
+        assertThat(result.warnings()).singleElement().asString()
+            .contains(".Workflow-0006.diagram.zip.", ".part", "could not be deleted");
+        assertThat(audit.records).extracting(AuditRecord::outcome)
+            .containsExactly(AuditOutcome.PENDING, AuditOutcome.EXECUTED);
+        assertThat(audit.records.get(1).reason()).contains("1 written, 0 failed, 0 not written");
+    }
+
+    static Stream<RuntimeException> builderFailures() {
+        return Stream.of(new IllegalStateException("broken model"),
+            new ToolErrorException(ToolError.of(ErrorCode.UNEXPECTED_RESPONSE,
+                "The archive of Workflow-0005 could not be built", "The export is unusual",
+                "Check the export")));
+    }
+
+    /**
+     * The archive of a workflow is built lazily while the writes run (T010-r1, T019-r1): a builder
+     * that throws after an earlier archive was written ends the writes there, as a result.
+     */
+    @ParameterizedTest
+    @MethodSource("builderFailures")
+    void aBuilderFailureAfterAnEarlierArchiveIsAPartialResultAuditedPartiallyCompleted(
+        RuntimeException failure) throws IOException {
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+        archivePort = failingArchive("Workflow-0005", failure);
+        Path folder = tmp.resolve("archives");
+
+        ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of("Workflow-0004", "Workflow-0005", "Workflow-0006"), folder));
+
+        assertThat(result.archives()).extracting(WrittenArchive::workflow)
+            .containsExactly("Workflow-0004");
+        assertThat(result.failed()).singleElement().satisfies(failed -> {
+            assertThat(failed.workflow()).isEqualTo("Workflow-0005");
+            assertThat(failed.code()).isEqualTo(ErrorCode.INTERNAL);
+            assertThat(failed.message()).contains("Workflow-0005.diagram.zip",
+                failure instanceof ToolErrorException e ? e.error().code().name()
+                    : failure.getClass().getSimpleName());
+        });
+        assertThat(result.notWritten()).containsExactly("Workflow-0006");
+        assertThat(files(folder)).containsExactly("Workflow-0004.diagram.zip");
+        assertPartiallyCompleted("1 written, 1 failed, 1 not written");
+    }
+
+    @Test
+    void q20AnUnwritableAuditTurnsAStaticRefusalIntoInternalWithTheOriginalCodeAndMessage()
+        throws IOException {
+        audit.failing = record -> true;
+
+        ToolErrorException refused = refusal(request("dev/node1", false, GRP_B, List.of(),
+            Optional.empty(), tmp.resolve("archives").toString()));
+
+        assertThat(refused.error().code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(refused.error().message()).contains("INVALID_INPUT",
+            "acknowledgeClearTextSecrets is not true", "nothing was exported or written");
+        assertThat(events).containsExactly("audit failed REFUSED");
+        assertThat(artifacts.calls).isEmpty();
+        assertThat(files(tmp)).isEmpty();
+    }
+
+    @Test
+    void q20AnUnwritableAuditRefusesAValidCallWithInternalBeforeTheGateAndTheExport()
+        throws IOException {
+        audit.failing = record -> true;
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+
+        ToolErrorException refused = refusal(request("dev/node1", Optional.empty(), GRP_B,
+            List.of(), tmp.resolve("archives")));
+
+        assertThat(refused.error().code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(refused.error().message()).contains("nothing was exported");
+        assertThat(refused.error().nextStep()).contains("auditDirectory");
+        assertThat(events).containsExactly("audit failed PENDING");
+        assertThat(artifacts.calls).isEmpty();
+        assertThat(files(tmp)).isEmpty();
+    }
+
+    @Test
+    void aFailingOutcomeRecordReturnsTheResultWithAWarningNamingTheAuditId() throws IOException {
+        audit.failing = record -> record.outcome() != AuditOutcome.PENDING;
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+        Path folder = tmp.resolve("archives");
+
+        ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of("Workflow-0006"), folder));
+
+        assertThat(result.archives()).hasSize(1);
+        assertThat(result.warnings()).singleElement().asString()
+            .contains(ID.toString(), "auditDirectory");
+        assertThat(events).contains("audit PENDING", "audit failed EXECUTED");
+        assertThat(files(folder)).containsExactly("Workflow-0006.diagram.zip");
+    }
+
+    @Test
+    void aFailingOutcomeRecordOfAPartialResultAlsoGivesTheWarning() {
+        audit.failing = record -> record.outcome() != AuditOutcome.PENDING;
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+        ops.beforeWrite = (path, call) -> {
+            throw new IOException("No space left on device");
+        };
+
+        ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of("Workflow-0006"), tmp.resolve("archives")));
+
+        assertThat(result.failed()).hasSize(1);
+        assertThat(result.warnings()).singleElement().asString().contains(ID.toString());
+        assertThat(events).contains("audit failed PARTIALLY_COMPLETED");
+    }
+
+    @Test
+    void aFailingOutcomeRecordOfAToolErrorKeepsTheErrorAndAddsASentenceNamingTheAuditId() {
+        audit.failing = record -> record.outcome() != AuditOutcome.PENDING;
+        ToolError failure = startCliFailures().findFirst().orElseThrow();
+        artifacts.export = () -> {
+            throw new ToolErrorException(failure);
+        };
+
+        ToolErrorException failed = refusal(request("dev/node1", Optional.empty(), GRP_B,
+            List.of(), tmp.resolve("archives")));
+
+        assertThat(failed.error().code()).isEqualTo(failure.code());
+        assertThat(failed.error().message()).startsWith(failure.message())
+            .contains(ID.toString());
+        assertThat(failed.error().likelyCause()).isEqualTo(failure.likelyCause());
+        assertThat(failed.error().nextStep()).isEqualTo(failure.nextStep());
+        assertThat(failed.error().node()).contains(DEV1);
+        assertThat(events).contains("audit PENDING", "audit failed FAILED");
+    }
+
+    @Test
+    void anUnexpectedFailureIsAuditedFailedWithItsClassNameAndPropagatesUnchanged()
+        throws IOException {
+        IllegalStateException failure = new IllegalStateException("unexpected");
+        artifacts.export = () -> {
+            throw failure;
+        };
+
+        Throwable thrown = catchThrowable(() -> service().export(request("dev/node1",
+            Optional.empty(), GRP_B, List.of(), tmp.resolve("archives"))));
+
+        assertThat(thrown).isSameAs(failure);
+        assertThat(audit.records).extracting(AuditRecord::outcome)
+            .containsExactly(AuditOutcome.PENDING, AuditOutcome.FAILED);
+        assertThat(audit.records.get(1).reason()).contains("INTERNAL: IllegalStateException");
+        assertThat(files(tmp)).isEmpty();
+    }
+
+    /**
+     * T020 review: an unexpected failure after the writes (here: the plan of a written archive)
+     * is audited once, with the counts instead of "nothing written", and ends in {@code INTERNAL}
+     * naming the counts and the folder with its clear-text archives, never the failure's message.
+     */
+    @Test
+    void anUnexpectedFailureAfterTheWritesIsAuditedOnceAndEndsInternalNamingTheFolder()
+        throws IOException {
+        IllegalStateException failure = new IllegalStateException("detail-0002");
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+        archivePort = failingPlan(failure);
+        Path folder = tmp.resolve("archives");
+
+        ToolErrorException failed = refusal(request("dev/node1", Optional.empty(), GRP_B,
+            List.of("Workflow-0006"), folder));
+
+        assertThat(failed.error().code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(failed.error().message()).isEqualTo("The tool export_archives failed"
+            + " unexpectedly (IllegalStateException) after the writes: 1 written, 0 failed, 0 not"
+            + " written in " + folder + "; the archives written there contain secrets in clear"
+            + " text and must not be shared or committed as they are");
+        assertThat(failed.error().message()).doesNotContain("detail-0002");
+        assertThat(failed.error().likelyCause())
+            .isEqualTo("An internal error of the INUBIT MCP server");
+        assertThat(failed.error().nextStep()).isEqualTo("Check " + folder + " for the archives"
+            + " written and keep or delete them as their secrets require (existing files are"
+            + " never overwritten, so move them before retrying into the same folder); report the"
+            + " problem with the MCP server log on stderr");
+        assertThat(failed.error().node()).contains(DEV1);
+        assertThat(files(folder)).containsExactly("Workflow-0006.diagram.zip");
+        assertThat(audit.records).extracting(AuditRecord::outcome)
+            .containsExactly(AuditOutcome.PENDING, AuditOutcome.FAILED);
+        assertThat(audit.records.get(1).reason()).hasValue("INTERNAL: IllegalStateException"
+            + " after the writes, 1 written, 0 failed, 0 not written");
+        assertThat(serviceLines(Level.INFO)).containsExactly("export_archives on dev/node1:"
+            + " FAILED (diagram group GRP-02: INTERNAL IllegalStateException after the writes,"
+            + " 1 written, 0 failed, 0 not written; audit id " + ID + ")");
+        assertThat(logs.list).filteredOn(event -> event.getLevel() == Level.ERROR)
+            .singleElement()
+            .satisfies(event -> assertThat(event.getThrowableProxy()).isNotNull());
+        assertLogsHoldNoValues();
+    }
+
+    /** T020 review: with a failed outcome record the folder's error also names the audit id. */
+    @Test
+    void aFailingOutcomeRecordAfterTheWritesAddsTheWarningToTheFolderError() {
+        audit.failing = record -> record.outcome() != AuditOutcome.PENDING;
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+        archivePort = failingPlan(new IllegalStateException("detail-0002"));
+        Path folder = tmp.resolve("archives");
+
+        ToolErrorException failed = refusal(request("dev/node1", Optional.empty(), GRP_B,
+            List.of("Workflow-0006"), folder));
+
+        assertThat(failed.error().code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(failed.error().message()).startsWith("The tool export_archives failed"
+            + " unexpectedly (IllegalStateException) after the writes: 1 written")
+            .contains(folder.toString(), "clear text", ID.toString())
+            .doesNotContain("detail-0002");
+    }
+
+    /**
+     * T010-r1: the warning of a failed outcome record is not dropped for an unexpected failure;
+     * the call ends with {@code INTERNAL} (as the tool layer would map it) carrying the warning.
+     */
+    @Test
+    void aFailingOutcomeRecordOfAnUnexpectedFailureAddsTheWarningNamingTheAuditIdToTheError() {
+        audit.failing = record -> record.outcome() != AuditOutcome.PENDING;
+        artifacts.export = () -> {
+            throw new IllegalStateException("detail-0001");
+        };
+
+        ToolErrorException failed = refusal(request("dev/node1", Optional.empty(), GRP_B,
+            List.of(), tmp.resolve("archives")));
+
+        assertThat(failed.error().code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(failed.error().message()).contains("export_archives failed unexpectedly",
+            "IllegalStateException", ID.toString()).doesNotContain("detail-0001");
+        assertThat(failed.error().node()).contains(DEV1);
+        assertThat(events).contains("audit PENDING", "audit failed FAILED");
+    }
+
+    @Test
+    void q16TheAuditOfASuccessfulCallHoldsEveryNameTheFolderTheFilesAndTheReasonOnly() {
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+        Path folder = tmp.resolve("archives");
+
+        service().export(request("dev/node1", Optional.empty(), GRP_B, List.of(), folder));
+
+        assertThat(audit.records).extracting(AuditRecord::outcome)
+            .containsExactly(AuditOutcome.PENDING, AuditOutcome.EXECUTED);
+        assertThat(audit.records.get(0).inputs()).containsExactly(
+            Map.entry("owner", OWNER),
+            Map.entry("diagramGroup", GRP_B),
+            Map.entry("targetFolder", folder.toString()),
+            Map.entry("acknowledgeClearTextSecrets", "true"),
+            Map.entry("reason", "handover"));
+        assertThat(audit.records.get(1).inputs()).containsExactly(
+            Map.entry("owner", OWNER),
+            Map.entry("diagramGroup", GRP_B),
+            Map.entry("targetFolder", folder.toString()),
+            Map.entry("workflow.1", "Workflow-0003"),
+            Map.entry("workflow.2", "Workflow-0004"),
+            Map.entry("workflow.3", "Workflow-0005"),
+            Map.entry("workflow.4", "Workflow-0006"),
+            Map.entry("file.1", "Workflow-0003.diagram.zip"),
+            Map.entry("file.2", "Workflow-0004.diagram.zip"),
+            Map.entry("file.3", "Workflow-0005.diagram.zip"),
+            Map.entry("file.4", "Workflow-0006.diagram.zip"),
+            Map.entry("acknowledgeClearTextSecrets", "true"),
+            Map.entry("reason", "handover"));
+        assertThat(audit.records.get(0).reason()).isEmpty();
+        assertThat(audit.records.get(1).reason()).contains("4 written, 0 failed, 0 not written");
+    }
+
+    @Test
+    void theInfoLineOfASuccessfulCallNamesNodeDiagramGroupCountsAndAuditIdOnly() {
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+
+        service().export(request("dev/node1", Optional.empty(), GRP_B, List.of("Workflow-0006"),
+            tmp.resolve("archives")));
+
+        assertThat(serviceLines(Level.INFO)).containsExactly("export_archives on dev/node1:"
+            + " EXECUTED (diagram group GRP-02: 1 written, 0 failed, 0 not written; audit id "
+            + ID + ")");
+        assertLogsHoldNoValues();
+    }
+
+    @Test
+    void theInfoLineOfAPartialResultNamesNodeDiagramGroupCountsAndAuditId() {
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+        ops.beforeWrite = (path, call) -> {
+            throw new IOException("No space left on device");
+        };
+
+        service().export(request("dev/node1", Optional.empty(), GRP_B, List.of("Workflow-0006"),
+            tmp.resolve("archives")));
+
+        assertThat(serviceLines(Level.INFO)).containsExactly("export_archives on dev/node1:"
+            + " PARTIALLY_COMPLETED (diagram group GRP-02: 0 written, 1 failed, 0 not written;"
+            + " audit id " + ID + ")");
+        assertLogsHoldNoValues();
+    }
+
+    @Test
+    void theInfoLineOfAFailedCallNamesNodeDiagramGroupCodeAndAuditId() {
+        ToolError failure = startCliFailures().findFirst().orElseThrow();
+        artifacts.export = () -> {
+            throw new ToolErrorException(failure);
+        };
+
+        refusal(request("dev/node1", Optional.empty(), GRP_B, List.of(),
+            tmp.resolve("archives")));
+
+        assertThat(serviceLines(Level.INFO)).containsExactly("export_archives on dev/node1:"
+            + " FAILED (diagram group GRP-02: CLI_UNAVAILABLE, nothing written; audit id " + ID
+            + ")");
+        assertLogsHoldNoValues();
+    }
+
+    @Test
+    void theInfoLineOfARefusalAfterTheExportNamesNodeDiagramGroupCodeAndAuditId() {
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+
+        refusal(request("dev/node1", Optional.empty(), GRP_B, List.of("Workflow-0099"),
+            tmp.resolve("archives")));
+
+        assertThat(serviceLines(Level.INFO)).containsExactly("export_archives on dev/node1:"
+            + " REFUSED (diagram group GRP-02: INVALID_INPUT, nothing written; audit id " + ID
+            + ")");
+        assertLogsHoldNoValues();
+    }
+
+    @Test
+    void theInfoLineOfAnUnexpectedFailureNamesNodeDiagramGroupTheClassAndAuditId() {
+        artifacts.export = () -> {
+            throw new IllegalStateException("unexpected");
+        };
+
+        catchThrowable(() -> service().export(request("dev/node1", Optional.empty(), GRP_B,
+            List.of(), tmp.resolve("archives"))));
+
+        assertThat(serviceLines(Level.INFO)).containsExactly("export_archives on dev/node1:"
+            + " FAILED (diagram group GRP-02: INTERNAL IllegalStateException, nothing written;"
+            + " audit id " + ID + ")");
+        assertLogsHoldNoValues();
+    }
+
+    @Test
+    void theInfoLineOfAStaticRefusalNamesTargetDiagramGroupCodeAndAuditId() {
+        refusal(request("dev/node1", false, GRP_B, List.of(), Optional.of("handover"),
+            tmp.resolve("archives").toString()));
+
+        assertThat(serviceLines(Level.INFO)).containsExactly("export_archives on dev/node1:"
+            + " REFUSED (diagram group GRP-02: INVALID_INPUT, nothing written; audit id " + ID
+            + ")");
+        assertLogsHoldNoValues();
+    }
+
+    /** T020 review: the line says what the call returns, and names no record that is missing. */
+    @Test
+    void theInfoLineOfAStaticRefusalWhoseRecordFailedSaysInternalAndNamesNoAuditId() {
+        audit.failing = record -> true;
+
+        ToolErrorException refused = refusal(request("dev/node1", false, GRP_B, List.of(),
+            Optional.of("handover"), tmp.resolve("archives").toString()));
+
+        assertThat(refused.error().code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(serviceLines(Level.INFO)).containsExactly("export_archives on dev/node1:"
+            + " INTERNAL (diagram group GRP-02: INVALID_INPUT, nothing written; audit record not"
+            + " written)");
+        assertLogsHoldNoValues();
+    }
+
+    @Test
+    void aFailedPendingRecordAlsoGivesTheInfoLineWithoutAuditId() {
+        audit.failing = record -> record.outcome() == AuditOutcome.PENDING;
+
+        ToolErrorException refused = refusal(request("dev/node1", Optional.empty(), GRP_B,
+            List.of(), tmp.resolve("archives")));
+
+        assertThat(refused.error().code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(serviceLines(Level.INFO)).containsExactly("export_archives on dev/node1:"
+            + " INTERNAL (diagram group GRP-02: nothing exported or written; audit record not"
+            + " written)");
+        assertLogsHoldNoValues();
+    }
+
+    @Test
+    void anAuditFailureIsAnErrorLineWithoutValues() {
+        audit.failing = record -> record.outcome() != AuditOutcome.PENDING;
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+
+        service().export(request("dev/node1", Optional.empty(), GRP_B, List.of("Workflow-0006"),
+            tmp.resolve("archives")));
+
+        assertThat(logs.list).filteredOn(event -> event.getLevel() == Level.ERROR)
+            .singleElement().satisfies(event -> assertThat(event.getFormattedMessage())
+                .contains(ID.toString(), "EXECUTED", "UncheckedIOException"));
+        assertLogsHoldNoValues();
+    }
+
+    /** No log line holds the folder, the owner, the reason, a workflow or file name. */
+    private void assertLogsHoldNoValues() {
+        assertThat(logs.list).isNotEmpty().allSatisfy(event -> assertThat(
+            event.getFormattedMessage()).doesNotContain(tmp.toString(), OWNER, "handover",
+                "Workflow-", ".diagram.zip", "No space left"));
+    }
+
+    private List<String> serviceLines(Level level) {
+        return logs.list.stream().filter(event -> event.getLevel() == level)
+            .filter(event -> event.getLoggerName().equals(ArchiveExportService.class.getName()))
+            .map(ILoggingEvent::getFormattedMessage).toList();
+    }
+
+    private void assertFailedAfterThePendingRecord(ErrorCode code) throws IOException {
+        assertThat(audit.records).extracting(AuditRecord::outcome)
+            .containsExactly(AuditOutcome.PENDING, AuditOutcome.FAILED);
+        assertThat(audit.records).extracting(AuditRecord::auditId).containsOnly(ID);
+        assertThat(audit.records.get(1).reason()).hasValueSatisfying(
+            reason -> assertThat(reason).startsWith(code + ": "));
+        assertThat(artifacts.calls).hasSize(1);
+        assertThat(files(tmp)).isEmpty();
+    }
+
+    private void assertPartiallyCompleted(String counts) throws IOException {
+        assertThat(audit.records).extracting(AuditRecord::outcome)
+            .containsExactly(AuditOutcome.PENDING, AuditOutcome.PARTIALLY_COMPLETED);
+        assertThat(audit.records).extracting(AuditRecord::auditId).containsOnly(ID);
+        assertThat(audit.records.get(1).reason()).contains(counts);
+        assertThat(audit.records.get(1).inputs()).containsKeys("workflow.1", "file.1");
+        try (Stream<Path> all = Files.walk(tmp)) {
+            assertThat(all.map(path -> path.getFileName().toString()))
+                .noneMatch(name -> name.endsWith(".part"));
+        }
+    }
+
+    private static byte[] expectedArchive(String workflow) {
+        return new V81WorkflowArchives().slice(WorkflowArchiveFixtures.grpB(),
+            new GroupId("dev"), OWNER, GRP_B).archive(workflow);
+    }
+
+    /** The real slicing, except that building the archive of {@code workflow} throws. */
+    private static WorkflowArchivePort failingArchive(String workflow, RuntimeException failure) {
+        WorkflowArchivePort real = new V81WorkflowArchives();
+        return (export, group, owner, diagramGroup) -> {
+            SlicedExport sliced = real.slice(export, group, owner, diagramGroup);
+            return new SlicedExport() {
+                @Override
+                public List<String> workflows() {
+                    return sliced.workflows();
+                }
+
+                @Override
+                public WorkflowArchivePlan plan(String name) {
+                    return sliced.plan(name);
+                }
+
+                @Override
+                public byte[] archive(String name) {
+                    if (name.equals(workflow)) {
+                        throw failure;
+                    }
+                    return sliced.archive(name);
+                }
+            };
+        };
+    }
+
+    /** The real slicing, except that the plan of every workflow (read after the writes) throws. */
+    private static WorkflowArchivePort failingPlan(RuntimeException failure) {
+        WorkflowArchivePort real = new V81WorkflowArchives();
+        return (export, group, owner, diagramGroup) -> {
+            SlicedExport sliced = real.slice(export, group, owner, diagramGroup);
+            return new SlicedExport() {
+                @Override
+                public List<String> workflows() {
+                    return sliced.workflows();
+                }
+
+                @Override
+                public WorkflowArchivePlan plan(String name) {
+                    throw failure;
+                }
+
+                @Override
+                public byte[] archive(String name) {
+                    return sliced.archive(name);
+                }
+            };
+        };
+    }
+
     /** {@code count} refusals, each one {@code REFUSED} record; no gate and no export. */
     private void assertRefusedOnlyBeforeTheExport(int count) {
         assertThat(audit.records).hasSize(count).extracting(AuditRecord::outcome)
@@ -1009,9 +1696,12 @@ class ArchiveExportServiceTest {
         return new ArchiveExportService(targets, owners::get, node -> Optional.of("jdoe"),
             node -> configs.get(node).production(),
             node -> configs.get(node).archivesProductionOptIn(), folderRules(),
-            node -> artifacts.forNode(node), new V81WorkflowArchives(),
-            gateWithoutClients(versions, detection, CapabilityMatrix.production()),
-            new ArchiveFolderWriter(), limiter, new ArchiveExportAudit.Dependencies(audit,
+            node -> artifacts.forNode(node), (export, group, owner, diagramGroup) -> {
+                events.add("slice");
+                return archivePort.slice(export, group, owner, diagramGroup);
+            },
+            gateWithoutClients(versions, detection, matrix), new ArchiveFolderWriter(ops),
+            limiter, new ArchiveExportAudit.Dependencies(audit,
                 new MutableClock(Instant.parse("2026-11-06T10:00:00Z")), "default",
                 () -> ids.remove(0)));
     }
@@ -1061,9 +1751,15 @@ class ArchiveExportServiceTest {
     private final class RecordingAudit implements AuditPort {
 
         final List<AuditRecord> records = new CopyOnWriteArrayList<>();
+        /** Which records fail to be written (the audit directory is full). */
+        Predicate<AuditRecord> failing = record -> false;
 
         @Override
         public void append(AuditRecord record) {
+            if (failing.test(record)) {
+                events.add("audit failed " + record.outcome());
+                throw new UncheckedIOException(new IOException("No space left on device"));
+            }
             events.add("audit " + record.outcome());
             records.add(record);
         }
