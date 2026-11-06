@@ -1,7 +1,9 @@
 package de.dadecker.inubit.mcp.domain.port;
 
 import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.Optional;
 
@@ -84,5 +86,14 @@ public interface PrivateFileSystem {
      */
     default Optional<String> currentUserSid() {
         return Optional.empty();
+    }
+
+    /**
+     * Opens an existing lock file for writing (feature 013 T025 r1). On Windows the file cannot
+     * be deleted while it is open, so that another process whose private creation of the same
+     * file failed cannot remove a lock a deployment holds; elsewhere a plain write channel.
+     */
+    default FileChannel openLockFile(Path file) throws IOException {
+        return FileChannel.open(file, StandardOpenOption.WRITE);
     }
 }

@@ -22,7 +22,17 @@ public final class PrivateFiles {
      * {@link #failing()}: the directory is created, the file in it is not.
      */
     public static PrivateFileSystem failingFiles() {
+        return failingFiles(Integer.MAX_VALUE);
+    }
+
+    /**
+     * As {@link #failingFiles()}, but only the first {@code times} calls of
+     * {@link PrivateFileSystem#createFile} fail; later ones create the file (T025 r1: a
+     * transient failure).
+     */
+    public static PrivateFileSystem failingFiles(int times) {
         PrivateFileSystem host = forHost();
+        int[] failed = {0};
         PrivateFileSystem failing = failing();
         return new PrivateFileSystem() {
             @Override
@@ -42,7 +52,11 @@ public final class PrivateFiles {
 
             @Override
             public Path createFile(Path file) throws IOException {
-                return failing.createFile(file);
+                if (failed[0] < times) {
+                    failed[0]++;
+                    return failing.createFile(file);
+                }
+                return host.createFile(file);
             }
 
             @Override

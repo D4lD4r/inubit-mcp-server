@@ -166,8 +166,11 @@ public final class AuditLog implements AuditPort {
             } catch (FileAlreadyExistsException | UnsupportedOperationException e) {
                 // created meanwhile, or no private files here: the open creates it
             } catch (IOException e) {
-                // it may be left behind with the access of its directory (feature 013 T024 r1)
-                notPrivate.add(file);
+                // left behind with the access of its directory, it is never written (feature
+                // 013 T024 r1); if nothing was left, the next append tries again (T025 r1)
+                if (Files.exists(file)) {
+                    notPrivate.add(file);
+                }
                 throw e;
             }
         }

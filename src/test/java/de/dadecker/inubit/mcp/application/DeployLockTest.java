@@ -171,4 +171,18 @@ class DeployLockTest {
         WindowsAcl.assertPrivate(deployments(), WindowsAcl.DIRECTORY_INHERITANCE);
         WindowsAcl.assertPrivate(deployments().resolve("int.lock"), "None");
     }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void onWindowsAHeldLockFileCannotBeDeleted() throws Exception {
+        // T025 r1: a failed private creation of another process deletes its new lock file;
+        // it must not delete the one a deployment holds
+        Path workspace = workspace();
+
+        try (DeployLock lock = DeployLock.acquire(deployments(), INT, workspace, FILES)) {
+            assertThatThrownBy(() -> Files.delete(deployments().resolve("int.lock")))
+                .isInstanceOf(IOException.class);
+        }
+        assertThat(deployments().resolve("int.lock")).exists();
+    }
 }

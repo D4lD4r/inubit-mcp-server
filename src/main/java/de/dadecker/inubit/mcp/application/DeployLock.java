@@ -12,7 +12,6 @@ import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Objects;
 
 /**
@@ -77,7 +76,7 @@ public final class DeployLock implements AutoCloseable {
                     // created meanwhile by another process of the profile
                 }
             }
-            channel = FileChannel.open(file, StandardOpenOption.WRITE);
+            channel = files.openLockFile(file);
         } catch (IOException | UnsupportedOperationException e) {
             throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
                 "The deploy lock " + file + " cannot be opened (" + e.getClass().getSimpleName()

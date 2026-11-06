@@ -335,7 +335,7 @@ Windows CI job.
 
 ## Phase 7: User Story 3 - Write tools with the same safety (Priority: P2)
 
-- [ ] T024 [US3] Audit (FR-007): `AuditLog` and `Launcher.createAuditDirectory` use
+- [X] T024 [US3] Audit (FR-007): `AuditLog` and `Launcher.createAuditDirectory` use
   `PrivateFileSystem`; at startup and in `--check-config`, `check` on the default audit directory
   and the audit log warns with the `icacls` remedy when another principal has access; nothing is
   changed; POSIX behaviour unchanged. This task wires the port for `infra`, `application`,
@@ -343,7 +343,7 @@ Windows CI job.
   failing `PrivateFileSystem` stub makes the server refuse to start (as today when the audit
   directory cannot be created); **(Windows)** DACL read-back and the warning for a directory with
   an inherited `Users` entry.
-- [ ] T025 [US3] Deployment files (FR-007): `BackupStore`, `PackageWriter`, `DeployLock` and
+- [X] T025 [US3] Deployment files (FR-007): `BackupStore`, `PackageWriter`, `DeployLock` and
   `DeploymentLedger` use `PrivateFileSystem` (injected; `PackageBoundaryTest` green); the existing
   deployment ledger and lock are checked like the audit log. Test first: their POSIX tests
   unchanged; a failing `PrivateFileSystem` stub fails each class with its existing error (every

@@ -1,14 +1,17 @@
 package de.dadecker.inubit.mcp.adapter.os;
 
+import com.sun.nio.file.ExtendedOpenOption;
 import de.dadecker.inubit.mcp.adapter.os.AclApi.Principal;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystemException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
@@ -212,6 +215,19 @@ public final class OsPrivateFileSystem implements PrivateFileSystem {
         } catch (LinkageError e) {
             return Optional.empty();
         }
+    }
+
+    @Override
+    public FileChannel openLockFile(Path file) throws IOException {
+        if (mode == Mode.WINDOWS) {
+            try {
+                return FileChannel.open(file, StandardOpenOption.WRITE,
+                    ExtendedOpenOption.NOSHARE_DELETE);
+            } catch (UnsupportedOperationException e) {
+                // a simulated Windows host in the tests
+            }
+        }
+        return FileChannel.open(file, StandardOpenOption.WRITE);
     }
 
     private String user(Path path) throws FileSystemException {

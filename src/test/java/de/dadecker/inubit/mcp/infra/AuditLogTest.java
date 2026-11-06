@@ -320,6 +320,18 @@ class AuditLogTest {
     }
 
     @Test
+    void aFailedPrivateCreationThatLeftNoLogIsRetriedByTheNextAppend() throws IOException {
+        Path nested = directory.resolve("a/audit");
+        AuditLog log = new AuditLog(nested, scrubber, PrivateFiles.failingFiles(1));
+
+        assertThatThrownBy(() -> log.append(record(AuditOutcome.PENDING)))
+            .isInstanceOf(UncheckedIOException.class);
+        log.append(record(AuditOutcome.EXECUTED));
+
+        assertThat(lines(nested.resolve("audit-2026-10.jsonl"))).hasSize(1);
+    }
+
+    @Test
     void aLogLeftBehindByAFailedPrivateCreationIsNeverWritten() throws IOException {
         PrivateFileSystem leaving = new PrivateFileSystem() {
             @Override
