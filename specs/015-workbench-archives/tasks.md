@@ -208,7 +208,7 @@ archives whose content follows FR-005/FR-006.
   test asserts the three empty parts, so T019 only adds behaviour, no field. Writes stop at the
   first failure (detailed failure handling in T019).
 
-- [ ] T010 [US1] Service happy path and export-dependent checks (research R-2, R-13 steps 1, 4–8,
+- [X] T010 [US1] Service happy path and export-dependent checks (research R-2, R-13 steps 1, 4–8,
   FR-002, FR-003, FR-005, FR-012, FR-017): test first
   `test/application/ArchiveExportServiceTest.java` with fakes for `ArtifactPort` (returns fixture
   bytes, counts calls), `AuditPort`, `VersionGate` (admits) and the real `V81WorkflowArchives`:

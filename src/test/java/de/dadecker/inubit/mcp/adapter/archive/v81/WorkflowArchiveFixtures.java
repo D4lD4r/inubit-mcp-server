@@ -106,13 +106,23 @@ public final class WorkflowArchiveFixtures {
      * 0006 and the copies {@code Workflow-0007} to {@code Workflow-0012} of them, in turn.
      */
     public static byte[] tenWorkflows() {
+        return workflows(10);
+    }
+
+    /**
+     * {@code grp-b.zip} with {@code count} (at least 4) workflows in {@code GRP-02}:
+     * {@code Workflow-0003} to 0006 and the copies {@code Workflow-0007} to
+     * {@code Workflow-<count + 2>} of them, in turn (feature 015 T010: more than 50 workflows).
+     */
+    public static byte[] workflows(int count) {
+        assertThat(count).isGreaterThanOrEqualTo(4);
         return edit(grpB(), WORKFLOWS, xml -> {
             List<String> originals = new ArrayList<>();
             for (int n = 3; n <= 6; n++) {
                 originals.add(workflowElement(xml, "Workflow-000" + n));
             }
             StringBuilder copies = new StringBuilder();
-            for (int n = 7; n <= 12; n++) {
+            for (int n = 7; n <= count + 2; n++) {
                 String original = originals.get((n - 7) % originals.size());
                 String name = original.substring(original.indexOf("<WorkflowName>"),
                     original.indexOf("</WorkflowName>") + "</WorkflowName>".length());
@@ -125,20 +135,42 @@ public final class WorkflowArchiveFixtures {
     }
 
     /**
+     * {@code zip} (a diagram group export) where workflow {@code workflow} is called
+     * {@code newName} in {@code workflow/workflow.xml}; the module index is unchanged
+     * (feature 015 T010: long and colliding names). {@code newName} needs no XML escaping.
+     */
+    public static byte[] renamed(byte[] zip, String workflow, String newName) {
+        return edit(zip, WORKFLOWS, xml -> replaceOnce(xml,
+            "<WorkflowName>" + workflow + "</WorkflowName>",
+            "<WorkflowName>" + newName + "</WorkflowName>"));
+    }
+
+    /**
      * {@code grp-b.zip} where {@code Workflow-0005} has the {@code workflowType} {@code business}
      * and {@code Workflow-0006} has no {@code workflowType} attribute.
      */
     public static byte[] nonTechnicalWorkflow() {
         return edit(grpB(), WORKFLOWS, xml -> {
             String type = " workflowType=\"technical\"";
-            int business = workflowStart(xml, "Workflow-0005");
-            String changed = xml.substring(0, business) + replaceOnce(
-                xml.substring(business, xml.indexOf('>', business)), type,
-                " workflowType=\"business\"") + xml.substring(xml.indexOf('>', business));
+            String changed = withWorkflowType(xml, "Workflow-0005", "business");
             int absent = workflowStart(changed, "Workflow-0006");
             return changed.substring(0, absent) + replaceOnce(
                 changed.substring(absent, changed.indexOf('>', absent)), type, "")
                 + changed.substring(changed.indexOf('>', absent));
+        });
+    }
+
+    /**
+     * {@code grp-b.zip} where every workflow of {@code GRP-02} ({@code Workflow-0003} to 0006) has
+     * the {@code workflowType} {@code business}: a diagram group without technical workflows.
+     */
+    public static byte[] noTechnicalWorkflows() {
+        return edit(grpB(), WORKFLOWS, xml -> {
+            String changed = xml;
+            for (int n = 3; n <= 6; n++) {
+                changed = withWorkflowType(changed, "Workflow-000" + n, "business");
+            }
+            return changed;
         });
     }
 
@@ -187,6 +219,14 @@ public final class WorkflowArchiveFixtures {
         header.setCompressedSize(0);
         header.setCrc(0);
         return new RawEntry(header, new byte[0]);
+    }
+
+    /** {@code xml} where the technical {@code workflow} has the workflow type {@code type}. */
+    private static String withWorkflowType(String xml, String workflow, String type) {
+        int start = workflowStart(xml, workflow);
+        int end = xml.indexOf('>', start);
+        return xml.substring(0, start) + replaceOnce(xml.substring(start, end),
+            " workflowType=\"technical\"", " workflowType=\"" + type + "\"") + xml.substring(end);
     }
 
     private static int workflowStart(String xml, String workflow) {
