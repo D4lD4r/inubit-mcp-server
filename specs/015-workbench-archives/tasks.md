@@ -484,7 +484,7 @@ export and a write failure are each audited, and the folder never holds a partia
   with node, diagram group, counts and `auditId` only; ERROR line on audit failure without
   values).
 
-- [ ] T021 [US3] Secret-leak guarantee (SC-004, FR-001, FR-003, Constitution II): test first
+- [X] T021 [US3] Secret-leak guarantee (SC-004, FR-001, FR-003, Constitution II): test first
   `test/security/ArchiveExportSecretLeakTest.java` modelled on `test/security/SecretLeakTest.java`:
   every fixture diagram group exported through `export_archives` with the production adapters
   (`TestWiring`, scripted StartCLI launcher returning the fixtures) into a temporary folder; no
