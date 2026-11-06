@@ -86,7 +86,9 @@ FR-017).
 
 ### CLI selection (plan stage 3)
 
-- [ ] T009 [US2] `CliRunner`: constructor `+ Function<NodeId, Optional<InubitVersion>> versions`;
+- [ ] T009 [US2] Domain types first (tests `domain/model/ClientKeyTest.java`): `ClientKey(String
+  home, String javaHome)` ("`""` = none"; value equality; no URL, no credentials) and
+  `ProbedClient(ClientKey key, ClientVersion version)` in `domain/model/`; then `CliRunner`: constructor `+ Function<NodeId, Optional<InubitVersion>> versions`;
   `Selection select(EffectiveNodeConfig, Optional<InubitVersion>)` (server with the chosen `Cli`,
   `CliChoice`, `ClientKey`, address warning D-19); `run`, `runSession`, `execute` and
   `checkAvailable` read the version once and select once; `launchTarget`, Windows refusals (013),
@@ -124,13 +126,12 @@ FR-017).
 
 ### Client check per client (plan stage 4, FR-017)
 
-- [ ] T015 [US2] `ClientKey(String home, String javaHome)` ("`""` = none"; value equality; no URL,
-  no credentials), `ProbedClient(ClientKey key, ClientVersion version)`, `NodeVersionState` with
+- [ ] T015 [US2] `NodeVersionState` (using `ClientKey`/`ProbedClient` from T009) with
   `clients: Map<ClientKey, Timed<ClientVersion>>`, `clientFailures: Map<ClientKey,
   Timed<ErrorCode>>`, `withClient`, `withClientFailure`, `needsClientProbe(Instant, ClientKey)`,
   `clientFor(ClientKey)` ("a result or failure of one key never touches another key's; the 60 s
-  back-off applies per key; A→B→A reuses A") — main `domain/model/ClientKey.java`,
-  `domain/model/ProbedClient.java`,   `domain/model/NodeVersionState.java` (signatures as data-model.md: `withClient(ProbedClient,
+  back-off applies per key; A→B→A reuses A") — main
+  `domain/model/NodeVersionState.java` (signatures as data-model.md: `withClient(ProbedClient,
   Instant)`, `withClientFailure(ClientKey, ErrorCode, Instant)`; existing `Timed`), test
   `domain/model/NodeVersionStateClientsTest.java` (existing `NodeVersionStateTest` stays green)
 - [ ] T016 [US2] Port `ClientCheckLookup` (`Optional<ClientCheck> check(NodeId, ClientKey)`,
@@ -304,7 +305,7 @@ code-review phase 5.
 ## Dependencies
 
 - Phase 2 blocks everything.
-- US2: T007 → T008 → T009 → T010 → (T011, T012) (all touch `CliRunner.java`, sequential);
+- US2: T007 → T008 → T009 → T010 → T011 → T012 (all touch `CliRunner.java`);
   T009 → (T013, T014); T015 → T016 → T017; T015 → T018; T014 + T016 → T019 → T020 → T021 →
   T022; T008 → T023 → T024; T014 + T024 → T025; T019 + T022 → T026.
 - US1 (Phase 4): T027 → T028 → T029 (all `InubitHttpClient`/adapters); T030 → T031 (T031 also

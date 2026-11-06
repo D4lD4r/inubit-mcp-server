@@ -91,3 +91,14 @@ Before the review the producer checked every named path against the repository: 
 | 7 | NIT | Phase 5 checkpoint without code-review | Accepted | Added |
 
 No blocking finding open.
+
+## Tasks — round 2 (rubber-duck, 2026-11-06)
+
+Round-1 fixes verified as applied; no new `[P]` collision, cycle or TDD defect.
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | BLOCKING | `ClientKey`/`ProbedClient` created in T015 but used by T009 (`Selection`) and T014 | Accepted | Both types (with `ClientKeyTest`) move to the start of T009; T015 keeps only `NodeVersionState` |
+| 2 | SHOULD | `T010 → (T011, T012)` reads as parallel branches | Accepted | Chain `T009 → T010 → T011 → T012` |
+
+No blocking finding open.
