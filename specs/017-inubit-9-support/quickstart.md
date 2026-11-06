@@ -31,7 +31,7 @@ How to check 017 offline (automated) and live (by the person, in the joint 0.8.x
 | Windows: entries with `startcli.bat`, UNC/refused characters refused like `cli.home` (D-21) | `CliRunnerWindowsTest`, `ConfigValidatorTest` |
 | record scripts: `RECORD_INUBIT_LINE=9.0` writes `fixtures/v9_0/`, base URL as CLI URL (SC-006) | `RecordFixturesCatalogueTest`, `RecordFixturesPs1Test` |
 | closed fixture world: catalogue (`.sh` 9.0 cases) ∪ `NOT_RECORDABLE.txt` = fixture and `.origin` files = cases loaded through `V90Cases` (both directions); a missing `.origin` fails (SC-006) | `V90FixtureCatalogueTest` |
-| release guard: a release build with a catalogue case whose `.origin` is not `recorded` fails; pre-release builds skip with the list (SC-006) | `V90RecordedFixturesTest` |
+| not-yet-recorded listing: every catalogue case whose `.origin` is not `recorded` is named in a skip message; no build fails because of it (person's decision, release without live check); was: release builds fail; pre-release builds skip with the list (SC-006) | `V90RecordedFixturesTest` |
 | launch guard: key changed without a check → `CLI_UNAVAILABLE` "changed during this call", nothing launched; checked range excludes → `UNSUPPORTED_VERSION`; failure recorded or first use → launched as in 0.8.0 (D-4) | `CliRunnerLaunchGuardTest` |
 | race: `AUTO` node observed as 9.0 between admission and launch; two overlapping `get_health` calls (FR-017) | `CliRunnerLaunchGuardTest`, `HealthServiceTest` — the unchecked 9.0 client is not launched; each `get_health` reports the client of its own observation |
 | write race (FR-018, SC-007): version changes 8.1 → 9.0, 9.0 → 9.1, 9.0 → stale between admission and hand-off → `UNSUPPORTED_VERSION` "changed … during this call", nothing launched/sent; 9.0.6 → 9.0.7 → sent | `WriteLockTest` (`NodeVersions`), `CliRunnerWriteLockTest`, `SoapE2eClientTest`, write-service tests |
@@ -43,7 +43,7 @@ How to check 017 offline (automated) and live (by the person, in the joint 0.8.x
 | `AUTH_FAILED` on 9.0 with explicit base-URL or servlet `cli.url` also names the internal user management (FR-013) | `CliOutputClassifierTest`, `CliRunnerTest` |
 | 0.8.0 suite, 8.1 and 6.1 behaviour (FR-009, SC-003) | everything else green unchanged, apart from the changes SC-003 allows |
 
-## Live check (joint 0.8.x live test; release blocker for 0.8.1)
+## Live check (after the 0.8.0 release; the person accepted releasing without it)
 
 Run by the person, against a 9.0.x test node only; the server's write tools only with
 `developmentEnabled` on a test stage.

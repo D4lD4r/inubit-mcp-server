@@ -6,8 +6,9 @@
 
 **Status**: Draft
 
-**Target release**: 0.8.1, built on the test branch `0.8.0` (features 012 INUBIT 6.1 CLI reads,
-013 StartCLI on Windows, 016 update check)
+**Target release**: 0.8.0 — 017 is merged into the release branch `0.8.0` (features 012 INUBIT
+6.1 CLI reads, 013 StartCLI on Windows, 016 update check), which is then released (the target was
+0.8.1 until the person's decision of 2026-11-06)
 
 **Input**: the operator's request (German, verbatim): "Ich möchte ein weiteres Feature 017
 implementieren. Der MCP soll auch Inubit 9 unterstützen. Dafür ist es wahrscheinlich notwendig pro
@@ -59,11 +60,12 @@ Version einen eigenen Startcli Pfad zu konfigurieren."
   node uses the entry of its effective version. `cli.home`/`cli.javaHome` on the node or its group
   keep winning; `defaults.cliHome`/`cliJavaHome` remain the client without a version.
 - Q: Which capabilities become supported on 9.0? → A: All of them — every read and every write,
-  including `run_e2e_test`. The operator's live check against a 9.0 node is a release blocker for
-  0.8.1.
-- Q: When does the live check against a 9.0 node happen? → A: In the joint live test of 0.8.x,
-  not during this implementation; until then 9.0 fixtures derived from the documentation are
-  marked as such.
+  including `run_e2e_test`. (Revised 2026-11-06: 017 ships in 0.8.0, and the person releases
+  0.8.0 without the live check, accepting the risk; the live check follows after the release.)
+- Q: When does the live check against a 9.0 node happen? → A: Not during this implementation;
+  until then 9.0 fixtures derived from the documentation are marked as such. Revised by the
+  person (2026-11-06): "Ich bin mutig und will ohne Live Test releasen" — 0.8.0 is released
+  without it; the live check is done after the release, the person accepted the risk.
 - Q: How is a node pinned to 9.0? → A: A new `versionLine` value `V9_0` (9.0.x, fully supported);
   `V9_X` keeps its meaning "some 9.x version" with unchanged behaviour.
 - Spec review round 1 (see `reviews.md`): the configuration key is `defaults.cliClients`;
@@ -280,7 +282,7 @@ pass unchanged.
   currently known effective version, without any additional node contact; for a node whose
   version is not yet known they show the version-less fallback and state that the final choice
   is made at runtime. In `list_nodes` this is an additive field; existing fields are unchanged.
-- **FR-016**: The documentation (setup, tools, README, CHANGELOG for 0.8.1) MUST describe the 9.0
+- **FR-016**: The documentation (setup, tools, README, CHANGELOG for 0.8.0) MUST describe the 9.0
   support, the per-version client configuration, the version-dependent default address and the
   migration of an 8.1 profile when stages are upgraded to 9.0.
 - **FR-017**: A client check result (009, `startcli -v`) MUST belong to the client and JDK it
@@ -323,10 +325,12 @@ pass unchanged.
   configured it explicitly, in which case a warning is shown.
 - **SC-005**: No credential appears in any new message, warning, excerpt, log line or the
   `--check-config` output.
-- **SC-006**: Before 0.8.1 is released, the operator's live check has captured the exact output
+- **SC-006**: In the operator's live check (after the 0.8.0 release; not a release gate, the
+  person accepted the risk), the operator captures the exact output
   (stdout, stderr, exit status) of `startcli -v` of a 9.0 client and the responses of every REST
   endpoint used on 9.0; they are turned into contract fixtures that replace the
-  documentation-derived ones, and the test suite passes with them. Exempt are only the responses
+  documentation-derived ones, and the test suite passes with them. Until then every 9.0 fixture
+  is marked as documentation-derived and the test run lists them (no build fails because of it). Exempt are only the responses
   the read-only recording cannot produce, listed by name: the success outputs of the StartCLI
   write commands (confirmed by the live check's write steps) and the REST 403, 500 and 503 bodies
   (no reproducible trigger; their handling depends on the status code, the body only feeds a
@@ -352,8 +356,9 @@ pass unchanged.
   of a stage from 8.1 to 9.0 is INUBIT's migration procedure, not a deployment.
 - `run_e2e_test` posts to user-defined SOAP listeners, which 9.0 keeps; it is declared supported
   on 9.0 (FR-002).
-- The operator's live check against a 9.0 node happens in the joint live test of 0.8.x and is a
-  release blocker for 0.8.1; until then the 9.0 support rests on documentation-derived fixtures.
+- The operator's live check against a 9.0 node happens after the 0.8.0 release (the person
+  accepted the risk of releasing without it); until then the 9.0 support rests on
+  documentation-derived fixtures.
 
 ## Out of Scope
 

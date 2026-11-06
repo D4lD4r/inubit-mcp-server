@@ -211,7 +211,7 @@ its version is not known yet (plan review 1, finding 6).
   use V9_0 (INUBIT 9.0.x) or AUTO".
 - `DeployGuard` keeps "same major.minor"; 9.0 ↔ 9.0 is now admitted because writes are supported.
 
-## D-10 Fixtures for 9.0 and the release guard (Constitution V)
+## D-10 Fixtures for 9.0, provenance and not-yet-recorded listing (Constitution V)
 
 **Decision**:
 - `src/test/resources/fixtures/v9_0/` gets documentation-derived fixtures for every endpoint and
@@ -247,19 +247,19 @@ its version is not known yet (plan review 1, finding 6).
 - The sh catalogue gets the 9.0 additions that are read-only: `help` (`-h`), `rest_auth_failed`
   (GET `/system/info` with the dummy password → 401 body), `rest_not_found` (modelByName of a name
   that does not exist → 404 body).
-- `V90RecordedFixturesTest`: fails when the build version (`BuildInfo`, from `pom.xml`) is a
-  release (`SemVer` without pre-release) while a catalogue case's origin is not `recorded`.
-  Pre-release builds (`0.8.0-test.1`, `0.8.1-test.N`) pass with a skipped-test message naming the
-  open cases.
+- `V90RecordedFixturesTest`: skipped with a message naming every catalogue case whose origin is
+  not `recorded`; it never fails, for release builds neither (the person releases 0.8.0 without
+  the live check and accepted the risk, 2026-11-06; earlier design: fail release builds).
 - Recording: `tools/record-fixtures.sh` gets `RECORD_INUBIT_LINE=9.0` (fixtures to
   `fixtures/v9_0/rest|cli`, CLI URL `<baseUrl>`, each REST case with the server's `Accept`, D-11)
   and writes the `.origin` file; the 8.1 default stays. `RecordFixturesCatalogueTest` covers the
   new option.
 
 **Deviation**: Constitution V asks for recorded responses before a version counts as supported.
-The person decided (clarify Q2/Q3) that 9.0 is declared supported now and the live recording is a
-release blocker. The release guard enforces recordings for every recordable case; the write
-successes are confirmed by the live check (the release blocker the person set); REST 403/500/503
+The person decided (clarify Q2/Q3) that 9.0 is declared supported now, and (2026-11-06) that 0.8.0
+is released without the live check, accepting the risk; the live recording follows after the
+release. The `.origin` files and the listing test keep the gap visible; the write successes are
+confirmed by the live check after the release; REST 403/500/503
 stay documentation-derived with a status-driven contract; see plan "Complexity Tracking".
 
 ## D-11 `Accept` per request (FR-007)
@@ -385,7 +385,8 @@ the same way on Windows. No Windows-specific code in 017 beyond that.
 
 ## D-23 Release notes and version
 
-**Decision**: `CHANGELOG.md` gets an `0.8.1 (unreleased)` section; `pom.xml`'s version is not
+**Decision** (target 0.8.0 since 2026-11-06): `CHANGELOG.md` entries go into the existing
+`[Unreleased]` section of the `0.8.0` branch, with a note that 9.0 is not yet live-checked; `pom.xml`'s version is not
 changed by 017 (the integration branch owns the version). Docs: `docs/setup.md` (cliClients,
 default address, JDKs, migration 8.1 → 9.0), `docs/tools.md` (`list_nodes.startCli`, 9.0
 support), `README.md` (supported versions), `docs/research/inubit-interfaces.md` §4 (what 017

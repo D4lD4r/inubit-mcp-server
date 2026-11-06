@@ -2,8 +2,8 @@
 
 **Branch**: `017-inubit-9-support` | **Date**: 2026-11-06 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/017-inubit-9-support/spec.md`. Target release 0.8.1,
-built on the merged test branch `0.8.0` (012 + 013 + 016).
+**Input**: Feature specification from `/specs/017-inubit-9-support/spec.md`. Target release 0.8.0
+(017 is merged into the release branch `0.8.0` = 012 + 013 + 016; 0.8.1 until 2026-11-06).
 
 ## Summary
 
@@ -24,12 +24,12 @@ StartCLI client per INUBIT version. No tool is added. Instead:
   (D-11, D-12);
 - `--check-config` checks every client and JDK, `list_nodes` gets an additive **`startCli`**
   field (D-17, D-18);
-- documentation-derived **9.0 fixtures** with a **release guard**: 0.8.1 cannot be released
-  while a 9.0 case is still reconstructed; the record scripts learn `RECORD_INUBIT_LINE=9.0`
-  (D-10).
+- documentation-derived **9.0 fixtures**, each marked by its `.origin`; the test run lists the
+  cases not yet recorded but never fails because of them (the person releases 0.8.0 without the
+  live check and accepted the risk); the record scripts learn `RECORD_INUBIT_LINE=9.0` (D-10).
 
-The live check against a 9.0 node is the person's, in the joint 0.8.x live test; it is a release
-blocker (clarify Q3).
+The live check against a 9.0 node is the person's, after the 0.8.0 release; it is not a release
+gate (the person accepted releasing without it, clarify Q3 revised; T047/T048).
 
 ## Technical Context
 
@@ -44,7 +44,7 @@ blocker (clarify Q3).
 - JUnit 5, AssertJ; WireMock with `Accept` header matchers;
 - `FakeProcessLauncher` / `ScriptedProcessLauncher` recording the launched client, JDK and URL;
 - a 9.0 contract test running the 8.1 adapters against the 9.0 fixtures;
-- `V90RecordedFixturesTest` (release guard);
+- `V90RecordedFixturesTest` (lists not-yet-recorded 9.0 cases; never fails);
 - Python `unittest` for the record scripts (`tools/tests`);
 - baseline after the 0.8.0 merge: 4998 tests, 0 failures, 51 skipped (surefire + failsafe).
 
@@ -96,7 +96,7 @@ earlier result (60 s back-off per key after a failure).
 |---|---|---|
 | I. Safe by Default | ⚠️ writes on 9.0 become supported | ✅ <ul><li>Writes stay behind the existing gates (`writeEnabled`, `developmentEnabled`, confirmation, production rules); only the version gate opens for 9.0.</li><li>`deploy_release` stays version-equal (9.0 ↔ 9.0).</li><li>Unknown versions, `V9_X` and 9.1+ keep refusing writes.</li></ul> |
 | II. Secrets Stay Out | ✅ | ✅ <ul><li>`ClientKey`, `CliChoice`, `startCli` and every new message carry paths and kinds only, never `cli.url` or credentials.</li><li>JSON error messages are scrubbed like XML excerpts (D-12).</li><li>Password on stdin as today.</li></ul> |
-| III. Test-First | ⚠️ no recorded 9.0 outputs | ✅ <ul><li>Every task starts with failing tests (quickstart table).</li><li>9.0 contract tests against documentation-derived fixtures; recordings replace them before release (SC-006, guard).</li></ul> |
+| III. Test-First | ⚠️ no recorded 9.0 outputs | ✅ <ul><li>Every task starts with failing tests (quickstart table).</li><li>9.0 contract tests against documentation-derived fixtures, which ship in 0.8.0; missing recordings are listed without failing; their replacement after the release is tracked by T047/T048 (SC-006; Principle V deviation in Complexity Tracking).</li></ul> |
 | IV. Use-Case-Oriented Tools | ✅ no new tool | ✅ existing tools answer for 9.0; `startCli` explains the choice. |
 | V. Adapter Isolation & Version Compatibility | ⚠️ "supported only with recorded responses" | ⚠️ → Complexity Tracking. <ul><li>9.0 access stays in adapters: `PortSetRegistry` range 9.0 → V81 port set, `Accept` per adapter, JSON errors in `InubitHttpClient`.</li><li>Client and address defaults derive from the version in `config` and are applied by the CLI adapter; tool logic does not branch on versions (FR-014).</li><li>CLI argument arrays, timeouts, exit codes unchanged.</li></ul> |
 | VI. Bounded, Structured Output | ✅ | ✅ `startCli` is a small fixed object; no new listing. |
@@ -178,7 +178,7 @@ and each ending with a green `mvn -o -q clean verify` (plus the Python tests whe
 8. **Recording and guard**: `RECORD_INUBIT_LINE=9.0` (`.sh`) with tests, `.origin` per case,
    `NOT_RECORDABLE.txt`, `V90Cases` registry, `V90FixtureCatalogueTest` (closed world, both
    directions), `V90RecordedFixturesTest`.
-9. **Docs and CHANGELOG 0.8.1**, quickstart validation record.
+9. **Docs and CHANGELOG (0.8.0, `[Unreleased]`)**, quickstart validation record.
 
 ### Touch points with 012, 013, 016 (already merged; D-22)
 
@@ -199,4 +199,4 @@ and each ending with a green `mvn -o -q clean verify` (plus the Python tests whe
 
 | Violation | Why needed | Simpler alternative rejected because |
 |---|---|---|
-| Principle V: 9.0 is declared supported before recorded 9.0 responses exist; the contract tests run against documentation-derived fixtures | The person decided (clarify Q2, Q3) that 9.0 is fully supported in 0.8.1 and that the live check happens in the joint 0.8.x live test, as a release blocker; this session has no access to a 9.0 node | Keeping 9.0 `READS_UNVERIFIED` until the recordings exist contradicts the decision and would need a second feature to flip it. The deviation is bounded: `V90RecordedFixturesTest` fails every release build (version without pre-release) while a catalogue case's `.origin` is not `recorded`, and `V90FixtureCatalogueTest` ties fixtures, origin files and contract-test cases to the record scripts' 9.0 catalogue (closed world), so no release declares 9.0 supported without recordings of every recordable case (SC-006); non-recordable cases are listed: write successes confirmed by the live check, REST 403/500/503 documentation-derived with a status-driven, contract-tested mapping (the body only feeds a scrubbed excerpt). |
+| Principle V: 9.0 is declared supported before recorded 9.0 responses exist; the contract tests run against documentation-derived fixtures | The person decided (clarify Q2, Q3) that 9.0 is fully supported, and later (2026-11-06) that 0.8.0 including 017 is released without the live check, accepting the risk; the live check follows after the release; this session has no access to a 9.0 node | Keeping 9.0 `READS_UNVERIFIED` until the recordings exist contradicts the decision and would need a second feature to flip it. The deviation is made visible, not gated (person's decision): `V90RecordedFixturesTest` lists every catalogue case whose `.origin` is not `recorded` (skipped, never failing), the CHANGELOG names 9.0 as not yet live-checked, and `V90FixtureCatalogueTest` ties fixtures, origin files and contract-test cases to the record scripts' 9.0 catalogue (closed world), so the live recording after the release replaces every recordable case (SC-006); non-recordable cases are listed: write successes confirmed by the live check, REST 403/500/503 documentation-derived with a status-driven, contract-tested mapping (the body only feeds a scrubbed excerpt). |

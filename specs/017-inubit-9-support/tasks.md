@@ -342,7 +342,7 @@ StartCLI values; 8.1 and 6.1 suites pass.
 **Checkpoint**: build green (SC-003 count ≥ T001 minus replaced tests, listed in `reviews.md`);
 code-review phase 5.
 
-## Phase 6: Recording and release guard (plan stage 8; US1, SC-006)
+## Phase 6: Recording and not-yet-recorded listing (plan stage 8; US1, SC-006)
 
 - [ ] T034 [US1] `tools/record-fixtures.sh`: `RECORD_INUBIT_LINE=9.0` → output
   `fixtures/v9_0/rest|cli`, CLI URL `<baseUrl>`, each REST case with its D-11 `Accept`; new
@@ -356,9 +356,10 @@ code-review phase 5.
   `V90FixtureCatalogueTest`: catalogue (`record-fixtures.sh --list` for 9.0) ∪ NOT_RECORDABLE =
   fixture/`.origin` files = `V90Cases` cases (both directions); a missing `.origin` fails; the
   NOT_RECORDABLE set is asserted exactly — test `tools/V90FixtureCatalogueTest.java`
-- [ ] T036 [US1] `V90RecordedFixturesTest`: build version from `BuildInfo` is a release (`SemVer`
-  without pre-release) and a catalogue case's `.origin` is not `recorded` → fail naming the cases;
-  pre-release → skipped with the list — test `tools/V90RecordedFixturesTest.java`
+- [ ] T036 [US1] `V90RecordedFixturesTest`: every catalogue case whose `.origin` is not
+  `recorded` → skipped with a message naming the cases; never fails, also not for release builds
+  (no release gate: the person releases 0.8.0 without the live check and accepted the risk) —
+  test `tools/V90RecordedFixturesTest.java`
 
 **Checkpoint**: build + Python tests green; code-review phase 6.
 
@@ -369,11 +370,26 @@ code-review phase 5.
   warning, `CLI_UNAVAILABLE` "call again", write refused after a version change during the call
   (FR-018)), `README.md` (supported versions),
   `docs/research/inubit-interfaces.md` §4 (what 017 relies on, D-11/D-12)
-- [ ] T038 [P] `CHANGELOG.md` (FR-016): section `0.8.1 (unreleased)`, incl. the fix "a write is no longer
+- [ ] T038 [P] `CHANGELOG.md` (FR-016): entries in the existing `[Unreleased]` section of the
+  `0.8.0` branch (017 ships in 0.8.0), with "INUBIT 9.0 not yet checked against a live node",
+  incl. the fix "a write is no longer
   sent after a parallel call found another INUBIT version" (also 8.1 → 9.0); `pom.xml` version unchanged (D-23)
 - [ ] T039 Full verification (mvn + Python), quickstart offline table checked row by row and the
   validation record filled in `specs/017-inubit-9-support/quickstart.md`; final code-review over
   `git diff origin/0.8.0...HEAD`; findings in `reviews.md`
+
+## Live check (after the 0.8.0 release; not a gate)
+
+The person releases 0.8.0 without the live check and accepted the risk (2026-11-06); these tasks
+stay open after 017 is merged and are done by the person after the release.
+
+- [ ] T047 Live check against a 9.0.x test node, steps 1–11 of `quickstart.md` "Live check";
+  append a dated live-check record (tested 9.0 version, result per step) to `quickstart.md`
+  (after the release, risk accepted by the person)
+- [ ] T048 Live recording `RECORD_INUBIT_LINE=9.0` (quickstart step 12); recorded files replace
+  the documentation-derived ones, `.origin` = `recorded`; build green; record the replacement and
+  the comparison of the non-recordable write successes with T047's results (SC-006; after the
+  release, risk accepted by the person)
 
 ## Dependencies
 
@@ -387,7 +403,8 @@ code-review phase 5.
   major), T020 (gate on 9.0 clients) and T031.
 - US3 (Phase 5) needs T008 and T024.
 - Phase 6: T031 → T034 → T035 → T036.
-- Phase 7 needs all.
+- Phase 7 needs all (T047/T048 excluded).
+- T047/T048: after the 0.8.0 release; T047 → T048; T048 also needs T034–T036.
 
 ## Parallel opportunities
 
@@ -398,4 +415,4 @@ T027–T030 can start after Phase 2 alongside US2; T037/T038. Builds always sequ
 
 MVP = Phase 2 + US2 configuration and selection (T007–T014): 9.0 nodes get their own client and
 address. Then the per-client check (T015–T022), the write permit and lock (T040–T046), 9.0 REST (Phase 4), operator view, compatibility
-proof, release guard and docs. Each phase ends green and reviewed.
+proof, fixture provenance/listing and docs. Each phase ends green and reviewed.

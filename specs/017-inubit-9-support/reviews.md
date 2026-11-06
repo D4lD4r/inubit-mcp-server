@@ -171,3 +171,27 @@ Reviews the round-5 design (FR-018, D-24, T040–T046). All findings verified ag
 | 6 | SHOULD | `RefusingPorts` implements `ImportPort`/`TagPort`/`ProcessControlPort` but was not named | Accepted | Verified (`adapter/RefusingPorts.java`). Named in T045 with every implementation in the same step |
 | 7 | SHOULD | Race coverage lacked standalone `import_artifacts` and `tag_artifacts` | Accepted | T046 parameterized over all eight FR-018 tools |
 
+## Target and release decisions of the person (2026-11-06)
+
+- "Wenn Feature 017 fertig ist, soll es noch in den 0.8.0 Branch rein und dieser soll dann
+  released werden." → target 0.8.0 instead of 0.8.1: CHANGELOG entries in `[Unreleased]` of the
+  `0.8.0` branch; spec, plan, research D-23, tasks T038 adjusted; `origin/0.8.0` merged again
+  (d09500b, 6.1 tests on Windows).
+- "Ich bin mutig und will ohne Live Test releasen" → the live check is no release blocker any
+  more: it is done after the release, the person accepted the risk. `V90RecordedFixturesTest`
+  lists not-yet-recorded 9.0 cases but never fails (was: fail release builds); open live tasks
+  T047/T048 carry this note; Complexity Tracking and D-10 updated.
+
+## Design — round 2 of the write lock and the retarget (rubber-duck, 2026-11-06)
+
+Round-1 fixes confirmed. Findings on the retarget/no-gate change:
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | BLOCKING | plan.md still called the live check a release blocker; Constitution row III said "replace before release" | Accepted | Verified (plan.md 31–32, 99). Both rewritten: after the release, not a gate, T047/T048 |
+| 2 | SHOULD | "release guard" left in the D-10 heading and the tasks strategy | Accepted | Renamed to provenance / not-yet-recorded listing |
+| 3 | SHOULD | `RefusingPorts` missing in the data-model adapter row | Accepted | Added |
+| 4 | SHOULD | T047 → T048 order and evidence of the live check missing | Accepted | T047 appends a dated live-check record; T048 records the replacement and the write-success comparison; T047 → T048 |
+
+No blocking finding open after these fixes (confirmed by the reviewer in round 3).
+
