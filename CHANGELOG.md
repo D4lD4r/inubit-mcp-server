@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Test build `0.8.0-test.1` (branch `0.8.0`, not released): features 012, 013 and 016 together for a
+live check. As a SemVer pre-release of 0.8.0 it is newer than 0.7.1, so the update check reports
+no newer release against 0.7.1, but would report a released 0.8.0.
+
 Feature 012, read-only INUBIT 6.1 nodes reached through StartCLI only. The recordings of a real
 6.1 node have not been made yet, so every capability is still declared unsupported for 6.1: on a
 6.1 node only `list_nodes` and the offline checks of `check_artifacts` run, and every other tool
