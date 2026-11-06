@@ -133,8 +133,21 @@ public final class PinningTrustManager extends X509ExtendedTrustManager {
             throw new CertificateException("No server certificate to compare with the pin");
         }
         if (!MessageDigest.isEqual(pin.get(), sha256(chain[0]))) {
-            throw new CertificateException("The server certificate does not match the pinned"
-                + " SHA-256 fingerprint (tls.pinnedCertificateSha256)");
+            throw new PinMismatchException();
+        }
+    }
+
+    /** The leaf does not match the pin; its own type lets a caller name the cause. */
+    static final class PinMismatchException extends CertificateException {
+
+        private static final long serialVersionUID = 1L;
+
+        /** Also the likely cause of the resulting {@code TLS_ERROR}. */
+        static final String MESSAGE = "The server certificate does not match the pinned"
+            + " SHA-256 fingerprint (tls.pinnedCertificateSha256)";
+
+        PinMismatchException() {
+            super(MESSAGE);
         }
     }
 

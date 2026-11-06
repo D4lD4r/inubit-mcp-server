@@ -5,7 +5,6 @@ import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.ResourceKind;
 import de.dadecker.inubit.mcp.adapter.rest.RestResponse;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
-import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import java.util.Map;
@@ -55,14 +54,17 @@ public final class V81MonitoringAdapter implements MonitoringPort {
             }
 
             @Override
-            public void failed(ToolError error) {
+            public void failed(ToolErrorException failure) {
             }
         };
 
         void succeeded(SystemInfo info);
 
-        /** Called on the calling thread, whose interrupt flag tells a cancelled call apart. */
-        void failed(ToolError error);
+        /**
+         * Called on the calling thread, whose interrupt flag tells a cancelled call apart; an
+         * HTTP 404 is {@link InubitHttpClient.EndpointMissing}.
+         */
+        void failed(ToolErrorException failure);
     }
 
     private final SystemInfoListener listener;
@@ -104,7 +106,7 @@ public final class V81MonitoringAdapter implements MonitoringPort {
                 client.get(SYSTEM_INFO_PATH, Map.of(), ResourceKind.ENDPOINT));
             info = SystemInfoXmlParser.parse(server, response.body());
         } catch (ToolErrorException e) {
-            listener.failed(e.error());
+            listener.failed(e);
             throw e;
         }
         listener.succeeded(info);

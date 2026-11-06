@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp;
 
 import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
+import de.dadecker.inubit.mcp.adapter.cli.CliClientProbe;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
@@ -22,6 +23,8 @@ import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.StoreKind;
 import de.dadecker.inubit.mcp.config.ValidationReport;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
@@ -41,6 +44,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -188,7 +192,9 @@ final class Launcher {
             source -> otherProfiles).validate(loaded);
         if (arguments.checkConfig()) {
             Map<NodeId, ClientVersion> clients = new HashMap<>();
-            ValidationReport withProbes = probeClients(loaded.config(), report, clients);
+            Map<NodeId, CliClientOptions> options = new HashMap<>();
+            ValidationReport withProbes =
+                probeClients(loaded.config(), report, clients, options);
             // feature 010 (research R-12): the Parameter Store client only for AWS nodes
             Collection<SecretPlan> plans = loaded.config().secretPlans().values();
             ParameterCheck.Result parameters = plans.stream().anyMatch(SecretPlan::aws)
@@ -201,7 +207,7 @@ final class Launcher {
                 : EntryCheck.Result.none(StoreKind.forOs(System.getProperty("os.name")));
             ValidationReport checked = entries.addTo(parameters.addTo(withProbes));
             context.out().print(new ConfigSummary(context.exists(), context.windows())
-                .render(loaded, checked, clients, parameters, entries));
+                .render(loaded, checked, clients, options, parameters, entries));
             context.out().flush();
             return checked.hasErrors() ? EXIT_ERROR : EXIT_OK;
         }
@@ -228,12 +234,15 @@ final class Launcher {
      * Feature 009 (FR-011a, research D-13): runs {@code startcli -v} for every node with a
      * StartCLI installation, bounded by the node's {@code cliTimeout}, and puts the successes into
      * {@code clients}. No credentials, no server URL, no INUBIT contact. A failed probe is a
-     * warning.
+     * warning. Feature 012 (FR-012a, research D-8): a node pinned to a CLI-only version (6.1)
+     * also gets {@code startcli -h} and its runtime's {@code release} read ({@link
+     * CliClientProbe}); its options go into {@code options}, and what its client cannot do
+     * becomes the warnings of {@link ConfigValidator#clientOptionWarnings}.
      *
-     * @return {@code report} with a warning per failed probe
+     * @return {@code report} with a warning per failed probe and per client option warning
      */
     private ValidationReport probeClients(ProfileConfig config, ValidationReport report,
-        Map<NodeId, ClientVersion> clients) {
+        Map<NodeId, ClientVersion> clients, Map<NodeId, CliClientOptions> options) {
         List<EffectiveNodeConfig> withClient = config.resolvableNodes().stream()
             .filter(server -> server.cliAvailable(context.exists(), context.windows())).toList();
         if (withClient.isEmpty()) {
@@ -245,8 +254,11 @@ final class Launcher {
         // the profile name may be invalid here (an error of the report); it only names export
         // directories, which the probe never creates
         try (CliResources resources = new CliResources("check-config")) {
-            CliVersionProbe probe = new CliVersionProbe(new CliRunner(new SystemProcessLauncher(),
-                context.environment(), context.windows(), resources), byId::get);
+            CliRunner runner = new CliRunner(new SystemProcessLauncher(), context.environment(),
+                context.windows(), resources);
+            CliVersionProbe probe = new CliVersionProbe(runner, byId::get);
+            CliClientProbe optionProbe = new CliClientProbe(runner, byId::get,
+                CapabilityMatrix.production(), Clock.systemUTC());
             for (EffectiveNodeConfig server : withClient) {
                 try {
                     clients.put(server.id(), probe.probe(server.id(), server.cliTimeout()));
@@ -254,6 +266,12 @@ final class Launcher {
                     warnings.add(server.id() + ": StartCLI client probe failed: "
                         + e.error().message());
                 }
+                optionProbe.optionsFor(server.id(), server.cliTimeout()).ifPresent(read -> {
+                    options.put(server.id(), read);
+                    warnings.addAll(ConfigValidator.clientOptionWarnings(
+                        config.terminology().effectiveOrDefault(), server, read,
+                        server.tls().trustStore().map(CliRunner::trustStoreType).orElse("")));
+                });
             }
         }
         return new ValidationReport(report.errors(), warnings, report.workspace());

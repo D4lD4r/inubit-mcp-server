@@ -1,0 +1,5 @@
+Password: 
+ERROR 09:00:01,204 [main      ] CLI                       ERROR
+com.inubit.ibis.cli.CliConnectionException: @Start@LoginFailure@@@The user does not exist or password does not match.@End@
+CONNECTION ERROR
+The user does not exist or password does not match.

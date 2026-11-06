@@ -7,6 +7,69 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Feature 012, read-only INUBIT 6.1 nodes reached through StartCLI only. The recordings of a real
+6.1 node have not been made yet, so every capability is still declared unsupported for 6.1: on a
+6.1 node only `list_nodes` and the offline checks of `check_artifacts` run, and every other tool
+(`export_archives` included) refuses it.
+
+### Added
+
+- Read-only INUBIT 6.1 nodes (feature 012), reached through StartCLI only: the server sends a 6.1
+  node no REST or SOAP request (also no version detection) and never writes to it. A capability
+  is declared supported for 6.1 only once its StartCLI outputs are verified against recordings of
+  a real 6.1 node. These recordings are not made yet, so in this version every tool that would
+  contact a 6.1 node, `get_health` included, refuses it with `UNSUPPORTED_VERSION` before any
+  contact. The StartCLI health check and process listing for 6.1 (`get_health`,
+  `find_processes`) are built and become available with that verification; logs, the inventory,
+  the workspace export and every write stay refused on 6.1. What changes for existing profiles is
+  listed under "Changed".
+  - `versionLine: V6_1`, or a concrete 6.1 version such as `"6.1.0"` or `"6.1.0.89"` (a fourth
+    version part is kept for display and ignored for matching). `AUTO` never selects 6.1.
+  - A refusal on a 6.1 node names the tool, the version, the node and the capability, with a next
+    step per capability (e.g. `read the logs of INUBIT 6.1 in the Workbench` for `query_logs`);
+    `find_processes` with `tag` is refused because the 6.1 process listing has no tag. Tools
+    with one entry per node refuse the 6.1 node in its own entry and still serve the other nodes.
+    `check_artifacts` skips the module lookup on a 6.1 node and reports the modules as
+    `MODULE_UNVERIFIED`.
+  - `list_nodes` reports how a node is reached in the new field `version.access`
+    (`rest_and_cli`, or `cli_only` for a 6.1 node).
+  - `--check-config` shows a 6.1 node as `(INUBIT 6.1, StartCLI only; available: …; refused: …)`
+    and the options of its StartCLI client (`options: [no ]trust-store option, [no ]host-name
+    option`), and warns about a 6.1 node without StartCLI installation and about a trust-store or
+    host-name setting that the node's client cannot be given.
+  - StartCLI client options of a 6.1 node: the server runs `startcli.sh -h` locally (no server
+    URL, no credentials) and reads the Java version of the client's runtime. A client without
+    `--trustStoreFilePath` gets the trust store through `JAVA_TOOL_OPTIONS`; a PKCS12 trust store
+    with a runtime older than Java 8, a trust-store path with spaces on that route and
+    `disableHostnameVerification` with a client without `--disableHostNameVerification` are
+    refused with `TLS_ERROR`.
+  - Once a capability is available on 6.1, each StartCLI session on a 6.1 node is preceded by
+    the server's own TLS handshake against the trust store and the pin (on failure no StartCLI
+    process starts, so no login is attempted), the password reaches StartCLI only on its
+    standard input, and at most two StartCLI sessions run at once per 6.1 node.
+
+  See `docs/setup.md` ("INUBIT 6.1 nodes (`V6_1`)") and `docs/tools.md` ("INUBIT 6.1
+  (feature 012)").
+
+### Changed
+
+- Deliberate changes of feature 012 for existing profiles; otherwise 8.1 and 9.x nodes behave as
+  before, and the `AUTO` detection stays REST-based:
+  - The capability `diagnosis` is split into `process_diagnosis` (`find_processes`) and
+    `log_diagnosis` (`query_logs`), with the same states as before on every version other than
+    6.1. `list_nodes` (`capabilities`) and the 6.1 part of `--check-config` show the two names;
+    refusal and warning texts name them in words, e.g. "INUBIT 9.0.7 on dev/node1 is not
+    verified for process diagnosis; results may be incomplete" (before: "… for diagnosis …").
+  - When the `AUTO` detection request was answered with HTTP 404, the unknown-version warning
+    adds a conditional hint: "the INUBIT version of dev/node1 is unknown (UNEXPECTED_RESPONSE at
+    …); if dev/node1 runs INUBIT 6.1, pin V6_1; results are unverified".
+  - The read tools `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item`,
+    `export_artifacts` and `export_archives` are no longer announced when every node that could
+    run them is pinned to a version that does not support their capability (e.g. a profile of
+    INUBIT 6.1 nodes only), as write tools already are since feature 009. `list_nodes`, `get_health` and
+    `check_artifacts` are always offered; `AUTO` nodes count as capable.
+  - The `versionLine` error message lists `V6_1` among the accepted values.
+
 ## [0.7.1] - 2026-11-06
 
 The manual checks left open in 0.7.0 have run; no functional change.

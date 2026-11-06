@@ -10,7 +10,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Records every report in order, e.g. {@code detected dev/node1 8.1.17},
- * {@code detectionFailed dev/node1 AUTH_FAILED}, {@code stale dev/node1}; knows no version.
+ * {@code detectionFailed dev/node1 AUTH_FAILED} (with {@code endpointMissing} after an HTTP 404),
+ * {@code stale dev/node1}; knows no version.
  */
 public final class RecordingVersionObserver implements VersionObserver {
 
@@ -26,8 +27,9 @@ public final class RecordingVersionObserver implements VersionObserver {
     }
 
     @Override
-    public void detectionFailed(NodeId node, ErrorCode code) {
-        events.add("detectionFailed " + node + " " + code);
+    public void detectionFailed(NodeId node, ErrorCode code, boolean endpointMissing) {
+        events.add("detectionFailed " + node + " " + code
+            + (endpointMissing ? " endpointMissing" : ""));
     }
 
     @Override

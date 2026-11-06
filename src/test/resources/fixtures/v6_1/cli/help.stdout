@@ -1,0 +1,13 @@
+usage: startcli [options] [url]
+ -u <user>         user name for the login
+ -p <password>     password; prompted for if omitted
+ -h                print this help
+ -v                print the client version
+ -c                check whether the Process Engine is alive
+ -sv               print the Process Engine version
+ -pctmem           print the memory use of the Process Engine JVM
+ -ne               number of processes in state Error
+ -nx               number of processes in state Processing
+ -nw               number of processes in state Waiting
+ -nq               number of processes in state Queued
+ -maintenance      print the maintenance mode status

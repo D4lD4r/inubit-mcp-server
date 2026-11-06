@@ -93,6 +93,20 @@ public final class InubitHttpClient implements AutoCloseable {
         ENDPOINT
     }
 
+    /**
+     * The {@code UNEXPECTED_RESPONSE} of an HTTP 404 on a {@link ResourceKind#ENDPOINT} request.
+     * On the version detection's {@code /system/info} it gives the INUBIT 6.1 hint (feature 012
+     * FR-003, research D-11).
+     */
+    public static final class EndpointMissing extends ToolErrorException {
+
+        private static final long serialVersionUID = 1L;
+
+        EndpointMissing(ToolError error) {
+            super(error);
+        }
+    }
+
     /** Username (not secret, FR-025) and password of the INUBIT account. */
     public record Credentials(String username, Secret password) {
         public Credentials {
@@ -190,7 +204,8 @@ public final class InubitHttpClient implements AutoCloseable {
             scrubber, guard);
     }
 
-    private static SSLContext sslContext(EffectiveNodeConfig server,
+    /** The server's context; {@code TLS_ERROR} with the server id if the settings are unusable. */
+    static SSLContext sslContext(EffectiveNodeConfig server,
         Optional<Secret> trustStorePassword) {
         try {
             return SslContexts.forServer(server.secretLabels(), server.tls(),
@@ -321,7 +336,9 @@ public final class InubitHttpClient implements AutoCloseable {
             || Arrays.stream(acceptedStatuses).anyMatch(accepted -> accepted == status)) {
             return result;
         }
-        throw new ToolErrorException(statusError(method, path, kind, result));
+        ToolError error = statusError(method, path, kind, result);
+        throw status == 404 && kind == ResourceKind.ENDPOINT ? new EndpointMissing(error)
+            : new ToolErrorException(error);
     }
 
     private static String basicAuth(Credentials credentials) {
@@ -401,7 +418,7 @@ public final class InubitHttpClient implements AutoCloseable {
         if (hasCause(e, SSLException.class) || hasCause(e, CertificateException.class)) {
             return error(ErrorCode.TLS_ERROR,
                 "The TLS connection to " + server + " failed for " + request + " ("
-                    + rootCause(e).getClass().getSimpleName() + ")",
+                    + TransportErrorTexts.causeName(e) + ")",
                 TransportErrorTexts.TLS_ERROR_LIKELY_CAUSE,
                 TransportErrorTexts.tlsErrorNextStep(server));
         }
@@ -410,17 +427,24 @@ public final class InubitHttpClient implements AutoCloseable {
                 "INUBIT did not answer " + request + " within " + Durations.human(timeout),
                 TransportErrorTexts.TIMEOUT_LIKELY_CAUSE, TransportErrorTexts.TIMEOUT_NEXT_STEP);
         }
-        boolean unreachable = hasCause(e, ConnectException.class)
-            || hasCause(e, UnresolvedAddressException.class)
-            || hasCause(e, UnknownHostException.class)
-            || hasCause(e, NoRouteToHostException.class);
         return error(ErrorCode.UNREACHABLE,
             "Cannot connect to " + server + " for " + request + " ("
-                + rootCause(e).getClass().getSimpleName() + ")",
-            unreachable
+                + TransportErrorTexts.causeName(e) + ")",
+            isUnreachable(e)
                 ? TransportErrorTexts.UNREACHABLE_LIKELY_CAUSE
                 : TransportErrorTexts.INTERRUPTED_LIKELY_CAUSE,
             "Check baseUrl, DNS and the VPN, then retry");
+    }
+
+    /**
+     * Whether no connection could be opened at all (down, unknown host, no route); shared with
+     * {@link TlsHandshakeCheck}.
+     */
+    static boolean isUnreachable(IOException e) {
+        return hasCause(e, ConnectException.class)
+            || hasCause(e, UnresolvedAddressException.class)
+            || hasCause(e, UnknownHostException.class)
+            || hasCause(e, NoRouteToHostException.class);
     }
 
     private ToolError error(ErrorCode code, String message, String likelyCause, String nextStep) {
@@ -448,21 +472,13 @@ public final class InubitHttpClient implements AutoCloseable {
         return scrubber.scrub(text);
     }
 
-    private static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
+    static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
         for (Throwable t = error; t != null; t = t.getCause()) {
             if (type.isInstance(t)) {
                 return true;
             }
         }
         return false;
-    }
-
-    private static Throwable rootCause(Throwable error) {
-        Throwable root = error;
-        while (root.getCause() != null) {
-            root = root.getCause();
-        }
-        return root;
     }
 
     /** Signals that a response body exceeded the limit. */

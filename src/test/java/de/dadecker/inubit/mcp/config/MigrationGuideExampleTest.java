@@ -135,7 +135,7 @@ class MigrationGuideExampleTest {
         EntryCheck.Result entries = EntryCheck.run(loaded.config().resolvableNodes(),
             TestSecrets.store(ENV_001), Duration.ofSeconds(5));
         String summary = new ConfigSummary(path -> true, false).render(loaded,
-            entries.addTo(report), Map.of(), ParameterCheck.Result.NONE, entries);
+            entries.addTo(report), Map.of(), Map.of(), ParameterCheck.Result.NONE, entries);
 
         assertThat(summary)
             .contains("Profile: acme")
@@ -161,7 +161,7 @@ class MigrationGuideExampleTest {
         EntryCheck.Result entries = EntryCheck.run(loaded.config().resolvableNodes(),
             TestSecrets.store(ENV_001), Duration.ofSeconds(5));
         String summary = new ConfigSummary(path -> true, false).render(loaded,
-            entries.addTo(report), Map.of(), ParameterCheck.Result.NONE, entries);
+            entries.addTo(report), Map.of(), Map.of(), ParameterCheck.Result.NONE, entries);
 
         assertThat(summary).startsWith("Configuration: /Users/jdoe/.config/inubit-mcp/acme.yaml\n")
             .contains("Audit directory: /Users/jdoe/.inubit-mcp/acme/audit\n");

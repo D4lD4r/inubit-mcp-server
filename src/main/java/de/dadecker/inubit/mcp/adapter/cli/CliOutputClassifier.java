@@ -130,7 +130,8 @@ public final class CliOutputClassifier {
         CliOutput output = parse(result);
         if (result.truncated()) {
             return new CliOutcome.Failure(error(ErrorCode.UNEXPECTED_RESPONSE,
-                "StartCLI output exceeded 1 MB and was cut (exit code " + result.exitCode() + ")",
+                "StartCLI output exceeded " + bound(result.outputBound())
+                    + " and was cut (exit code " + result.exitCode() + ")",
                 "The command printed far more than expected, so its result cannot be trusted",
                 "Check the INUBIT system log for the time of the call")
                 .withExcerpt(scrubber.scrub(String.join("\n", output.outputLines()))));
@@ -146,6 +147,11 @@ public final class CliOutputClassifier {
             .or(() -> missingRepositoryPath(all))
             .or(() -> byText(all))
             .orElseGet(() -> unexpected(result, output)));
+    }
+
+    /** {@code bytes} as whole MiB where it is one, else in bytes. */
+    private static String bound(int bytes) {
+        return bytes % (1 << 20) == 0 ? (bytes >> 20) + " MiB" : bytes + " bytes";
     }
 
     private Optional<ToolError> byMarker(CliOutput output, String all) {

@@ -13,10 +13,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.http.Fault;
+import de.dadecker.inubit.mcp.adapter.cli.CliClientProbe;
+import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
+import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81QueryRules;
 import de.dadecker.inubit.mcp.application.NodeVersions;
@@ -24,15 +28,18 @@ import de.dadecker.inubit.mcp.config.CredentialNames;
 import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.FailureKind;
+import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.ParameterNames;
 import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.SecretSourceConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LogQuery;
 import de.dadecker.inubit.mcp.domain.model.LogType;
+import de.dadecker.inubit.mcp.domain.model.NodeAccess;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -60,6 +67,7 @@ import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -303,6 +311,49 @@ class AdapterGatewayFactoryTest {
             assertThat(systemInfoCalls()).isEqualTo(1);
             assertThat(versions.events()).containsExactly("detectionFailed dev/node1 "
                 + (status == 401 ? "AUTH_FAILED" : "FORBIDDEN"));
+        }
+    }
+
+    /** Feature 012 T011 (FR-003): both detection paths report a 404 as a missing endpoint. */
+    @Test
+    void aDetectionAnswered404IsReportedWithTheEndpointMissing() {
+        systemInfo(404, "<html>Not Found</html>");
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            assertThat(factory.forServer(DEV).adapterLine()).isEqualTo(Gateway.AdapterLine.V8_1);
+            assertThat(codeOf(() -> factory.detect(DEV)))
+                .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+
+            assertThat(versions.events()).containsExactly(
+                "detectionFailed dev/node1 UNEXPECTED_RESPONSE endpointMissing",
+                "detectionFailed dev/node1 UNEXPECTED_RESPONSE endpointMissing");
+        }
+    }
+
+    /**
+     * Feature 012 T011 (FR-003): the health call's {@code /system/info} reports a 404 as a
+     * missing endpoint too, so get_health after the detection keeps the flag.
+     */
+    @Test
+    void aSystemInfoOfTheMonitoringAnswered404IsReportedWithTheEndpointMissing() {
+        systemInfo(404, "<html>Not Found</html>");
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
+            assertThat(codeOf(() -> factory.detect(DEV)))
+                .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            clock.advance(AdapterGatewayFactory.FAILED_DETECTION_TTL);
+
+            assertThatThrownBy(factory.monitoring(DEV)::systemInfo)
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+                    assertThat(e.error().message()).isEqualTo("INUBIT endpoint not found for GET"
+                        + " /ibis/rest/system/info (HTTP 404); the node may run another INUBIT"
+                        + " version");
+                });
+
+            // the stale report of an endpoint 404 (feature 009 D-10) keeps the failure
+            assertThat(versions.events()).containsExactly(
+                "detectionFailed dev/node1 UNEXPECTED_RESPONSE endpointMissing",
+                "detectionFailed dev/node1 UNEXPECTED_RESPONSE endpointMissing",
+                "stale dev/node1");
         }
     }
 
@@ -1046,6 +1097,95 @@ class AdapterGatewayFactoryTest {
             assertThat(factory.logs(DEV)).isInstanceOf(StaleReportingPorts.Logs.class);
             assertThat(portSetOf(factory.logs(DEV))).isEqualTo("7.9");
         }
+    }
+
+    // --- feature 012 T025: the 6.1 selection builds no REST client (research D-4) ------------
+
+    /** The shared 6.1 client probe as {@code Wiring} builds it; it never runs here. */
+    private static final CliClientProbe V61_PROBE = new CliClientProbe(new CliRunner(spec -> {
+        throw new AssertionError("no client probe expected: " + spec.command());
+    }, Map.of(), false, new CliResources("acme")), id -> {
+        throw new AssertionError("no client probe expected: " + id);
+    }, CapabilityMatrix.production(), Clock.systemUTC());
+    private static final CliConcurrencyLimiter V61_LIMITER =
+        new CliConcurrencyLimiter(CapabilityMatrix.production());
+    private static final PortSetRegistry.Factory V61_PORTS =
+        V61PortSet.factory(V61_PROBE, V61_LIMITER);
+    private static final PortSetRegistry.CliHealthFactory V61_HEALTH =
+        V61PortSet.cliHealth(V61_PROBE, V61_LIMITER);
+
+    /** As {@code Wiring} registers it. */
+    private static final PortSetRegistry WITH_V61 = PortSetRegistry.v81Default()
+        .register(V61PortSet.RANGE, V61_PORTS, V61QueryRules.INSTANCE, V61_HEALTH);
+
+    /** A node whose REST client cannot be built: its trust store does not exist. */
+    private static EffectiveNodeConfig withoutUsableClient(VersionSetting line) {
+        return TestNodeConfig.node().id(DEV.value())
+            .baseUrl("https://localhost:" + wireMock.httpsPort())
+            .trustStore(Path.of("does-not-exist.p12")).versionLine(line).build();
+    }
+
+    @Test
+    void aSixOneNodeGetsItsPortsAndHealthPortWithoutRestClient() {
+        EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V6_1);
+        try (AdapterGatewayFactory factory = factory(WITH_V61, nodeVersions(node), node)) {
+            assertThat(factory.access(DEV)).isEqualTo(NodeAccess.CLI_ONLY);
+            assertThat(factory.cliHealth(DEV)).isPresent();
+            assertThat(factory.cliHealth(DEV).get()).as("built once")
+                .isSameAs(factory.cliHealth(DEV).get());
+            assertThat(codeOf(() -> factory.logs(DEV).query(null)))
+                .isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+            assertThat(codeOf(() -> factory.processes(DEV).findByProcessId("1",
+                Instant.EPOCH, Duration.ofHours(1)))).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+            assertThat(factory.logs(DEV)).as("still wrapped by the stale trigger")
+                .isInstanceOf(StaleReportingPorts.Logs.class);
+
+            // the REST client of this node fails to build, so the calls above built none
+            assertThat(codeOf(() -> factory.monitoring(DEV))).isEqualTo(ErrorCode.TLS_ERROR);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void an81NodeHasNoCliHealthPortAndTheQuestionBuildsNothing() {
+        EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V8_1);
+        try (AdapterGatewayFactory factory = factory(WITH_V61, nodeVersions(node), node)) {
+            assertThat(factory.access(DEV)).isEqualTo(NodeAccess.REST_AND_CLI);
+            assertThat(factory.cliHealth(DEV)).isEmpty();
+            assertThat(codeOf(() -> factory.logs(DEV))).as("the 8.1 port set needs the client")
+                .isEqualTo(ErrorCode.TLS_ERROR);
+            assertThat(codeOf(() -> factory.access(ENT2))).isEqualTo(ErrorCode.TARGET_UNKNOWN);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void aSixOnePortSetIsRebuiltWithRotatedCredentials() {
+        putAwsCredentials();
+        List<NodeCredentials> builtWith = new CopyOnWriteArrayList<>();
+        PortSetRegistry portSets = PortSetRegistry.v81Default().register(V61PortSet.RANGE,
+            resources -> {
+                assertThat(resources.client()).isNull();
+                builtWith.add(resources.credentials());
+                return V61_PORTS.create(resources);
+            }, V61QueryRules.INSTANCE, V61_HEALTH);
+        EffectiveNodeConfig node = server(DEV, VersionSetting.V6_1);
+        NodeSecrets secrets = awsSecrets(Optional.empty());
+        try (AdapterGatewayFactory factory = new AdapterGatewayFactory(List.of(node),
+            Map.of(DEV, secrets), scrubber, clock, new CliRunner(new SystemProcessLauncher(),
+                Map.of(), false, new CliResources("acme")), nodeVersions(node), portSets)) {
+            LogPort before = factory.logs(DEV);
+            assertThat(factory.logs(DEV)).isSameAs(before);
+
+            store.put(EU, AWS_PASSWORD, "test-password-2");
+            secrets.reread();
+
+            assertThat(factory.logs(DEV)).isNotSameAs(before);
+            assertThat(builtWith).hasSize(2);
+            assertThat(builtWith.get(1).password().orElseThrow().value().reveal())
+                .isEqualTo("test-password-2");
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
     }
 
     // --- feature 010 T011: secrets of AWS nodes, fetched on first use (R-7, FR-006a) -------

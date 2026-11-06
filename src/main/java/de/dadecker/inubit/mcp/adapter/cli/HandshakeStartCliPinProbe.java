@@ -73,7 +73,7 @@ public final class HandshakeStartCliPinProbe implements StartCliPinProbe {
                 TransportErrorTexts.TIMEOUT_LIKELY_CAUSE, TransportErrorTexts.TIMEOUT_NEXT_STEP)
                 .withNode(server.id());
         }
-        String cause = " (" + rootCause(e).getClass().getSimpleName() + ")";
+        String cause = " (" + TransportErrorTexts.causeName(e) + ")";
         if (hasCause(e, SSLException.class) || hasCause(e, CertificateException.class)) {
             return ToolError.of(ErrorCode.TLS_ERROR,
                 "The TLS connection to " + server.id() + " failed for the StartCLI address "
@@ -105,11 +105,4 @@ public final class HandshakeStartCliPinProbe implements StartCliPinProbe {
         return false;
     }
 
-    private static Throwable rootCause(Throwable error) {
-        Throwable root = error;
-        while (root.getCause() != null) {
-            root = root.getCause();
-        }
-        return root;
-    }
 }

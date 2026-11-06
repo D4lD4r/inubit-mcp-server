@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.cli.v81;
 
+import de.dadecker.inubit.mcp.adapter.cli.CliDates;
 import de.dadecker.inubit.mcp.adapter.rest.XmlSupport;
 import de.dadecker.inubit.mcp.adapter.rest.v81.InventoryXml;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -24,7 +25,7 @@ import org.w3c.dom.Element;
  *       {@code VersionInformation/Modules/Module[@Name]/Version*}; each {@code Version} has
  *       {@code versionNode}, {@code CheckinUser}, {@code CheckinComment}, {@code DateTime} and
  *       optional {@code UserComment} and {@code Tags/Tag*}.
- *   <li>{@code DateTime} is local time {@code Europe/Berlin} ({@link InubitDates}); an
+ *   <li>{@code DateTime} is local time {@code Europe/Berlin} ({@link CliDates}); an
  *       unparseable value leaves {@code checkinAt} absent.
  *   <li>{@code Tags/Tag*} is the current tag assignment.
  *   <li>The file lists versions oldest first; the result is sorted newest first (by version
@@ -134,7 +135,7 @@ public final class VersionHistoryParser {
         }
         return new VersionEntry(number,
             InventoryXml.childText(version, "CheckinUser"),
-            InventoryXml.childText(version, "DateTime").flatMap(InubitDates::parse),
+            InventoryXml.childText(version, "DateTime").flatMap(CliDates::parse),
             InventoryXml.childText(version, "CheckinComment"),
             InventoryXml.childText(version, "UserComment"),
             tags);
