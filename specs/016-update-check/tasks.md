@@ -65,7 +65,7 @@ the checkout; never two builds in parallel).
   request contains no configuration name) in
   `src/main/java/de/dadecker/inubit/mcp/adapter/github/GitHubReleaseSource.java`,
   `src/test/java/de/dadecker/inubit/mcp/adapter/github/GitHubReleaseSourceTest.java`
-- [ ] T008 [US1] `UpdateStatus` (thread-safe holder) and `UpdateCheck.checkOnce()` (compare,
+- [X] T008 [US1] `UpdateStatus` (thread-safe holder) and `UpdateCheck.checkOnce()` (compare,
   record, WARN once per newer version, DEBUG on failure keeping the last status; FR-004, FR-007,
   FR-008; `Clock` injected for `checkedAt`) with tests capturing log events in
   `src/main/java/de/dadecker/inubit/mcp/application/UpdateStatus.java`,
@@ -90,7 +90,7 @@ the checkout; never two builds in parallel).
 **Goal**: the check repeats 24 h after the previous one.
 **Independent test**: controllable scheduler; second run finds a newer version.
 
-- [ ] T011 [US2] `UpdateCheck.start(ScheduledExecutorService)` with `scheduleWithFixedDelay(…, 0,
+- [X] T011 [US2] `UpdateCheck.start(ScheduledExecutorService)` with `scheduleWithFixedDelay(…, 0,
   24h)` and `close()`; tests with a recording executor (delay 24 h, second run announces a newer
   version, same version not logged twice) in
   `src/main/java/de/dadecker/inubit/mcp/application/UpdateCheck.java`,
