@@ -46,6 +46,12 @@ public final class McpServerFactory {
 
     public static final String SERVER_NAME = "inubit-mcp-server";
 
+    /**
+     * How long the server waits for a client's answer to its own requests; the only one is the
+     * update dialog (feature 016, research R-13), which an operator may answer late.
+     */
+    static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(10);
+
     /** {@code serverInfo.title} before the profile name. */
     static final String TITLE_PREFIX = "INUBIT MCP – ";
 
@@ -55,6 +61,7 @@ public final class McpServerFactory {
     private final SchemaResources schemas;
     private final ResultMapper resultMapper;
     private final SchemaRenderer schemaRenderer;
+    private final UpdateNotice updateNotice;
 
     /**
      * @param profile the profile whose name, description and terminology the server info, the
@@ -62,6 +69,13 @@ public final class McpServerFactory {
      */
     public McpServerFactory(String version, ProfileInfo profile, List<ToolHandler> handlers,
         SchemaResources schemas, ResultMapper resultMapper) {
+        this(version, profile, handlers, schemas, resultMapper, UpdateNotice.NONE);
+    }
+
+    /** As above, with the update notice of feature 016 (FR-017 to FR-019). */
+    public McpServerFactory(String version, ProfileInfo profile, List<ToolHandler> handlers,
+        SchemaResources schemas, ResultMapper resultMapper, UpdateNotice updateNotice) {
+        this.updateNotice = Objects.requireNonNull(updateNotice, "updateNotice");
         this.version = Objects.requireNonNull(version, "version");
         this.profile = Objects.requireNonNull(profile, "profile");
         this.handlers = List.copyOf(handlers);
@@ -95,6 +109,7 @@ public final class McpServerFactory {
         McpSyncServer server = McpServer.sync(transport)
             .serverInfo(Implementation.builder(SERVER_NAME, version).title(title()).build())
             .instructions(instructions())
+            .requestTimeout(REQUEST_TIMEOUT)
             .capabilities(ServerCapabilities.builder().tools(false).build())
             .validateToolInputs(true)
             .tools(tools)
@@ -109,7 +124,8 @@ public final class McpServerFactory {
 
     /**
      * The server {@code instructions} of the {@code initialize} result: the profile, its
-     * description and the terminology (research D-5).
+     * description and the terminology (research D-5); feature 016 (FR-018): a newer release known
+     * at start closes them.
      */
     String instructions() {
         // the description is inserted after rendering: it is text from the file, not a template
@@ -119,7 +135,8 @@ public final class McpServerFactory {
                 + " form `<{group}>/<{node}>`; the id of one {group} selects all its {nodes}. Read"
                 + " tools take the id of one {group} or one {node} in `target`; write tools (if"
                 + " offered) take exactly one {node} id in `node`. Results use the fields `group`"
-                + " and `node` for these levels. Call list_nodes first to learn the valid ids.");
+                + " and `node` for these levels. Call list_nodes first to learn the valid ids.")
+            + updateNotice.instructionsSentence().map(sentence -> " " + sentence).orElse("");
     }
 
     /**
@@ -152,8 +169,9 @@ public final class McpServerFactory {
             .build();
         return SyncToolSpecification.builder()
             .tool(tool)
-            .callHandler((exchange, request) -> resultMapper.invoke(handler, request.arguments(),
-                context(exchange)))
+            .callHandler((exchange, request) -> updateNotice.decorate(
+                resultMapper.invoke(handler, request.arguments(), context(exchange)),
+                UpdateNotice.Client.of(exchange)))
             .build();
     }
 

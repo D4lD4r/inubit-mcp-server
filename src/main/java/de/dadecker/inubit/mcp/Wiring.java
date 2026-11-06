@@ -86,6 +86,7 @@ import de.dadecker.inubit.mcp.mcp.McpServerFactory;
 import de.dadecker.inubit.mcp.mcp.ResultMapper;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import de.dadecker.inubit.mcp.mcp.UpdateNotice;
 import de.dadecker.inubit.mcp.mcp.tools.CheckArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.ExportArchivesTool;
 import de.dadecker.inubit.mcp.mcp.tools.ExportArtifactsTool;
@@ -517,8 +518,14 @@ final class Wiring implements AutoCloseable {
      * shared scrubber.
      */
     McpServerFactory serverFactory(String version, List<ToolHandler> handlers) {
+        return serverFactory(version, handlers, UpdateNotice.NONE);
+    }
+
+    /** As above, with the update notice of feature 016 (FR-017 to FR-019). */
+    McpServerFactory serverFactory(String version, List<ToolHandler> handlers,
+        UpdateNotice updateNotice) {
         return new McpServerFactory(version, profile, handlers, SchemaResources.forClasspath(),
-            new ResultMapper(scrubber));
+            new ResultMapper(scrubber), updateNotice);
     }
 
     GatewayFactory gateways() {

@@ -126,7 +126,7 @@ that never answers: `instructions` name it, the first tool result has the note b
   `src/main/java/de/dadecker/inubit/mcp/application/UpdateCache.java`,
   `src/main/java/de/dadecker/inubit/mcp/infra/FileUpdateCache.java`,
   `src/test/java/de/dadecker/inubit/mcp/infra/FileUpdateCacheTest.java`, `UpdateCheckTest`
-- [ ] T015 [US1] `UpdateNotice` (data-model.md: non-error results only; one text block after the
+- [X] T015 [US1] `UpdateNotice` (data-model.md: non-error results only; one text block after the
   JSON block; once per newer latest version) and `McpServerFactory`: results pass through it,
   `instructions()` end with the cached-release sentence (contracts/get_health-delta.md); tests in
   `src/main/java/de/dadecker/inubit/mcp/mcp/UpdateNotice.java`,
