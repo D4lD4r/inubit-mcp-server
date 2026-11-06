@@ -24,6 +24,29 @@ tools, the JVM and a model inspecting the file look at — carries no version, s
 the JAR from outside can only infer the version from the file name, which an operator may rename
 (for example to a version-free `inubit-mcp-server.jar`).
 
+## Clarifications
+
+### Session 2026-11-06
+
+The operator was not reachable; every answer below is a **coordinator's assumption, to be confirmed
+by the operator** (Annahme des Koordinators, vom Nutzer zu bestätigen), taken as the recommended,
+safest option.
+
+- Q: Should the server only report a newer release, or also download it? → A: Only report; never
+  download, install or replace anything (FR-005).
+- Q: Where should the notice appear? → A: In the stderr log (once per newer version per process)
+  and as a server-level field `serverUpdate` in the `get_health` result; not in `list_nodes`, not in
+  the MCP `instructions` (fixed at the handshake, before the check result exists) (FR-006, FR-007).
+- Q: How does the operator turn the check off? → A: Both a profile key `updateCheck.enabled: false`
+  and the environment variable `INUBIT_MCP_UPDATE_CHECK=off`; the check is off if either turns it
+  off (FR-009).
+- Q: How does the check work behind a corporate proxy? → A: It uses the Java runtime's standard
+  proxy settings only (`-Dhttps.proxyHost`/`-Dhttps.proxyPort`, or
+  `-Djava.net.useSystemProxies=true`, given in the MCP registration); no proxy setting of its own,
+  and no change to how INUBIT connections use proxies (FR-016).
+- Q: At which log level is the notice written? → A: WARN, so that it stays visible with
+  `logLevel: WARN`; failed checks at DEBUG (FR-007, FR-008).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Learn about a newer release at start (Priority: P1)
@@ -152,14 +175,19 @@ the source receives no request.
   page URL, and say that the update is manual (download the JAR, check its SHA-256, re-register or
   replace it). The server MUST NOT download, install or replace anything.
 - **FR-006**: The notice MUST be visible to the operator in the server's stderr log and to the model
-  in the result of `get_health` as a server-level field (independent of the INUBIT nodes).
-- **FR-007**: The stderr log MUST announce a given newer version once per server process; repeated
-  checks finding the same version stay quiet in the log at normal level.
+  in the result of `get_health` as a server-level field `serverUpdate` (independent of the INUBIT
+  nodes; present also when no node is reachable). `serverUpdate` is absent when the check is off or
+  no check has completed successfully yet.
+- **FR-007**: The stderr log MUST announce a given newer version once per server process, at level
+  WARN; repeated checks finding the same version write nothing at INFO or above.
 - **FR-008**: A failed check (no network, DNS failure, timeout, TLS error, HTTP error, rate limit,
-  unreadable answer) MUST NOT produce an error for the operator or any tool; it is logged at a low
-  level without stack trace, and the last successful result (if any) remains valid.
-- **FR-009**: The operator MUST be able to turn the check off; when off, the server makes no request
-  to the release source at all.
+  unreadable answer) MUST NOT produce an error for the operator or any tool; it is logged at DEBUG
+  without stack trace, and the last successful result (if any) remains valid.
+- **FR-009**: The operator MUST be able to turn the check off with the profile key
+  `updateCheck.enabled: false` or the environment variable `INUBIT_MCP_UPDATE_CHECK=off` (also
+  `false`, `0`, `no`, case-insensitive); the check is off if either turns it off. When off, the
+  server makes no request to the release source at all. An unrecognised environment value is a
+  startup warning and leaves the check on.
 - **FR-010**: The JAR manifest MUST carry the implementation title `inubit-mcp-server` and the
   implementation version equal to the project version of the build.
 - **FR-011**: The server MUST determine its reported version (`--version`, MCP `serverInfo`, the
@@ -172,8 +200,10 @@ the source receives no request.
   as `inubit-mcp-server` with its version.
 - **FR-015**: User documentation (README, setup guide, CHANGELOG) MUST describe the check, how the
   notice appears, how to turn it off, and how to read the version from the manifest.
-- **FR-016**: The outgoing request MUST honour the network proxy settings of the Java runtime, so
-  that it works in networks that require a proxy configured for the JVM.
+- **FR-016**: The outgoing request MUST honour the standard proxy settings of the Java runtime
+  (proxy system properties, or the operating system's proxy when the runtime is told to use it), so
+  that it works in networks that require a proxy configured for the JVM. The feature adds no proxy
+  setting of its own and does not change how INUBIT connections use proxies.
 
 ### Key Entities
 
