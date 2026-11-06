@@ -120,7 +120,9 @@ with its error precedence (R-12, R-13).
   (`src/test/resources/fixtures/v8_1/rest/log_queueLog_error.json:10`), not from a recorded
   `module/module.xml` (no recorded export has a Workflow Connector); it is kept in one constant
   of `V81WorkflowArchives` and confirmed against a real export's `ModuleGroupName` in the manual
-  check T026 (a different string there is fixed before the release).
+  check T026 (a different string there is fixed before the release). **Confirmed 2026-11-06**
+  (T026, INUBIT 8.1.14): the `ModuleGroupName` of a Workflow Connector module in a real
+  `module/module.xml` is `Workflow Connector`.
 - **Rationale**: FR-005 says "also nested nodes". The two existing helpers are narrower:
   `V81ReleaseArchives.modulesOf` reads only the root's direct children
   (`adapter/archive/v81/V81ReleaseArchives.java:153-162`) and `WorkspaceWriter.moduleNames` only
