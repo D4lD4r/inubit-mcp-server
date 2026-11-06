@@ -12,6 +12,8 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The program behind the substitute StartCLI ({@link FakeStartCli}, research R-12). It runs in
@@ -21,7 +23,9 @@ import java.util.TreeMap;
  *
  * <ol>
  *   <li>{@link #RECORD} set: reads stdin to its end, starts a child if {@link #CHILD_SLEEP_MILLIS}
- *       is set, writes {@link #WRITTEN_FILE} into {@link #WRITE_INTO} if set, then writes
+ *       is set, writes {@link #WRITTEN_FILE} into {@link #WRITE_INTO} if set, writes the
+ *       fixture {@link #EXPORT_FIXTURE} to the {@code --exportFile} of its {@code --execCommand}
+ *       as StartCLI writes the export, then writes
  *       {@code {"pid", "childPid", "args", "environment", "stdin" (Base64), "workingDirectory",
  *       "javaHome"}} as
  *       JSON to the file named by {@link #RECORD} (atomically, so a poller never reads half a
@@ -41,8 +45,11 @@ public final class ArgvRecorder {
     public static final String SLEEP_MILLIS = "argvRecorder.sleepMillis";
     public static final String CHILD_SLEEP_MILLIS = "argvRecorder.childSleepMillis";
     public static final String WRITE_INTO = "argvRecorder.writeInto";
+    public static final String EXPORT_FIXTURE = "argvRecorder.exportFixture";
     /** The name of the file written into {@link #WRITE_INTO}. */
     public static final String WRITTEN_FILE = "argv-recorder.txt";
+
+    private static final Pattern EXPORT_FILE = Pattern.compile("--exportFile '([^']+)'");
 
     private ArgvRecorder() {
     }
@@ -59,6 +66,10 @@ public final class ArgvRecorder {
             String writeInto = System.getProperty(WRITE_INTO);
             if (writeInto != null) {
                 Files.writeString(Path.of(writeInto, WRITTEN_FILE), "written");
+            }
+            String exportFixture = System.getProperty(EXPORT_FIXTURE);
+            if (exportFixture != null) {
+                Files.write(exportFile(args), fixture(exportFixture));
             }
             writeRecord(Path.of(record), json(args, stdin, childPid));
         }
@@ -77,6 +88,19 @@ public final class ArgvRecorder {
             Thread.sleep(Long.parseLong(sleep));
         }
         System.exit(exitCode);
+    }
+
+    /** The {@code --exportFile} named in the {@code --execCommand} argument. */
+    private static Path exportFile(String[] args) {
+        for (int i = 0; i < args.length - 1; i++) {
+            if (args[i].equals("--execCommand")) {
+                Matcher matcher = EXPORT_FILE.matcher(args[i + 1]);
+                if (matcher.find()) {
+                    return Path.of(matcher.group(1));
+                }
+            }
+        }
+        throw new IllegalArgumentException("no --exportFile in the --execCommand");
     }
 
     private static long startChild(String sleepMillis) throws IOException {

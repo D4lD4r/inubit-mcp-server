@@ -118,6 +118,16 @@ public final class FakeStartCli {
         return install(cliHome, Map.of(ArgvRecorder.REPLAY, fixtureCase));
     }
 
+    /**
+     * Installs a substitute that records, writes {@code fixtures/v8_1/cli/<fixtureCase>.zip} to
+     * the {@code --exportFile} of the command, as StartCLI does, and then replays the case.
+     */
+    public static FakeStartCli replayingExport(Path cliHome, String fixtureCase)
+        throws IOException {
+        return install(cliHome, Map.of(ArgvRecorder.REPLAY, fixtureCase,
+            ArgvRecorder.EXPORT_FIXTURE, fixtureCase + ".zip"));
+    }
+
     public Path script() {
         return script;
     }
