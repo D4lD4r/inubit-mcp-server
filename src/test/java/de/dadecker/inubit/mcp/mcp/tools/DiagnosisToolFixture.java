@@ -25,6 +25,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
@@ -76,7 +77,8 @@ final class DiagnosisToolFixture implements AutoCloseable {
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber), scrubber,
             Clock.systemUTC(), TestCliRunners.forHost(new SystemProcessLauncher(), Map.of(),
-                new CliResources("acme")), versions, PortSetRegistry.v81Default());
+                new CliResources("acme",
+                    PrivateFiles.forHost())), versions, PortSetRegistry.v81Default());
         // feature 011: credentials are read on first use; read them now (from the store double,
         // no request to INUBIT), so that the input checks without network run before the fan-out
         ids.forEach(id -> gateways.prepareCredentials(id, Duration.ofSeconds(5)));

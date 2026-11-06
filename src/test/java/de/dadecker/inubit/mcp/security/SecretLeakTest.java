@@ -39,6 +39,7 @@ import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -117,7 +118,7 @@ class SecretLeakTest {
             });
         client = startClient(credentials("jdoe", "leak-test-pw"),
             TestCliRunners.forHost(startCli, Map.of("PATH", Platform.searchPath()),
-                new CliResources("acme")));
+                new CliResources("acme", PrivateFiles.forHost())));
     }
 
     private static NodeCredentials credentials(String username, String password) {
@@ -238,7 +239,7 @@ class SecretLeakTest {
             client.close();
             client = startClient(refused, TestCliRunners.simulatedWindows(startCli,
                 Map.of("PATH", Platform.searchPath()), new ProcessContainment.Bound(),
-                new CliResources("acme")));
+                new CliResources("acme", PrivateFiles.forHost())));
 
             JsonNode result = client.callTool("export_artifacts",
                 Map.of("target", "dev", "diagramGroups", List.of("GRP-01")));

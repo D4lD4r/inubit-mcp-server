@@ -34,6 +34,7 @@ import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
@@ -199,7 +200,7 @@ class ProcessControlToolsTest {
             TestSecrets.credentialStore(List.of(server), Map.of("INUBIT_DEV_USERNAME", "jdoe",
                 "INUBIT_DEV_PASSWORD", PASSWORD), scrubber), scrubber, Clock.systemUTC(),
             TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
-                new CliResources("acme")),
+                new CliResources("acme", PrivateFiles.forHost())),
             new RecordingVersionObserver(), PortSetRegistry.v81Default());
         closeables.add(gateways);
         Map<NodeId, WritePolicy> policies = Map.of(server.id(), new WritePolicy(server.id(),

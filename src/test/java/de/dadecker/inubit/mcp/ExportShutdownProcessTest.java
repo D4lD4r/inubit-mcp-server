@@ -15,6 +15,7 @@ import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.testing.ArgvRecorder;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -35,6 +36,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -103,17 +105,20 @@ class ExportShutdownProcessTest {
         assertThat(otherProfile).as("another profile's").exists();
     }
 
-    /** {@code inubit-mcp-export-<middle>-1} with a file, in the server's temp directory. */
+    /**
+     * {@code inubit-mcp-export-<middle>-1} with a file, in the server's temp directory; created as
+     * the server creates it (feature 013, R-8), so that on Windows the token user owns it.
+     */
     private Path staleExport(String middle) throws IOException {
-        Path directory = Files.createDirectories(tmp().resolve(CliResources.EXPORT_PREFIX
-            + middle + "-1"));
+        Path directory = tmp().resolve(CliResources.EXPORT_PREFIX + middle + "-1");
+        PrivateFiles.forHost().createDirectories(directory);
         Files.writeString(directory.resolve("modules.zip"), "stale");
         return directory;
     }
 
     @Test
     @DisabledOnOs(value = OS.WINDOWS, disabledReason = "SIGTERM is POSIX; Windows: the job kill"
-        + " (T012) and the sweep at the next start (T019)")
+        + " (aKilledServerLeavesNoStartCliAndTheNextStartSweepsItsDirectory)")
     void sigtermStopsTheExportAndDeletesItsDirectory() throws Exception {
         Child child = startExport();
         // pure SIGTERM: stdin stays open, only the JVM shutdown hook cleans up
@@ -125,7 +130,7 @@ class ExportShutdownProcessTest {
 
     @Test
     @DisabledOnOs(value = OS.WINDOWS, disabledReason = "SIGTERM is POSIX; Windows: the job kill"
-        + " (T012) and the sweep at the next start (T019)")
+        + " (aKilledServerLeavesNoStartCliAndTheNextStartSweepsItsDirectory)")
     void eofAndSigtermTogetherStopTheExportAndDeleteItsDirectory() throws Exception {
         // Phase 6 review W2: the main thread (stdin EOF) and the shutdown hook (SIGTERM) close
         // the CLI resources concurrently; the JVM must not exit before the trees are stopped
@@ -134,6 +139,32 @@ class ExportShutdownProcessTest {
         assertThat(child.process().toHandle().destroy()).isTrue();
 
         child.assertCleanShutdown();
+    }
+
+    @Test
+    @EnabledOnOs(value = OS.WINDOWS, disabledReason = "POSIX has no job object: a SIGKILL of the"
+        + " server leaves StartCLI running there")
+    void aKilledServerLeavesNoStartCliAndTheNextStartSweepsItsDirectory() throws Exception {
+        // feature 013 (T019, FR-008, R-10): the job (T012) ends StartCLI with the server; its
+        // export directory stays behind until the next start of the same profile sweeps it
+        Child killed = startExport();
+        String ownPrefix = CliResources.EXPORT_PREFIX + "acme-" + killed.process().pid() + "-";
+        assertThat(killed.process().toHandle().destroyForcibly()).isTrue();
+        assertThat(killed.process().waitFor(40, TimeUnit.SECONDS)).as("server killed").isTrue();
+        killed.assertStartCliStopped();
+        List<Path> left;
+        try (Stream<Path> files = Files.list(killed.tmp())) {
+            left = files.filter(path -> path.getFileName().toString().startsWith(ownPrefix))
+                .toList();
+        }
+        assertThat(left).as("a killed server cannot clean up").isNotEmpty();
+
+        Child next = startExport();
+        next.stdin().close();
+
+        next.assertCleanShutdown();
+        assertThat(left).allSatisfy(directory -> assertThat(directory)
+            .as("swept at the next start").doesNotExist());
     }
 
     private Path tmp() throws IOException {
@@ -145,6 +176,18 @@ class ExportShutdownProcessTest {
 
         void assertCleanShutdown() throws Exception {
             assertThat(process.waitFor(40, TimeUnit.SECONDS)).as("server exits").isTrue();
+            String errors = assertStartCliStopped();
+            try (Stream<Path> files = Files.list(tmp)) {
+                assertThat(files.map(path -> path.getFileName().toString())
+                    .filter(name -> name.startsWith(CliResources.EXPORT_PREFIX + "acme-"))
+                    .toList())
+                    .as(errors).isEmpty();
+            }
+            assertThat(errors).doesNotContain(PASSWORD);
+        }
+
+        /** Neither the fake StartCLI nor its child runs (any more); returns the server's stderr. */
+        String assertStartCliStopped() throws Exception {
             String errors = Files.readString(stderr);
             FakeStartCli.Recorded record = cli.record();
             assertThat(record.childPid()).as("the fake started its child").isNotNull();
@@ -158,13 +201,7 @@ class ExportShutdownProcessTest {
                 }
                 assertThat(alive(pid)).as(name + " still running; stderr: " + errors).isFalse();
             }
-            try (Stream<Path> files = Files.list(tmp)) {
-                assertThat(files.map(path -> path.getFileName().toString())
-                    .filter(name -> name.startsWith(CliResources.EXPORT_PREFIX + "acme-"))
-                    .toList())
-                    .as(errors).isEmpty();
-            }
-            assertThat(errors).doesNotContain(PASSWORD);
+            return errors;
         }
     }
 

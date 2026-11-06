@@ -23,6 +23,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -86,7 +87,8 @@ class V81ProcessControlAdapterTest {
     private V81ProcessControlAdapter adapter(FakeProcessLauncher launcher,
         EffectiveNodeConfig config, NodeCredentials credentials) {
         return adapter(config, credentials, TestCliRunners.forHost(launcher,
-            Map.of("PATH", Platform.searchPath()), new CliResources("acme")));
+            Map.of("PATH", Platform.searchPath()),
+                new CliResources("acme", PrivateFiles.forHost())));
     }
 
     private V81ProcessControlAdapter adapter(EffectiveNodeConfig config,
@@ -253,7 +255,7 @@ class V81ProcessControlAdapterTest {
         CliRunner windows = TestCliRunners.simulatedWindows(launcher,
             Map.of("PATH", Platform.searchPath()),
             new ProcessContainment.Unavailable("CreateJobObjectW failed (Windows error 5)"),
-            new CliResources("acme"));
+            new CliResources("acme", PrivateFiles.forHost()));
         V81ProcessControlAdapter adapter = adapter(config(), credentials(), windows);
 
         assertThat(errorOf(adapter::checkAvailable).code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);

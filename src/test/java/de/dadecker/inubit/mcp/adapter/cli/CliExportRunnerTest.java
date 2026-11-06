@@ -20,7 +20,9 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
+import de.dadecker.inubit.mcp.testing.WindowsAcl;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -48,6 +50,8 @@ import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -61,7 +65,7 @@ class CliExportRunnerTest {
     private static final NodeId DEV = NodeId.parse("dev/node1");
     private static final String PASSWORD = "S3cr3t-export-pw";
     private static final Pattern EXPORT_FILE = Pattern.compile("--exportFile '([^']+)'");
-    /** Owner-only permissions are checked on POSIX; the Windows equivalent follows in T019. */
+    /** Owner-only permissions on POSIX; the Windows access list is checked on Windows (T019). */
     private static final boolean POSIX =
         FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
 
@@ -99,7 +103,8 @@ class CliExportRunnerTest {
     private CliExportRunner exports(FakeProcessLauncher launcher, EffectiveNodeConfig config,
         NodeCredentials credentials) {
         return exports(config, credentials, TestCliRunners.forHost(launcher,
-            Map.of("PATH", Platform.searchPath()), new CliResources("acme")));
+            Map.of("PATH", Platform.searchPath()),
+                new CliResources("acme", PrivateFiles.forHost())));
     }
 
     private CliExportRunner exports(EffectiveNodeConfig config, NodeCredentials credentials,
@@ -297,7 +302,7 @@ class CliExportRunnerTest {
     void anArchiveAboveTheCapIsAnUnexpectedResponse() throws IOException {
         FakeProcessLauncher launcher = exporting(WORKFLOW_GROUP_OK, new byte[2048]);
         CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
-            new CliResources("acme"));
+            new CliResources("acme", PrivateFiles.forHost()));
         CliExportRunner small = new CliExportRunner(server().build(), credentials(), guard,
             runner, new CliOutputClassifier(new SecretScrubber()), tempRoot, 1024);
 
@@ -377,6 +382,56 @@ class CliExportRunnerTest {
             assertThat(launchPermissions).containsExactly(PosixFilePermissions.fromString(
                 "rwx------"));
         }
+        assertThat(leftovers()).isEmpty();
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void onWindowsTheDirectoryAndTheFileStartCliWritesGrantOnlyThisAccountAndSystem()
+        throws IOException {
+        // feature 013 (T019, FR-007): StartCLI's export file inherits the directory's list
+        List<WindowsAcl.ReadBack> acls = new CopyOnWriteArrayList<>();
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("export_modules_sample")
+            .onLaunch(spec -> {
+                Path file = exportFile(spec);
+                try {
+                    Files.write(file, FakeProcessLauncher.fixture("export_modules_sample.zip"));
+                    acls.add(WindowsAcl.readBack(file.getParent()));
+                    acls.add(WindowsAcl.readBack(file));
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(e);
+                }
+            });
+
+        exports(launcher, server().build()).exportModules("OWNERS");
+
+        assertThat(acls).hasSize(2);
+        WindowsAcl.assertPrivate(acls.get(0), "the export directory",
+            WindowsAcl.DIRECTORY_INHERITANCE);
+        WindowsAcl.assertInheritedPrivate(acls.get(1), "the export file");
+        assertThat(leftovers()).isEmpty();
+    }
+
+    @Test
+    void aDirectoryWhoseAccessCannotBeRestrictedFailsTheExportBeforeStartCliRuns()
+        throws IOException {
+        // feature 013 (T019, FR-007): nothing is written, the next step names directory and access
+        FakeProcessLauncher launcher = writing("export_modules_sample", new byte[] {1});
+        CliExportRunner exports = exports(server().build(), credentials(),
+            TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
+                new CliResources("acme", PrivateFiles.failing())));
+
+        ToolError error = errorOf(() -> exports.exportModules("OWNERS"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(error.node()).contains(DEV);
+        assertThat(error.message()).contains("FileSystemException");
+        assertThat(error.nextStep()).contains(tempRoot.toString())
+            .contains(Platform.windows() ? "only to this account and SYSTEM" : "rwx------");
+        assertThat(launcher.launchCount()).isZero();
         assertThat(leftovers()).isEmpty();
     }
 
@@ -527,7 +582,7 @@ class CliExportRunnerTest {
         ToolError windows = errorOf(() -> exports(server().build(), credentials(),
             TestCliRunners.simulatedWindows(launcher, Map.of("PATH", Platform.searchPath()),
                 new ProcessContainment.Unavailable("CreateJobObjectW failed (Windows error 5)"),
-                new CliResources("acme"))).exportModules("OWNERS"));
+                new CliResources("acme", PrivateFiles.forHost()))).exportModules("OWNERS"));
 
         assertThat(missingHome.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
         assertThat(windows.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
@@ -582,7 +637,7 @@ class CliExportRunnerTest {
         Path odd = Files.createDirectories(tempRoot.resolve("tmp~dir"));
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("export_modules_sample");
         CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
-            new CliResources("acme"));
+            new CliResources("acme", PrivateFiles.forHost()));
         CliExportRunner exports = new CliExportRunner(server().build(), credentials(), guard,
             runner, new CliOutputClassifier(new SecretScrubber()), odd);
 
@@ -601,7 +656,7 @@ class CliExportRunnerTest {
     void closingTheCliResourcesStopsARunningExportAndDeletesItsDirectory() throws Exception {
         FakeProcessLauncher launcher = writing("export_modules_sample", new byte[] {1})
             .hanging();
-        CliResources resources = new CliResources("acme");
+        CliResources resources = new CliResources("acme", PrivateFiles.forHost());
         CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
             resources);
         CliExportRunner exports = new CliExportRunner(server().build(), credentials(), guard,

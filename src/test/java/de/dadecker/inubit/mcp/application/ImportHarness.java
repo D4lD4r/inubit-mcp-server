@@ -45,6 +45,7 @@ import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -174,7 +175,7 @@ public final class ImportHarness {
         CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", DEV),
             clock);
         CliRunner runner = TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
-            new CliResources("acme"));
+            new CliResources("acme", PrivateFiles.forHost()));
         CliOutputClassifier classifier = new CliOutputClassifier(new SecretScrubber());
         ArtifactPort artifacts = new V81ArtifactAdapter(new CliExportRunner(server, credentials,
             guard, runner, classifier), () -> { });
@@ -217,7 +218,7 @@ public final class ImportHarness {
         CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", DEV),
             clock);
         CliRunner runner = TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
-            new CliResources("acme"));
+            new CliResources("acme", PrivateFiles.forHost()));
         return new V81ArtifactAdapter(new CliExportRunner(server, credentials, guard, runner,
             new CliOutputClassifier(new SecretScrubber())), () -> { });
     }

@@ -17,6 +17,7 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.os.JnaDriveTypeApi;
 import de.dadecker.inubit.mcp.adapter.os.NoJob;
+import de.dadecker.inubit.mcp.adapter.os.OsPrivateFileSystem;
 import de.dadecker.inubit.mcp.adapter.os.PosixSystem;
 import de.dadecker.inubit.mcp.adapter.os.WindowsNetworkPaths;
 import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
@@ -250,7 +251,8 @@ final class Wiring implements AutoCloseable {
         this.profile = config.profileInfo();
         this.scrubber = scrubber;
         // 002 research D-8: the export directories carry the profile name
-        this.cliResources = new CliResources(profile.name());
+        // feature 013 (FR-007): the export and import directories are private on every platform
+        this.cliResources = new CliResources(profile.name(), new OsPrivateFileSystem(windows));
         this.cleanupHook = new Thread(cliResources::close, "inubit-mcp-cli-cleanup");
         Terminology terms = profile.terminology();
         this.servers = config.effectiveNodes();

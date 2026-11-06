@@ -16,6 +16,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -61,7 +62,8 @@ class CliTagRunnerTest {
         return new CliTagRunner(TestNodeConfig.node().cliHome(cliHome)
             .cliJavaHome(Path.of("/opt/jdk-17")).cliExportTimeout(Duration.ofMillis(500)).build(),
             credentials, guard, TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
-                new CliResources("acme")), new CliOutputClassifier(new SecretScrubber()));
+                new CliResources("acme",
+                    PrivateFiles.forHost())), new CliOutputClassifier(new SecretScrubber()));
     }
 
     @Test

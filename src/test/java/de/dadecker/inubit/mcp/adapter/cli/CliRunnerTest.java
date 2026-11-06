@@ -16,6 +16,7 @@ import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -76,7 +77,8 @@ class CliRunnerTest {
     }
 
     private CliRunner runner(FakeProcessLauncher launcher) {
-        return TestCliRunners.forHost(launcher, parentEnv, new CliResources("acme"));
+        return TestCliRunners.forHost(launcher, parentEnv,
+            new CliResources("acme", PrivateFiles.forHost()));
     }
 
     private CliResult run(FakeProcessLauncher launcher, EffectiveNodeConfig config) {
@@ -129,7 +131,7 @@ class CliRunnerTest {
     @Test
     void afterShutdownNoStartCliProcessIsStarted() {
         // Phase 6 review W2: a launch after close is refused before anything is started
-        CliResources resources = new CliResources("acme");
+        CliResources resources = new CliResources("acme", PrivateFiles.forHost());
         resources.close();
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
         CliRunner runner = TestCliRunners.forHost(launcher, parentEnv, resources);
@@ -507,7 +509,7 @@ class CliRunnerTest {
 
     private CliRunner windowsRunner(FakeProcessLauncher launcher) {
         return TestCliRunners.simulatedWindows(launcher, parentEnv,
-            new ProcessContainment.Bound(), new CliResources("acme"));
+            new ProcessContainment.Bound(), new CliResources("acme", PrivateFiles.forHost()));
     }
 
     private CliResult runOnWindows(CliRunner runner, EffectiveNodeConfig config,
@@ -829,7 +831,7 @@ class CliRunnerTest {
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
         CliRunner runner = TestCliRunners.simulatedWindows(launcher, parentEnv,
             new ProcessContainment.Unavailable("AssignProcessToJobObject failed (Windows error"
-                + " 5)"), new CliResources("acme"));
+                + " 5)"), new CliResources("acme", PrivateFiles.forHost()));
 
         ToolError check = errorOf(() -> runner.checkAvailable(server().build()));
         ToolError run = errorOf(() -> runOnWindows(runner, server().build(),
@@ -857,7 +859,8 @@ class CliRunnerTest {
         };
 
         new CliRunner(FakeProcessLauncher.replaying("processErrorStart_ok"), parentEnv, true,
-            untouched, ProcessContainment.Bound::new, new CliResources("acme"));
+            untouched, ProcessContainment.Bound::new,
+                new CliResources("acme", PrivateFiles.forHost()));
     }
 
     @Test
@@ -867,7 +870,7 @@ class CliRunnerTest {
         CliRunner runner = new CliRunner(launcher, parentEnv, true,
             new TestCliRunners.FixedSystem(new CliSystem.Unreadable(
                 "GetSystemDirectoryW failed (Windows error 87)"), StandardCharsets.ISO_8859_1),
-            ProcessContainment.Bound::new, new CliResources("acme"));
+            ProcessContainment.Bound::new, new CliResources("acme", PrivateFiles.forHost()));
 
         ToolError error = errorOf(() -> runOnWindows(runner, server().build(),
             CliCommand.processErrorStart("110190387")));
@@ -938,7 +941,8 @@ class CliRunnerTest {
     }
 
     private CliRunner runner(FakeProcessLauncher launcher, StartCliPinProbe probe) {
-        return TestCliRunners.forHost(launcher, parentEnv, new CliResources("acme"), probe);
+        return TestCliRunners.forHost(launcher, parentEnv,
+            new CliResources("acme", PrivateFiles.forHost()), probe);
     }
 
     /** {@code server} as a server of a stage marked with {@code tls.pinPerServer}. */

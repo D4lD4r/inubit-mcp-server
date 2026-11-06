@@ -35,6 +35,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
@@ -117,7 +118,7 @@ class V81InventoryAdapterTest {
 
     private InventoryPort adapter(FakeProcessLauncher launcher) {
         CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
-            new CliResources("acme"));
+            new CliResources("acme", PrivateFiles.forHost()));
         return new V81InventoryAdapter(DEV, client, new CliExportRunner(config, credentials,
             guard, runner, new CliOutputClassifier(scrubber)));
     }

@@ -23,6 +23,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -58,7 +59,7 @@ class V81ImportAdapterTest {
         CliRunner runner = TestCliRunners.forHost(spec -> {
             calls.add("startcli");
             return cli.launch(spec);
-        }, Map.of("PATH", Platform.searchPath()), new CliResources("acme"));
+        }, Map.of("PATH", Platform.searchPath()), new CliResources("acme", PrivateFiles.forHost()));
         return new V81ImportAdapter(new CliImportRunner(server, credentials, guard, runner,
             new CliOutputClassifier(new SecretScrubber())), () -> calls.add("confirm"));
     }

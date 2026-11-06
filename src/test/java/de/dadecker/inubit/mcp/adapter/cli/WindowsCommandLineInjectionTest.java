@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.net.URI;
@@ -192,7 +193,7 @@ class WindowsCommandLineInjectionTest {
         RecordingLauncher launcher = new RecordingLauncher();
         EffectiveNodeConfig server = node.build();
         CliRunner runner = TestCliRunners.forHost(launcher, environment,
-            new CliResources("acme"));
+            new CliResources("acme", PrivateFiles.forHost()));
         String login = username;
 
         if (setting.refuses(character)) {
@@ -249,7 +250,8 @@ class WindowsCommandLineInjectionTest {
                 .cliJavaHome(Path.of(System.getProperty("java.home"))).build();
 
             CliResult result = run(TestCliRunners.forHost(launcher,
-                hostEnvironmentWithoutJavaHome(), new CliResources("acme")), server, USER);
+                hostEnvironmentWithoutJavaHome(),
+                    new CliResources("acme", PrivateFiles.forHost())), server, USER);
 
             assertThat(result.exitCode()).isZero();
             FakeStartCli.Recorded record = cli.record();

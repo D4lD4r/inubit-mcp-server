@@ -233,7 +233,7 @@ Windows CI job.
   setting and the character class (never the value); `CliRunnerTest` has one case per setting
   (no launch). The new constructor takes `CliSystem` and `ProcessContainment`; `Launcher.probeClients`
   and `Wiring` use it; the old constructor is removed and `TestCliRunners` switches to the new one.
-- [ ] T014 [US2] Injection matrix (SC-002, US1 AS5): **(Windows)** `WindowsCommandLineInjectionTest`
+- [X] T014 [US2] Injection matrix (SC-002, US1 AS5): **(Windows)** `WindowsCommandLineInjectionTest`
   (new): every character of SC-002 in the username, trust-store path, StartCLI URL, `cli.home`,
   `cli.javaHome` and the server's `JAVA_HOME` (refused or unchanged as the contract says;
   `ArgvRecorder` sees no second program and the exact `args`), and US1 AS5: an installation path
@@ -286,7 +286,7 @@ Windows CI job.
   `-Djava.io.tmpdir` remedy. Test first: `CliPathsTest` (new; accepted and refused Windows paths,
   8.3 expansion via a stubbed resolver, UNC refused, 259/260 characters), `CliCommandTest` Windows
   rendering, `ConfigValidatorTest` Windows tmpdir warning.
-- [ ] T019 [US1] Private temporary data (FR-007, FR-008, R-10): `CliExportRunner`,
+- [X] T019 [US1] Private temporary data (FR-007, FR-008, R-10): `CliExportRunner`,
   `CliImportRunner` and `CliResources` create their directories through `PrivateFileSystem`;
   `CliResources.sweepStale` runs on Windows (`Launcher` drops the `!windows` condition; owner
   compared with the token user), with 5 deletion attempts within 2 s for held files, then a log

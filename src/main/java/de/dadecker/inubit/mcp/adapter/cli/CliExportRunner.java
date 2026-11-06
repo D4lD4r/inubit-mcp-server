@@ -17,9 +17,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileAttribute;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -43,7 +40,8 @@ import java.util.zip.ZipInputStream;
  *       other value (e.g. one containing {@code '}) is {@code UNEXPECTED_RESPONSE} ("not
  *       supported by CLI quoting") before anything is created or launched. So are a missing CLI
  *       ({@code CLI_UNAVAILABLE}) and missing credentials ({@code AUTH_FAILED}).
- *   <li>Each export runs in a fresh owner-only ({@code rwx------}) temporary directory
+ *   <li>Each export runs in a fresh owner-only ({@code rwx------}; on Windows: only this account
+ *       and {@code SYSTEM}, feature 013) temporary directory
  *       {@code inubit-mcp-export-<profile>-<pid>-<random>} below {@code java.io.tmpdir}. It is
  *       registered with the {@link CliResources}, so that a shutdown deletes it as well, and
  *       deleted recursively when its registration is closed — also on failure, timeout or
@@ -77,9 +75,6 @@ public final class CliExportRunner {
     /** Upper bound of a whole artifact export archive (research D-8). */
     public static final long MAX_ARCHIVE_BYTES = 128L << 20;
     static final String SUCCESS_SUFFIX = "exported successfully.";
-
-    private static final FileAttribute<Set<PosixFilePermission>> OWNER_ONLY =
-        PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------"));
 
     private final EffectiveNodeConfig server;
     private final NodeCredentials credentials;
@@ -443,15 +438,16 @@ public final class CliExportRunner {
 
     private Path createDirectory() {
         try {
-            return Files.createTempDirectory(tempRoot, runner.resources().exportPrefix(),
-                OWNER_ONLY);
+            // feature 013 (FR-007): owner-only on POSIX, this account and SYSTEM on Windows
+            return runner.resources().files().createTempDirectory(tempRoot,
+                runner.resources().exportPrefix());
         } catch (IOException | UnsupportedOperationException e) {
             throw new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
                 "No private temporary directory for the export on " + server.id() + " ("
                     + e.getClass().getSimpleName() + ")",
-                "The temporary directory is not writable or does not support owner-only"
-                    + " permissions",
-                "Check java.io.tmpdir of the MCP server").withNode(server.id()));
+                CliResources.NO_PRIVATE_ACCESS,
+                CliResources.privateDirectoryStep(tempRoot, runner.windows()))
+                .withNode(server.id()));
         }
     }
 

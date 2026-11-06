@@ -19,6 +19,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -55,7 +56,7 @@ class V81ArtifactAdapterTest {
 
     private ArtifactPort adapter(FakeProcessLauncher launcher) {
         CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
-            new CliResources("acme"));
+            new CliResources("acme", PrivateFiles.forHost()));
         NodeCredentials credentials = new NodeCredentials(DEV,
             Optional.of(new SourcedValue<>("jdoe", "INUBIT_DEV_USERNAME")),
             Optional.of(new SourcedValue<>(Secret.of("adapter-test-pw"), "INUBIT_DEV_PASSWORD")),

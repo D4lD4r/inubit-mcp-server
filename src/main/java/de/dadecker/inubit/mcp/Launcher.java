@@ -9,6 +9,7 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.os.CredentialStores;
 import de.dadecker.inubit.mcp.adapter.os.NoJob;
+import de.dadecker.inubit.mcp.adapter.os.OsPrivateFileSystem;
 import de.dadecker.inubit.mcp.adapter.os.PosixSystem;
 import de.dadecker.inubit.mcp.adapter.os.WindowsJob;
 import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
@@ -288,7 +289,8 @@ final class Launcher {
         List<String> warnings = new ArrayList<>(report.warnings());
         // the profile name may be invalid here (an error of the report); it only names export
         // directories, which the probe never creates
-        try (CliResources resources = new CliResources("check-config")) {
+        try (CliResources resources = new CliResources("check-config",
+            new OsPrivateFileSystem(context.windows()))) {
             CliVersionProbe probe = new CliVersionProbe(new CliRunner(new SystemProcessLauncher(),
                 context.environment(), context.windows(), system, containment, resources),
                 byId::get);
@@ -316,14 +318,13 @@ final class Launcher {
                 + " (" + e.getClass().getSimpleName() + "); the MCP server does not start");
             return EXIT_ERROR;
         }
-        if (!context.windows()) {
-            // 002 research D-8: only this profile's and legacy (001) directories
-            int swept = CliResources.sweepStale(Path.of(System.getProperty("java.io.tmpdir")),
-                config.profile().name());
-            if (swept > 0) {
-                LOG.info("Deleted {} export director{} left behind by stopped MCP servers",
-                    swept, swept == 1 ? "y" : "ies");
-            }
+        // 002 research D-8: only this profile's and legacy (001) directories; feature 013
+        // (R-10): on Windows too, the owner compared with the user of the process token
+        int swept = CliResources.sweepStale(Path.of(System.getProperty("java.io.tmpdir")),
+            config.profile().name(), new OsPrivateFileSystem(context.windows()));
+        if (swept > 0) {
+            LOG.info("Deleted {} export director{} left behind by stopped MCP servers",
+                swept, swept == 1 ? "y" : "ies");
         }
         try (Wiring wiring = new Wiring(config, context.credentialStore().get(), context.scrubber(),
             ClockProvider.system(), context.exists(), context.windows(),

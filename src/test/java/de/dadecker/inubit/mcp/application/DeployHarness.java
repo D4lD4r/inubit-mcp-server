@@ -38,6 +38,7 @@ import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -204,7 +205,7 @@ public final class DeployHarness {
 
     private CliRunner runner(NodeId node) {
         return TestCliRunners.forHost(cli.get(node), Map.of("PATH", Platform.searchPath()),
-            new CliResources("acme"));
+            new CliResources("acme", PrivateFiles.forHost()));
     }
 
     private CredentialGuard guard(NodeId node) {

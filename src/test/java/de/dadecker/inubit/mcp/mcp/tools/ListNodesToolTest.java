@@ -35,6 +35,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
@@ -349,7 +350,8 @@ class ListNodesToolTest {
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber), scrubber,
             Clock.systemUTC(),
             TestCliRunners.forHost(noStartCli(new AtomicInteger()), Map.of(),
-                new CliResources("acme")), versions, PortSetRegistry.v81Default());
+                new CliResources("acme",
+                    PrivateFiles.forHost())), versions, PortSetRegistry.v81Default());
         Map<NodeId, Set<Capability>> allowed = Map.of(DEV1, DEVELOPMENT, DEV2, READS,
             QA1, DEVELOPMENT, NodeId.parse("qa/node2"), READS, QA3, DEVELOPMENT);
         NodeOverview overview = new NodeOverview(nodes.stream()

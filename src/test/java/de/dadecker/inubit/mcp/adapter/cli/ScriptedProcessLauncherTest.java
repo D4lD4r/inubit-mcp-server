@@ -16,6 +16,7 @@ import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -246,7 +247,7 @@ class ScriptedProcessLauncherTest {
 
     private CliRunner runner(ScriptedProcessLauncher cli) {
         return TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
-            new CliResources("acme"));
+            new CliResources("acme", PrivateFiles.forHost()));
     }
 
     private EffectiveNodeConfig server() {

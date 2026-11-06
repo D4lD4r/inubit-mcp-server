@@ -33,6 +33,7 @@ import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
@@ -117,7 +118,7 @@ final class InventoryToolFixture implements AutoCloseable {
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber), scrubber,
             Clock.systemUTC(),
             TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
-                new CliResources("acme")),
+                new CliResources("acme", PrivateFiles.forHost())),
             versions, PortSetRegistry.v81Default());
         InventoryService inventory = new InventoryService(gateways, new TargetResolver(ids),
             new FanOut(), ResultLimiter.withDefaults(),

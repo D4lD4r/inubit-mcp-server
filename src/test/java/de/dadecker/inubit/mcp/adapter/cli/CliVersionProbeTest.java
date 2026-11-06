@@ -15,6 +15,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.io.InputStream;
@@ -60,7 +61,7 @@ class CliVersionProbeTest {
     private CliVersionProbe probe(FakeProcessLauncher launcher, SecretScrubber scrubber) {
         return new CliVersionProbe(TestCliRunners.forHost(launcher,
             Map.of("PATH", Platform.searchPath(), "INUBIT_DEV_PASSWORD", "never-passed"),
-                new CliResources("acme")), id -> server, scrubber);
+                new CliResources("acme", PrivateFiles.forHost())), id -> server, scrubber);
     }
 
     /** Replays {@code fixtures/v9_0/cli/<fixtureCase>.*} (FakeProcessLauncher reads v8_1). */
@@ -194,7 +195,8 @@ class CliVersionProbeTest {
         Files.writeString(cliHome.resolve("bin").resolve("startcli.bat"), "@echo off\r\n");
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("unknown_command");
         CliVersionProbe probe = new CliVersionProbe(TestCliRunners.simulatedWindows(launcher,
-            Map.of(), new ProcessContainment.Bound(), new CliResources("acme")), id -> server,
+            Map.of(), new ProcessContainment.Bound(),
+                new CliResources("acme", PrivateFiles.forHost())), id -> server,
             new SecretScrubber());
 
         assertThatThrownBy(() -> probe.probe(ID, TIMEOUT))
