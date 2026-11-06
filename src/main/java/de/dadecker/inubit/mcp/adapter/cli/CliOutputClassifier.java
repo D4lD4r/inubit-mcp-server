@@ -104,6 +104,22 @@ public final class CliOutputClassifier {
             || LOGIN_FAILURE.matcher(result.stderr()).find();
     }
 
+    /**
+     * True if the last non-blank line of {@code stdout} is the client's password prompt alone
+     * (feature 013, FR-005): the client prints it before it reads the password, so a call that
+     * stops there may wait at its console or for a slow server.
+     */
+    public static boolean endsAtThePasswordPrompt(String stdout) {
+        List<String> lines = lines(stdout);
+        for (int i = lines.size() - 1; i >= 0; i--) {
+            String line = lines.get(i).strip();
+            if (!line.isEmpty()) {
+                return line.equals(PASSWORD_PROMPT);
+            }
+        }
+        return false;
+    }
+
     /** A classifier that scrubs with {@link SecretScrubber#global()}. */
     public static CliOutputClassifier withGlobalScrubber() {
         return new CliOutputClassifier(SecretScrubber.global());

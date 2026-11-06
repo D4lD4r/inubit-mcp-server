@@ -69,6 +69,25 @@ class CliOutputClassifierTest {
         assertThat(output.outputLines()).containsExactly("1-OK: Module exported successfully.");
     }
 
+    /** T023 (feature 013, FR-005): the client's prompt as the last output of a call. */
+    @ParameterizedTest
+    @ValueSource(strings = {"Password: ", "Password:", "Password: \n", "Password: \r\n",
+        "JAVA_HOME is set\r\nPassword: ", "JAVA_HOME is set\nPassword: \n\n"})
+    void thePasswordPromptAsTheLastOutputIsRecognised(String escaped) {
+        assertThat(CliOutputClassifier.endsAtThePasswordPrompt(unescape(escaped))).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "\n", "Password: 1-OK: Module exported successfully.\n",
+        "Password: \nConnecting\n", "JAVA_HOME is set\n", "Enter Password: x"})
+    void otherOutputIsNotThePasswordPrompt(String escaped) {
+        assertThat(CliOutputClassifier.endsAtThePasswordPrompt(unescape(escaped))).isFalse();
+    }
+
+    private static String unescape(String escaped) {
+        return escaped.replace("\\r", "\r").replace("\\n", "\n");
+    }
+
     @Test
     void aMessageAfterAnImportsProgressTextOnTheSameLineIsRead() {
         CliOutput output = classifier.parse(fixture("import_repository_new_files"));

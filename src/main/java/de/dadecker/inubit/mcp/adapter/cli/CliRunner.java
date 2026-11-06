@@ -56,7 +56,9 @@ import java.util.Optional;
  *       {@code JAVA_HOME} from {@code cli.javaHome}, else the server's own (on Windows in any
  *       spelling). No credential variable ever reaches StartCLI.
  *   <li>The working directory is the CLI home. On timeout (or interruption) the process tree is
- *       destroyed; any member still alive after {@link #KILL_GRACE} is killed forcibly.
+ *       destroyed; any member still alive after {@link #KILL_GRACE} is killed forcibly. On
+ *       Windows a timeout whose last output is the client's password prompt names both
+ *       possibilities: the client waits for the password at its console, or the server is slow.
  *   <li>stdout and stderr are drained completely but kept only up to
  *       {@link #MAX_OUTPUT_BYTES} each, then decoded by {@link OutputDecoder}.
  * </ul>
@@ -476,8 +478,15 @@ public final class CliRunner {
         }
         if (!exited) {
             terminate(process);
-            throw timeout(server, "StartCLI did not finish within " + Durations.human(timeout)
-                + " on " + server.id(), timeoutSetting);
+            String message = "StartCLI did not finish within " + Durations.human(timeout)
+                + " on " + server.id();
+            if (windows) {
+                stdout.await(KILL_GRACE);
+                if (CliOutputClassifier.endsAtThePasswordPrompt(stdout.text(decoder()))) {
+                    throw timeoutAtThePasswordPrompt(server, message, timeoutSetting);
+                }
+            }
+            throw timeout(server, message, timeoutSetting);
         }
         stdout.await(KILL_GRACE);
         stderr.await(KILL_GRACE);
@@ -542,6 +551,22 @@ public final class CliRunner {
         return new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT, message,
             "The INUBIT server is slow or unreachable, or StartCLI waits for input",
             "Check get_health; raise " + timeoutSetting + " if the INUBIT server is just slow")
+            .withNode(server.id()));
+    }
+
+    /**
+     * Windows (feature 013, FR-005, research R-10): the last output was the password prompt. The
+     * server cannot tell a client waiting for the password at its console from a slow server.
+     */
+    private static ToolErrorException timeoutAtThePasswordPrompt(EffectiveNodeConfig server,
+        String message, String timeoutSetting) {
+        return new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT, message,
+            "StartCLI's last output was its password prompt: it may be waiting for the password"
+                + " on its console instead of reading it from standard input, or the INUBIT"
+                + " server is slow",
+            "Check get_health; raise " + timeoutSetting + " if the INUBIT server is just slow;"
+                + " if the call keeps stopping at the prompt, run the StartCLI live check on"
+                + " Windows in docs/live-tests.md")
             .withNode(server.id()));
     }
 

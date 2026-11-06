@@ -43,6 +43,7 @@ import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** T022: the StartCLI process layer with {@link FakeProcessLauncher} (research R-6, R-12). */
 @Timeout(30)
@@ -384,6 +385,61 @@ class CliRunnerTest {
         assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
         assertThat(launcher.last().destroyed()).isTrue();
         assertThat(launcher.last().destroyedForcibly()).isFalse();
+    }
+
+    /** The cause and next step of a timeout as on macOS and Linux (before feature 013). */
+    private static final String TIMEOUT_CAUSE =
+        "The INUBIT server is slow or unreachable, or StartCLI waits for input";
+    private static final String TIMEOUT_NEXT_STEP =
+        "Check get_health; raise cliTimeout if the INUBIT server is just slow";
+
+    /** T023 (feature 013, FR-005, US4 AS6): the client cannot be told from a slow server. */
+    @Test
+    void onWindowsATimeoutAfterThePasswordPromptNamesBothPossibilities() throws IOException {
+        batchFile(cliHome);
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(
+            "JAVA_HOME is set\r\nPassword: ", "", 0).hanging();
+
+        ToolError error = errorOf(() -> windowsRunner(launcher).run(server().build(), USER,
+            Secret.of(PASSWORD), CliCommand.kill("1"), Duration.ofMillis(200), guard()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(error.message()).startsWith("StartCLI did not finish within");
+        assertThat(error.likelyCause())
+            .contains("waiting for the password on its console")
+            .contains("the INUBIT server is slow");
+        assertThat(error.nextStep()).startsWith(TIMEOUT_NEXT_STEP)
+            .contains("docs/live-tests.md").contains("live check");
+        assertThat(error.toString()).doesNotContain(PASSWORD);
+    }
+
+    @Test
+    void onWindowsATimeoutWithOtherLastOutputKeepsTheMessage() throws IOException {
+        batchFile(cliHome);
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("Password: \r\nConnecting\r\n",
+            "", 0).hanging();
+
+        ToolError error = errorOf(() -> windowsRunner(launcher).run(server().build(), USER,
+            Secret.of(PASSWORD), CliCommand.kill("1"), Duration.ofMillis(200), guard()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(error.likelyCause()).isEqualTo(TIMEOUT_CAUSE);
+        assertThat(error.nextStep()).isEqualTo(TIMEOUT_NEXT_STEP);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "Password: "})
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "the POSIX runner of the host; the Windows"
+        + " cases are onWindowsATimeout…")
+    void onPosixATimeoutKeepsTheMessageWithOrWithoutThePrompt(String stdout) {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(stdout, "", 0).hanging();
+
+        ToolError error = errorOf(() -> runner(launcher).run(server().build(), USER,
+            Secret.of(PASSWORD), CliCommand.kill("1"), Duration.ofMillis(200), guard()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(error.likelyCause()).isEqualTo(TIMEOUT_CAUSE);
+        assertThat(error.nextStep()).isEqualTo(TIMEOUT_NEXT_STEP);
     }
 
     @Test
