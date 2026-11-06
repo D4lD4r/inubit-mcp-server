@@ -419,7 +419,7 @@ everything refused by the static input checks before StartCLI.
   config.auditDirectory(), configLocation.roots(), environment, probe of T015, windows)` and hands
   it and the opt-in lookup to the service.
 
-- [ ] T018 [US2] Tool-level guarantees (FR-001, FR-012, US2-6/7): test first, extending
+- [X] T018 [US2] Tool-level guarantees (FR-001, FR-012, US2-6/7): test first, extending
   `test/mcp/tools/ExportArchivesToolTest.java`: a call without the acknowledgement returns a tool
   error (`isError`) with `INVALID_INPUT` and is audited (unlike a schema violation); every successful
   result carries `clearTextSecrets` with the fixed text; the description contains "IN CLEAR TEXT"

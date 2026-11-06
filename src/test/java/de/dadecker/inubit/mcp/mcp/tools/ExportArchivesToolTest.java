@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.mcp.tools;
 
 import static de.dadecker.inubit.mcp.mcp.tools.DiagnosisToolFixture.assertMatchesOutputSchema;
+import static de.dadecker.inubit.mcp.mcp.tools.DiagnosisToolFixture.toolError;
 import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -21,6 +22,7 @@ import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.AuditPort;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.mcp.ToolHints;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.GitFreeTempDir;
 import de.dadecker.inubit.mcp.testing.MutableClock;
@@ -28,6 +30,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,7 +48,8 @@ import tools.jackson.databind.JsonNode;
 /**
  * Feature 015 T012 (research R-1, FR-001): {@code export_archives} over MCP
  * (contracts/mcp-tools-delta.md) with a fake StartCLI, a recording audit log, an admitting
- * version gate and the real {@link V81WorkflowArchives}.
+ * version gate and the real {@link V81WorkflowArchives}. T018 adds the tool-level guarantees of
+ * FR-001, FR-012 and US2 scenarios 6/7.
  */
 @Timeout(60)
 class ExportArchivesToolTest {
@@ -58,6 +62,10 @@ class ExportArchivesToolTest {
         + " server's directories (including its configuration directory), git working trees and"
         + " network paths; existing files are never replaced. Read-only for INUBIT; does not"
         + " touch the workspace.";
+    /** The fixed statement of contracts/mcp-tools-delta.md, copied here to pin the wording. */
+    private static final String CLEAR_TEXT_SECRETS = "The archives contain the secrets of these"
+        + " workflows (passwords, keys, certificates, saved test messages) in clear text. Do not"
+        + " share, attach or commit them as they are; delete them when no longer needed.";
     private static final NodeId DEV1 = NodeId.parse("dev/node1");
 
     @TempDir(factory = GitFreeTempDir.class)
@@ -65,6 +73,7 @@ class ExportArchivesToolTest {
 
     private final List<AuditRecord> audit = new CopyOnWriteArrayList<>();
     private final List<String> exports = new CopyOnWriteArrayList<>();
+    private ArchiveExportService service;
     private McpTestClient client;
 
     @BeforeEach
@@ -73,7 +82,7 @@ class ExportArchivesToolTest {
             new MutableClock(Instant.parse("2026-11-06T08:00:00Z")), node -> VersionSetting.V8_1,
             node -> Duration.ofMinutes(10));
         AuditPort auditPort = audit::add;
-        ArchiveExportService service = new ArchiveExportService(
+        service = new ArchiveExportService(
             new TargetResolver(List.of(DEV1)), node -> Optional.of(WorkflowArchiveFixtures.OWNER),
             node -> Optional.of("jdoe"), node -> false, node -> false,
             new TargetFolderRules(tmp.resolve("home"), tmp.resolve("workspace"),
@@ -256,5 +265,79 @@ class ExportArchivesToolTest {
         assertThat(audit.get(0).inputs()).containsEntry("acknowledgeClearTextSecrets", "false")
             .containsEntry("owner", "OWNERS").doesNotContainKeys("workflow.1", "reason");
         assertThat(audit.get(0).mcpClient()).contains("mcp-test-client/1.0");
+    }
+
+    @Test
+    void aCallWithoutTheAcknowledgementIsAnAuditedToolErrorBeforeTheExport() {
+        Map<String, Object> absent = valid();
+        absent.remove("acknowledgeClearTextSecrets");
+        List<Map<String, Object>> calls = List.of(absent,
+            with("acknowledgeClearTextSecrets", false));
+
+        for (Map<String, Object> arguments : calls) {
+            JsonNode error = toolError(client.callTool("export_archives", arguments));
+
+            assertThat(error.path("code").asString()).as(arguments.toString())
+                .isEqualTo("INVALID_INPUT");
+            assertThat(error.path("message").asString())
+                .contains("acknowledgeClearTextSecrets").contains("clear text");
+            assertThat(error.path("node").asString()).isEqualTo("dev/node1");
+        }
+        assertThat(audit).as("unlike a schema violation, the refusal is audited")
+            .extracting(AuditRecord::outcome)
+            .containsExactly(AuditOutcome.REFUSED, AuditOutcome.REFUSED);
+        assertThat(audit).allSatisfy(record -> {
+            assertThat(record.capability()).isEqualTo("export_archives");
+            assertThat(record.step()).isEqualTo(AuditRecord.Step.EXECUTE);
+            assertThat(record.inputs()).containsEntry("acknowledgeClearTextSecrets", "false");
+        });
+        assertThat(exports).as("refused before the StartCLI export").isEmpty();
+        assertThat(tmp.resolve("archives")).doesNotExist();
+    }
+
+    @Test
+    void everySuccessfulResultCarriesTheFixedClearTextStatement() {
+        Map<String, Object> all = valid();
+        all.remove("workflows");
+        all.put("targetFolder", tmp.resolve("all").toString());
+        Map<String, Object> cloud = with("targetFolder",
+            tmp.resolve("home/Library/CloudStorage/acme/archives").toString());
+        List<Map<String, Object>> calls = List.of(valid(), all, cloud);
+        List<JsonNode> results = new ArrayList<>();
+
+        for (Map<String, Object> arguments : calls) {
+            JsonNode result = client.callTool("export_archives", arguments);
+            results.add(result);
+
+            assertMatchesOutputSchema("export_archives", result);
+            assertThat(result.path("structuredContent").path("clearTextSecrets").asString())
+                .as(arguments.toString()).isEqualTo(CLEAR_TEXT_SECRETS);
+            assertThat(result.path("content").get(0).path("text").asString())
+                .as("a client that shows only the text sees it too")
+                .contains(CLEAR_TEXT_SECRETS);
+        }
+        assertThat(results.get(1).path("structuredContent").path("archives").size())
+            .as("all workflows of the diagram group").isGreaterThan(2);
+        assertThat(results.get(2).path("structuredContent").path("warnings"))
+            .as("the cloud-sync warning comes in addition, not instead")
+            .anySatisfy(w -> assertThat(w.asText()).contains("synchronized to the cloud"));
+        assertThat(exports).hasSize(3);
+        assertThat(audit).extracting(AuditRecord::outcome).containsOnly(AuditOutcome.PENDING,
+            AuditOutcome.EXECUTED);
+    }
+
+    @Test
+    void theDescriptionNamesTheClearTextSecretsAndTheAcknowledgement() {
+        String description = new ExportArchivesTool(service).descriptionText();
+
+        assertThat(description).contains("IN CLEAR TEXT").contains("acknowledgeClearTextSecrets");
+        assertThat(client.listTools().path("tools").get(0).path("description").asString())
+            .contains("IN CLEAR TEXT").contains("acknowledgeClearTextSecrets");
+    }
+
+    @Test
+    void theHandlerIsALocalWriteSoClientsAskBeforeCallingIt() {
+        assertThat(new ExportArchivesTool(service).annotations())
+            .isEqualTo(ToolHints.localWrite("Export Workbench archives of workflows"));
     }
 }
