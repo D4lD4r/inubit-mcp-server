@@ -9,6 +9,7 @@ import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.NetworkPathProbe;
+import de.dadecker.inubit.mcp.testing.GitFreeTempDir;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -73,6 +74,27 @@ class TargetFolderRulesTest {
         assertRefused(rules, "archives", RELATIVE);
         assertRefused(rules, "archives/out", RELATIVE);
         assertRefused(rules, "", RELATIVE);
+    }
+
+    @Test
+    void controlCharactersOfTheFolderAreShownAsQuestionMarks() throws IOException {
+        Path cloud = Files.createDirectories(home.resolve("Library").resolve("CloudStorage"));
+        Map<String, TargetFolderRules> cases = new java.util.LinkedHashMap<>();
+        cases.put("archives\nout", rules());
+        cases.put(root + "/a\u0000b", rules());
+        cases.put(workspace.resolve("x\ry").toString(), rules());
+        cases.put("\\\\server\\share\u0007\u009B", windowsRules());
+
+        for (Map.Entry<String, TargetFolderRules> entry : cases.entrySet()) {
+            ToolErrorException refused = catchThrowableOfType(ToolErrorException.class,
+                () -> entry.getValue().check(entry.getKey()));
+            assertThat(refused).as("refusal").isNotNull();
+            assertThat(refused.error().message())
+                .contains("'" + entry.getKey().replaceAll("\\p{Cc}", "?") + "'")
+                .doesNotContainPattern("\\p{Cc}");
+        }
+        assertThat(rules().check(cloud.resolve("a\tb").toString()).warnings()).singleElement()
+            .asString().contains("a?b").doesNotContain("\t");
     }
 
     @Test

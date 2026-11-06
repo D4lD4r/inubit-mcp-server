@@ -19,10 +19,10 @@ import de.dadecker.inubit.mcp.domain.port.WorkflowArchivePort;
 import de.dadecker.inubit.mcp.domain.port.WorkflowArchivePort.SlicedExport;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -30,7 +30,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,11 +43,12 @@ import org.slf4j.LoggerFactory;
  * local folder outside the workspace (research R-2, R-13). The workspace is never touched, and
  * the raw export never reaches the workspace's archive codec.
  *
- * <p>Order (R-13): target and owner, static checks and a {@code REFUSED} record for their
- * failures; then {@code PENDING}, the version gate, the export, the export-dependent checks (first
- * failure wins), the writes and the outcome record. No archive is written before every check
- * passed. The result's module, missing-module and repository-path lists are bounded together by
- * {@code resultLimits.maxItems} (R-14).
+ * <p>Order (R-13): target and owner, the static checks (production opt-in, acknowledgement, names
+ * and limits, folder rules) and a {@code REFUSED} record for their failures; then {@code
+ * PENDING}, the version gate, the export, the export-dependent checks (first failure wins), the
+ * writes and the outcome record. No archive is written before every check passed. The result's
+ * module, missing-module and repository-path lists are bounded together by {@code
+ * resultLimits.maxItems} (R-14).
  */
 public final class ArchiveExportService {
 
@@ -54,10 +57,19 @@ public final class ArchiveExportService {
 
     private static final Logger LOG = LoggerFactory.getLogger(ArchiveExportService.class);
     private static final int MAX_LOGGED = 100;
+    private static final int MAX_NAME = 200;
+    private static final int MAX_REASON = 500;
+    private static final Pattern CONTROL = Pattern.compile("[\\u0000-\\u001F\\u007F]");
+    private static final Pattern GROUP =
+        Pattern.compile("^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$");
+    private static final Pattern REASON = Pattern.compile("^[^\\r\\n]{1,500}$");
 
     private final TargetResolver targets;
     private final Function<NodeId, Optional<String>> owners;
     private final Function<NodeId, Optional<String>> accounts;
+    private final Predicate<NodeId> production;
+    private final Predicate<NodeId> productionOptIn;
+    private final TargetFolderRules folders;
     private final Function<NodeId, ArtifactPort> artifacts;
     private final WorkflowArchivePort archives;
     private final VersionGate gate;
@@ -69,6 +81,10 @@ public final class ArchiveExportService {
      * @param targets   resolves the target (a group: its first node)
      * @param owners    the {@code inventory.owner} of a node, if configured
      * @param accounts  the INUBIT account of a node's server, for the audit
+     * @param production whether a node's group is a production group
+     * @param productionOptIn whether a node's group sets {@code archives.productionOptIn}
+     *                  (research R-15; independent of {@code write.*})
+     * @param folders   the rules of the target folder (research R-9, R-10)
      * @param artifacts the StartCLI export of a node
      * @param archives  slices an export into workflow archives
      * @param gate      admits the export ({@code WORKSPACE_EXPORT} over StartCLI)
@@ -78,12 +94,16 @@ public final class ArchiveExportService {
      * @param audit     what every call's audit shares
      */
     public ArchiveExportService(TargetResolver targets, Function<NodeId, Optional<String>> owners,
-        Function<NodeId, Optional<String>> accounts, Function<NodeId, ArtifactPort> artifacts,
-        WorkflowArchivePort archives, VersionGate gate, ArchiveFolderWriter writer,
-        ResultLimiter limiter, ArchiveExportAudit.Dependencies audit) {
+        Function<NodeId, Optional<String>> accounts, Predicate<NodeId> production,
+        Predicate<NodeId> productionOptIn, TargetFolderRules folders,
+        Function<NodeId, ArtifactPort> artifacts, WorkflowArchivePort archives, VersionGate gate,
+        ArchiveFolderWriter writer, ResultLimiter limiter, ArchiveExportAudit.Dependencies audit) {
         this.targets = Objects.requireNonNull(targets, "targets");
         this.owners = Objects.requireNonNull(owners, "owners");
         this.accounts = Objects.requireNonNull(accounts, "accounts");
+        this.production = Objects.requireNonNull(production, "production");
+        this.productionOptIn = Objects.requireNonNull(productionOptIn, "productionOptIn");
+        this.folders = Objects.requireNonNull(folders, "folders");
         this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
         this.archives = Objects.requireNonNull(archives, "archives");
         this.gate = Objects.requireNonNull(gate, "gate");
@@ -97,11 +117,12 @@ public final class ArchiveExportService {
      * (FR-011), everything before the first write is a tool error.
      *
      * @throws ToolErrorException a static refusal ({@code TARGET_UNKNOWN}, {@code
-     *     NOT_CONFIGURED}, {@code INVALID_INPUT}), {@code INTERNAL} if an audit record that must
-     *     precede the export could not be written, {@code UNSUPPORTED_VERSION}, the errors of the
-     *     StartCLI export and of slicing, and {@code INVALID_INPUT} for unknown workflow names,
-     *     more than {@value #MAX_WORKFLOWS} workflows, a file name over 255 bytes or colliding
-     *     file names
+     *     NOT_CONFIGURED}, {@code PRODUCTION_PROTECTED}, {@code INVALID_INPUT} for a missing
+     *     acknowledgement, a name or limit of the input schema or a folder rule), {@code
+     *     INTERNAL} if an audit record that must precede the export could not be written,
+     *     {@code UNSUPPORTED_VERSION}, the errors of the StartCLI export and of slicing, and
+     *     {@code INVALID_INPUT} for unknown workflow names, more than {@value #MAX_WORKFLOWS}
+     *     workflows, a file name over 255 bytes or colliding file names
      */
     public ArchiveExportResult export(ArchiveExportRequest request) {
         ArchiveExportAudit record = new ArchiveExportAudit(audit, request.target(),
@@ -119,10 +140,15 @@ public final class ArchiveExportService {
         return run(request, record, checked);
     }
 
-    /** The outcome of the static checks (R-13 steps 1–2). */
-    private record Static(NodeId node, String owner, Path folder) {
+    /** The outcome of the static checks (R-13 steps 1–3); {@code warnings}: the folder's. */
+    private record Static(NodeId node, String owner, Path folder, List<String> warnings) {
     }
 
+    /**
+     * R-13 steps 1–3, first failure wins: target and owner, then production (R-15), the
+     * acknowledgement (FR-007), the names and limits of the input schema again (defence in
+     * depth) and the folder rules (R-9, R-10).
+     */
     private Static check(ArchiveExportRequest request, ArchiveExportAudit record) {
         NodeId node = targets.resolve(request.target()).get(0);
         record.node(node, accounts.apply(node));
@@ -135,24 +161,72 @@ public final class ArchiveExportService {
                 "Pass owner, or set inventory.owner for " + node + " or in defaults")
                 .withNode(node)));
         record.owner(owner);
-        return new Static(node, owner, folder(request.targetFolder(), node));
+        if (production.test(node) && !productionOptIn.test(node)) {
+            throw refused(ErrorCode.PRODUCTION_PROTECTED, node,
+                node + targets.terms().render(" belongs to the production {group} ")
+                    + node.group() + "; export_archives needs archives.productionOptIn there",
+                targets.terms().render("The {group} is classified production: true and"
+                    + " archives.productionOptIn is not set for it (write.enabled and"
+                    + " write.productionOptIn do not unlock archives)"),
+                targets.terms().render("Export the archives in the INUBIT Workbench; only if"
+                    + " this {group} must allow it, set archives.productionOptIn: true for it and"
+                    + " restart the MCP client"));
+        }
+        if (!request.acknowledgeClearTextSecrets()) {
+            throw refused(ErrorCode.INVALID_INPUT, node, "acknowledgeClearTextSecrets is not"
+                    + " true: the archives contain the workflows' secrets (passwords, keys,"
+                    + " certificates, saved test messages) in clear text",
+                "The call did not acknowledge that the archives hold secrets in clear text",
+                "Pass acknowledgeClearTextSecrets: true once the user accepted that, and keep"
+                    + " the archives as safe as the secrets they contain");
+        }
+        checkInputs(request, node);
+        TargetFolderRules.CheckedFolder folder;
+        try {
+            folder = folders.check(request.targetFolder());
+        } catch (ToolErrorException e) {
+            throw new ToolErrorException(e.error().withNode(node));
+        }
+        return new Static(node, owner, folder.path(), folder.warnings());
     }
 
-    // Interim rule until the folder rules (R-9) replace it: an absolute path.
-    private static Path folder(String targetFolder, NodeId node) {
-        Path folder;
-        try {
-            folder = Path.of(targetFolder);
-        } catch (InvalidPathException e) {
-            folder = null;
+    /** The input schema's names and limits again (defence in depth; R-13 step 2). */
+    private static void checkInputs(ArchiveExportRequest request, NodeId node) {
+        if (!GROUP.matcher(request.diagramGroup()).matches()) {
+            throw invalid(node, "diagramGroup is not 1 to " + MAX_NAME + " letters, digits,"
+                + " '_', '.', '-' or spaces, starting with a letter, digit, '_' or '.'");
         }
-        if (folder == null || !folder.isAbsolute()) {
-            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
-                "The target folder '" + targetFolder + "' is not an absolute path",
-                "targetFolder must be the absolute path of a local folder",
-                "Pass the absolute path of the folder for the archives").withNode(node));
+        List<String> workflows = request.workflows();
+        if (workflows.size() > MAX_WORKFLOWS) {
+            throw invalid(node, "workflows has " + workflows.size() + " names; one call"
+                + " archives at most " + MAX_WORKFLOWS);
         }
-        return folder;
+        if (new HashSet<>(workflows).size() != workflows.size()) {
+            throw invalid(node, "workflows names a workflow more than once");
+        }
+        for (int i = 0; i < workflows.size(); i++) {
+            String name = workflows.get(i);
+            int length = name.codePointCount(0, name.length());
+            if (length < 1 || length > MAX_NAME || CONTROL.matcher(name).find()) {
+                throw invalid(node, "workflows[" + i + "] is not 1 to " + MAX_NAME
+                    + " characters without control characters");
+            }
+        }
+        if (request.reason().isPresent() && !REASON.matcher(request.reason().get()).matches()) {
+            throw invalid(node, "reason is not one line of 1 to " + MAX_REASON + " characters");
+        }
+    }
+
+    private static ToolErrorException invalid(NodeId node, String message) {
+        return refused(ErrorCode.INVALID_INPUT, node, message,
+            "The call does not match the tool's input schema",
+            "Correct the parameter as the tool's input schema describes");
+    }
+
+    private static ToolErrorException refused(ErrorCode code, NodeId node, String message,
+        String likelyCause, String nextStep) {
+        return new ToolErrorException(ToolError.of(code, message, likelyCause, nextStep)
+            .withNode(node));
     }
 
     private ArchiveExportResult run(ArchiveExportRequest request, ArchiveExportAudit record,
@@ -311,6 +385,7 @@ public final class ArchiveExportService {
         String counts = archiveResults.size() + " written, " + failed.size() + " failed, "
             + written.notWritten().size() + " not written";
         List<String> warnings = new ArrayList<>(admission);
+        warnings.addAll(checked.warnings());
         warnings.addAll(written.warnings());
         record.outcome(outcome, counts).ifPresent(warnings::add);
         LOG.info("{} on {}: {} (diagram group {}: {}; audit id {})",

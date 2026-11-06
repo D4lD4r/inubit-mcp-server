@@ -8,12 +8,14 @@ import de.dadecker.inubit.mcp.domain.model.ArchiveExportResult;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
+import de.dadecker.inubit.mcp.testing.GitFreeTempDir;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -29,7 +31,7 @@ class ArchiveExportPerformanceTest {
     private static final NodeId DEV1 = NodeId.parse("dev/node1");
     private static final Duration BUDGET = Duration.ofSeconds(10);
 
-    @TempDir
+    @TempDir(factory = GitFreeTempDir.class)
     Path tmp;
 
     @Test
@@ -58,7 +60,11 @@ class ArchiveExportPerformanceTest {
         };
         ArchiveExportService service = new ArchiveExportService(
             new TargetResolver(List.of(DEV1)), node -> Optional.of(WorkflowArchiveFixtures.OWNER),
-            node -> Optional.of("jdoe"), node -> artifacts, new V81WorkflowArchives(),
+            node -> Optional.of("jdoe"), node -> false, node -> false,
+            new TargetFolderRules(tmp.resolve("home"), tmp.resolve("workspace"),
+                tmp.resolve("audit"), List.of(tmp.resolve("config")), Map.of(),
+                letter -> false, false),
+            node -> artifacts, new V81WorkflowArchives(),
             FakeVersionDetection.pinned81(), new ArchiveFolderWriter(),
             ResultLimiter.withDefaults(),
             new ArchiveExportAudit.Dependencies(record -> { },

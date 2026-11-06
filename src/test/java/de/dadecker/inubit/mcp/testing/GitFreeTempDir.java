@@ -1,4 +1,4 @@
-package de.dadecker.inubit.mcp.application;
+package de.dadecker.inubit.mcp.testing;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -11,13 +11,14 @@ import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.io.TempDirFactory;
 
 /**
- * A {@code @TempDir} factory for tests of the folder rules (feature 015, research R-9): the
- * directory lies outside every git working tree. A build that sets {@code java.io.tmpdir} below
+ * A {@code @TempDir} factory for tests whose target folders pass the folder rules of
+ * {@code export_archives} (feature 015, research R-9): the directory lies outside every git
+ * working tree. A build that sets {@code java.io.tmpdir} below
  * the checkout (the isolated temporary directory of a local build) would otherwise put every
  * test folder inside a git tree, which the rules refuse; the factory then falls back to the
  * operating system's temporary directory ({@code TMPDIR}, {@code TEMP}, {@code TMP}).
  */
-final class GitFreeTempDir implements TempDirFactory {
+public final class GitFreeTempDir implements TempDirFactory {
 
     @Override
     public Path createTempDirectory(AnnotatedElementContext elementContext,

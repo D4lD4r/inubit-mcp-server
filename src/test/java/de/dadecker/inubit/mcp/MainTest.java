@@ -1038,6 +1038,42 @@ class MainTest {
     }
 
     @Test
+    void exportArchivesRefusesTheFolderOfTheConfigurationFileInUse() throws Exception {
+        // feature 015 T017 (research R-9): the folder of --config is one of the server's
+        // directories, refused before StartCLI
+        credentials();
+        Path file = Files.createDirectories(home.resolve("elsewhere")).resolve("profile.yaml");
+        Files.writeString(file, Files.readString(validConfig())
+            + "    cli:\n      home: " + home.resolve("startcli") + "\n");
+        PipedInputStream serverIn = new PipedInputStream(1 << 16);
+        PipedOutputStream toServer = new PipedOutputStream(serverIn);
+        LineQueue protocol = new LineQueue();
+        Launcher main = main(serverIn, protocol);
+
+        CompletableFuture<Integer> exit = CompletableFuture.supplyAsync(
+            () -> main.run("--config", file.toString()));
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":"
+            + "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},"
+            + "\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}");
+        protocol.next();
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":"
+            + "{\"name\":\"export_archives\",\"arguments\":{\"target\":\"dev/node1\","
+            + "\"owner\":\"OWNERS\",\"diagramGroup\":\"GRP-01\",\"targetFolder\":"
+            + JSON.writeValueAsString(home.resolve("elsewhere").resolve("sub").toString())
+            + ",\"acknowledgeClearTextSecrets\":true}}}");
+        JsonNode refused = protocol.next().path("result");
+        toServer.close();
+
+        assertThat(exit.get(20, TimeUnit.SECONDS)).as(err()).isZero();
+        assertThat(refused.path("isError").asBoolean()).as(refused.toString()).isTrue();
+        assertThat(refused.toString()).contains("INVALID_INPUT",
+            "is or lies inside one of the server's directories",
+            "the folder of the configuration file in use");
+        assertThat(home.resolve("elsewhere").resolve("sub")).doesNotExist();
+    }
+
+    @Test
     void anExistingAuditDirectoryIsRestrictedToTheOwner() throws Exception {
         credentials();
         Path file = validConfig();

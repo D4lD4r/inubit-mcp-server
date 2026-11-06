@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * The rules a target folder of {@code export_archives} must meet (feature 015, research R-9,
@@ -45,6 +46,7 @@ public final class TargetFolderRules {
 
     private static final String CLOUD_WARNING = "the archives (with clear-text secrets) will be"
         + " synchronized to the cloud";
+    private static final Pattern CONTROL = Pattern.compile("\\p{Cc}");
     private static final List<String> ONE_DRIVE_VARIABLES =
         List.of("OneDrive", "OneDriveCommercial", "OneDriveConsumer");
 
@@ -175,8 +177,8 @@ public final class TargetFolderRules {
         }
 
         List<String> warnings = new ArrayList<>();
-        cloudRoot(forms).ifPresent(root -> warnings.add("The target folder " + path
-            + " lies below the cloud-sync folder " + root + ": " + CLOUD_WARNING));
+        cloudRoot(forms).ifPresent(root -> warnings.add(shown("The target folder " + path
+            + " lies below the cloud-sync folder " + root + ": " + CLOUD_WARNING)));
         return new CheckedFolder(path, exists, nearest, warnings);
     }
 
@@ -250,7 +252,12 @@ public final class TargetFolderRules {
     private static ToolErrorException refused(String raw, String rule, String likelyCause,
         String nextStep) {
         return new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
-            "The target folder '" + raw + "' " + rule, likelyCause, nextStep));
+            shown("The target folder '" + raw + "' " + rule), likelyCause, nextStep));
+    }
+
+    /** {@code text} with each control character as {@code ?} (the folder is caller input). */
+    private static String shown(String text) {
+        return CONTROL.matcher(text).replaceAll("?");
     }
 
     private static Optional<Path> parse(String value) {

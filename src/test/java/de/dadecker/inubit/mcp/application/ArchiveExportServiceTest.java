@@ -4,8 +4,11 @@ import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutCli
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
+import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81WorkflowArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.WorkflowArchiveFixtures;
+import de.dadecker.inubit.mcp.config.ConfirmationMode;
+import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.ArchiveExportResult;
 import de.dadecker.inubit.mcp.domain.model.ArchiveExportResult.MissingModule;
 import de.dadecker.inubit.mcp.domain.model.ArchiveExportResult.WrittenArchive;
@@ -24,14 +27,19 @@ import de.dadecker.inubit.mcp.domain.port.AuditPort;
 import de.dadecker.inubit.mcp.domain.port.ImportArchivePort;
 import de.dadecker.inubit.mcp.domain.port.WorkflowArchivePort.SlicedExport;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
+import de.dadecker.inubit.mcp.testing.GitFreeTempDir;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,13 +54,20 @@ import org.junit.jupiter.api.io.TempDir;
  * Feature 015 T010 (research R-2, R-13 steps 1, 4–8, FR-002, FR-003, FR-005, FR-012, FR-017):
  * the happy path of {@code export_archives} and the checks that depend on the export, with a
  * fake StartCLI, a fake audit log, an admitting version gate and the real
- * {@link V81WorkflowArchives}; T011 (research R-14, FR-012, Q25): the result bound.
+ * {@link V81WorkflowArchives}; T011 (research R-14, FR-012, Q25): the result bound; T017
+ * (research R-13 steps 1–3, FR-007, FR-014, FR-017, Q9, Q10, Q13, Q15, Q23): the static input
+ * checks with the real {@link TargetFolderRules} on server directories below the temporary
+ * directory (outside every git tree) and a fake network probe.
  */
 class ArchiveExportServiceTest {
 
     private static final NodeId DEV1 = NodeId.parse("dev/node1");
     private static final NodeId DEV2 = NodeId.parse("dev/node2");
     private static final NodeId TEST1 = NodeId.parse("test/node1");
+    /** Production, {@code write.enabled} and {@code write.productionOptIn}, no archives opt-in. */
+    private static final NodeId PROD1 = NodeId.parse("prod/node1");
+    /** Production with {@code archives.productionOptIn}, {@code write.enabled: false}. */
+    private static final NodeId PROD2 = NodeId.parse("prod/node2");
     private static final UUID ID = UUID.fromString("00000000-0000-4000-8000-000000000015");
     private static final String OWNER = WorkflowArchiveFixtures.OWNER;
     private static final String GRP_A = "GRP-01";
@@ -60,8 +75,15 @@ class ArchiveExportServiceTest {
     private static final String CLEAR_TEXT = "The archives contain the secrets of these workflows"
         + " (passwords, keys, certificates, saved test messages) in clear text. Do not share,"
         + " attach or commit them as they are; delete them when no longer needed.";
+    private static final String SERVER_DIRECTORY = "is or lies inside one of the server's"
+        + " directories";
+    private static final String NOT_WRITABLE = "is not a writable directory";
+    private static final String CLOUD = "the archives (with clear-text secrets) will be"
+        + " synchronized to the cloud";
+    private static final boolean POSIX =
+        FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
 
-    @TempDir
+    @TempDir(factory = GitFreeTempDir.class)
     Path tmp;
 
     private final List<String> events = new CopyOnWriteArrayList<>();
@@ -75,6 +97,16 @@ class ArchiveExportServiceTest {
         }, node -> Duration.ofMinutes(10));
     private final FakeVersionDetection detection = new FakeVersionDetection(versions);
     private ResultLimiter limiter = ResultLimiter.withDefaults();
+    private final Map<NodeId, EffectiveNodeConfig> configs = Map.of(
+        DEV1, TestNodeConfig.node().id("dev/node1").build(),
+        DEV2, TestNodeConfig.node().id("dev/node2").build(),
+        TEST1, TestNodeConfig.node().id("test/node1").build(),
+        PROD1, TestNodeConfig.node().id("prod/node1").production(true)
+            .write(true, true, ConfirmationMode.SERVER).build(),
+        PROD2, TestNodeConfig.node().id("prod/node2").production(true)
+            .write(false, false, ConfirmationMode.SERVER).archivesProductionOptIn(true).build());
+    private final Map<String, String> environment = new HashMap<>();
+    private boolean windows;
 
     @Test
     void q1ThreeWorkflowsGiveThreeArchivesInAnEmptyFolder() throws IOException {
@@ -342,7 +374,8 @@ class ArchiveExportServiceTest {
 
     @Test
     void anUnknownNameWinsOverTheCountOverAFileNameOverACollision() {
-        String longName = "W".repeat(244);
+        // within the 200 characters of a name, over 255 bytes as a file name (2 bytes each)
+        String longName = "\u00C4".repeat(122);
         artifacts.export = () -> WorkflowArchiveFixtures.renamed(WorkflowArchiveFixtures.renamed(
             WorkflowArchiveFixtures.workflows(51), "Workflow-0005", longName), "Workflow-0006",
             "workflow-0004");
@@ -654,6 +687,273 @@ class ArchiveExportServiceTest {
         }
     }
 
+    @Test
+    void q9WithoutTheAcknowledgementTheCallIsRefusedOnceBeforeTheExport() throws IOException {
+        ToolErrorException refused = refusal(request("dev/node1", false, GRP_B, List.of(),
+            Optional.of("handover"), tmp.resolve("archives").toString()));
+
+        assertThat(refused.error().code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(refused.error().message()).contains("acknowledgeClearTextSecrets",
+            "secrets", "in clear text");
+        assertThat(refused.error().node()).contains(DEV1);
+        assertRefusedBeforeTheExport(ErrorCode.INVALID_INPUT);
+        assertThat(audit.records.get(0).inputs())
+            .containsEntry("acknowledgeClearTextSecrets", "false");
+    }
+
+    @Test
+    void q23AProductionGroupWithoutTheOptInIsRefusedAlsoWithWriteEnabledAndItsOptIn()
+        throws IOException {
+        assertThat(configs.get(PROD1).write().enabled()).isTrue();
+        assertThat(configs.get(PROD1).write().productionOptIn()).isTrue();
+
+        ToolErrorException refused = refusal(request("prod/node1", Optional.empty(), GRP_B,
+            List.of(), tmp.resolve("archives")));
+
+        assertThat(refused.error().code()).isEqualTo(ErrorCode.PRODUCTION_PROTECTED);
+        assertThat(refused.error().message()).contains("prod/node1", "archives.productionOptIn");
+        assertThat(refused.error().nextStep()).contains("archives.productionOptIn");
+        assertThat(refused.error().node()).contains(PROD1);
+        assertRefusedBeforeTheExport(ErrorCode.PRODUCTION_PROTECTED);
+    }
+
+    @Test
+    void q23AProductionGroupWithTheOptInIsAllowedAlsoWithWriteDisabled() {
+        assertThat(configs.get(PROD2).write().enabled()).isFalse();
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+
+        ArchiveExportResult result = service().export(request("prod/node2", Optional.empty(),
+            GRP_B, List.of("Workflow-0006"), tmp.resolve("archives")));
+
+        assertThat(result.node()).isEqualTo("prod/node2");
+        assertThat(result.archives()).hasSize(1);
+        assertThat(artifacts.calls).containsExactly("prod/node2 OWNERS GRP-02");
+    }
+
+    @Test
+    void q23ANonProductionGroupNeedsNoOptIn() {
+        assertThat(configs.get(DEV1).production()).isFalse();
+        assertThat(configs.get(DEV1).archivesProductionOptIn()).isFalse();
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+
+        ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of("Workflow-0006"), tmp.resolve("archives")));
+
+        assertThat(result.archives()).hasSize(1);
+        assertThat(audit.records).extracting(AuditRecord::outcome)
+            .containsExactly(AuditOutcome.PENDING, AuditOutcome.EXECUTED);
+    }
+
+    @Test
+    void q10q13EveryFolderRuleRefusesThroughTheServiceBeforeTheExport() throws IOException {
+        Path workspace = Files.createDirectories(tmp.resolve("workspace"));
+        Files.createDirectories(tmp.resolve("repo").resolve(".git"));
+        Path file = Files.writeString(tmp.resolve("file.txt"), "mine");
+        Map<String, String> cases = new java.util.LinkedHashMap<>();
+        cases.put("archives/out", "is not an absolute path");
+        cases.put(tmp + "/a/../archives", "has a '.' or '..' element");
+        cases.put(home().resolve(".inubit-mcp").resolve("x").toString(), SERVER_DIRECTORY);
+        cases.put(workspace.resolve("x").toString(), SERVER_DIRECTORY);
+        cases.put(tmp.resolve("audit").resolve("x").toString(), SERVER_DIRECTORY);
+        cases.put(home().resolve(".config").resolve("inubit-mcp").resolve("x").toString(),
+            SERVER_DIRECTORY);
+        cases.put(tmp.resolve("elsewhere").resolve("sub").toString(), SERVER_DIRECTORY);
+        if (POSIX) { // symbolic links need a privilege on Windows
+            Path link = Files.createSymbolicLink(tmp.resolve("link"), workspace);
+            cases.put(link.resolve("x").toString(), SERVER_DIRECTORY);
+        }
+        cases.put(tmp.resolve("repo").resolve("archives").toString(),
+            "is or lies inside a git working tree");
+        cases.put(file.toString(), NOT_WRITABLE);
+        cases.put(file.resolve("below").toString(), NOT_WRITABLE);
+        Path locked = Files.createDirectory(tmp.resolve("locked"));
+        if (POSIX) {
+            Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("r-x------"));
+            if (!Files.isWritable(locked)) { // not with root privileges
+                cases.put(locked.toString(), NOT_WRITABLE);
+                cases.put(locked.resolve("new").toString(), NOT_WRITABLE);
+            }
+        }
+        List<String> before = tree(tmp);
+
+        try {
+            for (Map.Entry<String, String> entry : cases.entrySet()) {
+                ToolErrorException refused = refusal(request("dev/node1", true, GRP_B,
+                    List.of(), Optional.empty(), entry.getKey()));
+                assertThat(refused.error().code()).as(entry.getKey())
+                    .isEqualTo(ErrorCode.INVALID_INPUT);
+                assertThat(refused.error().message()).as(entry.getKey())
+                    .contains(entry.getValue());
+                assertThat(refused.error().node()).as(entry.getKey()).contains(DEV1);
+            }
+        } finally {
+            if (POSIX) {
+                Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("rwx------"));
+            }
+        }
+
+        assertRefusedOnlyBeforeTheExport(cases.size());
+        assertThat(tree(tmp)).isEqualTo(before);
+    }
+
+    @Test
+    void q10WithTheWindowsFlagUncAndRemoteDrivesAreNetworkPaths() throws IOException {
+        windows = true;
+
+        for (String folder : List.of("\\\\server\\share\\x", "\\\\?\\UNC\\server\\share",
+            "Z:\\x")) {
+            ToolErrorException refused = refusal(request("dev/node1", true, GRP_B, List.of(),
+                Optional.empty(), folder));
+            assertThat(refused.error().code()).as(folder).isEqualTo(ErrorCode.INVALID_INPUT);
+            assertThat(refused.error().message()).as(folder).contains("is a network path")
+                .doesNotContain("absolute");
+        }
+
+        assertRefusedOnlyBeforeTheExport(3);
+        assertThat(files(tmp)).isEmpty();
+    }
+
+    @Test
+    void q15ACloudSyncFolderIsAcceptedWithACallLevelWarning() throws IOException {
+        Path oneDrive = Files.createDirectories(tmp.resolve("OneDrive"));
+        environment.put("OneDrive", oneDrive.toString());
+        Path cloudStorage = Files.createDirectories(home().resolve("Library")
+            .resolve("CloudStorage"));
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+
+        ArchiveExportResult synced = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of("Workflow-0006"), oneDrive.resolve("archives")));
+        ArchiveExportResult stored = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of("Workflow-0006"), cloudStorage.resolve("archives")));
+
+        assertThat(synced.warnings()).singleElement().asString().contains(CLOUD,
+            oneDrive.toString());
+        assertThat(synced.archives()).hasSize(1);
+        assertThat(stored.warnings()).singleElement().asString().contains(CLOUD);
+        assertThat(stored.archives()).hasSize(1);
+    }
+
+    @Test
+    void theCloudWarningJoinsTheAdmissionWarnings() throws IOException {
+        Path oneDrive = Files.createDirectories(tmp.resolve("OneDrive"));
+        environment.put("OneDrive", oneDrive.toString());
+        setting = VersionSetting.AUTO;
+        detection.answer(DEV1, "9.0.7");
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+
+        ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of("Workflow-0006"), oneDrive.resolve("archives")));
+
+        assertThat(result.warnings()).hasSize(2).anySatisfy(warning ->
+            assertThat(warning).contains(CLOUD)).contains("INUBIT 9.0.7 on dev/node1 is not"
+                + " verified for workspace export; results may be incomplete");
+    }
+
+    @Test
+    void defenceInDepthReChecksTheSyntaxAndLimitsOfTheSchema() throws IOException {
+        String folder = tmp.resolve("archives").toString();
+        List<String> fiftyOne = new ArrayList<>();
+        for (int i = 1; i <= 51; i++) {
+            fiftyOne.add("Workflow-%04d".formatted(i));
+        }
+        Map<ArchiveExportRequest, String> cases = new java.util.LinkedHashMap<>();
+        cases.put(request("dev/node1", true, GRP_B, fiftyOne, Optional.empty(), folder),
+            "workflows");
+        cases.put(request("dev/node1", true, GRP_B, List.of("Workflow-0004", "Workflow-0004"),
+            Optional.empty(), folder), "workflows");
+        cases.put(request("dev/node1", true, GRP_B, List.of(""), Optional.empty(), folder),
+            "workflows");
+        cases.put(request("dev/node1", true, GRP_B, List.of("W".repeat(201)), Optional.empty(),
+            folder), "workflows");
+        cases.put(request("dev/node1", true, GRP_B, List.of("Workflow\u00010004"),
+            Optional.empty(), folder), "workflows");
+        cases.put(request("dev/node1", true, GRP_B, List.of("Workflow-0004\n"),
+            Optional.empty(), folder), "workflows");
+        cases.put(request("dev/node1", true, GRP_B, List.of("Workflow\u007F0004"),
+            Optional.empty(), folder), "workflows");
+        cases.put(request("dev/node1", true, "-GRP", List.of(), Optional.empty(), folder),
+            "diagramGroup");
+        cases.put(request("dev/node1", true, "GRP/02", List.of(), Optional.empty(), folder),
+            "diagramGroup");
+        cases.put(request("dev/node1", true, "", List.of(), Optional.empty(), folder),
+            "diagramGroup");
+        cases.put(request("dev/node1", true, "G".repeat(201), List.of(), Optional.empty(),
+            folder), "diagramGroup");
+        cases.put(request("dev/node1", true, GRP_B, List.of(), Optional.of("r".repeat(501)),
+            folder), "reason");
+        cases.put(request("dev/node1", true, GRP_B, List.of(), Optional.of("line one\nline two"),
+            folder), "reason");
+        cases.put(request("dev/node1", true, GRP_B, List.of(), Optional.of("line one\rline two"),
+            folder), "reason");
+        cases.put(request("dev/node1", true, GRP_B, List.of(), Optional.of(""), folder),
+            "reason");
+
+        for (Map.Entry<ArchiveExportRequest, String> entry : cases.entrySet()) {
+            ToolErrorException refused = refusal(entry.getKey());
+            assertThat(refused.error().code()).as(entry.getKey().toString())
+                .isEqualTo(ErrorCode.INVALID_INPUT);
+            assertThat(refused.error().message()).as(entry.getKey().toString())
+                .contains(entry.getValue()).doesNotContain("\n", "\r", "\u0001", "\u007F");
+        }
+
+        assertRefusedOnlyBeforeTheExport(cases.size());
+        assertThat(files(tmp)).isEmpty();
+    }
+
+    @Test
+    void theLimitsOfTheReCheckAreInclusive() {
+        artifacts.export = () -> WorkflowArchiveFixtures.renamed(WorkflowArchiveFixtures.grpB(),
+            "Workflow-0006", "W".repeat(200));
+
+        ArchiveExportResult result = service().export(request("dev/node1", true, GRP_B,
+            List.of("W".repeat(200)),
+            Optional.of("r".repeat(500)), tmp.resolve("archives").toString()));
+
+        assertThat(result.archives()).extracting(WrittenArchive::workflow)
+            .containsExactly("W".repeat(200));
+        assertThat(service().export(request("dev/node1", true, "G".repeat(200), List.of(),
+            Optional.empty(), tmp.resolve("other").toString())).archives()).isEmpty();
+    }
+
+    @Test
+    void theFirstStaticFailureWinsInTheOrderOfResearchR13() {
+        String badFolder = "archives/out";
+        List<String> badNames = List.of("Workflow-0004", "Workflow-0004");
+
+        assertThat(refusal(request("prod/node9", false, "-GRP", badNames, Optional.empty(),
+            badFolder)).error().code()).isEqualTo(ErrorCode.TARGET_UNKNOWN);
+        assertThat(refusal(request("test/node1", false, "-GRP", badNames, Optional.empty(),
+            badFolder)).error().code()).isEqualTo(ErrorCode.NOT_CONFIGURED);
+        assertThat(refusal(request("prod/node1", false, "-GRP", badNames, Optional.empty(),
+            badFolder)).error().code()).isEqualTo(ErrorCode.PRODUCTION_PROTECTED);
+        assertThat(refusal(request("dev/node1", false, "-GRP", badNames, Optional.empty(),
+            badFolder)).error().message()).contains("acknowledgeClearTextSecrets");
+        assertThat(refusal(request("dev/node1", true, "-GRP", badNames, Optional.of(""),
+            badFolder)).error().message()).contains("diagramGroup")
+            .doesNotContain("workflows").doesNotContain("absolute");
+        assertThat(refusal(request("dev/node1", true, GRP_B, badNames, Optional.of(""),
+            badFolder)).error().message()).contains("workflows")
+            .doesNotContain("reason").doesNotContain("absolute");
+        assertThat(refusal(request("dev/node1", true, GRP_B, List.of(), Optional.of(""),
+            badFolder)).error().message()).contains("reason").doesNotContain("absolute");
+        assertThat(refusal(request("dev/node1", true, GRP_B, List.of(), Optional.empty(),
+            badFolder)).error().message()).contains("absolute");
+
+        assertThat(audit.records).hasSize(8).extracting(AuditRecord::outcome)
+            .containsOnly(AuditOutcome.REFUSED);
+        assertThat(artifacts.calls).isEmpty();
+    }
+
+    /** {@code count} refusals, each one {@code REFUSED} record; no gate and no export. */
+    private void assertRefusedOnlyBeforeTheExport(int count) {
+        assertThat(audit.records).hasSize(count).extracting(AuditRecord::outcome)
+            .containsOnly(AuditOutcome.REFUSED);
+        assertThat(audit.records).allSatisfy(record -> assertThat(record.reason())
+            .hasValueSatisfying(reason -> assertThat(reason).startsWith("INVALID_INPUT: ")));
+        assertThat(artifacts.calls).isEmpty();
+        assertThat(events).noneMatch(event -> event.startsWith("gate"));
+    }
+
     private static int totalItems(ArchiveExportResult result) {
         return result.archives().stream().mapToInt(archive -> archive.modules().size()
             + archive.missingModules().size() + archive.repositoryPaths().size()).sum();
@@ -700,11 +1000,15 @@ class ArchiveExportServiceTest {
     }
 
     private ArchiveExportService service() {
-        TargetResolver targets = new TargetResolver(List.of(DEV1, DEV2, TEST1));
+        TargetResolver targets = new TargetResolver(List.of(DEV1, DEV2, TEST1, PROD1, PROD2));
         Map<NodeId, Optional<String>> owners = Map.of(DEV1, Optional.of(OWNER), DEV2,
-            Optional.of(OWNER), TEST1, Optional.empty());
+            Optional.of(OWNER), TEST1, Optional.empty(), PROD1, Optional.of(OWNER), PROD2,
+            Optional.of(OWNER));
         List<UUID> ids = new CopyOnWriteArrayList<>(List.of(ID));
+        // as Wiring: the production flag and archives.productionOptIn of the node's group
         return new ArchiveExportService(targets, owners::get, node -> Optional.of("jdoe"),
+            node -> configs.get(node).production(),
+            node -> configs.get(node).archivesProductionOptIn(), folderRules(),
             node -> artifacts.forNode(node), new V81WorkflowArchives(),
             gateWithoutClients(versions, detection, CapabilityMatrix.production()),
             new ArchiveFolderWriter(), limiter, new ArchiveExportAudit.Dependencies(audit,
@@ -712,10 +1016,36 @@ class ArchiveExportServiceTest {
                 () -> ids.remove(0)));
     }
 
+    private Path home() {
+        return tmp.resolve("home");
+    }
+
+    /**
+     * The folder rules with the server's directories below the temporary directory (none of them
+     * created unless a test does), the fake environment and a probe reporting {@code Z:} remote.
+     */
+    private TargetFolderRules folderRules() {
+        return new TargetFolderRules(home(), tmp.resolve("workspace"), tmp.resolve("audit"),
+            List.of(home().resolve(".config").resolve("inubit-mcp"), tmp.resolve("elsewhere")),
+            environment, letter -> letter == 'Z', windows);
+    }
+
     private static ArchiveExportRequest request(String target, Optional<String> owner,
         String diagramGroup, List<String> workflows, Path folder) {
         return new ArchiveExportRequest(target, owner, diagramGroup, workflows,
             folder.toString(), true, Optional.of("handover"), Optional.of("claude-code/2.0"));
+    }
+
+    private static ArchiveExportRequest request(String target, boolean acknowledged,
+        String diagramGroup, List<String> workflows, Optional<String> reason, String folder) {
+        return new ArchiveExportRequest(target, Optional.empty(), diagramGroup, workflows,
+            folder, acknowledged, reason, Optional.empty());
+    }
+
+    private static List<String> tree(Path root) throws IOException {
+        try (Stream<Path> all = Files.walk(root)) {
+            return all.map(root::relativize).map(Path::toString).sorted().toList();
+        }
     }
 
     private static List<String> files(Path folder) throws IOException {

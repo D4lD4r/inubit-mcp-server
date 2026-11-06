@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.application.ArchiveExportService;
 import de.dadecker.inubit.mcp.application.ArchiveFolderWriter;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
+import de.dadecker.inubit.mcp.application.TargetFolderRules;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
@@ -21,6 +22,7 @@ import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.AuditPort;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
+import de.dadecker.inubit.mcp.testing.GitFreeTempDir;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -58,7 +60,7 @@ class ExportArchivesToolTest {
         + " touch the workspace.";
     private static final NodeId DEV1 = NodeId.parse("dev/node1");
 
-    @TempDir
+    @TempDir(factory = GitFreeTempDir.class)
     Path tmp;
 
     private final List<AuditRecord> audit = new CopyOnWriteArrayList<>();
@@ -73,7 +75,11 @@ class ExportArchivesToolTest {
         AuditPort auditPort = audit::add;
         ArchiveExportService service = new ArchiveExportService(
             new TargetResolver(List.of(DEV1)), node -> Optional.of(WorkflowArchiveFixtures.OWNER),
-            node -> Optional.of("jdoe"), this::artifacts, new V81WorkflowArchives(),
+            node -> Optional.of("jdoe"), node -> false, node -> false,
+            new TargetFolderRules(tmp.resolve("home"), tmp.resolve("workspace"),
+                tmp.resolve("audit"), List.of(tmp.resolve("config")), Map.of(),
+                letter -> false, false),
+            this::artifacts, new V81WorkflowArchives(),
             gateWithoutClients(versions, new FakeVersionDetection(versions),
                 CapabilityMatrix.production()),
             new ArchiveFolderWriter(), ResultLimiter.withDefaults(),

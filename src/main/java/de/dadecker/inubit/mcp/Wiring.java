@@ -48,6 +48,7 @@ import de.dadecker.inubit.mcp.application.ReleasePlanner;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TagService;
+import de.dadecker.inubit.mcp.application.TargetFolderRules;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.WorkspaceService;
 import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
@@ -302,10 +303,16 @@ final class Wiring implements AutoCloseable {
             new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
             new ArchiveCodec(), gateways::artifacts, gateways::inventory, versionGate), targets,
             id -> byId.get(id).inventory().owner(), limiter);
-        // feature 015: the archives go to a user-chosen local folder; the shared audit log
+        // feature 015: the archives go to a user-chosen local folder outside the server's
+        // directories (research R-9); production only with archives.productionOptIn (R-15);
+        // the shared audit log
+        TargetFolderRules folders = new TargetFolderRules(
+            Path.of(System.getProperty("user.home")), workspace, config.auditDirectory(),
+            configLocation.roots(), environment, networkPathProbe, windows);
         this.exportArchives = new ExportArchivesTool(new ArchiveExportService(targets,
             id -> byId.get(id).inventory().owner(), id -> policies.apply(id).account(),
-            gateways::artifacts, new V81WorkflowArchives(), versionGate,
+            id -> byId.get(id).production(), id -> byId.get(id).archivesProductionOptIn(),
+            folders, gateways::artifacts, new V81WorkflowArchives(), versionGate,
             new ArchiveFolderWriter(), limiter, new ArchiveExportAudit.Dependencies(audit,
                 clock.clock(), profile.name(), UUID::randomUUID)));
         ArtifactCheckService checks = new ArtifactCheckService(workspace,

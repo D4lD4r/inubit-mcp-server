@@ -394,7 +394,7 @@ everything refused by the static input checks before StartCLI.
   `main/config/EffectiveNodeConfig.java`, `main/config/ConfigValidator.java`,
   `main/config/ConfigSummary.java`.
 
-- [ ] T017 [US2] Static input checks in the service (research R-13 steps 1–3, FR-007, FR-014,
+- [X] T017 [US2] Static input checks in the service (research R-13 steps 1–3, FR-007, FR-014,
   FR-017): test first, extending `test/application/ArchiveExportServiceTest.java`: without
   `acknowledgeClearTextSecrets` or with `false` → `INVALID_INPUT` whose message names the parameter
   and says the archives contain secrets in clear text (Q9); production group without
