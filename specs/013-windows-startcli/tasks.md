@@ -413,6 +413,9 @@ the chat for each step.
 - [ ] T033 Quickstart validation: offline table of quickstart.md, full `mvn -q -o clean verify`
   green on macOS, `NoCustomerIdentifiersTest` run (20 tests, 0 skipped), Windows CI job green;
   record in quickstart.md.
+  - **Note (open on purpose)**: the offline part is done and recorded in quickstart.md for
+    cd27b2a (macOS verify green, `NoCustomerIdentifiersTest` 20/0 skipped, Windows job green and
+    required); the SC-005 row and the live record follow T031/T032 on the 0.8.0 branch.
 
 ---
 

@@ -61,4 +61,20 @@ and writes to `src/test/resources/fixtures/windows/`; `-List` prints the cases. 
 
 ## Validation record
 
-(empty)
+Offline (T033, commit cd27b2a):
+
+- macOS 27.2, JDK 21: `mvn -o clean verify` green, 4376 tests, 0 failures, 0 errors,
+  51 skipped; `NoCustomerIdentifiersTest` 20 tests, 0 skipped.
+- Windows CI job (`windows-latest`, no longer `continue-on-error`): run 42249980293
+  (job 128002180359) green, 4555 tests, 0 failures, 0 errors, 55 skipped. The Windows-only tests
+  ran without skips (run 42243345056 for 00170ea, same counts for cd27b2a):
+  `WindowsCommandLineInjectionTest` 133, `WindowsSecretInspectionTest` 3,
+  `WindowsReadOnlyToolsTest` 3, `WindowsWriteToolsTest` 10, `WindowsProcessTreeTest` 40,
+  `OsPrivateFileSystemAclTest` 8, `WindowsJobTest` 6, `WindowsSystemTest` 11;
+  `SystemProcessLauncherTest` 27 (the 5 skipped are POSIX-only cases with a Windows equivalent).
+- Table: SC-002, SC-003, SC-004 and FR-007 green through the tests above; SC-005 (recordings in
+  code pages 850, 1252, 65001) follows with T031/T032.
+
+Open: recording and live check on Windows (T031, T032) and the 6.1 session on Windows (T028)
+run in the joint live test on the 0.8.0 branch (features 012 and 013 together), by the
+person's decision; T033 is completed there with the SC-005 row and the live record.
