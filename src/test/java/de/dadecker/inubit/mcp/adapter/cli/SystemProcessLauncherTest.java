@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
+import de.dadecker.inubit.mcp.testing.ArgvRecorder;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
@@ -42,7 +43,9 @@ import org.junit.jupiter.params.provider.ValueSource;
  * guarded per method. Their Windows equivalents (feature 013, T008) run {@link FakeStartCli}'s
  * {@code ArgvRecorder}: directly for the environment, the working directory and stdin, and through
  * the interpreter with the argument list of {@link WindowsCommandLine} for the StartCLI launch
- * (research R-1). The Windows process tree cases follow in T022.
+ * (research R-1). The Windows process tree (T022):
+ * {@link #onWindowsDestroyAlsoTerminatesDescendants} here, the timeout and the orderly stop
+ * through {@link CliRunner} in {@code WindowsProcessTreeTest}.
  */
 @Timeout(30)
 class SystemProcessLauncherTest {
@@ -103,8 +106,8 @@ class SystemProcessLauncherTest {
     }
 
     @Test
-    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "uses /bin/sh; Windows process tree case"
-        + " in T022")
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "uses /bin/sh; Windows equivalent:"
+        + " onWindowsDestroyAlsoTerminatesDescendants")
     void destroyAlsoTerminatesDescendants() throws Exception {
         LaunchedProcess process = launcher.launch(new LaunchSpec(
             List.of("/bin/sh", "-c", "sleep 60 & echo $!; wait"), Map.of("PATH", "/bin:/usr/bin"),
@@ -127,8 +130,8 @@ class SystemProcessLauncherTest {
     }
 
     @Test
-    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "uses /bin/sh and SIGTERM; Windows process"
-        + " tree case in T022")
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "uses /bin/sh and SIGTERM; Windows"
+        + " equivalent: WindowsProcessTreeTest (TerminateProcess cannot be ignored)")
     void aGrandchildIgnoringTermIsKilledWhenTheCliCallTimesOut() throws Exception {
         // fake startcli.sh: the root exits on TERM, its child ignores TERM and keeps running
         Path script = Files.createDirectories(directory.resolve("bin")).resolve("startcli.sh");
@@ -298,5 +301,41 @@ class SystemProcessLauncherTest {
         FakeStartCli.Recorded record = cli.record();
         assertThat(record.args()).containsExactlyElementsOf(arguments);
         assertThat(new String(record.stdin(), StandardCharsets.UTF_8)).isEqualTo("line\n");
+    }
+
+    /**
+     * T022: the interpreter, the substitute it runs and the substitute's child all end with
+     * {@code destroy}, although only the interpreter is the JDK's child.
+     */
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void onWindowsDestroyAlsoTerminatesDescendants() throws Exception {
+        FakeStartCli cli = FakeStartCli.install(directory, Map.of(
+            ArgvRecorder.CHILD_SLEEP_MILLIS, "300000", ArgvRecorder.SLEEP_MILLIS, "300000"));
+        WindowsCommandLine.Result result = WindowsCommandLine.build(
+            Path.of(systemRoot(), "System32").toString(), cli.script().toString(), List.of("-v"));
+        LaunchedProcess process = launcher.launch(new LaunchSpec(((Built) result).command(),
+            Map.of("SystemRoot", systemRoot()), directory));
+        process.stdin().close();
+        long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+        while (!Files.exists(cli.recordFile()) && System.nanoTime() < deadline) {
+            Thread.sleep(20);
+        }
+        FakeStartCli.Recorded record = cli.record();
+        assertThat(record.childPid()).isNotNull();
+
+        process.destroy();
+
+        assertThat(process.waitFor(Duration.ofSeconds(10))).isTrue();
+        for (long pid : List.of(record.pid(), record.childPid())) {
+            long gone = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+            while (ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)
+                && System.nanoTime() < gone) {
+                Thread.sleep(20);
+            }
+            assertThat(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false))
+                .as("process %d", pid).isFalse();
+        }
+        assertThat(process.treeAlive()).isFalse();
     }
 }
