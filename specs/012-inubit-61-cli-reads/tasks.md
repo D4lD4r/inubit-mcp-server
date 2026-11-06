@@ -362,6 +362,10 @@ production also the person's confirmation of node and classification. If the rec
 that the interactive mode cannot be driven through stdin (research D-5), stop and update plan and
 tasks with new tasks for the direct-option alternative before T037.
 
+**Status (merge of main 0.7.1)**: T036–T040 are deferred to the joint live test on the 0.8.0
+branch (features 012 and 013 together on a live machine, no release). Until then 6.1 stays
+refused for `get_health`/`find_processes` (FR-023); the offline state is complete.
+
 - [X] T035 Catalogue cases (research D-16): add `v61_help`, `v61_version`, `v61_health_session`,
   `v61_ps_all`, `v61_ps_error`, `v61_ps_waiting`, `v61_ps_queued`, `v61_ps_limit5` to
   `tools/record-fixtures.sh` — StartCLI only, no curl/REST step, session commands from the
@@ -410,6 +414,8 @@ tasks with new tasks for the direct-option alternative before T037.
 - [ ] T043 Quickstart validation: run the offline table of quickstart.md, record the results in
   its "Validation record"; if the person approves, the optional live smoke check. Full
   `mvn -q -o clean verify` green, `NoCustomerIdentifiersTest` run (20 tests, 0 skipped).
+  Offline part recorded after the merge of main 0.7.1 (quickstart "Validation record"); stays
+  open until it is re-run after T040 on the 0.8.0 live test.
 
 **Checkpoint**: the feature is complete (FR-023); US4 may follow.
 
@@ -421,6 +427,10 @@ tasks with new tasks for the direct-option alternative before T037.
 export stays `UNSUPPORTED` on 6.1 (FR-023). If no samples can be obtained, these tasks move to a
 later feature.
 
+**Status (merge of main 0.7.1)**: T044 is deferred to the joint live test on the 0.8.0 branch;
+T045 follows it. Feature 015 added `export_archives`, which needs `WORKSPACE_EXPORT` like
+`export_artifacts` and is therefore refused on 6.1 too (`V61RefusalTest`).
+
 - [ ] T044 [US4] Record `v61_export_group` and `v61_export_repository` (catalogue cases added to
   `tools/record-fixtures.sh` and `RecordFixturesCatalogueTest` like T035; live, by hand, after
   approval), neutralize, and write the research addendum comparing the 6.1 archive with
@@ -430,7 +440,9 @@ later feature.
   unknown archive parts fail closed (nothing written). Tests first: export tests over the recorded
   archives, secret-leak tests of features 003/004 extended to them (SC-007); then flip
   `WORKSPACE_EXPORT` to `SUPPORTED` for 6.1 and update `RECONSTRUCTED.txt`/`V61RecordedFixturesTest`,
-  docs and CHANGELOG.
+  docs and CHANGELOG. The flip also admits `export_archives` (feature 015) on 6.1: either verify
+  its archive slicing against the recorded 6.1 archives (tests over them) or keep it refused with
+  its own capability before the flip.
 
 ---
 

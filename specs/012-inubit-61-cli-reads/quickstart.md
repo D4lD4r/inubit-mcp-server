@@ -68,6 +68,26 @@ the result in the "Validation record" section of this file.
 
 ## Validation record
 
+### Offline validation after the merge of main 0.7.1, 2026-11-06 (T043, before Phase 8)
+
+- **State**: merge commit `6ff221f` (main 0.7.1 with features 014 and 015 merged into
+  `012-inubit-61-cli-reads`). Phase 8 (T036–T040) and T044/T045 are deferred to the joint live
+  test on the 0.8.0 branch; the production matrix still refuses every capability on 6.1.
+- **Integration with 014/015**: the StartCLI pin probe (`tls.pinPerServer`) runs for `run()`;
+  a 6.1 session's TLS pre-check is that check, so a 6.1 call does one handshake
+  (`CliRunnerTest.aSixOneSessionOfAMarkedServerRunsNoSecondPinProbe`). `export_archives` needs
+  `workspace_export` and is refused on 6.1 before contact
+  (`V61RefusalTest.exportArchivesOnThe61NodeIsRefusedBeforeAnyContact`, 17 tests). A pin
+  mismatch keeps the cause name `CertificateException` in transport messages.
+- **`mvn -o clean verify`**: exit 0; 294 classes, 4472 tests, 0 failures, 0 errors, 3 skipped
+  (the opt-in corpus tests `ArchiveCorpusTest`, `XsltCorpusTest`, `StructureCorpusTest`).
+  `java.io.tmpdir` was an isolated directory outside the checkout: with it inside the checkout,
+  `DeploySecretLeakTest` reads the checkout's git objects through `git cat-file` and floods the
+  log. `git` was Homebrew git (a git without its template directory creates no `.git/hooks`,
+  which `GitCliTest.hooksSigningAndLineEndingSettingsOfTheRepositoryHaveNoEffect` needs).
+- **`NoCustomerIdentifiersTest`**: 20 tests, 0 failures, 0 errors, 0 skipped.
+- **Python** (`python3 -I -m unittest discover -s tools/tests`): 411 tests, OK.
+
 ### Offline validation, 2026-11-02 (T043, before Phase 8)
 
 - **State**: commit `d83e045` on branch `012-inubit-61-cli-reads`, clean working tree, before
