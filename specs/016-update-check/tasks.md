@@ -118,7 +118,7 @@ FR-018, SC-006; coordinator's assumption).
 **Independent test**: Launcher test with a cache file naming a higher version and a release source
 that never answers: `instructions` name it, the first tool result has the note block once.
 
-- [ ] T014 [US1] `UpdateCache` port (`Optional<CachedRelease> read()`, `void write(CachedRelease)`,
+- [X] T014 [US1] `UpdateCache` port (`Optional<CachedRelease> read()`, `void write(CachedRelease)`,
   `record CachedRelease(SemVer latestVersion, Instant checkedAt)`) and `FileUpdateCache` for
   `~/.inubit-mcp/update-check.json` ("unknown fields ignored; an invalid version or time makes the
   whole file ignored"; temp file + atomic move; IO failures → DEBUG, never thrown); `UpdateCheck`
