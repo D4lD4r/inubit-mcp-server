@@ -46,7 +46,7 @@ import org.junit.jupiter.api.io.TempDir;
  * Feature 015 T010 (research R-2, R-13 steps 1, 4–8, FR-002, FR-003, FR-005, FR-012, FR-017):
  * the happy path of {@code export_archives} and the checks that depend on the export, with a
  * fake StartCLI, a fake audit log, an admitting version gate and the real
- * {@link V81WorkflowArchives}.
+ * {@link V81WorkflowArchives}; T011 (research R-14, FR-012, Q25): the result bound.
  */
 class ArchiveExportServiceTest {
 
@@ -74,6 +74,7 @@ class ArchiveExportServiceTest {
             return setting;
         }, node -> Duration.ofMinutes(10));
     private final FakeVersionDetection detection = new FakeVersionDetection(versions);
+    private ResultLimiter limiter = ResultLimiter.withDefaults();
 
     @Test
     void q1ThreeWorkflowsGiveThreeArchivesInAnEmptyFolder() throws IOException {
@@ -483,6 +484,181 @@ class ArchiveExportServiceTest {
         }
     }
 
+    @Test
+    void q25ListsAreFilledArchiveByArchiveUntilMaxItemsAndCountsStayComplete()
+        throws IOException {
+        limiter = new ResultLimiter(3, ResultLimiter.DEFAULT_MAX_CHARS);
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+        Path folder = tmp.resolve("archives");
+        List<String> selected = List.of("Workflow-0004", "Workflow-0005", "Workflow-0006");
+
+        ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, selected, folder));
+
+        SlicedExport expected = new V81WorkflowArchives().slice(WorkflowArchiveFixtures.grpB(),
+            new GroupId("dev"), OWNER, GRP_B);
+        assertThat(result.truncated()).isTrue();
+        assertThat(result.archives()).extracting(WrittenArchive::workflow)
+            .containsExactlyElementsOf(selected);
+        assertThat(files(folder)).containsExactly("Workflow-0004.diagram.zip",
+            "Workflow-0005.diagram.zip", "Workflow-0006.diagram.zip");
+        assertThat(result.failed()).isEmpty();
+        assertThat(result.notWritten()).isEmpty();
+        WrittenArchive w4 = result.archives().get(0);
+        WrittenArchive w5 = result.archives().get(1);
+        WrittenArchive w6 = result.archives().get(2);
+        assertThat(w4.modules()).isEqualTo(expected.plan("Workflow-0004").modules())
+            .hasSize(3);
+        assertThat(w5.modules()).isEmpty();
+        assertThat(w6.modules()).isEmpty();
+        assertThat(w6.repositoryPaths()).isEmpty();
+        assertThat(result.archives()).extracting(WrittenArchive::moduleCount)
+            .containsExactly(3, 2, 4);
+        assertThat(result.archives()).extracting(WrittenArchive::repositoryFileCount)
+            .containsExactly(0, 0, 2);
+        assertThat(result.archives()).extracting(WrittenArchive::missingModuleCount)
+            .containsExactly(0, 0, 0);
+        assertThat(totalItems(result)).isEqualTo(3);
+    }
+
+    @Test
+    void perArchiveModulesComeBeforeMissingModulesBeforeRepositoryPaths() {
+        limiter = new ResultLimiter(8, ResultLimiter.DEFAULT_MAX_CHARS);
+        artifacts.export = WorkflowArchiveFixtures::missingModule;
+
+        ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of("Workflow-0004", "Workflow-0006"), tmp.resolve("archives")));
+
+        SlicedExport expected = new V81WorkflowArchives().slice(
+            WorkflowArchiveFixtures.missingModule(), new GroupId("dev"), OWNER, GRP_B);
+        WrittenArchive w4 = result.archives().get(0);
+        WrittenArchive w6 = result.archives().get(1);
+        assertThat(w4.modules()).isEqualTo(expected.plan("Workflow-0004").modules())
+            .hasSize(2);
+        assertThat(w4.missingModules()).containsExactly(new MissingModule("Module-0023"));
+        assertThat(w6.modules()).isEqualTo(expected.plan("Workflow-0006").modules())
+            .hasSize(4);
+        assertThat(w6.repositoryPaths()).containsExactly("/Root/OWNERS/xsd/core.xsd");
+        assertThat(w6.repositoryFileCount()).isEqualTo(2);
+        assertThat(result.truncated()).isTrue();
+        assertThat(totalItems(result)).isEqualTo(8);
+    }
+
+    @Test
+    void withinOneArchiveMissingModulesComeBeforeRepositoryPaths() {
+        limiter = new ResultLimiter(4, ResultLimiter.DEFAULT_MAX_CHARS);
+        artifacts.export = () -> WorkflowArchiveFixtures.withoutModule("Module-0026");
+
+        ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of("Workflow-0006"), tmp.resolve("archives")));
+
+        WrittenArchive w6 = result.archives().get(0);
+        assertThat(w6.moduleCount()).isEqualTo(3);
+        assertThat(w6.modules()).hasSize(3);
+        assertThat(w6.missingModules()).containsExactly(new MissingModule("Module-0026"));
+        assertThat(w6.repositoryPaths()).isEmpty();
+        assertThat(w6.repositoryFileCount()).isEqualTo(2);
+        assertThat(result.truncated()).isTrue();
+    }
+
+    @Test
+    void theBoundCutsMissingModulesButNoArchiveNoWarningAndNoCount() {
+        limiter = new ResultLimiter(2, ResultLimiter.DEFAULT_MAX_CHARS);
+        setting = VersionSetting.AUTO;
+        detection.answer(DEV1, "9.0.7");
+        artifacts.export = WorkflowArchiveFixtures::missingModule;
+
+        ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of("Workflow-0004", "Workflow-0005", "Workflow-0006"),
+            tmp.resolve("archives")));
+
+        assertThat(result.truncated()).isTrue();
+        assertThat(result.archives()).hasSize(3);
+        assertThat(result.failed()).isEmpty();
+        assertThat(result.notWritten()).isEmpty();
+        assertThat(result.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not verified"
+            + " for workspace export; results may be incomplete");
+        WrittenArchive w4 = result.archives().get(0);
+        assertThat(w4.modules()).hasSize(2);
+        assertThat(w4.missingModules()).isEmpty();
+        assertThat(w4.missingModuleCount()).isEqualTo(1);
+        assertThat(w4.warnings()).singleElement().asString()
+            .contains("imports only where these modules exist");
+        assertThat(result.archives().subList(1, 3)).allSatisfy(archive -> {
+            assertThat(archive.modules()).isEmpty();
+            assertThat(archive.repositoryPaths()).isEmpty();
+            assertThat(archive.moduleCount()).isPositive();
+        });
+        assertThat(result.archives().get(2).repositoryFileCount()).isEqualTo(2);
+        assertThat(totalItems(result)).isEqualTo(2);
+    }
+
+    @Test
+    void aSumExactlyAtMaxItemsIsNotTruncatedAndOneMoreItemIs() {
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+        List<String> selected = List.of("Workflow-0004", "Workflow-0005", "Workflow-0006");
+
+        limiter = new ResultLimiter(11, ResultLimiter.DEFAULT_MAX_CHARS);
+        ArchiveExportResult exact = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, selected, tmp.resolve("exact")));
+        limiter = new ResultLimiter(10, ResultLimiter.DEFAULT_MAX_CHARS);
+        ArchiveExportResult cut = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, selected, tmp.resolve("cut")));
+
+        assertThat(totalItems(exact)).isEqualTo(11);
+        assertThat(exact.truncated()).isFalse();
+        assertThat(exact.archives().get(2).repositoryPaths()).containsExactly(
+            "/Root/OWNERS/xsd/core.xsd", "/Root/OWNERS/xsd/msg.xsd");
+        assertThat(totalItems(cut)).isEqualTo(10);
+        assertThat(cut.truncated()).isTrue();
+        assertThat(cut.archives().get(2).repositoryPaths()).containsExactly(
+            "/Root/OWNERS/xsd/core.xsd");
+    }
+
+    @Test
+    void theBoundCanCutTheModuleListPartway() {
+        artifacts.export = WorkflowArchiveFixtures::grpB;
+        limiter = new ResultLimiter(2, ResultLimiter.DEFAULT_MAX_CHARS);
+
+        ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of("Workflow-0004"), tmp.resolve("archives")));
+
+        SlicedExport expected = new V81WorkflowArchives().slice(
+            WorkflowArchiveFixtures.grpB(), new GroupId("dev"), OWNER, GRP_B);
+        List<WorkflowArchivePlan.ModuleEntry> planned = expected.plan("Workflow-0004").modules();
+        assertThat(planned).hasSizeGreaterThan(2);
+        assertThat(result.archives().get(0).modules()).containsExactlyElementsOf(
+            planned.subList(0, 2));
+        assertThat(result.archives().get(0).moduleCount()).isEqualTo(planned.size());
+        assertThat(result.truncated()).isTrue();
+    }
+
+    @Test
+    void aLargeMaxItemsGivesTheCompleteLists() {
+        limiter = new ResultLimiter(10_000, ResultLimiter.DEFAULT_MAX_CHARS);
+        artifacts.export = WorkflowArchiveFixtures::missingModule;
+
+        ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
+            GRP_B, List.of(), tmp.resolve("archives")));
+
+        SlicedExport expected = new V81WorkflowArchives().slice(
+            WorkflowArchiveFixtures.missingModule(), new GroupId("dev"), OWNER, GRP_B);
+        assertThat(result.truncated()).isFalse();
+        assertThat(result.archives()).hasSize(expected.workflows().size());
+        for (WrittenArchive archive : result.archives()) {
+            WorkflowArchivePlan plan = expected.plan(archive.workflow());
+            assertThat(archive.modules()).isEqualTo(plan.modules());
+            assertThat(archive.missingModules()).extracting(MissingModule::name)
+                .containsExactlyElementsOf(plan.missingModules());
+            assertThat(archive.repositoryPaths()).isEqualTo(plan.repositoryPaths());
+        }
+    }
+
+    private static int totalItems(ArchiveExportResult result) {
+        return result.archives().stream().mapToInt(archive -> archive.modules().size()
+            + archive.missingModules().size() + archive.repositoryPaths().size()).sum();
+    }
+
     private void assertRefusedBeforeTheExport(ErrorCode code) throws IOException {
         assertThat(audit.records).singleElement().satisfies(record -> {
             assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED);
@@ -531,7 +707,7 @@ class ArchiveExportServiceTest {
         return new ArchiveExportService(targets, owners::get, node -> Optional.of("jdoe"),
             node -> artifacts.forNode(node), new V81WorkflowArchives(),
             gateWithoutClients(versions, detection, CapabilityMatrix.production()),
-            new ArchiveFolderWriter(), new ArchiveExportAudit.Dependencies(audit,
+            new ArchiveFolderWriter(), limiter, new ArchiveExportAudit.Dependencies(audit,
                 new MutableClock(Instant.parse("2026-11-06T10:00:00Z")), "default",
                 () -> ids.remove(0)));
     }

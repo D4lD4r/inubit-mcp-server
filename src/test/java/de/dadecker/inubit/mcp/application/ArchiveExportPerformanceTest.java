@@ -60,6 +60,7 @@ class ArchiveExportPerformanceTest {
             new TargetResolver(List.of(DEV1)), node -> Optional.of(WorkflowArchiveFixtures.OWNER),
             node -> Optional.of("jdoe"), node -> artifacts, new V81WorkflowArchives(),
             FakeVersionDetection.pinned81(), new ArchiveFolderWriter(),
+            ResultLimiter.withDefaults(),
             new ArchiveExportAudit.Dependencies(record -> { },
                 new MutableClock(Instant.parse("2026-11-06T10:00:00Z")), "default",
                 UUID::randomUUID));

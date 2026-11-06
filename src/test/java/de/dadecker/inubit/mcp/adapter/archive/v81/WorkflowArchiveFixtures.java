@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.UnaryOperator;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
@@ -74,13 +75,21 @@ public final class WorkflowArchiveFixtures {
      * (XSLT Converter, a node of {@code Workflow-0004}), as for a module of another owner.
      */
     public static byte[] missingModule() {
+        return withoutModule("Module-0023");
+    }
+
+    /**
+     * {@code grp-b.zip} without the index entry and the module file of {@code module}, as for a
+     * module of another owner.
+     */
+    public static byte[] withoutModule(String module) {
         RawZip raw = RawZip.read(grpB());
         List<RawEntry> entries = new ArrayList<>(raw.entries());
-        assertThat(entries.removeIf(e -> e.header().getName().equals("module/module-0023.xml")))
-            .isTrue();
+        String file = "module/" + module.toLowerCase(Locale.ROOT) + ".xml";
+        assertThat(entries.removeIf(e -> e.header().getName().equals(file))).isTrue();
         byte[] edited = RawZip.write(entries, raw.comment());
         return edit(edited, INDEX, xml -> {
-            int name = indexOf(xml, "<ModuleName>Module-0023</ModuleName>");
+            int name = indexOf(xml, "<ModuleName>" + module + "</ModuleName>");
             int start = xml.lastIndexOf("<Module ", name);
             int end = xml.indexOf("</Module>", name) + "</Module>".length();
             return xml.substring(0, start) + xml.substring(end);

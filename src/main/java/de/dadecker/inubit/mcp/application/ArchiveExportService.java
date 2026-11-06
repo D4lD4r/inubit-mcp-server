@@ -13,6 +13,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WorkflowArchivePlan;
+import de.dadecker.inubit.mcp.domain.model.WorkflowArchivePlan.ModuleEntry;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.WorkflowArchivePort;
 import de.dadecker.inubit.mcp.domain.port.WorkflowArchivePort.SlicedExport;
@@ -43,7 +44,8 @@ import org.slf4j.LoggerFactory;
  * <p>Order (R-13): target and owner, static checks and a {@code REFUSED} record for their
  * failures; then {@code PENDING}, the version gate, the export, the export-dependent checks (first
  * failure wins), the writes and the outcome record. No archive is written before every check
- * passed.
+ * passed. The result's module, missing-module and repository-path lists are bounded together by
+ * {@code resultLimits.maxItems} (R-14).
  */
 public final class ArchiveExportService {
 
@@ -60,6 +62,7 @@ public final class ArchiveExportService {
     private final WorkflowArchivePort archives;
     private final VersionGate gate;
     private final ArchiveFolderWriter writer;
+    private final ResultLimiter limiter;
     private final ArchiveExportAudit.Dependencies audit;
 
     /**
@@ -70,12 +73,14 @@ public final class ArchiveExportService {
      * @param archives  slices an export into workflow archives
      * @param gate      admits the export ({@code WORKSPACE_EXPORT} over StartCLI)
      * @param writer    places the archives in the target folder
+     * @param limiter   bounds the result's module, missing-module and repository-path lists
+     *                  ({@code resultLimits.maxItems})
      * @param audit     what every call's audit shares
      */
     public ArchiveExportService(TargetResolver targets, Function<NodeId, Optional<String>> owners,
         Function<NodeId, Optional<String>> accounts, Function<NodeId, ArtifactPort> artifacts,
         WorkflowArchivePort archives, VersionGate gate, ArchiveFolderWriter writer,
-        ArchiveExportAudit.Dependencies audit) {
+        ResultLimiter limiter, ArchiveExportAudit.Dependencies audit) {
         this.targets = Objects.requireNonNull(targets, "targets");
         this.owners = Objects.requireNonNull(owners, "owners");
         this.accounts = Objects.requireNonNull(accounts, "accounts");
@@ -83,6 +88,7 @@ public final class ArchiveExportService {
         this.archives = Objects.requireNonNull(archives, "archives");
         this.gate = Objects.requireNonNull(gate, "gate");
         this.writer = Objects.requireNonNull(writer, "writer");
+        this.limiter = Objects.requireNonNull(limiter, "limiter");
         this.audit = Objects.requireNonNull(audit, "audit");
     }
 
@@ -294,9 +300,10 @@ public final class ArchiveExportService {
             .map(workflow -> new ArchiveFolderWriter.Archive(workflow,
                 () -> sliced.archive(workflow)))
             .toList());
-        List<WrittenArchive> archiveResults = written.written().stream()
+        Bounded bounded = bound(written.written().stream()
             .map(archive -> written(checked.folder(), archive, sliced.plan(archive.workflow())))
-            .toList();
+            .toList());
+        List<WrittenArchive> archiveResults = bounded.archives();
         List<FailedArchive> failed = written.failed().stream()
             .map(f -> new FailedArchive(f.workflow(), f.code(), f.message())).toList();
         AuditOutcome outcome = failed.isEmpty() ? AuditOutcome.EXECUTED
@@ -312,7 +319,42 @@ public final class ArchiveExportService {
         return new ArchiveExportResult(checked.node().value(), checked.owner(),
             request.diagramGroup(), checked.folder().toString(), record.auditId(),
             ArchiveExportResult.CLEAR_TEXT_SECRETS, archiveResults, failed,
-            written.notWritten(), false, warnings);
+            written.notWritten(), bounded.truncated(), warnings);
+    }
+
+    /** The archives with their lists bounded, and whether a list was cut. */
+    private record Bounded(List<WrittenArchive> archives, boolean truncated) {
+    }
+
+    /**
+     * Bounds the module, missing-module and repository-path lists of all archives together by
+     * {@code resultLimits.maxItems} (R-14, FR-012): filled archive by archive in output order,
+     * per archive modules, then missing modules, then repository paths; later items are dropped.
+     * The counts, the archives and their warnings stay complete.
+     */
+    private Bounded bound(List<WrittenArchive> archives) {
+        int left = limiter.maxItems();
+        boolean truncated = false;
+        List<WrittenArchive> bounded = new ArrayList<>(archives.size());
+        for (WrittenArchive archive : archives) {
+            List<ModuleEntry> modules = head(archive.modules(), left);
+            left -= modules.size();
+            List<MissingModule> missing = head(archive.missingModules(), left);
+            left -= missing.size();
+            List<String> paths = head(archive.repositoryPaths(), left);
+            left -= paths.size();
+            truncated |= modules.size() < archive.modules().size()
+                || missing.size() < archive.missingModules().size()
+                || paths.size() < archive.repositoryPaths().size();
+            bounded.add(new WrittenArchive(archive.workflow(), archive.file(), archive.path(),
+                archive.size(), archive.moduleCount(), modules, archive.missingModuleCount(),
+                missing, archive.repositoryFileCount(), paths, archive.warnings()));
+        }
+        return new Bounded(bounded, truncated);
+    }
+
+    private static <T> List<T> head(List<T> items, int max) {
+        return items.subList(0, Math.min(items.size(), max));
     }
 
     private static WrittenArchive written(Path folder, ArchiveFolderWriter.Written archive,

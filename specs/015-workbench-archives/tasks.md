@@ -241,7 +241,7 @@ archives whose content follows FR-005/FR-006.
   itself. Tests of this task use JUnit temporary directories only. Result lists are complete and `truncated` is
   always `false` until T011.
 
-- [ ] T011 [US1] Result bounding (research R-14, FR-012, Q25): test first, extending
+- [X] T011 [US1] Result bounding (research R-14, FR-012, Q25): test first, extending
   `test/application/ArchiveExportServiceTest.java` with `resultLimits.maxItems` set small (e.g. 3)
   and the three workflows of Q1 (`fix/grp-b.zip` with `workflows` = `Workflow-0004`,
   `Workflow-0005`, `Workflow-0006`): the module, missing-module and repository-path lists are

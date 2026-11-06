@@ -22,7 +22,10 @@ import java.util.UUID;
  * @param failed           at most one entry: the archive the writes stopped at (FR-011)
  * @param notWritten       the workflows not attempted after the failure
  * @param truncated        whether the module, missing-module and repository-path lists were cut
- *                         by {@code resultLimits.maxItems}
+ *                         by {@code resultLimits.maxItems}: together they hold at most that many
+ *                         items, filled archive by archive in output order (per archive modules,
+ *                         then missing modules, then repository paths); the counts, archives and
+ *                         warnings are never cut
  * @param warnings         call-level warnings (version admission, leftover temporary file,
  *                         audit outcome not written)
  */
