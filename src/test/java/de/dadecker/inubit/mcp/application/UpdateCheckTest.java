@@ -72,8 +72,9 @@ class UpdateCheckTest {
         assertThat(update.updateAvailable()).isTrue();
         assertThat(update.latestVersion()).isEqualTo("0.8.0");
         assertThat(update.checkedAt()).isEqualTo(T0.plus(Duration.ofHours(24)));
-        assertThat(warnings()).singleElement().asString()
-            .contains("0.8.0 is available (running 0.7.1)");
+        assertThat(warnings()).containsExactly("A newer inubit-mcp-server is available: 0.8.0"
+            + " (running 0.7.1): https://github.com/D4lD4r/inubit-mcp-server/releases/tag/v0.8.0"
+            + " – update manually (no automatic download)");
         assertThat(cache.writes).containsExactly("0.8.0@" + T0,
             "0.8.0@" + T0.plus(Duration.ofHours(24)));
     }
@@ -112,7 +113,7 @@ class UpdateCheckTest {
         answers.add(v("0.9.0"));
         check.checkOnce();
         check.checkOnce();
-        assertThat(warnings()).hasSize(2).last().asString().contains("0.9.0 is available");
+        assertThat(warnings()).hasSize(2).last().asString().contains("available: 0.9.0 (running 0.7.1)");
     }
 
     @Test

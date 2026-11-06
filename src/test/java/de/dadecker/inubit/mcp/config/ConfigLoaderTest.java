@@ -1267,6 +1267,53 @@ class ConfigLoaderTest {
         }
     }
 
+    /** Feature 016 (T012, contracts/configuration-delta.md). */
+    @Nested
+    class UpdateCheck {
+
+        private LoadedConfig parse(String yaml) {
+            return loader().parse(yaml, home.resolve("u.yaml"));
+        }
+
+        @Test
+        void theCheckIsOnUnlessTurnedOff() {
+            assertThat(parse(MINIMAL).config().updateCheck()).isEqualTo(UpdateCheckConfig.DEFAULT);
+            assertThat(UpdateCheckConfig.DEFAULT.on()).isTrue();
+            assertThat(parse(MINIMAL + "updateCheck:\n  enabled: false\n").config().updateCheck()
+                .on()).isFalse();
+            assertThat(parse(MINIMAL + "updateCheck:\n  enabled: true\n").config().updateCheck()
+                .on()).isTrue();
+            assertThat(parse(MINIMAL + "updateCheck: {}\n").config().updateCheck().on()).isTrue();
+            assertThat(parse(MINIMAL + "updateCheck:\n  enabled:\n").config().updateCheck())
+                .as("an empty value is the default").isEqualTo(UpdateCheckConfig.DEFAULT);
+        }
+
+        @Test
+        void anUnknownKeyBelowUpdateCheckIsRejected() {
+            assertThatThrownBy(() -> parse(MINIMAL + "updateCheck:\n  interval: 12h\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'interval' at updateCheck");
+        }
+
+        @Test
+        void updateCheckInTheDefaultsIsAnUnknownKey() {
+            assertThatThrownBy(() -> parse(MINIMAL + "defaults:\n  updateCheck:\n"
+                + "    enabled: false\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'updateCheck' at defaults");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"no", "off", "\"maybe\"", "0", "\"false\"", "[false]"})
+        void aNonBooleanValueIsRejectedNamingTheKey(String value) {
+            assertThatThrownBy(() -> parse(MINIMAL + "updateCheck:\n  enabled: " + value + "\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Invalid value at updateCheck.enabled")
+                .hasMessageContaining("expected true or false")
+                .hasMessageNotContaining("maybe");
+        }
+    }
+
     /** Feature 015 (T016, research R-15, contracts/configuration-delta.md). */
     @Nested
     class Archives {

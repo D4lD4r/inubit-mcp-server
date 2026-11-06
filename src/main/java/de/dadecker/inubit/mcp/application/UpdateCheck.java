@@ -95,7 +95,8 @@ public final class UpdateCheck implements AutoCloseable {
         status.record(update);
         SemVer latest = SemVer.parse(update.latestVersion()).orElseThrow();
         if (update.updateAvailable() && announced.add(latest)) {
-            LOG.warn("Update available: {}", update.notice().orElseThrow());
+            LOG.warn("A newer inubit-mcp-server is available: {} (running {}): {} – update manually"
+                + " (no automatic download)", latest, running, update.releaseUrl());
         }
     }
 

@@ -101,7 +101,7 @@ the checkout; never two builds in parallel).
 **Goal**: key or environment variable turns it off; no request at all.
 **Independent test**: Launcher test with the check off: the fake source is never called.
 
-- [ ] T012 [US4] `UpdateCheckConfig(Optional<Boolean> enabled)` as top-level `updateCheck` of
+- [X] T012 [US4] `UpdateCheckConfig(Optional<Boolean> enabled)` as top-level `updateCheck` of
   `ProfileConfig`; strict YAML boolean in `ConfigLoader` ("Invalid value at updateCheck.enabled in
   <file>: expected true or false"); tests in `src/main/java/de/dadecker/inubit/mcp/config/`
   (`UpdateCheckConfig.java`, `ProfileConfig.java`, `ConfigLoader.java`) and `ConfigLoaderTest`
