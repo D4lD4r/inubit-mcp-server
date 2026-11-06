@@ -6,7 +6,9 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchedProcess;
 import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Built;
 import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Cause;
 import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.TooLong;
+import de.dadecker.inubit.mcp.config.CredentialNames;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.config.SecretLabels;
 import de.dadecker.inubit.mcp.config.WindowsArguments;
 import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -45,7 +47,9 @@ import java.util.Optional;
  *       {@code cli.url}, such a character or a {@code ;} in the effective Java home (it goes into
  *       {@code PATH}), a network {@code cli.home}, an unreadable system directory and a command
  *       line the configured values alone make too long; a command line the tool input makes too
- *       long is {@code INVALID_INPUT}.
+ *       long is {@code INVALID_INPUT}. A username with such a character and a password with a
+ *       non-ASCII character are {@code AUTH_FAILED} before the credential guard, so they never
+ *       count as a failed login (FR-003, research R-9).
  *   <li>Every platform: while the {@link ProcessContainment} is {@code Unavailable}, StartCLI is
  *       {@code CLI_UNAVAILABLE} (only possible on Windows).
  *   <li>The child environment is the allowlist of {@link StartCliEnvironment}, with
@@ -168,6 +172,9 @@ public final class CliRunner {
      */
     public CliResult run(EffectiveNodeConfig server, String username, Secret password,
         CliCommand command, Duration timeout, String timeoutSetting, CredentialGuard guard) {
+        if (windows) {
+            refuseWindowsCredentials(server, username, password);
+        }
         // before the guard: a refused address must neither wait for nor count as a login
         if (server.tls().pinPerServer()) {
             pinProbe.check(server);
@@ -182,6 +189,45 @@ public final class CliRunner {
             }
             return result;
         }
+    }
+
+    /**
+     * Feature 013 (FR-003, research R-9): the username reaches StartCLI through the command
+     * interpreter, and a password outside ASCII is refused until the live check (R-13) shows it
+     * arrives unchanged. Names the entry and the cause, never the value.
+     */
+    private static void refuseWindowsCredentials(EffectiveNodeConfig server, String username,
+        Secret password) {
+        SecretLabels labels = server.secretLabels();
+        WindowsArguments.refusal(username).ifPresent(characterClass -> {
+            String entry = labels.label(CredentialNames.USERNAME);
+            throw refusedCredential(server, "the username in " + entry + " contains a character"
+                    + " the Windows command interpreter interprets (" + characterClass + ")",
+                "On Windows the username reaches StartCLI through the command interpreter, which"
+                    + " would change or execute " + REFUSED_CHARACTERS,
+                "Use an INUBIT account whose username has none of these characters and store it in "
+                    + entry + "; then restart the MCP server");
+        });
+        if (password.reveal().chars().anyMatch(c -> c > 0x7f)) {
+            String entry = labels.label(CredentialNames.PASSWORD);
+            throw refusedCredential(server, "the password in " + entry + " contains a non-ASCII"
+                    + " character",
+                "On Windows a password outside ASCII is not yet known to reach StartCLI unchanged",
+                "Give the INUBIT account a password of ASCII characters only and store it in "
+                    + entry + "; then restart the MCP server");
+        }
+    }
+
+    /**
+     * The refusal of a credential StartCLI cannot receive. Unlike a rejected login it re-reads
+     * nothing (it never reaches the {@link CredentialGuard}), so a corrected entry takes effect
+     * after a restart.
+     */
+    private static ToolErrorException refusedCredential(EffectiveNodeConfig server, String what,
+        String cause, String nextStep) {
+        return new ToolErrorException(ToolError.of(ErrorCode.AUTH_FAILED,
+            "StartCLI cannot log in to " + server.id() + ": " + what, cause, nextStep)
+            .withNode(server.id()));
     }
 
     /**

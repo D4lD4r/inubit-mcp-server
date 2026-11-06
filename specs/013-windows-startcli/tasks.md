@@ -257,7 +257,7 @@ Windows CI job.
   node has a client; T015 needs the state for every Windows `--check-config`.
   Resolved in T015: the port returns `CliSystem.SystemDirectory` (`Read`/`Unreadable(reason)`),
   and `Launcher` sets up the containment for every Windows `--check-config` (reviews/T015-r1.md).
-- [ ] T016 [US2] Credentials on Windows (FR-002, FR-003, R-9): before a StartCLI call on Windows,
+- [X] T016 [US2] Credentials on Windows (FR-002, FR-003, R-9): before a StartCLI call on Windows,
   `CliRunner` refuses a username with a refused character and a password with a non-ASCII
   character with `AUTH_FAILED` naming the entry and cause, before the `CredentialGuard` login step
   (no failed-login count); `EntryCheck` shows `invalid value (Windows: <class>)` for such a

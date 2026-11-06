@@ -18,7 +18,9 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures.SyntheticSecr
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
+import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
@@ -111,27 +113,36 @@ class SecretLeakTest {
                     throw new UncheckedIOException(e);
                 }
             });
-        NodeCredentials credentials = new NodeCredentials(DEV,
-            Optional.of(new SourcedValue<>("jdoe", "INUBIT_DEV_USERNAME")),
-            Optional.of(new SourcedValue<>(Secret.of("leak-test-pw"), "INUBIT_DEV_PASSWORD")),
+        client = startClient(credentials("jdoe", "leak-test-pw"),
+            TestCliRunners.forHost(startCli, Map.of("PATH", Platform.searchPath()),
+                new CliResources("acme")));
+    }
+
+    private static NodeCredentials credentials(String username, String password) {
+        return new NodeCredentials(DEV,
+            Optional.of(new SourcedValue<>(username, "INUBIT_DEV_USERNAME")),
+            Optional.of(new SourcedValue<>(Secret.of(password), "INUBIT_DEV_PASSWORD")),
             Optional.empty(), Optional.empty());
+    }
+
+    /** {@code export_artifacts} over MCP with the production adapters and {@code runner}. */
+    private McpTestClient startClient(NodeCredentials credentials, CliRunner runner) {
         ArtifactPort artifacts = new V81ArtifactAdapter(new CliExportRunner(TestNodeConfig.node()
             .cliHome(cliHome).cliJavaHome(Path.of("/opt/jdk-17")).build(), credentials,
             new CredentialGuard(storeLabels("INUBIT", DEV),
                 new MutableClock(Instant.parse("2026-10-06T08:00:00Z"))),
-            TestCliRunners.forHost(startCli, Map.of("PATH", Platform.searchPath()),
-                new CliResources("acme")),
-            new CliOutputClassifier(new SecretScrubber())), () -> { });
+            runner, new CliOutputClassifier(new SecretScrubber())), () -> { });
         WorkspaceService service = new WorkspaceService(workspace, new GitCli(workspace, "acme",
             new SystemProcessLauncher(), Map.of("PATH",
                 System.getenv().getOrDefault("PATH", "/usr/bin"))),
             new ArchiveCodec(), node -> artifacts, node -> {
                 throw new AssertionError("every module names its plugin type");
             }, FakeVersionDetection.pinned81());
-        client = McpTestClient.start(List.of(new ExportArtifactsTool(service,
+        McpTestClient started = McpTestClient.start(List.of(new ExportArtifactsTool(service,
             new TargetResolver(List.of(DEV)), node -> Optional.of("OWNERS"),
             new ResultLimiter(3, ResultLimiter.DEFAULT_MAX_CHARS))));
-        client.initialize();
+        started.initialize();
+        return started;
     }
 
     @AfterEach
@@ -204,6 +215,36 @@ class SecretLeakTest {
         assertThat(sources.get("git objects")).contains("${secret:");
         assertThat(exportDirectories).hasSize(4)
             .allSatisfy(directory -> assertThat(directory).as("deleted").doesNotExist());
+    }
+
+    /**
+     * Feature 013 (FR-003, research R-9): on Windows a username StartCLI cannot receive and a
+     * password outside ASCII are refused before anything starts; neither value occurs in the
+     * tool result or the log output.
+     */
+    @Test
+    void onWindowsRefusedCredentialsLeaveNoTrace() throws IOException {
+        Files.writeString(cliHome.resolve("bin").resolve("startcli.bat"), "@echo off\r\n");
+        FakeProcessLauncher startCli = FakeProcessLauncher.of("", "", 0);
+        String username = "j%doe-UserLeak";
+        String password = "leak-test-p\u00e4ss";
+        for (NodeCredentials refused : List.of(credentials(username, "leak-test-pw"),
+            credentials("jdoe", password))) {
+            client.close();
+            client = startClient(refused, TestCliRunners.simulatedWindows(startCli,
+                Map.of("PATH", Platform.searchPath()), new ProcessContainment.Bound(),
+                new CliResources("acme")));
+
+            JsonNode result = client.callTool("export_artifacts",
+                Map.of("target", "dev", "diagramGroups", List.of("GRP-01")));
+
+            assertThat(result.path("isError").asBoolean()).isTrue();
+            assertThat(result.toString()).contains("AUTH_FAILED", "credential store entry");
+            toolResults.add(result.toString());
+        }
+        assertThat(startCli.launchCount()).as("nothing is started").isZero();
+        assertThat(String.join("\n", toolResults) + logText())
+            .doesNotContain(username, password, "UserLeak");
     }
 
     /** Every file of the workspace (outside {@code .git}), as text. */

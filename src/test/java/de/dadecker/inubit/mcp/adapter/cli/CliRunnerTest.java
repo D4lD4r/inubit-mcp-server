@@ -40,6 +40,8 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /** T022: the StartCLI process layer with {@link FakeProcessLauncher} (research R-6, R-12). */
 @Timeout(30)
@@ -548,6 +550,78 @@ class CliRunnerTest {
             CliCommand.processErrorStart("110190387")));
         assertThat(launcher.launchCount()).as("nothing is started").isZero();
         return error;
+    }
+
+    /** Runs on simulated Windows as {@code username} with {@code password}; nothing may start. */
+    private ToolError windowsCredentialRefusal(String username, String password,
+        CredentialGuard guard) throws IOException {
+        batchFile(cliHome);
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+        ToolError error = errorOf(() -> windowsRunner(launcher).run(server().build(), username,
+            Secret.of(password), CliCommand.processErrorStart("110190387"),
+            Duration.ofSeconds(5), guard));
+        assertThat(launcher.launchCount()).as("nothing is started").isZero();
+        return error;
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', quoteCharacter = '`', value = {
+        "j\"doe|double quote", "j%doe|percent sign", "j!doe|exclamation mark", "j^doe|caret",
+        "j&doe|ampersand", "`j|doe`|vertical bar", "j<doe|less-than sign",
+        "j>doe|greater-than sign", "j\tdoe|control character", "jd\u00f6e|non-ASCII character"})
+    void onWindowsAUsernameWithARefusedCharacterIsAuthFailedWithoutALoginAttempt(String username,
+        String characterClass) throws IOException {
+        CredentialGuard guard = guard();
+        ToolError error = windowsCredentialRefusal(username, PASSWORD, guard);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(error.message()).contains("dev/node1", "username",
+            "credential store entry", "(" + characterClass + ")");
+        assertThat(error.nextStep()).contains("credential store entry", "restart");
+        assertThat(error.toString()).doesNotContain(username, PASSWORD);
+        // no failed-login count: the guard neither pauses nor confirms
+        assertThat(guard.confirmed()).isFalse();
+        try (CredentialGuard.Permit permit = guard.acquire()) {
+            assertThat(permit).isNotNull();
+        }
+    }
+
+    @Test
+    void onWindowsAPasswordWithANonAsciiCharacterIsAuthFailedWithoutALoginAttempt()
+        throws IOException {
+        CredentialGuard guard = guard();
+        String password = "S3cr3t-p\u00e4ss";
+
+        ToolError error = windowsCredentialRefusal(USER, password, guard);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(error.message()).contains("dev/node1", "password", "credential store entry",
+            "non-ASCII character");
+        assertThat(error.toString()).doesNotContain(password);
+        try (CredentialGuard.Permit permit = guard.acquire()) {
+            assertThat(permit).isNotNull();
+        }
+    }
+
+    @Test
+    void onWindowsAPasswordWithInterpretedAsciiCharactersIsPassedOnStdin() throws IOException {
+        batchFile(cliHome);
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+
+        windowsRunner(launcher).run(server().build(), USER, Secret.of("p%w^d!&\"<>|"),
+            CliCommand.processErrorStart("110190387"), Duration.ofSeconds(5), guard());
+
+        assertThat(launcher.launchCount()).isEqualTo(1);
+    }
+
+    @Test
+    void offWindowsTheCredentialsAreNotCheckedForTheCommandInterpreter() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+
+        runner(launcher).run(server().build(), "j^d\u00f6e", Secret.of("p\u00e4ss"),
+            CliCommand.processErrorStart("110190387"), Duration.ofSeconds(5), guard());
+
+        assertThat(launcher.launchCount()).isEqualTo(1);
     }
 
     @Test

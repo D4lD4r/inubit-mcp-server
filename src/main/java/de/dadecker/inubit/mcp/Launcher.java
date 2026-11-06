@@ -217,7 +217,7 @@ final class Launcher {
             // feature 011 (research R-13): the credential store only for credential store nodes
             List<EffectiveNodeConfig> nodes = loaded.config().resolvableNodes();
             EntryCheck.Result entries = plans.stream().anyMatch(plan -> !plan.aws())
-                ? EntryCheck.run(nodes, context.credentialStore().get())
+                ? EntryCheck.run(nodes, context.credentialStore().get(), context.windows())
                 : EntryCheck.Result.none(StoreKind.forOs(System.getProperty("os.name")));
             ValidationReport checked = entries.addTo(parameters.addTo(withProbes));
             context.out().print(new ConfigSummary(context.exists(), context.windows())
