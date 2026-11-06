@@ -111,12 +111,17 @@ class ListNodesToolTest {
     }
 
     private static McpTestClient client(ProfileInfo profile) {
+        return client(profile, EXISTS, false);
+    }
+
+    private static McpTestClient client(ProfileInfo profile, Predicate<Path> exists,
+        boolean windows) {
         List<EffectiveNodeConfig> config = config();
         NodeVersions versions = new NodeVersions(Clock.systemUTC(),
             id -> config.stream().filter(node -> node.id().equals(id)).findFirst().orElseThrow()
                 .versionLine(), id -> java.time.Duration.ofMinutes(10));
         NodeOverview overview = new NodeOverview(config.stream()
-            .map(node -> node.summary(EXISTS, false)).toList(), versions,
+            .map(node -> node.summary(exists, windows)).toList(), versions,
             CapabilityMatrix.production(), id -> READS);
         McpTestClient client = McpTestClient.start(profile, List.of(new ListNodesTool(profile,
             overview::nodes)));
@@ -188,6 +193,30 @@ class ListNodesToolTest {
                 .isTrue();
             assertThat(prod2.path("versionLine").asString()).isEqualTo("V9_X");
             assertThat(prod2.path("production").asBoolean()).isTrue();
+        }
+    }
+
+    /**
+     * Feature 013 (T020, FR-010): on Windows a node whose CLI home holds {@code startcli.bat} is
+     * listed with {@code cliAvailable}; {@code startcli.sh} alone is no installation there.
+     */
+    @Test
+    void onWindowsTheBatchInstallationMakesTheCliAvailable() {
+        Predicate<Path> batch =
+            path -> path.equals(CLI_HOME.resolve("bin").resolve("startcli.bat"));
+        for (Map.Entry<Predicate<Path>, Boolean> installation
+            : Map.of(batch, true, EXISTS, false).entrySet()) {
+            try (McpTestClient client =
+                client(McpTestClient.TEST_PROFILE, installation.getKey(), true)) {
+                JsonNode nodes = client.callTool("list_nodes", Map.of())
+                    .path("structuredContent").path("groups").get(0).path("nodes");
+
+                assertThat(nodes.get(0).path("cliAvailable").asBoolean())
+                    .as(installation.getValue() ? "startcli.bat" : "startcli.sh on Windows")
+                    .isEqualTo(installation.getValue());
+                assertThat(nodes.get(1).path("cliAvailable").asBoolean()).as("no CLI home")
+                    .isFalse();
+            }
         }
     }
 

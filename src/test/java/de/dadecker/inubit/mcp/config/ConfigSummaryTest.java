@@ -53,7 +53,9 @@ class ConfigSummaryTest {
         }
         return entries;
     }
-    private final Predicate<Path> exists = Set.of(Path.of("/opt/client/bin/startcli.sh"))::contains;
+    private Predicate<Path> exists = Set.of(Path.of("/opt/client/bin/startcli.sh"))::contains;
+    /** The platform of the summary (feature 013); the validation stays POSIX. */
+    private boolean windows;
     /** The Parameter Store of the AWS nodes (feature 010); unscripted names are not found. */
     private final FakeParameterStore store = new FakeParameterStore();
     /** The bound of each store call of {@link ParameterCheck}. */
@@ -83,7 +85,7 @@ class ConfigSummaryTest {
         EntryCheck.Result entries = EntryCheck.run(loaded.config().resolvableNodes(),
             credentialStore != null ? credentialStore : TestSecrets.store(storeEntries),
             Duration.ofSeconds(5));
-        return new ConfigSummary(exists, false).render(loaded,
+        return new ConfigSummary(exists, windows).render(loaded,
             entries.addTo(parameters.addTo(report)), clients, parameters, entries);
     }
 
@@ -467,6 +469,27 @@ class ConfigSummaryTest {
             .contains("prod/node1: read-only, cli: unavailable, inubit: 8.1.17,"
                 + " secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).contains("Result: OK");
+    }
+
+    /**
+     * Feature 013 (T020, FR-010): on Windows the node line shows the StartCLI installation
+     * ({@code startcli.bat}) and the probed client like on POSIX; {@code startcli.sh} alone is no
+     * installation there.
+     */
+    @Test
+    void onWindowsTheNodeLineShowsTheBatchInstallationAndTheProbedClient() {
+        windows = true;
+        String withShellScript = render(PINS);
+        exists = Set.of(Path.of("/opt/client/bin/startcli.bat"))::contains;
+
+        String summary = render(PINS,
+            Map.of(NodeId.parse("test/node1"), client("8.1.17", "4.0.1", "8.1.17")));
+
+        assertThat(summary).contains("test/node1: read-only, cli: available, inubit: 8.1.17,"
+            + " client: 8.1.17 (4.0.1–8.1.17), client vs pin: match,")
+            .contains("test/node4: read-only, cli: available, inubit: AUTO,");
+        assertThat(withShellScript).as("startcli.sh is no installation on Windows")
+            .contains("test/node1: read-only, cli: unavailable, inubit: 8.1.17,");
     }
 
     @Test

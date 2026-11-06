@@ -299,7 +299,7 @@ Windows CI job.
   during an export leaves no StartCLI process (job, T012) and the next start sweeps its
   directory.
   This task wires `OsPrivateFileSystem` through `Launcher` and `Wiring` for `adapter/cli`.
-- [ ] T020 [US1] Client check and announcement (FR-010): the client probe (`-v`) runs on Windows
+- [X] T020 [US1] Client check and announcement (FR-010): the client probe (`-v`) runs on Windows
   in `--check-config` and `get_health` through the Windows launch; `list_nodes` shows `cli: true`
   and the StartCLI-backed tools are announced for a Windows client installation. Test first:
   `ConfigSummaryTest`/`MainTest` Windows node line with client version, `ListNodesToolTest` and the
