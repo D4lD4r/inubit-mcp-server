@@ -90,12 +90,16 @@ class WindowsProcessTreeTest {
             ArgvRecorder.CHILD_SLEEP_MILLIS, HANG, ArgvRecorder.SLEEP_MILLIS, HANG));
         CliResources resources = new CliResources("acme", PrivateFiles.forHost());
         long start = System.nanoTime();
+        AtomicReference<ToolError> error = new AtomicReference<>();
+        Thread call = Thread.ofVirtual().start(() -> error.set(errorOf(
+            () -> runner(resources).run(server(), "jdoe", Secret.of(PASSWORD),
+                CliCommand.kill("1"), TIMEOUT, guard))));
+        Map<String, ProcessHandle> tree = tree(cli);
 
-        ToolError error = errorOf(() -> runner(resources).run(server(), "jdoe",
-            Secret.of(PASSWORD), CliCommand.kill("1"), TIMEOUT, guard));
+        call.join(TIMEOUT.plus(Duration.ofSeconds(10)));
 
-        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
-        Map<String, Long> tree = tree(cli);
+        assertThat(call.isAlive()).isFalse();
+        assertThat(error.get().code()).isEqualTo(ErrorCode.TIMEOUT);
         long deadline = start + TIMEOUT.plus(CliRunner.KILL_GRACE).plus(AFTER_GRACE).toNanos();
         assertTreeGoneBy(tree, deadline);
         resources.close();
@@ -113,12 +117,7 @@ class WindowsProcessTreeTest {
         AtomicReference<ToolError> error = new AtomicReference<>();
         Thread call = Thread.ofVirtual().start(() -> error.set(errorOf(
             () -> exports.exportModules("OWNERS"))));
-        long started = System.nanoTime() + Duration.ofSeconds(30).toNanos();
-        while (!Files.exists(cli.recordFile()) && System.nanoTime() < started) {
-            Thread.sleep(20);
-        }
-        assertThat(cli.recordFile()).as("the substitute and its child run").exists();
-        Map<String, Long> tree = tree(cli);
+        Map<String, ProcessHandle> tree = tree(cli);
 
         long stop = System.nanoTime();
         resources.close();
@@ -132,36 +131,45 @@ class WindowsProcessTreeTest {
         }
     }
 
-    /** The interpreter, the substitute and its child, which must have started. */
-    private Map<String, Long> tree(FakeStartCli cli) throws IOException {
-        assertThat(cli.recordFile()).as("the substitute ran before the call ended").exists();
+    /**
+     * The interpreter, the substitute and its child, taken while they run: a handle taken later
+     * could stand for another process that re-uses a freed PID.
+     */
+    private Map<String, ProcessHandle> tree(FakeStartCli cli) throws Exception {
+        long until = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        while (!Files.exists(cli.recordFile()) && System.nanoTime() < until) {
+            Thread.sleep(20);
+        }
+        assertThat(cli.recordFile()).as("the substitute and its child run").exists();
         FakeStartCli.Recorded record = cli.record();
         assertThat(record.childPid()).as("the substitute started its child").isNotNull();
-        Map<String, Long> tree = new LinkedHashMap<>();
+        Map<String, ProcessHandle> tree = new LinkedHashMap<>();
         tree.put("the interpreter", launcher.interpreter.get());
-        tree.put("the substitute", record.pid());
-        tree.put("its child", record.childPid());
+        tree.put("the substitute", running(record.pid()));
+        tree.put("its child", running(record.childPid()));
         return tree;
     }
 
-    private static void assertTreeGoneBy(Map<String, Long> tree, long deadline)
+    private static ProcessHandle running(long pid) {
+        Optional<ProcessHandle> handle = ProcessHandle.of(pid);
+        assertThat(handle).as("process %d runs", pid).isPresent();
+        return handle.get();
+    }
+
+    private static void assertTreeGoneBy(Map<String, ProcessHandle> tree, long deadline)
         throws InterruptedException {
-        while (tree.values().stream().anyMatch(WindowsProcessTreeTest::alive)
+        while (tree.values().stream().anyMatch(ProcessHandle::isAlive)
             && System.nanoTime() < deadline) {
             Thread.sleep(20);
         }
-        Set<String> alive = tree.entrySet().stream().filter(entry -> alive(entry.getValue()))
-            .map(Map.Entry::getKey).collect(Collectors.toSet());
+        Map<String, ProcessHandle> alive = tree.entrySet().stream()
+            .filter(entry -> entry.getValue().isAlive())
+            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         try {
-            assertThat(alive).as("alive one second after the grace period").isEmpty();
+            assertThat(alive.keySet()).as("alive one second after the grace period").isEmpty();
         } finally {
-            tree.values().forEach(pid -> ProcessHandle.of(pid)
-                .ifPresent(ProcessHandle::destroyForcibly));
+            alive.values().forEach(ProcessHandle::destroyForcibly);
         }
-    }
-
-    private static boolean alive(long pid) {
-        return ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
     }
 
     private EffectiveNodeConfig server() {
@@ -192,23 +200,22 @@ class WindowsProcessTreeTest {
     /** The real launcher, remembering the process it started: the interpreter. */
     private static final class ChildRecordingLauncher implements ProcessLauncher {
 
-        final AtomicReference<Long> interpreter = new AtomicReference<>();
+        final AtomicReference<ProcessHandle> interpreter = new AtomicReference<>();
         private final SystemProcessLauncher system = new SystemProcessLauncher();
 
         @Override
         public LaunchedProcess launch(LaunchSpec spec) throws IOException {
-            Set<Long> before = children();
+            Set<ProcessHandle> before = children();
             LaunchedProcess process = system.launch(spec);
-            Set<Long> started = children();
+            Set<ProcessHandle> started = children();
             started.removeAll(before);
             assertThat(started).as("the one process the launcher started").hasSize(1);
             interpreter.set(started.iterator().next());
             return process;
         }
 
-        private static Set<Long> children() {
-            return ProcessHandle.current().children().map(ProcessHandle::pid)
-                .collect(Collectors.toSet());
+        private static Set<ProcessHandle> children() {
+            return ProcessHandle.current().children().collect(Collectors.toSet());
         }
     }
 }
