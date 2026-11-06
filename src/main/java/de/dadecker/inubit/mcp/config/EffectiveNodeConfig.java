@@ -79,13 +79,24 @@ public record EffectiveNodeConfig(
         }
     }
 
+    /**
+     * @param pinPerServer the stage's {@code tls.pinPerServer}: StartCLI calls are preceded by a
+     *     certificate check against this server's own pin (feature 014, research R-15)
+     */
     public record Tls(
         Optional<Path> trustStore,
         boolean disableHostnameVerification,
-        Optional<String> pinnedCertificateSha256) {
+        Optional<String> pinnedCertificateSha256,
+        boolean pinPerServer) {
         public Tls {
             Objects.requireNonNull(trustStore, "trustStore");
             Objects.requireNonNull(pinnedCertificateSha256, "pinnedCertificateSha256");
+        }
+
+        /** A server of a stage without {@code tls.pinPerServer}. */
+        public Tls(Optional<Path> trustStore, boolean disableHostnameVerification,
+            Optional<String> pinnedCertificateSha256) {
+            this(trustStore, disableHostnameVerification, pinnedCertificateSha256, false);
         }
     }
 
@@ -226,7 +237,8 @@ public record EffectiveNodeConfig(
             node.tls().trustStore().or(group.tls()::trustStore),
             node.tls().disableHostnameVerification().or(group.tls()::disableHostnameVerification)
                 .orElse(false),
-            node.tls().pinnedCertificateSha256().or(group.tls()::pinnedCertificateSha256));
+            node.tls().pinnedCertificateSha256().or(group.tls()::pinnedCertificateSha256),
+            group.tls().marksStage());
         Cli cli = new Cli(
             node.cli().url().or(group.cli()::url)
                 .orElseGet(() -> URI.create(baseUrl + DEFAULT_CLI_PATH)),

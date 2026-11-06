@@ -62,31 +62,95 @@ def find_keytool():
 
 def write_profile(path, stages, java="/jdk/bin/java", server_jar="/lib/inubit-mcp-server.jar",
                   head=""):
-    """Writes a profile file. stages: list of dicts with name, servers [(node, baseUrl)], and
-    either tls (raw text after "tls: ", e.g. "*sharedTls") or pin/store (inline block; pin_raw
-    overrides the text after "pinnedCertificateSha256: ")."""
+    """Writes a profile file. stages: list of dicts with name, servers, and either tls (raw text
+    after "tls: ", e.g. "*sharedTls") or pin/store (inline block; pin_raw overrides the text after
+    "pinnedCertificateSha256: "). pin_per_server=True writes "pinPerServer: true" into the inline
+    block, or into the anchor in head when tls is an alias. A server is (node, baseUrl) or
+    (node, baseUrl, tls) with tls a dict of pin, pin_raw, store, pin_per_server (inline block) or
+    alias (written as "tls: *<alias>")."""
+    marked_anchors = {stage["tls"].lstrip("*") for stage in stages
+                      if stage.get("pin_per_server") and "tls" in stage}
     lines = ["# Test profile; every name is fictitious.", "profile:", "  name: acme", ""]
     if java is not None:
         lines += ["x-cert-check:", f"  java: {java}", f"  serverJar: {server_jar}", ""]
-    if head:
-        lines += head.rstrip("\n").split("\n") + [""]
+    head_lines = head.rstrip("\n").split("\n") if head else []
+    for anchor in marked_anchors:
+        _mark_anchor(head_lines, anchor)
+    if head_lines:
+        lines += head_lines + [""]
     lines.append("groups:")
     for stage in stages:
         lines.append(f"  - name: {stage['name']}")
         if "tls" in stage:
             lines.append(f"    tls: {stage['tls']}")
-        elif stage.get("pin") or stage.get("store") or stage.get("pin_raw"):
-            lines.append("    tls:")
-            if stage.get("store"):
-                lines.append(f"      trustStore: {stage['store']}")
-            pin = stage.get("pin_raw") or stage.get("pin")
-            if pin:
-                lines.append(f"      pinnedCertificateSha256: {pin}")
+        elif (stage.get("pin") or stage.get("store") or stage.get("pin_raw")
+              or stage.get("pin_per_server")):
+            lines += _tls_block("    ", stage)
         lines.append("    nodes:")
-        for node, url in stage["servers"]:
+        for node, url, *server_tls in stage["servers"]:
             lines += [f"      - name: {node}", f"        baseUrl: {url}"]
+            if server_tls and server_tls[0].get("alias"):
+                lines.append(f"        tls: *{server_tls[0]['alias']}")
+            elif server_tls:
+                lines += _tls_block("        ", server_tls[0])
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("\n".join(lines) + "\n")
+    return path
+
+
+def _tls_block(indent, tls):
+    """The lines of an inline tls block from a dict with pin_per_server, store, pin_raw, pin."""
+    lines = [f"{indent}tls:"]
+    if tls.get("pin_per_server"):
+        lines.append(f"{indent}  pinPerServer: true")
+    if tls.get("store"):
+        lines.append(f"{indent}  trustStore: {tls['store']}")
+    pin = tls.get("pin_raw") or tls.get("pin")
+    if pin:
+        lines.append(f"{indent}  pinnedCertificateSha256: {pin}")
+    return lines
+
+
+def _mark_anchor(head_lines, anchor):
+    """Inserts "pinPerServer: true" as the first key of the mapping that defines &<anchor>."""
+    for index, line in enumerate(head_lines):
+        if line.rstrip().endswith(f"&{anchor}"):
+            indent = len(line) - len(line.lstrip()) + 2
+            head_lines.insert(index + 1, " " * indent + "pinPerServer: true")
+            return
+    raise ValueError(f"anchor &{anchor} not found in head")
+
+
+def marked_stage(testcase, nodes=("a", "b")):
+    """One throw-away certificate and one local TlsServer per server of a marked stage, closed and
+    deleted when the test ends. Returns {node: SimpleNamespace(cert, key, fingerprint, port,
+    server)}; server is the TlsServer (e.g. for swap_cert)."""
+    import tempfile
+    from types import SimpleNamespace
+
+    from tls_fixtures import TlsServer, make_cert  # here: tls_fixtures imports this module
+
+    certs = tempfile.TemporaryDirectory()
+    testcase.addCleanup(certs.cleanup)
+    result = {}
+    for node in nodes:
+        cert, key, fingerprint = make_cert(certs.name, f"{node}.selfsigned.test")
+        server = TlsServer(cert, key)
+        testcase.addCleanup(server.close)
+        result[node] = SimpleNamespace(cert=cert, key=key, fingerprint=fingerprint,
+                                       port=server.port, server=server)
+    return result
+
+
+def insert_after(path, fragment, text):
+    """Inserts text (whole lines, ending with a newline) after the first line of the file at path
+    that contains fragment, e.g. a cli or e2e block that write_profile cannot write."""
+    with open(path, encoding="utf-8") as handle:
+        lines = handle.read().split("\n")
+    index = next(i for i, line in enumerate(lines) if fragment in line)
+    lines[index + 1:index + 1] = text.rstrip("\n").split("\n")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines))
     return path
 
 

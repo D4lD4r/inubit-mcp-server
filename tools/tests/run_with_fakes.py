@@ -20,6 +20,8 @@ FAKES.json:
   dialog   answer per stage, returned unchanged by the fake show_dialog after the optional delay
            in seconds; a stage without an entry gets "dialog-failed" (the dialog could not be
            shown, which never changes anything)
+           (014: a key "int/b" answers the dialog of that server of a marked stage and wins
+           over the stage key)
   record   optional; every fake call appends one JSON line {"call": ..., ...} to this file
   budget   optional; replaces the start budget START_BUDGET (seconds)
   keytool  optional; the entries of the in-memory fake trust stores
@@ -32,6 +34,8 @@ FAKES.json:
 Recorded as well: every Popen of the tool ({"call": "popen", ...}: environment keys, standard
 streams, session, pass_fds), every flock(LOCK_UN) ({"call": "unlock"}), and in the worker the
 mode of the offers file ({"call": "worker_start"}).
+In the worker, the content of its status file is recorded while each dialog is shown and while
+each --check-config runs ({"call": "status", "during": ..., "content": ...}).
 
 Always installed: every host name resolves to 127.0.0.1, keytool and the server's --check-config
 are in-process fakes (support.FakeKeytool, support.FakeCheckConfig), and any java or keytool
@@ -110,10 +114,22 @@ def install_fakes(tool, fakes, fakes_path=None):
     answers = fakes.get("dialog", {})
     record = recorder(fakes.get("record"))
 
+    def record_status(during):
+        """014: the worker's status file as it is while a dialog is shown or an adoption runs."""
+        status = _status_file_argument(sys.argv)
+        if status and os.path.exists(status):
+            with open(status, encoding="utf-8") as stream:
+                record({"call": "status", "during": during, "pid": os.getpid(),
+                        "content": stream.read()})
+
     def fake_show_dialog(stage_info, *args, **kwargs):
         stage = stage_of(stage_info)
         scripted = answers.get(stage) or {}
+        target = stage_info.get("target") if isinstance(stage_info, dict) else None
+        if target in answers:  # 014: an answer per server of a marked stage
+            scripted = answers[target]
         status = _status_file_argument(sys.argv)
+        record_status("show_dialog")
         record({"call": "show_dialog", "stage": stage, "pid": os.getpid(),
                 "sid": os.getsid(0), "info": stage_info if isinstance(stage_info, dict) else None,
                 "stdin_devnull": _same_file(0, os.devnull),
@@ -145,6 +161,7 @@ def install_fakes(tool, fakes, fakes_path=None):
     tool.make_keytool = fake_make_keytool
     def on_check_config(argv):
         record({"call": "check_config", "pid": os.getpid()})
+        record_status("check_config")
         time.sleep(float(fakes.get("check_config_delay", 0)))
 
     check_config = support.FakeCheckConfig(
