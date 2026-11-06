@@ -254,7 +254,7 @@ archives whose content follows FR-005/FR-006.
   `application/ResultLimiter.java:64-66`, from `resultLimits.maxItems`) and the `truncated` flag of
   `main/domain/model/ArchiveExportResult.java`.
 
-- [ ] T012 [US1] Tool, schemas and wiring (research R-1, R-16, FR-001): test first
+- [X] T012 [US1] Tool, schemas and wiring (research R-1, R-16, FR-001): test first
   `test/mcp/tools/ExportArchivesToolTest.java` through `McpTestClient`: `tools/list` shows
   `export_archives` with the description of contracts/mcp-tools-delta.md and the annotations
   `readOnlyHint:false`, `destructiveHint:false`, `idempotentHint:false`, `openWorldHint:true`; the
