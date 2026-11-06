@@ -25,12 +25,14 @@ import java.util.regex.Pattern;
  *   <li>{@link #RECORD} set: reads stdin to its end, starts a child if {@link #CHILD_SLEEP_MILLIS}
  *       is set, writes {@link #WRITTEN_FILE} into {@link #WRITE_INTO} if set, writes the
  *       fixture {@link #EXPORT_FIXTURE} to the {@code --exportFile} of its {@code --execCommand}
- *       as StartCLI writes the export, then writes
+ *       ({@link #EXPORT_MODULE_FIXTURE} for a module export if set) as StartCLI writes the
+ *       export, then writes
  *       {@code {"pid", "childPid", "args", "environment", "stdin" (Base64), "workingDirectory",
  *       "javaHome"}} as
  *       JSON to the file named by {@link #RECORD} (atomically, so a poller never reads half a
  *       record);
- *   <li>{@link #REPLAY} set: prints {@code fixtures/v8_1/cli/<case>.stdout} and {@code .stderr};
+ *   <li>{@link #REPLAY} set: prints {@code fixtures/v8_1/cli/<case>.stdout} and {@code .stderr}
+ *       (with CRLF line ends if {@link #CRLF} is set);
  *   <li>{@link #SLEEP_MILLIS} set: sleeps that long;
  *   <li>exits with the replayed case's {@code .exit} code, else 0.
  * </ol>
@@ -46,6 +48,10 @@ public final class ArgvRecorder {
     public static final String CHILD_SLEEP_MILLIS = "argvRecorder.childSleepMillis";
     public static final String WRITE_INTO = "argvRecorder.writeInto";
     public static final String EXPORT_FIXTURE = "argvRecorder.exportFixture";
+    /** The export fixture instead of {@link #EXPORT_FIXTURE} for a module export. */
+    public static final String EXPORT_MODULE_FIXTURE = "argvRecorder.exportModuleFixture";
+    /** Set: the replayed output has CRLF line ends, as the client prints them on Windows. */
+    public static final String CRLF = "argvRecorder.crlf";
     /** The name of the file written into {@link #WRITE_INTO}. */
     public static final String WRITTEN_FILE = "argv-recorder.txt";
 
@@ -69,16 +75,19 @@ public final class ArgvRecorder {
             }
             String exportFixture = System.getProperty(EXPORT_FIXTURE);
             if (exportFixture != null) {
-                Files.write(exportFile(args), fixture(exportFixture));
+                String moduleFixture = System.getProperty(EXPORT_MODULE_FIXTURE);
+                Files.write(exportFile(args), fixture(moduleFixture != null
+                    && String.join(" ", args).contains("--exportModule")
+                    ? moduleFixture : exportFixture));
             }
             writeRecord(Path.of(record), json(args, stdin, childPid));
         }
         int exitCode = 0;
         String replay = System.getProperty(REPLAY);
         if (replay != null) {
-            System.out.write(fixture(replay + ".stdout"));
+            System.out.write(output(replay + ".stdout"));
             System.out.flush();
-            System.err.write(fixture(replay + ".stderr"));
+            System.err.write(output(replay + ".stderr"));
             System.err.flush();
             exitCode = Integer.parseInt(
                 new String(fixture(replay + ".exit"), StandardCharsets.UTF_8).strip());
@@ -88,6 +97,16 @@ public final class ArgvRecorder {
             Thread.sleep(Long.parseLong(sleep));
         }
         System.exit(exitCode);
+    }
+
+    /** A replayed output, with CRLF line ends if {@link #CRLF} is set. */
+    private static byte[] output(String name) throws IOException {
+        byte[] recorded = fixture(name);
+        if (System.getProperty(CRLF) == null) {
+            return recorded;
+        }
+        return new String(recorded, StandardCharsets.UTF_8).replace("\r\n", "\n")
+            .replace("\n", "\r\n").getBytes(StandardCharsets.UTF_8);
     }
 
     /** The {@code --exportFile} named in the {@code --execCommand} argument. */
