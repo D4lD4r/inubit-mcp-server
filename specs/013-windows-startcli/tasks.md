@@ -263,7 +263,7 @@ Windows CI job.
   (no failed-login count); `EntryCheck` shows `invalid value (Windows: <class>)` for such a
   username on nodes with a StartCLI installation. Test first: `CliRunnerTest` (no launch, guard
   untouched, message without value), `EntryCheckTest` Windows cases, a `SecretLeakTest` case.
-- [ ] T017 [US2] Secret inspection (SC-003, FR-003), after T019: **(Windows)** `WindowsSecretInspectionTest`
+- [X] T017 [US2] Secret inspection (SC-003, FR-003), after T019: **(Windows)** `WindowsSecretInspectionTest`
   (new) runs export, import and history calls of `CliExportRunner`/`CliImportRunner` against the
   substitute and asserts that no credential occurs in `args`, `%CMDCMDLINE%` or the environment,
   the environment holds only the allowlist, and the password arrived on stdin as UTF-8 plus `\n`.
@@ -318,7 +318,7 @@ Windows CI job.
 
 ## Phase 6: User Story 4 - Timeouts and cleanup (Priority: P2)
 
-- [ ] T022 [US4] Process tree on Windows (FR-005, SC-004): **(Windows)** `WindowsProcessTreeTest`
+- [X] T022 [US4] Process tree on Windows (FR-005, SC-004): **(Windows)** `WindowsProcessTreeTest`
   (new) and `SystemProcessLauncherTest` Windows cases — the substitute hangs and starts a child;
   after `cliTimeout` the call fails with `TIMEOUT` and no process of the tree is alive one second
   after the grace period, 20 runs; the same for a closed MCP connection (orderly stop) with the
