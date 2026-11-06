@@ -275,6 +275,36 @@ class ArchiveReaderTest {
     }
 
     @Test
+    void aDirectoryEntryInTheNestedRepositoryIsSkippedByTheReaderThatAllowsIt() {
+        Map<String, byte[]> entries = moduleOnly();
+        Map<String, byte[]> repository = new LinkedHashMap<>();
+        repository.put("Root/OWNERS/xsd/", new byte[0]);
+        repository.put("Root/OWNERS/xsd/msg.xsd.dat", new byte[] {'x'});
+        repository.put("Root/OWNERS/unused/", new byte[0]);
+        entries.put("Repository.zip", zip(repository));
+
+        ExportArchive archive = ArchiveReader.allowingRepositoryDirectories()
+            .read(zip(entries));
+
+        assertThat(archive.repository()).containsOnlyKeys("Root/OWNERS/xsd/msg.xsd");
+        assertThat(archive.entries()).containsExactlyElementsOf(entries.keySet());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Root/../x/", "/abs/", "C:/x/", "Root/./x/", "Root\\..\\x/", "../"})
+    void theReaderThatAllowsRepositoryDirectoriesRefusesDirectoryNamesThatLeaveTheArchive(
+        String name) {
+        Map<String, byte[]> entries = moduleOnly();
+        Map<String, byte[]> repository = new LinkedHashMap<>();
+        repository.put(name, new byte[0]);
+        repository.put("Root/OWNERS/xsd/msg.xsd.dat", new byte[] {'x'});
+        entries.put("Repository.zip", zip(repository));
+
+        assertUnexpected(() -> ArchiveReader.allowingRepositoryDirectories().read(zip(entries)),
+            "Repository.zip", "entry name");
+    }
+
+    @Test
     void aDuplicateEntryIsRefused() {
         Map<String, byte[]> entries = moduleOnly();
         entries.put("module/module-002X.xml", entries.get("module/module-0023.xml"));

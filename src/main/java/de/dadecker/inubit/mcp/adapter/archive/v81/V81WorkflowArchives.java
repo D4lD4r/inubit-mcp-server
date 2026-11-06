@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.ExportArchive.ModuleIndexEntry
 import de.dadecker.inubit.mcp.adapter.archive.v81.ExportArchive.ModuleXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ExportArchive.WorkflowGroupXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ExportArchive.WorkflowXml;
+import de.dadecker.inubit.mcp.adapter.archive.v81.RawZip.RawEntry;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.RepositoryReference;
@@ -12,12 +13,16 @@ import de.dadecker.inubit.mcp.domain.model.WorkflowArchivePlan.ModuleEntry;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import de.dadecker.inubit.mcp.domain.port.WorkflowArchivePort;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.SequencedSet;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * The 8.1 {@link WorkflowArchivePort} (feature 015, research R-3 – R-6).
@@ -40,6 +45,19 @@ import java.util.SequencedSet;
  *       {@code Repository.zip}.
  *   <li>Workflow Connector: a node whose module has the plug-in type {@link #WORKFLOW_CONNECTOR}.
  * </ul>
+ *
+ * <p>{@link SlicedExport#archive} builds the archive of one workflow (research R-7, FR-006): the
+ * export's entries in their order and with their headers, restricted to
+ * {@code archive.properties} and the files of the selected modules (bytes copied),
+ * {@code workflow/workflow.xml} with the workflow's {@code WorkflowGroup} holding only its
+ * unchanged {@code Workflow} element, {@code module/module.xml} with only the selected index
+ * entries in their group and position order (no empty group), both built as
+ * {@link ArchiveAssembler} does and serialized by {@link XmlNormalizer}, and a
+ * {@code Repository.zip} of the {@code <path>.xml} and {@code <path>.dat} entries of the planned
+ * repository files plus the directory entries the original has that are ancestors of a kept
+ * entry, each unchanged, in original order, with the original archive comment. Secrets stay as
+ * exported. Directory entries of the nested {@code Repository.zip} are read
+ * ({@link ArchiveReader#allowingRepositoryDirectories()}), never synthesized.
  */
 public final class V81WorkflowArchives implements WorkflowArchivePort {
 
@@ -50,11 +68,16 @@ public final class V81WorkflowArchives implements WorkflowArchivePort {
     static final String WORKFLOW_CONNECTOR = "Workflow Connector";
 
     private static final String TECHNICAL = "technical";
+    private static final String PROPERTIES = "archive.properties";
+    private static final String REPOSITORY = "Repository.zip";
+    private static final String WORKFLOWS = "workflow/workflow.xml";
+    private static final String MODULE_INDEX = "module/module.xml";
+    private static final String DEFAULT_VERSION = "5.3";
 
     private final ArchiveReader reader;
 
     public V81WorkflowArchives() {
-        this(new ArchiveReader());
+        this(ArchiveReader.allowingRepositoryDirectories());
     }
 
     V81WorkflowArchives(ArchiveReader reader) {
@@ -73,6 +96,7 @@ public final class V81WorkflowArchives implements WorkflowArchivePort {
         export.moduleIndex().forEach(entry -> index.computeIfAbsent(entry.name(),
             name -> new ArrayList<>()).add(entry));
         Map<String, WorkflowArchivePlan> plans = new LinkedHashMap<>();
+        Map<String, WorkflowGroupXml> sources = new LinkedHashMap<>();
         for (WorkflowGroupXml workflows : export.workflowGroups()) {
             if (!workflows.name().equals(diagramGroup)) {
                 continue;
@@ -80,10 +104,13 @@ public final class V81WorkflowArchives implements WorkflowArchivePort {
             for (WorkflowXml workflow : workflows.workflows()) {
                 if (isTechnical(workflow.element())) {
                     plans.put(workflow.name(), plan(workflow, export, raw, index, group, owner));
+                    sources.put(workflow.name(), new WorkflowGroupXml(workflows.name(),
+                        workflows.attributes(), List.of(workflow)));
                 }
             }
         }
-        return new Sliced(export, raw, plans);
+        Optional<RawZip> repository = raw.entry(REPOSITORY).map(e -> RawZip.read(e.bytes()));
+        return new Sliced(export, raw, repository, plans, sources);
     }
 
     private static boolean isTechnical(Element workflow) {
@@ -156,17 +183,25 @@ public final class V81WorkflowArchives implements WorkflowArchivePort {
         }
     }
 
-    /** One export, read once, with the plans of its workflows. */
+    /**
+     * One export, read once, with the plans of its workflows and, per workflow, its
+     * {@code WorkflowGroup} holding only that workflow.
+     */
     private static final class Sliced implements SlicedExport {
 
         private final ExportArchive export;
         private final RawZip raw;
+        private final Optional<RawZip> repository;
         private final Map<String, WorkflowArchivePlan> plans;
+        private final Map<String, WorkflowGroupXml> sources;
 
-        Sliced(ExportArchive export, RawZip raw, Map<String, WorkflowArchivePlan> plans) {
+        Sliced(ExportArchive export, RawZip raw, Optional<RawZip> repository,
+            Map<String, WorkflowArchivePlan> plans, Map<String, WorkflowGroupXml> sources) {
             this.export = export;
             this.raw = raw;
+            this.repository = repository;
             this.plans = plans;
+            this.sources = sources;
         }
 
         /** Names the workflows only; never content. */
@@ -192,8 +227,64 @@ public final class V81WorkflowArchives implements WorkflowArchivePort {
 
         @Override
         public byte[] archive(String workflow) {
-            plan(workflow);
-            throw new UnsupportedOperationException("Building the archive comes with T008");
+            WorkflowArchivePlan plan = plan(workflow);
+            Set<String> modules = plan.modules().stream().map(ModuleEntry::name)
+                .collect(Collectors.toSet());
+            Set<String> moduleFiles = export.moduleFiles().values().stream()
+                .filter(module -> modules.contains(module.name())).map(ModuleXml::entryName)
+                .collect(Collectors.toSet());
+            List<RawEntry> entries = new ArrayList<>();
+            for (RawEntry entry : raw.entries()) {
+                String name = entry.header().getName();
+                switch (name) {
+                    case PROPERTIES -> entries.add(entry);
+                    case REPOSITORY -> entries.add(entry.withBytes(repository(plan)));
+                    case WORKFLOWS -> entries.add(entry.withBytes(workflowDocument(workflow)));
+                    case MODULE_INDEX -> entries.add(entry.withBytes(indexDocument(modules)));
+                    default -> {
+                        if (moduleFiles.contains(name)) {
+                            entries.add(entry);
+                        }
+                    }
+                }
+            }
+            return RawZip.write(entries, raw.comment());
+        }
+
+        private byte[] workflowDocument(String workflow) {
+            WorkflowGroupXml group = sources.get(workflow);
+            String version = group.workflows().get(0).context().documentVersion();
+            return XmlNormalizer.normalize(ArchiveAssembler.workflowDocument(version,
+                List.of(group)));
+        }
+
+        private byte[] indexDocument(Set<String> modules) {
+            String version = export.moduleIndex().stream()
+                .map(ModuleIndexEntry::documentVersion).findFirst().orElse(DEFAULT_VERSION);
+            return XmlNormalizer.normalize(ArchiveAssembler.indexDocument(version,
+                export.moduleIndex().stream().filter(entry -> modules.contains(entry.name()))
+                    .toList()));
+        }
+
+        /**
+         * The nested {@code Repository.zip} with the metadata and content entries of the planned
+         * files and the original's directory entries that are ancestors of a kept entry.
+         */
+        private byte[] repository(WorkflowArchivePlan plan) {
+            RawZip original = repository.orElseThrow();
+            Set<String> wanted = new HashSet<>();
+            plan.repositoryPaths().forEach(path -> {
+                wanted.add(path.substring(1) + ".xml");
+                wanted.add(path.substring(1) + ".dat");
+            });
+            List<String> files = original.entries().stream().map(e -> e.header().getName())
+                .filter(wanted::contains).toList();
+            List<RawEntry> kept = original.entries().stream().filter(entry -> {
+                String name = entry.header().getName();
+                return name.endsWith("/") ? files.stream().anyMatch(f -> f.startsWith(name))
+                    : wanted.contains(name);
+            }).toList();
+            return RawZip.write(kept, original.comment());
         }
     }
 }

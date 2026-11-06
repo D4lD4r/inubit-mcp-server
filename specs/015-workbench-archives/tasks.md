@@ -167,7 +167,7 @@ archives whose content follows FR-005/FR-006.
   and `RawZip`, computes every plan eagerly; `archive` may throw `UnsupportedOperationException`
   until T008).
 
-- [ ] T008 [US1] Building one archive (research R-7, FR-004, FR-006): test first, extending
+- [X] T008 [US1] Building one archive (research R-7, FR-004, FR-006): test first, extending
   `V81WorkflowArchivesTest` (archive part) and `WorkflowArchiveFixtures` (a variant of
   `fix/grp-b.zip` whose inner `Repository.zip` has two directory entries: `Root/OWNERS/xsd/`, an
   ancestor of the kept `msg.xsd`/`core.xsd` files of `Workflow-0006`, and one that is no ancestor of

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.archive.v81.RawZip.RawEntry;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.UnaryOperator;
@@ -22,7 +23,13 @@ public final class WorkflowArchiveFixtures {
     /** The user whose personal diagram group {@code grp-a.zip} is. */
     public static final String USER = "jdoe";
 
+    /** The directory entry of {@link #repositoryDirectories()} that is an ancestor of files. */
+    public static final String XSD_DIRECTORY = "Root/OWNERS/xsd/";
+    /** The directory entry of {@link #repositoryDirectories()} that is no ancestor of a file. */
+    public static final String UNUSED_DIRECTORY = "Root/OWNERS/unused/";
+
     private static final String WORKFLOWS = "workflow/workflow.xml";
+    private static final String REPOSITORY = "Repository.zip";
     private static final String INDEX = "module/module.xml";
 
     private WorkflowArchiveFixtures() {
@@ -133,6 +140,53 @@ public final class WorkflowArchiveFixtures {
                 changed.substring(absent, changed.indexOf('>', absent)), type, "")
                 + changed.substring(changed.indexOf('>', absent));
         });
+    }
+
+    /**
+     * {@code grp-b.zip} whose nested {@code Repository.zip} has two directory entries:
+     * {@link #UNUSED_DIRECTORY} first (no ancestor of a file) and {@link #XSD_DIRECTORY} right
+     * before {@code msg.xsd.xml} (ancestor of {@code msg.xsd} and {@code core.xsd} of
+     * {@code Workflow-0006}), each with a time of its own; everything else unchanged.
+     */
+    public static byte[] repositoryDirectories() {
+        RawZip export = RawZip.read(grpB());
+        List<RawEntry> entries = new ArrayList<>();
+        for (RawEntry entry : export.entries()) {
+            if (!entry.header().getName().equals(REPOSITORY)) {
+                entries.add(entry);
+                continue;
+            }
+            RawZip repository = RawZip.read(entry.bytes());
+            List<RawEntry> files = new ArrayList<>();
+            files.add(directory(UNUSED_DIRECTORY, LocalDateTime.of(2026, 1, 2, 3, 4, 6)));
+            for (RawEntry file : repository.entries()) {
+                if (file.header().getName().equals(XSD_DIRECTORY + "msg.xsd.xml")) {
+                    files.add(directory(XSD_DIRECTORY, LocalDateTime.of(2025, 11, 27, 8, 58, 0)));
+                }
+                files.add(file);
+            }
+            assertThat(files).hasSize(repository.entries().size() + 2);
+            entries.add(withBytes(entry, RawZip.write(files, repository.comment())));
+        }
+        return RawZip.write(entries, export.comment());
+    }
+
+    /** {@code grp-b.zip} without the nested {@code Repository.zip}; everything else unchanged. */
+    public static byte[] withoutRepository() {
+        RawZip raw = RawZip.read(grpB());
+        List<RawEntry> entries = new ArrayList<>(raw.entries());
+        assertThat(entries.removeIf(e -> e.header().getName().equals(REPOSITORY))).isTrue();
+        return RawZip.write(entries, raw.comment());
+    }
+
+    private static RawEntry directory(String name, LocalDateTime time) {
+        ZipEntry header = new ZipEntry(name);
+        header.setTimeLocal(time);
+        header.setMethod(ZipEntry.STORED);
+        header.setSize(0);
+        header.setCompressedSize(0);
+        header.setCrc(0);
+        return new RawEntry(header, new byte[0]);
     }
 
     private static int workflowStart(String xml, String workflow) {

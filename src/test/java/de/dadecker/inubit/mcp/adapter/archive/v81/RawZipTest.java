@@ -101,6 +101,32 @@ class RawZipTest {
         assertThat(names(copy)).containsExactlyElementsOf(names(original));
     }
 
+    @Test
+    void anEntryWithOtherBytesKeepsItsHeaderAndIsWrittenWithThem() {
+        RawEntry deflated = RawZip.read(ArtifactFixtures.bytes("grp-b.zip")).entries().get(0);
+        ZipEntry header = new ZipEntry("Root/OWNERS/xsd/");
+        header.setMethod(ZipEntry.STORED);
+        header.setSize(0);
+        header.setCompressedSize(0);
+        header.setCrc(0);
+        header.setTimeLocal(EXPORTED);
+        RawEntry stored = new RawEntry(header, new byte[0]);
+        byte[] replaced = "replaced".getBytes(StandardCharsets.UTF_8);
+
+        List<RawEntry> changed = List.of(deflated.withBytes(replaced), stored.withBytes(replaced));
+        RawZip copy = RawZip.read(RawZip.write(changed, Optional.empty()));
+
+        for (int i = 0; i < changed.size(); i++) {
+            ZipEntry before = List.of(deflated, stored).get(i).header();
+            ZipEntry after = copy.entries().get(i).header();
+            assertThat(after.getName()).isEqualTo(before.getName());
+            assertThat(after.getTimeLocal()).isEqualTo(before.getTimeLocal());
+            assertThat(after.getMethod()).isEqualTo(before.getMethod());
+            assertThat(copy.entries().get(i).bytes()).isEqualTo(replaced);
+        }
+        assertThat(deflated.bytes()).isNotEqualTo(replaced);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"../evil.xml", "module/../../evil.xml", "/etc/evil.xml",
         "\\evil.xml", "C:/evil.xml", "c:evil.xml", "module\\..\\evil.xml"})

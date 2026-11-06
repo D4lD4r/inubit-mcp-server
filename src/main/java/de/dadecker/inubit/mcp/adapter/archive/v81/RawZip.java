@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -65,6 +66,21 @@ final class RawZip {
         @Override
         public byte[] bytes() {
             return bytes.clone();
+        }
+
+        /**
+         * This entry with other content: the header (name, time, extra field, method) unchanged,
+         * size and CRC of {@code newBytes}.
+         */
+        RawEntry withBytes(byte[] newBytes) {
+            ZipEntry changed = new ZipEntry(header);
+            CRC32 crc = new CRC32();
+            crc.update(newBytes);
+            changed.setSize(newBytes.length);
+            changed.setCrc(crc.getValue());
+            changed.setCompressedSize(changed.getMethod() == ZipEntry.STORED ? newBytes.length
+                : -1);
+            return new RawEntry(changed, newBytes);
         }
 
         /** The name and size; never the content. */

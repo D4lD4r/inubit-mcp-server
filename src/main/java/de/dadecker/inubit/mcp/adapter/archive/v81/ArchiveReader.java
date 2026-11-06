@@ -47,6 +47,8 @@ import java.util.zip.ZipInputStream;
  *   <li>Entry names of the export and of the nested {@code Repository.zip} must stay inside the
  *       archive: no absolute names, drive letters, backslashes, empty, {@code .} or {@code ..}
  *       segments.
+ *   <li>The nested {@code Repository.zip} has no directory entries; only the reader of
+ *       {@link #allowingRepositoryDirectories()} (feature 015) skips them.
  *   <li>Bounded: at most {@value #MAX_BYTES} bytes per entry and in total, the uncompressed
  *       entries of {@code Repository.zip} included.
  *   <li>XML is parsed without document type declarations ({@link XmlTree}).
@@ -66,6 +68,7 @@ public final class ArchiveReader {
     private static final String MODULE_INDEX = "module/module.xml";
 
     private final long maxBytes;
+    private final boolean repositoryDirectories;
 
     public ArchiveReader() {
         this(MAX_BYTES);
@@ -73,7 +76,21 @@ public final class ArchiveReader {
 
     /** @param maxBytes the bound per entry and in total (tests use small bounds) */
     ArchiveReader(long maxBytes) {
+        this(maxBytes, false);
+    }
+
+    private ArchiveReader(long maxBytes, boolean repositoryDirectories) {
         this.maxBytes = maxBytes;
+        this.repositoryDirectories = repositoryDirectories;
+    }
+
+    /**
+     * A reader that skips the directory entries of the nested {@code Repository.zip} instead of
+     * refusing them (feature 015 research R-7: a Workbench archive keeps the directory entries an
+     * export has); everything else as {@link #ArchiveReader()}.
+     */
+    static ArchiveReader allowingRepositoryDirectories() {
+        return new ArchiveReader(MAX_BYTES, true);
     }
 
     /**
@@ -310,9 +327,12 @@ public final class ArchiveReader {
     }
 
     private Map<String, RepositoryFile> repository(byte[] zip, Budget budget) {
-        Map<String, byte[]> entries = unzip(zip, REPOSITORY, budget, false);
+        Map<String, byte[]> entries = unzip(zip, REPOSITORY, budget, repositoryDirectories);
         Map<String, RepositoryFile> files = new LinkedHashMap<>();
         for (String name : entries.keySet()) {
+            if (name.endsWith("/")) {
+                continue;
+            }
             if (name.endsWith(".dat")) {
                 String path = name.substring(0, name.length() - ".dat".length());
                 byte[] metadata = entries.get(path + ".xml");
