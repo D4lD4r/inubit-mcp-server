@@ -137,7 +137,7 @@ class SecretLeakTest {
             runner, new CliOutputClassifier(new SecretScrubber())), () -> { });
         WorkspaceService service = new WorkspaceService(workspace, new GitCli(workspace, "acme",
             new SystemProcessLauncher(), Map.of("PATH",
-                System.getenv().getOrDefault("PATH", "/usr/bin"))),
+                System.getenv().getOrDefault("PATH", "/usr/bin")), PrivateFiles.forHost()),
             new ArchiveCodec(), node -> artifacts, node -> {
                 throw new AssertionError("every module names its plugin type");
             }, FakeVersionDetection.pinned81());

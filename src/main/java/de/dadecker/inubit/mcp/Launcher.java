@@ -275,7 +275,7 @@ final class Launcher {
     private ConfigValidator validator(List<LoadedConfig> otherProfiles, StartCliHost host) {
         return new ConfigValidator(context.exists(), context.environment(), context.windows(),
             Path.of(System.getProperty("java.io.tmpdir")), source -> otherProfiles,
-            WorkspaceDirectory::prepare, host);
+            workspace -> WorkspaceDirectory.prepare(workspace, context.privateFiles()), host);
     }
 
     /**

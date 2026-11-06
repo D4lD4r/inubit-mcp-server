@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.domain.model.PathChange;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -19,7 +20,6 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -94,12 +94,17 @@ public final class GitCli implements VersionHistoryPort {
     private final String executable;
     private final Duration timeout;
     private final Map<String, String> environment;
+    private final PrivateFileSystem files;
     private Path emptyHooks;
 
-    /** Runs the {@code git} found on {@code PATH} with the 30 s timeout. */
+    /**
+     * Runs the {@code git} found on {@code PATH} with the 30 s timeout.
+     *
+     * @param files creates the private empty hooks directory (feature 013, FR-007)
+     */
     public GitCli(Path root, String profile, ProcessLauncher launcher,
-        Map<String, String> parentEnvironment) {
-        this(root, profile, launcher, parentEnvironment, "git", TIMEOUT);
+        Map<String, String> parentEnvironment, PrivateFileSystem files) {
+        this(root, profile, launcher, parentEnvironment, "git", TIMEOUT, files);
     }
 
     /** The bound of one git call. */
@@ -108,7 +113,8 @@ public final class GitCli implements VersionHistoryPort {
     }
 
     GitCli(Path root, String profile, ProcessLauncher launcher,
-        Map<String, String> parentEnvironment, String executable, Duration timeout) {
+        Map<String, String> parentEnvironment, String executable, Duration timeout,
+        PrivateFileSystem files) {
         this.root = Objects.requireNonNull(root, "root").toAbsolutePath().normalize();
         if (!ProfileInfo.isValidName(profile)) {
             throw new IllegalArgumentException("Invalid profile name for the git identity");
@@ -117,6 +123,7 @@ public final class GitCli implements VersionHistoryPort {
         this.launcher = Objects.requireNonNull(launcher, "launcher");
         this.executable = Objects.requireNonNull(executable, "executable");
         this.timeout = Objects.requireNonNull(timeout, "timeout");
+        this.files = Objects.requireNonNull(files, "files");
         Map<String, String> env = new LinkedHashMap<>();
         Optional.ofNullable(parentEnvironment.get("PATH")).ifPresent(path -> env.put("PATH", path));
         env.put("GIT_TERMINAL_PROMPT", "0");
@@ -511,15 +518,15 @@ public final class GitCli implements VersionHistoryPort {
     }
 
     /**
-     * An owner-only, empty directory below {@code java.io.tmpdir} for {@code core.hooksPath},
-     * created on first use and again if something was put into it.
+     * A private, empty directory below {@code java.io.tmpdir} for {@code core.hooksPath}, created
+     * on first use and again if something was put into it, through the {@link PrivateFileSystem}
+     * (feature 013, FR-007: {@code rwx------} on POSIX, a protected access list on Windows).
      */
     private Path emptyHooksDirectory() {
         try {
             if (emptyHooks == null || !Files.isDirectory(emptyHooks) || !isEmpty(emptyHooks)) {
-                emptyHooks = Files.createTempDirectory("inubit-mcp-git-hooks-",
-                    PosixFilePermissions.asFileAttribute(
-                        PosixFilePermissions.fromString("rwx------")));
+                emptyHooks = files.createTempDirectory(
+                    Path.of(System.getProperty("java.io.tmpdir")), "inubit-mcp-git-hooks-");
                 emptyHooks.toFile().deleteOnExit();
             }
             return emptyHooks.toAbsolutePath();

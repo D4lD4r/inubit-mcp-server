@@ -1119,6 +1119,7 @@ class MainTest {
     void anAuditDirectoryThatCannotBeMadePrivateStopsTheServerFromStarting() throws Exception {
         credentials();
         Path file = validConfig();
+        Files.createDirectories(home.resolve(".inubit-mcp/acme/workspace")); // T026: not created
         privateFiles = PrivateFiles.failing();
 
         int exit = run("--config", file.toString());
@@ -1230,6 +1231,46 @@ class MainTest {
         stdout.reset();
         assertThat(run("--profile", "acme", "--check-config")).as(out()).isZero();
         assertThat(out()).doesNotContain("grants access to");
+    }
+
+    // --- feature 013 T026: the workspace is private (FR-007) ---------------------------------
+
+    @Test
+    void aWorkspaceThatCannotBeMadePrivateIsAConfigurationError() throws Exception {
+        credentials();
+        profileConfig("acme", "acme");
+        privateFiles = PrivateFiles.failing();
+        Path workspace = home.resolve(".inubit-mcp/acme/workspace");
+
+        int exit = run("--profile", "acme", "--check-config");
+
+        assertThat(exit).as(out()).isNotZero();
+        assertThat(out() + err()).contains("The workspace " + workspace + " cannot be created");
+        assertThat(workspace).doesNotExist();
+    }
+
+    @Test
+    void anExistingWorkspaceIsNotChecked() throws Exception {
+        credentials();
+        profileConfig("acme", "acme");
+        Path workspace = Files.createDirectories(home.resolve(".inubit-mcp/acme/workspace"));
+        privateFiles = PrivateFiles.reporting(List.of("BUILTIN\\Users"));
+
+        assertThat(run("--profile", "acme", "--check-config")).as(out()).isZero();
+
+        assertThat(out()).doesNotContain(workspace + " grants access");
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void onWindowsTheNewDefaultWorkspaceIsPrivate() throws Exception {
+        credentials();
+        profileConfig("acme", "acme");
+
+        assertThat(run("--profile", "acme", "--check-config")).as(out()).isZero();
+
+        WindowsAcl.assertPrivate(home.resolve(".inubit-mcp/acme/workspace"),
+            WindowsAcl.DIRECTORY_INHERITANCE);
     }
 
     // --- feature 013 T012: the containment of StartCLI's processes (FR-005, research R-7) ------

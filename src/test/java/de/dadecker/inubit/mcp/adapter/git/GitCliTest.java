@@ -13,7 +13,10 @@ import de.dadecker.inubit.mcp.domain.model.HistoryEntry;
 import de.dadecker.inubit.mcp.domain.model.PathChange;
 import de.dadecker.inubit.mcp.domain.model.PathChange.Kind;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.domain.port.VersionHistoryPort;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.WindowsAcl;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -35,6 +38,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -50,6 +55,7 @@ class GitCliTest {
         "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false", "-c", "core.quotepath=false",
         "-c", "gc.autoDetach=false", "-c", "maintenance.autoDetach=false",
         "-c", "user.name=INUBIT MCP (acme)", "-c", "user.email=inubit-mcp@localhost");
+    private static final PrivateFileSystem FILES = PrivateFiles.forHost();
 
     @TempDir
     Path root;
@@ -67,7 +73,7 @@ class GitCliTest {
         git = new GitCli(root, "acme", spec -> {
             launches.add(spec);
             return system.launch(spec);
-        }, parentEnvironment);
+        }, parentEnvironment, FILES);
     }
 
     private void write(String path, String content) throws IOException {
@@ -228,6 +234,10 @@ class GitCliTest {
             assertThat(spec.command().get(2)).startsWith("core.hooksPath=");
             Path hooks = Path.of(spec.command().get(2).substring("core.hooksPath=".length()));
             assertThat(hooks).isAbsolute().isEmptyDirectory();
+            if (POSIX) {
+                assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(hooks)))
+                    .isEqualTo("rwx------");
+            }
             assertThat(spec.command().subList(3, 3 + FIXED_OPTIONS.size()))
                 .isEqualTo(FIXED_OPTIONS);
             assertThat(spec.workingDirectory()).isEqualTo(root);
@@ -313,7 +323,7 @@ class GitCliTest {
     void aGitThatCannotBeStartedForAnotherReasonIsNotReportedAsMissing() {
         GitCli broken = new GitCli(root, "acme", FakeProcessLauncher.of("", "", 0)
             .failingToLaunch(new IOException("Cannot run program \"git\": error=13, Permission"
-                + " denied")), parentEnvironment, "git", Duration.ofSeconds(30));
+                + " denied")), parentEnvironment, "git", Duration.ofSeconds(30), FILES);
 
         assertThatThrownBy(broken::status).isInstanceOfSatisfying(ToolErrorException.class, e -> {
             assertThat(e.error().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
@@ -325,7 +335,7 @@ class GitCliTest {
     @Test
     void aMissingGitIsAPreconditionFailure() {
         GitCli missing = new GitCli(root, "acme", new SystemProcessLauncher(), parentEnvironment,
-            root.resolve("no-such-git").toString(), Duration.ofSeconds(30));
+            root.resolve("no-such-git").toString(), Duration.ofSeconds(30), FILES);
 
         assertThatThrownBy(missing::init).isInstanceOfSatisfying(ToolErrorException.class, e -> {
             assertThat(e.error().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
@@ -337,7 +347,7 @@ class GitCliTest {
     void aGitThatDoesNotFinishIsStoppedAndReportedAsTimeout() {
         FakeProcessLauncher hanging = FakeProcessLauncher.of("", "", 0).hanging();
         GitCli slow = new GitCli(root, "acme", hanging, parentEnvironment, "git",
-            Duration.ofMillis(200));
+            Duration.ofMillis(200), FILES);
 
         assertThatThrownBy(slow::status).isInstanceOfSatisfying(ToolErrorException.class,
             e -> assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT));
@@ -348,7 +358,7 @@ class GitCliTest {
     void aFailingGitCommandIsAPreconditionFailureNamingTheCommand() {
         GitCli failing = new GitCli(root, "acme", FakeProcessLauncher.of("",
             "fatal: not a git repository", 128), parentEnvironment, "git",
-            Duration.ofSeconds(30));
+            Duration.ofSeconds(30), FILES);
 
         assertThatThrownBy(failing::status).isInstanceOfSatisfying(ToolErrorException.class,
             e -> {
@@ -356,6 +366,34 @@ class GitCliTest {
                 assertThat(e.error().message()).contains("git status", root.toString());
                 assertThat(e.error().excerpt()).contains("fatal: not a git repository");
             });
+    }
+
+    // --- feature 013 T026 (FR-007): the hooks directory through the PrivateFileSystem port ---
+
+    @Test
+    void aHooksDirectoryThatCannotBeMadePrivateStopsEveryCallBeforeGitRuns() {
+        GitCli refused = new GitCli(root, "acme", spec -> {
+            launches.add(spec);
+            throw new AssertionError("git must not run");
+        }, parentEnvironment, PrivateFiles.failing());
+
+        assertThatThrownBy(refused::status).isInstanceOfSatisfying(ToolErrorException.class,
+            e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
+                assertThat(e.error().message())
+                    .contains("No private empty directory for git hooks");
+            });
+        assertThat(launches).isEmpty();
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void onWindowsTheHooksDirectoryIsPrivate() throws Exception {
+        git.init();
+
+        Path hooks = Path.of(launches.getFirst().command().get(2)
+            .substring("core.hooksPath=".length()));
+        WindowsAcl.assertPrivate(hooks, WindowsAcl.DIRECTORY_INHERITANCE);
     }
 
     // --- feature 004 (T007, research D-3, D-25): server-state trailer and read methods ------

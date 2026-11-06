@@ -1,28 +1,22 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.adapter.os.OsPrivateFileSystem;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import java.io.IOException;
-import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * Prepares the workspace directory at startup (feature 003, FR-002,
- * contracts/configuration-delta.md): a missing workspace is created for the current user only
- * ({@code rwx------}), and so is every parent directory created on the way; an existing
- * directory is used as it is (its permissions are not changed). It must be a readable and
- * writable directory. Messages name the path.
+ * contracts/configuration-delta.md): a missing workspace is created for the current user only,
+ * and so is every parent directory created on the way, through the {@link PrivateFileSystem}
+ * (feature 013, FR-007: {@code rwx------} on POSIX, on Windows a protected access list for the
+ * current user and {@code SYSTEM}); without restricted access only on a file system that supports
+ * neither. An existing directory is used as it is (its access is neither changed nor checked). It
+ * must be a readable and writable directory. Messages name the path.
  */
 public final class WorkspaceDirectory {
-
-    private static final Set<PosixFilePermission> OWNER_ONLY =
-        PosixFilePermissions.fromString("rwx------");
 
     /** The outcome of {@link #prepare}. */
     public sealed interface Result permits Usable, Unusable {
@@ -51,14 +45,21 @@ public final class WorkspaceDirectory {
     }
 
     /**
-     * Creates {@code workspace} (an absolute path) if missing and checks that it is usable.
+     * {@link #prepare(Path, PrivateFileSystem)} with the private files of the host.
      */
     public static Result prepare(Path workspace) {
+        return prepare(workspace, OsPrivateFileSystem.forHost());
+    }
+
+    /**
+     * Creates {@code workspace} (an absolute path) if missing and checks that it is usable.
+     */
+    public static Result prepare(Path workspace, PrivateFileSystem files) {
         Path absolute = workspace.toAbsolutePath().normalize();
         boolean created = false;
         if (!Files.exists(absolute)) {
             try {
-                created = create(absolute);
+                created = create(absolute, files);
             } catch (IOException | RuntimeException e) {
                 return new Unusable("The workspace " + absolute + " cannot be created ("
                     + e.getClass().getSimpleName() + ")");
@@ -75,26 +76,12 @@ public final class WorkspaceDirectory {
     }
 
     /** True if this call created the directory (not a concurrent process). */
-    private static boolean create(Path directory) throws IOException {
-        if (!FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
-            Files.createDirectories(directory);
+    private static boolean create(Path directory, PrivateFileSystem files) throws IOException {
+        try {
+            return files.createDirectories(directory);
+        } catch (UnsupportedOperationException e) {
+            Files.createDirectories(directory); // neither POSIX permissions nor access lists
             return true;
         }
-        List<Path> missing = new ArrayList<>();
-        for (Path path = directory; path != null && !Files.exists(path);
-            path = path.getParent()) {
-            missing.addFirst(path);
-        }
-        boolean created = false;
-        for (Path path : missing) {
-            try {
-                Files.createDirectory(path, PosixFilePermissions.asFileAttribute(OWNER_ONLY));
-            } catch (FileAlreadyExistsException e) {
-                continue; // created concurrently: not ours, not modified
-            }
-            Files.setPosixFilePermissions(path, OWNER_ONLY); // independent of the umask
-            created = path.equals(directory) || created;
-        }
-        return created;
     }
 }

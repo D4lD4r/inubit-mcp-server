@@ -338,7 +338,8 @@ final class Wiring implements AutoCloseable {
         // feature 003: the workspace history uses the system git (not the StartCLI launcher)
         Path workspace = config.workspace();
         this.exportArtifacts = new ExportArtifactsTool(new WorkspaceService(workspace,
-            new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
+            new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment,
+                privateFiles),
             new ArchiveCodec(), gateways::artifacts, gateways::inventory, versionGate), targets,
             id -> byId.get(id).inventory().owner(), limiter);
         // feature 015: the archives go to a user-chosen local folder outside the server's
@@ -440,7 +441,8 @@ final class Wiring implements AutoCloseable {
                 new ReleaseDiscovery(gateways::artifacts, codec, releases, workspace), planner,
                 ledger, challenges, config.defaults().effectiveDeployConfirmationTtl(), audit,
                 clock.clock(), UUID::randomUUID, nodeDeployer, new GitCli(workspace, profile.name(),
-                    new SystemProcessLauncher(), environment), importArchives, privateFiles));
+                    new SystemProcessLauncher(), environment, privateFiles), importArchives,
+                privateFiles));
             this.deployRelease = Optional.of(new DeployReleaseTool(deploy,
                 config.resultLimits().maxItems()));
         }
@@ -448,7 +450,8 @@ final class Wiring implements AutoCloseable {
         ImportService imports = new ImportService(
             new ImportService.Dependencies(workspace, profile.name(), developmentGuard,
                 development::get,
-                new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment),
+                new GitCli(workspace, profile.name(), new SystemProcessLauncher(), environment,
+                    privateFiles),
                 new WorkspaceInspector(), checks, new ArchiveCodec(), new V81ImportArchives(),
                 new V81ReleaseArchives(), gateways::artifacts, gateways::imports, gateways::tags,
                 gateways::inventory,

@@ -4,7 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.WindowsAcl;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -20,6 +23,8 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -1529,6 +1534,8 @@ class ConfigValidatorTest {
     @Nested
     class WorkspaceOnDisk {
 
+        private static final PrivateFileSystem FILES = PrivateFiles.forHost();
+
         @TempDir
         Path home;
 
@@ -1536,7 +1543,7 @@ class ConfigValidatorTest {
         void aMissingWorkspaceIsCreatedOwnerOnlyWithItsMissingParents() throws IOException {
             Path workspace = home.resolve("a/b/workspace");
 
-            WorkspaceDirectory.Result result = WorkspaceDirectory.prepare(workspace);
+            WorkspaceDirectory.Result result = WorkspaceDirectory.prepare(workspace, FILES);
 
             assertThat(result).isEqualTo(new WorkspaceDirectory.Usable(true));
             if (POSIX) {
@@ -1546,7 +1553,7 @@ class ConfigValidatorTest {
                         .as(created.toString()).isEqualTo("rwx------");
                 }
             }
-            assertThat(WorkspaceDirectory.prepare(workspace))
+            assertThat(WorkspaceDirectory.prepare(workspace, FILES))
                 .isEqualTo(new WorkspaceDirectory.Usable(false));
         }
 
@@ -1556,7 +1563,7 @@ class ConfigValidatorTest {
             Path workspace = Files.createDirectory(home.resolve("ws"),
                 PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwxr-x---")));
 
-            assertThat(WorkspaceDirectory.prepare(workspace))
+            assertThat(WorkspaceDirectory.prepare(workspace, FILES))
                 .isEqualTo(new WorkspaceDirectory.Usable(false));
             assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(workspace)))
                 .isEqualTo("rwxr-x---");
@@ -1568,7 +1575,7 @@ class ConfigValidatorTest {
             Path workspace = Files.createDirectory(home.resolve("ro"),
                 PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("r-x------")));
 
-            assertThat(WorkspaceDirectory.prepare(workspace))
+            assertThat(WorkspaceDirectory.prepare(workspace, FILES))
                 .isInstanceOfSatisfying(WorkspaceDirectory.Unusable.class, u -> assertThat(
                     u.problem()).contains(workspace.toString(), "must be readable and writable"));
         }
@@ -1577,12 +1584,45 @@ class ConfigValidatorTest {
         void aFileOrAnUncreatableWorkspaceIsUnusable() throws IOException {
             Path file = Files.writeString(home.resolve("file"), "x");
 
-            assertThat(WorkspaceDirectory.prepare(file))
+            assertThat(WorkspaceDirectory.prepare(file, FILES))
                 .isInstanceOfSatisfying(WorkspaceDirectory.Unusable.class,
                     u -> assertThat(u.problem()).contains(file.toString(), "not a directory"));
-            assertThat(WorkspaceDirectory.prepare(file.resolve("below")))
+            assertThat(WorkspaceDirectory.prepare(file.resolve("below"), FILES))
                 .isInstanceOfSatisfying(WorkspaceDirectory.Unusable.class, u -> assertThat(
                     u.problem()).contains(file.resolve("below").toString(), "cannot be created"));
+        }
+
+        // --- feature 013 T026 (FR-007): created through the PrivateFileSystem port ---------
+
+        @Test
+        void aWorkspaceThatCannotBeMadePrivateIsUnusableAndNotCreated() {
+            Path workspace = home.resolve("a/workspace");
+
+            assertThat(WorkspaceDirectory.prepare(workspace, PrivateFiles.failing()))
+                .isInstanceOfSatisfying(WorkspaceDirectory.Unusable.class, u -> assertThat(
+                    u.problem()).contains(workspace.toString(), "cannot be created"));
+            assertThat(home.resolve("a")).doesNotExist();
+        }
+
+        @Test
+        void anExistingWorkspaceIsNeitherCreatedNorChecked() throws IOException {
+            Path workspace = Files.createDirectory(home.resolve("ws"));
+
+            assertThat(WorkspaceDirectory.prepare(workspace, PrivateFiles.failing()))
+                .isEqualTo(new WorkspaceDirectory.Usable(false));
+        }
+
+        @Test
+        @EnabledOnOs(OS.WINDOWS)
+        void onWindowsANewWorkspaceAndItsNewParentsArePrivate() throws Exception {
+            Path workspace = home.resolve("a/b/workspace");
+
+            assertThat(WorkspaceDirectory.prepare(workspace, FILES))
+                .isEqualTo(new WorkspaceDirectory.Usable(true));
+
+            for (Path created : List.of(home.resolve("a"), home.resolve("a/b"), workspace)) {
+                WindowsAcl.assertPrivate(created, WindowsAcl.DIRECTORY_INHERITANCE);
+            }
         }
 
         @Test
