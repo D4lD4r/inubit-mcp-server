@@ -247,11 +247,11 @@ class MainTest {
             INUBIT_ACME_<GROUP>[_<NODE>]_<KIND> (macOS Keychain)
             Audit directory: %s
             Workspace: %s (ok)
-            Group dev:
+            Group dev: archives: allowed
               Node dev/node1: read-only, cli: unavailable, inubit: V8_1, \
             secrets: credentialStore (macOS Keychain), \
             username ← INUBIT_ACME_DEV_USERNAME ok, password ← INUBIT_ACME_DEV_PASSWORD ok
-            Group qa:
+            Group qa: archives: allowed
               Node qa/node2: read-only, cli: unavailable, inubit: AUTO, \
             secrets: credentialStore (macOS Keychain), \
             username ← INUBIT_ACME_QA_NODE2_USERNAME ok, password ← INUBIT_ACME_QA_PASSWORD ok

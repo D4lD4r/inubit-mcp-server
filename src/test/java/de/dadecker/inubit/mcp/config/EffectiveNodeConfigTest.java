@@ -18,6 +18,9 @@ import org.junit.jupiter.api.Test;
  *
  * <p>Feature 009 (T005, research D-2): the effective {@code versionLine}, node → group →
  * {@code AUTO}, and its configured text in the {@code list_nodes} summary.
+ *
+ * <p>Feature 015 (T016, research R-15): {@code archivesProductionOptIn()} is the group's
+ * {@code archives.productionOptIn}, built-in {@code false}.
  */
 class EffectiveNodeConfigTest {
 
@@ -48,7 +51,7 @@ class EffectiveNodeConfigTest {
     private static GroupConfig group(boolean production, DevelopmentConfig development,
         NodeConfig node) {
         return new GroupConfig("dev", production, List.of(node), null, null, null, null, null,
-            null, null, null, null, null, development, null, null, null, null);
+            null, null, null, null, null, development, null, null, null, null, null);
     }
 
     /** Resolves without any {@code credentials} section (prefix {@code INUBIT}). */
@@ -125,7 +128,7 @@ class EffectiveNodeConfigTest {
             null, null, null, null);
         GroupConfig group = new GroupConfig("dev", false, List.of(node), null, null, null, null,
             Optional.ofNullable(groupValue), null, null, null, null, null, null, null, null, null,
-            null);
+            null, null);
         return resolve(Defaults.EMPTY, group, node).versionLine();
     }
 
@@ -159,5 +162,46 @@ class EffectiveNodeConfigTest {
                 .isEqualTo(setting.text());
         }
         assertThat(PINNED.text()).isEqualTo("9.0.7-HF1");
+    }
+
+    private static boolean archivesProductionOptIn(boolean production, ArchivesConfig archives) {
+        NodeConfig node = node(null);
+        GroupConfig group = new GroupConfig("prod", production, List.of(node), null, null, null,
+            null, null, null, null, null, null, null, null, null, null, null, null, archives);
+        return resolve(Defaults.EMPTY, group, node).archivesProductionOptIn();
+    }
+
+    @Test
+    void theArchivesOptInIsTheGroupValueAndFalseByDefault() {
+        assertThat(archivesProductionOptIn(true, null)).isFalse();
+        assertThat(archivesProductionOptIn(true, ArchivesConfig.EMPTY)).isFalse();
+        assertThat(archivesProductionOptIn(true, new ArchivesConfig(Optional.of(false))))
+            .isFalse();
+        assertThat(archivesProductionOptIn(true, new ArchivesConfig(Optional.of(true))))
+            .isTrue();
+        assertThat(archivesProductionOptIn(false, new ArchivesConfig(Optional.of(true))))
+            .as("the value as configured; the service decides by production")
+            .isTrue();
+    }
+
+    @Test
+    void theArchivesOptInIsIndependentOfTheWriteSettingsAndKeptByWithTimeout() {
+        NodeConfig node = node(null);
+        GroupConfig group = new GroupConfig("prod", true, List.of(node),
+            new WriteConfig(Optional.of(true), Optional.of(true), Optional.empty()), null, null,
+            null, null, null, null, null, null, null, null, null, null, null, null, null);
+        EffectiveNodeConfig withWrite = resolve(Defaults.EMPTY, group, node);
+        GroupConfig optedIn = new GroupConfig("prod", true, List.of(node),
+            new WriteConfig(Optional.of(false), Optional.empty(), Optional.empty()), null, null,
+            null, null, null, null, null, null, null, null, null, null, null, null,
+            new ArchivesConfig(Optional.of(true)));
+        EffectiveNodeConfig archives = resolve(Defaults.EMPTY, optedIn, node);
+
+        assertThat(withWrite.effectiveWriteEnabled()).isTrue();
+        assertThat(withWrite.archivesProductionOptIn()).isFalse();
+        assertThat(archives.effectiveWriteEnabled()).isFalse();
+        assertThat(archives.archivesProductionOptIn()).isTrue();
+        assertThat(archives.withTimeout(Duration.ofSeconds(1)).archivesProductionOptIn())
+            .isTrue();
     }
 }

@@ -630,7 +630,7 @@ or `e2e: FORBIDDEN`. The first `read-only` of the line is the restart and kill w
 ([Write settings](#write-settings-restart-and-kill)):
 
 ```text
-Group dev:
+Group dev: archives: allowed
   Node dev/node1: read-only, development: on (confirmation SERVER), repository: write, e2e: CONFIRM (https://inubit-dev-1.example.test:8443), cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_DEV_USERNAME ok, password ← INUBIT_ACME_DEV_PASSWORD ok
 ```
 
@@ -720,7 +720,7 @@ PACKAGE_ONLY)`:
 Chains:
   dev → int → prod (package only)
   int excludes: diagramGroup GRP-SYS, name CFG_*, repositoryPath /Root/*/stage/**
-Group int:
+Group int: archives: allowed
   Node int/node1: read-only, development: off, e2e: CONFIRM (https://inubit-int-1.example.test:8443), cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, deploy: from dev (EXECUTE), secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_INT_USERNAME ok, password ← INUBIT_ACME_INT_PASSWORD ok
 ```
 
@@ -1397,10 +1397,10 @@ Terminology: Umgebung/Umgebungen, Knoten/Knoten
 Credential store entries: service inubit-mcp, account INUBIT_ACME_<UMGEBUNG>[_<KNOTEN>]_<KIND> (macOS Keychain)
 Audit directory: /Users/jdoe/.inubit-mcp/acme/audit
 Workspace: /Users/jdoe/.inubit-mcp/acme/workspace (ok)
-Umgebung test:
+Umgebung test: archives: allowed
   Knoten test/node1: write enabled (confirmation SERVER), cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_TEST_USERNAME ok, password ← INUBIT_ACME_TEST_PASSWORD ok
   Knoten test/node2: write enabled (confirmation SERVER), cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_TEST_USERNAME ok, password ← INUBIT_ACME_TEST_PASSWORD ok
-Umgebung prod (production):
+Umgebung prod (production): archives: refused (no archives.productionOptIn)
   Knoten prod/node1: read-only, cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_PROD_USERNAME ok, password ← INUBIT_ACME_PROD_PASSWORD ok
 Warnings:
   - test/node1: hostname verification is disabled; the certificate is checked against the pinned SHA-256 fingerprint instead
@@ -1431,10 +1431,10 @@ The version part of a node line ([INUBIT version](#inubit-version-versionline)):
   (`<id>: StartCLI client probe failed: <message>`), not an error, and the line shows no client.
 
 ```text
-Group dev:
+Group dev: archives: allowed
   Node dev/node1: read-only, cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_DEV_USERNAME ok, password ← INUBIT_ACME_DEV_PASSWORD ok
   Node dev/node2: read-only, cli: available, inubit: 8.1.17, client: 8.1.17 (4.0.1–8.1.17), client vs pin: match, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_DEV_USERNAME ok, password ← INUBIT_ACME_DEV_PASSWORD ok
-Group next:
+Group next: archives: allowed
   Node next/node1: read-only, cli: unavailable, inubit: V9_X, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_NEXT_USERNAME ok, password ← INUBIT_ACME_NEXT_PASSWORD ok
 Warnings:
   - next/node1: versionLine V9_X: write tools are refused on this node (INUBIT 9.x is not supported for writes yet); read tools run unverified
@@ -1461,9 +1461,9 @@ prefix. For the example of
 `dev` in the Keychain:
 
 ```text
-Group dev:
+Group dev: archives: allowed
   Node dev/node1: read-only, cli: unavailable, inubit: AUTO, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_DEV_USERNAME ok, password ← INUBIT_ACME_DEV_PASSWORD ok
-Group prod (production):
+Group prod (production): archives: refused (no archives.productionOptIn)
   Node prod/node1: read-only, cli: unavailable, inubit: AUTO, secrets: awsParameterStore (eu-west-1, profile prod-account), username ← /inubit/prod/username ok, password ← /inubit/prod/node1/password ok
   Node prod/node2: read-only, cli: unavailable, inubit: AUTO, secrets: awsParameterStore (eu-west-1, profile prod-account), username ← /inubit/prod/username ok, password ← /inubit/prod/password ok
 Result: OK

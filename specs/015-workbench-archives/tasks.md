@@ -378,7 +378,7 @@ everything refused by the static input checks before StartCLI.
   `NetworkPathProbe` directly. Add the manual Windows check (a mapped network drive is refused) to
   `docs/live-tests.md`.
 
-- [ ] T016 [P] [US2] Production opt-in setting (research R-15, FR-014): test first
+- [X] T016 [P] [US2] Production opt-in setting (research R-15, FR-014): test first
   `test/config/ConfigLoaderTest.java` (`archives: {productionOptIn: true}` on a group is parsed;
   `archives` on a node or in `defaults`, an unknown key below `archives`, a non-boolean value →
   startup error naming the key), `test/config/ConfigValidatorTest.java` (warning "archives.productionOptIn

@@ -21,6 +21,9 @@ import java.util.function.Predicate;
  *     every message about this node's credentials names its own variables
  *     ({@link #credentialNames()})
  * @param secretPlan where this node's credentials come from (feature 010, research R-6)
+ * @param archivesProductionOptIn the group's {@code archives.productionOptIn} (feature 015,
+ *     research R-15), built-in {@code false}; it matters only on a production group, where
+ *     {@code export_archives} needs it, and is independent of {@link #write()}
  */
 public record EffectiveNodeConfig(
     NodeId id,
@@ -39,7 +42,8 @@ public record EffectiveNodeConfig(
     Duration confirmationTtl,
     String credentialPrefix,
     Development development,
-    SecretPlan secretPlan) {
+    SecretPlan secretPlan,
+    boolean archivesProductionOptIn) {
 
     /** Path of the StartCLI SOAP endpoint relative to the base URL (8.1). */
     public static final String DEFAULT_CLI_PATH = "/ibis/servlet/IBISSoapServlet";
@@ -148,7 +152,8 @@ public record EffectiveNodeConfig(
     public EffectiveNodeConfig withTimeout(Duration newTimeout) {
         return new EffectiveNodeConfig(id, production, baseUrl, allowInsecureHttp, versionLine,
             write, tls, cli, inventory, newTimeout, cliTimeout, cliExportTimeout, hangingThreshold,
-            confirmationTtl, credentialPrefix, development, secretPlan);
+            confirmationTtl, credentialPrefix, development, secretPlan,
+            archivesProductionOptIn);
     }
 
     /**
@@ -270,6 +275,8 @@ public record EffectiveNodeConfig(
                     .map(Urls::withoutTrailingSlash),
                 repository == RepositoryMode.WRITE && developmentEnabled
                     && !group.production()),
-            secretPlan);
+            secretPlan,
+            group.archives().productionOptIn()
+                .orElse(Defaults.BUILTIN_ARCHIVES_PRODUCTION_OPT_IN));
     }
 }

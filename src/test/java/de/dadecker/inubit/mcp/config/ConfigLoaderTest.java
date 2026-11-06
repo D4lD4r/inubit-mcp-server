@@ -764,7 +764,7 @@ class ConfigLoaderTest {
                 java.util.Optional.of(URI.create("https://u:secretpw@h.example.test")), false, null,
                 null, null, null, null, null, null, null, null, null, null, null, null, null);
             GroupConfig stage = new GroupConfig("dev", false, List.of(entry), null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null);
 
             assertThatThrownBy(() -> EffectiveNodeConfig.resolve(Defaults.EMPTY, stage, entry,
                 "INUBIT_ACME", SecretPlan.resolve(CredentialsConfig.EMPTY, "INUBIT_ACME", stage,
@@ -781,7 +781,7 @@ class ConfigLoaderTest {
                 java.util.Optional.of(URI.create(url)), false, null,
                 null, null, null, null, null, null, null, null, null, null, null, null, null);
             GroupConfig stage = new GroupConfig("dev", false, List.of(entry), null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null);
 
             assertThatThrownBy(() -> EffectiveNodeConfig.resolve(Defaults.EMPTY, stage, entry,
                 "INUBIT_ACME", SecretPlan.resolve(CredentialsConfig.EMPTY, "INUBIT_ACME", stage,
@@ -1264,6 +1264,68 @@ class ConfigLoaderTest {
                 "    deploy:\n      source: dev\n    nodes:"), home.resolve("d.yaml")))
                 .isInstanceOf(ConfigException.class)
                 .hasMessageContaining("Unknown key 'source'");
+        }
+    }
+
+    /** Feature 015 (T016, research R-15, contracts/configuration-delta.md). */
+    @Nested
+    class Archives {
+
+        private LoadedConfig parse(String yaml) {
+            return loader().parse(yaml, home.resolve("a.yaml"));
+        }
+
+        private static String onGroup(String archives) {
+            return MINIMAL.replace("    nodes:", "    archives:\n" + archives + "    nodes:");
+        }
+
+        @Test
+        void theOptInIsReadPerGroup() {
+            assertThat(parse(onGroup("      productionOptIn: true\n")).config().groups().get(0)
+                .archives()).isEqualTo(new ArchivesConfig(Optional.of(true)));
+            assertThat(parse(onGroup("      productionOptIn: false\n")).config().groups().get(0)
+                .archives().productionOptIn()).contains(false);
+            assertThat(parse(MINIMAL).config().groups().get(0).archives())
+                .isEqualTo(ArchivesConfig.EMPTY);
+            assertThat(ArchivesConfig.EMPTY.productionOptIn()).isEmpty();
+            assertThat(parse(onGroup("")).config().groups().get(0).archives())
+                .isEqualTo(ArchivesConfig.EMPTY);
+            assertThat(parse(onGroup("      productionOptIn:\n")).config().groups().get(0)
+                .archives()).as("an empty value is the default").isEqualTo(ArchivesConfig.EMPTY);
+        }
+
+        @Test
+        void archivesOnANodeIsAnUnknownKey() {
+            assertThatThrownBy(() -> parse(MINIMAL + "        archives:\n"
+                + "          productionOptIn: true\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'archives' at groups[0].nodes[0]");
+        }
+
+        @Test
+        void archivesInTheDefaultsIsAnUnknownKey() {
+            assertThatThrownBy(() -> parse(MINIMAL + "defaults:\n  archives:\n"
+                + "    productionOptIn: true\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'archives' at defaults");
+        }
+
+        @Test
+        void anUnknownKeyBelowArchivesIsRejected() {
+            assertThatThrownBy(() -> parse(onGroup("      productionOptin: true\n")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'productionOptin' at groups[0].archives");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"yes", "\"maybe\"", "1", "0", "\"true\"", "[true]",
+            "{ on: true }"})
+        void aNonBooleanValueIsRejectedNamingTheKey(String value) {
+            assertThatThrownBy(() -> parse(onGroup("      productionOptIn: " + value + "\n")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("groups[0].archives.productionOptIn")
+                .hasMessageContaining("true or false")
+                .hasMessageNotContaining("maybe");
         }
     }
 
