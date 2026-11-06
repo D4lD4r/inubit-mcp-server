@@ -6,12 +6,16 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import de.dadecker.inubit.mcp.application.ReleaseSource;
+import de.dadecker.inubit.mcp.application.UpdateCheck;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.ParameterType;
 import de.dadecker.inubit.mcp.config.StoreLocation;
+import de.dadecker.inubit.mcp.domain.model.SemVer;
 import de.dadecker.inubit.mcp.infra.BuildInfo;
+import de.dadecker.inubit.mcp.infra.FileUpdateCache;
 import de.dadecker.inubit.mcp.infra.LogLevels;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
@@ -32,12 +36,15 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -76,6 +83,12 @@ class MainTest {
     private final FakeParameterStore store = new FakeParameterStore();
     /** How often the launcher asked for {@link #store}. */
     private final AtomicInteger storesCreated = new AtomicInteger();
+    /** What the launcher's release source answers (feature 016); offline unless a test sets it. */
+    private ReleaseSource releaseSource = () -> {
+        throw new ReleaseSource.ReleaseCheckException("offline (test)");
+    };
+    private final AtomicInteger releaseLookups = new AtomicInteger();
+    private final AtomicInteger updateCachesCreated = new AtomicInteger();
     /** The credential store the launcher created last (feature 011). */
     private final AtomicReference<FakeCredentialStore> credentialStore = new AtomicReference<>();
     /** The store the launcher gets instead of one built from {@link #entries}, if set. */
@@ -103,6 +116,12 @@ class MainTest {
                     : TestSecrets.store(entries);
                 credentialStore.set(created);
                 return created;
+            }, () -> () -> {
+                releaseLookups.incrementAndGet();
+                return releaseSource.latest();
+            }, () -> {
+                updateCachesCreated.incrementAndGet();
+                return FileUpdateCache.inHome(home, Clock.systemUTC());
             }), handlers);
     }
 
@@ -1220,6 +1239,196 @@ class MainTest {
 
         assertThat(lines).anyMatch(line -> line.contains("started for profile acme"));
         assertThat(lines).noneMatch(line -> line.contains("pinPerServer"));
+    }
+
+    @Test
+    void aNewerReleaseShowsInTheFirstResultInGetHealthInTheLogAndInTheCache() throws Exception {
+        // feature 016 T010 (FR-001, FR-005 to FR-007, FR-017): the check runs after the start
+        credentials();
+        releaseSource = () -> new ReleaseSource.LatestRelease(SemVer.parse("99.0.0").orElseThrow());
+        Path cacheFile = home.resolve(".inubit-mcp").resolve(FileUpdateCache.FILE_NAME);
+
+        List<String> log = logOf(UpdateCheck.class, () -> serve(validConfig(), session -> {
+            for (int i = 0; i < 100 && !Files.exists(cacheFile); i++) {
+                Thread.sleep(50);
+            }
+            JsonNode first = session.call(2, "list_nodes", "{}");
+            JsonNode health = session.call(3, "get_health", "{\"target\":\"dev/node1\"}");
+
+            assertThat(first.path("result").path("content")).hasSize(2);
+            assertThat(first.path("result").path("content").get(1).path("text").asString())
+                .startsWith("Note: inubit-mcp-server 99.0.0 is available (installed "
+                    + BuildInfo.version() + "), see https://github.com/D4lD4r/inubit-mcp-server/"
+                    + "releases/tag/v99.0.0.");
+            JsonNode update = health.path("result").path("structuredContent").path("serverUpdate");
+            assertThat(update.path("latestVersion").asString()).isEqualTo("99.0.0");
+            assertThat(update.path("updateAvailable").asBoolean()).isTrue();
+            assertThat(health.path("result").path("content")).as("the note only once").hasSize(1);
+        }));
+
+        assertThat(log).containsExactly("A newer inubit-mcp-server is available: 99.0.0 (running "
+            + BuildInfo.version() + "): https://github.com/D4lD4r/inubit-mcp-server/releases/tag/"
+            + "v99.0.0 – update manually (no automatic download)");
+        assertThat(Files.readString(cacheFile)).contains("99.0.0");
+        assertThat(releaseLookups).hasValue(1);
+    }
+
+    @Test
+    void aCachedNewerReleaseIsInTheInstructionsWhileTheSourceDoesNotAnswer() throws Exception {
+        // feature 016 SC-006 (FR-018): the handshake does not wait for the network
+        credentials();
+        FileUpdateCache.inHome(home, Clock.systemUTC())
+            .write(SemVer.parse("99.0.0").orElseThrow(), Instant.parse("2026-11-01T08:00:00Z"));
+        CountDownLatch never = new CountDownLatch(1);
+        releaseSource = () -> {
+            try {
+                never.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            throw new ReleaseSource.ReleaseCheckException("interrupted");
+        };
+
+        serve(validConfig(), session -> {
+            assertThat(session.initialize.path("result").path("instructions").asString())
+                .endsWith(" A newer inubit-mcp-server 99.0.0 is available (installed "
+                    + BuildInfo.version() + "): https://github.com/D4lD4r/inubit-mcp-server/"
+                    + "releases/tag/v99.0.0; update manually.");
+            assertThat(session.call(2, "list_nodes", "{}").path("result").path("content"))
+                .hasSize(2);
+            assertThat(session.call(3, "list_nodes", "{}").path("result").path("content"))
+                .hasSize(1);
+        });
+    }
+
+    @Test
+    void theUpdateCheckCanBeSwitchedOffByTheEnvironment() throws Exception {
+        // feature 016 FR-008/FR-009: no request, no cache, no note, an INFO line
+        credentials();
+        environment.put("INUBIT_MCP_UPDATE_CHECK", " OFF ");
+        assertUpdateCheckOff(validConfig(), "Update check is off (INUBIT_MCP_UPDATE_CHECK)");
+    }
+
+    @Test
+    void theUpdateCheckCanBeSwitchedOffInTheProfile() throws Exception {
+        credentials();
+        Path file = validConfig();
+        Files.writeString(file, Files.readString(file) + "updateCheck:\n  enabled: false\n");
+        assertUpdateCheckOff(file, "Update check is off (updateCheck.enabled: false)");
+    }
+
+    @Test
+    void anUnrecognisedSwitchValueIsWarnedAboutAndTheCheckStaysOn() throws Exception {
+        credentials();
+        environment.put("INUBIT_MCP_UPDATE_CHECK", "sometimes");
+
+        List<String> log = logOf(Launcher.class, () -> serve(validConfig(), session -> {
+            for (int i = 0; i < 100 && releaseLookups.get() == 0; i++) {
+                Thread.sleep(50);
+            }
+        }));
+
+        assertThat(log).contains("Configuration: INUBIT_MCP_UPDATE_CHECK has an unrecognised"
+            + " value; use off or on (the update check stays on)");
+        assertThat(log).noneMatch(line -> line.contains("sometimes"));
+        assertThat(releaseLookups).hasValue(1);
+    }
+
+    @Test
+    void versionAndCheckConfigDoNotCheckForUpdates() throws IOException {
+        // feature 016 FR-013
+        credentials();
+        assertThat(run("--version")).isZero();
+        assertThat(run("--config", validConfig().toString(), "--check-config")).as(err()).isZero();
+
+        assertThat(releaseLookups).hasValue(0);
+        assertThat(updateCachesCreated).hasValue(0);
+    }
+
+    private void assertUpdateCheckOff(Path file, String infoLine) throws Exception {
+        releaseSource = () -> new ReleaseSource.LatestRelease(SemVer.parse("99.0.0").orElseThrow());
+        Path cacheFile = home.resolve(".inubit-mcp").resolve(FileUpdateCache.FILE_NAME);
+        FileUpdateCache.inHome(home, Clock.systemUTC())
+            .write(SemVer.parse("98.0.0").orElseThrow(), Instant.parse("2026-11-01T08:00:00Z"));
+        String cached = Files.readString(cacheFile);
+
+        List<String> log = logOf(Launcher.class, () -> serve(file, session -> {
+            assertThat(session.initialize.path("result").path("instructions").asString())
+                .doesNotContain("newer");
+            Thread.sleep(300);
+            assertThat(session.call(2, "list_nodes", "{}").path("result").path("content"))
+                .hasSize(1);
+            assertThat(session.call(3, "get_health", "{\"target\":\"dev/node1\"}")
+                .path("result").path("structuredContent").has("serverUpdate")).isFalse();
+        }));
+
+        assertThat(log).contains(infoLine);
+        assertThat(releaseLookups).hasValue(0);
+        assertThat(updateCachesCreated).hasValue(0);
+        assertThat(Files.readString(cacheFile)).isEqualTo(cached);
+    }
+
+    /** An initialized server session for {@link #serve}. */
+    private record Session(PipedOutputStream toServer, LineQueue protocol, JsonNode initialize) {
+
+        JsonNode call(int id, String tool, String arguments) throws Exception {
+            send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"method\":\"tools/call\","
+                + "\"params\":{\"name\":\"" + tool + "\",\"arguments\":" + arguments + "}}");
+            JsonNode response = protocol.next();
+            assertThat(response.path("id").asInt()).isEqualTo(id);
+            return response;
+        }
+    }
+
+    private interface SessionBody {
+        void accept(Session session) throws Exception;
+    }
+
+    private interface ThrowingRunnable {
+        void run() throws Exception;
+    }
+
+    /** Starts the server, initializes it, runs {@code body}, closes stdin and awaits exit 0. */
+    private void serve(Path file, SessionBody body) throws Exception {
+        PipedInputStream serverIn = new PipedInputStream(1 << 16);
+        PipedOutputStream toServer = new PipedOutputStream(serverIn);
+        LineQueue protocol = new LineQueue();
+        Launcher main = main(serverIn, protocol);
+        CompletableFuture<Integer> exit = CompletableFuture.supplyAsync(
+            () -> main.run("--config", file.toString()));
+        try {
+            send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":"
+                + "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},"
+                + "\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}");
+            JsonNode initialize = protocol.next();
+            send(toServer, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
+            body.accept(new Session(toServer, protocol, initialize));
+        } finally {
+            toServer.close();
+        }
+        assertThat(exit.get(20, TimeUnit.SECONDS)).as(err()).isZero();
+        assertThat(protocol.raw()).as("only JSON-RPC lines on the protocol stdout")
+            .allSatisfy(line -> assertThat(JSON.readTree(line).path("jsonrpc").asString())
+                .isEqualTo("2.0"));
+    }
+
+    /** The formatted messages {@code type}'s logger writes while {@code action} runs. */
+    private static List<String> logOf(Class<?> type, ThrowingRunnable action) throws Exception {
+        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
+        Logger logger = context.getLogger(type);
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.setContext(context);
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            action.run();
+            synchronized (logs) {
+                return logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+            }
+        } finally {
+            logger.detachAppender(logs);
+            logs.stop();
+        }
     }
 
     /** Starts the server, initializes it, closes stdin and returns the {@link Launcher} log. */

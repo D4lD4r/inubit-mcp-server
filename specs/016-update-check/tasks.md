@@ -77,7 +77,7 @@ the checkout; never two builds in parallel).
   exposes it; tests in `src/main/java/de/dadecker/inubit/mcp/mcp/tools/GetHealthTool.java`,
   `src/main/resources/schemas/get_health.output.json`,
   `src/main/java/de/dadecker/inubit/mcp/Wiring.java`, existing GetHealthTool/schema tests
-- [ ] T010 [US1] `Launcher`: `Context` gets `Supplier<ReleaseSource> releaseSource` (system:
+- [X] T010 [US1] `Launcher`: `Context` gets `Supplier<ReleaseSource> releaseSource` (system:
   `GitHubReleaseSource`); in `serve`, after `factory.start(...)`, start `UpdateCheck` on a daemon
   single-thread scheduler; stop it on shutdown; never in `--version`/`--check-config` (FR-013);
   tests (fake source: newer version visible via `get_health` and WARN; hanging source does not
@@ -105,7 +105,7 @@ the checkout; never two builds in parallel).
   `ProfileConfig`; strict YAML boolean in `ConfigLoader` ("Invalid value at updateCheck.enabled in
   <file>: expected true or false"); tests in `src/main/java/de/dadecker/inubit/mcp/config/`
   (`UpdateCheckConfig.java`, `ProfileConfig.java`, `ConfigLoader.java`) and `ConfigLoaderTest`
-- [ ] T013 [US4] `UpdateCheckSetting.resolve(ProfileConfig, Map<String,String> env)` (contracts/
+- [X] T013 [US4] `UpdateCheckSetting.resolve(ProfileConfig, Map<String,String> env)` (contracts/
   configuration-delta.md: `off|false|0|no` / `on|true|1|yes`, case-insensitive, blank = unset,
   other value → warning without the value); `Launcher` logs INFO "Update check is off (…)" and does
   not start the check; tests in `src/main/java/de/dadecker/inubit/mcp/config/UpdateCheckSetting.java`,
@@ -132,13 +132,13 @@ that never answers: `instructions` name it, the first tool result has the note b
   `src/main/java/de/dadecker/inubit/mcp/mcp/UpdateNotice.java`,
   `src/main/java/de/dadecker/inubit/mcp/mcp/McpServerFactory.java`,
   `src/test/java/de/dadecker/inubit/mcp/mcp/UpdateNoticeTest.java`, `McpServerFactoryTest`
-- [ ] T016 [US1] `Launcher`/`Wiring`: with the check on, read the cache before `factory.start`, seed
+- [X] T016 [US1] `Launcher`/`Wiring`: with the check on, read the cache before `factory.start`, seed
   `UpdateStatus` if newer than the running version, pass the status to `UpdateNotice` and the
   instructions; with the check off, neither read nor write the cache and add no note; `Context`
   gets the cache (system: `FileUpdateCache` under `userHome`); tests in `MainTest` (SC-006,
   opt-out)
 
-- [ ] T017 [US1] Elicitation dialog (FR-019, SC-007, research R-13; operator decision):
+- [X] T017 [US1] Elicitation dialog (FR-019, SC-007, research R-13; operator decision):
   `CachedRelease.dismissedVersion` + `UpdateCache.dismiss(SemVer)` (kept on rewrite);
   `UpdateNotice` captures the exchange of the first successful call, checks
   `clientCapabilities.elicitation() != null`, submits once per version and process to a daemon
