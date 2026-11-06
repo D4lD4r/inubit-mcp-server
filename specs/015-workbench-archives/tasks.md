@@ -189,7 +189,7 @@ archives whose content follows FR-005/FR-006.
   `main/adapter/archive/v81/V81WorkflowArchives.java` (document builders as
   `ArchiveAssembler.workflowDocument`/`indexDocument`, `XmlNormalizer.normalize`, `RawZip.write`).
 
-- [ ] T009 [US1] Placing archives (research R-11, FR-009, FR-010 success path): test first
+- [X] T009 [US1] Placing archives (research R-11, FR-009, FR-010 success path): test first
   `test/application/ArchiveFolderWriterTest.java` (success part): a missing target folder and two
   missing parents are created right before the first archive, each `rwx------` on POSIX (assume
   `posix` view, else skip that assertion only); an existing folder keeps its permissions; each archive
