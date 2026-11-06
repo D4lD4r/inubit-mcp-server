@@ -63,6 +63,51 @@ public final class PrivateFiles {
     }
 
     /**
+     * The host's file system, except that {@link PrivateFileSystem#check} reports
+     * {@code principals} for every path (feature 013, T024): an existing object with broader
+     * access, on every platform.
+     */
+    public static PrivateFileSystem reporting(List<String> principals) {
+        PrivateFileSystem host = forHost();
+        return new PrivateFileSystem() {
+            @Override
+            public Path createDirectory(Path directory) throws IOException {
+                return host.createDirectory(directory);
+            }
+
+            @Override
+            public boolean createDirectories(Path directory) throws IOException {
+                return host.createDirectories(directory);
+            }
+
+            @Override
+            public Path createTempDirectory(Path parent, String prefix) throws IOException {
+                return host.createTempDirectory(parent, prefix);
+            }
+
+            @Override
+            public Path createFile(Path file) throws IOException {
+                return host.createFile(file);
+            }
+
+            @Override
+            public void tightenOnPosix(Path path) throws IOException {
+                host.tightenOnPosix(path);
+            }
+
+            @Override
+            public List<String> check(Path path) {
+                return List.copyOf(principals);
+            }
+
+            @Override
+            public boolean ownedByCurrentUser(Path path) throws IOException {
+                return host.ownedByCurrentUser(path);
+            }
+        };
+    }
+
+    /**
      * A file system whose {@code create…} calls fail as when the access list cannot be set: the
      * object is not created and an {@link IOException} names it.
      */

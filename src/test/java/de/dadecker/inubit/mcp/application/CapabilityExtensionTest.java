@@ -210,7 +210,8 @@ class CapabilityExtensionTest {
             WritePolicy.Confirmation.CLIENT, Duration.ofMinutes(5), Optional.of("jdoe"))));
         ProcessControlService processControl = new ProcessControlService(
             new WriteGuard(targets, policies::get, gateways, gate), policies::get, gateways,
-            new ConfirmationRegistry(clock), new AuditLog(temp.resolve("audit"), scrubber), clock,
+            new ConfirmationRegistry(clock), new AuditLog(temp.resolve("audit"), scrubber,
+                PrivateFiles.forHost()), clock,
             UUID::randomUUID, "acme");
         NodeOverview overview = new NodeOverview(servers.stream()
             .map(server -> server.summary(path -> false, false)).toList(), versions, MATRIX,

@@ -13,6 +13,7 @@ import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.ParameterType;
 import de.dadecker.inubit.mcp.config.StoreLocation;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.infra.BuildInfo;
 import de.dadecker.inubit.mcp.infra.LogLevels;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -22,7 +23,9 @@ import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
+import de.dadecker.inubit.mcp.testing.WindowsAcl;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -36,6 +39,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,11 +50,14 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
@@ -88,6 +95,8 @@ class MainTest {
     private final AtomicInteger containments = new AtomicInteger();
     /** The containment the launcher sets up. */
     private ProcessContainment containment = new NoJob();
+    /** The private files of the launcher (feature 013, FR-007): the host's by default. */
+    private PrivateFileSystem privateFiles = PrivateFiles.forHost();
     /** The store the launcher gets instead of one built from {@link #entries}, if set. */
     private FakeCredentialStore scriptedStore;
     /**
@@ -122,7 +131,7 @@ class MainTest {
             }, () -> {
                 containments.incrementAndGet();
                 return containment;
-            }), handlers);
+            }, privateFiles), handlers);
     }
 
     private int run(String... args) {
@@ -1102,6 +1111,99 @@ class MainTest {
             assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(audit)))
                 .isEqualTo("rwx------");
         }
+    }
+
+    // --- feature 013 T024: the audit directory and log are private (FR-007, US3 AS4) ---------
+
+    @Test
+    void anAuditDirectoryThatCannotBeMadePrivateStopsTheServerFromStarting() throws Exception {
+        credentials();
+        Path file = validConfig();
+        privateFiles = PrivateFiles.failing();
+
+        int exit = run("--config", file.toString());
+
+        assertThat(exit).isEqualTo(1);
+        assertThat(err()).contains("Cannot create the audit directory "
+            + home.resolve("audit/nested"), "the MCP server does not start");
+        assertThat(home.resolve("audit")).doesNotExist();
+    }
+
+    @Test
+    void theDefaultAuditDirectoryAndLogWithBroaderAccessAreNamedAtStartupAndInCheckConfig()
+        throws Exception {
+        credentials();
+        profileConfig("acme", "acme");
+        Path audit = Files.createDirectories(home.resolve(".inubit-mcp/acme/audit"));
+        Path log = Files.writeString(audit.resolve("audit-2026-10.jsonl"), "{}\n");
+        privateFiles = PrivateFiles.reporting(List.of("BUILTIN\\Users"));
+
+        int checked = run("--profile", "acme", "--check-config");
+        String summary = out();
+        int started = run("--profile", "acme"); // empty stdin: starts and stops at once
+
+        assertThat(checked).as(summary).isZero();
+        assertThat(started).as(err()).isZero();
+        for (String output : List.of(summary, err())) {
+            assertThat(output).contains(
+                "the audit directory " + audit + " grants access to BUILTIN\\Users; the server"
+                    + " does not change it", "icacls \"" + audit + "\" /inheritance:r",
+                "the audit log " + log + " grants access to BUILTIN\\Users");
+        }
+        assertThat(Files.readString(log)).as("not changed").isEqualTo("{}\n");
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void onWindowsTheNewDefaultAuditDirectoryIsPrivate() throws Exception {
+        credentials();
+        profileConfig("acme", "acme");
+
+        assertThat(run("--profile", "acme")).as(err()).isZero();
+
+        WindowsAcl.assertPrivate(home.resolve(".inubit-mcp/acme/audit"),
+            WindowsAcl.DIRECTORY_INHERITANCE);
+        assertThat(err()).doesNotContain("grants access to");
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void onWindowsAnInheritedUsersEntryIsNamedAndTheRemedyRestrictsTheDirectory()
+        throws Exception {
+        credentials();
+        profileConfig("acme", "acme");
+        Path parent = Files.createDirectories(home.resolve(".inubit-mcp/acme"));
+        WindowsAcl.run(new ProcessBuilder(WindowsAcl.system32("icacls.exe").toString(),
+            parent.toString(), "/grant", "*" + WindowsAcl.USERS + ":(OI)(CI)(RX)"));
+        Path audit = Files.createDirectory(parent.resolve("audit"));
+        assertThat(WindowsAcl.readBack(audit).entries())
+            .anySatisfy(entry -> {
+                assertThat(entry.sid()).isEqualTo(WindowsAcl.USERS);
+                assertThat(entry.inherited()).isTrue();
+            });
+
+        assertThat(run("--profile", "acme", "--check-config")).as(out()).isZero();
+
+        Matcher remedy = Pattern.compile("the audit directory " + Pattern.quote(audit.toString())
+            + " grants access to [^;]*Users[^;]*; the server does not change it\\. Restrict it"
+            + " to [^ ]+ and SYSTEM with: icacls (.*)").matcher(out());
+        assertThat(remedy.find()).as(out()).isTrue();
+        assertThat(WindowsAcl.readBack(audit).entries()).as("not changed")
+            .extracting(WindowsAcl.Entry::sid).contains(WindowsAcl.USERS);
+        List<String> command = new ArrayList<>(List.of(
+            WindowsAcl.system32("icacls.exe").toString()));
+        Matcher token = Pattern.compile("\"([^\"]*)\"|(\\S+)").matcher(remedy.group(1).strip());
+        while (token.find()) {
+            command.add(token.group(1) != null ? token.group(1) : token.group(2));
+        }
+        WindowsAcl.run(new ProcessBuilder(command));
+        WindowsAcl.ReadBack restricted = WindowsAcl.readBack(audit); // the owner is not changed
+        assertThat(restricted.isProtected()).isTrue();
+        assertThat(restricted.entries()).extracting(WindowsAcl.Entry::sid)
+            .containsExactlyInAnyOrder(restricted.me(), WindowsAcl.SYSTEM);
+        stdout.reset();
+        assertThat(run("--profile", "acme", "--check-config")).as(out()).isZero();
+        assertThat(out()).doesNotContain("grants access to");
     }
 
     // --- feature 013 T012: the containment of StartCLI's processes (FR-005, research R-7) ------

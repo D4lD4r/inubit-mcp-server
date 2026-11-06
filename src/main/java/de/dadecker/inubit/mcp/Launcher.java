@@ -35,6 +35,7 @@ import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.infra.BuildInfo;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.LogLevels;
@@ -44,12 +45,8 @@ import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
-import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -58,7 +55,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -98,9 +94,6 @@ final class Launcher {
         Without --check-config/--version the MCP server runs on stdio until stdin is closed.""";
 
     private static final Logger LOG = LoggerFactory.getLogger(Launcher.class);
-    private static final Set<PosixFilePermission> OWNER_ONLY =
-        PosixFilePermissions.fromString("rwx------");
-
     /**
      * Everything the process touches, injectable for tests.
      *
@@ -113,11 +106,14 @@ final class Launcher {
      *     R-7): on Windows it binds this process to a kill-on-close job; called once, before the
      *     process starts StartCLI: when the server starts, or for {@code --check-config} before
      *     the client probe (tests pass a fixed state)
+     * @param privateFiles creates the private files and directories of the server and checks
+     *     existing ones (feature 013, FR-007)
      */
     record Context(Map<String, String> environment, Path userHome, boolean windows,
         InputStream in, PrintStream out, PrintStream err, SecretScrubber scrubber,
         Predicate<Path> exists, Supplier<ParameterStore> parameterStore,
-        Supplier<CredentialStore> credentialStore, Supplier<ProcessContainment> containment) {
+        Supplier<CredentialStore> credentialStore, Supplier<ProcessContainment> containment,
+        PrivateFileSystem privateFiles) {
 
         Context {
             environment = Map.copyOf(environment);
@@ -130,6 +126,17 @@ final class Launcher {
             Objects.requireNonNull(parameterStore, "parameterStore");
             Objects.requireNonNull(credentialStore, "credentialStore");
             Objects.requireNonNull(containment, "containment");
+            Objects.requireNonNull(privateFiles, "privateFiles");
+        }
+
+        /** With the private files of the host. */
+        Context(Map<String, String> environment, Path userHome, boolean windows,
+            InputStream in, PrintStream out, PrintStream err, SecretScrubber scrubber,
+            Predicate<Path> exists, Supplier<ParameterStore> parameterStore,
+            Supplier<CredentialStore> credentialStore,
+            Supplier<ProcessContainment> containment) {
+            this(environment, userHome, windows, in, out, err, scrubber, exists, parameterStore,
+                credentialStore, containment, new OsPrivateFileSystem(windows));
         }
 
         static Context system(PrintStream protocolOut) {
@@ -140,7 +147,8 @@ final class Launcher {
                 System.err, SecretScrubber.global(), Files::exists, SsmParameterStore::new,
                 () -> CredentialStores.forOs(System.getProperty("os.name"),
                     new SystemProcessLauncher(), System.getenv(), home),
-                windows ? WindowsJob::bindCurrentProcess : NoJob::new);
+                windows ? WindowsJob::bindCurrentProcess : NoJob::new,
+                new OsPrivateFileSystem(windows));
         }
     }
 
@@ -208,8 +216,8 @@ final class Launcher {
                 context.windows() ? startCliHost(system, containment) : StartCliHost.unchecked())
                 .validate(loaded);
             Map<NodeId, ClientVersion> clients = new HashMap<>();
-            ValidationReport withProbes = probeClients(loaded.config(), report, clients, system,
-                containment);
+            ValidationReport withProbes = probeClients(loaded.config(),
+                withPrivateObjects(loaded.config(), report), clients, system, containment);
             // feature 010 (research R-12): the Parameter Store client only for AWS nodes
             Collection<SecretPlan> plans = loaded.config().secretPlans().values();
             ParameterCheck.Result parameters = plans.stream().anyMatch(SecretPlan::aws)
@@ -226,8 +234,8 @@ final class Launcher {
             context.out().flush();
             return checked.hasErrors() ? EXIT_ERROR : EXIT_OK;
         }
-        ValidationReport report = validator(otherProfiles, StartCliHost.unchecked())
-            .validate(loaded);
+        ValidationReport report = withPrivateObjects(loaded.config(),
+            validator(otherProfiles, StartCliHost.unchecked()).validate(loaded));
         if (report.hasErrors()) {
             printFindings("Configuration errors in " + loaded.source() + " (the MCP server does not"
                 + " start):", report.errors());
@@ -245,6 +253,23 @@ final class Launcher {
             LOG.error("Startup failed", e);
             return EXIT_ERROR;
         }
+    }
+
+    /**
+     * {@code report} with a warning per existing private object of the server that grants access
+     * to other principals (feature 013, FR-007, US3 AS4): the default audit directory and its
+     * logs; nothing is changed.
+     */
+    private ValidationReport withPrivateObjects(ProfileConfig config, ValidationReport report) {
+        List<String> found = new PrivateObjectCheck(context.privateFiles(),
+            System.getProperty("user.name", "")).warnings(config.auditDirectory(),
+            context.userHome(), config.profile().name());
+        if (found.isEmpty()) {
+            return report;
+        }
+        List<String> warnings = new ArrayList<>(report.warnings());
+        warnings.addAll(found);
+        return new ValidationReport(report.errors(), warnings, report.workspace());
     }
 
     private ConfigValidator validator(List<LoadedConfig> otherProfiles, StartCliHost host) {
@@ -290,7 +315,7 @@ final class Launcher {
         // the profile name may be invalid here (an error of the report); it only names export
         // directories, which the probe never creates
         try (CliResources resources = new CliResources("check-config",
-            new OsPrivateFileSystem(context.windows()))) {
+            context.privateFiles())) {
             CliVersionProbe probe = new CliVersionProbe(new CliRunner(new SystemProcessLauncher(),
                 context.environment(), context.windows(), system, containment, resources),
                 byId::get);
@@ -321,7 +346,7 @@ final class Launcher {
         // 002 research D-8: only this profile's and legacy (001) directories; feature 013
         // (R-10): on Windows too, the owner compared with the user of the process token
         int swept = CliResources.sweepStale(Path.of(System.getProperty("java.io.tmpdir")),
-            config.profile().name(), new OsPrivateFileSystem(context.windows()));
+            config.profile().name(), context.privateFiles());
         if (swept > 0) {
             LOG.info("Deleted {} export director{} left behind by stopped MCP servers",
                 swept, swept == 1 ? "y" : "ies");
@@ -329,7 +354,7 @@ final class Launcher {
         try (Wiring wiring = new Wiring(config, context.credentialStore().get(), context.scrubber(),
             ClockProvider.system(), context.exists(), context.windows(),
             new SystemProcessLauncher(), System.getenv(), context.parameterStore(),
-            location, containment)) {
+            location, containment, context.privateFiles())) {
             McpServerFactory factory = wiring.serverFactory(BuildInfo.version(),
                 toolHandlers.apply(wiring));
             try (McpServerFactory.RunningServer server = factory.start(context.in(),
@@ -354,30 +379,23 @@ final class Launcher {
     }
 
     /**
-     * Creates the directory; on POSIX, every directory created here — the audit directory and its
-     * missing parents, e.g. {@code ~/.inubit-mcp} and {@code ~/.inubit-mcp/<profile>} (002 US2
-     * review P3c) — is owner-only, and an existing audit directory is tightened. Existing parents
-     * are not modified.
+     * Creates the directory through the private file system (feature 013, FR-007): every
+     * directory created here — the audit directory and its missing parents, e.g.
+     * {@code ~/.inubit-mcp} and {@code ~/.inubit-mcp/<profile>} (002 US2 review P3c) — is
+     * private (POSIX {@code rwx------}; Windows the current user and {@code SYSTEM}), and an
+     * existing audit directory is tightened on POSIX. Existing parents are not modified. A file
+     * system without private objects gets the directories without restricted access, as before.
      */
-    private static void createAuditDirectory(Path directory) throws IOException {
-        if (!FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
-            Files.createDirectories(directory);
+    private void createAuditDirectory(Path directory) throws IOException {
+        Path absolute = directory.toAbsolutePath().normalize();
+        PrivateFileSystem files = context.privateFiles();
+        try {
+            files.createDirectories(absolute);
+        } catch (UnsupportedOperationException e) {
+            Files.createDirectories(absolute);
             return;
         }
-        Path absolute = directory.toAbsolutePath().normalize();
-        List<Path> missing = new ArrayList<>();
-        for (Path path = absolute; path != null && !Files.exists(path); path = path.getParent()) {
-            missing.addFirst(path);
-        }
-        for (Path path : missing) {
-            try {
-                Files.createDirectory(path, PosixFilePermissions.asFileAttribute(OWNER_ONLY));
-            } catch (FileAlreadyExistsException e) {
-                continue; // created concurrently: not ours, not modified
-            }
-            Files.setPosixFilePermissions(path, OWNER_ONLY); // independent of the umask
-        }
-        Files.setPosixFilePermissions(absolute, OWNER_ONLY);
+        files.tightenOnPosix(absolute);
     }
 
     /** Scrubbed and on a single line. */

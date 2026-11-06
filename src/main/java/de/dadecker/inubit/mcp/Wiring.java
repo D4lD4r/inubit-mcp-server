@@ -82,6 +82,7 @@ import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.E2ePort;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.NetworkPathProbe;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.infra.AuditLog;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.ResultJson;
@@ -245,14 +246,29 @@ final class Wiring implements AutoCloseable {
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment, Supplier<ParameterStore> parameterStore,
         ConfigLocation configLocation, ProcessContainment containment) {
+        this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
+            parameterStore, configLocation, containment, new OsPrivateFileSystem(windows));
+    }
+
+    /**
+     * As above, with the private file system that {@code Launcher} uses too (feature 013,
+     * FR-007): the export and import directories and the audit directory and log are created
+     * through it.
+     */
+    Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
+        ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
+        Map<String, String> environment, Supplier<ParameterStore> parameterStore,
+        ConfigLocation configLocation, ProcessContainment containment,
+        PrivateFileSystem privateFiles) {
         Objects.requireNonNull(containment, "containment");
+        Objects.requireNonNull(privateFiles, "privateFiles");
         this.configLocation = Objects.requireNonNull(configLocation, "configLocation");
         this.networkPathProbe = new WindowsNetworkPaths(windows, JnaDriveTypeApi::new);
         this.profile = config.profileInfo();
         this.scrubber = scrubber;
         // 002 research D-8: the export directories carry the profile name
         // feature 013 (FR-007): the export and import directories are private on every platform
-        this.cliResources = new CliResources(profile.name(), new OsPrivateFileSystem(windows));
+        this.cliResources = new CliResources(profile.name(), privateFiles);
         this.cleanupHook = new Thread(cliResources::close, "inubit-mcp-cli-cleanup");
         Terminology terms = profile.terminology();
         this.servers = config.effectiveNodes();
@@ -314,7 +330,7 @@ final class Wiring implements AutoCloseable {
         // which the guard treats as no write access
         Function<NodeId, WritePolicy> policies = id -> byId.containsKey(id)
             ? policy(byId.get(id), secrets.get(id)) : null;
-        AuditLog audit = new AuditLog(config.auditDirectory(), scrubber);
+        AuditLog audit = new AuditLog(config.auditDirectory(), scrubber, privateFiles);
         this.processControl = new ProcessControlService(
             new WriteGuard(targets, policies, gateways, versionGate), policies,
             gateways, new ConfirmationRegistry(clock.clock()), audit, clock.clock(),

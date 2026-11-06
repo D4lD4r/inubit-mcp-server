@@ -3,19 +3,18 @@ package de.dadecker.inubit.mcp.infra;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.port.AuditPort;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileSystems;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.FileAttribute;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.ZoneOffset;
@@ -43,8 +42,12 @@ import tools.jackson.databind.node.ObjectNode;
  *   <li>Append-only: each record is written through a {@link FileChannel} opened with
  *       {@code CREATE, WRITE, APPEND}, then {@code force(true)}d before {@link #append}
  *       returns, so that it survives a crash or restart. Nothing is ever rewritten.
- *   <li>Owner-only: the directory is {@code rwx------} and the file {@code rw-------}; both are
- *       created so and tightened if they exist with wider permissions (POSIX only).
+ *   <li>Private: the directory and the file are created through the {@link PrivateFileSystem}
+ *       (feature 013, FR-007): {@code rwx------} and {@code rw-------} on POSIX, tightened if
+ *       they exist with wider permissions; on Windows a protected access list for the current
+ *       user and {@code SYSTEM}, an existing access list is not changed. If the file system
+ *       cannot create private objects (a POSIX system without permission support), the
+ *       directory is created without restricted access and the file by the open, as before.
  *   <li>Every string value is scrubbed of registered secrets (Constitution II). The inputs
  *       {@value AuditRecord#CONFIRMATION_CODE} and {@value AuditRecord#ISSUED_CONFIRMATION_CODE}
  *       are stored only as {@code sha256:} plus the first 16 hex chars of their SHA-256, which
@@ -69,10 +72,6 @@ public final class AuditLog implements AuditPort {
         DateTimeFormatter.ofPattern("yyyy-MM").withZone(ZoneOffset.UTC);
     private static final Set<StandardOpenOption> APPEND = Set.of(StandardOpenOption.CREATE,
         StandardOpenOption.WRITE, StandardOpenOption.APPEND);
-    private static final Set<PosixFilePermission> FILE_PERMISSIONS =
-        PosixFilePermissions.fromString("rw-------");
-    private static final Set<PosixFilePermission> DIRECTORY_PERMISSIONS =
-        PosixFilePermissions.fromString("rwx------");
     private static final Set<String> HASHED_INPUTS =
         Set.of(AuditRecord.CONFIRMATION_CODE, AuditRecord.ISSUED_CONFIRMATION_CODE);
 
@@ -80,17 +79,18 @@ public final class AuditLog implements AuditPort {
     private final SecretScrubber scrubber;
     private final ChannelOpener opener;
     private final JsonMapper json = JsonMapper.builder().build();
+    private final PrivateFileSystem files;
     private final ReentrantLock lock = new ReentrantLock();
-    private final boolean posix =
-        FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
 
-    public AuditLog(Path directory, SecretScrubber scrubber) {
-        this(directory, scrubber, FileChannel::open);
+    public AuditLog(Path directory, SecretScrubber scrubber, PrivateFileSystem files) {
+        this(directory, scrubber, files, FileChannel::open);
     }
 
-    AuditLog(Path directory, SecretScrubber scrubber, ChannelOpener opener) {
+    AuditLog(Path directory, SecretScrubber scrubber, PrivateFileSystem files,
+        ChannelOpener opener) {
         this.directory = Objects.requireNonNull(directory, "directory");
         this.scrubber = Objects.requireNonNull(scrubber, "scrubber");
+        this.files = Objects.requireNonNull(files, "files");
         this.opener = Objects.requireNonNull(opener, "opener");
     }
 
@@ -126,12 +126,8 @@ public final class AuditLog implements AuditPort {
         lock.lock();
         try {
             ensureDirectory();
-            try (FileChannel channel = posix
-                ? opener.open(file, APPEND, PosixFilePermissions.asFileAttribute(FILE_PERMISSIONS))
-                : opener.open(file, APPEND)) {
-                if (posix) {
-                    Files.setPosixFilePermissions(file, FILE_PERMISSIONS);
-                }
+            ensureFile(file);
+            try (FileChannel channel = opener.open(file, APPEND)) {
                 ByteBuffer buffer = ByteBuffer.wrap(line);
                 while (buffer.hasRemaining()) {
                     channel.write(buffer);
@@ -147,19 +143,25 @@ public final class AuditLog implements AuditPort {
     }
 
     private void ensureDirectory() throws IOException {
-        if (Files.isDirectory(directory)) {
-            if (posix) {
-                Files.setPosixFilePermissions(directory, DIRECTORY_PERMISSIONS);
+        if (!Files.isDirectory(directory)) {
+            try {
+                files.createDirectories(directory);
+            } catch (UnsupportedOperationException e) {
+                Files.createDirectories(directory);
             }
-            return;
         }
-        if (posix) {
-            Files.createDirectories(directory,
-                PosixFilePermissions.asFileAttribute(DIRECTORY_PERMISSIONS));
-            Files.setPosixFilePermissions(directory, DIRECTORY_PERMISSIONS);
-        } else {
-            Files.createDirectories(directory);
+        files.tightenOnPosix(directory);
+    }
+
+    private void ensureFile(Path file) throws IOException {
+        if (!Files.exists(file)) {
+            try {
+                files.createFile(file);
+            } catch (FileAlreadyExistsException | UnsupportedOperationException e) {
+                // created meanwhile, or no private files here: the open creates it
+            }
         }
+        files.tightenOnPosix(file);
     }
 
     private ObjectNode toJson(AuditRecord record) {

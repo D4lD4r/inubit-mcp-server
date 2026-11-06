@@ -733,7 +733,8 @@ class RepositoryImportTest {
      * line; no line holds content of a repository file.
      */
     private List<JsonNode> auditLines() throws IOException {
-        AuditLog log = new AuditLog(auditDirectory, new SecretScrubber());
+        AuditLog log = new AuditLog(auditDirectory, new SecretScrubber(),
+                de.dadecker.inubit.mcp.testing.PrivateFiles.forHost());
         harness.audit("import_artifacts").forEach(log::append);
         List<JsonNode> lines = new ArrayList<>();
         try (Stream<Path> files = Files.list(auditDirectory)) {

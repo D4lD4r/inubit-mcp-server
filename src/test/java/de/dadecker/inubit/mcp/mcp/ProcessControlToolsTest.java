@@ -212,7 +212,8 @@ class ProcessControlToolsTest {
             new WriteGuard(new TargetResolver(ids), policyOf, gateways,
                 FakeVersionDetection.pinned81()), policyOf, gateways,
             new ConfirmationRegistry(Clock.systemUTC()),
-            new AuditLog(temp.resolve("audit"), scrubber), Clock.systemUTC(), UUID::randomUUID,
+            new AuditLog(temp.resolve("audit"), scrubber,
+                PrivateFiles.forHost()), Clock.systemUTC(), UUID::randomUUID,
             "acme");
         McpTestClient client = McpTestClient.start(List.of(new RestartProcessTool(service),
             new KillProcessTool(service)), scrubber);
