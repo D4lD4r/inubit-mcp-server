@@ -54,13 +54,13 @@ class CliClientProbeTest {
 
     private final MutableClock clock = new MutableClock(Instant.parse("2026-11-01T10:00:00Z"));
     private final Map<String, String> parentEnvironment = new HashMap<>(Map.of("PATH", "/usr/bin"));
-    private Path script;
     private EffectiveNodeConfig server;
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        Path bin = Files.createDirectories(cliHome.resolve("bin"));
+        Files.writeString(bin.resolve("startcli.sh"), "#!/bin/sh\n");
+        Files.writeString(bin.resolve("startcli.bat"), "@echo off\r\n");
         server = node(VersionSetting.V6_1).cliJavaHome(javaHome).build();
         release(javaHome, "JAVA_VERSION=\"1.8.0_292\"");
     }
@@ -89,7 +89,7 @@ class CliClientProbeTest {
         assertThat(options).contains(
             new CliClientOptions(false, false, false, Optional.of(8)));
         assertThat(launcher.launchCount()).isEqualTo(1);
-        assertThat(launcher.last().spec().command()).containsExactly(script.toString(), "-h");
+        assertThat(launcher.last().spec().startCliArguments()).containsExactly("-h");
         assertThat(launcher.last().stdinBytes()).isEmpty();
         assertThat(launcher.last().stdinClosed()).isTrue();
     }

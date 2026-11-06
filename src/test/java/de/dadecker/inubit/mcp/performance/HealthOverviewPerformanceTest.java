@@ -126,8 +126,8 @@ class HealthOverviewPerformanceTest {
         FakeProcessLauncher version = FakeProcessLauncher.of("CLI 6.1.0\nSupported inubit"
             + " Process Engine versions from 4.0.1 to 6.1.0.\n", "", 0);
         FakeProcessLauncher session = FakeProcessLauncher.of("", "", 0).hanging();
-        ProcessLauncher launcher = spec -> switch (spec.command().size() == 2
-            ? spec.command().get(1) : "") {
+        ProcessLauncher launcher = spec -> switch (spec.startCliArguments().size() == 1
+            ? spec.startCliArguments().get(0) : "") {
             case "-h" -> help.launch(spec);
             case "-v" -> version.launch(spec);
             default -> session.launch(spec);

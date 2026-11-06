@@ -365,7 +365,7 @@ Windows CI job.
 
 ## Phase 8: User Story 5 - INUBIT 6.1 on Windows (Priority: P2, conditional)
 
-- [ ] T028 [US5] (FR-012, R-14) Only if feature 012 is on `main` when this phase starts: merge
+- [X] T028 [US5] (FR-012, R-14) Only if feature 012 is on `main` when this phase starts: merge
   `main`, route the 6.1 session through the Windows launch and add **(Windows)** variants of the
   012 session tests (`V61ConnectionTest`, `V61SessionTest` or their successors). Otherwise: add a
   task to `specs/012-inubit-61-cli-reads/tasks.md` on its branch ("Windows variants of the 6.1
@@ -373,6 +373,14 @@ Windows CI job.
   - **Note (open on purpose)**: feature 012 does not go to `main`. 012 and 013 are merged in a
     separate 0.8.0 branch by another session, which also does this task there; the 012 branch is
     not changed from this branch.
+  - **Done in the 0.8.0 branch** (merge of 012, 013 and 016): the 6.1 session runs through the
+    Windows launch of `CliRunner`; `V61ConnectionWindowsTest` repeats all `V61ConnectionTest`
+    cases on a simulated Windows runner and adds `cmd.exe` launch, password on stdin, JKS
+    trust store in `JAVA_TOOL_OPTIONS`, CRLF decoding and the refusal of a username or password
+    the interpreter would change. `V61Connection` checks the credentials
+    (`CliRunner.checkCredentials`) before the TLS pre-check, so a refused one causes no node
+    contact. The other 6.1 tests detect the help probe by `startCliArguments()` and install
+    `startcli.bat` next to `startcli.sh`, so they run on the Windows CI job as well.
 
 ---
 

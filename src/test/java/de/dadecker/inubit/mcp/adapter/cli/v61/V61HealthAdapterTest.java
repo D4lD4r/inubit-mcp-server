@@ -74,8 +74,9 @@ class V61HealthAdapterTest {
 
     @BeforeEach
     void install() throws IOException {
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        Path bin = Files.createDirectories(cliHome.resolve("bin"));
+        Files.writeString(bin.resolve("startcli.sh"), "#!/bin/sh\n");
+        Files.writeString(bin.resolve("startcli.bat"), "@echo off\r\n");
         Files.writeString(javaHome.resolve("release"), "JAVA_VERSION=\"1.8.0_292\"\n");
     }
 
@@ -124,7 +125,7 @@ class V61HealthAdapterTest {
 
         @Override
         public LaunchedProcess launch(LaunchSpec spec) throws IOException {
-            boolean probe = spec.command().size() == 2 && spec.command().get(1).equals("-h");
+            boolean probe = spec.startCliArguments().equals(List.of("-h"));
             return probe ? help.launch(spec) : session.launch(spec);
         }
 

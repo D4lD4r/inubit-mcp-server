@@ -60,20 +60,22 @@ import org.junit.jupiter.api.io.TempDir;
  * T020 (feature 012, FR-012, FR-012a, research D-7/D-8): the 6.1 connection sequence — StartCLI
  * available → client options → option and format refusals → concurrency permit → TLS handshake
  * with the effective StartCLI URL → session. The {@code -h} probe and the session are told apart
- * by their argument array; the INUBIT side is a {@link TlsTestServer} that counts connections.
+ * by their StartCLI arguments; the INUBIT side is a {@link TlsTestServer} that counts connections.
+ * The runner is the host's; {@link V61ConnectionWindowsTest} runs every test with a simulated
+ * Windows runner (feature 013 T028).
  */
 @Timeout(30)
 class V61ConnectionTest {
 
-    private static final TestCertificates CERTS = TestCertificates.get();
-    private static final NodeId ID = NodeId.parse("legacy/node1");
-    private static final String PASSWORD = "S3cr3t-v61-pw";
-    private static final List<CliSessionCommand> COMMANDS =
+    static final TestCertificates CERTS = TestCertificates.get();
+    static final NodeId ID = NodeId.parse("legacy/node1");
+    static final String PASSWORD = "S3cr3t-v61-pw";
+    static final List<CliSessionCommand> COMMANDS =
         List.of(CliSessionCommand.UNAME, CliSessionCommand.UPTIME);
-    private static final int BOUND = CliRunner.MAX_OUTPUT_BYTES;
+    static final int BOUND = CliRunner.MAX_OUTPUT_BYTES;
 
     /** A client whose help lists the trust-store, host-name and command options. */
-    private static final String HELP_WITH_OPTIONS = """
+    static final String HELP_WITH_OPTIONS = """
         usage: startcli [options] [url]
          -u <user>                       user name for the login
          -h                              print this help
@@ -89,17 +91,18 @@ class V61ConnectionTest {
     Path javaHome;
 
     private final MutableClock clock = new MutableClock(Instant.parse("2026-11-01T10:00:00Z"));
-    private final CredentialGuard guard =
+    final CredentialGuard guard =
         new CredentialGuard(storeLabels("INUBIT", ID), clock);
-    private final Map<String, String> parentEnvironment = new HashMap<>(Map.of("PATH", "/usr/bin"));
+    final Map<String, String> parentEnvironment = new HashMap<>(Map.of("PATH", "/usr/bin"));
     private final CliConcurrencyLimiter limiter =
         new CliConcurrencyLimiter(CapabilityMatrix.production());
-    private TlsTestServer inubit;
+    TlsTestServer inubit;
 
     @BeforeEach
     void start() throws IOException, GeneralSecurityException {
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        Path bin = Files.createDirectories(cliHome.resolve("bin"));
+        Files.writeString(bin.resolve("startcli.sh"), "#!/bin/sh\n");
+        Files.writeString(bin.resolve("startcli.bat"), "@echo off\r\n");
         release(javaHome, "JAVA_VERSION=\"1.8.0_292\"");
         inubit = TlsTestServer.start(CERTS.localhostKeyStore());
     }
@@ -110,7 +113,7 @@ class V61ConnectionTest {
     }
 
     /** A 6.1 node on {@link #inubit} with a password-less PKCS12 trust store. */
-    private TestNodeConfig node() {
+    TestNodeConfig node() {
         return TestNodeConfig.node().id(ID.toString()).versionLine(VersionSetting.V6_1)
             .baseUrl("https://localhost:" + inubit.port()).cliHome(cliHome).cliJavaHome(javaHome)
             .trustStore(CERTS.trustStore()).cliTimeout(Duration.ofSeconds(10));
@@ -120,21 +123,30 @@ class V61ConnectionTest {
         Files.writeString(home.resolve("release"), javaVersionLine + "\n");
     }
 
-    private static NodeCredentials credentials() {
+    static NodeCredentials credentials() {
+        return credentials("jdoe", PASSWORD);
+    }
+
+    static NodeCredentials credentials(String username, String password) {
         return new NodeCredentials(ID,
-            Optional.of(new SourcedValue<>("jdoe", "INUBIT_LEGACY_NODE1_USERNAME")),
-            Optional.of(new SourcedValue<>(Secret.of(PASSWORD), "INUBIT_LEGACY_NODE1_PASSWORD")),
+            Optional.of(new SourcedValue<>(username, "INUBIT_LEGACY_NODE1_USERNAME")),
+            Optional.of(new SourcedValue<>(Secret.of(password), "INUBIT_LEGACY_NODE1_PASSWORD")),
             Optional.empty(), Optional.empty());
     }
 
-    private V61Connection connection(EffectiveNodeConfig server, Launchers launchers) {
+    /** The runner of the tests: the host's (overridden by {@link V61ConnectionWindowsTest}). */
+    CliRunner runner(ProcessLauncher launcher) {
+        return TestCliRunners.forHost(launcher, parentEnvironment,
+            new CliResources("acme", PrivateFiles.forHost()));
+    }
+
+    V61Connection connection(EffectiveNodeConfig server, Launchers launchers) {
         return connection(server, credentials(), launchers);
     }
 
-    private V61Connection connection(EffectiveNodeConfig server, NodeCredentials credentials,
+    V61Connection connection(EffectiveNodeConfig server, NodeCredentials credentials,
         Launchers launchers) {
-        CliRunner runner = TestCliRunners.forHost(launchers, parentEnvironment,
-            new CliResources("acme", PrivateFiles.forHost()));
+        CliRunner runner = runner(launchers);
         return new V61Connection(server, credentials, guard, runner,
             new CliClientProbe(runner, id -> server, CapabilityMatrix.production(), clock),
             limiter);
@@ -142,9 +154,10 @@ class V61ConnectionTest {
 
     /**
      * Sends {@code -h} runs to {@code help} and everything else (sessions) to {@code session};
-     * records the order of all launches.
+     * records the order of all launches. Tells them apart by the StartCLI arguments, which are
+     * the same on POSIX and through the Windows interpreter.
      */
-    private static final class Launchers implements ProcessLauncher {
+    static final class Launchers implements ProcessLauncher {
 
         final FakeProcessLauncher help;
         final FakeProcessLauncher session;
@@ -169,7 +182,7 @@ class V61ConnectionTest {
 
         @Override
         public LaunchedProcess launch(LaunchSpec spec) throws IOException {
-            boolean probe = spec.command().size() == 2 && spec.command().get(1).equals("-h");
+            boolean probe = spec.startCliArguments().equals(List.of("-h"));
             order.add(probe ? "probe" : "session");
             return probe ? help.launch(spec) : session.launch(spec);
         }
@@ -179,12 +192,13 @@ class V61ConnectionTest {
             return (int) order.stream().filter("session"::equals).count();
         }
 
+        /** The StartCLI arguments of the last session. */
         List<String> sessionCommand() {
-            return session.last().spec().command();
+            return session.last().spec().startCliArguments();
         }
     }
 
-    private static ToolError errorOf(Executable call) {
+    static ToolError errorOf(Executable call) {
         ToolErrorException exception = catchThrowableOfType(ToolErrorException.class, () -> {
             try {
                 call.execute();
@@ -223,6 +237,7 @@ class V61ConnectionTest {
     @Test
     void aNodeWithoutStartCliIsCliUnavailableBeforeAnythingElse() throws IOException {
         Files.delete(cliHome.resolve("bin/startcli.sh"));
+        Files.delete(cliHome.resolve("bin/startcli.bat"));
         Launchers launchers = Launchers.sixOne();
         // would also be refused for the missing host-name option
         EffectiveNodeConfig server = node().disableHostnameVerification(

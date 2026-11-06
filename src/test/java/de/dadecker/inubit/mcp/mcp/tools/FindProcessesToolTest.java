@@ -350,8 +350,8 @@ class FindProcessesToolTest {
             .parse(yaml, temp.resolve("config.yaml"));
         SecretScrubber scrubber = new SecretScrubber();
         assertThat(TestValidators.ofSystem(false).validate(loaded).errors()).isEmpty();
-        ProcessLauncher launcher = spec -> switch (spec.command().size() == 2
-            ? spec.command().get(1) : "") {
+        ProcessLauncher launcher = spec -> switch (spec.startCliArguments().size() == 1
+            ? spec.startCliArguments().get(0) : "") {
             case "-h" -> help.launch(spec);
             case "-v" -> clientVersion.launch(spec);
             default -> session.launch(spec);

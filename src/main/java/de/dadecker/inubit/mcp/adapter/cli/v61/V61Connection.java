@@ -27,7 +27,9 @@ import java.util.Optional;
  *
  * <ol>
  *   <li>StartCLI available and credentials set ({@link CliRunner#checkAvailable}): otherwise
- *       {@code CLI_UNAVAILABLE} or {@code AUTH_FAILED} without any contact;
+ *       {@code CLI_UNAVAILABLE} or {@code AUTH_FAILED} without any contact; on Windows also a
+ *       username or password that cannot reach {@code bin\startcli.bat} unchanged ({@link
+ *       CliRunner#checkCredentials}, feature 013 T028);
  *   <li>the client options from {@link CliClientProbe#optionsFor}, cached or by a local
  *       {@code -h} run bounded by the node's {@code cliTimeout};
  *   <li>the refusals, all {@code TLS_ERROR} before any contact: {@code disableHostnameVerification}
@@ -98,6 +100,9 @@ public final class V61Connection {
                 "The username or password variable for " + server.id() + " is not set",
                 guard.fixCredentials()).withNode(server.id()));
         }
+        // feature 013 (T028): on Windows a refused username or password before any contact
+        runner.checkCredentials(server, credentials.username().orElseThrow().value(),
+            credentials.password().orElseThrow().value());
         CliClientOptions options =
             probe.optionsFor(server.id(), server.cliTimeout()).orElse(NOTHING_KNOWN);
         refuse(options);

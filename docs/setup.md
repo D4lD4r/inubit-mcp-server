@@ -19,7 +19,7 @@ guide walks through it. All host names below are examples (`*.example.test`).
 | Maven 3.9+ (`mvn -v`) | only to build the JAR from source; a released JAR can be downloaded instead ([README](../README.md#installation-in-claude-code)) |
 | INUBIT 8.1.17 client installation (Workbench), e.g. `/opt/inubit/client` with `bin/startcli.sh` (`bin\startcli.bat` on Windows, e.g. `C:\inubit\client`; [StartCLI on Windows](#startcli-on-windows)) | CLI-backed tools only (process restart/kill, module list and version histories of the inventory, `export_artifacts`, every development tool except `run_e2e_test`, and `deploy_release`, which needs it on every node of a target group and of its source group); the INUBIT versions it declares must include the server's major.minor, and it should match the servers' patch level ([StartCLI client check](#startcli-client-check)) |
 | Temurin (or another) JDK **17** | StartCLI 8.1 runs on Java 17, not on the JDK of the server |
-| Only for INUBIT 6.1 nodes: a StartCLI client whose declared INUBIT range includes 6.1 (e.g. the INUBIT 6.1 client) and the Java runtime it runs on | 6.1 nodes are reached through StartCLI only ([INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)); not on Windows, where StartCLI-backed tools are not supported |
+| Only for INUBIT 6.1 nodes: a StartCLI client whose declared INUBIT range includes 6.1 (e.g. the INUBIT 6.1 client) and the Java runtime it runs on | 6.1 nodes are reached through StartCLI only ([INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)); on Windows with the rules of [StartCLI on Windows](#startcli-on-windows) |
 | An INUBIT account per group (or node) with rights to read logs, monitoring and models, plus "CLI login access" for CLI-backed tools, and rights to export, import and tag the owner's diagrams and modules where the development tools or deployments are used | REST and CLI access |
 | The credential store of the system: macOS Keychain and Windows Credential Manager are built in; on Linux `secret-tool` (package `libsecret-tools` on Debian/Ubuntu, `libsecret` on Fedora/Arch) and a running Secret Service (e.g. GNOME Keyring) in the desktop session | the INUBIT credentials (section 4); without a usable store (a container, a headless server) use AWS Parameter Store. Environment variables are not a credential source |
 | `keytool` (part of the JDK), on macOS and Linux also `openssl` | only for a self-signed server certificate (section 5) |
@@ -345,7 +345,9 @@ A node runs as INUBIT 6.1 only when it is pinned to it: `versionLine: V6_1` or a
 version such as `"6.1.0"` or `"6.1.0.89"` (feature 012). INUBIT 6.1 has none of the REST endpoints
 the server uses, so a 6.1 node is reached through **StartCLI only**: the server sends it no REST
 or SOAP request, also not for a version detection. It is never written to. A server running on Windows serves
-6.1 nodes as well, with the Windows rules of [StartCLI on Windows](#startcli-on-windows).
+6.1 nodes as well, with the Windows rules of [StartCLI on Windows](#startcli-on-windows); a
+username or password refused there is refused before the TLS pre-check, so the node is not
+contacted.
 
 ```yaml
 groups:

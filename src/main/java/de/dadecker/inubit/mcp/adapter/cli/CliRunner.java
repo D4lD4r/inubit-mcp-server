@@ -297,6 +297,17 @@ public final class CliRunner {
      * interpreter, and a password outside ASCII is refused until the live check (R-13) shows it
      * arrives unchanged. Names the entry and the cause, never the value.
      */
+    /**
+     * On Windows, refuses a username or password that cannot reach StartCLI unchanged with
+     * {@code AUTH_FAILED}, as {@link #runSession} does; for callers that contact the node before
+     * the session (the 6.1 TLS handshake, feature 013 T028). Off Windows it does nothing.
+     */
+    public void checkCredentials(EffectiveNodeConfig server, String username, Secret password) {
+        if (windows) {
+            refuseWindowsCredentials(server, username, password);
+        }
+    }
+
     private static void refuseWindowsCredentials(EffectiveNodeConfig server, String username,
         Secret password) {
         SecretLabels labels = server.secretLabels();

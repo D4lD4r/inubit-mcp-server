@@ -59,7 +59,8 @@ Feature 012, read-only INUBIT 6.1 nodes reached through StartCLI only. The recor
     `^` `&` `|` `<` `>`, control characters, non-ASCII) are refused before any process starts: a
     setting with `CLI_UNAVAILABLE` and a warning in `--check-config`, a username with
     `AUTH_FAILED`; a `cli.home` on a network path is refused; a password outside ASCII is refused
-    until the live check has shown that it reaches the client unchanged.
+    until the live check has shown that it reaches the client unchanged. For an INUBIT 6.1
+    node these are refused before the TLS pre-check, so the node is not contacted.
   - The password reaches StartCLI only through its standard input; StartCLI gets an allowlisted
     environment with a fixed `PATH`, English messages and UTF-8 output, which is decoded
     independently of the console code page and of CRLF line endings.

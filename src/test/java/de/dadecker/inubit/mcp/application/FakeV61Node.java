@@ -30,6 +30,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -59,8 +60,9 @@ final class FakeV61Node {
         Path cliHome = dir.resolve("cli");
         Path javaHome = dir.resolve("java");
         try {
-            Files.writeString(Files.createDirectories(cliHome.resolve("bin"))
-                .resolve("startcli.sh"), "#!/bin/sh\n");
+            Path bin = Files.createDirectories(cliHome.resolve("bin"));
+            Files.writeString(bin.resolve("startcli.sh"), "#!/bin/sh\n");
+            Files.writeString(bin.resolve("startcli.bat"), "@echo off\r\n");
             Files.writeString(Files.createDirectories(javaHome).resolve("release"),
                 "JAVA_VERSION=\"1.8.0_292\"\n");
         } catch (IOException e) {
@@ -74,8 +76,8 @@ final class FakeV61Node {
             Optional.of(new SourcedValue<>("jdoe", "INUBIT_LEGACY_NODE1_USERNAME")),
             Optional.of(new SourcedValue<>(Secret.of(PASSWORD), "INUBIT_LEGACY_NODE1_PASSWORD")),
             Optional.empty(), Optional.empty());
-        ProcessLauncher launcher = spec -> spec.command().size() == 2
-            && spec.command().get(1).equals("-h") ? help.launch(spec) : session.launch(spec);
+        ProcessLauncher launcher = spec -> spec.startCliArguments().equals(List.of("-h"))
+            ? help.launch(spec) : session.launch(spec);
         CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", "/usr/bin"),
             new CliResources("acme", PrivateFiles.forHost()));
         this.adapter = new V61HealthAdapter(id, new V61Connection(server, credentials,
