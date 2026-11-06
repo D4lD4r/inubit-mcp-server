@@ -139,6 +139,7 @@ public final class ConfigValidator {
         checkIgnoredParameterNames(config, findings);
         checkOneDevelopmentNodePerGroup(config, findings);
         checkRepositorySwitch(config, findings);
+        checkArchivesOptIn(config, findings);
         checkE2eNodeNames(config, findings);
         checkChain(config, findings);
         boolean cliConfigured = config.resolvableNodes().stream()
@@ -949,6 +950,21 @@ public final class ConfigValidator {
             if (!anyDevelopmentNode && isWrite(group.development())) {
                 findings.termWarning("{Group} '%s': development.repository: WRITE has no effect;"
                     + " the {group} has no {node} with development.enabled: true", group.name());
+            }
+        }
+    }
+
+    /**
+     * Feature 015 (research R-15, contracts/configuration-delta.md): {@code
+     * archives.productionOptIn: true} on a group without {@code production: true} is a warning;
+     * {@code export_archives} needs no opt-in there.
+     */
+    private static void checkArchivesOptIn(ProfileConfig config, Findings findings) {
+        for (GroupConfig group : config.groups()) {
+            if (!group.production()
+                && group.archives().productionOptIn().equals(Optional.of(true))) {
+                findings.termWarning("archives.productionOptIn has no effect on {group} %s"
+                    + " (not production)", group.name());
             }
         }
     }

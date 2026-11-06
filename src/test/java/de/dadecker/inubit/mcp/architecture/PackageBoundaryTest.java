@@ -69,6 +69,9 @@ import org.junit.jupiter.api.Test;
  * <p>Feature 011 (T001, research R-2): JNA ({@code com.sun.jna}) is used only in the credential
  * store adapters {@code adapter.os}. The process rule is unchanged: {@code adapter.os} starts its
  * tools through the {@code ProcessLauncher} interface of {@code adapter.cli}.
+ *
+ * <p>Feature 015 (T015, research R-10): the drive-type probe {@code JnaDriveTypeApi}
+ * ({@code GetDriveTypeW}) joins the JNA users in {@code adapter.os}; the rule is unchanged.
  */
 class PackageBoundaryTest {
 
@@ -243,6 +246,7 @@ class PackageBoundaryTest {
         assertThat(types(BASE + "adapter/aws/SsmParameterStore"))
             .anyMatch(t -> t.startsWith(AWS_SDK));
         assertThat(types(BASE + "adapter/os/JnaCredApi")).anyMatch(t -> t.startsWith(JNA));
+        assertThat(types(BASE + "adapter/os/JnaDriveTypeApi")).anyMatch(t -> t.startsWith(JNA));
         assertThat(types(BASE + "application/FanOut")).anyMatch(t -> t.startsWith("org/slf4j/"));
         assertThat(classes.get(BASE + "Wiring").members())
             .contains("java/lang/Runtime.getRuntime");

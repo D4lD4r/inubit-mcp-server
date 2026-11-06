@@ -506,7 +506,8 @@ class CliRunnerTest {
                 tls.pinnedCertificateSha256(), true),
             server.cli(), server.inventory(), server.timeout(), server.cliTimeout(),
             server.cliExportTimeout(), server.hangingThreshold(), server.confirmationTtl(),
-            server.credentialPrefix(), server.development(), server.secretPlan());
+            server.credentialPrefix(), server.development(), server.secretPlan(),
+            server.archivesProductionOptIn());
     }
 
     /** {@code int/a} with pin A, the shared stage trust store and its StartCLI at {@code port}. */

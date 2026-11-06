@@ -13,6 +13,7 @@ import java.util.Optional;
  * @param deploy feature 005: the group receives releases along the stage chain (group-level
  *               only; there is no {@code deploy} on a node)
  * @param credentials feature 010: the group's secret source and Parameter Store names
+ * @param archives feature 015: {@code archives.productionOptIn} (group-level only, research R-15)
  */
 public record GroupConfig(
     String name,
@@ -32,7 +33,8 @@ public record GroupConfig(
     Optional<E2ePolicy> e2eTests,
     E2eConfig e2e,
     Optional<DeployConfig> deploy,
-    CredentialsConfig credentials) {
+    CredentialsConfig credentials,
+    ArchivesConfig archives) {
 
     public GroupConfig {
         name = Optionals.orDefault(name, "");
@@ -52,5 +54,6 @@ public record GroupConfig(
         e2e = Optionals.orDefault(e2e, E2eConfig.EMPTY);
         deploy = Optionals.orEmpty(deploy);
         credentials = Optionals.orDefault(credentials, CredentialsConfig.EMPTY);
+        archives = Optionals.orDefault(archives, ArchivesConfig.EMPTY);
     }
 }

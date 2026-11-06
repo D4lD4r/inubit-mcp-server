@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.os.CredentialStores;
 import de.dadecker.inubit.mcp.config.ConfigException;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
+import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.ConfigSummary;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
 import de.dadecker.inubit.mcp.config.CredentialStore;
@@ -213,7 +214,8 @@ final class Launcher {
         }
         printFindings("Warnings:", report.warnings());
         try {
-            return serve(loaded.config(), report.warnings());
+            return serve(loaded.config(), new ConfigLocation(loader.defaultDirectory(),
+                loaded.source()), report.warnings());
         } catch (RuntimeException e) {
             context.err().println(oneLine("Startup failed: " + e.getClass().getSimpleName()
                 + ": " + e.getMessage()));
@@ -257,7 +259,7 @@ final class Launcher {
         return new ValidationReport(report.errors(), warnings, report.workspace());
     }
 
-    private int serve(ProfileConfig config, List<String> warnings) {
+    private int serve(ProfileConfig config, ConfigLocation location, List<String> warnings) {
         LogLevels.apply(config.logLevel().name());
         warnings.forEach(warning -> LOG.warn("Configuration: {}", warning));
         try {
@@ -278,7 +280,8 @@ final class Launcher {
         }
         try (Wiring wiring = new Wiring(config, context.credentialStore().get(), context.scrubber(),
             ClockProvider.system(), context.exists(), context.windows(),
-            new SystemProcessLauncher(), System.getenv(), context.parameterStore())) {
+            new SystemProcessLauncher(), System.getenv(), context.parameterStore(),
+            location)) {
             McpServerFactory factory = wiring.serverFactory(BuildInfo.version(),
                 toolHandlers.apply(wiring));
             try (McpServerFactory.RunningServer server = factory.start(context.in(),

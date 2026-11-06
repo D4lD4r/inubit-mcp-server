@@ -2262,6 +2262,58 @@ class ConfigValidatorTest {
         }
     }
 
+    /** Feature 015 (T016, research R-15, contracts/configuration-delta.md). */
+    @Nested
+    class Archives {
+
+        private static String profile(boolean production, String archives) {
+            return """
+                profile:
+                  name: acme
+                groups:
+                  - name: dev
+                    production: %s
+                %s    nodes:
+                      - name: node1
+                        baseUrl: https://inubit.example.test:8443
+                """.formatted(production, archives);
+        }
+
+        private static String optIn(boolean value) {
+            return "    archives:\n      productionOptIn: " + value + "\n";
+        }
+
+        @Test
+        void theOptInOnANonProductionGroupIsAWarning() {
+            ValidationReport report = validate(profile(false, optIn(true)));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly(
+                "archives.productionOptIn has no effect on group dev (not production)");
+        }
+
+        @Test
+        void theWarningUsesTheProfileTerminology() {
+            ValidationReport report = validate(profile(false, optIn(true)).replace(
+                "groups:\n", "terminology:\n  group: { singular: stage, plural: stages }\n"
+                    + "  node: { singular: server, plural: servers }\ngroups:\n"));
+
+            assertThat(report.warnings()).containsExactly(
+                "archives.productionOptIn has no effect on stage dev (not production)");
+        }
+
+        @Test
+        void theOptInOnAProductionGroupAndAFalseOrAbsentOptInAreNoFinding() {
+            for (String yaml : List.of(profile(true, optIn(true)), profile(true, optIn(false)),
+                profile(false, optIn(false)), profile(false, ""), profile(true, ""))) {
+                ValidationReport report = validate(yaml);
+
+                assertThat(report.errors()).as(yaml).isEmpty();
+                assertThat(report.warnings()).as(yaml).isEmpty();
+            }
+        }
+    }
+
     /** Feature 014: rules V-1 and V-3 … V-11 of contracts/configuration.md (research R-3). */
     @Nested
     class PinPerServer {

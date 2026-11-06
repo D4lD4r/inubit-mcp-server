@@ -196,8 +196,16 @@ public final class ArchiveAssembler {
         ExportArchive export = archive.archive();
         String version = export.workflowGroups().stream().flatMap(g -> g.workflows().stream())
             .map(w -> w.context().documentVersion()).findFirst().orElse("5.3");
+        return workflowDocument(version, export.workflowGroups());
+    }
+
+    /**
+     * {@code workflow/workflow.xml}: {@code IBISWorkflow} of {@code version} with one
+     * {@code WorkflowGroup} (attributes, {@code WorkflowGroupName}, workflow elements) per group.
+     */
+    static Element workflowDocument(String version, List<WorkflowGroupXml> workflowGroups) {
         List<Node> groups = new ArrayList<>();
-        for (WorkflowGroupXml group : export.workflowGroups()) {
+        for (WorkflowGroupXml group : workflowGroups) {
             List<Node> children = new ArrayList<>();
             children.add(element("WorkflowGroupName", List.of(), List.of(new Text(
                 group.name()))));
@@ -212,8 +220,17 @@ public final class ArchiveAssembler {
         ExportArchive export = archive.archive();
         String version = export.moduleIndex().stream().map(ModuleIndexEntry::documentVersion)
             .findFirst().orElse("5.3");
+        return indexDocument(version, export.moduleIndex());
+    }
+
+    /**
+     * {@code module/module.xml}: {@code IBISWorkflow} of {@code version} with one
+     * {@code ModuleGroup} per group position of {@code index}, its entries in position order;
+     * there is no group without an entry.
+     */
+    static Element indexDocument(String version, List<ModuleIndexEntry> index) {
         Map<Integer, List<ModuleIndexEntry>> byGroup = new TreeMap<>();
-        export.moduleIndex().forEach(entry -> byGroup.computeIfAbsent(entry.groupPosition(),
+        index.forEach(entry -> byGroup.computeIfAbsent(entry.groupPosition(),
             position -> new ArrayList<>()).add(entry));
         List<Node> groups = new ArrayList<>();
         for (List<ModuleIndexEntry> entries : byGroup.values()) {

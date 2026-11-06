@@ -6,6 +6,8 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import de.dadecker.inubit.mcp.config.ConfigLoader;
+import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.FailureKind;
 import de.dadecker.inubit.mcp.config.ParameterType;
 import de.dadecker.inubit.mcp.config.StoreLocation;
@@ -250,11 +252,11 @@ class MainTest {
             INUBIT_ACME_<GROUP>[_<NODE>]_<KIND> (macOS Keychain)
             Audit directory: %s
             Workspace: %s (ok)
-            Group dev:
+            Group dev: archives: allowed
               Node dev/node1: read-only, cli: unavailable, inubit: V8_1, \
             secrets: credentialStore (macOS Keychain), \
             username ← INUBIT_ACME_DEV_USERNAME ok, password ← INUBIT_ACME_DEV_PASSWORD ok
-            Group qa:
+            Group qa: archives: allowed
               Node qa/node2: read-only, cli: unavailable, inubit: AUTO, \
             secrets: credentialStore (macOS Keychain), \
             username ← INUBIT_ACME_QA_NODE2_USERNAME ok, password ← INUBIT_ACME_QA_PASSWORD ok
@@ -1019,6 +1021,61 @@ class MainTest {
                 .isEqualTo("rwx------");
         }
         assertThat(err()).doesNotContain(PASSWORD);
+    }
+
+    @Test
+    void theWiringKnowsTheConfigurationFileInUseAndTheDefaultDirectory() throws Exception {
+        // feature 015 T014 (research R-9): LoadedConfig.source() reaches the Wiring
+        credentials();
+        Path file = Files.createDirectories(home.resolve("elsewhere")).resolve("profile.yaml");
+        Files.move(validConfig(), file);
+        AtomicReference<Wiring> captured = new AtomicReference<>();
+
+        int exit = main(new ByteArrayInputStream(new byte[0]), stdout, wiring -> {
+            captured.set(wiring);
+            return wiring.toolHandlers();
+        }).run("--config", file.toString());
+
+        assertThat(exit).as(err()).isZero();
+        assertThat(captured.get()).as("the server was started").isNotNull();
+        assertThat(captured.get().configLocation()).isEqualTo(new ConfigLocation(
+            new ConfigLoader(Map.copyOf(environment), home, false).defaultDirectory(), file));
+    }
+
+    @Test
+    void exportArchivesRefusesTheFolderOfTheConfigurationFileInUse() throws Exception {
+        // feature 015 T017 (research R-9): the folder of --config is one of the server's
+        // directories, refused before StartCLI
+        credentials();
+        Path file = Files.createDirectories(home.resolve("elsewhere")).resolve("profile.yaml");
+        Files.writeString(file, Files.readString(validConfig())
+            + "    cli:\n      home: " + home.resolve("startcli") + "\n");
+        PipedInputStream serverIn = new PipedInputStream(1 << 16);
+        PipedOutputStream toServer = new PipedOutputStream(serverIn);
+        LineQueue protocol = new LineQueue();
+        Launcher main = main(serverIn, protocol);
+
+        CompletableFuture<Integer> exit = CompletableFuture.supplyAsync(
+            () -> main.run("--config", file.toString()));
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":"
+            + "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},"
+            + "\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}");
+        protocol.next();
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
+        send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":"
+            + "{\"name\":\"export_archives\",\"arguments\":{\"target\":\"dev/node1\","
+            + "\"owner\":\"OWNERS\",\"diagramGroup\":\"GRP-01\",\"targetFolder\":"
+            + JSON.writeValueAsString(home.resolve("elsewhere").resolve("sub").toString())
+            + ",\"acknowledgeClearTextSecrets\":true}}}");
+        JsonNode refused = protocol.next().path("result");
+        toServer.close();
+
+        assertThat(exit.get(20, TimeUnit.SECONDS)).as(err()).isZero();
+        assertThat(refused.path("isError").asBoolean()).as(refused.toString()).isTrue();
+        assertThat(refused.toString()).contains("INVALID_INPUT",
+            "is or lies inside one of the server's directories",
+            "the folder of the configuration file in use");
+        assertThat(home.resolve("elsewhere").resolve("sub")).doesNotExist();
     }
 
     @Test

@@ -32,6 +32,8 @@ public record Defaults(
     public static final Duration BUILTIN_INVENTORY_CACHE_TTL = Duration.ofMinutes(10);
     public static final boolean BUILTIN_WRITE_ENABLED = false;
     public static final boolean BUILTIN_PRODUCTION_OPT_IN = false;
+    /** Feature 015 (research R-15): {@code archives.productionOptIn}, group-level only. */
+    public static final boolean BUILTIN_ARCHIVES_PRODUCTION_OPT_IN = false;
     public static final ConfirmationMode BUILTIN_CONFIRMATION = ConfirmationMode.SERVER;
     public static final VersionSetting BUILTIN_VERSION_LINE = VersionSetting.AUTO;
     public static final boolean BUILTIN_DEVELOPMENT_ENABLED = false;
