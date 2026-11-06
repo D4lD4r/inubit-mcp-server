@@ -24,12 +24,23 @@ mvn -q -o clean verify
 ## Recording on Windows (approval required, non-production node, read-only)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\record-fixtures.ps1 -Profile <name> -Node <group/node> -Case win_version
+$env:RECORD_ALLOWED_GROUPS = '<non-production group>'
+$env:RECORD_ALLOWED_HOSTS = '<non-production host>'
+powershell -ExecutionPolicy Bypass -File tools\record-fixtures.ps1 -Group <group> -Node <node> `
+  -CliHome <cli.home> -JavaHome <cli.javaHome> -Case win_version,win_help,win_failure,win_argv
+powershell -ExecutionPolicy Bypass -File tools\record-fixtures.ps1 -Group <group> -Node <node> `
+  -CliHome <cli.home> -JavaHome <cli.javaHome> -TrustStore <tls.trustStore> `
+  -CliUrl https://<node>:<port>/ibis/servlet/IBISSoapServlet -Owner <owner group> `
+  -WorkRoot C:\inubit-record -Case win_modules,win_backslash
 ```
 
 Cases: `win_version`, `win_help`, `win_modules`, `win_failure`, `win_argv` (argument forwarding for
 the test values of the invocation contract), `win_backslash` (`\` inside a quoted command value),
-later the 6.1 cases. Then `tools/neutralize.py` and
+later the 6.1 cases. `win_argv` needs a JDK (`-DumpJavaHome` if `-JavaHome` is a JRE). The
+script asks for the username and the password (export cases only; host from `RECORD_ALLOWED_HOSTS`),
+replaces local paths and the username, runs `tools/neutralize.py` with the local map
+(`-NeutralizeMap`, `INUBIT_MCP_NEUTRALIZE_MAP` or `.neutralize-map`) in its private work directory
+and writes to `src/test/resources/fixtures/windows/`; `-List` prints the cases. Then
 `NoCustomerIdentifiersTest`.
 
 ## Live check on Windows (approval required)
