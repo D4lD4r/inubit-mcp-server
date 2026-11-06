@@ -523,7 +523,7 @@ export and a write failure are each audited, and the folder never holds a partia
   edit `docs/setup.md` (new subsection "Workbench archives" after "Write settings", audit-log
   bullets, section 6 example output) and `SECURITY.md` (scope bullet).
 
-- [ ] T024 [P] Changelog (FR-016): test first, own test class
+- [X] T024 [P] Changelog (FR-016): test first, own test class
   `test/mcp/tools/ArchiveChangelogTest.java`: `CHANGELOG.md` `[Unreleased]` (planned as 0.7.0) has
   an `### Added` entry for `export_archives` naming the clear-text secrets, the acknowledgement, the
   client confirmation (clients ask before calling it), the folder rules (including the

@@ -61,6 +61,29 @@ covered by tests with fakes only.
     rejections, and `--interactive` shows one dialog per changed server. A certificate that
     another server of the stage expects is flagged with an `expectedBy` note (dialog warning
     "this is the certificate expected for server …").
+- Feature 015, Workbench archives (#56):
+  - New tool `export_archives`: exports the technical workflows of one diagram group as one
+    Workbench-importable archive per workflow (`<name>.diagram.zip`) into a local folder, from one
+    StartCLI `export` (read-only for INUBIT; the workspace is not touched). The archives hold the
+    workflows' secrets (passwords, keys, certificates, saved test messages) **in clear text**, as
+    the Workbench needs them; nothing is redacted.
+  - No archive is written without `acknowledgeClearTextSecrets: true`, and the tool is annotated as
+    not read-only so that clients ask before calling it (the client confirmation; the
+    acknowledgement does not replace it). Existing files are never replaced.
+  - Folder rules: the target folder must be an absolute local path and must not be a network share
+    (UNC path or mapped network drive), nor lie inside `~/.inubit-mcp`, the workspace, the audit
+    directory, the configuration directory, the folder of the configuration file in use or a git
+    working tree. A folder below a known cloud-synchronized root (iCloud Drive, OneDrive, …) is
+    accepted with a warning.
+  - On POSIX the archives are `rw-------` and created folders `rwx------`; on Windows the archives
+    and folders inherit the target folder's ACLs, so choose a folder only you can read.
+  - A production group is refused with `PRODUCTION_PROTECTED` unless it sets the new group setting
+    `archives.productionOptIn` to `true` (default `false`, independent of `write.*`); `--check-config`
+    shows the archive state per group and warns about the setting on a non-production group.
+  - Every call that passes the input schema is audited (as `export_archives`). A failure while
+    writing the archives (after all checks passed) ends as `PARTIALLY_COMPLETED`, also when none
+    was written, and names the archives written, the failed one and the ones not written; an
+    existing file or another refusal before writing is `REFUSED` and writes nothing.
 
 ### Changed
 
