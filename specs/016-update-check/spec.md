@@ -57,6 +57,16 @@ safest option.
   handshake waiting for the network. With the check off, none of the four appears and the cache is
   neither read nor written (FR-006, FR-017, FR-018). This supersedes the earlier answer's
   "not in the MCP `instructions`".
+- Q (operator, directly): "Du kannst jetzt schon eine Elicitation-Dialog einplanen" → the operator
+  decided (no longer an assumption), replacing "no elicitation dialog" above: (5) an MCP
+  elicitation dialog, started in parallel with the first successful tool call after a newer
+  release became known, so the tool result is not delayed; once per newer version and process;
+  only if the client declares the elicitation (form) capability. It shows the installed and the
+  new version, the release URL and that the update is manual, and has one form field "Do not
+  remind me of this version again" (yes/no). "Yes" is stored permanently in the cache file; that
+  version then gets no further dialog (log, `get_health`, note block and `instructions` stay).
+  Decline, cancel, a timeout or an error store nothing. With the check off there is no dialog
+  (FR-019).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -237,6 +247,16 @@ the source receives no request.
   <release URL>; update manually." A missing, unreadable or malformed cache is ignored (DEBUG).
   When the check is off, the cache is neither read nor written.
 
+- **FR-019**: If the MCP client declares the elicitation capability (form mode), the first
+  successful tool call after a newer release became known MUST start an elicitation request in
+  the background (the tool result is returned without waiting for it), once per newer version and
+  process, unless the cache marks that version as dismissed. The message names the installed and
+  the new version, the release URL and that the update is manual; the form has the single boolean
+  field `doNotRemindAgain` ("Do not remind me of this version again", default false). On accept
+  with `true` the server stores the version as dismissed in the cache file (FR-018); every other
+  outcome (decline, cancel, timeout after 10 minutes, error) stores nothing and is logged at DEBUG.
+  A client without the capability gets no request. With the check off there is no dialog.
+
 ### Key Entities
 
 - **Running version**: the version of the server process, from the JAR manifest (or the build
@@ -263,6 +283,9 @@ the source receives no request.
   user names (verified by a test that inspects the captured request).
 - **SC-006**: With a cached newer release, the `initialize` result's `instructions` name it, and the
   first successful tool call carries the note block exactly once, without any network access.
+- **SC-007**: With a newer release known and a client that supports elicitation, the first
+  successful tool call returns while the elicitation request is still unanswered; answering
+  "do not remind" suppresses the dialog for that version at the next start.
 
 ## Assumptions
 

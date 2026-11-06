@@ -25,9 +25,12 @@ java -jar /private/tmp/inubit-mcp-server.jar --version     # inubit-mcp-server <
 4. Restart the client: `~/.inubit-mcp/update-check.json` exists; the server's `instructions` (as far
    as the client shows them) end with "A newer inubit-mcp-server … is available …", even when the
    network is off.
-5. Restart with `INUBIT_MCP_UPDATE_CHECK=off` in the registration's environment (or
-   `updateCheck: {enabled: false}` in the profile): INFO "Update check is off", no `serverUpdate`, no note, the cache file is not touched.
-6. Behind a proxy: add `-Djava.net.useSystemProxies=true` (or `-Dhttps.proxyHost=… -Dhttps.proxyPort=…`)
+5. In Claude Code (elicitation supported): with the first tool call a dialog "inubit-mcp-server …
+   is available …" appears while the tool result already arrives. Answer with "do not remind" =
+   yes; after a restart no dialog for that version (note line and `get_health` still there).
+6. Restart with `INUBIT_MCP_UPDATE_CHECK=off` in the registration's environment (or
+   `updateCheck: {enabled: false}` in the profile): INFO "Update check is off", no `serverUpdate`, no note, no dialog, the cache file is not touched.
+7. Behind a proxy: add `-Djava.net.useSystemProxies=true` (or `-Dhttps.proxyHost=… -Dhttps.proxyPort=…`)
    before `-jar` in the registration; step 1 must work.
-7. Without network: start must be as fast as before, tools work, no WARN/ERROR from the check
+8. Without network: start must be as fast as before, tools work, no WARN/ERROR from the check
    (only DEBUG with `logLevel: DEBUG`).

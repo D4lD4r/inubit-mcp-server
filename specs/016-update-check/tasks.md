@@ -138,26 +138,37 @@ that never answers: `instructions` name it, the first tool result has the note b
   gets the cache (system: `FileUpdateCache` under `userHome`); tests in `MainTest` (SC-006,
   opt-out)
 
+- [ ] T017 [US1] Elicitation dialog (FR-019, SC-007, research R-13; operator decision):
+  `CachedRelease.dismissedVersion` + `UpdateCache.dismiss(SemVer)` (kept on rewrite);
+  `UpdateNotice` captures the exchange of the first successful call, checks
+  `clientCapabilities.elicitation() != null`, submits once per version and process to a daemon
+  executor `inubit-mcp-update-dialog` (form field `doNotRemindAgain`, boolean, default false), on
+  accept+true dismisses; no dialog for a dismissed version or with the check off;
+  `McpServerFactory` sets `requestTimeout(10 min)`; tests with a fake exchange (tool result
+  returned before the dialog is answered, accept/decline/cancel/exception, no capability) in
+  `src/main/java/de/dadecker/inubit/mcp/mcp/UpdateNotice.java`,
+  `src/main/java/de/dadecker/inubit/mcp/infra/FileUpdateCache.java` and their tests
+
 ## Phase 8: Polish
 
-- [ ] T017 [P] Docs: README (install: manifest/`--version`, version-free file name allowed; update
+- [ ] T018 [P] Docs: README (install: manifest/`--version`, version-free file name allowed; update
   check section), `docs/setup.md` (configuration key, environment variable, proxy options, log
   lines), `docs/tools.md` (`get_health.serverUpdate`), `CHANGELOG.md` `[Unreleased]`; wherever docs tell
   the version by the file name (`docs/setup.md` certificate section, start script) point to
   `--version`/manifest; `docs/release-checks.md` gets a manifest check step
-- [ ] T018 Full verification: `mvn -o clean verify -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-016-tmp`
+- [ ] T019 Full verification: `mvn -o clean verify -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-016-tmp`
   and `python3 -I -m unittest discover -s tools/tests`; quickstart offline steps
 
 ## Dependencies
 
 - T001 → T004. T002 → T006, T007, T008. T005, T006 → T007, T008 → T009 → T010 → T011, T013.
-  T012 → T013. T008 → T014. T009 → T015. T013, T014, T015 → T016. T017 after T016. T018 last.
+  T012 → T013. T008 → T014. T009 → T015. T013, T014, T015 → T016 → T017. T018 after T017. T019 last.
 - US3 (T003–T004) is independent of US1/US2/US4.
 
 ## Parallel opportunities
 
 - T002, T003, T005 touch different files and can run together; T006 with T005.
-- T017 (docs) can run alongside T011–T016 once contracts are fixed.
+- T018 (docs) can run alongside T011–T017 once contracts are fixed.
 
 ## Implementation strategy
 

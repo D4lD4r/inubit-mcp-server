@@ -97,6 +97,19 @@ the operator) and the constitution.
 - **Alternatives**: the config directory (`~/.config/inubit-mcp`, holds operator-edited files),
   a per-profile file (needless duplicates), the OS cache directory (no portable Java API).
 
+## R-13 Elicitation dialog (FR-019, operator decision)
+
+- **Decision**: the SDK sends `elicitation/create` only through the `McpSyncServerExchange` of a
+  running request, so `UpdateNotice` captures the exchange of the first successful tool call and
+  hands the request to a single daemon thread (`inubit-mcp-update-dialog`); the handler returns at
+  once. The server's `requestTimeout` becomes 10 minutes (it only governs server-to-client
+  requests, of which this is the only one), so an operator who answers late is still heard.
+  Capability check: `clientCapabilities.elicitation() != null` (an empty object means form mode).
+- **Form**: `{"type":"object","properties":{"doNotRemindAgain":{"type":"boolean","title":"Do not
+  remind me of this version again","default":false}}}`.
+- **Alternatives**: blocking inside the tool call (rejected by the operator: delays the tool), URL
+  mode (opens a browser; not chosen), a native OS dialog (no UI in a stdio server).
+
 ## R-8 Version source and manifest
 
 - **Decision**: the shade plugin's `ManifestResourceTransformer` (the only manifest of the shaded

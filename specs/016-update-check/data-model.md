@@ -62,6 +62,11 @@ invalid version or time makes the whole file ignored. Written via temp file + at
 `UpdateCheck` writes after every successful check; `Launcher` reads once at start and, if newer than
 the running version, records a `ServerUpdate` built from it (its `checkedAt` is the cached time).
 
+## CachedRelease extension (FR-019)
+
+`dismissedVersion: Optional<SemVer>` — the version the operator asked not to be reminded of; kept
+when a later check rewrites the file (`{"latestVersion", "checkedAt", "dismissedVersion"}`).
+
 ## UpdateNotice (mcp)
 
 State: `Supplier<Optional<ServerUpdate>>`, last announced latest version (`AtomicReference`).
@@ -70,3 +75,7 @@ State: `Supplier<Optional<ServerUpdate>>`, last announced latest version (`Atomi
 "Note: inubit-mcp-server <latest> is available (installed <current>), see <releaseUrl>. Update
 manually; see get_health.serverUpdate." and remembers the version; otherwise returns the result
 unchanged.
+
+Also (FR-019): if the call's exchange declares elicitation and the version is neither dismissed
+nor already asked in this process, submit the dialog to the dialog executor; on accept with
+`doNotRemindAgain: true` call `UpdateCache.dismiss(version)`.

@@ -30,6 +30,11 @@ The result gains one optional top-level field; `reports` is unchanged.
   extra `{"type": "text", "text": "Note: inubit-mcp-server 0.8.0 is available (installed 0.7.1),
   see https://github.com/D4lD4r/inubit-mcp-server/releases/tag/v0.8.0. Update manually; see
   get_health.serverUpdate."}` after the JSON text block. `structuredContent` is unchanged.
+- **`elicitation/create`** (FR-019; only to clients with the capability, in the background):
+  `message` "inubit-mcp-server 0.8.0 is available (installed 0.7.1):
+  https://github.com/D4lD4r/inubit-mcp-server/releases/tag/v0.8.0. The update is manual: download
+  the JAR and its .sha256 file, check the checksum, replace the JAR, restart the client.",
+  `requestedSchema` with the boolean `doNotRemindAgain`.
 - **`initialize.instructions`**: with a cached newer release, the existing text ends with
   " A newer inubit-mcp-server 0.8.0 is available (installed 0.7.1):
   https://github.com/D4lD4r/inubit-mcp-server/releases/tag/v0.8.0; update manually."

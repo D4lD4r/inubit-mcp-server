@@ -81,7 +81,7 @@ src/main/java/de/dadecker/inubit/mcp/
 ├── application/UpdateCheck.java                # new
 ├── application/UpdateCache.java                # new port (+ CachedRelease)
 ├── infra/FileUpdateCache.java                  # new; ~/.inubit-mcp/update-check.json
-├── mcp/UpdateNotice.java                       # new; note block in the first tool result
+├── mcp/UpdateNotice.java                       # new; note block + background elicitation dialog
 ├── mcp/McpServerFactory.java                   # instructions sentence, results through UpdateNotice
 ├── adapter/github/GitHubReleaseSource.java     # new
 ├── config/UpdateCheckConfig.java               # new; ProfileConfig + ConfigLoader (strict boolean)

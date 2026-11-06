@@ -44,7 +44,7 @@ Implementation-Version: <project version>
 `~/.inubit-mcp/update-check.json`, written by the server, not meant for editing:
 
 ```json
-{"latestVersion": "0.8.0", "checkedAt": "2026-11-06T09:15:00Z"}
+{"latestVersion": "0.8.0", "checkedAt": "2026-11-06T09:15:00Z", "dismissedVersion": "0.8.0"}
 ```
 
-Not read or written when the check is off. Deleting it is always safe.
+Not read or written when the check is off. Deleting it is always safe (it also brings back the dialog for a dismissed version).
