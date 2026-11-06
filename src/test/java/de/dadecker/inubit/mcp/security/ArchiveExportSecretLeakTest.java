@@ -171,7 +171,7 @@ class ArchiveExportSecretLeakTest {
      */
     private ProcessLauncher startCli() {
         return spec -> {
-            List<String> command = spec.command();
+            List<String> command = spec.startCliArguments();
             if (!command.contains("--execCommand")) {
                 return FakeProcessLauncher.replaying("version").launch(spec);
             }

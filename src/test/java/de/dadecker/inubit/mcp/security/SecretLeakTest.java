@@ -258,7 +258,7 @@ class SecretLeakTest {
         Map<String, String> files = new LinkedHashMap<>();
         try (Stream<Path> walk = Files.walk(workspace)) {
             for (Path file : walk.filter(Files::isRegularFile).toList()) {
-                String relative = workspace.relativize(file).toString();
+                String relative = workspace.relativize(file).toString().replace('\\', '/');
                 if (!relative.startsWith(".git/")) {
                     files.put(relative, Files.readString(file, StandardCharsets.ISO_8859_1));
                 }

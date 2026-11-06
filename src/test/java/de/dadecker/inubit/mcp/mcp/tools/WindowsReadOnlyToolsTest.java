@@ -171,14 +171,21 @@ class WindowsReadOnlyToolsTest {
     }
 
     /**
-     * The result without the commit, whose id and time differ between the two calls, and with
-     * the workspace relative to the root of the call.
+     * The result without the commit, whose id and time differ between the two calls, with the
+     * workspace relative to the root of the call and without the times in the warnings (the
+     * probe of the two calls fails at different seconds).
      */
     private static JsonNode withoutCommit(JsonNode result) {
         ObjectNode copy = (ObjectNode) result.path("structuredContent").deepCopy();
         copy.remove("commit");
         copy.put("workspace", Path.of(copy.path("workspace").asString()).getFileName()
             .toString());
+        if (copy.path("warnings").isArray()) {
+            var warnings = copy.putArray("warnings");
+            result.path("structuredContent").path("warnings").forEach(warning -> warnings.add(
+                warning.asString().replaceAll("\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ",
+                    "<time>")));
+        }
         return copy;
     }
 

@@ -58,9 +58,13 @@ class WorkspaceExportTest {
         harness.artifacts.exports.put("GRP-02", ArtifactFixtures.bytes("grp-b.zip"));
     }
 
+    /** {@code path} with {@code /} as its separator, as the history records it on every host. */
+    private static String slashed(Path path) {
+        return path.toString().replace(path.getFileSystem().getSeparator(), "/");
+    }
+
     private static String workflow(String owner, String diagramGroup, String name) {
-        return WorkspacePath.workflow(GROUP, owner, diagramGroup, name).toRelativePath()
-            .toString();
+        return slashed(WorkspacePath.workflow(GROUP, owner, diagramGroup, name).toRelativePath());
     }
 
     @Test
@@ -190,7 +194,7 @@ class WorkspaceExportTest {
         service.export(diagramGroups("OWNERS", "GRP-02"));
         try (var files = Files.walk(root.resolve("dev"))) {
             // every fixture workflow but Workflow-0004 (comment "###") has "JD: Fixture"
-            assertThat(files.filter(f -> f.toString().contains("/workflows/")
+            assertThat(files.filter(f -> slashed(f).contains("/workflows/")
                 && f.toString().endsWith(".xml") && !f.endsWith("Workflow-0004.xml")).toList())
                 .hasSize(5).allSatisfy(file ->
                     assertThat(Files.readString(file)).contains("JD: Fixture"));
@@ -217,9 +221,9 @@ class WorkspaceExportTest {
         ExportResult second = service.export(diagramGroups("jdoe", "GRP-01"));
 
         assertThat(second.export()).hasValueSatisfying(entry -> assertThat(entry.changes())
-            .containsExactly(new PathChange(WorkspacePath.embedded(GROUP, "jdoe",
-                "XSLT Converter", "Module-0001", "xslt.stylesheet", "xsl").toRelativePath()
-                .toString(), PathChange.Kind.MODIFIED)));
+            .containsExactly(new PathChange(slashed(WorkspacePath.embedded(GROUP, "jdoe",
+                "XSLT Converter", "Module-0001", "xslt.stylesheet", "xsl").toRelativePath()),
+                PathChange.Kind.MODIFIED)));
     }
 
     @Test
@@ -228,8 +232,8 @@ class WorkspaceExportTest {
         ExportResult first = service.export(diagramGroups("jdoe", "GRP-01"));
         assertThat(first.warnings())
             .containsExactly("Workflow Workflow-0002 is in edit mode by jdoe (CheckoutUser)");
-        String module9 = WorkspacePath.moduleIndex(GROUP, "jdoe", "Assign", "Module-0009")
-            .toRelativePath().toString();
+        String module9 = slashed(WorkspacePath.moduleIndex(GROUP, "jdoe", "Assign",
+            "Module-0009").toRelativePath());
         assertThat(root.resolve(module9)).isRegularFile();
         harness.artifacts.exports.put("GRP-01", ExportHarness.withoutModule0009());
 
