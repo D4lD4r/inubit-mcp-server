@@ -8,12 +8,16 @@ import de.dadecker.inubit.mcp.adapter.cli.CliSystem;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.github.GitHubReleaseSource;
 import de.dadecker.inubit.mcp.adapter.os.CredentialStores;
 import de.dadecker.inubit.mcp.adapter.os.NoJob;
 import de.dadecker.inubit.mcp.adapter.os.OsPrivateFileSystem;
 import de.dadecker.inubit.mcp.adapter.os.PosixSystem;
 import de.dadecker.inubit.mcp.adapter.os.WindowsJob;
 import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
+import de.dadecker.inubit.mcp.application.ReleaseSource;
+import de.dadecker.inubit.mcp.application.UpdateCache;
+import de.dadecker.inubit.mcp.application.UpdateCheck;
 import de.dadecker.inubit.mcp.config.ConfigException;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
@@ -30,6 +34,7 @@ import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.StartCliHost;
 import de.dadecker.inubit.mcp.config.StoreKind;
+import de.dadecker.inubit.mcp.config.UpdateCheckSetting;
 import de.dadecker.inubit.mcp.config.ValidationReport;
 import de.dadecker.inubit.mcp.config.WorkspaceDirectory;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
@@ -37,14 +42,17 @@ import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
+import de.dadecker.inubit.mcp.domain.model.SemVer;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.infra.BuildInfo;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
+import de.dadecker.inubit.mcp.infra.FileUpdateCache;
 import de.dadecker.inubit.mcp.infra.LogLevels;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpServerFactory;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import de.dadecker.inubit.mcp.mcp.UpdateNotice;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
@@ -59,6 +67,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -112,12 +121,17 @@ final class Launcher {
      *     the client probe (tests pass a fixed state)
      * @param privateFiles creates the private files and directories of the server and checks
      *     existing ones (feature 013, FR-007)
+     * @param releaseSource creates the source of the latest release (feature 016); called only
+     *     if the update check is on
+     * @param updateCache creates the cache of the last check result (feature 016); called only
+     *     if the update check is on
      */
     record Context(Map<String, String> environment, Path userHome, boolean windows,
         InputStream in, PrintStream out, PrintStream err, SecretScrubber scrubber,
         Predicate<Path> exists, Supplier<ParameterStore> parameterStore,
         Supplier<CredentialStore> credentialStore, Supplier<ProcessContainment> containment,
-        PrivateFileSystem privateFiles) {
+        PrivateFileSystem privateFiles, Supplier<ReleaseSource> releaseSource,
+        Supplier<UpdateCache> updateCache) {
 
         Context {
             environment = Map.copyOf(environment);
@@ -131,6 +145,8 @@ final class Launcher {
             Objects.requireNonNull(credentialStore, "credentialStore");
             Objects.requireNonNull(containment, "containment");
             Objects.requireNonNull(privateFiles, "privateFiles");
+            Objects.requireNonNull(releaseSource, "releaseSource");
+            Objects.requireNonNull(updateCache, "updateCache");
         }
 
         /** With the private files of the host (not of {@code windows}, which tests set). */
@@ -138,9 +154,11 @@ final class Launcher {
             InputStream in, PrintStream out, PrintStream err, SecretScrubber scrubber,
             Predicate<Path> exists, Supplier<ParameterStore> parameterStore,
             Supplier<CredentialStore> credentialStore,
-            Supplier<ProcessContainment> containment) {
+            Supplier<ProcessContainment> containment, Supplier<ReleaseSource> releaseSource,
+            Supplier<UpdateCache> updateCache) {
             this(environment, userHome, windows, in, out, err, scrubber, exists, parameterStore,
-                credentialStore, containment, OsPrivateFileSystem.forHost());
+                credentialStore, containment, OsPrivateFileSystem.forHost(), releaseSource,
+                updateCache);
         }
 
         static Context system(PrintStream protocolOut) {
@@ -152,7 +170,9 @@ final class Launcher {
                 () -> CredentialStores.forOs(System.getProperty("os.name"),
                     new SystemProcessLauncher(), System.getenv(), home),
                 windows ? WindowsJob::bindCurrentProcess : NoJob::new,
-                new OsPrivateFileSystem(windows));
+                new OsPrivateFileSystem(windows),
+                () -> new GitHubReleaseSource(BuildInfo.version()),
+                () -> FileUpdateCache.inHome(home, Clock.systemUTC()));
         }
     }
 
@@ -369,14 +389,35 @@ final class Launcher {
             LOG.info("Deleted {} export director{} left behind by stopped MCP servers",
                 swept, swept == 1 ? "y" : "ies");
         }
+        UpdateCheckSetting updateSetting = UpdateCheckSetting.resolve(config.updateCheck(),
+            context.environment());
+        updateSetting.warning().ifPresent(warning -> LOG.warn("Configuration: {}", warning));
+        Optional<SemVer> running = SemVer.parse(BuildInfo.version());
+        if (updateSetting.offBy().isPresent()) {
+            LOG.info("Update check is off ({})", updateSetting.offBy().get());
+        } else if (running.isEmpty()) {
+            LOG.debug("Update check skipped: the running version {} is not a semantic version",
+                BuildInfo.version());
+        }
+        boolean checkUpdates = updateSetting.on() && running.isPresent();
+        ExecutorService dialogs = checkUpdates ? UpdateNotice.dialogExecutor() : null;
         try (Wiring wiring = new Wiring(config, context.credentialStore().get(), context.scrubber(),
             ClockProvider.system(), context.exists(), context.windows(),
             new SystemProcessLauncher(), System.getenv(), context.parameterStore(),
             location, containment, context.privateFiles())) {
+            UpdateCheck check = null;
+            UpdateNotice notice = UpdateNotice.NONE;
+            if (checkUpdates) {
+                UpdateCache cache = context.updateCache().get();
+                check = new UpdateCheck(context.releaseSource().get(), running.get(),
+                    wiring.updateStatus(), cache, Clock.systemUTC());
+                check.seed(cache.read());
+                notice = new UpdateNotice(wiring.updateStatus()::current, cache, dialogs);
+            }
             McpServerFactory factory = wiring.serverFactory(BuildInfo.version(),
-                toolHandlers.apply(wiring));
+                toolHandlers.apply(wiring), notice);
             try (McpServerFactory.RunningServer server = factory.start(context.in(),
-                context.out())) {
+                context.out()); UpdateCheck closing = check) {
                 LOG.info("INUBIT MCP server {} started for profile {} with {} node(s)",
                     BuildInfo.version(), config.profile().name(), config.nodeIds().size());
                 String marked = config.groups().stream().filter(group -> group.tls().marksStage())
@@ -384,6 +425,9 @@ final class Launcher {
                 if (!marked.isEmpty()) {
                     LOG.info("Stages with one pinned certificate per server (tls.pinPerServer): {}",
                         marked);
+                }
+                if (closing != null) {
+                    closing.start(UpdateCheck.daemonExecutor());
                 }
                 server.awaitInputClosed();
                 LOG.info("stdin closed; shutting down");
@@ -393,6 +437,10 @@ final class Launcher {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return EXIT_ERROR;
+        } finally {
+            if (dialogs != null) {
+                dialogs.shutdownNow();
+            }
         }
     }
 

@@ -333,6 +333,7 @@ public final class ConfigLoader {
         checkCredentialsSections(rootObject, source);
         rejectEmptyListEntries(rootObject, "", source);
         requireStrictArchivesOptIn(rootObject, source);
+        requireStrictUpdateCheck(rootObject, source);
         List<String> urlProblems = new ArrayList<>();
         sanitizeUrls(rootObject, source, urlProblems);
         if (!rootObject.hasNonNull("auditDirectory")) {
@@ -598,6 +599,19 @@ public final class ConfigLoader {
                 throw new ConfigException("Invalid value at groups[" + i
                     + "].archives.productionOptIn in " + source + ": expected true or false");
             }
+        }
+    }
+
+    /**
+     * Feature 016 (contracts/configuration-delta.md): {@code updateCheck.enabled} must be a YAML
+     * boolean, so that a quoted {@code "false"} does not silently leave the check on. The value is
+     * never echoed.
+     */
+    private static void requireStrictUpdateCheck(ObjectNode root, Path source) {
+        JsonNode enabled = root.path("updateCheck").path("enabled");
+        if (!enabled.isMissingNode() && !enabled.isNull() && !enabled.isBoolean()) {
+            throw new ConfigException("Invalid value at updateCheck.enabled in " + source
+                + ": expected true or false");
         }
     }
 

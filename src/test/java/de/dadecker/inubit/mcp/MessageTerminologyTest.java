@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.adapter.os.NoJob;
+import de.dadecker.inubit.mcp.application.ReleaseSource;
+import de.dadecker.inubit.mcp.application.UpdateCache;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.CredentialStore;
@@ -295,7 +297,10 @@ class MessageTerminologyTest {
         Launcher.Context context = new Launcher.Context(env, Path.of("/home/test"), false,
             InputStream.nullInputStream(), new PrintStream(out, true, StandardCharsets.UTF_8),
             new PrintStream(err, true, StandardCharsets.UTF_8), new SecretScrubber(),
-            path -> true, FakeParameterStore::new, FakeCredentialStore::new, NoJob::new);
+            path -> true, FakeParameterStore::new, FakeCredentialStore::new, NoJob::new,
+            () -> () -> {
+                throw new ReleaseSource.ReleaseCheckException("offline (test)");
+            }, () -> UpdateCache.NONE);
 
         int exit = new Launcher(context).run("--config", file.toString(), "--check-config");
 

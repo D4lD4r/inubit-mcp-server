@@ -54,7 +54,8 @@ General rules:
   profile's display names: with `terminology: {group: {singular: Umgebung, plural: Umgebungen},
   node: {singular: Knoten, plural: Knoten}}` the `get_health` description reads "[acme: ACME
   test] Check whether the INUBIT Knoten are reachable and ready: … `target` takes the id of one
-  Knoten (`<Umgebung>/<Knoten>`) or of one Umgebung (all its Knoten); omit it for all Knoten."
+  Knoten (`<Umgebung>/<Knoten>`) or of one Umgebung (all its Knoten); omit it for all Knoten. `serverUpdate` tells whether a newer release of this MCP
+  server exists."
   The names are inserted exactly as configured (see setup.md). The MCP `initialize` result
   carries `serverInfo.title` "INUBIT MCP – <profile>" and `instructions` naming the profile, its
   description and the terminology.
@@ -570,7 +571,8 @@ can I do on next/node1?" → `list_nodes`, then `get_health` for nodes whose ver
 
 > [acme] Check whether the INUBIT nodes are reachable and ready: maintenance mode, version,
 > memory, threads, and blocking queue. `target` takes the id of one node (`<group>/<node>`) or of
-> one group (all its nodes); omit it for all nodes.
+> one group (all its nodes); omit it for all nodes. `serverUpdate` tells whether a newer release
+> of this MCP server exists.
 
 Checks whether INUBIT nodes are reachable and ready: maintenance mode, version, memory, threads
 and blocking queue. Target one node, one group, or omit `target` for all nodes.
@@ -582,9 +584,22 @@ and blocking queue. Target one node, one group, or omit `target` for all nodes.
 | `target` | string (id pattern) | all nodes | the id of one group (all its nodes) or of one node |
 | `includeSystemInfo` | boolean | `false` | add the system information block (FR-007) |
 
-**Output**: `{ "reports": [HealthReport] }` — one report per resolved node, in configuration
-order. A node that cannot be reached is a report with `reachable: false` and `error`; the call
-itself fails only for an invalid or unknown `target`.
+**Output**: `{ "reports": [HealthReport], "serverUpdate"?: ServerUpdate }` — one report per
+resolved node, in configuration order. A node that cannot be reached is a report with
+`reachable: false` and `error`; the call itself fails only for an invalid or unknown `target`.
+
+`serverUpdate` (feature 016) is the result of the last successful update check of this MCP server
+([README](../README.md#updates)); it is absent while the check is off or none has succeeded yet,
+does not depend on `target` and never changes a report:
+
+| `ServerUpdate` field | Meaning |
+|---|---|
+| `currentVersion` | the running version (from the JAR manifest) |
+| `latestVersion` | the latest published release |
+| `updateAvailable` | `latestVersion` is higher than `currentVersion` |
+| `releaseUrl` | the release page of `latestVersion`, e.g. `https://github.com/D4lD4r/inubit-mcp-server/releases/tag/v0.8.0` |
+| `checkedAt` | ISO-8601; when the check succeeded |
+| `notice` | only with `updateAvailable: true`: "inubit-mcp-server 0.8.0 is available (running 0.7.1): <releaseUrl>. Update manually: download the JAR and its .sha256 file, check the checksum, replace the JAR the MCP registration runs, restart the client." |
 
 | `HealthReport` field | Meaning |
 |---|---|
@@ -693,6 +708,7 @@ of 10 s for a call for several nodes.
   that cannot be reached (e.g. `dev/bogus` with `baseUrl: https://127.0.0.1:9`) is reported as
   `reachable: false` with `error.code: UNREACHABLE`, the others normally, within its timeout + 1 s.
 - "Show the system information of qa/node1" → `includeSystemInfo: true`.
+- "Is there a newer version of the MCP server?" → `get_health`: `serverUpdate`.
 
 ## `find_processes`
 

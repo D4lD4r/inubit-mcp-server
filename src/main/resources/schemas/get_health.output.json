@@ -6,10 +6,26 @@
       "type": "array",
       "description": "One HealthReport per resolved {node}, in config order",
       "items": { "$ref": "#/$defs/HealthReport" }
-    }
+    },
+    "serverUpdate": { "$ref": "#/$defs/ServerUpdate" }
   },
   "additionalProperties": false,
   "$defs": {
+    "ServerUpdate": {
+      "type": "object",
+      "description": "The last update check of this MCP server; absent while the check is off or none succeeded",
+      "required": ["currentVersion", "latestVersion", "updateAvailable", "releaseUrl",
+        "checkedAt"],
+      "properties": {
+        "currentVersion": { "type": "string" },
+        "latestVersion": { "type": "string" },
+        "updateAvailable": { "type": "boolean" },
+        "releaseUrl": { "type": "string" },
+        "checkedAt": { "type": "string", "description": "ISO-8601 timestamp" },
+        "notice": { "type": "string", "description": "How to update manually" }
+      },
+      "additionalProperties": false
+    },
     "HealthReport": {
       "type": "object",
       "required": ["node", "group", "checkedAt", "reachable", "status", "unavailable",

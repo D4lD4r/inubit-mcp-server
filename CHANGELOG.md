@@ -75,6 +75,19 @@ Feature 012, read-only INUBIT 6.1 nodes reached through StartCLI only. The recor
   - The offline suite runs on Windows in CI, including every StartCLI-backed, safety and secret
     test against a substitute of `startcli.bat`.
 
+- Feature 016, update check: at start and then every 24 hours the server asks the public GitHub
+  API for the latest release of this project (one anonymous request with the user agent
+  `inubit-mcp-server/<version>`; no profile, node, host name or credential is sent) and only tells
+  about a newer one; it never downloads or installs anything. A newer release shows up as a WARN
+  line on stderr, as the new field `serverUpdate` of `get_health`, as a note block in the first
+  successful tool result of a session, in the server instructions after a restart (from the cache
+  `~/.inubit-mcp/update-check.json`, also offline), and in clients that support MCP elicitation
+  as a dialog with "Do not remind me of this version again". The check never delays the start or a
+  tool call; failures are logged at DEBUG only. It honours the JVM's proxy settings
+  (`-Dhttps.proxyHost`/`-Dhttps.proxyPort`, `-Djava.net.useSystemProxies=true`) and is switched off
+  with `updateCheck.enabled: false` in the profile or `INUBIT_MCP_UPDATE_CHECK=off`; then it sends
+  nothing and reads or writes no cache. `--version` and `--check-config` never check.
+
 ### Changed
 
 - Deliberate changes of feature 012 for existing profiles; otherwise 8.1 and 9.x nodes behave as
@@ -93,6 +106,11 @@ Feature 012, read-only INUBIT 6.1 nodes reached through StartCLI only. The recor
     INUBIT 6.1 nodes only), as write tools already are since feature 009. `list_nodes`, `get_health` and
     `check_artifacts` are always offered; `AUTO` nodes count as capable.
   - The `versionLine` error message lists `V6_1` among the accepted values.
+
+- Feature 016: the JAR manifest carries `Implementation-Title` and `Implementation-Version`, so
+  the version of a JAR can be read without starting it and independent of its file name; the
+  server (`--version`, `serverInfo.version`) takes its version from there. The JAR may be renamed,
+  e.g. to `inubit-mcp-server.jar`, so the MCP registration stays the same across updates.
 
 ### Removed
 

@@ -217,11 +217,18 @@ index still holds the old content.
 2. Run `mvn -q clean verify`, then the guard test of section 1 again without `clean`
    (`mvn -q -Dtest=NoCustomerIdentifiersTest test`, so it also scans the JAR in `target/`; it must
    run, not be skipped), commit, and push the commit to `main` (the CI workflow runs only on `main`;
-   tag only a commit that is on `main`).
+   tag only a commit that is on `main`). Check that the JAR names its own version (feature 016;
+   `mvn verify` checks it too, in `JarVersionIT`):
+   `unzip -p target/inubit-mcp-server-<version>.jar META-INF/MANIFEST.MF` shows
+   `Implementation-Version: <version>`, and a renamed copy still prints it:
+   `cp target/inubit-mcp-server-<version>.jar /tmp/server.jar && java -jar /tmp/server.jar --version`.
 3. Push the tag `v<version>` (e.g. `git tag v0.1.0 && git push origin v0.1.0`). The workflow
    `.github/workflows/release.yml` refuses a tag that differs from the pom version, builds and
    tests, and publishes `inubit-mcp-server-<version>.jar`, its `.sha256` file and a build
    provenance attestation as a GitHub release.
+4. Running servers whose update check is on report the new release at their next start or within
+   24 hours (README, "Updates"); they read only the latest published release, so a draft or a
+   pre-release is never announced.
 
 ## Related local files
 

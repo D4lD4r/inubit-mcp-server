@@ -42,6 +42,10 @@ This runs the offline test suite (no INUBIT server needed) and produces the sing
 java -jar target/inubit-mcp-server-*.jar --version
 ```
 
+The version comes from the JAR's manifest (`Implementation-Version`, feature 016), not from the
+file name: `unzip -p <JAR> META-INF/MANIFEST.MF` shows it without starting the JAR, and a renamed
+JAR (e.g. `inubit-mcp-server.jar`) still reports its own version.
+
 ## 3. Configuration file
 
 The server reads one YAML file, found in this order (first match wins):
@@ -1014,6 +1018,60 @@ TLS checks still apply to each server's effective values (pin format, the trust-
 `cli.url` with several nodes in any stage. How the certificate tool works with a marked stage:
 [Stages whose servers present different certificates](#stages-whose-servers-present-different-certificates).
 
+### Update check (`updateCheck`)
+
+Feature 016. At start and then every 24 hours the server asks
+`https://api.github.com/repos/D4lD4r/inubit-mcp-server/releases/latest` for the latest published
+release (drafts and pre-releases are not considered) and tells about a newer one; it never
+downloads or installs anything. The request is anonymous and carries only the user agent
+`inubit-mcp-server/<version>`; nothing of the profile is sent. It runs in the background (connect
+timeout 5 s, request timeout 10 s) and never delays the start or a tool call.
+
+```yaml
+updateCheck:
+  enabled: false   # true or false; absent = true
+```
+
+- `updateCheck` is a top-level key with the single key `enabled` (strict YAML boolean; `"false"`
+  or `0` is an error, another key is "Unknown key").
+- The environment variable `INUBIT_MCP_UPDATE_CHECK` switches it off for every profile the client
+  starts: `off`, `false`, `0` or `no` (case-insensitive). `on`, `true`, `1`, `yes` or an empty
+  value leave the profile's setting; any other value is warned about at start
+  ("INUBIT_MCP_UPDATE_CHECK has an unrecognised value; use off or on (the update check stays on)")
+  and the check stays on. It is off if either the key or the variable says so.
+- `--version` and `--check-config` never check.
+
+**Log lines** (stderr):
+
+| Level | When | Text |
+|---|---|---|
+| WARN | once per newer version and process | `A newer inubit-mcp-server is available: 0.8.0 (running 0.7.1): https://github.com/D4lD4r/inubit-mcp-server/releases/tag/v0.8.0 – update manually (no automatic download)` |
+| INFO | at start, when off | `Update check is off (updateCheck.enabled: false)` or `Update check is off (INUBIT_MCP_UPDATE_CHECK)` |
+| DEBUG | a failed check (offline, proxy, HTTP status, rate limit) | `Update check failed: <reason>`; the next attempt is the next daily check |
+
+**Notices in the client** (all once per version, none when the check is off): `serverUpdate` in
+the result of `get_health` ([tools.md](tools.md#get_health)); one extra text block after the first
+successful tool result of a session ("Note: inubit-mcp-server 0.8.0 is available (installed
+0.7.1), see <release page>. Update manually; see get_health.serverUpdate."; the structured result
+is unchanged); and, if the client supports MCP elicitation, a form dialog with the release link
+and the checkbox "Do not remind me of this version again". The dialog is sent after that first
+tool result went out and waits up to 10 minutes for an answer; closing or declining it changes
+nothing, the checkbox stops the dialog for that version (a later version asks again).
+
+**Cache.** The last result is kept in `~/.inubit-mcp/update-check.json` (owner-only directory,
+written atomically; not meant for editing): `latestVersion`, `checkedAt` and, after the checkbox,
+`dismissedVersion`. At the next start a newer cached release is named at once, before any network
+request, at the end of the server instructions ("A newer inubit-mcp-server 0.8.0 is available
+(installed 0.7.1): <release page>; update manually."), so it shows up offline as well. Deleting the
+file is always safe; it also brings back the dialog for a dismissed version. With the check off
+the file is neither read nor written.
+
+**Proxy.** The request uses the JVM's standard proxy settings and nothing of its own: add
+`-Dhttps.proxyHost=proxy.example.test -Dhttps.proxyPort=3128` (and `-Dhttp.nonProxyHosts=…` if
+needed), or `-Djava.net.useSystemProxies=true` for the operating system's proxy, before `-jar` in
+the registration (section 7). The INUBIT connections are not affected. A proxy that requires
+authentication is not supported; switch the check off there.
+
 ## 4. Credentials: sources
 
 Every node needs a username and a password; a password-protected trust store (section 5) and the
@@ -1613,7 +1671,9 @@ x-cert-check:
 ```
 
 Update `serverJar` together with the JAR the registration (or the start script below) runs, and
-`java` when the JDK changes. `--java` and `--server-jar` override both for a single run.
+`java` when the JDK changes. With a version-free file name (e.g. `inubit-mcp-server.jar`, see
+[section 2](#2-build)) both stay the same across updates; `java -jar <serverJar> --version`
+tells which version it is. `--java` and `--server-jar` override both for a single run.
 
 **Systems.** The tool is built for **macOS** (all commands, including the start-up dialog). On
 **Linux** the commands without dialog (`--check`, `--accept`, `--prune`, `--forget`) need only
@@ -1737,7 +1797,8 @@ when its servers really create their own certificates.
 **Converting a stage.** The tool does not convert a stage; edit the profile by hand:
 
 0. First install the `inubit-cert-check` of the release (section 5, "Install") and set
-   `serverJar` in the profile to that release's jar (0.7.0 or later). An older tool refuses the
+   `serverJar` in the profile to that release's jar (0.7.0 or later; `java -jar <serverJar>
+   --version` shows its version). An older tool refuses the
    profile (`stage int.tls: unknown key 'pinPerServer'`), and with an older `serverJar` every
    adoption is rolled back (`adoption failed, original files restored: --check-config refused the
    changed profile: exit 1`), because the tool checks the changed profile with that jar.
@@ -2087,6 +2148,11 @@ the 30 s back-off.
 The server speaks MCP over stdio (stdout carries protocol messages only; logs go to stderr as JSON
 lines) and exits when the client closes stdin. Audit records of write actions are written to
 `auditDirectory` (default `~/.inubit-mcp/<profile.name>/audit`, created owner-only).
+
+The server checks once a day for a newer release of itself and shows it in the client (stderr
+log, `get_health`, a note in the first tool result, the instructions after a restart, and a dialog
+in clients with MCP elicitation); see [Update check](#update-check-updatecheck) for what is sent,
+the proxy options and how to switch it off. After replacing the JAR, restart the client.
 
 To remove the registration: `claude mcp remove --scope user inubit-acme`.
 

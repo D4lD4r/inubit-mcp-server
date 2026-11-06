@@ -21,6 +21,7 @@ import java.util.TreeSet;
  * @param workspace the artifact workspace of feature 003 (contracts/configuration-delta.md);
  *                  {@link ConfigLoader} sets the default {@code ~/.inubit-mcp/<profile>/workspace},
  *                  {@link ConfigValidator} checks it and creates it if missing
+ * @param updateCheck the check for a newer release of this server (feature 016)
  */
 public record ProfileConfig(
     ProfileSection profile,
@@ -31,7 +32,8 @@ public record ProfileConfig(
     Path auditDirectory,
     LogLevel logLevel,
     ResultLimits resultLimits,
-    Path workspace) {
+    Path workspace,
+    UpdateCheckConfig updateCheck) {
 
     public ProfileConfig {
         profile = Optionals.orDefault(profile, ProfileSection.EMPTY);
@@ -43,6 +45,7 @@ public record ProfileConfig(
         logLevel = Optionals.orDefault(logLevel, LogLevel.INFO);
         resultLimits = Optionals.orDefault(resultLimits, ResultLimits.DEFAULT);
         Objects.requireNonNull(workspace, "workspace");
+        updateCheck = Optionals.orDefault(updateCheck, UpdateCheckConfig.DEFAULT);
     }
 
     /**
