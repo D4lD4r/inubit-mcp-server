@@ -29,7 +29,7 @@ the checkout; never two builds in parallel).
 **Goal**: manifest names the version; the server reports it independent of the file name.
 **Independent test**: `JarVersionIT` passes in `mvn verify`.
 
-- [ ] T003 [US3] `BuildInfo`: testable `static Optional<String> manifestVersion(Path jar)` (main
+- [X] T003 [US3] `BuildInfo`: testable `static Optional<String> manifestVersion(Path jar)` (main
   attribute `Implementation-Version` of a JAR file; empty for a directory, missing file or missing
   attribute) and `static String resolve(Optional<String> manifest, Properties buildProperties)`
   (manifest first, else `build.properties`, else the existing `IllegalStateException`); `version()`
