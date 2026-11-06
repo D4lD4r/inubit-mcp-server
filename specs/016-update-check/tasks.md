@@ -19,7 +19,7 @@ the checkout; never two builds in parallel).
 
 ## Phase 2: Foundational
 
-- [ ] T002 [P] `SemVer` per data-model.md ("`MAJOR.MINOR.PATCH[-PRE][+BUILD]` (build ignored), else
+- [X] T002 [P] `SemVer` per data-model.md ("`MAJOR.MINOR.PATCH[-PRE][+BUILD]` (build ignored), else
   `Optional.empty()`", "no leading zeros", SemVer 2.0.0 precedence, `0.8.0-SNAPSHOT < 0.8.0`) with
   tests in `src/main/java/de/dadecker/inubit/mcp/domain/model/SemVer.java` and
   `src/test/java/de/dadecker/inubit/mcp/domain/model/SemVerTest.java`
