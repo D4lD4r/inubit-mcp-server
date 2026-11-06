@@ -102,3 +102,13 @@ Round-1 fixes verified as applied; no new `[P]` collision, cycle or TDD defect.
 | 2 | SHOULD | `T010 → (T011, T012)` reads as parallel branches | Accepted | Chain `T009 → T010 → T011 → T012` |
 
 No blocking finding open.
+
+## Analyze (speckit-analyze, 2026-11-06)
+
+Coverage 23/23 (FR-001…FR-017, SC-001…SC-006); no CRITICAL; no constitution conflict (I: 9.0 writes use the unchanged 8.1 gates and audit; V: 9.0 access in adapters, selection in config; III: red/green per task).
+
+| ID | Severity | Finding | Decision |
+|----|----------|---------|----------|
+| C1 | HIGH | SC-005 / Constitution II: no explicit secret-leak test for new texts, logs, JSON excerpts, `--check-config` | Fixed: "leak check" rule with `TestSecrets` in the header, named in T009, T011, T017, T024, T025, T029 |
+| C2 | MEDIUM | SC-002 (switch by `versionLine` only) untested | Fixed: case added to T033 |
+| C3 | LOW | FR-016, SC-001, SC-004 covered without ID reference | IDs added to T032, T037, T038 |

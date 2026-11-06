@@ -12,6 +12,10 @@ outside the checkout; never two builds in parallel); Python: `python3 -I -m unit
 tools/tests`. Paths below are relative to `src/main/java/de/dadecker/inubit/mcp/` (main) and
 `src/test/java/de/dadecker/inubit/mcp/` (test) unless they start with `src/`, `docs/`, `tools/`.
 
+**Secrets (SC-005, Constitution II)**: every task that adds a message, warning, log line, excerpt
+or `--check-config` line asserts with `testing/TestSecrets` that a configured password (and a
+`cli.url`/`baseUrl` user-info probe value) never appears in it — named below as "leak check".
+
 **Reviews**: after each phase a `code-review` reviewer checks the phase diff; findings and
 decisions go to `specs/017-inubit-9-support/reviews.md` ("Implementation — phase N").
 
@@ -93,7 +97,7 @@ FR-017).
   `CliChoice`, `ClientKey`, address warning D-19); `run`, `runSession`, `execute` and
   `checkAvailable` read the version once and select once; `launchTarget`, Windows refusals (013),
   `javaHome`, trust store and `HandshakeStartCliPinProbe` see the chosen values; debug log of the
-  chosen client directory and address kind per launch (no URL). Tests with `FakeProcessLauncher`:
+  chosen client directory and address kind per launch (no URL; leak check on the log). Tests with `FakeProcessLauncher`:
   8.1 node → 8.1 client + servlet URL; 9.0 node → 9.0 client + JDK 21 + `<baseUrl>`; explicit
   `cli.url` kept; `select` idempotent — main `adapter/cli/CliRunner.java`, test
   `adapter/cli/CliRunnerSelectTest.java`
@@ -106,7 +110,7 @@ FR-017).
   only when the version has a minor and (`cliClients` configured or major ≥ 9), else the 0.8.0
   text byte-identical; client range excludes → the 009 `UNSUPPORTED_VERSION` next step gains
   "or add `defaults.cliClients."<M.m>"`" under the same condition; no-JDK hint "(8.1: JDK 17, 9.0:
-  JDK 21)". Tests for both branches of the condition (`TemplateGrammarTest` stays green) — main
+  JDK 21)". Tests for both branches of the condition, leak check on every new text (`TemplateGrammarTest` stays green) — main
   `adapter/cli/CliRunner.java`, `application/VersionGate.java`, tests
   `adapter/cli/CliRunnerMessagesTest.java`, `application/VersionGateTest.java`
 - [ ] T012 [US2] `CliOutputClassifier`: `AUTH_FAILED` next step adds "On INUBIT 9 the user must
@@ -146,7 +150,7 @@ FR-017).
   009 `UNSUPPORTED_VERSION`; not evaluable or recorded failure → launch; no check for the key but
   one for another key → `CLI_UNAVAILABLE` "The StartCLI client for <node> changed to the client
   for INUBIT <M.m> during this call; the new client has not been checked yet" / "Call the tool
-  again", nothing launched; no check for the node → launch as in 0.8.0. Tests incl. the race
+  again", nothing launched (leak check on the text); no check for the node → launch as in 0.8.0. Tests incl. the race
   (version source changes between admission and `run`), a 6.1 session starting before any
   check, and the bypass: with a check recorded for key A only, `CliVersionProbe` (`-v`) and
   `CliClientProbe` (`-h`) for key B still execute, and `checkAvailable` is not guarded — main `adapter/cli/CliRunner.java`, test `adapter/cli/CliRunnerLaunchGuardTest.java`
@@ -184,12 +188,12 @@ FR-017).
   missing entry `home`/`javaHome` directory, JDK major ≠ 17/21 for 8.1/9.0 entries and pinned
   nodes (unknown major: no warning), `V9_X` "versionLine V9_X of <node> does not select 9.0
   support; use V9_0 (INUBIT 9.0.x) or AUTO", pinned ≥ 9 node with servlet `cli.url` (FR-010),
-  Windows checks (013) over entry paths — main `config/ConfigValidator.java`, test
+  Windows checks (013) over entry paths; leak check on every new warning — main `config/ConfigValidator.java`, test
   `config/ConfigValidatorCliClientsTest.java`
 - [ ] T025 [US2] `--check-config`: each distinct client `(home, javaHome)` probed once with `-v`
   (local); entry whose range excludes its key reported; `ConfigSummary` node line `client: <dir>
   (<source>), address: <kind>` (`AUTO`: version-less choice + "chosen at runtime") and one line
-  per distinct client with its `-v` result and JDK major; no URL, no credentials — main
+  per distinct client with its `-v` result and JDK major; no URL, no credentials (leak check on the whole output) — main
   `Launcher.java`, `config/ConfigSummary.java`, tests `config/ConfigSummaryTest.java`,
   `MainTest.java` (check-config cases)
 - [ ] T026 [US2] `list_nodes.startCli` (D-18): `NodeSummary.StartCli` (`clientDirectory?`,
@@ -225,7 +229,8 @@ shape.
   classes (`V81VersionDetectorTest`, `V81MonitoringAdapterTest`, `V81MaintenanceProbeTest`,
   `adapter/V81InventoryAdapterTest`)
 - [ ] T029 [US1] JSON error bodies (D-12): a JSON body with a string `message` becomes the excerpt
-  (scrubbed, length-capped as today); status mapping unchanged; 401 ignores the body — main
+  (scrubbed, length-capped as today; leak check with a JSON `message` containing the configured password);
+  status mapping unchanged; 401 ignores the body — main
   `adapter/rest/InubitHttpClient.java`, test `adapter/rest/InubitHttpClientJsonErrorTest.java`
 - [ ] T030 [US1] Red: test-support registry `V90Cases` (the only way the new 9.0 contract tests
   open a fixture; opening a case without its `<case>.origin` fails) and the 9.0 contract tests
@@ -250,7 +255,7 @@ shape.
 - [ ] T032 [US1] Tool level on 9.0: node pinned `V9_0` and `AUTO` node detected as 9.0.7: read
   tools without "not verified" warning; `restart_process`, `kill_process`, development writes,
   `run_e2e_test` admitted; `deploy_release` 9.0 ↔ 9.0 admitted, 8.1 ↔ 9.0 refused (same
-  major.minor rule); StartCLI launched with `<baseUrl>` — tests
+  major.minor rule); StartCLI launched with `<baseUrl>` (SC-001 offline, SC-004) — tests
   `application/V90AdmissionTest.java`, `application/DeployServiceVersionTest.java` (9.0 cases)
 
 **Checkpoint**: build green; code-review phase 4 (plan stage 5).
@@ -264,7 +269,9 @@ StartCLI values; 8.1 and 6.1 suites pass.
 - [ ] T033 [US3] Compatibility test: every profile example of `docs/setup.md`, `README.md` and the
   existing config test resources loads; for 8.1, 6.1 and `AUTO` nodes `cli()` (home, javaHome,
   url) equals the 0.8.0 value (golden values computed with the 0.8.0 rule in the test); `V9_X`
-  loads (FR-011); explicit `cli.url` on a 9.0-detected node kept (US3 scenario 2) — test
+  loads (FR-011); explicit `cli.url` on a 9.0-detected node kept (US3 scenario 2); SC-002: a profile with
+  `cliClients` for 8.1 and 9.0 whose stage changes only `versionLine` `V8_1` → `V9_0` gets the 9.0
+  client, JDK and `<baseUrl>` address, an `AUTO` stage needs no change — test
   `config/CliCompatibilityTest.java` (extend `MigrationGuideExampleTest` if it already parses the
   docs)
 
@@ -293,11 +300,11 @@ code-review phase 5.
 
 ## Phase 7: Polish (plan stage 8)
 
-- [ ] T037 [P] Docs: `docs/setup.md` (`cliClients`, default address by major, JDK 17/21, migration
+- [ ] T037 [P] Docs (FR-016): `docs/setup.md` (`cliClients`, default address by major, JDK 17/21, migration
   8.1 → 9.0, `V9_0` vs `V9_X`), `docs/tools.md` (`list_nodes.startCli`, 9.0 support, servlet
   warning, `CLI_UNAVAILABLE` "call again"), `README.md` (supported versions),
   `docs/research/inubit-interfaces.md` §4 (what 017 relies on, D-11/D-12)
-- [ ] T038 [P] `CHANGELOG.md`: section `0.8.1 (unreleased)`; `pom.xml` version unchanged (D-23)
+- [ ] T038 [P] `CHANGELOG.md` (FR-016): section `0.8.1 (unreleased)`; `pom.xml` version unchanged (D-23)
 - [ ] T039 Full verification (mvn + Python), quickstart offline table checked row by row and the
   validation record filled in `specs/017-inubit-9-support/quickstart.md`; final code-review over
   `git diff origin/0.8.0...HEAD`; findings in `reviews.md`
