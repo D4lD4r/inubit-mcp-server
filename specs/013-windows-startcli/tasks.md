@@ -324,7 +324,7 @@ Windows CI job.
   after the grace period, 20 runs; the same for a closed MCP connection (orderly stop) with the
   export directory removed. Fix the tree handling of `SystemProcessLauncher` if the interpreter
   exits before Java. Verification task where it passes.
-- [ ] T023 [US4] Timeout after the password prompt on Windows (FR-005 as amended after plan review
+- [X] T023 [US4] Timeout after the password prompt on Windows (FR-005 as amended after plan review
   r2, R-10): on Windows, when the last output of a timed-out call is the client's password prompt,
   the `TIMEOUT` cause names both possibilities (the client may be waiting for the password on its
   console, or the server is slow) and the next step keeps "raise `cliTimeout`" and adds the live
