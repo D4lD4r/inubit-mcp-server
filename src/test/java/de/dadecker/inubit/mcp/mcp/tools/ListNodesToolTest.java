@@ -1013,7 +1013,8 @@ class ListNodesToolTest {
                 .path("nodes").path(0);
             assertThat(first.path("startCli").path("clientDirectory").asString())
                 .isEqualTo(CLI_HOME.toString());
-            String field = "\"clientDirectory\":\"" + CLI_HOME + "\"";
+            String field = "\"clientDirectory\":\"" + CLI_HOME.toString().replace("\\", "\\\\")
+                + "\"";
             String text = result.path("content").get(0).path("text").asString();
             String structured = result.path("structuredContent").toString();
             assertThat(structured).contains(field);

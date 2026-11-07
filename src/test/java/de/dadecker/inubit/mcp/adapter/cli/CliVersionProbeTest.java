@@ -171,11 +171,13 @@ class CliVersionProbeTest {
         ProbedClient probed90 = probe(nine).probe(ID, Optional.of(version("9.0.7")), TIMEOUT);
         ProbedClient probed81 = probe(eight).probe(ID, Optional.of(version("8.1.17")), TIMEOUT);
 
-        assertThat(probed90.key()).isEqualTo(new ClientKey(client90.toString(), "/opt/jdk-21"));
+        assertThat(probed90.key())
+            .isEqualTo(new ClientKey(client90.toString(), Path.of("/opt/jdk-21").toString()));
         assertThat(probed90.version().version()).isEqualTo(version("9.0.7"));
         assertThat(probed90.version().supportedTo()).contains(version("9.0.7"));
         assertThat(nine.last().spec().workingDirectory()).isEqualTo(client90);
-        assertThat(probed81.key()).isEqualTo(new ClientKey(client81.toString(), "/opt/jdk-17"));
+        assertThat(probed81.key())
+            .isEqualTo(new ClientKey(client81.toString(), Path.of("/opt/jdk-17").toString()));
         assertThat(probed81.version().version()).isEqualTo(version("8.1.17"));
         assertThat(eight.last().spec().workingDirectory()).isEqualTo(client81);
     }
@@ -185,7 +187,8 @@ class CliVersionProbeTest {
         ProbedClient probed = probe(FakeProcessLauncher.replaying("version"))
             .probe(ID, Optional.empty(), TIMEOUT);
 
-        assertThat(probed.key()).isEqualTo(new ClientKey(cliHome.toString(), "/opt/jdk-17"));
+        assertThat(probed.key())
+            .isEqualTo(new ClientKey(cliHome.toString(), Path.of("/opt/jdk-17").toString()));
     }
 
     @Test

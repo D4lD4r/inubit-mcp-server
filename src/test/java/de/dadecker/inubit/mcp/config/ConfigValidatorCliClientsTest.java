@@ -200,8 +200,9 @@ class ConfigValidatorCliClientsTest {
 
             assertThat(withDefault).containsExactly("defaults.cliClients.\"9.0\": the JDK in "
                 + Path.of("/opt/jdk-17") + " is Java 17; INUBIT 9.0 ships with Java 21");
+            // JAVA_HOME of the server's environment is named as given
             assertThat(withServerJdk).containsExactly("defaults.cliClients.\"9.0\": the JDK in "
-                + Path.of("/opt/jdk-server") + " is Java 11; INUBIT 9.0 ships with Java 21");
+                + "/opt/jdk-server is Java 11; INUBIT 9.0 ships with Java 21");
         }
 
         @Test
@@ -271,7 +272,7 @@ class ConfigValidatorCliClientsTest {
             assertThat(own).containsExactly("dev/node1: the JDK in " + Path.of("/opt/jdk-11")
                 + " is Java 11; INUBIT 8.1 ships with Java 17");
             assertThat(server).containsExactly("dev/node1: the JDK in "
-                + Path.of("/opt/jdk-server") + " is Java 21; INUBIT 8.1 ships with Java 17");
+                + "/opt/jdk-server is Java 21; INUBIT 8.1 ships with Java 17");
         }
 
         @Test
