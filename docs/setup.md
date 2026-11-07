@@ -327,9 +327,8 @@ adapters and a warning in these cases:
   retry after a minute, or pin the version the node actually runs.
 - **Writes on `V9_X` and on detected 9.x servers are refused**; read tools run with a warning
   such as "INUBIT 9.x (versionLine V9_X) on `<node>` is not verified for process diagnosis;
-  results may be incomplete". `--check-config` warns for every `V9_X` node: `<id>: versionLine V9_X:
-  write tools are refused on this node (INUBIT 9.x is not supported for writes yet); read tools
-  run unverified`. A write tool is not announced at all when every node that could run it is
+  results may be incomplete". `--check-config` warns for every `V9_X` node: `versionLine V9_X of <id>
+  does not select 9.0 support; use V9_0 (INUBIT 9.0.x) or AUTO`. A write tool is not announced at all when every node that could run it is
   pinned to a version that does not support it (e.g. only `V9_X` nodes have `write.enabled`);
   `AUTO` nodes count as capable.
 - `deploy_release` is refused unless every source and target node runs a known, supported
@@ -1992,11 +1991,13 @@ Group dev: archives: allowed
   Node dev/node1: read-only, cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_DEV_USERNAME ok, password ← INUBIT_ACME_DEV_PASSWORD ok
   Node dev/node2: read-only, cli: available, inubit: 8.1.17, client: 8.1.17 (4.0.1–8.1.17), client vs pin: match, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_DEV_USERNAME ok, password ← INUBIT_ACME_DEV_PASSWORD ok
 Group next: archives: allowed
-  Node next/node1: read-only, cli: unavailable, inubit: V9_X, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_NEXT_USERNAME ok, password ← INUBIT_ACME_NEXT_PASSWORD ok
-Group legacy:
+  Node next/node1: read-only, cli: unavailable, client: none, address: base URL, inubit: V9_X, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_NEXT_USERNAME ok, password ← INUBIT_ACME_NEXT_PASSWORD ok
+Group legacy: archives: allowed
   Node legacy/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process diagnosis, log diagnosis, inventory, workspace export, development writes, deployment, end-to-end test, process control), client: 6.1.0 (4.0.1–6.1.0; options: no trust-store option, no host-name option), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_LEGACY_USERNAME ok, password ← INUBIT_ACME_LEGACY_PASSWORD ok
+client /opt/inubit-8.1/client (Java 17): CLI 8.1.17 (4.0.1–8.1.17)
+client /opt/inubit-6.1/client (Java 8): CLI 6.1.0 (4.0.1–6.1.0)
 Warnings:
-  - next/node1: versionLine V9_X: write tools are refused on this node (INUBIT 9.x is not supported for writes yet); read tools run unverified
+  - versionLine V9_X of next/node1 does not select 9.0 support; use V9_0 (INUBIT 9.0.x) or AUTO
 ```
 
 Warnings for an INUBIT 6.1 node (the server still starts; each names a refusal of the node's

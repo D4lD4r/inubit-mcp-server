@@ -1,13 +1,17 @@
 package de.dadecker.inubit.mcp.adapter.cli;
 
+import de.dadecker.inubit.mcp.config.CliChoice;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.MajorMinor;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.ClientSelectionPort;
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -70,6 +74,16 @@ public final class CliClientSelector implements ClientSelectionPort {
     @Override
     public Optional<String> warning(NodeId node, Optional<InubitVersion> version) {
         return select(node, version).addressWarning();
+    }
+
+    @Override
+    public NodeSummary.StartCli startCli(NodeId node, Optional<InubitVersion> version) {
+        CliRunner.Selection selection = select(node, version);
+        CliChoice choice = selection.choice();
+        return new NodeSummary.StartCli(choice.cli().home().map(Path::toString),
+            choice.source().name().toLowerCase(Locale.ROOT), choice.entry().map(MajorMinor::text),
+            choice.address().name().toLowerCase(Locale.ROOT), version.isPresent()
+                || !(selection.server().versionLine() instanceof VersionSetting.Auto));
     }
 
     private CliRunner.Selection select(NodeId node, Optional<InubitVersion> version) {

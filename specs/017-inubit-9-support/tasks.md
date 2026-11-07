@@ -246,22 +246,22 @@ FR-017).
 
 ### Operator view (plan stage 7)
 
-- [ ] T023 [P] [US2] `JdkRelease.major(Path javaHome, Function<Path, Optional<String>> reader)`
+- [X] T023 [P] [US2] `JdkRelease.major(Path javaHome, Function<Path, Optional<String>> reader)`
   ("reads `JAVA_VERSION="<n>…"` of `<javaHome>/release`; `"1.8…"` → 8; unreadable → empty") —
   main `config/JdkRelease.java`, test `config/JdkReleaseTest.java`
-- [ ] T024 [US2] `ConfigValidator` warnings per contracts/configuration-delta.md: undeclared key,
+- [X] T024 [US2] `ConfigValidator` warnings per contracts/configuration-delta.md: undeclared key,
   missing entry `home`/`javaHome` directory, JDK major ≠ 17/21 for 8.1/9.0 entries and pinned
   nodes (unknown major: no warning), `V9_X` "versionLine V9_X of <node> does not select 9.0
   support; use V9_0 (INUBIT 9.0.x) or AUTO", pinned ≥ 9 node with servlet `cli.url` (FR-010),
   Windows checks (013) over entry paths; leak check on every new warning — main `config/ConfigValidator.java`, test
   `config/ConfigValidatorCliClientsTest.java`
-- [ ] T025 [US2] `--check-config`: each distinct client `(home, javaHome)` probed once with `-v`
+- [X] T025 [US2] `--check-config`: each distinct client `(home, javaHome)` probed once with `-v`
   (local); entry whose range excludes its key reported; `ConfigSummary` node line `client: <dir>
   (<source>), address: <kind>` (`AUTO`: version-less choice + "chosen at runtime") and one line
   per distinct client with its `-v` result and JDK major; no URL, no credentials (leak check on the whole output) — main
   `Launcher.java`, `config/ConfigSummary.java`, tests `config/ConfigSummaryTest.java`,
   `MainTest.java` (check-config cases)
-- [ ] T026 [US2] `list_nodes.startCli` (D-18): `NodeSummary.StartCli` (`clientDirectory?`,
+- [X] T026 [US2] `list_nodes.startCli` (D-18): `NodeSummary.StartCli` (`clientDirectory?`,
   `source`, `versionEntry?`, `address`, `boolean finalChoice` rendered as JSON `"final"`; tests
   assert the model field and the serialized/schema name), `NodeOverview` fills it from the current
   effective version without node contact, `cliAvailable`/allowed capabilities via `available`;

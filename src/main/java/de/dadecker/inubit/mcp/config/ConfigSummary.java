@@ -83,6 +83,17 @@ public final class ConfigSummary {
     public String render(LoadedConfig loaded, ValidationReport report,
         Map<NodeId, ClientVersion> clients, Map<NodeId, CliClientOptions> options,
         ParameterCheck.Result parameters, EntryCheck.Result entries) {
+        return render(loaded, report, clients, options, parameters, entries, List.of());
+    }
+
+    /**
+     * @param checked one entry per distinct StartCLI client (feature 017, T025), each shown as
+     *                {@link CheckedClient#line()} after the node lines
+     */
+    public String render(LoadedConfig loaded, ValidationReport report,
+        Map<NodeId, ClientVersion> clients, Map<NodeId, CliClientOptions> options,
+        ParameterCheck.Result parameters, EntryCheck.Result entries,
+        List<CheckedClient> checked) {
         ProfileConfig config = loaded.config();
         Terminology terms = config.terminology().effectiveOrDefault();
         StringBuilder out = new StringBuilder();
@@ -133,6 +144,7 @@ public final class ConfigSummary {
                 .append(writeFlag(server))
                 .append(development ? ", " + development(server) : "")
                 .append(", cli: ").append(cliAvailable(server) ? "available" : "unavailable")
+                .append(clientChoice(server, terms))
                 .append(", inubit: ").append(server.versionLine().text())
                 .append(cliOnly(server.versionLine()));
             Optional.ofNullable(clients.get(server.id()))
@@ -152,12 +164,43 @@ public final class ConfigSummary {
             }
             out.append('\n');
         }
+        checked.forEach(client -> out.append(client.line()).append('\n'));
         appendList(out, "Warnings:", report.warnings());
         appendList(out, "Errors:", report.errors());
         out.append(report.hasErrors()
             ? "Result: FAILED (" + report.errors().size() + " error(s))"
             : "Result: OK").append('\n');
         return out.toString();
+    }
+
+    /**
+     * Feature 017 (FR-015): {@code , client: <dir> (<source>), address: <kind>} for the version
+     * the node's {@code versionLine} gives; for {@code AUTO} the version-less choice followed by
+     * {@code ; chosen at runtime by the detected version}. Empty for a node whose client does
+     * not depend on its version, which keeps its 0.8.0 line (FR-009).
+     */
+    private static String clientChoice(EffectiveNodeConfig server, Terminology terms) {
+        if (!server.choosesCliByVersion()) {
+            return "";
+        }
+        CliChoice choice = server.cliForSetting();
+        String source = switch (choice.source()) {
+            case NODE -> terms.render("{node} cli.home");
+            case GROUP -> terms.render("{group} cli.home");
+            case VERSION_ENTRY -> "cliClients \"" + choice.entry().orElseThrow().text() + "\"";
+            case DEFAULTS -> "defaults.cliHome";
+            case NONE -> "";
+        };
+        String client = choice.cli().home().map(home -> home + " (" + source + ")")
+            .orElse("none");
+        String address = switch (choice.address()) {
+            case SERVLET_PATH -> "servlet path";
+            case BASE_URL -> "base URL";
+            case CONFIGURED -> "configured";
+        };
+        return ", client: " + client + ", address: " + address
+            + (server.versionLine() instanceof VersionSetting.Auto
+                ? "; chosen at runtime by the detected version" : "");
     }
 
     /**

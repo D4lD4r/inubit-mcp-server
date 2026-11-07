@@ -76,6 +76,8 @@ New warnings (no INUBIT contact; each distinct client probed once with `startcli
 |---|---|
 | entry's client range excludes its key | `defaults.cliClients."9.0": the StartCLI client in <home> supports INUBIT <from> to <to>, which excludes 9.0` |
 | entry `home` or `javaHome` missing | `defaults.cliClients."9.0": <home\|javaHome> <path> does not exist` |
+| entry `home` exists without `bin/startcli.sh` (`.bat` on Windows), e.g. the INUBIT installation instead of its client directory | `defaults.cliClients."9.0": <home>/bin/startcli.sh not found; CLI-backed capabilities report CLI_UNAVAILABLE on nodes using this entry` |
+| no JDK for the entry (entry `javaHome` → `defaults.cliJavaHome` → `JAVA_HOME`); the entry is not probed | `defaults.cliClients."9.0": neither its javaHome, defaults.cliJavaHome nor JAVA_HOME is set; CLI-backed capabilities report CLI_UNAVAILABLE on nodes using this entry without their own cli.javaHome` |
 | JDK major ≠ 17 for 8.1 / ≠ 21 for 9.0 (entry or pinned node) | `<subject>: the JDK in <javaHome> is Java <n>; INUBIT 9.0 ships with Java 21` |
 | `V9_X` | `versionLine V9_X of <node> does not select 9.0 support; use V9_0 (INUBIT 9.0.x) or AUTO` |
 | pinned ≥ 9 with explicit `cli.url` containing `/ibis/servlet/IBISSoapServlet` | `cli.url of <node> uses /ibis/servlet/IBISSoapServlet, which INUBIT 9.0.2 and later removed; remove cli.url or set it to the base URL` |
@@ -88,4 +90,6 @@ prod/node1: … , cli: available, client: /opt/inubit-8.1/client (defaults.cliHo
 ```
 
 Client lines (one per distinct client): `client /opt/inubit-9.0/client (Java 21): CLI 9.0.7
-(9.0.0–9.0.10)`; a failed probe is a warning as today.
+(9.0.0–9.0.10)`; a failed probe is a warning as today. An entry no node uses is probed with
+`-v` under a neutral copy of the first node (no trust store, no `cli.url` of its own), so that
+no setting of that node can refuse the run.

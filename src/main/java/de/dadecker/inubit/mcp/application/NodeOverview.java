@@ -83,6 +83,7 @@ public final class NodeOverview {
         Optional<ClientKey> client = selection.available(id, version)
             ? selection.current(id, version) : Optional.empty();
         return node.withCliAvailable(client.isPresent())
+            .withStartCli(selection.startCli(id, version))
             .withVersion(version(id, state, version, client));
     }
 

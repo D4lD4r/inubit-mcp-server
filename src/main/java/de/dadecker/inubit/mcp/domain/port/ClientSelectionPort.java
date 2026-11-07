@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.domain.port;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import java.util.Optional;
 
 /**
@@ -30,4 +31,11 @@ public interface ClientSelectionPort {
      * at {@code version} (research D-19); empty otherwise.
      */
     Optional<String> warning(NodeId node, Optional<InubitVersion> version);
+
+    /**
+     * The StartCLI choice of {@code node} at {@code version} for {@code list_nodes} (research
+     * D-18): directory, its source and the kind of address, never the URL; final unless the
+     * version of an {@code AUTO} node is unknown.
+     */
+    NodeSummary.StartCli startCli(NodeId node, Optional<InubitVersion> version);
 }

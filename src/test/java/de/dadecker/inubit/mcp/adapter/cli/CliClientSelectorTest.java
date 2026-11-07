@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.ClientSelectionPort;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
@@ -180,5 +181,49 @@ class CliClientSelectorTest {
 
         assertThat(launcher.launchCount()).isZero();
         assertThat(versionReads).hasValue(0);
+    }
+
+    // --- T026: list_nodes.startCli (research D-18) ---------------------------------------------
+
+    @Test
+    void theStartCliOfAKnownVersionNamesItsEntryAndAddressAndIsFinal() {
+        ClientSelectionPort selector = selector(node().build());
+
+        assertThat(selector.startCli(ID, V9_0_7)).isEqualTo(new NodeSummary.StartCli(
+            Optional.of(CLIENT_90.toString()), "version_entry", Optional.of("9.0"), "base_url",
+            true));
+        assertThat(selector.startCli(ID, V8_1_17)).isEqualTo(new NodeSummary.StartCli(
+            Optional.of(CLIENT_81.toString()), "version_entry", Optional.of("8.1"),
+            "servlet_path", true));
+        assertThat(versionReads).as("the caller's version, never re-read").hasValue(0);
+    }
+
+    @Test
+    void anAutoNodeOfUnknownVersionHasTheVersionLessChoiceWhichIsNotFinal() {
+        assertThat(selector(node().defaultCliHome(CLIENT_DEFAULT).build())
+            .startCli(ID, Optional.empty())).isEqualTo(new NodeSummary.StartCli(
+                Optional.of(CLIENT_DEFAULT.toString()), "defaults", Optional.empty(),
+                "servlet_path", false));
+        assertThat(selector(node().build()).startCli(ID, Optional.empty()))
+            .isEqualTo(new NodeSummary.StartCli(Optional.empty(), "none", Optional.empty(),
+                "servlet_path", false));
+    }
+
+    @Test
+    void aNodeHomeAndAConfiguredAddressAreNamedWithoutTheUrl() {
+        NodeSummary.StartCli startCli = selector(node().cliHome(CLIENT_DEFAULT)
+            .cliUrl(SERVLET_URL).versionLine(VersionSetting.parse("9.0.7").orElseThrow())
+            .build()).startCli(ID, V9_0_7);
+
+        assertThat(startCli).isEqualTo(new NodeSummary.StartCli(
+            Optional.of(CLIENT_DEFAULT.toString()), "node", Optional.empty(), "configured",
+            true));
+        assertThat(startCli.toString()).doesNotContain("://", "example.test");
+    }
+
+    @Test
+    void aPinnedOrLinedNodeIsFinalEvenWithoutAVersion() {
+        assertThat(selector(node().versionLine(VersionSetting.V9_X).build())
+            .startCli(ID, Optional.empty()).finalChoice()).isTrue();
     }
 }

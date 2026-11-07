@@ -69,6 +69,14 @@ class NodeOverviewClientKeyTest {
         public Optional<String> warning(NodeId id, Optional<InubitVersion> version) {
             return Optional.empty();
         }
+
+        @Override
+        public NodeSummary.StartCli startCli(NodeId id, Optional<InubitVersion> version) {
+            return new NodeSummary.StartCli(current(id, version).map(ClientKey::home),
+                version.isPresent() ? "version_entry" : "none",
+                version.map(v -> v.major() + "." + v.minor()), "servlet_path",
+                version.isPresent());
+        }
     };
 
     private NodeSummary listed() {
@@ -121,5 +129,19 @@ class NodeOverviewClientKeyTest {
 
         assertThat(version.client().version()).isEmpty();
         assertThat(version.client().state()).contains("not_yet_detected");
+    }
+
+    @Test
+    void theStartCliOfTheVersionAsOfTheCallIsListed() {
+        // T026 (research D-18): from the current effective version, without contacting the node
+        assertThat(listed().startCli()).contains(new NodeSummary.StartCli(Optional.empty(),
+            "none", Optional.empty(), "servlet_path", false));
+
+        versions.observed(node.id(), V8_1_17);
+        versions.observed(node.id(), version("9.0.7"));
+
+        assertThat(listed().startCli()).contains(new NodeSummary.StartCli(
+            Optional.of(KEY_90.home()), "version_entry", Optional.of("9.0"), "servlet_path",
+            true));
     }
 }

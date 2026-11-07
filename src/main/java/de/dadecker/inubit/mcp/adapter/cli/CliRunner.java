@@ -7,7 +7,6 @@ import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Built;
 import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Cause;
 import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.TooLong;
 import de.dadecker.inubit.mcp.config.CliChoice;
-import de.dadecker.inubit.mcp.config.CliChoice.AddressKind;
 import de.dadecker.inubit.mcp.config.CredentialNames;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.SecretLabels;
@@ -283,14 +282,7 @@ public final class CliRunner {
         EffectiveNodeConfig.Cli cli = choice.cli();
         ClientKey key = new ClientKey(cli.home().map(Path::toString).orElse(""),
             cli.javaHome().map(Path::toString).orElse(""));
-        boolean servletOnNine = choice.address() == AddressKind.CONFIGURED
-            && cli.url().toString().contains(EffectiveNodeConfig.DEFAULT_CLI_PATH)
-            && choice.major().isPresent() && choice.major().getAsInt() >= 9;
-        Optional<String> warning = servletOnNine
-            ? Optional.of("cli.url of " + server.id() + " uses "
-                + EffectiveNodeConfig.DEFAULT_CLI_PATH + ", which INUBIT 9.0.2 and later"
-                + " removed; remove cli.url or set it to the base URL")
-            : Optional.empty();
+        Optional<String> warning = choice.servletAddressWarning(server.id());
         return new Selection(server.withCli(cli), choice, key, warning, version);
     }
 

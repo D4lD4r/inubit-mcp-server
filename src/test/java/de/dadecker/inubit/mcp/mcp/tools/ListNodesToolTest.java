@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.TestWiring;
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
 import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
+import de.dadecker.inubit.mcp.adapter.cli.CliClientSelector;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
@@ -37,6 +38,7 @@ import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.infra.ResultJson;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
@@ -238,12 +240,12 @@ class ListNodesToolTest {
             assertThat(text).isNotBlank();
             assertThat(text + result.path("structuredContent"))
                 .doesNotContain("https://", "example.test", "baseUrl", "url", "username",
-                    "password", "Password", "credential", "trustStore", CLI_HOME.toString());
+                    "password", "Password", "credential", "trustStore");
             JsonNode node = result.path("structuredContent").path("groups").path(0)
                 .path("nodes").path(0);
             assertThat(node.propertyNames()).containsExactly("id", "group", "node",
                 "production", "writeEnabled", "developmentEnabled", "confirmationMode",
-                "repositoryWrite", "versionLine", "cliAvailable", "version");
+                "repositoryWrite", "versionLine", "cliAvailable", "startCli", "version");
         }
     }
 
@@ -913,5 +915,121 @@ class ListNodesToolTest {
             assertThat(usable(test)).containsExactly("monitoring", "process_diagnosis",
                 "log_diagnosis", "inventory", "deployment");
         }
+    }
+
+    // --- feature 017 T026: startCli (research D-18, FR-015) ------------------------------------
+
+    @Test
+    void eachNodeNamesItsStartCliChoiceAsOfTheCallWithoutAUrl() {
+        // pinned (version entry, base URL, final), detected and undetected AUTO nodes
+        Path client90 = Path.of("/opt/acme/client-9.0");
+        String baseUrl = "https://localhost:" + wireMock.httpsPort();
+        List<EffectiveNodeConfig> nodes = List.of(
+            versionNode("dev/node1", baseUrl, VersionSetting.parse("9.0.7").orElseThrow())
+                .cliClient("9.0", client90, Optional.empty()).build(),
+            versionNode("dev/node2", baseUrl, VersionSetting.AUTO)
+                .cliClient("9.0", client90, Optional.empty()).defaultCliHome(CLI_HOME).build(),
+            versionNode("dev/node3", baseUrl, VersionSetting.AUTO)
+                .cliClient("9.0", client90, Optional.empty()).defaultCliHome(CLI_HOME).build(),
+            versionNode("qa/node1", baseUrl, VersionSetting.V8_1).cliHome(CLI_HOME)
+                .cliUrl(baseUrl + "/cli").build());
+        Map<NodeId, EffectiveNodeConfig> byId = new HashMap<>();
+        nodes.forEach(node -> byId.put(node.id(), node));
+        NodeVersions known = new NodeVersions(clock, id -> byId.get(id).versionLine(),
+            id -> Duration.ofMinutes(10));
+        known.detected(NodeId.parse("dev/node3"), InubitVersion.parse("9.0.7").orElseThrow());
+        List<NodeSummary> listed = nodes.stream().map(node -> node.summary(EXISTS, false))
+            .toList();
+        CliClientSelector selector = new CliClientSelector(TestCliRunners.forHost(
+            noStartCli(new AtomicInteger()), Map.of(), new CliResources("acme",
+                PrivateFiles.forHost())), byId::get, EXISTS, false);
+        NodeOverview overview = new NodeOverview(listed, known, CapabilityMatrix.production(),
+            (id, withClient) -> READS, selector);
+
+        try (McpTestClient mcp = McpTestClient.start(McpTestClient.TEST_PROFILE, List.of(
+            new ListNodesTool(McpTestClient.TEST_PROFILE, overview::nodes)))) {
+            mcp.initialize();
+            JsonNode result = mcp.callTool("list_nodes", Map.of());
+
+            assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+            assertMatchesOutputSchema(result);
+            Map<String, JsonNode> byNode = new HashMap<>();
+            result.path("structuredContent").path("groups").forEach(group -> group.path("nodes")
+                .forEach(node -> byNode.put(node.path("id").asString(), node.path("startCli"))));
+            JsonNode pinned = byNode.get("dev/node1");
+            assertThat(pinned.propertyNames()).as("the model's finalChoice is JSON \"final\"")
+                .containsExactly("clientDirectory", "source", "versionEntry", "address", "final");
+            assertThat(pinned.path("clientDirectory").asString()).isEqualTo(client90.toString());
+            assertThat(pinned.path("source").asString()).isEqualTo("version_entry");
+            assertThat(pinned.path("versionEntry").asString()).isEqualTo("9.0");
+            assertThat(pinned.path("address").asString()).isEqualTo("base_url");
+            assertThat(pinned.path("final").asBoolean()).isTrue();
+            JsonNode undetected = byNode.get("dev/node2");
+            assertThat(undetected.propertyNames()).containsExactly("clientDirectory", "source",
+                "address", "final");
+            assertThat(undetected.path("clientDirectory").asString())
+                .isEqualTo(CLI_HOME.toString());
+            assertThat(undetected.path("source").asString()).isEqualTo("defaults");
+            assertThat(undetected.path("address").asString()).isEqualTo("servlet_path");
+            assertThat(undetected.path("final").asBoolean()).as("chosen at runtime").isFalse();
+            JsonNode detected = byNode.get("dev/node3");
+            assertThat(detected.path("source").asString()).isEqualTo("version_entry");
+            assertThat(detected.path("address").asString()).isEqualTo("base_url");
+            assertThat(detected.path("final").asBoolean()).isTrue();
+            JsonNode configured = byNode.get("qa/node1");
+            assertThat(configured.path("source").asString()).isEqualTo("node");
+            assertThat(configured.path("address").asString()).isEqualTo("configured");
+            assertThat(configured.path("final").asBoolean()).isTrue();
+            assertThat(result.path("structuredContent").toString())
+                .doesNotContain("://", "localhost", "finalChoice");
+        }
+        assertThat(requests()).as("no node is contacted").isZero();
+    }
+
+    @Test
+    void theClientDirectoryIsTheOnlyPlaceTheCliHomeAppears() {
+        // review of stage 7 (N3): FR-015 / D-18 show startCli.clientDirectory; nothing else
+        // names the home, and no URL, username, credential or trust store appears
+        List<EffectiveNodeConfig> config = config();
+        Map<NodeId, EffectiveNodeConfig> byId = new HashMap<>();
+        config.forEach(node -> byId.put(node.id(), node));
+        NodeVersions known = new NodeVersions(clock, id -> byId.get(id).versionLine(),
+            id -> Duration.ofMinutes(10));
+        List<NodeSummary> summaries = config.stream().map(node -> node.summary(EXISTS, false))
+            .toList();
+        CliClientSelector selector = new CliClientSelector(TestCliRunners.forHost(
+            noStartCli(new AtomicInteger()), Map.of(), new CliResources("acme",
+                PrivateFiles.forHost())), byId::get, EXISTS, false);
+        NodeOverview overview = new NodeOverview(summaries, known, CapabilityMatrix.production(),
+            (id, withClient) -> READS, selector);
+
+        try (McpTestClient mcp = McpTestClient.start(McpTestClient.TEST_PROFILE, List.of(
+            new ListNodesTool(McpTestClient.TEST_PROFILE, overview::nodes)))) {
+            mcp.initialize();
+            JsonNode result = mcp.callTool("list_nodes", Map.of());
+
+            assertMatchesOutputSchema(result);
+            JsonNode first = result.path("structuredContent").path("groups").path(0)
+                .path("nodes").path(0);
+            assertThat(first.path("startCli").path("clientDirectory").asString())
+                .isEqualTo(CLI_HOME.toString());
+            String field = "\"clientDirectory\":\"" + CLI_HOME + "\"";
+            String text = result.path("content").get(0).path("text").asString();
+            String structured = result.path("structuredContent").toString();
+            assertThat(structured).contains(field);
+            assertThat(text.replace(field, "") + structured.replace(field, ""))
+                .doesNotContain(CLI_HOME.toString(), "://", "example.test", "baseUrl",
+                    "username", "password", "Password", "credential", "trustStore");
+        }
+    }
+
+    @Test
+    void theModelNamesTheChoiceFinalChoice() {
+        NodeSummary.StartCli startCli = new NodeSummary.StartCli(Optional.empty(), "none",
+            Optional.empty(), "servlet_path", false);
+
+        assertThat(startCli.finalChoice()).isFalse();
+        assertThat(ResultJson.mapper().valueToTree(startCli).propertyNames())
+            .containsExactly("source", "address", "final");
     }
 }

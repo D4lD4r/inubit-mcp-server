@@ -19,6 +19,7 @@ import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
@@ -746,6 +747,11 @@ class VersionGateTest {
             public Optional<String> warning(NodeId node, Optional<InubitVersion> version) {
                 return node.equals(V9_0) && version.map(v -> v.major() >= 9).orElse(false)
                     ? Optional.of(SERVLET_WARNING) : Optional.empty();
+            }
+
+            @Override
+            public NodeSummary.StartCli startCli(NodeId node, Optional<InubitVersion> version) {
+                return NodeSummary.StartCli.none(version.isPresent());
             }
         };
     }

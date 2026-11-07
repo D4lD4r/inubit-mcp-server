@@ -249,3 +249,22 @@ for the new permit parameters or gained permit assertions; harnesses run with th
 Contract wording "in the step's report" corrected to the failure message (in `deploy_release` the
 node's failure message). No blocking finding open. Full build after the fixes: 5296 tests, 0
 failures, 0 errors, 51 skipped.
+
+## Implementation — stage 7, T023–T026 (code-review, 2026-11-07)
+
+Full build before the review: 5353 tests, 0 failures, 0 errors, 51 skipped. Tests were written
+first; for T025/T026 they were not run red before implementing (the reviewer confirmed the new
+cases test the new behaviour). Changed expectations: the contract's `V9_X` warning text; a pinned
+9.0.7 node shows client and address; `-v` runs once per shared client in `--check-config`
+(output unchanged); `list_nodes` always carries `startCli` (JSON `final`). The reviewer found no
+output change for profiles without `cliClients` and without 9.x nodes (FR-009).
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | SHOULD | A `cliClients` entry whose home has no StartCLI script passed `--check-config` without a warning (FR-006, D-17) | Accepted | Entry-worded "… bin/startcli.sh not found …" warning, added to the contract table; on Windows a refused/network home keeps only its refusal warning (no host name in output); red-green tests |
+| 2 | NIT | The `--check-config` example in docs/setup.md lacked the per-client lines | Accepted | Lines added (and the group line corrected); `MainTest` now checks the excerpt against real output |
+| 3 | NIT | The `list_nodes` leak test still forbade the CLI home although `startCli.clientDirectory` must show it | Accepted | Removed from the forbidden list; new test with the real selector: the home appears only in `clientDirectory` |
+| 4 | NIT | The entry probe ran through the first node's settings, so failures named that node or came from its trust store/URL | Accepted | Entry JDK resolved first with an entry-worded warning; probe on a neutral copy (no trust store, neutral URL); tests. A probe timeout may still name the first node (accepted, rare) |
+
+No blocking finding open. Full build after the fixes: 5360 tests, 0 failures, 0 errors, 51
+skipped.

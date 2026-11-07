@@ -56,6 +56,22 @@ class NodeOverviewTest {
                 reason -> assertThat(reason).endsWith(" does not support log diagnosis yet"));
     }
 
+    @Test
+    void everyListedNodeHasItsStartCliChoiceWhichTheStartupSummaryLacks() {
+        // feature 017 (FR-015, research D-18): always present in list_nodes; final for a pin
+        NodeSummary node = TestNodeConfig.node().versionLine(VersionSetting.V8_1).build()
+            .summary(path -> false, false);
+        NodeVersions versions = new NodeVersions(new MutableClock(Instant.EPOCH),
+            id -> VersionSetting.V8_1, id -> Duration.ofMinutes(5));
+
+        NodeSummary listed = new NodeOverview(List.of(node), versions,
+            CapabilityMatrix.production(), (id, withClient) -> DIAGNOSIS,
+            TestClientSelection.none()).nodes().getFirst();
+
+        assertThat(node.startCli()).isEmpty();
+        assertThat(listed.startCli()).contains(NodeSummary.StartCli.none(true));
+    }
+
     /** The capabilities of a {@code V8_1} node that allows both diagnosis capabilities only. */
     private static NodeSummary.Capabilities capabilities(CapabilityMatrix matrix) {
         NodeVersions versions = new NodeVersions(new MutableClock(Instant.EPOCH),

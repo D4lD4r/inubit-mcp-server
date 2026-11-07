@@ -263,6 +263,27 @@ public record EffectiveNodeConfig(
     }
 
     /**
+     * The StartCLI address of {@link #entryProbe}: {@code startcli -v} does not use it, and it
+     * holds no character the Windows command interpreter interprets.
+     */
+    public static final URI ENTRY_PROBE_URL = URI.create("https://localhost");
+
+    /**
+     * A neutral copy of this node with {@code home} and {@code javaHome} as its sole StartCLI
+     * client, chosen for every version: no trust store, host-name or pin setting and
+     * {@link #ENTRY_PROBE_URL} as address, so that none of this node's own settings can refuse
+     * the run. {@code --check-config} probes a {@code defaults.cliClients} entry with
+     * {@code -v} this way (feature 017, T025).
+     */
+    public EffectiveNodeConfig entryProbe(Path home, Optional<Path> javaHome) {
+        Cli only = new Cli(ENTRY_PROBE_URL, Optional.of(home), javaHome);
+        return new EffectiveNodeConfig(id, production, baseUrl, allowInsecureHttp, versionLine,
+            write, new Tls(Optional.empty(), false, Optional.empty()), only, inventory, timeout,
+            cliTimeout, cliExportTimeout, hangingThreshold, confirmationTtl, credentialPrefix,
+            development, secretPlan, archivesProductionOptIn, CliSources.of(baseUrl, only));
+    }
+
+    /**
      * The StartCLI client, JDK and address for {@code version}, the node's effective version
      * (feature 017, research D-3): node or group {@code cli.home}, else the
      * {@code defaults.cliClients} entry of the version's major.minor (never for a line without
@@ -274,6 +295,24 @@ public record EffectiveNodeConfig(
      */
     public CliChoice cliFor(Optional<InubitVersion> version) {
         return choose(cliSources, baseUrl, versionLine, version);
+    }
+
+    /**
+     * The choice for the version the {@code versionLine} alone gives: a pin or a line with minor;
+     * {@code AUTO} and a line without minor give the version-less choice (as {@link #cli()}).
+     */
+    public CliChoice cliForSetting() {
+        return cliFor(NodeVersionState.initial(versionLine).effectiveVersion());
+    }
+
+    /**
+     * Whether this node's StartCLI client depends on its version (feature 017):
+     * {@code defaults.cliClients} is configured or the {@code versionLine} has major 9 or later.
+     * Otherwise the node shows exactly the 0.8.0 output (FR-009).
+     */
+    public boolean choosesCliByVersion() {
+        OptionalInt major = cliForSetting().major();
+        return !cliSources.clients().isEmpty() || major.isPresent() && major.getAsInt() >= 9;
     }
 
     private static CliChoice choose(CliSources sources, URI baseUrl, VersionSetting line,
@@ -366,7 +405,7 @@ public record EffectiveNodeConfig(
         return new NodeSummary(id, id.group(), id.name(), production, effectiveWriteEnabled(),
             development.enabled() && !production, write.confirmation().name(),
             development.repositoryWrite(), versionLine.text(), cliAvailable(exists, windows),
-            Optional.empty());
+            Optional.empty(), Optional.empty());
     }
 
     /** StartCLI below the CLI home: {@code bin/startcli.sh}, {@code .bat} on Windows. */

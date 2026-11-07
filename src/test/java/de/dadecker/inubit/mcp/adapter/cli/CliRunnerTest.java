@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.adapter.rest.TlsTestServer;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
@@ -1234,6 +1235,30 @@ class CliRunnerTest {
         assertThat(error.message()).contains("cli.url contains a character the Windows command"
             + " interpreter interprets (exclamation mark)");
         assertThat(error.toString()).doesNotContain("ibis!x!");
+    }
+
+    @Test
+    void theEntryProbeCopyOfANodeHasNoTrustStoreAndANeutralUrlSoWindowsDoesNotRefuseIt()
+        throws IOException {
+        // feature 017, review of stage 7 (N4): --check-config probes a cliClients entry with
+        // -v through the first node, which uses neither its trust store nor its cli.url
+        batchFile(cliHome);
+        EffectiveNodeConfig node = server()
+            .cliUrl("https://cli.example.test/ibis!x!/servlet/IBISSoapServlet")
+            .trustStore(Path.of("C:\\certs\\a&calc.p12")).build();
+        CliRunner runner = windowsRunner(FakeProcessLauncher.replaying("processErrorStart_ok"));
+        assertThat(errorOf(() -> runner.checkAvailable(node)).message())
+            .contains("the Windows command interpreter interprets");
+
+        EffectiveNodeConfig probe = node.entryProbe(cliHome, Optional.of(JAVA_HOME));
+
+        assertThat(probe.tls().trustStore()).isEmpty();
+        assertThat(probe.cli()).isEqualTo(new EffectiveNodeConfig.Cli(
+            EffectiveNodeConfig.ENTRY_PROBE_URL, Optional.of(cliHome), Optional.of(JAVA_HOME)));
+        assertThat(probe.cliFor(InubitVersion.parse("9.0.7"))).as("the sole client")
+            .extracting(choice -> choice.cli().home()).isEqualTo(Optional.of(cliHome));
+        assertThat(probe.toString()).doesNotContain("ibis!x!", "calc");
+        runner.checkAvailable(probe);
     }
 
     @Test

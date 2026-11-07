@@ -802,18 +802,296 @@ class MainTest {
                 + " credentialStore (macOS Keychain), username ←")
             .doesNotContain("dev/node2: the")
             .contains("Result: OK");
-        // the 8.1 node gets its version probe only, no help run
+        // the 8.1 node gets its version probe only, no help run; feature 017 (T025): both nodes
+        // use the same client (home, javaHome), which is probed once
         assertThat(Files.readString(cliHome.resolve("bin/arguments")))
-            .isEqualTo("-v\n-h\n-v\n");
+            .isEqualTo("-v\n-h\n");
+    }
+
+    @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "a POSIX shell substitute of startcli.sh;"
+        + " the Windows launch is covered by CliRunnerTest")
+    void checkConfigProbesEachDistinctClientOnceAndShowsTheChoiceOfEachNode() throws IOException {
+        // feature 017 (T025, FR-015, contracts/configuration-delta.md → --check-config)
+        credentials();
+        Path c90 = fakeStartCli("c90", "9.0.7", "9.0.0", "9.0.10");
+        Path c81 = fakeStartCli("c81", "8.1.17", "4.0.1", "8.1.17");
+        Path jdk21 = jdk("jdk21", "21.0.2");
+        Path jdk17 = jdk("jdk17", "17.0.9");
+        Path file = config("""
+            profile:
+              name: acme
+            defaults:
+              cliClients:
+                "8.1": { home: "%s", javaHome: "%s" }
+                "9.0": { home: "%s", javaHome: "%s" }
+                "9.1": { home: "%s", javaHome: "%s" }
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: "9.0.7"
+                  - name: node2
+                    baseUrl: https://node2.example.test:8443
+                    versionLine: V8_1
+                  - name: node3
+                    baseUrl: https://node3.example.test:8443
+                    versionLine: V9_0
+                  - name: node4
+                    baseUrl: https://node4.example.test:8443
+            """.formatted(c81, jdk17, c90, jdk21, c90, jdk21));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        assertThat(out())
+            .contains("dev/node1: read-only, cli: available, client: " + c90 + " (cliClients"
+                + " \"9.0\"), address: base URL, inubit: 9.0.7, client: 9.0.7 (9.0.0–9.0.10),"
+                + " client vs pin: match, secrets: credentialStore (macOS Keychain), username ←")
+            .contains("dev/node2: read-only, cli: available, client: " + c81 + " (cliClients"
+                + " \"8.1\"), address: servlet path, inubit: V8_1, client: 8.1.17"
+                + " (4.0.1–8.1.17), server version: determined at runtime, secrets:")
+            .contains("dev/node3: read-only, cli: available, client: " + c90 + " (cliClients"
+                + " \"9.0\"), address: base URL, inubit: V9_0, client: 9.0.7 (9.0.0–9.0.10),"
+                + " server version: determined at runtime, secrets:")
+            .contains("dev/node4: read-only, cli: unavailable, client: none, address: servlet"
+                + " path; chosen at runtime by the detected version, inubit: AUTO, secrets:")
+            .contains("\nclient " + c81 + " (Java 17): CLI 8.1.17 (4.0.1–8.1.17)\n"
+                + "client " + c90 + " (Java 21): CLI 9.0.7 (9.0.0–9.0.10)\nWarnings:")
+            .contains("  - defaults.cliClients.\"9.1\": the StartCLI client in " + c90
+                + " supports INUBIT 9.0.0 to 9.0.10, which excludes 9.1")
+            .doesNotContain("defaults.cliClients.\"9.0\": the StartCLI client",
+                "defaults.cliClients.\"8.1\": the StartCLI client")
+            .contains("Result: OK")
+            .doesNotContain("://", "example.test", PASSWORD, USERNAME);
+        // local probes only, no server URL; the 9.0 and 9.1 entries are one client
+        assertThat(Files.readString(c90.resolve("bin/arguments"))).isEqualTo("-v\n");
+        assertThat(Files.readString(c81.resolve("bin/arguments"))).isEqualTo("-v\n");
+    }
+
+    @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "a POSIX shell substitute of startcli.sh;"
+        + " the Windows launch is covered by CliRunnerTest")
+    void checkConfigNamesAFailedEntryProbeAndKeepsTheClientLine() throws IOException {
+        credentials();
+        Path c90 = fakeStartCli("c90", "echo \"unknown_command\"\nexit 1\n");
+        Path file = config("""
+            profile:
+              name: acme
+            defaults:
+              cliClients:
+                "9.0": { home: "%s", javaHome: "%s" }
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+            """.formatted(c90, home)); // a JDK without release file: Java unknown
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        assertThat(out())
+            .contains("\nclient " + c90 + " (Java unknown): CLI version unknown\nWarnings:")
+            .contains("  - defaults.cliClients.\"9.0\": StartCLI client probe failed: StartCLI"
+                + " did not report its version (exit code 1)")
+            .contains("Result: OK")
+            .doesNotContain("://", "example.test", PASSWORD, USERNAME);
+    }
+
+    @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "a POSIX shell substitute of startcli.sh;"
+        + " the Windows launch is covered by CliRunnerTest")
+    void checkConfigOfA080ProfileShowsNoClientLines() throws IOException {
+        // FR-009: without cliClients and 9.x nodes the 0.8.0 output stays
+        credentials();
+        Path cliHome = fakeStartCli("client", "8.1.17", "4.0.1", "8.1.17");
+        Path file = config("""
+            profile:
+              name: acme
+            groups:
+              - name: dev
+                cli:
+                  home: "%s"
+                  javaHome: "%s"
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                  - name: node2
+                    baseUrl: https://node2.example.test:8443
+                    versionLine: V8_1
+            """.formatted(cliHome, home));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        assertThat(out())
+            .contains("dev/node1: read-only, cli: available, inubit: AUTO, client: 8.1.17"
+                + " (4.0.1–8.1.17), server version: determined at runtime, secrets:")
+            .contains("dev/node2: read-only, cli: available, inubit: V8_1, client: 8.1.17"
+                + " (4.0.1–8.1.17), server version: determined at runtime, secrets:")
+            .doesNotContain("\nclient ", "address:", "cliClients");
+        assertThat(Files.readString(cliHome.resolve("bin/arguments"))).isEqualTo("-v\n");
+    }
+
+    @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "a POSIX shell substitute of startcli.sh;"
+        + " the Windows launch is covered by CliRunnerTest")
+    void checkConfigWarnsAboutAnEntryHomeWithoutStartCli() throws IOException {
+        // review of stage 7, S1 (FR-006, research D-17): the INUBIT installation instead of its
+        // client directory is reported, not silently left unprobed
+        credentials();
+        Path installation = Files.createDirectories(home.resolve("inubit-9.0"));
+        Path file = config("""
+            profile:
+              name: acme
+            defaults:
+              cliClients:
+                "9.0": { home: "%s", javaHome: "%s" }
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+            """.formatted(installation, home));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        assertThat(out())
+            .contains("  - defaults.cliClients.\"9.0\": " + installation.resolve("bin/startcli.sh")
+                + " not found; CLI-backed capabilities report CLI_UNAVAILABLE on nodes using this"
+                + " entry")
+            .contains("\nclient " + installation + " (Java unknown): CLI version unknown\n")
+            .contains("Result: OK")
+            .doesNotContain("://", "example.test", PASSWORD, USERNAME);
+    }
+
+    @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "a POSIX shell substitute of startcli.sh;"
+        + " the Windows launch is covered by CliRunnerTest")
+    void checkConfigNamesAnEntryWithoutJdkInsteadOfProbingItThroughANode() throws IOException {
+        // review of stage 7, N4: no entry javaHome, no defaults.cliJavaHome, no JAVA_HOME (the
+        // environment of this test has none); the warning names the entry, not dev/node1
+        credentials();
+        Path c90 = fakeStartCli("c90", "9.0.7", "9.0.0", "9.0.10");
+        Path file = config("""
+            profile:
+              name: acme
+            defaults:
+              cliClients:
+                "9.0": { home: "%s" }
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+            """.formatted(c90));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        assertThat(out())
+            .contains("  - defaults.cliClients.\"9.0\": neither its javaHome, defaults.cliJavaHome"
+                + " nor JAVA_HOME is set; CLI-backed capabilities report CLI_UNAVAILABLE on nodes"
+                + " using this entry without their own cli.javaHome")
+            .contains("\nclient " + c90 + " (Java unknown): CLI version unknown\n")
+            .doesNotContain("probe failed", "No JDK for StartCLI")
+            .contains("Result: OK");
+        assertThat(c90.resolve("bin/arguments")).as("not started").doesNotExist();
+    }
+
+    @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "a POSIX shell substitute of startcli.sh;"
+        + " the Windows launch is covered by CliRunnerTest")
+    void checkConfigPrintsTheVersionPartExampleOfTheSetupGuide() throws IOException {
+        // review of stage 7, N2: the excerpt in docs/setup.md ("The version part of a node
+        // line") is the real output, with the client directories under /opt
+        credentials();
+        entries.put("INUBIT_ACME_NEXT_USERNAME", USERNAME);
+        entries.put("INUBIT_ACME_NEXT_PASSWORD", PASSWORD);
+        entries.put("INUBIT_ACME_LEGACY_USERNAME", USERNAME);
+        entries.put("INUBIT_ACME_LEGACY_PASSWORD", PASSWORD);
+        Path c81 = fakeStartCli("inubit-8.1/client", "8.1.17", "4.0.1", "8.1.17");
+        Path c61 = fakeStartCli("inubit-6.1/client", """
+            echo "CLI 6.1.0"
+            echo "Supported inubit Process Engine versions from 4.0.1 to 6.1.0."
+            """);
+        Path file = config("""
+            profile:
+              name: acme
+            defaults:
+              inventory:
+                owner: INTEGRATION
+            groups:
+              - name: dev
+                cli:
+                  home: "%s"
+                  javaHome: "%s"
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit-dev1.example.test:8443
+                  - name: node2
+                    baseUrl: https://inubit-dev2.example.test:8443
+                    versionLine: "8.1.17"
+              - name: next
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit-next.example.test:8443
+                    versionLine: V9_X
+              - name: legacy
+                versionLine: V6_1
+                cli:
+                  home: "%s"
+                  javaHome: "%s"
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit-legacy.example.test:8443
+            """.formatted(c81, jdk("jdk-17", "17.0.9"), c61, jdk("jdk-8", "1.8.0_402")));
+        String guide = Files.readString(Path.of("docs/setup.md"));
+        int start = guide.lastIndexOf("```text\n", guide.indexOf("  Node next/node1: "));
+        String excerpt = guide.substring(start + "```text\n".length(),
+            guide.indexOf("```", start + 3));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        assertThat(out().replace(home.toString(), "/opt")).contains(excerpt);
     }
 
     /** An executable {@code <home>/client/bin/startcli.sh} running {@code body}; the CLI home. */
     private Path fakeStartCli(String body) throws IOException {
-        Path cliHome = Files.createDirectories(home.resolve("client/bin")).getParent();
+        return fakeStartCli("client", body);
+    }
+
+    /**
+     * An executable {@code <home>/<name>/bin/startcli.sh} that records its arguments and reports
+     * {@code version} supporting {@code from} to {@code to}; the CLI home.
+     */
+    private Path fakeStartCli(String name, String version, String from, String to)
+        throws IOException {
+        return fakeStartCli(name, """
+            echo "$@" >> "$(dirname "$0")/arguments"
+            echo "CLI %s"
+            echo "Supported inubit Process Engine versions from %s to %s."
+            """.formatted(version, from, to));
+    }
+
+    /** An executable {@code <home>/<name>/bin/startcli.sh} running {@code body}; the CLI home. */
+    private Path fakeStartCli(String name, String body) throws IOException {
+        Path cliHome = Files.createDirectories(home.resolve(name + "/bin")).getParent();
         Path script = cliHome.resolve("bin/startcli.sh");
         Files.writeString(script, "#!/bin/sh\n" + body);
         Files.setPosixFilePermissions(script, PosixFilePermissions.fromString("rwx------"));
         return cliHome;
+    }
+
+    /** A JDK directory {@code <home>/<name>} whose {@code release} names {@code version}. */
+    private Path jdk(String name, String version) throws IOException {
+        Path jdk = Files.createDirectories(home.resolve(name));
+        Files.writeString(jdk.resolve("release"), "JAVA_VERSION=\"" + version + "\"\n");
+        return jdk;
     }
 
     @Test
@@ -1563,9 +1841,8 @@ class MainTest {
         int exit = run("--config", file.toString()); // empty stdin: starts and stops at once
 
         assertThat(exit).as(err()).isZero();
-        assertThat(err()).contains("Warnings:", "dev/node1: versionLine V9_X: write tools are"
-            + " refused on this node (INUBIT 9.x is not supported for writes yet); read tools run"
-            + " unverified");
+        assertThat(err()).contains("Warnings:", "versionLine V9_X of dev/node1 does not select"
+            + " 9.0 support; use V9_0 (INUBIT 9.0.x) or AUTO");
         assertThat(out()).doesNotContain("V9_X");
     }
 

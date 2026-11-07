@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.config;
 
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig.Cli;
 import de.dadecker.inubit.mcp.domain.model.MajorMinor;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -43,5 +44,20 @@ public record CliChoice(Cli cli, HomeSource source, Optional<MajorMinor> entry,
             throw new IllegalArgumentException("A cliClients entry is named exactly for the"
                 + " source VERSION_ENTRY, not for " + source);
         }
+    }
+
+    /**
+     * The warning for an explicit {@code cli.url} that names the servlet address although the
+     * choice was made for INUBIT 9 or later (FR-010); empty otherwise.
+     */
+    public Optional<String> servletAddressWarning(NodeId node) {
+        boolean servletOnNine = address == AddressKind.CONFIGURED
+            && cli.url().toString().contains(EffectiveNodeConfig.DEFAULT_CLI_PATH)
+            && major.isPresent() && major.getAsInt() >= 9;
+        return servletOnNine
+            ? Optional.of("cli.url of " + node + " uses " + EffectiveNodeConfig.DEFAULT_CLI_PATH
+                + ", which INUBIT 9.0.2 and later removed; remove cli.url or set it to the base"
+                + " URL")
+            : Optional.empty();
     }
 }

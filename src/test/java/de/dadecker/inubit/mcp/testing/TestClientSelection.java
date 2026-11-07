@@ -59,4 +59,10 @@ public final class TestClientSelection implements ClientSelectionPort {
     public Optional<String> warning(NodeId node, Optional<InubitVersion> version) {
         return Optional.empty();
     }
+
+    /** No client directory is named; final once the version is known. */
+    @Override
+    public NodeSummary.StartCli startCli(NodeId node, Optional<InubitVersion> version) {
+        return NodeSummary.StartCli.none(version.isPresent());
+    }
 }
