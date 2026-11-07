@@ -378,4 +378,54 @@ class EntryCheckTest {
         assertThat(store.reads()).extracting(FakeCredentialStore.Read::account)
             .noneMatch(account -> account.contains("E2E"));
     }
+
+    private static final String NODE1_CLI = """
+        cli:
+          home: /opt/inubit/client
+        """;
+
+    @Test
+    void onWindowsAUsernameStartCliCannotReceiveIsInvalidOnNodesWithAStartCliInstallation() {
+        store.put("INUBIT_ACME_DEV_USERNAME", "j%doe-Secret")
+            .put("INUBIT_ACME_DEV_PASSWORD", "group-Pw-1");
+
+        EntryCheck.Result result = EntryCheck.run(nodes("", NODE1_CLI), store,
+            Duration.ofSeconds(5), true);
+
+        assertThat(result.line(DEV1, "username").orElseThrow().status())
+            .isEqualTo(EntryCheck.Status.INVALID_VALUE);
+        assertThat(result.errors()).singleElement().asString()
+            .contains("dev/node1", "INUBIT_ACME_DEV_USERNAME",
+                "invalid value (Windows: percent sign)")
+            .doesNotContain("j%doe-Secret", "Secret");
+        // feature 013 (R-9): the REST-only node sharing the group entry is unaffected
+        assertThat(result.line(DEV2, "username").orElseThrow().status())
+            .isEqualTo(EntryCheck.Status.OK);
+        assertThat(store.reads()).extracting(FakeCredentialStore.Read::account)
+            .doesNotHaveDuplicates();
+    }
+
+    @Test
+    void offWindowsTheSameUsernameIsValid() {
+        store.put("INUBIT_ACME_DEV_USERNAME", "j%doe")
+            .put("INUBIT_ACME_DEV_PASSWORD", "group-Pw-1");
+
+        EntryCheck.Result result = EntryCheck.run(nodes("", NODE1_CLI), store,
+            Duration.ofSeconds(5), false);
+
+        assertThat(result.errors()).isEmpty();
+        assertThat(result.line(DEV1, "username").orElseThrow().status())
+            .isEqualTo(EntryCheck.Status.OK);
+    }
+
+    @Test
+    void onWindowsAPasswordIsNotCheckedForTheCommandInterpreter() {
+        store.put("INUBIT_ACME_DEV_USERNAME", "jdoe")
+            .put("INUBIT_ACME_DEV_PASSWORD", "group-Pw-1%^&");
+
+        EntryCheck.Result result = EntryCheck.run(nodes("", NODE1_CLI), store,
+            Duration.ofSeconds(5), true);
+
+        assertThat(result.errors()).isEmpty();
+    }
 }

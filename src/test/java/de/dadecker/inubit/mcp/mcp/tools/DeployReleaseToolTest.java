@@ -3,9 +3,11 @@ package de.dadecker.inubit.mcp.mcp.tools;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.application.DeployHarness;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import java.io.IOException;
@@ -153,9 +155,10 @@ class DeployReleaseToolTest {
         McpTestClient client = client(100);
         DeployHarness.TARGETS.forEach(node -> harness.versionLines.put(node,
             VersionSetting.parse("8.1.18").orElseThrow()));
-        harness.versions.clientProbed(DeployHarness.INT1, new ClientVersion(
+        harness.versions.clientProbed(DeployHarness.INT1, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(
             InubitVersion.parse("8.1.17").orElseThrow(), InubitVersion.parse("4.0.1"),
-            InubitVersion.parse("8.1.17")));
+            InubitVersion.parse("8.1.17"))));
 
         JsonNode first = preview(client);
 

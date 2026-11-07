@@ -1,0 +1,9 @@
+Password: 
+cli> NODE                 UID             PID        PRIO       STATE      DATE                 WORKFLOW             MODULE
+node2                jdoe            400102     normal     Waiting    2026-10-28T09:00:00  OrderApproval        TaskListEntry(10301)
+node1                jdoe            400107     low        Waiting    2026-11-01T06:30:12  PartnerSync          Timer(10790)
+Total: 2
+cli> NODE                 UID             PID        PRIO       STATE      DATE                 WORKFLOW             MODULE
+node1                jdoe            400108     normal     Queued     2026-11-01T07:01:44  OrderImport          Mapping(10234)
+Total: 1
+cli> 

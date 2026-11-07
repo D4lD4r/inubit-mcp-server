@@ -1,9 +1,11 @@
 package de.dadecker.inubit.mcp.infra;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.LogType;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import tools.jackson.databind.MapperFeature;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.module.SimpleModule;
@@ -26,7 +28,17 @@ public final class ResultJson {
             .addSerializer(NodeId.class, new ToStringSerializer(NodeId.class))
             .addSerializer(GroupId.class, new ToStringSerializer(GroupId.class))
             .addSerializer(LogType.class, new ToStringSerializer(LogType.class)))
+        .addMixIn(NodeSummary.StartCli.class, StartCliJson.class)
         .build();
+
+    /**
+     * {@code list_nodes.startCli.final} (feature 017, research D-18): {@code final} is a Java
+     * keyword, so the domain record names it {@code finalChoice}.
+     */
+    private abstract static class StartCliJson {
+        @JsonProperty("final")
+        abstract boolean finalChoice();
+    }
 
     private ResultJson() {
     }

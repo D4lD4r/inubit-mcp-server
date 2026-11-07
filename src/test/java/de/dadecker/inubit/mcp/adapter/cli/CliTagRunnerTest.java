@@ -8,15 +8,21 @@ import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
+import de.dadecker.inubit.mcp.testing.TestPermits;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -38,6 +44,7 @@ import org.junit.jupiter.api.io.TempDir;
 class CliTagRunnerTest {
 
     private static final NodeId DEV = NodeId.parse("dev/node1");
+    private static final WritePermit PERMIT = TestPermits.of(DEV, Capability.DEVELOPMENT_WRITE);
     private static final String PASSWORD = "S3cr3t-tag-pw";
 
     @TempDir
@@ -48,8 +55,7 @@ class CliTagRunnerTest {
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
     }
 
     private CliTagRunner runner(ScriptedProcessLauncher cli) {
@@ -59,8 +65,9 @@ class CliTagRunnerTest {
             Optional.empty(), Optional.empty());
         return new CliTagRunner(TestNodeConfig.node().cliHome(cliHome)
             .cliJavaHome(Path.of("/opt/jdk-17")).cliExportTimeout(Duration.ofMillis(500)).build(),
-            credentials, guard, new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
-                new CliResources("acme")), new CliOutputClassifier(new SecretScrubber()));
+            credentials, guard, TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
+                new CliResources("acme",
+                    PrivateFiles.forHost())), new CliOutputClassifier(new SecretScrubber()));
     }
 
     @Test
@@ -69,7 +76,7 @@ class CliTagRunnerTest {
             .expect("tag --tagMove 'REL-2026-10-07' --tagWorkflowGroup 'GRP-01'"
                 + " --tagWorkflowType 'technical' --tagUser 'jdoe'").replying("tag_ok");
 
-        runner(cli).tag("REL-2026-10-07", "GRP-01", "jdoe");
+        runner(cli).tag("REL-2026-10-07", "GRP-01", "jdoe", PERMIT);
 
         cli.verifyComplete();
         assertThat(cli.execCommands()).containsExactly("tag --tagMove 'REL-2026-10-07'"
@@ -98,7 +105,7 @@ class CliTagRunnerTest {
         for (List<String> values : List.of(List.of("T", "", "jdoe"), List.of("T", " ", "jdoe"),
             List.of("T", "G*", "jdoe"), List.of("T", "-x", "jdoe"), List.of("", "G", "jdoe"),
             List.of("T", "G", "O'Brien"), List.of("T'1", "G", "jdoe"))) {
-            assertThatThrownBy(() -> runner.tag(values.get(0), values.get(1), values.get(2)))
+            assertThatThrownBy(() -> runner.tag(values.get(0), values.get(1), values.get(2), PERMIT))
                 .as(values.toString()).isInstanceOfSatisfying(ToolErrorException.class,
                     e -> assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT));
         }
@@ -113,16 +120,27 @@ class CliTagRunnerTest {
             .expect("tag ").replying("import_timeout").hanging();
         CliTagRunner runner = runner(cli);
 
-        assertThatThrownBy(() -> runner.tag("T", "GRP-01", "jdoe"))
+        assertThatThrownBy(() -> runner.tag("T", "GRP-01", "jdoe", PERMIT))
             .isInstanceOfSatisfying(ToolErrorException.class, e -> {
                 assertThat(e.error().code()).isEqualTo(ErrorCode.IMPORT_FAILED);
                 assertThat(e.error().message()).contains("Tag failed.");
             });
-        assertThatThrownBy(() -> runner.tag("T", "GRP-01", "jdoe"))
+        assertThatThrownBy(() -> runner.tag("T", "GRP-01", "jdoe", PERMIT))
             .isInstanceOfSatisfying(ToolErrorException.class, e -> {
                 assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT);
                 assertThat(e.error().nextStep()).contains("cliExportTimeout");
             });
         cli.verifyComplete();
+    }
+
+    @Test
+    void aPermitForAnotherNodeIsAProgrammingErrorBeforeAnythingIsLaunched() {
+        // feature 017 (T045, FR-018, research D-24)
+        ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
+
+        assertThatThrownBy(() -> runner(cli).tag("T", "GRP-01", "jdoe",
+            TestPermits.of("dev/node2", Capability.DEVELOPMENT_WRITE)))
+            .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("dev/node2");
+        assertThat(cli.launches()).isEmpty();
     }
 }

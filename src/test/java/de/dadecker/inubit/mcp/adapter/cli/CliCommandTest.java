@@ -3,8 +3,10 @@ package de.dadecker.inubit.mcp.adapter.cli;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import de.dadecker.inubit.mcp.config.CliPaths;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.testing.Platform;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -12,6 +14,15 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 /** T022: allow-listed command tokens and the R-11 quoting rule for {@code --execCommand}. */
 class CliCommandTest {
+
+    private static final boolean WINDOWS = Platform.windows();
+    /** The drive of {@link #file} on Windows, where a path inside the command has one. */
+    private static final String DRIVE = WINDOWS ? "C:" : "";
+
+    /** The fictitious {@code posixPath} as an absolute path of the host. */
+    private static Path file(String posixPath) {
+        return Platform.absolutePath(posixPath);
+    }
 
     private static void assertInvalidInput(Runnable call) {
         assertThatThrownBy(call::run).isInstanceOfSatisfying(ToolErrorException.class,
@@ -53,12 +64,12 @@ class CliCommandTest {
             .quoted("--exportWorkflowType", "technical")
             .quoted("--exportWorkflowGroup", "GRP-01 Group_1.0")
             .flag("--includeHistory")
-            .path("--exportFile", Path.of("/tmp/inubit-mcp-1/history.zip"))
+            .path("--exportFile", file("/tmp/inubit-mcp-1/history.zip"), WINDOWS)
             .build();
 
         assertThat(command.commandLine()).isEqualTo("export --exportWorkflowUser 'OWNERS'"
             + " --exportWorkflowType 'technical' --exportWorkflowGroup 'GRP-01 Group_1.0'"
-            + " --includeHistory --exportFile '/tmp/inubit-mcp-1/history.zip'");
+            + " --includeHistory --exportFile '" + DRIVE + "/tmp/inubit-mcp-1/history.zip'");
         assertThat(command.name()).isEqualTo("export");
         assertThat(command).hasToString(command.commandLine());
     }
@@ -69,12 +80,12 @@ class CliCommandTest {
             .emptyQuoted("--exportModule")
             .emptyQuoted("--exportModuleGroup")
             .quoted("--exportModuleUser", "OWNERS")
-            .path("--exportFile", Path.of("/tmp/x/modules.zip"))
+            .path("--exportFile", file("/tmp/x/modules.zip"), WINDOWS)
             .build();
 
         assertThat(command.commandLine()).isEqualTo("export --exportModule ''"
             + " --exportModuleGroup '' --exportModuleUser 'OWNERS'"
-            + " --exportFile '/tmp/x/modules.zip'");
+            + " --exportFile '" + DRIVE + "/tmp/x/modules.zip'");
     }
 
     @ParameterizedTest
@@ -98,7 +109,30 @@ class CliCommandTest {
         "relative/x.zip", "/tmp/../etc/x.zip", "/tmp/a/..", "/tmp/./../x.zip"})
     void unsafeOrRelativeExportPathsAreRejected(String path) {
         assertInvalidInput(() -> CliCommand.command("export").path("--exportFile",
-            Path.of(path)));
+            file(path), WINDOWS));
+    }
+
+    // --- T018 (feature 013, research R-3): paths inside the command on Windows -------------
+
+    @Test
+    void onWindowsAPathIsRenderedWithForwardSlashes() {
+        assertThat(CliCommand.command("export").path("--exportFile",
+            Path.of("C:\\Users\\svc\\AppData\\Local\\Temp\\inubit-mcp-1\\history.zip"), true)
+            .build().commandLine())
+            .isEqualTo("export --exportFile"
+                + " 'C:/Users/svc/AppData/Local/Temp/inubit-mcp-1/history.zip'");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"C:\\Users\\RUNNER~1\\x.zip", "\\\\files.example.test\\share\\x.zip",
+        "C:\\a\\..\\x.zip", "C:x.zip", "C:\\it's\\x.zip"})
+    void onWindowsAPathOutsideTheWindowsRuleIsRefusedNamingThatRule(String path) {
+        assertThatThrownBy(() -> CliCommand.command("export").path("--exportFile", Path.of(path),
+            true)).isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT);
+                assertThat(e.error().likelyCause()).contains("local drive path",
+                    CliPaths.WINDOWS_PATH_VALUE.pattern());
+            });
     }
 
     @Test
@@ -111,8 +145,9 @@ class CliCommandTest {
 
     @Test
     void pathsMayContainDoubleDotsInsideANameButNoDotDotSegment() {
-        assertThat(CliCommand.command("export").path("--exportFile", Path.of("/tmp/v1..2/x.zip"))
-            .build().commandLine()).isEqualTo("export --exportFile '/tmp/v1..2/x.zip'");
+        assertThat(CliCommand.command("export")
+            .path("--exportFile", file("/tmp/v1..2/x.zip"), WINDOWS).build().commandLine())
+            .isEqualTo("export --exportFile '" + DRIVE + "/tmp/v1..2/x.zip'");
     }
 
     @Test
@@ -122,7 +157,7 @@ class CliCommandTest {
             .quoted("--exportWorkflowUser", "OWNERS"));
         assertInvalidInput(() -> CliCommand.command("kill").emptyQuoted("--exportModule"));
         assertInvalidInput(() -> CliCommand.command("processErrorStart")
-            .path("--exportFile", Path.of("/tmp/x.zip")));
+            .path("--exportFile", file("/tmp/x.zip"), WINDOWS));
         assertInvalidInput(() -> CliCommand.command("kill").build());
         assertInvalidInput(() -> CliCommand.command("kill").processId("1").processId("2"));
     }
@@ -137,10 +172,11 @@ class CliCommandTest {
     @Test
     void importTakesItsOwnOptions() {
         assertThat(CliCommand.command("import").path("--importFile",
-            java.nio.file.Path.of("/tmp/x/import.zip")).flag("--importWorkflow")
+            file("/tmp/x/import.zip"), WINDOWS).flag("--importWorkflow")
             .flag("--importWorkflowActive").quoted("--importUser", "jdoe")
             .flag("--returnProtocol").build().commandLine()).isEqualTo("import --importFile"
-                + " '/tmp/x/import.zip' --importWorkflow --importWorkflowActive --importUser"
+                + " '" + DRIVE + "/tmp/x/import.zip' --importWorkflow --importWorkflowActive"
+                + " --importUser"
                 + " 'jdoe' --returnProtocol");
         assertThat(CliCommand.command("import").flag("--importModule").flag(
             "--importWorkflowInactive").quoted("--importUser", "OWNERS").build()
@@ -174,10 +210,11 @@ class CliCommandTest {
     void theReleaseExportTakesATagAndTheEmptyGroupList() {
         assertThat(CliCommand.command("export").quoted("--exportWorkflowUser", "jdoe")
             .quoted("--exportWorkflowType", "technical").emptyQuoted("--exportWorkflowGroup")
-            .quoted("--exportTag", "TAG-01").path("--exportFile", Path.of("/tmp/x/release.zip"))
+            .quoted("--exportTag", "TAG-01")
+            .path("--exportFile", file("/tmp/x/release.zip"), WINDOWS)
             .build().commandLine()).isEqualTo("export --exportWorkflowUser 'jdoe'"
                 + " --exportWorkflowType 'technical' --exportWorkflowGroup '' --exportTag"
-                + " 'TAG-01' --exportFile '/tmp/x/release.zip'");
+                + " 'TAG-01' --exportFile '" + DRIVE + "/tmp/x/release.zip'");
         assertInvalidInput(() -> CliCommand.command("export").quoted("--exportTag", "a'b"));
         assertInvalidInput(() -> CliCommand.command("export").emptyQuoted("--exportTag"));
         assertInvalidInput(() -> CliCommand.command("import").quoted("--exportTag", "TAG-01"));
@@ -187,7 +224,8 @@ class CliCommandTest {
     void theEmptyGroupListIsRefusedWithoutATag() {
         assertInvalidInput(() -> CliCommand.command("export")
             .quoted("--exportWorkflowUser", "jdoe").quoted("--exportWorkflowType", "technical")
-            .emptyQuoted("--exportWorkflowGroup").path("--exportFile", Path.of("/tmp/x/a.zip"))
+            .emptyQuoted("--exportWorkflowGroup")
+            .path("--exportFile", file("/tmp/x/a.zip"), WINDOWS)
             .build());
         assertInvalidInput(() -> CliCommand.command("export")
             .emptyQuoted("--exportWorkflowGroup").build());
@@ -197,12 +235,14 @@ class CliCommandTest {
     void repositoryPathsAreQuotedAndOnlyForTheRepositoryOptions() {
         assertThat(CliCommand.command("export")
             .repositoryPath("--exportRepositoryPath", "/Root/jdoe/xsd/release.xsl")
-            .path("--exportFile", Path.of("/tmp/x/repository.zip")).build().commandLine())
+            .path("--exportFile", file("/tmp/x/repository.zip"), WINDOWS).build().commandLine())
             .isEqualTo("export --exportRepositoryPath '/Root/jdoe/xsd/release.xsl'"
-                + " --exportFile '/tmp/x/repository.zip'");
-        assertThat(CliCommand.command("import").path("--importFile", Path.of("/tmp/x/r.zip"))
+                + " --exportFile '" + DRIVE + "/tmp/x/repository.zip'");
+        assertThat(CliCommand.command("import")
+            .path("--importFile", file("/tmp/x/r.zip"), WINDOWS)
             .repositoryPath("--importRepositoryPath", "/Root/OWNERS").build().commandLine())
-            .isEqualTo("import --importFile '/tmp/x/r.zip' --importRepositoryPath '/Root/OWNERS'");
+            .isEqualTo("import --importFile '" + DRIVE + "/tmp/x/r.zip' --importRepositoryPath"
+                + " '/Root/OWNERS'");
         assertThat(CliCommand.command("export")
             .repositoryPath("--exportRepositoryPath", "/Root/jdoe/My Dir/v1..2.xsd").build()
             .commandLine()).endsWith("'/Root/jdoe/My Dir/v1..2.xsd'");

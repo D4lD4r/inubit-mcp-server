@@ -41,8 +41,12 @@ import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -81,7 +85,7 @@ public final class ImportHarness {
     public final Path cliHome;
     public final ExportHarness exports;
     public final FakeInubit inubit;
-    public final ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
+    public final ScriptedProcessLauncher cli;
     public final List<AuditRecord> audit = new CopyOnWriteArrayList<>();
     public final MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
     public final BackupStore backups;
@@ -98,6 +102,19 @@ public final class ImportHarness {
         node -> Duration.ofMinutes(10));
     /** Feature 009: the detections of the gate (none for pinned nodes). */
     public final FakeVersionDetection detection = new FakeVersionDetection(versions);
+    /**
+     * Feature 017 (research D-24): the write lock of every StartCLI runner, the real lock of
+     * {@link #versions} as in production; records the permits and can inject a version change.
+     */
+    public final de.dadecker.inubit.mcp.testing.RecordingWriteLock writeLock =
+        new de.dadecker.inubit.mcp.testing.RecordingWriteLock(versions);
+    /**
+     * Feature 017 (review of stage 5): the import and tag ports of {@link #service()} report an
+     * unexpected response to {@link #versions} through the real stale wrapper, as in production;
+     * below it, an import protocol without Total line is reported as {@code UNEXPECTED_RESPONSE}
+     * ({@link de.dadecker.inubit.mcp.testing.UnreadableProtocolImports}).
+     */
+    public boolean staleReporting;
     /** Feature 009: the capability matrix of the version gate of {@link #service()}. */
     public CapabilityMatrix matrix = CapabilityMatrix.production();
     /** The nodes whose effective {@code development.repository} is {@code WRITE} (feature 008). */
@@ -111,6 +128,8 @@ public final class ImportHarness {
     private final List<UUID> ids = new CopyOnWriteArrayList<>();
     private final EffectiveNodeConfig server;
     private final NodeCredentials credentials;
+    /** Feature 013 (T027): every StartCLI call is started for real. */
+    private final boolean launched;
 
     /**
      * @param temp    a temporary directory of the test
@@ -118,21 +137,30 @@ public final class ImportHarness {
      */
     public ImportHarness(Path temp, byte[] fixture, String owner, String diagramGroup)
         throws IOException {
-        this(temp, fixture, owner, diagramGroup, null, null);
+        this(temp, fixture, owner, diagramGroup, null, null, false);
     }
 
     /** The harness on a module-only export of {@code module} (plugin type {@code pluginType}). */
     public static ImportHarness module(Path temp, byte[] fixture, String owner, String module,
         String pluginType) throws IOException {
-        return new ImportHarness(temp, fixture, owner, "-", module, pluginType);
+        return new ImportHarness(temp, fixture, owner, "-", module, pluginType, false);
     }
 
     private ImportHarness(Path temp, byte[] fixture, String owner, String diagramGroup,
-        String module, String pluginType) throws IOException {
+        String module, String pluginType, boolean launched) throws IOException {
         this.root = Files.createDirectories(temp.resolve("workspace"));
         this.cliHome = Files.createDirectories(temp.resolve("client"));
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        this.launched = launched;
+        if (launched) {
+            FakeStartCli.install(cliHome, Map.of(
+                de.dadecker.inubit.mcp.testing.ArgvRecorder.CRLF, "true"));
+            this.cli = ScriptedProcessLauncher.throughTheLaunch(
+                new de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher(),
+                Files.createDirectories(temp.resolve("replies")));
+        } else {
+            FakeStartCli.install(cliHome);
+            this.cli = new ScriptedProcessLauncher();
+        }
         this.owner = owner;
         this.diagramGroup = diagramGroup;
         this.exports = new ExportHarness(root);
@@ -147,10 +175,11 @@ public final class ImportHarness {
                 List.of()));
         }
         this.inubit = new FakeInubit(fixture);
-        this.backups = new BackupStore(temp.resolve("backups"), clock);
+        this.backups = new BackupStore(temp.resolve("backups"), clock, PrivateFiles.forHost());
         this.server = TestNodeConfig.node().id(DEV.value()).cliHome(cliHome)
-            .cliJavaHome(Path.of("/opt/jdk-17")).cliExportTimeout(Duration.ofSeconds(2))
-            .build();
+            .cliJavaHome(launched ? Path.of(System.getProperty("java.home"))
+                : Path.of("/opt/jdk-17"))
+            .cliExportTimeout(Duration.ofSeconds(launched ? 120 : 2)).build();
         this.credentials = new NodeCredentials(DEV,
             Optional.of(new SourcedValue<>("jdoe", "INUBIT_DEV_USERNAME")),
             Optional.of(new SourcedValue<>(Secret.of(PASSWORD), "INUBIT_DEV_PASSWORD")),
@@ -162,6 +191,15 @@ public final class ImportHarness {
         return new ImportHarness(temp, withoutEditMode(), "jdoe", "GRP-01");
     }
 
+    /**
+     * Feature 013 (T027): the harness on {@code grp-a.zip} whose StartCLI calls are started for
+     * real — the substitute StartCLI of the host platform (on Windows {@code startcli.bat}
+     * through the command interpreter) prints each scripted answer with CRLF line ends.
+     */
+    public static ImportHarness grpAThroughTheLaunch(Path temp) throws IOException {
+        return new ImportHarness(temp, withoutEditMode(), "jdoe", "GRP-01", null, null, true);
+    }
+
     /** {@code grp-a.zip} with {@code Workflow-0002} no longer in edit mode. */
     public static byte[] withoutEditMode() {
         return ExportHarness.rewrite("grp-a.zip", "workflow/workflow.xml",
@@ -171,18 +209,20 @@ public final class ImportHarness {
     public ImportService service() {
         CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", DEV),
             clock);
-        CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
-            new CliResources("acme"));
+        CliRunner runner = runner();
         CliOutputClassifier classifier = new CliOutputClassifier(new SecretScrubber());
         ArtifactPort artifacts = new V81ArtifactAdapter(new CliExportRunner(server, credentials,
             guard, runner, classifier), () -> { });
-        ImportPort imports = new V81ImportAdapter(new CliImportRunner(server, credentials,
+        ImportPort cliImports = new V81ImportAdapter(new CliImportRunner(server, credentials,
             guard, runner, classifier), () -> { });
-        de.dadecker.inubit.mcp.domain.port.TagPort tags =
-            new de.dadecker.inubit.mcp.adapter.cli.v81.V81TagAdapter(DEV, new CliExportRunner(
-                server, credentials, guard, runner, classifier),
-                new de.dadecker.inubit.mcp.adapter.cli.CliTagRunner(server, credentials, guard,
-                    runner, classifier), () -> { });
+        de.dadecker.inubit.mcp.domain.port.TagPort cliTags = tags(guard, runner, classifier);
+        ImportPort imports = staleReporting ? de.dadecker.inubit.mcp.adapter
+            .StaleReportingTestPorts.imports(DEV, versions,
+                new de.dadecker.inubit.mcp.testing.UnreadableProtocolImports(cliImports))
+            : cliImports;
+        de.dadecker.inubit.mcp.domain.port.TagPort tags = staleReporting
+            ? de.dadecker.inubit.mcp.adapter.StaleReportingTestPorts.tags(DEV, versions, cliTags)
+            : cliTags;
         DevelopmentPolicy policy = new DevelopmentPolicy(DEV, false, true, confirmation,
             Duration.ofMinutes(5), E2ePolicy.FORBIDDEN, Optional.empty(),
             repositoryWrite.contains(DEV));
@@ -208,14 +248,47 @@ public final class ImportHarness {
     }
 
     /**
+     * Feature 013 (T027): the {@link TagService} of {@code tag_artifacts} on {@link #DEV} with
+     * the 8.1 tag port on {@link #cli}, built like the one of {@link #service()}.
+     */
+    public TagService tagService() {
+        CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", DEV), clock);
+        de.dadecker.inubit.mcp.domain.port.TagPort tags = tags(guard, runner(),
+            new CliOutputClassifier(new SecretScrubber()));
+        DevelopmentPolicy policy = new DevelopmentPolicy(DEV, false, true, confirmation,
+            Duration.ofMinutes(5), E2ePolicy.FORBIDDEN, Optional.empty(), false);
+        return new TagService(new TagService.Dependencies(root, "acme",
+            new DevelopmentGuard(new TargetResolver(List.of(DEV)), Map.of(DEV, policy)::get,
+                node -> tags.checkAvailable(), gateWithoutClients(versions, detection, matrix)),
+            node -> tags, node -> Optional.of(owner),
+            node -> new ImportService.Account("jdoe", "inubit-dev-1.example.test"),
+            new WriteChallengeRegistry(clock), audit::add, clock, this::nextId));
+    }
+
+    private de.dadecker.inubit.mcp.domain.port.TagPort tags(CredentialGuard guard,
+        CliRunner runner, CliOutputClassifier classifier) {
+        return new de.dadecker.inubit.mcp.adapter.cli.v81.V81TagAdapter(DEV,
+            new CliExportRunner(server, credentials, guard, runner, classifier),
+            new de.dadecker.inubit.mcp.adapter.cli.CliTagRunner(server, credentials, guard,
+                runner, classifier), () -> { });
+    }
+
+    private CliRunner runner() {
+        return TestCliRunners.forHost(cli, launched ? System.getenv()
+            : Map.of("PATH", Platform.searchPath()), new CliResources("acme",
+                PrivateFiles.forHost()),
+            TestCliRunners.UNKNOWN_VERSIONS,
+            de.dadecker.inubit.mcp.domain.port.ClientCheckLookup.NONE, writeLock);
+    }
+
+    /**
      * The 8.1 artifact port of {@link #DEV} on {@link #cli}, built like the one of
      * {@link #service()} (feature 008: {@link RepositoryStep} tests).
      */
     public ArtifactPort artifacts() {
         CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", DEV),
             clock);
-        CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
-            new CliResources("acme"));
+        CliRunner runner = runner();
         return new V81ArtifactAdapter(new CliExportRunner(server, credentials, guard, runner,
             new CliOutputClassifier(new SecretScrubber())), () -> { });
     }

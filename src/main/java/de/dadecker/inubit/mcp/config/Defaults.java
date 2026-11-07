@@ -1,15 +1,23 @@
 package de.dadecker.inubit.mcp.config;
 
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
+import de.dadecker.inubit.mcp.domain.model.MajorMinor;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
+import tools.jackson.databind.annotation.JsonDeserialize;
 
 /**
  * {@code defaults} block: values that apply where a group or node does not override them. The
  * {@code BUILTIN_*} constants are the last step of the inheritance chain
  * (data-model.md → Defaults). {@code inventory.owner} has no built-in value (FR-014).
+ *
+ * @param cliClients feature 017 (research D-1): the StartCLI client per INUBIT major.minor, in
+ *     file order; only here, groups and nodes keep {@code cli.home}/{@code cli.javaHome}
  */
 public record Defaults(
     Optional<Duration> timeout,
@@ -22,7 +30,9 @@ public record Defaults(
     Optional<Path> cliJavaHome,
     DevelopmentConfig development,
     Optional<E2ePolicy> e2eTests,
-    Optional<Duration> deployConfirmationTtl) {
+    Optional<Duration> deployConfirmationTtl,
+    @JsonDeserialize(using = CliClientsDeserializer.class)
+    Map<MajorMinor, CliClient> cliClients) {
 
     public static final Duration BUILTIN_TIMEOUT = Duration.ofSeconds(5);
     public static final Duration BUILTIN_CLI_TIMEOUT = Duration.ofSeconds(30);
@@ -47,7 +57,7 @@ public record Defaults(
     public static final Defaults EMPTY = new Defaults(Optional.empty(), Optional.empty(),
         Optional.empty(), Optional.empty(), Optional.empty(), InventoryConfig.EMPTY,
         Optional.empty(), Optional.empty(), DevelopmentConfig.EMPTY, Optional.empty(),
-        Optional.empty());
+        Optional.empty(), Map.of());
 
     public Defaults {
         timeout = Optionals.orEmpty(timeout);
@@ -61,6 +71,18 @@ public record Defaults(
         development = Optionals.orDefault(development, DevelopmentConfig.EMPTY);
         e2eTests = Optionals.orEmpty(e2eTests);
         deployConfirmationTtl = Optionals.orEmpty(deployConfirmationTtl);
+        cliClients = cliClients == null || cliClients.isEmpty() ? Map.of()
+            : Collections.unmodifiableMap(new LinkedHashMap<>(cliClients));
+    }
+
+    /** Defaults without {@code cliClients}. */
+    public Defaults(Optional<Duration> timeout, Optional<Duration> cliTimeout,
+        Optional<Duration> hangingThreshold, Optional<Duration> confirmationTtl,
+        Optional<Duration> cliExportTimeout, InventoryConfig inventory, Optional<Path> cliHome,
+        Optional<Path> cliJavaHome, DevelopmentConfig development, Optional<E2ePolicy> e2eTests,
+        Optional<Duration> deployConfirmationTtl) {
+        this(timeout, cliTimeout, hangingThreshold, confirmationTtl, cliExportTimeout, inventory,
+            cliHome, cliJavaHome, development, e2eTests, deployConfirmationTtl, Map.of());
     }
 
     /**

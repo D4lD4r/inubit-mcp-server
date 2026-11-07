@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
@@ -32,7 +33,10 @@ import java.util.function.Supplier;
  * {@link ToolErrorException} with {@code UNEXPECTED_RESPONSE} (from the REST client, e.g. HTTP 406
  * or a missing endpoint, or from a parser of the port set) reports
  * {@link VersionObserver#stale} for the node before it is rethrown unchanged. Every other outcome
- * passes through.
+ * passes through. The write permit of a write passes through unchanged (feature 017, research
+ * D-24), and the unexpected response of a write reports {@link VersionObserver#staleAfterWrite}
+ * with that permit, so that the same call may still send its rollback; a refused hand-off
+ * ({@code UNSUPPORTED_VERSION}) reports nothing.
  */
 final class StaleReportingPorts {
 
@@ -64,6 +68,28 @@ final class StaleReportingPorts {
             }
             throw e;
         }
+    }
+
+    /**
+     * As {@link #call} for a write handed off with {@code permit}: the stale mark of its own
+     * response carries the permit (feature 017, research D-24).
+     */
+    private <T> T write(WritePermit permit, Supplier<T> call) {
+        try {
+            return call.get();
+        } catch (ToolErrorException e) {
+            if (e.error().code() == ErrorCode.UNEXPECTED_RESPONSE) {
+                observer.staleAfterWrite(node, permit);
+            }
+            throw e;
+        }
+    }
+
+    private void runWrite(WritePermit permit, Runnable call) {
+        write(permit, () -> {
+            call.run();
+            return null;
+        });
     }
 
     private void run(Runnable call) {
@@ -194,13 +220,13 @@ final class StaleReportingPorts {
         }
 
         @Override
-        public String restart(String processId) {
-            return call(() -> delegate.restart(processId));
+        public String restart(String processId, WritePermit permit) {
+            return write(permit, () -> delegate.restart(processId, permit));
         }
 
         @Override
-        public String kill(String processId) {
-            return call(() -> delegate.kill(processId));
+        public String kill(String processId, WritePermit permit) {
+            return write(permit, () -> delegate.kill(processId, permit));
         }
     }
 
@@ -245,13 +271,14 @@ final class StaleReportingPorts {
         }
 
         @Override
-        public ImportProtocol importArchive(byte[] archive, Mode mode, String owner) {
-            return call(() -> delegate.importArchive(archive, mode, owner));
+        public ImportProtocol importArchive(byte[] archive, Mode mode, String owner,
+            WritePermit permit) {
+            return write(permit, () -> delegate.importArchive(archive, mode, owner, permit));
         }
 
         @Override
-        public void importRepository(byte[] archive, String owner) {
-            run(() -> delegate.importRepository(archive, owner));
+        public void importRepository(byte[] archive, String owner, WritePermit permit) {
+            runWrite(permit, () -> delegate.importRepository(archive, owner, permit));
         }
     }
 
@@ -273,8 +300,8 @@ final class StaleReportingPorts {
         }
 
         @Override
-        public void tag(String tag, String diagramGroup, String owner) {
-            run(() -> delegate.tag(tag, diagramGroup, owner));
+        public void tag(String tag, String diagramGroup, String owner, WritePermit permit) {
+            runWrite(permit, () -> delegate.tag(tag, diagramGroup, owner, permit));
         }
     }
 }

@@ -39,7 +39,7 @@
               "description": "NodeSummary (data-model.md); never URLs, usernames or credentials",
               "required": ["id", "group", "node", "production", "writeEnabled",
                 "developmentEnabled", "confirmationMode", "repositoryWrite", "versionLine",
-                "cliAvailable", "version"],
+                "cliAvailable", "startCli", "version"],
               "properties": {
                 "id": { "type": "string", "description": "{Node} id `<{group}>/<{node}>`, e.g. test/node1" },
                 "group": { "type": "string" },
@@ -60,12 +60,13 @@
                 },
                 "versionLine": {
                   "type": "string",
-                  "description": "As configured: AUTO, V8_1, V9_X or a full version such as 8.1.17"
+                  "description": "As configured: AUTO, V6_1, V8_1, V9_0, V9_X or a full version such as 8.1.17"
                 },
                 "cliAvailable": {
                   "type": "boolean",
-                  "description": "CLI home configured and startcli script found"
+                  "description": "CLI home configured and startcli script found, for the StartCLI client chosen for the version of the {node} as of the call"
                 },
+                "startCli": { "$ref": "#/$defs/StartCli" },
                 "version": { "$ref": "#/$defs/Version" }
               },
               "additionalProperties": false
@@ -78,14 +79,46 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "StartCli": {
+      "type": "object",
+      "description": "The StartCLI client the {node} uses at its version as of the call, where it comes from and how its address is formed; never a URL",
+      "required": ["source", "address", "final"],
+      "properties": {
+        "clientDirectory": {
+          "type": "string",
+          "description": "The chosen client directory; absent when source is none"
+        },
+        "source": {
+          "enum": ["node", "group", "version_entry", "defaults", "none"],
+          "description": "Where the client directory is configured: cli.home of the {node} or of its {group}, an entry of defaults.cliClients, defaults.cliHome, or none (no client home)"
+        },
+        "versionEntry": {
+          "type": "string",
+          "description": "The defaults.cliClients key such as 9.0; only with source version_entry"
+        },
+        "address": {
+          "enum": ["servlet_path", "base_url", "configured"],
+          "description": "How StartCLI reaches the {node}: the servlet path of the client, the base URL of the {node}, or the configured cli.url (never shown)"
+        },
+        "final": {
+          "type": "boolean",
+          "description": "false while the version of an AUTO {node} is unknown (not yet detected or detection failed): the choice may change at runtime"
+        }
+      },
+      "additionalProperties": false
+    },
     "Version": {
       "type": "object",
       "description": "What this MCP server last learned about the INUBIT version and the StartCLI client of the {node} (from get_health and earlier tool calls; list_nodes contacts no {node}), the support status and the capabilities whose tools run on the {node}",
-      "required": ["setting", "server", "client", "status", "capabilities"],
+      "required": ["setting", "access", "server", "client", "status", "capabilities"],
       "properties": {
         "setting": {
           "type": "string",
-          "description": "The configured versionLine: AUTO, V8_1, V9_X or a full version such as 8.1.17"
+          "description": "The configured versionLine: AUTO, V6_1, V8_1, V9_0, V9_X or a full version such as 8.1.17"
+        },
+        "access": {
+          "enum": ["rest_and_cli", "cli_only"],
+          "description": "How the {node} is reached: rest_and_cli, or cli_only (StartCLI only) if the {node} is pinned to INUBIT 6.1"
         },
         "server": {
           "type": "object",
@@ -164,8 +197,8 @@
       "additionalProperties": false
     },
     "CapabilityName": {
-      "enum": ["monitoring", "diagnosis", "inventory", "workspace_export", "development_writes",
-        "deployment", "e2e_test", "process_control"]
+      "enum": ["monitoring", "process_diagnosis", "log_diagnosis", "inventory",
+        "workspace_export", "development_writes", "deployment", "e2e_test", "process_control"]
     },
     "Level": {
       "type": "object",

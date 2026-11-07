@@ -1,0 +1,11 @@
+# INUBIT 9.0 fixture cases that tools/record-fixtures.sh (RECORD_INUBIT_LINE=9.0) does not record
+# (feature 017, research D-10, SC-006). They stay "reconstructed". The set is asserted exactly by
+# V90FixtureCatalogueTest, so an exemption cannot be added silently.
+# Format: <case> <reason>
+import_created        write success: the read-only recorder never imports; confirmed by the live check after the release (quickstart steps 8-9, result text compared with the fixture)
+tag_ok                write success: the read-only recorder never tags; confirmed by the live check after the release (quickstart steps 8-9, result text compared with the fixture)
+processErrorStart_ok  write success: the recorder only restarts the absent process 999999999; confirmed by the live check after the release (quickstart steps 8-9)
+kill_ok               write success: the recorder only kills the absent process 999999999; confirmed by the live check after the release (quickstart steps 8-9)
+rest_forbidden        REST 403: no reproducible way to provoke it on a test node; the status drives the error code (contract-tested, shared with 8.1), the body only feeds a scrubbed excerpt (D-12)
+rest_internal_error   REST 500: no reproducible way to provoke it on a test node; the status drives the error code (contract-tested, shared with 8.1), the body only feeds a scrubbed excerpt (D-12)
+rest_unavailable      REST 503: no reproducible way to provoke it on a test node; the status drives the error code (contract-tested, shared with 8.1), the body only feeds a scrubbed excerpt (D-12)

@@ -17,8 +17,12 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.E2ePort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import java.net.ServerSocket;
@@ -78,6 +82,17 @@ class SoapE2eClientTest {
             + wireMock.httpsPort()), Optional.empty(), auth);
     }
 
+    /** Feature 017 (FR-018): the admission's write permit for {@code node}. */
+    private static WritePermit permit(NodeId node) {
+        return new WritePermit(node, Capability.E2E_TEST,
+            InubitVersion.parse("8.1.17").orElseThrow());
+    }
+
+    /** Posts {@code message} to dev/node1 with its permit. */
+    private static E2ePort.Exchange send(SoapE2eClient client, E2ePort.Message message) {
+        return client.post(message, permit(NodeId.parse("dev/node1")));
+    }
+
     private static E2ePort.Message message(String path, Duration timeout) {
         return new E2ePort.Message(path, ENVELOPE, Optional.of("urn:order"), "test-id-0001",
             timeout);
@@ -89,7 +104,7 @@ class SoapE2eClientTest {
             .withBody("<ok/>")));
 
         try (SoapE2eClient client = client(Optional.empty())) {
-            E2ePort.Exchange exchange = client.post(message("ibis/ws/Service-01",
+            E2ePort.Exchange exchange = send(client, message("ibis/ws/Service-01",
                 Duration.ofSeconds(5)));
 
             assertThat(exchange.status()).contains(200);
@@ -113,7 +128,7 @@ class SoapE2eClientTest {
 
         try (SoapE2eClient client = client(Optional.of(new SoapE2eClient.BasicAuth("e2e-user",
             Secret.of("e2e-test-pw"))))) {
-            client.post(message(PATH, Duration.ofSeconds(5)));
+            send(client, message(PATH, Duration.ofSeconds(5)));
         }
 
         wireMock.verify(postRequestedFor(urlEqualTo(PATH)).withHeader("Authorization",
@@ -129,8 +144,8 @@ class SoapE2eClientTest {
             .withStatus(500).withBody("<soapenv:Fault/>")));
 
         try (SoapE2eClient client = client(Optional.empty())) {
-            assertThat(client.post(message(PATH, Duration.ofSeconds(5))).status()).contains(302);
-            E2ePort.Exchange fault = client.post(message("/ibis/ws/Fault",
+            assertThat(send(client, message(PATH, Duration.ofSeconds(5))).status()).contains(302);
+            E2ePort.Exchange fault = send(client, message("/ibis/ws/Fault",
                 Duration.ofSeconds(5)));
             assertThat(fault.status()).contains(500);
             assertThat(new String(fault.body(), StandardCharsets.UTF_8)).contains("Fault");
@@ -145,7 +160,7 @@ class SoapE2eClientTest {
             .withFixedDelay(3000)));
 
         try (SoapE2eClient client = client(Optional.empty())) {
-            E2ePort.Exchange exchange = client.post(message(PATH, Duration.ofMillis(300)));
+            E2ePort.Exchange exchange = send(client, message(PATH, Duration.ofMillis(300)));
 
             assertThat(exchange.timedOut()).isTrue();
             assertThat(exchange.status()).isEmpty();
@@ -161,7 +176,7 @@ class SoapE2eClientTest {
             for (String path : List.of("../x", "/ibis/../../x", "https://evil.example.test/x",
                 "//evil.example.test/x", "ibis/ws/x?wsdl", "ibis/ws/x#a", "ibis\\ws", "",
                 "ibis/ws/%2e%2e/x")) {
-                assertThatThrownBy(() -> client.post(message(path, Duration.ofSeconds(1))))
+                assertThatThrownBy(() -> send(client, message(path, Duration.ofSeconds(1))))
                     .as(path).isInstanceOfSatisfying(ToolErrorException.class, e ->
                         assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT));
             }
@@ -173,7 +188,7 @@ class SoapE2eClientTest {
     void anUntrustedCertificateIsATlsErrorAndAClosedPortUnreachable() throws Exception {
         try (SoapE2eClient client = new SoapE2eClient(server(false), URI.create(
             "https://localhost:" + wireMock.httpsPort()), Optional.empty(), Optional.empty())) {
-            assertThatThrownBy(() -> client.post(message(PATH, Duration.ofSeconds(5))))
+            assertThatThrownBy(() -> send(client, message(PATH, Duration.ofSeconds(5))))
                 .isInstanceOfSatisfying(ToolErrorException.class, e -> {
                     assertThat(e.error().code()).isEqualTo(ErrorCode.TLS_ERROR);
                     assertThat(e.error().node()).isPresent();
@@ -185,7 +200,7 @@ class SoapE2eClientTest {
         }
         try (SoapE2eClient client = new SoapE2eClient(server(true), URI.create(
             "https://localhost:" + port), Optional.empty(), Optional.empty())) {
-            assertThatThrownBy(() -> client.post(message(PATH, Duration.ofSeconds(5))))
+            assertThatThrownBy(() -> send(client, message(PATH, Duration.ofSeconds(5))))
                 .isInstanceOfSatisfying(ToolErrorException.class, e ->
                     assertThat(e.error().code()).isEqualTo(ErrorCode.UNREACHABLE));
         }
@@ -209,7 +224,8 @@ class SoapE2eClientTest {
             for (var entry : Map.of(a, wireMock, b, serverB).entrySet()) {
                 try (SoapE2eClient client = new SoapE2eClient(entry.getKey(),
                     address(entry.getValue()), Optional.empty(), Optional.empty())) {
-                    assertThat(client.post(message(PATH, Duration.ofSeconds(5))).status())
+                    assertThat(client.post(message(PATH, Duration.ofSeconds(5)),
+                        permit(entry.getKey().id())).status())
                         .as(entry.getKey().id().toString()).contains(200);
                 }
             }
@@ -236,7 +252,8 @@ class SoapE2eClientTest {
             for (var entry : Map.of(a, serverB, b, wireMock).entrySet()) {
                 try (SoapE2eClient client = new SoapE2eClient(entry.getKey(),
                     address(entry.getValue()), Optional.empty(), Optional.empty())) {
-                    assertThatThrownBy(() -> client.post(message(PATH, Duration.ofSeconds(5))))
+                    assertThatThrownBy(() -> client.post(message(PATH, Duration.ofSeconds(5)),
+                        permit(entry.getKey().id())))
                         .as(entry.getKey().id().toString())
                         .isInstanceOfSatisfying(ToolErrorException.class, e -> {
                             assertThat(e.error().code()).isEqualTo(ErrorCode.TLS_ERROR);

@@ -1,0 +1,2 @@
+reconstructed docs/research/inubit-interfaces.md §2.1 and §4 (9.0 bundles JDK 21); derived from fixtures/v8_1/rest/system_info.* (recorded 8.1.17) with Version 9.0.7, ServerJDKVersion 21.0.5 and ServerJDKSpec 21.
+Not verified against a 9.0 node.

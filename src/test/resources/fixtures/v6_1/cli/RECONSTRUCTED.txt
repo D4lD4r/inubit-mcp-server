@@ -1,0 +1,23 @@
+# Reconstructed INUBIT 6.1 StartCLI cases (feature 012, research D-15), one per line:
+#   <case> <capability>
+# <case> names the files <case>.stdout, <case>.stderr and <case>.exit in this folder; <capability>
+# is the capability name the case serves (as in list_nodes, e.g. monitoring). A case is removed
+# from this list when a recording of a real 6.1 node replaces it. Lines starting with # are
+# comments.
+# help: the local -h probe (T017) that every StartCLI capability on 6.1 relies on
+help monitoring
+help process_diagnosis
+# health session (T022, research D-5/D-6): the get_health session and its login failures
+health_session_ok monitoring
+health_session_maintenance monitoring
+health_session_de monitoring
+health_session_alive_failed monitoring
+login_failed monitoring
+unreachable monitoring
+# process session (T029, research D-10): the find_processes listings
+ps_session_all process_diagnosis
+ps_session_error process_diagnosis
+ps_session_waiting_queued process_diagnosis
+ps_session_empty process_diagnosis
+ps_session_de process_diagnosis
+ps_session_unassigned process_diagnosis

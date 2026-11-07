@@ -23,6 +23,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -146,7 +147,7 @@ class WiringAuditTest {
         // the workspace history runs the system git
         environment.put("PATH", System.getenv().getOrDefault("PATH", "/usr/bin"));
         wiring = new Wiring(config, TestSecrets.store(environment), scrubber,
-            new ClockProvider(clock), Files::exists, false, startCli(), environment,
+            new ClockProvider(clock), Files::exists, Platform.windows(), startCli(), environment,
             () -> store, new ConfigLocation(temp.resolve("config"), temp.resolve("config/config.yaml")));
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
@@ -154,7 +155,7 @@ class WiringAuditTest {
 
     /** The scripted StartCLI of the harness; the client version probe answers 8.1.17. */
     private ProcessLauncher startCli() {
-        return spec -> spec.command().contains("--execCommand") ? harness.cli.launch(spec)
+        return spec -> spec.startCliArguments().contains("--execCommand") ? harness.cli.launch(spec)
             : FakeProcessLauncher.replaying("version").launch(spec);
     }
 

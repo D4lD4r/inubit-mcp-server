@@ -62,13 +62,20 @@ All access to INUBIT MUST go through dedicated adapters (REST adapter, CLI adapt
 interfaces owned by the domain/tool layer. Tool logic MUST NOT depend on HTTP or process details.
 
 - REST is the preferred channel; the CLI is used where REST does not offer the capability.
-- INUBIT 8.1.x is the supported baseline. Differences for 9.x MUST be isolated in
-  version-specific adapter code selected by configuration or detected server version, never
-  scattered through tool logic.
+  Exception: for a version whose REST interface does not offer what the server needs (INUBIT
+  6.1), the CLI MAY be the only channel; the spec of that version states it.
+- INUBIT 8.1.x is the supported baseline. Differences for other versions (9.x, and INUBIT 6.1.x,
+  which is supported read-only) MUST be isolated in version-specific adapter code selected by
+  configuration or detected server version, never scattered through tool logic.
+- A version other than the baseline MAY be declared supported for a capability only when that
+  capability's adapters have contract tests against recorded responses or CLI outputs of that
+  version (Principle III). Write capabilities on an older version than the baseline require a
+  spec of their own.
 - CLI invocations MUST use argument arrays (no shell interpolation), explicit timeouts, exit-code
   evaluation, and a tested output parser.
 
-Rationale: the planned 9.x upgrade must be an adapter change, not a rewrite.
+Rationale: the planned 9.x upgrade must be an adapter change, not a rewrite; supporting an older
+installation read-only must follow the same rule and must not weaken the baseline.
 
 ### VI. Bounded, Structured Output
 
@@ -99,8 +106,10 @@ reconstruct what happened.
   added only via a spec that addresses authentication of MCP clients.
 - Distribution: the server MUST be runnable as a single executable artifact (for example a fat
   JAR) with documented configuration.
-- TLS verification for REST calls MUST be on by default; disabling it requires an explicit,
-  per-environment configuration flag and produces a warning at startup.
+- TLS verification for REST calls and for CLI connections MUST be on by default; disabling it
+  requires an explicit, per-environment configuration flag and produces a warning at startup.
+  Where the server cannot rely on the CLI client to verify a pinned certificate, it MUST verify
+  the certificate itself before the CLI connects.
 - Dependencies MUST be pinned and kept minimal; each runtime dependency added must be justified
   in the plan.
 - All SDD artifacts (constitution, specs, plans, tasks) and code are written in English.
@@ -128,4 +137,4 @@ and committed. Versioning follows semantic versioning: MAJOR for removing or red
 principle, MINOR for adding a principle or materially expanding guidance, PATCH for
 clarifications and wording.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-01 | **Last Amended**: 2026-10-01
+**Version**: 1.1.0 | **Ratified**: 2026-10-01 | **Last Amended**: 2026-10-31

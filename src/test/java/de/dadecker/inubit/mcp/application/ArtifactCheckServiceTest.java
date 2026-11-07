@@ -9,11 +9,13 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CheckFinding;
 import de.dadecker.inubit.mcp.domain.model.CheckFinding.Severity;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import java.io.IOException;
@@ -221,8 +223,9 @@ class ArtifactCheckServiceTest {
     private void nodeRuns(String server) {
         versionLine = VersionSetting.AUTO;
         detection.answer(NODE, server);
-        versions.clientProbed(NODE, new ClientVersion(InubitVersion.parse("8.1.17").orElseThrow(),
-            InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17")));
+        versions.clientProbed(NODE, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(InubitVersion.parse("8.1.17").orElseThrow(),
+            InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17"))));
     }
 
     /** Two technical modules in neither the workspace nor a server list. */
@@ -266,7 +269,7 @@ class ArtifactCheckServiceTest {
     void anAdmissionWarningBecomesOneWarningFinding() throws IOException {
         twoMissingModules();
         versionLine = VersionSetting.AUTO;
-        detection.answer(NODE, "9.0.7"); // no client result: unverified read, admitted
+        detection.answer(NODE, "9.1.0"); // no client result: unverified read, admitted
 
         List<CheckFinding> findings = service().checkPaths(List.of("dev"), true);
 
@@ -277,7 +280,7 @@ class ArtifactCheckServiceTest {
                 assertThat(finding.severity()).isEqualTo(Severity.WARNING);
                 assertThat(finding.path()).startsWith("dev/jdoe/workflows/GRP-01/");
                 assertThat(finding.location()).isPresent();
-                assertThat(finding.message()).contains("INUBIT 9.0.7 on dev/node1 is not"
+                assertThat(finding.message()).contains("INUBIT 9.1.0 on dev/node1 is not"
                     + " verified for inventory");
             });
         assertThat(server.calls).containsExactlyInAnyOrder("jdoe", "OWNERS");
@@ -296,6 +299,60 @@ class ArtifactCheckServiceTest {
                     + " not be checked (TLS_ERROR)");
             });
         assertThat(server.calls).isEmpty();
+    }
+
+    // --- T010 (feature 012, FR-006, FR-006a): no module lookup on a 6.1 node --------------------
+
+    /**
+     * Two missing modules of {@code jdoe} and, of {@code asmith}, a dangling edge that only the
+     * offline checks find.
+     */
+    private void twoMissingModulesAndAnOfflineDefect() throws IOException {
+        twoMissingModules();
+        export(defect("dangling-edge"), "asmith");
+    }
+
+    @Test
+    void onA61NodeTheLookupIsSkippedWithTheGatesRefusalAndTheOfflineChecksRun()
+        throws IOException {
+        twoMissingModulesAndAnOfflineDefect();
+        versionLine = VersionSetting.V6_1;
+
+        List<CheckFinding> findings = service().checkPaths(List.of("dev"), true);
+
+        assertThat(findings).extracting(CheckFinding::code).containsExactlyInAnyOrder(
+            "MODULE_UNVERIFIED", "MODULE_UNVERIFIED", "EDGE_TARGET_MISSING");
+        assertThat(findings).filteredOn(f -> f.code().equals("MODULE_UNVERIFIED"))
+            .allSatisfy(finding -> {
+                assertThat(finding.severity()).isEqualTo(Severity.WARNING);
+                assertThat(finding.message()).endsWith("could not be verified: check_artifacts:"
+                    + " INUBIT 6.1 (versionLine V6_1) on dev/node1 does not support inventory;"
+                    + " modules of INUBIT 6.1 cannot be looked up; use the Workbench, or another"
+                    + " node with a different INUBIT version; nothing was sent");
+            });
+        assertThat(server.calls).as("no StartCLI run").isEmpty();
+        assertThat(detection.requests()).as("no REST request").isEmpty();
+    }
+
+    @Test
+    void whileThe61PinIsContradictedTheLookupIsSkippedAndTheOfflineChecksRun()
+        throws IOException {
+        twoMissingModulesAndAnOfflineDefect();
+        versionLine = VersionSetting.V6_1;
+        versions.observed(NODE, InubitVersion.parse("8.1.17").orElseThrow());
+
+        List<CheckFinding> findings = service().checkPaths(List.of("dev"), true);
+
+        assertThat(findings).extracting(CheckFinding::code).containsExactlyInAnyOrder(
+            "MODULE_UNVERIFIED", "MODULE_UNVERIFIED", "EDGE_TARGET_MISSING");
+        assertThat(findings).filteredOn(f -> f.code().equals("MODULE_UNVERIFIED"))
+            .allSatisfy(finding -> assertThat(finding.message()).contains(
+                "could not be verified: check_artifacts: versionLine V6_1 of dev/node1"
+                    + " contradicts INUBIT 8.1.17 observed by get_health at ",
+                "; inventory refused; check the version with get_health and correct"
+                    + " versionLine; nothing was sent"));
+        assertThat(server.calls).as("no StartCLI run").isEmpty();
+        assertThat(detection.requests()).as("no REST request").isEmpty();
     }
 
     @Test

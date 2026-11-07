@@ -20,6 +20,8 @@ import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.Platform;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -105,12 +107,12 @@ class NoEnvironmentCredentialsTest {
         assertThat(environment).containsKeys("INUBIT_ACME_DEV_USERNAME",
             "INUBIT_ACME_DEV_NODE1_PASSWORD", "INUBIT_ACME_DEV_TRUSTSTORE_PASSWORD",
             "INUBIT_ACME_DEV_E2E_PASSWORD");
-        environment.put("PATH", "/usr/bin");
+        environment.put("PATH", Platform.searchPath());
         FakeCredentialStore store = new FakeCredentialStore()
             .put("INUBIT_ACME_DEV_USERNAME", STORE_USER)
             .put("INUBIT_ACME_DEV_PASSWORD", STORE_PASSWORD);
         SecretScrubber scrubber = new SecretScrubber();
-        wiring = TestWiring.of(config, store, scrubber, path -> false, false,
+        wiring = TestWiring.of(config, store, scrubber, path -> false, Platform.windows(),
             spec -> {
                 throw new AssertionError("no StartCLI run expected: " + spec.command());
             }, environment);
@@ -161,8 +163,8 @@ class NoEnvironmentCredentialsTest {
             .withBody("<ok/>")));
         Path workspace = Files.createDirectories(temp.resolve("workspace/samples")).getParent();
         Files.writeString(workspace.resolve("samples/order.xml"), "<Envelope/>");
-        Path cliHome = Files.createDirectories(temp.resolve("cli/bin")).getParent();
-        Files.writeString(cliHome.resolve("bin/startcli.sh"), "#!/bin/sh\n");
+        Path cliHome = temp.resolve("cli");
+        FakeStartCli.install(cliHome);
         String yaml = """
             profile:
               name: acme
@@ -207,7 +209,7 @@ class NoEnvironmentCredentialsTest {
             environment.put(name, value);
             environmentValues.add(value);
         }
-        environment.put("PATH", "/usr/bin");
+        environment.put("PATH", Platform.searchPath());
         FakeCredentialStore store = new FakeCredentialStore()
             .put("INUBIT_ACME_DEV_USERNAME", STORE_USER)
             .put("INUBIT_ACME_DEV_PASSWORD", STORE_PASSWORD)
@@ -218,7 +220,7 @@ class NoEnvironmentCredentialsTest {
             .put("INUBIT_ACME_CLI_PASSWORD", "store-cli-Password-3");
         List<FakeProcessLauncher.FakeProcess> launches = new CopyOnWriteArrayList<>();
         ProcessLauncher startCli = spec -> {
-            String command = String.join(" ", spec.command());
+            String command = String.join(" ", spec.startCliArguments());
             FakeProcessLauncher launcher = command.contains("--execCommand")
                 && command.contains("kill") ? FakeProcessLauncher.replaying("kill_ok")
                 : FakeProcessLauncher.of("", "", 1);
@@ -228,8 +230,8 @@ class NoEnvironmentCredentialsTest {
             return process;
         };
         SecretScrubber scrubber = new SecretScrubber();
-        wiring = TestWiring.of(config, store, scrubber, Files::exists, false, startCli,
-            environment);
+        wiring = TestWiring.of(config, store, scrubber, Files::exists, Platform.windows(),
+            startCli, environment);
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
 

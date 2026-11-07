@@ -3,7 +3,12 @@
  * {@code config} port {@code CredentialStore} per operating system — macOS Keychain through
  * {@code /usr/bin/security}, Windows Credential Manager through {@code CredReadW} (JNA), Linux Secret
  * Service through {@code secret-tool} — and a store for every other system that is never
- * available. Feature 015 (research R-10) adds the drive-type probe of Windows
+ * available. Feature 013 adds the system queries of the {@code adapter.cli} port {@code CliSystem}
+ * ({@code WindowsSystem}: system directory, OEM code page and token user through JNA;
+ * {@code PosixSystem}) and the {@code domain.port} port {@code PrivateFileSystem}
+ * ({@code OsPrivateFileSystem}: POSIX permissions, Windows access lists through JNA) and the
+ * {@code adapter.cli} port {@code ProcessContainment} ({@code WindowsJob}: the kill-on-close job
+ * through JNA; {@code NoJob}). Feature 015 (research R-10) adds the drive-type probe of Windows
  * ({@code GetDriveTypeW}, JNA) behind the {@code domain} port {@code NetworkPathProbe}. The only
  * package that uses JNA; it starts processes only through the
  * {@code ProcessLauncher} interface. Values are wrapped in {@code infra.Secret} as soon as they are

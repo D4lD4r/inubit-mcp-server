@@ -5,6 +5,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionEntry;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -71,16 +72,18 @@ public final class DiagramGroupTagger {
 
     /**
      * Tags {@code groups} of {@code owner} with {@code tag} and verifies them. Every failure of
-     * the tag commands or the verification is part of the result, never thrown.
+     * the tag commands or the verification is part of the result, never thrown; a tag command
+     * refused because the node's version changed since {@code permit} was handed out (feature
+     * 017, research D-24) fails like any other tag command.
      */
     Result tag(NodeId node, TagPort port, String owner, List<String> groups, String tag,
-        UUID auditId) {
+        UUID auditId, WritePermit permit) {
         List<String> tagged = new ArrayList<>();
         Verification verified = new Verification();
         String step = "tag";
         try {
             for (String group : groups) {
-                port.tag(tag, group, owner);
+                port.tag(tag, group, owner, permit);
                 tagged.add(group);
             }
             step = "verify";

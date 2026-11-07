@@ -13,6 +13,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ArtifactInspectorPort;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
@@ -340,12 +341,13 @@ final class RepositoryStep {
 
     /**
      * Sends the uploads of {@code state} to the node with one repository import into
-     * {@code /Root/<owner>} (research D-8 step 2).
+     * {@code /Root/<owner>} (research D-8 step 2) with the call's {@code permit}.
      *
      * @throws ToolErrorException the errors of the import
      */
-    void send(ImportPort port, String owner, NodeState state) {
-        port.importRepository(releases.repositoryArchiveFromFiles(owner, state.uploads()), owner);
+    void send(ImportPort port, String owner, NodeState state, WritePermit permit) {
+        port.importRepository(releases.repositoryArchiveFromFiles(owner, state.uploads()), owner,
+            permit);
     }
 
     /**
@@ -435,14 +437,15 @@ final class RepositoryStep {
      * (an import cannot delete).
      */
     Rollback rollback(NodeId node, ImportPort port, NodeState state, Reread after,
-        List<byte[]> backup) {
+        List<byte[]> backup, WritePermit permit) {
         List<String> changed = modifiedOnNode(state, after);
         if (changed.isEmpty()) {
             return new Rollback(WriteOutcome.Rollback.NOT_NEEDED, after, List.of());
         }
         String owner = state.changes().scope().owner();
         try {
-            port.importRepository(releases.repositoryArchive(backup, owner, changed), owner);
+            port.importRepository(releases.repositoryArchive(backup, owner, changed), owner,
+                permit);
         } catch (ToolErrorException e) {
             LOG.warn("The repository rollback import on {} failed: {}", node, e.error().code());
         }

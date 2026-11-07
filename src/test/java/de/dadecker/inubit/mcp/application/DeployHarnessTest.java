@@ -6,11 +6,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
 import de.dadecker.inubit.mcp.adapter.archive.v81.RepositoryArchive;
 import de.dadecker.inubit.mcp.adapter.archive.v81.RepositoryArchive.RepositoryFile;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
 import de.dadecker.inubit.mcp.domain.model.ModuleRef;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
+import de.dadecker.inubit.mcp.testing.TestPermits;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -69,7 +71,8 @@ class DeployHarnessTest {
     void theReleaseExportHoldsTheTaggedStateWithTheTaggedRepositoryFile() {
         FakeServer source = harness.servers.get(DeployHarness.SOURCE);
         harness.tagMoved(DeployHarness.SOURCE, "TAG-01");
-        harness.tags(DeployHarness.SOURCE).tag("TAG-01", DeployHarness.GROUP, DeployHarness.OWNER);
+        harness.tags(DeployHarness.SOURCE).tag("TAG-01", DeployHarness.GROUP, DeployHarness.OWNER,
+            TestPermits.of(DeployHarness.SOURCE, Capability.DEVELOPMENT_WRITE));
         source.putRepositoryFile(DeployHarness.RELEASE_XSL, "<xsl:stylesheet v2/>");
         source.publishWorkflow("Workflow-0001", xml -> xml.replace("xPos=\"120\"",
             "xPos=\"999\""));
@@ -161,9 +164,11 @@ class DeployHarnessTest {
             DeployHarness.RELEASE_XSL)).isInstanceOfSatisfying(ToolErrorException.class,
                 e -> assertThat(e.error().code()).isEqualTo(ErrorCode.NOT_FOUND));
         byte[] archive = RepositoryArchive.build(DeployHarness.OWNER, List.of(file));
-        harness.imports(DeployHarness.INT1).importRepository(archive, DeployHarness.OWNER);
+        harness.imports(DeployHarness.INT1).importRepository(archive, DeployHarness.OWNER,
+            TestPermits.of(DeployHarness.INT1, Capability.DEPLOYMENT));
         String uuid = target.repositoryUuid(DeployHarness.RELEASE_XSL).orElseThrow();
-        harness.imports(DeployHarness.INT1).importRepository(archive, DeployHarness.OWNER);
+        harness.imports(DeployHarness.INT1).importRepository(archive, DeployHarness.OWNER,
+            TestPermits.of(DeployHarness.INT1, Capability.DEPLOYMENT));
         List<RepositoryFile> exported = RepositoryArchive.read(harness.artifacts(
             DeployHarness.INT1).exportRepository(DeployHarness.RELEASE_XSL));
 
@@ -187,7 +192,8 @@ class DeployHarnessTest {
             + " --importUser 'jdoe' --returnProtocol");
 
         harness.imports(DeployHarness.INT2).importArchive(export,
-            ImportPort.Mode.WORKFLOW_ACTIVE, DeployHarness.OWNER);
+            ImportPort.Mode.WORKFLOW_ACTIVE, DeployHarness.OWNER,
+            TestPermits.of(DeployHarness.INT2, Capability.DEPLOYMENT));
 
         assertThat(target.active("Workflow-0001")).contains(true);
         assertThat(target.active("Workflow-0002")).contains(true);
@@ -213,7 +219,8 @@ class DeployHarnessTest {
                     .isEqualTo(ErrorCode.NOT_FOUND));
         assertThat(target.hasModule("Module-0001")).isFalse();
         empty.imports(DeployHarness.INT3).importArchive(release,
-            ImportPort.Mode.WORKFLOW_INACTIVE, DeployHarness.OWNER);
+            ImportPort.Mode.WORKFLOW_INACTIVE, DeployHarness.OWNER,
+            TestPermits.of(DeployHarness.INT3, Capability.DEPLOYMENT));
         String workflows = text(ArtifactFixtures.entries(empty.artifacts(DeployHarness.INT3)
             .exportWorkflowGroup(DeployHarness.OWNER, DeployHarness.GROUP))
             .get("workflow/workflow.xml"));

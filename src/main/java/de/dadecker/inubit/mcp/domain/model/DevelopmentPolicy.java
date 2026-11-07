@@ -22,10 +22,13 @@ import java.util.Optional;
  *                        (research D-2): repository files of the node may be written
  * @param warnings        feature 009 (research D-5): the warnings of the version gate's
  *                        admission, for the result of the call (empty in the configuration)
+ * @param writePermit     feature 017 (FR-018, research D-24): the permit of the admitted call
+ *                        (empty in the configuration); see {@link #permit()}
  */
 public record DevelopmentPolicy(NodeId node, boolean production, boolean enabled,
     WritePolicy.Confirmation confirmation, Duration confirmationTtl, E2ePolicy e2eTests,
-    Optional<URI> soapBaseUrl, boolean repositoryWrite, List<String> warnings) {
+    Optional<URI> soapBaseUrl, boolean repositoryWrite, List<String> warnings,
+    Optional<WritePermit> writePermit) {
 
     public DevelopmentPolicy {
         Objects.requireNonNull(node, "node");
@@ -34,6 +37,21 @@ public record DevelopmentPolicy(NodeId node, boolean production, boolean enabled
         Objects.requireNonNull(e2eTests, "e2eTests");
         soapBaseUrl = soapBaseUrl == null ? Optional.empty() : soapBaseUrl;
         warnings = List.copyOf(warnings);
+        writePermit = writePermit == null ? Optional.empty() : writePermit;
+        writePermit.ifPresent(permit -> {
+            if (!permit.node().equals(node)) {
+                throw new IllegalArgumentException("The permit of " + permit.node()
+                    + " does not belong to " + node);
+            }
+        });
+    }
+
+    /** The settings with the warnings of an admission, without a permit. */
+    public DevelopmentPolicy(NodeId node, boolean production, boolean enabled,
+        WritePolicy.Confirmation confirmation, Duration confirmationTtl, E2ePolicy e2eTests,
+        Optional<URI> soapBaseUrl, boolean repositoryWrite, List<String> warnings) {
+        this(node, production, enabled, confirmation, confirmationTtl, e2eTests, soapBaseUrl,
+            repositoryWrite, warnings, Optional.empty());
     }
 
     /** The settings as configured, without warnings. */
@@ -42,5 +60,15 @@ public record DevelopmentPolicy(NodeId node, boolean production, boolean enabled
         Optional<URI> soapBaseUrl, boolean repositoryWrite) {
         this(node, production, enabled, confirmation, confirmationTtl, e2eTests, soapBaseUrl,
             repositoryWrite, List.of());
+    }
+
+    /**
+     * The write permit the development guard handed out with this policy.
+     *
+     * @throws IllegalStateException for a policy the guard did not admit (programming error)
+     */
+    public WritePermit permit() {
+        return writePermit.orElseThrow(() -> new IllegalStateException("No write permit for "
+            + node + ": the policy was not admitted by the development guard"));
     }
 }

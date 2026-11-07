@@ -348,7 +348,8 @@ class DeployServiceTest {
     void aRunningDeploymentIntoTheSameGroupIsLocked() {
         harness(false);
         try (DeployLock busy = DeployLock.acquire(harness.deployments(), new GroupId("int"),
-            Files.createDirectories(temp.resolve("other-workspace")))) {
+            Files.createDirectories(temp.resolve("other-workspace")),
+            de.dadecker.inubit.mcp.testing.PrivateFiles.forHost())) {
 
             assertThat(failure(request("int", TAG)).error().code())
                 .isEqualTo(ErrorCode.DEPLOY_LOCKED);

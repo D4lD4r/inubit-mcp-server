@@ -258,7 +258,7 @@ public final class TagService {
             "About to tag " + request.diagramGroups().size() + " diagram group(s) with "
                 + request.tag(), () -> { });
         DiagramGroupTagger.Result result = new DiagramGroupTagger(d.root()).tag(node, port,
-            call.owner, request.diagramGroups(), request.tag(), auditId);
+            call.owner, request.diagramGroups(), request.tag(), auditId, call.policy.permit());
         if (result.applied()) {
             append(call, auditId, AuditRecord.Step.EXECUTE, call.inputs(), AuditOutcome.EXECUTED,
                 "Tagged " + result.workflows() + " workflow(s) and " + result.modules()

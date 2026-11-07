@@ -504,13 +504,13 @@ class ArchiveExportServiceTest {
     @Test
     void admissionWarningsAreCallLevelWarningsOfTheResult() {
         setting = VersionSetting.AUTO;
-        detection.answer(DEV1, "9.0.7");
+        detection.answer(DEV1, "9.1.0");
         artifacts.export = WorkflowArchiveFixtures::grpB;
 
         ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
             GRP_B, List.of("Workflow-0006"), tmp.resolve("archives")));
 
-        assertThat(result.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not verified"
+        assertThat(result.warnings()).containsExactly("INUBIT 9.1.0 on dev/node1 is not verified"
             + " for workspace export; results may be incomplete");
         assertThat(result.archives()).hasSize(1);
     }
@@ -645,7 +645,7 @@ class ArchiveExportServiceTest {
     void theBoundCutsMissingModulesButNoArchiveNoWarningAndNoCount() {
         limiter = new ResultLimiter(2, ResultLimiter.DEFAULT_MAX_CHARS);
         setting = VersionSetting.AUTO;
-        detection.answer(DEV1, "9.0.7");
+        detection.answer(DEV1, "9.1.0");
         artifacts.export = WorkflowArchiveFixtures::missingModule;
 
         ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
@@ -656,7 +656,7 @@ class ArchiveExportServiceTest {
         assertThat(result.archives()).hasSize(3);
         assertThat(result.failed()).isEmpty();
         assertThat(result.notWritten()).isEmpty();
-        assertThat(result.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not verified"
+        assertThat(result.warnings()).containsExactly("INUBIT 9.1.0 on dev/node1 is not verified"
             + " for workspace export; results may be incomplete");
         WrittenArchive w4 = result.archives().get(0);
         assertThat(w4.modules()).hasSize(2);
@@ -885,14 +885,14 @@ class ArchiveExportServiceTest {
         Path oneDrive = Files.createDirectories(tmp.resolve("OneDrive"));
         environment.put("OneDrive", oneDrive.toString());
         setting = VersionSetting.AUTO;
-        detection.answer(DEV1, "9.0.7");
+        detection.answer(DEV1, "9.1.0");
         artifacts.export = WorkflowArchiveFixtures::grpB;
 
         ArchiveExportResult result = service().export(request("dev/node1", Optional.empty(),
             GRP_B, List.of("Workflow-0006"), oneDrive.resolve("archives")));
 
         assertThat(result.warnings()).hasSize(2).anySatisfy(warning ->
-            assertThat(warning).contains(CLOUD)).contains("INUBIT 9.0.7 on dev/node1 is not"
+            assertThat(warning).contains(CLOUD)).contains("INUBIT 9.1.0 on dev/node1 is not"
                 + " verified for workspace export; results may be incomplete");
     }
 

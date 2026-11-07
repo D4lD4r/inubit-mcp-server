@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.domain.port;
 
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
@@ -89,11 +90,15 @@ public interface E2ePort {
     String endpoint(String path);
 
     /**
-     * Posts {@code message}.
+     * Posts {@code message}: handed to the HTTP client inside {@link WriteLock#handOff} with
+     * {@code permit}, the answer awaited outside (feature 017, FR-018, research D-24).
      *
+     * @param permit the write permit of the call's admission, for this port's node
      * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException {@code INVALID_INPUT} for a
-     *     path that leaves the base address (nothing sent), {@code UNREACHABLE},
+     *     path that leaves the base address (nothing sent), {@code UNSUPPORTED_VERSION} if the
+     *     node's version changed since the admission (nothing sent), {@code UNREACHABLE},
      *     {@code TLS_ERROR}
+     * @throws IllegalArgumentException if {@code permit} is for another node; nothing is sent
      */
-    Exchange post(Message message);
+    Exchange post(Message message, WritePermit permit);
 }

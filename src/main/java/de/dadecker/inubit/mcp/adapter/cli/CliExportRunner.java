@@ -17,9 +17,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileAttribute;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -43,7 +40,8 @@ import java.util.zip.ZipInputStream;
  *       other value (e.g. one containing {@code '}) is {@code UNEXPECTED_RESPONSE} ("not
  *       supported by CLI quoting") before anything is created or launched. So are a missing CLI
  *       ({@code CLI_UNAVAILABLE}) and missing credentials ({@code AUTH_FAILED}).
- *   <li>Each export runs in a fresh owner-only ({@code rwx------}) temporary directory
+ *   <li>Each export runs in a fresh owner-only ({@code rwx------}; on Windows: only this account
+ *       and {@code SYSTEM}, feature 013) temporary directory
  *       {@code inubit-mcp-export-<profile>-<pid>-<random>} below {@code java.io.tmpdir}. It is
  *       registered with the {@link CliResources}, so that a shutdown deletes it as well, and
  *       deleted recursively when its registration is closed — also on failure, timeout or
@@ -78,9 +76,6 @@ public final class CliExportRunner {
     public static final long MAX_ARCHIVE_BYTES = 128L << 20;
     static final String SUCCESS_SUFFIX = "exported successfully.";
 
-    private static final FileAttribute<Set<PosixFilePermission>> OWNER_ONLY =
-        PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------"));
-
     private final EffectiveNodeConfig server;
     private final NodeCredentials credentials;
     private final CredentialGuard guard;
@@ -104,7 +99,9 @@ public final class CliExportRunner {
         this.guard = Objects.requireNonNull(guard, "guard");
         this.runner = Objects.requireNonNull(runner, "runner");
         this.classifier = Objects.requireNonNull(classifier, "classifier");
-        this.tempRoot = Objects.requireNonNull(tempRoot, "tempRoot");
+        // on Windows its real path, 8.3 short names expanded (feature 013, research R-3)
+        this.tempRoot = CliPaths.forCommand(Objects.requireNonNull(tempRoot, "tempRoot"),
+            runner.windows());
         this.maxArchiveBytes = maxArchiveBytes;
     }
 
@@ -129,7 +126,7 @@ public final class CliExportRunner {
             .quoted("--exportWorkflowType", type)
             .quoted("--exportWorkflowGroup", group)
             .flag("--includeHistory")
-            .path("--exportFile", file)
+            .path("--exportFile", file, runner.windows())
             .build());
     }
 
@@ -145,7 +142,7 @@ public final class CliExportRunner {
             .emptyQuoted("--exportModule")
             .emptyQuoted("--exportModuleGroup")
             .quoted("--exportModuleUser", owner)
-            .path("--exportFile", file)
+            .path("--exportFile", file, runner.windows())
             .build());
     }
 
@@ -167,7 +164,7 @@ public final class CliExportRunner {
             .quoted("--exportWorkflowUser", owner)
             .quoted("--exportWorkflowType", "technical")
             .quoted("--exportWorkflowGroup", diagramGroup)
-            .path("--exportFile", file)
+            .path("--exportFile", file, runner.windows())
             .build());
     }
 
@@ -184,7 +181,7 @@ public final class CliExportRunner {
             .quoted("--exportModule", name)
             .quoted("--exportModuleGroup", pluginType)
             .quoted("--exportModuleUser", owner)
-            .path("--exportFile", file)
+            .path("--exportFile", file, runner.windows())
             .build());
     }
 
@@ -211,7 +208,7 @@ public final class CliExportRunner {
                 .quoted("--exportWorkflowType", "technical")
                 .emptyQuoted("--exportWorkflowGroup")
                 .quoted("--exportTag", tag)
-                .path("--exportFile", file)
+                .path("--exportFile", file, runner.windows())
                 .build());
         } catch (ToolErrorException e) {
             if (e.error().code() == ErrorCode.NOT_FOUND) {
@@ -239,7 +236,7 @@ public final class CliExportRunner {
         checkRepositoryExport(path);
         return export("repository.zip", this::readArchive, file -> CliCommand.command("export")
             .repositoryPath("--exportRepositoryPath", path)
-            .path("--exportFile", file)
+            .path("--exportFile", file, runner.windows())
             .build());
     }
 
@@ -372,14 +369,15 @@ public final class CliExportRunner {
 
     private void checkPreconditions() {
         runner.checkAvailable(server);
-        if (!CliPaths.exportRootUsable(tempRoot)) {
+        if (!CliPaths.exportRootUsable(tempRoot, runner.windows())) {
             throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
                 "The temporary directory " + tempRoot + " cannot be passed to StartCLI on "
                     + server.id(),
                 "Export files are written below java.io.tmpdir, whose path is part of the"
-                    + " StartCLI command and must match " + CliPaths.PATH_VALUE.pattern(),
-                "Start the MCP server with -Djava.io.tmpdir=<absolute path of letters, digits,"
-                    + " _ . - / and spaces> (e.g. via JAVA_TOOL_OPTIONS)")
+                    + " StartCLI command and must match "
+                    + CliPaths.rule(runner.windows()).pattern(),
+                "Start the MCP server with -Djava.io.tmpdir=<"
+                    + CliPaths.tmpdirHint(runner.windows()) + "> (e.g. via JAVA_TOOL_OPTIONS)")
                 .withNode(server.id()));
         }
         if (!credentials.complete()) {
@@ -440,15 +438,16 @@ public final class CliExportRunner {
 
     private Path createDirectory() {
         try {
-            return Files.createTempDirectory(tempRoot, runner.resources().exportPrefix(),
-                OWNER_ONLY);
+            // feature 013 (FR-007): owner-only on POSIX, this account and SYSTEM on Windows
+            return runner.resources().files().createTempDirectory(tempRoot,
+                runner.resources().exportPrefix());
         } catch (IOException | UnsupportedOperationException e) {
             throw new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
                 "No private temporary directory for the export on " + server.id() + " ("
                     + e.getClass().getSimpleName() + ")",
-                "The temporary directory is not writable or does not support owner-only"
-                    + " permissions",
-                "Check java.io.tmpdir of the MCP server").withNode(server.id()));
+                CliResources.NO_PRIVATE_ACCESS,
+                CliResources.privateDirectoryStep(tempRoot, runner.windows()))
+                .withNode(server.id()));
         }
     }
 

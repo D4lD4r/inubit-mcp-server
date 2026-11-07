@@ -166,7 +166,9 @@ class V81LogAdapterTest {
             postRequestedFor(urlPathEqualTo("/ibis/rest/log/systemLog"))
                 .withQueryParam("format", equalTo("json"))
                 .withHeader("Content-Type", containing("application/xml"))
-                .withHeader("Authorization", matching("Basic .+")));
+                .withHeader("Authorization", matching("Basic .+"))
+                // feature 017 T028 (research D-11): the JSON parser asks for JSON
+                .withHeader("Accept", equalTo("application/json, */*;q=0.1")));
         assertThat(requests).singleElement().satisfies(request -> {
             assertThat(request.getBodyAsString()).contains("<noOfItems>5</noOfItems>",
                 "<startIndex>0</startIndex>", "<field>startTime</field>",

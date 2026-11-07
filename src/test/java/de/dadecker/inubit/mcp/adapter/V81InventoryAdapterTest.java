@@ -32,7 +32,11 @@ import de.dadecker.inubit.mcp.domain.port.InventoryPort.ModuleEntry;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort.VersionHistory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -65,6 +69,8 @@ class V81InventoryAdapterTest {
     private static final NodeId DEV = NodeId.parse("dev/node1");
     private static final String PASSWORD = "inventory-adapter-pw";
     private static final String SYSTEM_INFO = "/ibis/rest/system/info";
+    /** Feature 017 T028 (research D-11): the {@code Accept} of the XML parsers. */
+    private static final String XML_ACCEPT = "application/xml, */*;q=0.1";
     private static final Pattern EXPORT_FILE = Pattern.compile("--exportFile '([^']+)'");
     private static WireMockServer wireMock;
 
@@ -92,8 +98,7 @@ class V81InventoryAdapterTest {
     @BeforeEach
     void setUp() throws IOException {
         wireMock.resetAll();
-        Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-        Files.writeString(script, "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
         config = TestNodeConfig.node().baseUrl("https://localhost:" + wireMock.httpsPort())
             .trustStore(TestCertificates.get().trustStore()).cliHome(cliHome)
             .cliJavaHome(Path.of("/opt/jdk-17")).build();
@@ -114,8 +119,8 @@ class V81InventoryAdapterTest {
     }
 
     private InventoryPort adapter(FakeProcessLauncher launcher) {
-        CliRunner runner = new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false,
-            new CliResources("acme"));
+        CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
+            new CliResources("acme", PrivateFiles.forHost()));
         return new V81InventoryAdapter(DEV, client, new CliExportRunner(config, credentials,
             guard, runner, new CliOutputClassifier(scrubber)));
     }
@@ -128,7 +133,7 @@ class V81InventoryAdapterTest {
     private static FakeProcessLauncher exporting(String fixtureCase) {
         byte[] zip = FakeProcessLauncher.fixture(fixtureCase + ".zip");
         return FakeProcessLauncher.replaying(fixtureCase).onLaunch(spec -> {
-            Matcher matcher = EXPORT_FILE.matcher(execCommand(spec.command()));
+            Matcher matcher = EXPORT_FILE.matcher(execCommand(spec.startCliArguments()));
             if (matcher.find()) {
                 try {
                     Files.write(Path.of(matcher.group(1)), zip);
@@ -163,7 +168,8 @@ class V81InventoryAdapterTest {
         assertThat(diagrams).allSatisfy(item -> assertThat(item.node()).isEqualTo(DEV));
         assertThat(wireMock.findAll(getRequestedFor(urlPathEqualTo("/ibis/rest/model/models"))
             .withQueryParam("user", equalTo("OWNERS"))
-            .withHeader("Authorization", matching("Basic .+")))).hasSize(1);
+            .withHeader("Authorization", matching("Basic .+"))
+            .withHeader("Accept", equalTo(XML_ACCEPT)))).hasSize(1);
     }
 
     @Test
@@ -176,7 +182,8 @@ class V81InventoryAdapterTest {
         assertThat(detail.modules()).hasSize(3);
         assertThat(wireMock.findAll(getRequestedFor(urlPathEqualTo(
             "/ibis/rest/model/modelByName/Sample%20diagram%2001"))
-            .withQueryParam("user", equalTo("OWNERS")))).hasSize(1);
+            .withQueryParam("user", equalTo("OWNERS"))
+            .withHeader("Accept", equalTo(XML_ACCEPT)))).hasSize(1);
     }
 
     @Test
@@ -190,6 +197,10 @@ class V81InventoryAdapterTest {
         assertThat(metadata.active()).contains(true);
         assertThat(metadata.checkinComment()).contains("[message 107]");
         assertThat(metadata.owner()).contains("OWNERS");
+        // feature 017 T028 (research D-11): an archive is asked for with any media type
+        assertThat(wireMock.findAll(getRequestedFor(urlPathEqualTo(
+            "/ibis/rest/model/export/Workflow-0101")).withHeader("Accept", equalTo("*/*"))))
+            .hasSize(1);
     }
 
     @Test
@@ -201,7 +212,7 @@ class V81InventoryAdapterTest {
 
         assertThat(history.workflows()).containsKey("Workflow-0101");
         assertThat(history.modules()).containsKey("Module-0028");
-        assertThat(execCommand(launcher.last().spec().command())).startsWith(
+        assertThat(execCommand(launcher.last().spec().startCliArguments())).startsWith(
             "export --exportWorkflowUser 'OWNERS' --exportWorkflowType 'technical'"
                 + " --exportWorkflowGroup 'GRP-41' --includeHistory --exportFile '");
         assertThat(launcher.last().spec().command()).doesNotContain(PASSWORD);
@@ -228,7 +239,7 @@ class V81InventoryAdapterTest {
 
         assertThat(modules).hasSize(20);
         assertThat(modules.get(0).item().owner()).isEqualTo("OWNERS");
-        assertThat(execCommand(launcher.last().spec().command())).startsWith(
+        assertThat(execCommand(launcher.last().spec().startCliArguments())).startsWith(
             "export --exportModule '' --exportModuleGroup '' --exportModuleUser 'OWNERS'");
     }
 
@@ -274,7 +285,8 @@ class V81InventoryAdapterTest {
         assertThat(callsAtLaunch).containsExactly(1);
         assertThat(guard.confirmed()).isTrue();
         assertThat(wireMock.findAll(getRequestedFor(urlPathEqualTo(SYSTEM_INFO))
-            .withHeader("Authorization", matching("Basic .+")))).hasSize(1);
+            .withHeader("Authorization", matching("Basic .+"))
+            .withHeader("Accept", equalTo(XML_ACCEPT)))).hasSize(1);
     }
 
     @Test

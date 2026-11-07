@@ -16,7 +16,8 @@ public final class LockHolder {
     public static void main(String[] args) throws IOException {
         if (args[0].equals("deploy")) {
             try (AutoCloseable lock = DeployLock.groupLock(Path.of(args[1]),
-                new de.dadecker.inubit.mcp.domain.model.GroupId(args[2]))) {
+                new de.dadecker.inubit.mcp.domain.model.GroupId(args[2]),
+                de.dadecker.inubit.mcp.testing.PrivateFiles.forHost())) {
                 System.out.println("locked");
                 System.out.flush();
                 while (System.in.read() >= 0) {
