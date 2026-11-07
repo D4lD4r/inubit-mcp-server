@@ -40,6 +40,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueryRules;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -198,7 +199,8 @@ class DiagnosisServiceTest {
                 (node, version, timeout) -> {
                     probes.add(node);
                     return new ProbedClient(ClientKey.NONE, CLIENT_610);
-                }, withClient::contains, node -> cliTimeout, Terminology.DEFAULT),
+                }, TestClientSelection.of(withClient::contains), node -> cliTimeout,
+                Terminology.DEFAULT),
             secretTiming);
     }
 

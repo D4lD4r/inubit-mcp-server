@@ -10,6 +10,7 @@ import de.dadecker.inubit.mcp.application.InventoryService.Listing;
 import de.dadecker.inubit.mcp.application.InventoryService.Lookup;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ConnectorFlags;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -21,6 +22,7 @@ import de.dadecker.inubit.mcp.domain.model.ItemBounds;
 import de.dadecker.inubit.mcp.domain.model.ModuleRef;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeResult;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -797,8 +799,9 @@ class InventoryServiceTest {
 
     /** A StartCLI client 8.1.17 (INUBIT 4.0.1 to 8.1.17) on {@code dev/node1}. */
     private void devHasClient81() {
-        versions.clientProbed(DEV, new ClientVersion(InubitVersion.parse("8.1.17").orElseThrow(),
-            InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17")));
+        versions.clientProbed(DEV, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(InubitVersion.parse("8.1.17").orElseThrow(),
+            InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17"))));
     }
 
     @Test

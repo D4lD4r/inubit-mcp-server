@@ -19,6 +19,7 @@ import de.dadecker.inubit.mcp.adapter.soap.SoapE2eClient;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
@@ -31,6 +32,7 @@ import de.dadecker.inubit.mcp.domain.model.LogQuery;
 import de.dadecker.inubit.mcp.domain.model.LogType;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Page;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
@@ -574,8 +576,9 @@ class E2eTestServiceTest {
             .withBody("<ok/>")));
         versionLines.put(DEV, VersionSetting.AUTO);
         detection.answer(DEV, "8.1.18");
-        versions.clientProbed(DEV, new ClientVersion(version("8.0.9"),
-            Optional.of(version("4.0.1")), Optional.of(version("8.0.9"))));
+        versions.clientProbed(DEV, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(version("8.0.9"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.0.9")))));
 
         E2eRun run = completed(service().run(request()));
 

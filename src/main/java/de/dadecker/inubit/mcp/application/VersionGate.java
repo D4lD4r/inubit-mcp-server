@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.application;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
@@ -16,6 +17,7 @@ import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.ClientSelectionPort;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import java.time.Duration;
@@ -26,7 +28,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,13 +46,16 @@ import org.slf4j.LoggerFactory;
  *       a warning instead); on a CLI-only version anything but {@code SUPPORTED} refuses,
  *       {@code MONITORING} and reads included (feature 012, research D-3);</li>
  *   <li>only when {@link Channel#CLI} is among the call's channels (on a CLI-only version the
- *       channels of its matrix entry): probe the StartCLI client of
- *       a node with a StartCLI installation when no client result is known and no failed probe
+ *       channels of its matrix entry): probe the StartCLI client the node uses at the gate's
+ *       version ({@link ClientSelectionPort}, feature 017) if it exists, when no result of that
+ *       client is known and no failed probe of it
  *       lies within the last 60 s ({@link NodeVersions#needsClientProbe}; FR-002), bounded by the
  *       node's {@code cliTimeout}, a run of its own before the tool's StartCLI call; then check
  *       the client against the server's major.minor (FR-011): an excluded server refuses, a patch
  *       mismatch or a range that cannot be evaluated (also a failed or timed-out probe) gives a
- *       warning.</li>
+ *       warning; the results of other clients of the node are not judged (FR-017). An
+ *       explicit servlet {@code cli.url} on major 9 or later adds its warning (research
+ *       D-19).</li>
  * </ol>
  * A refusal is a {@link ToolErrorException} with {@link ErrorCode#UNSUPPORTED_VERSION}, logged
  * (FR-015). Its texts are built here from the node id, versions and error codes only, never from
@@ -125,27 +129,28 @@ public final class VersionGate {
     private final GatewayFactory gateways;
     private final CapabilityMatrix matrix;
     private final ClientVersionPort clients;
-    private final Predicate<NodeId> withClient;
+    private final ClientSelectionPort selection;
     private final Function<NodeId, Duration> cliTimeouts;
     private final Terminology terms;
     private final boolean cliClientsConfigured;
 
     /** A gate of a profile without {@code defaults.cliClients}. */
     public VersionGate(NodeVersions versions, GatewayFactory gateways, CapabilityMatrix matrix,
-        ClientVersionPort clients, Predicate<NodeId> withClient,
+        ClientVersionPort clients, ClientSelectionPort selection,
         Function<NodeId, Duration> cliTimeouts, Terminology terms) {
-        this(versions, gateways, matrix, clients, withClient, cliTimeouts, terms, false);
+        this(versions, gateways, matrix, clients, selection, cliTimeouts, terms, false);
     }
 
     /**
-     * @param withClient  whether a node has a StartCLI installation (only those are probed)
+     * @param selection   the StartCLI client of a node at the gate's version; only an existing
+     *     client is probed (feature 017, research D-7)
      * @param cliTimeouts the {@code cliTimeout} of each node, the bound of its client probe
      * @param terms       the profile's terminology of the messages
      * @param cliClientsConfigured whether the profile sets {@code defaults.cliClients}: the
      *     refusal of a client names the entry of the version then (feature 017, research D-8)
      */
     public VersionGate(NodeVersions versions, GatewayFactory gateways, CapabilityMatrix matrix,
-        ClientVersionPort clients, Predicate<NodeId> withClient,
+        ClientVersionPort clients, ClientSelectionPort selection,
         Function<NodeId, Duration> cliTimeouts, Terminology terms,
         boolean cliClientsConfigured) {
         this.cliClientsConfigured = cliClientsConfigured;
@@ -153,7 +158,7 @@ public final class VersionGate {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.matrix = Objects.requireNonNull(matrix, "matrix");
         this.clients = Objects.requireNonNull(clients, "clients");
-        this.withClient = Objects.requireNonNull(withClient, "withClient");
+        this.selection = Objects.requireNonNull(selection, "selection");
         this.cliTimeouts = Objects.requireNonNull(cliTimeouts, "cliTimeouts");
         this.terms = Objects.requireNonNull(terms, "terms");
     }
@@ -290,12 +295,18 @@ public final class VersionGate {
             throw refuseUnsupported(node, capability, purpose, state, version, name);
         }
         if ((cliOnly ? matrix.channels(version, capability) : channels).contains(Channel.CLI)) {
-            boolean probe = withClient.test(node) && versions.needsClientProbe(node);
-            if (probe) {
-                probeClient(node);
+            // feature 017 (FR-017): only the client chosen for this version counts
+            Optional<ClientKey> key = selection.current(node, version);
+            if (key.isPresent()) {
+                boolean probe = selection.available(node, version)
+                    && versions.needsClientProbe(node, key.get());
+                if (probe) {
+                    probeClient(node, key.get(), version);
+                }
+                checkClient(node, capability, probe ? versions.state(node) : state, key.get(),
+                    version, name, warnings);
             }
-            checkClient(node, capability, probe ? versions.state(node) : state, version, name,
-                warnings);
+            selection.warning(node, version).ifPresent(warnings::add);
         }
         return warnings;
     }
@@ -341,16 +352,14 @@ public final class VersionGate {
      * 60 s back-off and is judged as a range that cannot be evaluated. A cancelled probe is passed
      * through, as it was not recorded.
      */
-    private void probeClient(NodeId node) {
+    private void probeClient(NodeId node, ClientKey key, Optional<InubitVersion> version) {
         try {
-            // feature 017: interim until the client check is kept per client (T015 ff.)
-            versions.clientProbed(node, clients.probe(node, versions.effectiveVersion(node),
-                cliTimeouts.apply(node)).version());
+            versions.clientProbed(node, clients.probe(node, version, cliTimeouts.apply(node)));
         } catch (ToolErrorException e) {
             if (Thread.currentThread().isInterrupted()) {
                 throw e;
             }
-            versions.clientProbeFailed(node, e.error().code());
+            versions.clientProbeFailed(node, key, e.error().code());
         }
     }
 
@@ -372,14 +381,16 @@ public final class VersionGate {
 
     /** FR-011: checks the known client result; without one, a failed probe gives a warning. */
     private void checkClient(NodeId node, Capability capability, NodeVersionState state,
-        Optional<InubitVersion> version, Optional<String> name, List<String> warnings) {
-        if (state.client().isEmpty()) {
-            state.clientFailure().ifPresent(failure -> warnings.add("The StartCLI client probe of "
+        ClientKey key, Optional<InubitVersion> version, Optional<String> name,
+        List<String> warnings) {
+        if (state.clientFor(key).isEmpty()) {
+            state.clientFailureFor(key).ifPresent(failure -> warnings.add(
+                "The StartCLI client probe of "
                 + node + " failed (" + timed(failure) + "); the INUBIT range of the client"
                 + " cannot be checked, StartCLI results may be unreliable"));
             return;
         }
-        ClientVersion client = state.client().get().value();
+        ClientVersion client = state.clientFor(key).get().value();
         ClientVersion.Compatibility compatibility =
             version.isEmpty() && state.setting() instanceof VersionSetting.Line line
                 ? client.compatibleWith(line.major(), line.minor())

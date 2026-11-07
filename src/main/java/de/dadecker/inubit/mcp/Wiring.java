@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
 import de.dadecker.inubit.mcp.adapter.cli.CliClientProbe;
 import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
+import de.dadecker.inubit.mcp.adapter.cli.CliClientSelector;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
 import de.dadecker.inubit.mcp.adapter.cli.HandshakeStartCliPinProbe;
@@ -84,6 +85,7 @@ import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
+import de.dadecker.inubit.mcp.domain.port.ClientSelectionPort;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.E2ePort;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
@@ -129,7 +131,6 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 /**
  * Composition root: builds the shared components from a validated configuration and the tool
@@ -138,7 +139,8 @@ import java.util.stream.Collectors;
  * <p><b>Extension point:</b> each user-story phase adds its handlers in {@link #toolHandlers()}
  * (US1: {@code list_nodes}, {@code get_health}; US2: {@code find_processes},
  * {@code query_logs}; US3: {@code list_inventory}, {@code get_inventory_item}; feature 003:
- * {@code export_artifacts}, only if a node has a CLI installation, and {@code check_artifacts};
+ * {@code export_artifacts}, only if a node may use a StartCLI client home (feature 017: for
+ * some version, {@link ClientSelectionPort#anyCandidate}), and {@code check_artifacts};
  * feature 015: {@code export_archives} under the same condition as {@code export_artifacts}).
  * Feature 012 (research D-12): the read tools other than {@code list_nodes}, {@code get_health}
  * and {@code check_artifacts} are announced only if some node may run their capability
@@ -183,6 +185,7 @@ final class Wiring implements AutoCloseable {
     private final DiagnosisService diagnosis;
     private final InventoryService inventory;
     private final ProcessControlService processControl;
+    private final ClientSelectionPort clientSelection;
     private final ExportArtifactsTool exportArtifacts;
     /** Feature 015: offered under the condition of {@code export_artifacts} (research R-16). */
     private final ExportArchivesTool exportArchives;
@@ -319,7 +322,7 @@ final class Wiring implements AutoCloseable {
         // feature 017 (research D-4): StartCLI is chosen per call by the effective version
         CliRunner cliRunner = new CliRunner(launcher, environment, windows,
             windows ? new WindowsSystem() : new PosixSystem(), containment, cliResources,
-            new HandshakeStartCliPinProbe(), versions::effectiveVersion);
+            new HandshakeStartCliPinProbe(), versions::effectiveVersion, versions);
         // feature 009 (research D-16): the 8.1 port set, as default for every version; feature
         // 017 (research D-14): explicitly for 9.0 too; feature 012 (research D-4): the 6.1 port
         // set and health port, CLI-only (no REST client)
@@ -337,12 +340,13 @@ final class Wiring implements AutoCloseable {
         // shutdown also stops a running probe
         this.clientVersions = new CliVersionProbe(cliRunner, byId::get);
         // feature 009 (FR-002): get_health and the gate probe the client of nodes with StartCLI
-        // installed; outside get_health the probe is bounded by the node's cliTimeout
-        Set<NodeId> withClient = servers.stream()
-            .filter(server -> server.cliAvailable(exists, windows))
-            .map(EffectiveNodeConfig::id).collect(Collectors.toUnmodifiableSet());
+        // installed; outside get_health the probe is bounded by the node's cliTimeout. Feature
+        // 017 (research D-7): the client of a node is chosen by the version at hand
+        ClientSelectionPort clientSelection =
+            new CliClientSelector(cliRunner, byId::get, exists, windows);
+        this.clientSelection = clientSelection;
         VersionGate versionGate = new VersionGate(versions, gateways, matrix, clientVersions,
-            withClient::contains, id -> byId.get(id).cliTimeout(), terms,
+            clientSelection, id -> byId.get(id).cliTimeout(), terms,
             servers.stream().anyMatch(server -> !server.cliSources().clients().isEmpty()));
         Map<NodeId, Duration> timeouts = new HashMap<>();
         servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
@@ -351,7 +355,7 @@ final class Wiring implements AutoCloseable {
         servers.stream().filter(server -> !server.secretPlan().aws())
             .forEach(server -> stores.put(server.id(), credentialStore.kind().displayName()));
         this.health = new HealthService(gateways, targets, fanOut, timeouts::get, clock.clock(),
-            versionGate, versions, clientVersions, withClient::contains,
+            versionGate, versions, clientVersions, clientSelection,
             id -> Optional.ofNullable(stores.get(id)));
         Map<NodeId, Duration> hangingThresholds = new HashMap<>();
         servers.forEach(server -> hangingThresholds.put(server.id(), server.hangingThreshold()));
@@ -411,12 +415,9 @@ final class Wiring implements AutoCloseable {
         StageChain chain = config.stageChain();
         this.chain = chain;
         // feature 009 (FR-004): list_nodes reads the version state, it never contacts a node
-        Map<NodeId, Set<Capability>> allowed = new HashMap<>();
-        servers.forEach(server -> allowed.put(server.id(), allowed(server,
-            withClient.contains(server.id()))));
         this.overview = new NodeOverview(servers.stream()
             .map(server -> server.summary(exists, windows)).toList(), versions, matrix,
-            allowed::get);
+            (id, withClient) -> allowed(byId.get(id), withClient), clientSelection);
         DevelopmentGuard developmentGuard = new DevelopmentGuard(targets, development::get,
             node -> gateways.imports(node).checkAvailable(), versionGate,
             group -> Optional.ofNullable(
@@ -571,7 +572,8 @@ final class Wiring implements AutoCloseable {
             handlers.add(new ListInventoryTool(inventory));
             handlers.add(new GetInventoryItemTool(inventory));
         }
-        if (servers.stream().anyMatch(server -> server.cli().home().isPresent()
+        // feature 017 (research D-7): a client home some version of the node may use
+        if (servers.stream().anyMatch(server -> clientSelection.anyCandidate(server.id())
             && possiblyCapable(server, Capability.WORKSPACE_EXPORT))) {
             handlers.add(exportArtifacts);
             handlers.add(exportArchives);
@@ -695,9 +697,10 @@ final class Wiring implements AutoCloseable {
 
     /**
      * Feature 009 (FR-003, FR-004): the capabilities the configuration of {@code server} allows,
-     * before its version is considered: the reads always, the workspace export with a StartCLI
-     * installation, development writes on a development stage, deployments in a group that
-     * receives them, end-to-end tests where allowed, process control with write access.
+     * before its version is considered: the reads always, the workspace export with the StartCLI
+     * client of its current version installed ({@code withClient}, feature 017), development
+     * writes on a development stage, deployments in a group that receives them, end-to-end tests
+     * where allowed, process control with write access.
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,

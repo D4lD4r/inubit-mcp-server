@@ -6,10 +6,12 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -251,8 +253,9 @@ class ImportServiceVersionTest {
         ImportHarness harness = ImportHarness.grpA(temp);
         harness.versionLines.put(DEV, VersionSetting.AUTO);
         harness.detection.answer(DEV, "8.1.18");
-        harness.versions.clientProbed(DEV, new ClientVersion(version("8.1.17"),
-            Optional.of(version("4.0.1")), Optional.of(version("8.1.17"))));
+        harness.versions.clientProbed(DEV, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(version("8.1.17"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.1.17")))));
         return harness;
     }
 

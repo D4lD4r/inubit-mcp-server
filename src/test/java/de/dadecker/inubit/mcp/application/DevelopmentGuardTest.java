@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.application.DevelopmentGuard.Operation;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
@@ -14,6 +15,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
@@ -337,8 +339,9 @@ class DevelopmentGuardTest {
     void theAdmissionWarningsTravelInThePolicyAndSurviveARepositoryWrite() {
         versionLines.put(DEV, VersionSetting.AUTO);
         detection.answer(DEV, "8.1.18");
-        versions.clientProbed(DEV, new ClientVersion(version("8.1.17"),
-            Optional.of(version("4.0.1")), Optional.of(version("8.1.17"))));
+        versions.clientProbed(DEV, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(version("8.1.17"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.1.17")))));
         String mismatch = "StartCLI client 8.1.17 on dev/node1"
             + " differs from INUBIT 8.1.18 (mismatch);"
             + " StartCLI-backed tools still run, but their results may be unreliable";
@@ -355,8 +358,9 @@ class DevelopmentGuardTest {
     void theEndToEndTestIsNoStartCliCallSoAnExcludingClientDoesNotMatter() {
         versionLines.put(DEV, VersionSetting.AUTO);
         detection.answer(DEV, "8.1.18");
-        versions.clientProbed(DEV, new ClientVersion(version("8.0.9"),
-            Optional.of(version("4.0.1")), Optional.of(version("8.0.9"))));
+        versions.clientProbed(DEV, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(version("8.0.9"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.0.9")))));
         policies = Map.of(DEV, policy(DEV, false, true, E2ePolicy.FREE));
 
         assertThat(guard().admit("dev/node1", Operation.RUN_E2E_TEST).warnings()).isEmpty();

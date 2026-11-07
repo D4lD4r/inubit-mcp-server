@@ -24,12 +24,14 @@ import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
@@ -42,6 +44,7 @@ import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import java.nio.file.Path;
@@ -124,9 +127,11 @@ class ListNodesToolTest {
         NodeVersions versions = new NodeVersions(Clock.systemUTC(),
             id -> config.stream().filter(node -> node.id().equals(id)).findFirst().orElseThrow()
                 .versionLine(), id -> java.time.Duration.ofMinutes(10));
-        NodeOverview overview = new NodeOverview(config.stream()
-            .map(node -> node.summary(exists, windows)).toList(), versions,
-            CapabilityMatrix.production(), id -> READS);
+        List<NodeSummary> summaries = config.stream()
+            .map(node -> node.summary(exists, windows)).toList();
+        NodeOverview overview = new NodeOverview(summaries, versions,
+            CapabilityMatrix.production(), (id, withClient) -> READS,
+            TestClientSelection.installed(summaries));
         McpTestClient client = McpTestClient.start(profile, List.of(new ListNodesTool(profile,
             overview::nodes)));
         client.initialize();
@@ -396,7 +401,8 @@ class ListNodesToolTest {
             NodeId.parse("qa/node2"), READS, QA3, DEVELOPMENT, QA4, DEVELOPMENT);
         summaries = nodes.stream().map(node -> node.summary(EXISTS, false)).toList();
         NodeOverview overview = new NodeOverview(summaries, versions,
-            CapabilityMatrix.production(), allowed::get);
+            CapabilityMatrix.production(), (id, withClient) -> allowed.get(id),
+            TestClientSelection.installed(summaries));
         versionClient = McpTestClient.start(McpTestClient.TEST_PROFILE, List.of(
             new ListNodesTool(McpTestClient.TEST_PROFILE, overview::nodes)));
         versionClient.initialize();
@@ -507,7 +513,8 @@ class ListNodesToolTest {
     void afterADetectionTheNodeIsSupportedWithItsClient() {
         // US1-1: the detection request is the only one; list_nodes adds none
         gateways.detect(DEV1);
-        versions.clientProbed(DEV1, clientVersion("8.1.17", "4.0.1", "8.1.17"));
+        versions.clientProbed(DEV1, new ProbedClient(ClientKey.NONE,
+            clientVersion("8.1.17", "4.0.1", "8.1.17")));
         assertThat(requests()).isEqualTo(1);
 
         JsonNode version = listVersions().get("dev/node1");
@@ -544,7 +551,8 @@ class ListNodesToolTest {
     void aNineOneNodeWithAnEightOneClientIsPartiallySupported() {
         // US1-5: REST reads usable (unverified), StartCLI-backed and write capabilities not
         versions.detected(DEV1, InubitVersion.parse("9.1.0").orElseThrow());
-        versions.clientProbed(DEV1, clientVersion("8.1.17", "4.0.1", "8.1.17"));
+        versions.clientProbed(DEV1, new ProbedClient(ClientKey.NONE,
+            clientVersion("8.1.17", "4.0.1", "8.1.17")));
 
         JsonNode version = listVersions().get("dev/node1");
 
@@ -615,7 +623,8 @@ class ListNodesToolTest {
     void aClientWithAnotherPatchIsAMismatchAndStartCliCapabilitiesStayUsable() {
         // US1-4
         versions.detected(DEV1, InubitVersion.parse("8.1.18").orElseThrow());
-        versions.clientProbed(DEV1, clientVersion("8.1.17", "4.0.1", "8.1.17"));
+        versions.clientProbed(DEV1, new ProbedClient(ClientKey.NONE,
+            clientVersion("8.1.17", "4.0.1", "8.1.17")));
 
         JsonNode version = listVersions().get("dev/node1");
 
@@ -633,8 +642,8 @@ class ListNodesToolTest {
     @Test
     void aFailedClientProbeIsShownWithReasonAndTime() {
         versions.detected(DEV1, InubitVersion.parse("8.1.17").orElseThrow());
-        versions.clientProbeFailed(DEV1, ErrorCode.TIMEOUT);
-        versions.clientProbeFailed(QA1, ErrorCode.CLI_UNAVAILABLE);
+        versions.clientProbeFailed(DEV1, ClientKey.NONE, ErrorCode.TIMEOUT);
+        versions.clientProbeFailed(QA1, ClientKey.NONE, ErrorCode.CLI_UNAVAILABLE);
 
         Map<String, JsonNode> byNode = listVersions();
 
@@ -653,10 +662,10 @@ class ListNodesToolTest {
         // production NodeVersions read Clock.systemUTC(), which has sub-second precision
         clock.advance(Duration.ofNanos(123_456_789));
         versions.detected(DEV1, InubitVersion.parse("8.1.17").orElseThrow());
-        versions.clientProbeFailed(DEV1, ErrorCode.TIMEOUT);
+        versions.clientProbeFailed(DEV1, ClientKey.NONE, ErrorCode.TIMEOUT);
         versions.detectionFailed(DEV2, ErrorCode.FORBIDDEN);
         versions.observed(QA1, InubitVersion.parse("8.1.17").orElseThrow());
-        versions.clientProbeFailed(QA1, ErrorCode.CLI_UNAVAILABLE);
+        versions.clientProbeFailed(QA1, ClientKey.NONE, ErrorCode.CLI_UNAVAILABLE);
 
         Map<String, JsonNode> byNode = listVersions();
 
@@ -676,7 +685,8 @@ class ListNodesToolTest {
     void aV9xNodeIsPartiallySupportedAndAnEightOneClientIsRefusedByItsLine() {
         // V9_X gives no major.minor: reads run unverified, writes are unsupported (FR-012), and
         // the 8.1 client's range excludes the whole 9.x line (FR-011, research D-8)
-        versions.clientProbed(QA3, clientVersion("8.1.17", "4.0.1", "8.1.17"));
+        versions.clientProbed(QA3, new ProbedClient(ClientKey.NONE,
+            clientVersion("8.1.17", "4.0.1", "8.1.17")));
 
         JsonNode version = listVersions().get("qa/node3");
 
@@ -706,10 +716,11 @@ class ListNodesToolTest {
     void noVersionFieldCarriesAUrlUsernameOrPassword() {
         // FR-016, across the states of the tests above
         versions.detected(DEV1, InubitVersion.parse("9.1.0").orElseThrow());
-        versions.clientProbed(DEV1, clientVersion("8.1.17", "4.0.1", "8.1.17"));
+        versions.clientProbed(DEV1, new ProbedClient(ClientKey.NONE,
+            clientVersion("8.1.17", "4.0.1", "8.1.17")));
         versions.detectionFailed(DEV2, ErrorCode.AUTH_FAILED);
         versions.observed(QA1, InubitVersion.parse("9.0.7").orElseThrow());
-        versions.clientProbeFailed(QA1, ErrorCode.TIMEOUT);
+        versions.clientProbeFailed(QA1, ClientKey.NONE, ErrorCode.TIMEOUT);
 
         String text = listVersions().values().toString();
 
@@ -799,7 +810,8 @@ class ListNodesToolTest {
         CapabilityMatrix flipped = new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
                 new VersionRange(6, 1, 6, 1), Map.of(Capability.MONITORING, SupportState.SUPPORTED),
                 Map.of(Capability.MONITORING, Set.of(Channel.CLI)), true)), Map.of());
-        versions.clientProbed(QA4, clientVersion("9.0.7", "8.1.0", "9.0.7"));
+        versions.clientProbed(QA4, new ProbedClient(ClientKey.NONE,
+            clientVersion("9.0.7", "8.1.0", "9.0.7")));
 
         NodeSummary.Version version = version(flipped, QA4);
 
@@ -832,7 +844,8 @@ class ListNodesToolTest {
 
     /** The version block of {@code node} in an overview with {@code matrix}. */
     private NodeSummary.Version version(CapabilityMatrix matrix, NodeId node) {
-        return new NodeOverview(summaries, versions, matrix, allowed::get).nodes().stream()
+        return new NodeOverview(summaries, versions, matrix, (id, withClient) -> allowed.get(id),
+            TestClientSelection.installed(summaries)).nodes().stream()
             .filter(summary -> summary.id().equals(node)).findFirst().orElseThrow()
             .version().orElseThrow();
     }

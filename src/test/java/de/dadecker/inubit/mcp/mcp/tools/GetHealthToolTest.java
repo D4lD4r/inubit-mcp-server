@@ -53,6 +53,7 @@ import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import de.dadecker.inubit.mcp.testing.TestValidators;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import java.io.IOException;
@@ -199,7 +200,7 @@ class GetHealthToolTest {
         HealthService health = new HealthService(gateways, new TargetResolver(ids),
             new FanOut(), timeouts::get, Clock.systemUTC(),
             gateWithoutClients(versions, gateways, CapabilityMatrix.production()), versions, probe,
-            withClient::contains);
+            TestClientSelection.of(withClient::contains));
         client = McpTestClient.start(List.of(new GetHealthTool(health, () -> serverUpdate)),
             scrubber);
         client.initialize();

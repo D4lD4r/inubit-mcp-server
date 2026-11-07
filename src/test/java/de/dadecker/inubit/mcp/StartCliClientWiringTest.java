@@ -56,11 +56,30 @@ class StartCliClientWiringTest {
         stub("/ibis/rest/metrics", "metrics", "json");
         Path cliHome = temp.resolve("client");
         FakeStartCli.replaying(cliHome, "version");
+        wire("", """
+                    cli:
+                      home: %s
+                      javaHome: %s
+            """.formatted(cliHome, System.getProperty("java.home")));
+    }
+
+    /**
+     * Wires one {@code AUTO} node {@code dev/node1} with the {@code defaults} lines
+     * {@code defaults} and the node lines {@code nodeLines} (both indented as in the profile).
+     */
+    private void wire(String defaults, String nodeLines) throws IOException {
+        if (client != null) {
+            client.close();
+        }
+        if (wiring != null) {
+            wiring.close();
+        }
         String yaml = """
             profile:
               name: acme
             auditDirectory: %s
             workspace: %s
+            """.formatted(temp.resolve("audit"), temp.resolve("workspace")) + defaults + """
             groups:
               - name: dev
                 development:
@@ -72,11 +91,7 @@ class StartCliClientWiringTest {
                     timeout: PT30S
                     tls:
                       trustStore: %s
-                    cli:
-                      home: %s
-                      javaHome: %s
-            """.formatted(temp.resolve("audit"), temp.resolve("workspace"), inubit.httpsPort(),
-            TestCertificates.get().trustStore(), cliHome, System.getProperty("java.home"));
+            """.formatted(inubit.httpsPort(), TestCertificates.get().trustStore()) + nodeLines;
         ProfileConfig config = new ConfigLoader(Map.of(), temp, Platform.windows())
             .parse(yaml, temp.resolve("config.yaml")).config();
         wiring = new Wiring(config, TestSecrets.store(Map.of(
@@ -129,5 +144,68 @@ class StartCliClientWiringTest {
             .isEqualTo("8.1.17");
         assertThat(report.path("client").path("supportedTo").asString()).isEqualTo("8.1.17");
         assertThat(report.path("unavailable").toString()).doesNotContain("client");
+    }
+
+    /**
+     * Feature 017 (T022, research D-6, D-7): with {@code defaults.cliClients} only, the client is
+     * chosen per call by the version: unknown at first (no version-less client, so none is
+     * available), then the 8.1 entry for the 8.1.17 that {@code get_health} reads.
+     */
+    private void wireWithVersionEntries() throws IOException {
+        Path client81 = temp.resolve("client-8.1");
+        FakeStartCli.replaying(client81, "version");
+        wire("""
+            defaults:
+              cliClients:
+                "8.1":
+                  home: %s
+                  javaHome: %s
+                "9.0":
+                  home: %s
+            """.formatted(client81, System.getProperty("java.home"),
+            temp.resolve("client-9.0")), "");
+    }
+
+    private JsonNode listedNode() {
+        return client.callTool("list_nodes", Map.of()).path("structuredContent")
+            .path("groups").path(0).path("nodes").path(0);
+    }
+
+    @Test
+    void withVersionEntriesGetHealthReportsTheClientOfTheReadVersion() throws IOException {
+        wireWithVersionEntries();
+
+        JsonNode result = client.callTool("get_health", Map.of("target", "dev/node1"),
+            Duration.ofSeconds(60));
+
+        JsonNode report = result.path("structuredContent").path("reports").path(0);
+        assertThat(report.path("version").asString()).as(result.toString()).isEqualTo("8.1.17");
+        assertThat(report.path("client").path("version").asString()).as(result.toString())
+            .isEqualTo("8.1.17");
+        assertThat(report.path("unavailable").toString()).doesNotContain("client");
+    }
+
+    @Test
+    void withVersionEntriesListNodesShowsTheClientOfTheKnownVersion() throws IOException {
+        wireWithVersionEntries();
+        JsonNode before = listedNode();
+        assertThat(before.path("cliAvailable").asBoolean()).as(before.toString()).isFalse();
+        assertThat(before.path("version").path("capabilities").path("usable").toString())
+            .doesNotContain("workspace");
+
+        client.callTool("get_health", Map.of("target", "dev/node1"), Duration.ofSeconds(60));
+
+        JsonNode after = listedNode();
+        assertThat(after.path("cliAvailable").asBoolean()).as(after.toString()).isTrue();
+        assertThat(after.path("version").path("client").path("version").asString())
+            .as(after.toString()).isEqualTo("8.1.17");
+    }
+
+    @Test
+    void withVersionEntriesTheExportToolsAreAnnounced() throws IOException {
+        wireWithVersionEntries();
+
+        assertThat(wiring.toolHandlers().stream().map(ToolHandler::name).toList())
+            .contains("export_artifacts", "export_archives");
     }
 }

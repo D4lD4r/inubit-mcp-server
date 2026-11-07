@@ -1,13 +1,16 @@
 package de.dadecker.inubit.mcp.application;
 
 import de.dadecker.inubit.mcp.domain.model.Capability;
-import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.ClientCheck;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState.DetectionFailure;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.ClientCheckLookup;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import java.time.Clock;
 import java.time.Duration;
@@ -28,8 +31,11 @@ import java.util.function.UnaryOperator;
  * <p>Thread-safe: each report replaces the node's immutable {@link NodeVersionState} atomically.
  * A purpose is a {@link Capability.Kind} ({@code READ} or {@code WRITE}). The adapter layer reports
  * and reads through the {@link VersionObserver} port.
+ *
+ * <p>Feature 017 (FR-017, research D-4, D-5): client checks are kept per {@link ClientKey}; the
+ * {@code CliRunner} launch guard reads them through the {@link ClientCheckLookup} port.
  */
-public final class NodeVersions implements VersionObserver {
+public final class NodeVersions implements VersionObserver, ClientCheckLookup {
 
     private final Clock clock;
     private final Function<NodeId, VersionSetting> settings;
@@ -69,9 +75,24 @@ public final class NodeVersions implements VersionObserver {
         return state(node).writableVersion(clock.instant(), bound(node));
     }
 
-    /** Whether the StartCLI client of {@code node} should be probed now. */
-    public boolean needsClientProbe(NodeId node) {
-        return state(node).needsClientProbe(clock.instant());
+    /** Whether the StartCLI client {@code key} of {@code node} should be probed now. */
+    public boolean needsClientProbe(NodeId node, ClientKey key) {
+        return state(node).needsClientProbe(clock.instant(), key);
+    }
+
+    /** Answered from one {@link NodeVersionState} snapshot of {@code node} (research D-4). */
+    @Override
+    public Recorded recorded(NodeId node, ClientKey key) {
+        NodeVersionState state = state(node);
+        Optional<ClientCheck> check = state.clientFor(key).<ClientCheck>map(result ->
+                new ClientCheck.Checked(result.value()))
+            .or(() -> state.clientFailureFor(key).map(failure -> new ClientCheck.Failed(
+                failure.value())));
+        if (check.isPresent()) {
+            return new Recorded.ForClient(check.get());
+        }
+        return state.clients().isEmpty() && state.clientFailures().isEmpty()
+            ? Recorded.Absent.NOTHING : Recorded.Absent.OTHER_CLIENTS_ONLY;
     }
 
     /** A successful detection of {@code version}. */
@@ -101,16 +122,20 @@ public final class NodeVersions implements VersionObserver {
         update(node, NodeVersionState::withStale);
     }
 
-    /** A successful client probe. */
-    public void clientProbed(NodeId node, ClientVersion client) {
-        Objects.requireNonNull(client, "client");
-        update(node, state -> state.withClient(client, clock.instant()));
+    /** A successful probe of the client {@code probed.key()}. */
+    public void clientProbed(NodeId node, ProbedClient probed) {
+        Objects.requireNonNull(probed, "probed");
+        update(node, state -> state.withClient(probed, clock.instant()));
     }
 
-    /** A failed or timed-out client probe (e.g. {@code TIMEOUT}, {@code CLI_UNAVAILABLE}). */
-    public void clientProbeFailed(NodeId node, ErrorCode code) {
+    /**
+     * A failed or timed-out probe of the client {@code key} (e.g. {@code TIMEOUT},
+     * {@code CLI_UNAVAILABLE}).
+     */
+    public void clientProbeFailed(NodeId node, ClientKey key, ErrorCode code) {
+        Objects.requireNonNull(key, "key");
         Objects.requireNonNull(code, "code");
-        update(node, state -> state.withClientFailure(code, clock.instant()));
+        update(node, state -> state.withClientFailure(key, code, clock.instant()));
     }
 
     private void update(NodeId node, UnaryOperator<NodeVersionState> change) {

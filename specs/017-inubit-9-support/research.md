@@ -110,8 +110,10 @@ version in between, so the runner could launch a client nobody checked. The guar
 that gap without launching anything itself (no recursion through `CliVersionProbe`, no extra
 budget):
 - `CliRunner` gets a read-only view `ClientCheckLookup` (new domain port, implemented by
-  `NodeVersions`, wired as for the version source): `Optional<ClientCheck> check(NodeId,
-  ClientKey)` (a recorded result or a recorded failure) and `boolean anyCheck(NodeId)`.
+  `NodeVersions`, wired as for the version source): `Recorded recorded(NodeId, ClientKey)`,
+  answered from one snapshot of the node's state: `ForClient(ClientCheck)` (a recorded result or a
+  recorded failure for the key), `OTHER_CLIENTS_ONLY` or `NOTHING` (implementation review: two
+  separate reads could see a probe of the key in between and report a false change).
 - Before a launch through `run` or `runSession` (the tool launches; not `execute`, the
   `-v`/`-h` probe path, and not `--check-config`):
   - a result for the chosen key whose range excludes the version selected for → refused before
@@ -126,7 +128,10 @@ budget):
     with the probe) → launched, as in 0.8.0.
 
 The gate always probes the current key before it admits a CLI capability, so the refusal case is
-reachable only in the race; outside it every path behaves as in 0.8.0 (FR-009).
+reachable only in the race; outside it every path behaves as in 0.8.0 (FR-009). Guarded are
+therefore exactly the launches of calls the gate admitted with the CLI client check (`run` and the
+6.1 process-query `runSession`); `get_health`'s 6.1 session is admitted without a client check
+and runs unguarded (`CliRunner.runHealthSession`, implementation review), as do the probes.
 
 **Write lock (D-24)**: the gate's capability decision for a write is bound to the version it was
 made on; a write is handed off only while the node's known version is the admitted one, under a

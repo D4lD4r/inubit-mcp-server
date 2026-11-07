@@ -32,6 +32,7 @@ import de.dadecker.inubit.mcp.domain.port.AuditPort;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -99,7 +100,8 @@ class ProcessControlServiceTest {
     private final ProcessControlService service = new ProcessControlService(
         new WriteGuard(new TargetResolver(SERVERS), policies::get, ports,
             new VersionGate(versions, detection, CapabilityMatrix.production(), clientProbe,
-                withClient::contains, node -> Duration.ofSeconds(30), Terminology.DEFAULT)),
+                TestClientSelection.of(withClient::contains), node -> Duration.ofSeconds(30),
+                Terminology.DEFAULT)),
         policies::get, ports,
         confirmations, audit, clock,
         () -> UUID.fromString(String.format("00000000-0000-0000-0000-%012d",
@@ -722,8 +724,9 @@ class ProcessControlServiceTest {
     void aClientPatchMismatchExecutesWithTheWarning(ProcessAction action) {
         versionLines.put(STAGING, VersionSetting.AUTO);
         detection.answer(STAGING, "8.1.18");
-        versions.clientProbed(STAGING, new ClientVersion(version("8.1.17"),
-            Optional.of(version("4.0.1")), Optional.of(version("8.1.17"))));
+        versions.clientProbed(STAGING, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(version("8.1.17"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.1.17")))));
         ports.reading(rows(errorRow(STAGING)), rows());
 
         ProcessControlResult result = result(request(action, "staging/inubit01", PID,

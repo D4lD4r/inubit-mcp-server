@@ -214,3 +214,21 @@ The reviewer confirmed the two changed `VersionGateTest` expectations and the 0.
 profiles without `cliClients` and without 9.x nodes; the no-JDK hint names both JDKs for every
 profile, as T011 requires. No blocking finding open. Full build after the fix: 5131 tests, 0
 failures, 0 errors, 51 skipped.
+
+## Implementation — stage 4, T015–T022 (code-review, 2026-11-07)
+
+Implemented test-first. Full build before the review: 5186 tests, 0 failures, 0 errors, 51
+skipped. Deviations: `anyCandidate` means "a client home is configured" (0.8.0 announced the
+export tools whenever `cli.home` was set, FR-009); `Launcher.probeClients` (`--check-config`)
+keeps `ClientKey.NONE` until T025; small additions `clientFailureFor`, `ClientCheckLookup.NONE`,
+`NodeSummary.withCliAvailable`. Existing tests changed only for new constructors and the keyed
+`clientProbed`; `CapabilityExtensionTest` selects `of(id -> true)` (a recorded probe implies an
+installed client) — confirmed by the reviewer as not weakened.
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | SHOULD | The launch guard refused `get_health` on 6.1 outside any race: `monitoringAccess` never checks the client, so after the first parallel `-v` probe recorded an excluding range every later health session was refused (FR-009, D-4) | Accepted | Verified (`HealthService.checkServerViaCli` → `V61HealthAdapter` → `V61Connection.session` → `CliRunner.runSession` → `checkLaunch`). Health uses the unguarded `V61Connection.healthSession` → `CliRunner.runHealthSession`; every other tool path stays guarded (all checked: they pass a gate admission with the CLI client check). Red-green `V61LaunchGuardTest` with real `CliRunner` and `NodeVersions`; D-4 and data-model updated |
+| 2 | NIT | `checkLaunch` read the check state twice; a probe recording in between gave a false "changed" | Accepted | `ClientCheckLookup.recorded(node, key)` answers from one snapshot; red-green racing test at the guard; T016 text updated |
+
+No blocking finding open. Full build after the fixes: 5190 tests, 0 failures, 0 errors, 51
+skipped.

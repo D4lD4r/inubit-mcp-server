@@ -10,12 +10,14 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
 import de.dadecker.inubit.mcp.application.WorkspaceService.ExportResult;
 import de.dadecker.inubit.mcp.application.WorkspaceService.ModuleRef;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.HistoryEntry;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.PathChange;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
@@ -482,9 +484,9 @@ class WorkspaceExportTest {
     @Test
     void aClientThatExcludesTheServerVersionRefusesTheExportBeforeAnythingHappens() {
         devRuns("9.0.7");
-        harness.versions.clientProbed(DEV, new ClientVersion(
+        harness.versions.clientProbed(DEV, new ProbedClient(ClientKey.NONE, new ClientVersion(
             InubitVersion.parse("8.1.17").orElseThrow(), InubitVersion.parse("4.0.1"),
-            InubitVersion.parse("8.1.17")));
+            InubitVersion.parse("8.1.17"))));
 
         assertThatThrownBy(() -> harness.service().export(diagramGroups("jdoe", "GRP-01")))
             .isInstanceOfSatisfying(ToolErrorException.class, e -> {

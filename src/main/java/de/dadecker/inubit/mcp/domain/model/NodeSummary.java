@@ -21,7 +21,9 @@ import java.util.Optional;
  * @param versionLine        as configured: {@code AUTO}, {@code V6_1}, {@code V8_1},
  *                           {@code V9_X} or a full version such as {@code 8.1.17}
  *                           ({@code VersionSetting#text()})
- * @param cliAvailable       CLI home configured and {@code startcli} script found
+ * @param cliAvailable       CLI home configured and {@code startcli} script found; in
+ *                           {@code list_nodes} of the client chosen for the node's version as
+ *                           of the call (feature 017, research D-7)
  * @param version            feature 009 (FR-004, research D-9): the version block, added at call
  *                           time by {@code list_nodes}; empty in the startup summary
  */
@@ -161,6 +163,12 @@ public record NodeSummary(
     }
 
     /** This summary with {@code value} as its version block. */
+    /** This summary with {@code cliAvailable} as of now (feature 017, research D-7). */
+    public NodeSummary withCliAvailable(boolean value) {
+        return new NodeSummary(id, group, node, production, writeEnabled, developmentEnabled,
+            confirmationMode, repositoryWrite, versionLine, value, version);
+    }
+
     public NodeSummary withVersion(Version value) {
         return new NodeSummary(id, group, node, production, writeEnabled, developmentEnabled,
             confirmationMode, repositoryWrite, versionLine, cliAvailable, Optional.of(value));

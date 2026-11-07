@@ -130,7 +130,7 @@ FR-017).
 
 ### Client check per client (plan stage 4, FR-017)
 
-- [ ] T015 [US2] `NodeVersionState` (using `ClientKey`/`ProbedClient` from T009) with
+- [X] T015 [US2] `NodeVersionState` (using `ClientKey`/`ProbedClient` from T009) with
   `clients: Map<ClientKey, Timed<ClientVersion>>`, `clientFailures: Map<ClientKey,
   Timed<ErrorCode>>`, `withClient`, `withClientFailure`, `needsClientProbe(Instant, ClientKey)`,
   `clientFor(ClientKey)` ("a result or failure of one key never touches another key's; the 60 s
@@ -138,14 +138,15 @@ FR-017).
   `domain/model/NodeVersionState.java` (signatures as data-model.md: `withClient(ProbedClient,
   Instant)`, `withClientFailure(ClientKey, ErrorCode, Instant)`; existing `Timed`), test
   `domain/model/NodeVersionStateClientsTest.java` (existing `NodeVersionStateTest` stays green)
-- [ ] T016 [US2] Port `ClientCheckLookup` (`Optional<ClientCheck> check(NodeId, ClientKey)`,
-  `boolean anyCheck(NodeId)`; read-only) with new `ClientCheck` ("a recorded `ClientVersion` or a
+- [X] T016 [US2] Port `ClientCheckLookup` (`recorded(NodeId, ClientKey)`: the check for that key,
+  only other keys checked, or nothing checked, answered from one state snapshot — stage-4 review;
+  read-only) with new `ClientCheck` ("a recorded `ClientVersion` or a
   recorded failure code"); `NodeVersions` implements it and gets
   `clientProbed(NodeId, ProbedClient)`, `clientProbeFailed(NodeId, ClientKey, ErrorCode)`,
   `needsClientProbe(NodeId, ClientKey)` — main `domain/port/ClientCheckLookup.java`,
   `domain/model/ClientCheck.java`, `application/NodeVersions.java`, test
   `application/NodeVersionsTest.java`
-- [ ] T017 [US2] Launch guard in `CliRunner.run`/`runSession` (D-4; not `execute`, not
+- [X] T017 [US2] Launch guard in `CliRunner.run`/`runSession` (D-4; not `execute`, not
   `checkAvailable`, never probes): result for the chosen key excludes the selected version →
   009 `UNSUPPORTED_VERSION`; not evaluable or recorded failure → launch; no check for the key but
   one for another key → `CLI_UNAVAILABLE` "The StartCLI client for <node> changed to the client
@@ -154,26 +155,26 @@ FR-017).
   (version source changes between admission and `run`), a 6.1 session starting before any
   check, and the bypass: with a check recorded for key A only, `CliVersionProbe` (`-v`) and
   `CliClientProbe` (`-h`) for key B still execute, and `checkAvailable` is not guarded — main `adapter/cli/CliRunner.java`, test `adapter/cli/CliRunnerLaunchGuardTest.java`
-- [ ] T018 [P] [US2] `CliClientProbe` (012, `-h`) caches per `(NodeId, ClientKey)` — main
+- [X] T018 [P] [US2] `CliClientProbe` (012, `-h`) caches per `(NodeId, ClientKey)` — main
   `adapter/cli/CliClientProbe.java`, test `adapter/cli/CliClientProbeTest.java`
-- [ ] T019 [US2] Port `ClientSelectionPort` (`current`, `available`, `warning` with the caller's
+- [X] T019 [US2] Port `ClientSelectionPort` (`current`, `available`, `warning` with the caller's
   version; `anyCandidate(NodeId)`: pinned with minor → only its own choice, pin without minor →
   only version-less sources, `AUTO` → every entry; no node contact, no launch) and
   `CliClientSelector` in `adapter/cli` from `CliRunner.select`, the existence predicate and the
   Windows flag; `warning` = D-19 text for an explicit servlet `cli.url` at major ≥ 9 — main
   `domain/port/ClientSelectionPort.java`, `adapter/cli/CliClientSelector.java`, test
   `adapter/cli/CliClientSelectorTest.java`
-- [ ] T020 [US2] `VersionGate`: `withClient` predicate → `ClientSelectionPort` with the gate's
+- [X] T020 [US2] `VersionGate`: `withClient` predicate → `ClientSelectionPort` with the gate's
   snapshot; probe with that version, judge only that key's result; add `warning` to the admission
   warnings when the channel includes CLI. Tests: `AUTO` 8.1 → 9.0 probes the 9.0 key and does not
   reuse the 8.1 result; back-off per key; servlet warning on a pinned 9.0 node with explicit
   servlet `cli.url` — main `application/VersionGate.java`, test `application/VersionGateTest.java`
-- [ ] T021 [US2] `HealthService` (D-6): select with the version this call observed; re-probe within
+- [X] T021 [US2] `HealthService` (D-6): select with the version this call observed; re-probe within
   the remaining budget when the key differs from the probed one, else `client` unavailable "the
   StartCLI client for INUBIT <version> on <node> has not been checked yet; call get_health
   again"; test with two overlapping calls reporting their own observation — main
   `application/HealthService.java`, test `application/HealthServiceClientKeyTest.java`
-- [ ] T022 [US2] `Wiring`: `CliRunner` gets `NodeVersions::effectiveVersion` and `NodeVersions` as
+- [X] T022 [US2] `Wiring`: `CliRunner` gets `NodeVersions::effectiveVersion` and `NodeVersions` as
   `ClientCheckLookup`; `ClientSelectionPort` replaces the static `withClient` set for
   `VersionGate`, `HealthService`, `list_nodes`; tool announcement (`export_artifacts`,
   `export_archives`) uses `anyCandidate` — main `Wiring.java`, tests `StartCliClientWiringTest.java`,

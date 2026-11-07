@@ -15,6 +15,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -177,7 +178,7 @@ class DeployGuardTest {
         VersionGate gate = new VersionGate(versions, new FakeVersionDetection(versions),
             CapabilityMatrix.production(), (node, version, timeout) -> {
                 throw new AssertionError("no client probe expected for " + node);
-            }, node -> false, node -> Duration.ZERO, terms);
+            }, TestClientSelection.none(), node -> Duration.ZERO, terms);
         List<NodeId> nodes = List.of(NodeId.parse("dev/node1"), NodeId.parse("dev/node2"),
             NodeId.parse("int/node1"), NodeId.parse("int/node2"));
         DeployGuard guard = new DeployGuard(chain(), new TargetResolver(nodes, terms),

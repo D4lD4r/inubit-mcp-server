@@ -3,6 +3,8 @@ package de.dadecker.inubit.mcp.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.domain.model.Capability.Kind;
+import de.dadecker.inubit.mcp.domain.model.ClientCheck;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
@@ -10,7 +12,10 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState.DetectionFailure;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState.Timed;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.ClientCheckLookup;
+import de.dadecker.inubit.mcp.domain.port.ClientCheckLookup.Recorded;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.time.Duration;
@@ -45,6 +50,9 @@ class NodeVersionsTest {
     private static final InubitVersion V_8_1_17 = version("8.1.17");
     private static final InubitVersion V_8_1_18 = version("8.1.18");
     private static final InubitVersion V_9_0_7 = version("9.0.7");
+    private static final ClientKey KEY = ClientKey.NONE;
+    private static final ClientKey KEY_90 = new ClientKey("/opt/acme/inubit-9.0/client",
+        "/opt/jdk-21");
 
     private final MutableClock clock = new MutableClock(T0);
     private final Map<NodeId, VersionSetting> settings = Map.of(
@@ -324,44 +332,86 @@ class NodeVersionsTest {
 
     @Test
     void aClientResultIsKeptForTheProcessLifetime() {
-        assertThat(versions.needsClientProbe(AUTO)).isTrue();
+        assertThat(versions.needsClientProbe(AUTO, KEY)).isTrue();
 
         ClientVersion client = client("8.1.17", "4.0.1", "8.1.17");
-        versions.clientProbed(AUTO, client);
+        versions.clientProbed(AUTO, new ProbedClient(KEY, client));
         clock.advance(Duration.ofDays(30));
-        versions.clientProbeFailed(AUTO, ErrorCode.TIMEOUT);
+        versions.clientProbeFailed(AUTO, KEY, ErrorCode.TIMEOUT);
 
         NodeVersionState state = versions.state(AUTO);
-        assertThat(state.client()).contains(new Timed<>(client, T0));
-        assertThat(state.clientFailure()).isEmpty();
-        assertThat(versions.needsClientProbe(AUTO)).isFalse();
+        assertThat(state.clientFor(KEY)).contains(new Timed<>(client, T0));
+        assertThat(state.clientFailureFor(KEY)).isEmpty();
+        assertThat(versions.needsClientProbe(AUTO, KEY)).isFalse();
     }
 
     @Test
     void aClientWithoutRangeIsASuccessWithAnEmptyRange() {
         ClientVersion noRange = new ClientVersion(V_8_1_17, Optional.empty(), Optional.empty());
-        versions.clientProbed(AUTO, noRange);
+        versions.clientProbed(AUTO, new ProbedClient(KEY, noRange));
         clock.advance(Duration.ofHours(1));
 
-        assertThat(versions.state(AUTO).client()).map(Timed::value).contains(noRange);
-        assertThat(versions.needsClientProbe(AUTO)).isFalse();
+        assertThat(versions.state(AUTO).clientFor(KEY)).map(Timed::value).contains(noRange);
+        assertThat(versions.needsClientProbe(AUTO, KEY)).isFalse();
     }
 
     @Test
     void aFailedOrTimedOutProbeIsRetriedOnlyAfter60Seconds() {
-        versions.clientProbeFailed(AUTO, ErrorCode.TIMEOUT);
+        versions.clientProbeFailed(AUTO, KEY, ErrorCode.TIMEOUT);
         clock.advance(Duration.ofSeconds(59));
 
-        assertThat(versions.state(AUTO).clientFailure())
+        assertThat(versions.state(AUTO).clientFailureFor(KEY))
             .contains(new Timed<>(ErrorCode.TIMEOUT, T0));
-        assertThat(versions.needsClientProbe(AUTO)).isFalse();
+        assertThat(versions.needsClientProbe(AUTO, KEY)).isFalse();
 
         clock.advance(Duration.ofSeconds(1));
-        assertThat(versions.needsClientProbe(AUTO)).isTrue();
+        assertThat(versions.needsClientProbe(AUTO, KEY)).isTrue();
 
-        versions.clientProbed(AUTO, client("8.1.17", "4.0.1", "8.1.17"));
-        assertThat(versions.state(AUTO).clientFailure()).isEmpty();
-        assertThat(versions.needsClientProbe(AUTO)).isFalse();
+        versions.clientProbed(AUTO, new ProbedClient(KEY, client("8.1.17", "4.0.1", "8.1.17")));
+        assertThat(versions.state(AUTO).clientFailureFor(KEY)).isEmpty();
+        assertThat(versions.needsClientProbe(AUTO, KEY)).isFalse();
+    }
+
+    // --- client checks per client (feature 017, T016, research D-4, D-5) -------------------
+
+    @Test
+    void theCheckLookupAnswersTheRecordedResultOrFailureOfTheKey() {
+        ClientCheckLookup checks = versions;
+        ClientVersion client = client("8.1.17", "4.0.1", "8.1.17");
+        assertThat(checks.recorded(AUTO, KEY)).isEqualTo(Recorded.Absent.NOTHING);
+
+        versions.clientProbeFailed(AUTO, KEY_90, ErrorCode.TIMEOUT);
+        assertThat(checks.recorded(AUTO, KEY_90))
+            .isEqualTo(new Recorded.ForClient(new ClientCheck.Failed(ErrorCode.TIMEOUT)));
+        assertThat(checks.recorded(AUTO, KEY)).isEqualTo(Recorded.Absent.OTHER_CLIENTS_ONLY);
+
+        versions.clientProbed(AUTO, new ProbedClient(KEY, client));
+        assertThat(checks.recorded(AUTO, KEY))
+            .isEqualTo(new Recorded.ForClient(new ClientCheck.Checked(client)));
+        assertThat(checks.recorded(AUTO, KEY_90))
+            .isEqualTo(new Recorded.ForClient(new ClientCheck.Failed(ErrorCode.TIMEOUT)));
+        assertThat(checks.recorded(SHORT_TTL, KEY)).as("nodes are independent")
+            .isEqualTo(Recorded.Absent.NOTHING);
+    }
+
+    @Test
+    void aResultReplacingTheFailureOfTheSameKeyIsAnsweredForThatKey() {
+        versions.clientProbeFailed(AUTO, KEY, ErrorCode.CLI_UNAVAILABLE);
+        ClientVersion client = client("8.1.17", "4.0.1", "8.1.17");
+
+        versions.clientProbed(AUTO, new ProbedClient(KEY, client));
+
+        assertThat(versions.recorded(AUTO, KEY))
+            .isEqualTo(new Recorded.ForClient(new ClientCheck.Checked(client)));
+        assertThat(versions.recorded(AUTO, KEY_90)).isEqualTo(Recorded.Absent.OTHER_CLIENTS_ONLY);
+    }
+
+    @Test
+    void theBackOffOfOneKeyDoesNotDelayAnotherKeysProbe() {
+        versions.clientProbeFailed(AUTO, KEY, ErrorCode.CLI_UNAVAILABLE);
+
+        assertThat(versions.needsClientProbe(AUTO, KEY)).isFalse();
+        assertThat(versions.needsClientProbe(AUTO, KEY_90)).isTrue();
     }
 
     // --- nodes and threads -----------------------------------------------------------------
@@ -370,12 +420,12 @@ class NodeVersionsTest {
     void nodesAreIndependent() {
         versions.detected(AUTO, V_9_0_7);
         versions.stale(AUTO);
-        versions.clientProbeFailed(AUTO, ErrorCode.CLI_UNAVAILABLE);
+        versions.clientProbeFailed(AUTO, KEY, ErrorCode.CLI_UNAVAILABLE);
 
         NodeVersionState other = versions.state(SHORT_TTL);
         assertThat(other.effectiveVersion()).isEmpty();
         assertThat(other.stale()).isFalse();
-        assertThat(other.clientFailure()).isEmpty();
+        assertThat(other.clientFailureFor(KEY)).isEmpty();
     }
 
     @Test
@@ -398,7 +448,7 @@ class NodeVersionsTest {
                 }));
                 tasks.add(pool.submit(() -> {
                     start.await();
-                    shared.clientProbed(node, client);
+                    shared.clientProbed(node, new ProbedClient(KEY, client));
                     return null;
                 }));
             }
@@ -413,7 +463,7 @@ class NodeVersionsTest {
         for (NodeId node : many.keySet()) {
             NodeVersionState state = shared.state(node);
             assertThat(state.detected()).as(node.toString()).isPresent();
-            assertThat(state.client()).as(node.toString()).isPresent();
+            assertThat(state.clientFor(KEY)).as(node.toString()).isPresent();
         }
     }
 }

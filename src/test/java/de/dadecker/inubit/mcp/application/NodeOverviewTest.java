@@ -10,6 +10,7 @@ import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.EnumSet;
@@ -61,7 +62,8 @@ class NodeOverviewTest {
             id -> VersionSetting.V8_1, id -> Duration.ofMinutes(5));
         NodeSummary node = TestNodeConfig.node().versionLine(VersionSetting.V8_1).build()
             .summary(path -> false, false);
-        return new NodeOverview(List.of(node), versions, matrix, id -> DIAGNOSIS).nodes()
+        return new NodeOverview(List.of(node), versions, matrix, (id, withClient) -> DIAGNOSIS,
+            TestClientSelection.none()).nodes()
             .getFirst().version().orElseThrow().capabilities();
     }
 }

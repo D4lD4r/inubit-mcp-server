@@ -9,11 +9,13 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.WorkspaceInspector;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CheckFinding;
 import de.dadecker.inubit.mcp.domain.model.CheckFinding.Severity;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import java.io.IOException;
@@ -221,8 +223,9 @@ class ArtifactCheckServiceTest {
     private void nodeRuns(String server) {
         versionLine = VersionSetting.AUTO;
         detection.answer(NODE, server);
-        versions.clientProbed(NODE, new ClientVersion(InubitVersion.parse("8.1.17").orElseThrow(),
-            InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17")));
+        versions.clientProbed(NODE, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(InubitVersion.parse("8.1.17").orElseThrow(),
+            InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17"))));
     }
 
     /** Two technical modules in neither the workspace nor a server list. */

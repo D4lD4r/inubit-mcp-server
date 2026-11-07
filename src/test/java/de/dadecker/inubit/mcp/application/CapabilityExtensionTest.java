@@ -23,6 +23,7 @@ import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
@@ -30,6 +31,7 @@ import de.dadecker.inubit.mcp.domain.model.LogQuery;
 import de.dadecker.inubit.mcp.domain.model.LogType;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Page;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
@@ -60,6 +62,7 @@ import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -207,7 +210,7 @@ class CapabilityExtensionTest {
         HealthService health = new HealthService(gateways, targets, new FanOut(), timeouts,
             clock, gate, versions, (node, version, timeout) -> {
                 throw new AssertionError("no client probe expected for " + node);
-            }, node -> false);
+            }, TestClientSelection.none());
         Map<NodeId, WritePolicy> policies = new HashMap<>();
         ids.forEach(id -> policies.put(id, new WritePolicy(id, false, true, false,
             WritePolicy.Confirmation.CLIENT, Duration.ofMinutes(5), Optional.of("jdoe"))));
@@ -218,7 +221,8 @@ class CapabilityExtensionTest {
             UUID::randomUUID, "acme");
         NodeOverview overview = new NodeOverview(servers.stream()
             .map(server -> server.summary(path -> false, false)).toList(), versions, MATRIX,
-            id -> EnumSet.allOf(Capability.class));
+            (id, withClient) -> EnumSet.allOf(Capability.class),
+            TestClientSelection.of(id -> true));
         client = McpTestClient.start(List.of(
             new ListNodesTool(McpTestClient.TEST_PROFILE, overview::nodes),
             new GetHealthTool(health), new FindProcessesTool(diagnosis),
@@ -499,8 +503,9 @@ class CapabilityExtensionTest {
             .contains("INUBIT 9.1.0 on qa/node2 does not support process control yet");
 
         // US3-1: a StartCLI-backed read with an 8.1 client is refused (FR-011)
-        versions.clientProbed(NODE_91, new ClientVersion(InubitVersion.parse("8.1.17")
-            .orElseThrow(), InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17")));
+        versions.clientProbed(NODE_91, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(InubitVersion.parse("8.1.17")
+            .orElseThrow(), InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17"))));
         JsonNode modules = nodeError(call("list_inventory",
             Map.of("target", "qa/node2", "kind", "MODULE")));
         assertThat(modules.path("code").asString()).isEqualTo("UNSUPPORTED_VERSION");

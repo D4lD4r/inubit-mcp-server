@@ -39,6 +39,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -216,11 +217,11 @@ class HealthServiceTest {
         return singleCliBudget == null
             ? new HealthService(gateways, new TargetResolver(SERVERS), new FanOut(),
                 server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC), gate, versions, probe,
-                withClient::contains)
+                TestClientSelection.of(withClient::contains))
             : new HealthService(gateways, new TargetResolver(SERVERS), new FanOut(),
                 server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC), gate, versions, probe,
-                withClient::contains, server -> Optional.empty(), singleCliBudget,
-                overviewBudget);
+                TestClientSelection.of(withClient::contains), server -> Optional.empty(),
+                singleCliBudget, overviewBudget);
     }
 
     private HealthReport checkOne(NodeId server, boolean includeSystemInfo) {
@@ -1178,7 +1179,8 @@ class HealthServiceTest {
         assertThat(probeTimeouts).as("the second get_health reuses the result").singleElement()
             .satisfies(timeout -> assertThat(timeout).isPositive()
                 .isLessThanOrEqualTo(TIMEOUT));
-        assertThat(versions.state(DEV).client().orElseThrow().value()).isEqualTo(CLIENT_8117);
+        assertThat(versions.state(DEV).clientFor(ClientKey.NONE).orElseThrow().value())
+            .isEqualTo(CLIENT_8117);
     }
 
     @Test
@@ -1236,8 +1238,8 @@ class HealthServiceTest {
         assertThat(report.client().orElseThrow().state()).contains("not_available");
         assertThat(report.unavailable()).isEmpty();
         assertThat(probeTimeouts).isEmpty();
-        assertThat(versions.state(DEV).client()).isEmpty();
-        assertThat(versions.state(DEV).clientFailure()).isEmpty();
+        assertThat(versions.state(DEV).clientFor(ClientKey.NONE)).isEmpty();
+        assertThat(versions.state(DEV).clientFailureFor(ClientKey.NONE)).isEmpty();
     }
 
     @Test
@@ -1258,7 +1260,7 @@ class HealthServiceTest {
                 + " version (exit code 1)");
             assertThat(part.nextStep()).contains("next step");
         });
-        assertThat(versions.state(DEV).clientFailure().orElseThrow().value())
+        assertThat(versions.state(DEV).clientFailureFor(ClientKey.NONE).orElseThrow().value())
             .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
 
         clock.advance(Duration.ofSeconds(30));
@@ -1280,7 +1282,7 @@ class HealthServiceTest {
         assertThat(retried.unavailable()).isEmpty();
         assertThat(retried.client()).get().extracting(HealthReport.Client::version)
             .isEqualTo(Optional.of("8.1.17"));
-        assertThat(versions.state(DEV).clientFailure()).isEmpty();
+        assertThat(versions.state(DEV).clientFailureFor(ClientKey.NONE)).isEmpty();
     }
 
     @Test
@@ -1307,7 +1309,7 @@ class HealthServiceTest {
                 + " StartCLI client of dev/node1 did not report its version within 1 s");
             assertThat(part.nextStep()).isPresent();
         });
-        assertThat(versions.state(DEV).clientFailure().orElseThrow().value())
+        assertThat(versions.state(DEV).clientFailureFor(ClientKey.NONE).orElseThrow().value())
             .isEqualTo(ErrorCode.TIMEOUT);
     }
 
@@ -1558,7 +1560,7 @@ class HealthServiceTest {
             new FanOut(), server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC),
             gateWithoutClients(versions, gatewaysForTest(), CapabilityMatrix.production()),
             versions, (server, version, timeout) -> new ProbedClient(ClientKey.NONE, CLIENT_8117),
-            withClient::contains,
+            TestClientSelection.of(withClient::contains),
             server -> server.equals(QA1) ? Optional.of("macOS Keychain") : Optional.empty());
 
         HealthReport pending = service.check(Optional.of(QA1.value()), false).get(0);

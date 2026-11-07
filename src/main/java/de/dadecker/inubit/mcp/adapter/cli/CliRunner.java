@@ -13,7 +13,9 @@ import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.SecretLabels;
 import de.dadecker.inubit.mcp.config.WindowsArguments;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
+import de.dadecker.inubit.mcp.domain.model.ClientCheck;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
@@ -22,6 +24,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.ClientCheckLookup;
 import de.dadecker.inubit.mcp.infra.Secret;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -88,6 +91,9 @@ import org.slf4j.LoggerFactory;
  *   <li>Feature 017 (research D-3, D-4): every call reads the node's effective version once and
  *       chooses the client, JDK and address for it ({@link #select}); everything above sees the
  *       chosen {@code cli} settings.
+ *   <li>Feature 017 (FR-017, research D-4): before {@link #run} and {@link #runSession} launch,
+ *       the launch guard ({@link #checkLaunch}) compares the chosen client with its recorded
+ *       check; the {@code -v}/{@code -h} probes and {@link #checkAvailable} are not guarded.
  * </ul>
  */
 public final class CliRunner {
@@ -112,6 +118,7 @@ public final class CliRunner {
     private volatile OutputDecoder decoder;
     private final StartCliPinProbe pinProbe;
     private final Function<NodeId, Optional<InubitVersion>> versions;
+    private final ClientCheckLookup checks;
 
     /** A runner for which every node's version is unknown. */
     CliRunner(ProcessLauncher launcher, Map<String, String> parentEnvironment,
@@ -136,6 +143,19 @@ public final class CliRunner {
         boolean windows, CliSystem system, ProcessContainment containment,
         CliResources resources, StartCliPinProbe pinProbe,
         Function<NodeId, Optional<InubitVersion>> versions) {
+        this(launcher, parentEnvironment, windows, system, containment, resources, pinProbe,
+            versions, ClientCheckLookup.NONE);
+    }
+
+    /**
+     * As above, with the recorded client checks the launch guard reads (feature 017, research
+     * D-4).
+     */
+    public CliRunner(ProcessLauncher launcher, Map<String, String> parentEnvironment,
+        boolean windows, CliSystem system, ProcessContainment containment,
+        CliResources resources, StartCliPinProbe pinProbe,
+        Function<NodeId, Optional<InubitVersion>> versions, ClientCheckLookup checks) {
+        this.checks = Objects.requireNonNull(checks, "checks");
         this.resources = Objects.requireNonNull(resources, "resources");
         this.pinProbe = Objects.requireNonNull(pinProbe, "pinProbe");
         this.versions = Objects.requireNonNull(versions, "versions");
@@ -278,6 +298,7 @@ public final class CliRunner {
             refuseWindowsCredentials(server, username, password);
         }
         Selection selection = select(server);
+        checkLaunch(selection);
         // before the guard: a refused address must neither wait for nor count as a login
         if (server.tls().pinPerServer()) {
             pinProbe.check(selection.server());
@@ -317,9 +338,33 @@ public final class CliRunner {
     public CliResult runSession(Selection selection, String username, Secret password,
         CliClientOptions options, List<CliSessionCommand> commands, Duration timeout,
         int maxOutputBytes, CredentialGuard guard) {
+        return runSession(selection, true, username, password, options, commands, timeout,
+            maxOutputBytes, guard);
+    }
+
+    /**
+     * {@code get_health}'s session ({@code CliHealthPort} on 6.1): as
+     * {@link #runSession(Selection, String, Secret, CliClientOptions, List, Duration, int,
+     * CredentialGuard)}, but without the launch guard (feature 017, FR-009, research D-4). The
+     * call is admitted without a client check ({@code VersionGate.monitoringAccess}) and reports
+     * the client in its own part, so an excluding client never refuses it, as in 0.8.0.
+     */
+    public CliResult runHealthSession(Selection selection, String username, Secret password,
+        CliClientOptions options, List<CliSessionCommand> commands, Duration timeout,
+        int maxOutputBytes, CredentialGuard guard) {
+        return runSession(selection, false, username, password, options, commands, timeout,
+            maxOutputBytes, guard);
+    }
+
+    private CliResult runSession(Selection selection, boolean launchGuard, String username,
+        Secret password, CliClientOptions options, List<CliSessionCommand> commands,
+        Duration timeout, int maxOutputBytes, CredentialGuard guard) {
         EffectiveNodeConfig server = selection.server();
         if (windows) {
             refuseWindowsCredentials(server, username, password);
+        }
+        if (launchGuard) {
+            checkLaunch(selection);
         }
         Optional<Path> trustStore = server.tls().trustStore();
         String extraJavaToolOptions = options.trustStoreFilePath() ? ""
@@ -340,6 +385,94 @@ public final class CliRunner {
         lines.add(CliSessionCommand.EXIT);
         return guarded(guard, () -> execute(selection, arguments, Optional.of(password), lines,
             timeout, "cliTimeout", extraJavaToolOptions, maxOutputBytes));
+    }
+
+    /**
+     * The launch guard (feature 017, FR-017, research D-4): whether the client of
+     * {@code selection} may be launched for a tool call, judged on the checks recorded so far;
+     * it never probes and launches nothing. Called by {@link #run} and {@link #runSession} right
+     * before the launch; a caller that re-selects later (e.g. under a write lock) calls it again
+     * with its final selection. It judges only launches of calls the version gate admitted with
+     * its client check (every tool call whose channels include StartCLI); {@code get_health}'s
+     * 6.1 session is admitted without one and runs unguarded ({@link #runHealthSession}), as in
+     * 0.8.0. The {@code -v} and {@code -h} probes ({@code execute}) are never guarded.
+     *
+     * <ul>
+     *   <li>a result for the chosen client whose range excludes the version it was chosen for:
+     *       {@code UNSUPPORTED_VERSION}, as the gate's refusal;
+     *   <li>a result whose range cannot be evaluated, or a recorded failure: launch, as the gate
+     *       allows it;
+     *   <li>no check for the chosen client, but one for another client of the node (the client
+     *       changed since the call was admitted): {@code CLI_UNAVAILABLE};
+     *   <li>no check for the node at all: launch, as in 0.8.0.
+     * </ul>
+     *
+     * @throws ToolErrorException {@code UNSUPPORTED_VERSION} or {@code CLI_UNAVAILABLE} as above
+     */
+    public void checkLaunch(Selection selection) {
+        NodeId node = selection.server().id();
+        // one snapshot: a probe recording in between cannot fake a change (research D-4)
+        ClientCheckLookup.Recorded recorded = checks.recorded(node, selection.key());
+        if (recorded instanceof ClientCheckLookup.Recorded.ForClient forClient) {
+            if (forClient.check() instanceof ClientCheck.Checked checked) {
+                refuseExcluded(selection, checked.version());
+            }
+            return;
+        }
+        if (recorded == ClientCheckLookup.Recorded.Absent.OTHER_CLIENTS_ONLY) {
+            String release = release(selection).map(text -> " to the client for INUBIT " + text)
+                .orElse("");
+            throw unavailable(selection.server(), "The StartCLI client for " + node + " changed"
+                    + release + " during this call; the new client has not been checked yet",
+                "INUBIT on " + node + " was found to run a different version while the call was"
+                    + " waiting",
+                "Call the tool again");
+        }
+    }
+
+    /** The 009 refusal of a client whose checked range excludes the selected version. */
+    private static void refuseExcluded(Selection selection, ClientVersion client) {
+        EffectiveNodeConfig server = selection.server();
+        Optional<InubitVersion> version = selection.version();
+        ClientVersion.Compatibility compatibility =
+            version.isEmpty() && server.versionLine() instanceof VersionSetting.Line line
+                ? client.compatibleWith(line.major(), line.minor())
+                : client.compatibleWith(version);
+        if (compatibility != ClientVersion.Compatibility.INCOMPATIBLE) {
+            return;
+        }
+        String name = version.map(known -> "INUBIT " + known.raw())
+            .orElseGet(() -> "INUBIT " + release(selection).orElseThrow() + " (versionLine "
+                + server.versionLine().text() + ")");
+        String message = "StartCLI client " + client.version().raw() + " of " + server.id()
+            + " supports INUBIT " + client.supportedFrom().orElseThrow().raw() + " to "
+            + client.supportedTo().orElseThrow().raw() + ", which excludes " + name
+            + "; StartCLI refused; nothing was sent";
+        LOG.info("{}: StartCLI REFUSED ({}): {}", server.id(), ErrorCode.UNSUPPORTED_VERSION,
+            message);
+        throw new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION, message,
+                "The local StartCLI client does not support the INUBIT version of "
+                    + server.id(),
+                "Install a StartCLI client on the host of this server that supports INUBIT "
+                    + release(selection).orElseThrow()
+                    + selection.entryHint().map(entry -> ", or add defaults.cliClients.\""
+                        + entry.text() + "\"").orElse(""))
+            .withNode(server.id()));
+    }
+
+    /**
+     * The major.minor the client was chosen for ("9.0"), "9.x" for a line without minor, or empty
+     * for an unknown version.
+     */
+    private static Optional<String> release(Selection selection) {
+        if (selection.version().isPresent()) {
+            return selection.version().map(known -> MajorMinor.of(known).text());
+        }
+        if (selection.server().versionLine() instanceof VersionSetting.Line line) {
+            return Optional.of(line.major() + "." + (line.minor().isPresent()
+                ? String.valueOf(line.minor().getAsInt()) : "x"));
+        }
+        return Optional.empty();
     }
 
     /**

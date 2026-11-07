@@ -68,6 +68,33 @@ class ToolAnnouncementTest {
                     baseUrl: https://localhost:2
             """.formatted(temp.resolve("workspace"), oldLine, temp.resolve("cli-old"), labLine,
             temp.resolve("cli-lab"));
+        return toolNames(yaml, matrix);
+    }
+
+    /**
+     * Feature 017 (T022, research D-7, plan review 1 finding 6): the tools announced for one node
+     * with {@code versionLine}, a {@code defaults.cliClients."9.0"} entry and no other client.
+     */
+    private List<String> toolNamesWithNineEntry(String versionLine) {
+        String yaml = """
+            profile:
+              name: acme
+            workspace: %s
+            defaults:
+              cliClients:
+                "9.0":
+                  home: %s
+            groups:
+              - name: test
+                versionLine: %s
+                nodes:
+                  - name: node1
+                    baseUrl: https://localhost:1
+            """.formatted(temp.resolve("workspace"), temp.resolve("cli-9.0"), versionLine);
+        return toolNames(yaml, CapabilityMatrix.production());
+    }
+
+    private List<String> toolNames(String yaml, CapabilityMatrix matrix) {
         ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml")).config();
         SecretScrubber scrubber = new SecretScrubber();
@@ -80,6 +107,30 @@ class ToolAnnouncementTest {
             }, TestWiring.TEST_CONFIG_LOCATION, matrix)) {
             return wiring.toolHandlers().stream().map(ToolHandler::name).toList();
         }
+    }
+
+    @Test
+    void aNodePinnedToEightOneDoesNotAnnounceTheExportsForANineEntry() {
+        assertThat(toolNamesWithNineEntry("V8_1")).doesNotContain("export_artifacts",
+            "export_archives");
+    }
+
+    @Test
+    void aNodePinnedToNineZeroAnnouncesTheExportsForItsEntry() {
+        assertThat(toolNamesWithNineEntry("V9_0")).contains("export_artifacts",
+            "export_archives");
+    }
+
+    @Test
+    void anAutoNodeAnnouncesTheExportsForAnyEntry() {
+        assertThat(toolNamesWithNineEntry("AUTO")).contains("export_artifacts",
+            "export_archives");
+    }
+
+    @Test
+    void aNodeOnNineWithoutMinorUsesOnlyTheVersionlessClient() {
+        assertThat(toolNamesWithNineEntry("V9_X")).doesNotContain("export_artifacts",
+            "export_archives");
     }
 
     @Test
