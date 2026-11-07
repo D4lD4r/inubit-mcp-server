@@ -7,17 +7,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Test build `0.8.0-test.1` (branch `0.8.0`, not released): features 012, 013 and 016 together for a
-live check. As a SemVer pre-release of 0.8.0 it is newer than 0.7.1, so the update check reports
-no newer release against 0.7.1, but would report a released 0.8.0.
+## [0.8.0] - 2026-11-07
 
-Feature 012, read-only INUBIT 6.1 nodes reached through StartCLI only. The recordings of a real
-6.1 node have not been made yet, so every capability is still declared unsupported for 6.1: on a
-6.1 node only `list_nodes` and the offline checks of `check_artifacts` run, and every other tool
-(`export_archives` included) refuses it.
+Feature 012: read-only INUBIT 6.1 nodes, reached through StartCLI only. Feature 013: the
+StartCLI-backed tools on Windows. Feature 016: update check against the GitHub releases and
+`Implementation-Version` in the JAR manifest. Feature 017: INUBIT 9.0 support. Released without
+a live check; see "Known limitations / not live-verified".
 
-Feature 017, INUBIT 9.0 support, ships in 0.8.0 as well. INUBIT 9.0 support is derived from
-documentation and has not yet been checked against a live INUBIT 9.0 node.
+The recordings of a real 6.1 node have not been made yet, so every capability is still declared
+unsupported for 6.1: on a 6.1 node only `list_nodes` and the offline checks of `check_artifacts`
+run, and every other tool (`export_archives` included) refuses it. INUBIT 9.0 support is derived
+from documentation and has not yet been checked against a live INUBIT 9.0 node.
+
+### Known limitations / not live-verified
+
+This release has not been checked against a live system; the maintainer accepted that risk. The
+open live checks are listed in `docs/live-test-0.8.0.md`.
+
+- StartCLI on Windows (feature 013) is tested offline only: unit tests with fakes and the Windows
+  CI job. Password over stdin, ACLs and code pages on a real Windows machine are not checked.
+- INUBIT 9.0 (feature 017) is derived from documentation and tested against fixtures only; no
+  live INUBIT 9.0 node has been checked.
+- The update check (feature 016) is tested offline only: the real query against the GitHub API
+  and the elicitation dialog in Claude Code have not been checked live.
+- INUBIT 6.1 nodes (feature 012) stay refused by every tool that would contact them until the
+  recordings of a real 6.1 node are made and verified.
 
 ### Added
 
@@ -880,7 +894,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.4...v0.7.0
 [0.6.4]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.3...v0.6.4

@@ -1,12 +1,12 @@
-# Live test of the 0.8.0 test build
+# Live test of release 0.8.0
 
-The branch `0.8.0` joins features 012 (INUBIT 6.1 reads over StartCLI), 013 (StartCLI on Windows)
-and 016 (update check, `Implementation-Version` in the manifest) for one live test, without a
-release. Its version is `0.8.0-test.1`; the JAR is `inubit-mcp-server-0.8.0-test.1.jar`
-(check it against its `.sha256` file first). Nothing here is a release: no tag, no GitHub
-release, no merge to `main`.
+Release 0.8.0 joins features 012 (INUBIT 6.1 reads over StartCLI), 013 (StartCLI on Windows),
+016 (update check, `Implementation-Version` in the manifest) and 017 (INUBIT 9.0). It was released
+without a live check; the maintainer accepted that risk (CHANGELOG, "Known limitations / not
+live-verified"). The JAR is `inubit-mcp-server-0.8.0.jar` from the GitHub release (check it
+against its `.sha256` file first).
 
-This list joins the open live tasks of the three features. The details stay in the features'
+This list joins the open live tasks of the four features. The details stay in the features'
 specs; each item names where. Per item:
 
 - **Platform**: macOS, Windows or both.
@@ -26,7 +26,7 @@ not be skipped).
   `Get-FileHash -Algorithm SHA256` (Windows) matches.
 - [ ] Point the MCP registration (or `serverJar` of the profile for `inubit-cert-check`) at the
   JAR; restart the MCP client.
-- [ ] `java -jar inubit-mcp-server-0.8.0-test.1.jar --check-config --profile <profile>`: no error;
+- [ ] `java -jar inubit-mcp-server-0.8.0.jar --check-config --profile <profile>`: no error;
   8.1 nodes unchanged. Approval: none (local only; the StartCLI client check runs `-v`/`-h`
   locally, without credentials or server URL).
 
@@ -37,19 +37,18 @@ server version); approve that the machine may reach GitHub. Run on **both** plat
 noted: the cache directory is created differently (POSIX owner-only vs. inherited ACL). Steps are
 those of `specs/016-update-check/quickstart.md` ("Live").
 
-This build is newer than the latest release v0.7.1 (`0.8.0-test.1` > `0.7.1` by SemVer), so the
-real check must report **no** update. To see the notices, use the cached-result step below.
+This build is the latest release v0.8.0, so the real check must report **no** update. To see the notices, use the cached-result step below.
 
 - [ ] **Manifest** (both; approval: none):
-  `unzip -p inubit-mcp-server-0.8.0-test.1.jar META-INF/MANIFEST.MF | grep Implementation-`
-  shows `Implementation-Version: 0.8.0-test.1`; `java -jar … --version` prints
-  `inubit-mcp-server 0.8.0-test.1`, also when the JAR was copied to another directory.
+  `unzip -p inubit-mcp-server-0.8.0.jar META-INF/MANIFEST.MF | grep Implementation-`
+  shows `Implementation-Version: 0.8.0`; `java -jar … --version` prints
+  `inubit-mcp-server 0.8.0`, also when the JAR was copied to another directory.
 - [ ] **Real GitHub query** (both; approval: GitHub access): start through the MCP client. Within
   about 10 s no WARN "A newer inubit-mcp-server is available" in the client's server log;
-  `get_health` has `serverUpdate` with `currentVersion` `0.8.0-test.1`, `latestVersion` `0.7.1`,
+  `get_health` has `serverUpdate` with `currentVersion` `0.8.0`, `latestVersion` `0.8.0`,
   `updateAvailable: false`; no note line in the first tool result; no dialog.
 - [ ] **Cache** (both; approval: none): `~/.inubit-mcp/update-check.json`
-  (`%USERPROFILE%\.inubit-mcp\update-check.json`) exists with `latestVersion` `0.7.1` and
+  (`%USERPROFILE%\.inubit-mcp\update-check.json`) exists with `latestVersion` `0.8.0` and
   `checkedAt`; macOS: a directory the server created is `700` (`ls -ld`), the file is not
   readable by others; Windows: the directory inherits the ACL of the user profile (`icacls`
   shows no entry beyond the user, SYSTEM and Administrators).
@@ -57,7 +56,7 @@ real check must report **no** update. To see the notices, use the cached-result 
   stopped, write `{"latestVersion":"0.9.0","checkedAt":"<now, ISO-8601 UTC>"}` to the cache
   file, switch the network off (the start-up check then fails and leaves the cached result) and
   start the client. Expected: the server `instructions` (as far as the client shows them) end
-  with "A newer inubit-mcp-server 0.9.0 is available (installed 0.8.0-test.1) …"; the first tool
+  with "A newer inubit-mcp-server 0.9.0 is available (installed 0.8.0) …"; the first tool
   result has the note line "Note: inubit-mcp-server 0.9.0 is available …", the second has not;
   `get_health.serverUpdate.updateAvailable` is `true`; tools work and start-up is not slower.
   Alternative from the quickstart: a scratch build with pom version `0.0.1` against the real
@@ -157,7 +156,7 @@ recordings; health and process listing on 6.1 come after T037–T040.
 - [ ] **T037–T039** (code work, not live; approval: none): recorded health and `ps` fixtures
   replace the reconstructed ones; the REC outcomes of D-10 applied.
 - [ ] **T040 flip** (code work; approval: none): `MONITORING` and `PROCESS_DIAGNOSIS` `SUPPORTED`
-  for 6.1; docs and CHANGELOG. Needs a new test build.
+  for 6.1; docs and CHANGELOG. Needs a new release.
 - [ ] **T043 live smoke check** (both, after T040; approval: INUBIT read-only): `get_health` of
   the node within 15 s (version and counts plausible), `find_processes(states: [ERROR])`,
   `query_logs` still `UNSUPPORTED_VERSION`; at most two StartCLI sessions at once per node.
@@ -170,9 +169,22 @@ recordings; health and process listing on 6.1 come after T037–T040.
 - [ ] **T045** (code work after T044; approval: none): export on 6.1, then flip
   `WORKSPACE_EXPORT` (also admits `export_archives`).
 
-## 4. After the live test
+## 4. Feature 017: INUBIT 9.0 (T047–T048)
+
+Steps are those of `specs/017-inubit-9-support/quickstart.md` ("Live check").
+
+- [ ] **T047 live check** (macOS or Windows; approval: INUBIT read-only, and INUBIT write for the
+  write steps, against a 9.0.x **test** node only): steps 1–11 of the quickstart; append a dated
+  record (tested 9.0 version, result per step) to the quickstart.
+- [ ] **T048 recording** (macOS; approval: INUBIT read-only against the 9.0.x test node):
+  `RECORD_INUBIT_LINE=9.0` (quickstart step 12); the recorded files replace the
+  documentation-derived ones (`.origin` = `recorded`); neutralize; build green; compare the
+  non-recordable write successes with T047's results (SC-006).
+
+## 5. After the live test
 
 - [ ] Results go into the quickstarts' "Validation record" sections and the tasks are checked
-  off on their feature branches (012, 013, 016); this file is not a record.
+  off in `specs/` on a branch from `main`; this file is not a record.
 - [ ] Delete `~/.inubit-mcp/update-check.json` if it still holds a test value.
-- [ ] Release only after the open tasks: version, CHANGELOG section with date, tag (separately).
+- [ ] Code changes that follow (e.g. the 6.1 flip T040/T045, recorded 9.0 fixtures) ship in a
+  later release.

@@ -98,11 +98,12 @@ class DocsWindowsStatementsTest {
     }
 
     @Test
-    void theChangelogNamesTheChangeUnderUnreleased() throws IOException {
+    void theChangelogNamesTheChangeUnderRelease080() throws IOException {
         String changelog = Files.readString(CHANGELOG);
-        String unreleased = changelog.substring(changelog.indexOf("## [Unreleased]"),
-            changelog.indexOf("## [", changelog.indexOf("## [Unreleased]") + 1));
-        assertThat(unreleased.replaceAll("\\s+", " ")).contains("Windows",
+        int start = changelog.indexOf("## [0.8.0]");
+        assertThat(start).isNotNegative();
+        String release = changelog.substring(start, changelog.indexOf("## [", start + 1));
+        assertThat(release.replaceAll("\\s+", " ")).contains("Windows",
             "`bin\\startcli.bat`", "StartCLI-backed tools");
     }
 }
