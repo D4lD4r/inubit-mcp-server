@@ -1,18 +1,18 @@
 # INUBIT MCP Server
 
 A local [Model Context Protocol](https://modelcontextprotocol.io) server (stdio, Java 21) that lets
-an AI assistant such as Claude Code operate and diagnose **INUBIT 8.1** integration servers: check
-health, find failed or hanging process instances and read the matching logs, inspect the inventory
-of diagrams and modules, and — only where explicitly allowed — restart or kill a single process
-instance. On a configured **development stage** it brings workspace changes back into INUBIT,
-switches workflows on or off, tags tested states, restores backups and sends SOAP test messages.
-Along a configured **stage chain** it deploys a tagged release into the next group, node by node
-— or, for a package-only group such as production, prepares import packages for a person. It uses
-the INUBIT REST API wherever possible and the INUBIT command-line client (StartCLI) only where REST
-cannot do the job. Nodes of an older **INUBIT 6.1** installation can be configured read-only:
-they are reached through StartCLI only, never over REST (see [Requirements](#requirements)). One
-server process serves one **profile** (one customer or project, one YAML file); several profiles
-run side by side as separate registrations.
+an AI assistant such as Claude Code operate and diagnose **INUBIT 8.1** and **INUBIT 9.0**
+integration servers: check health, find failed or hanging process instances and read the matching
+logs, inspect the inventory of diagrams and modules, and — only where explicitly allowed — restart
+or kill a single process instance. On a configured **development stage** it brings workspace changes
+back into INUBIT, switches workflows on or off, tags tested states, restores backups and sends SOAP
+test messages. Along a configured **stage chain** it deploys a tagged release into the next group,
+node by node — or, for a package-only group such as production, prepares import packages for a
+person. It uses the INUBIT REST API wherever possible and the INUBIT command-line client (StartCLI)
+only where REST cannot do the job. Nodes of an older **INUBIT 6.1** installation can be configured
+read-only: they are reached through StartCLI only, never over REST (see
+[Requirements](#requirements)). One server process serves one **profile** (one customer or project,
+one YAML file); several profiles run side by side as separate registrations.
 
 ## Tools
 
@@ -62,12 +62,14 @@ development stages and the stage chain: [docs/setup.md](docs/setup.md).
   `write.productionOptIn: true`; development settings and end-to-end tests are not allowed there.
 - **Writes only on a verified INUBIT version.** Each call is checked against its node's INUBIT
   version, pinned with `versionLine` or detected from the node on first use (`AUTO`). Write tools
-  run only on a known INUBIT 8.1 node. They are refused with `UNSUPPORTED_VERSION` before anything
-  but the version detection is sent on an unknown version (also after a failed detection), on
-  any version other than 8.1 (INUBIT 9.x, `V9_X`) and while `get_health` reads a version that
-  contradicts the pin. On an unknown version and on versions other than 8.1, read tools run with
-  a warning that their results are unverified — except on INUBIT 6.1, where every tool not
-  declared supported for 6.1 is refused. StartCLI-backed tools are also refused where the
+  run only on a known INUBIT 8.1 or 9.0 node. They are refused with `UNSUPPORTED_VERSION` before
+  anything but the version detection is sent on an unknown version (also after a failed
+  detection), on any version other than 8.1 and 9.0 (INUBIT 9.1 and later, `V9_X`) and while
+  `get_health` reads a version that contradicts the pin. A write is not sent either when a
+  parallel call finds that the node now runs another INUBIT version than the one the write was
+  admitted for (also 8.1 → 9.0). On an unknown version and on versions other than 8.1 and 9.0,
+  read tools run with a warning that their results are unverified — except on INUBIT 6.1, where
+  every tool not declared supported for 6.1 is refused. StartCLI-backed tools are also refused where the
   local StartCLI client does not support the node's INUBIT major.minor, and `deploy_release`
   deploys only between nodes of the same minor version.
   `list_nodes` shows per node the version, the client and the usable capabilities without
@@ -126,9 +128,13 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
 ## Requirements
 
 - A **Java 21** (or newer) runtime to run the server.
-- **INUBIT 8.1** servers reachable over HTTPS, and an INUBIT account per group or node with rights
-  to read logs, monitoring and models; where the development tools or deployments are used, also
-  with rights to export, import and tag the owner's diagrams and modules.
+- **INUBIT 8.1** or **INUBIT 9.0** servers reachable over HTTPS, and an INUBIT account per group
+  or node with rights to read logs, monitoring and models; where the development tools or
+  deployments are used, also with rights to export, import and tag the owner's diagrams and
+  modules. INUBIT 9.0 nodes are
+  pinned with `versionLine: V9_0` or detected (`AUTO`); `V9_X` and INUBIT 9.1 and later run reads
+  unverified and refuse writes. The INUBIT 9.0 support is derived from INUBIT's documentation and
+  has not yet been checked against a live INUBIT 9.0 node.
 - **INUBIT 6.1** is supported read-only, through StartCLI only, for nodes pinned with
   `versionLine: V6_1` (or a concrete 6.1 version): the server sends them no REST request and
   never writes to them. In this version every tool except `list_nodes` and the offline checks
@@ -143,7 +149,10 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
   it for the nodes of the source and the target group): a local **INUBIT 8.1 Workbench client
   installation** with StartCLI (`bin/startcli.sh`; on Windows `bin\startcli.bat` on a local
   drive) matching the servers' patch level, a Java 17 runtime for StartCLI, and "CLI login
-  access" for the account. The INUBIT client is **not included** in this project. Without it, the
+  access" for the account. INUBIT 9.0 nodes need the **INUBIT 9.0 client** on a Java 21 runtime;
+  one client per INUBIT version is configured with `defaults.cliClients`
+  ([StartCLI client per INUBIT version](docs/setup.md#startcli-client-per-inubit-version-defaultscliclients)).
+  On INUBIT 9 the StartCLI user must exist in INUBIT's internal user management. The INUBIT client is **not included** in this project. Without it, the
   REST-based tools work and CLI-based parts report `CLI_UNAVAILABLE`. On Windows the CLI-based
   tools work as on macOS, with a few rules for paths and characters
   ([StartCLI on Windows](docs/setup.md#startcli-on-windows)).

@@ -289,3 +289,21 @@ a live-check item, because the adapters are shared.
 |---|----------|---------|----------|--------|
 | 1 | SHOULD | In 9.0 mode `record-fixtures.sh` always used `defaults.cliHome`. With the recommended profile (8.1 client there) node-backed CLI cases would run the 8.1 client and be marked `recorded … 9.0.x`, so the provenance gap (D-10, SC-006) would close silently. `-v`/`-h` could not be recorded at all | Accepted | Verified (`config_value` reads only `cliHome`/`cliJavaHome`; `detect_inubit_version` checks only the node for non-local cases). 9.0 mode takes `defaults.cliClients."9.0"`, which the explicit `RECORD_CLI_HOME`/`RECORD_CLI_JAVA_HOME` override. Before every CLI case the client must report `CLI 9.0.*`. The 8.1 mode is unchanged. Script tests added |
 | 2 | NIT | SC-003 did not list the 0.8.0 test edits of this phase: added Accept assertions, `DeployHarness` wiring, helper visibility | Accepted | They only add conditions, and no assertion was loosened. SC-003 now names them |
+
+After the fixes: the affected tests 153/0/0/3 and the Python tool tests 411 OK. Committed in 3f62e45.
+
+## Implementation — phase 7 docs, T037–T038 (code-review, 2026-11-07)
+
+The reviewer checked the open points against the code:
+- The FR-018 refusal has no `<tool>: ` prefix (`WriteRefusedException.of`, `ResultMapper`).
+- `"9.00"` is refused (`MajorMinor.TEXT`).
+- The docs do not claim that `AUTO` knows its version before the client is chosen.
+- All CHANGELOG hunks are in `[Unreleased]`; `pom.xml` is unchanged.
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | SHOULD | `docs/setup.md` (operator guide, migration 8.1 → 9.0) lacked the "derived from documentation, not checked live" note | Accepted | Note at the start of the `cliClients` section |
+| 2 | SHOULD | "keeps … of 0.8.0" used 0.8.0 as the old behaviour, but 017 ships in 0.8.0 | Accepted | Worded without a version ("it had without `cliClients`", "keep their line unchanged") |
+| 3 | SHOULD | CHANGELOG: `CLI_UNAVAILABLE` "for a missing or unsuitable client" names the version and the `cliClients` hint; only the missing-client text does (`CliRunner.noHome`), other causes keep their texts | Accepted | Verified (`entryHint()` used only in `noHome` and the range refusal); "missing client" |
+| 4 | NIT | The new FR-018 row sat in the table headed "`message` after `<tool>: `" | Accepted | Row notes "no `<tool>: ` prefix" |
+| 5 | NIT | "marks the version as possibly changed" refuses only on `AUTO` nodes (`NodeVersions.handOff`); pinned nodes ignore the mark | Accepted | Verified; "on an `AUTO` node" added in setup.md, tools.md (2×) and CHANGELOG. The contract (`mcp-tools-delta.md`) now also says "on an `AUTO` node" |

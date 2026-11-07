@@ -16,6 +16,9 @@ Feature 012, read-only INUBIT 6.1 nodes reached through StartCLI only. The recor
 6.1 node only `list_nodes` and the offline checks of `check_artifacts` run, and every other tool
 (`export_archives` included) refuses it.
 
+Feature 017, INUBIT 9.0 support, ships in 0.8.0 as well. INUBIT 9.0 support is derived from
+documentation and has not yet been checked against a live INUBIT 9.0 node.
+
 ### Added
 
 - Read-only INUBIT 6.1 nodes (feature 012), reached through StartCLI only: the server sends a 6.1
@@ -92,6 +95,36 @@ Feature 012, read-only INUBIT 6.1 nodes reached through StartCLI only. The recor
   (`-Dhttps.proxyHost`/`-Dhttps.proxyPort`, `-Djava.net.useSystemProxies=true`) and is switched off
   with `updateCheck.enabled: false` in the profile or `INUBIT_MCP_UPDATE_CHECK=off`; then it sends
   nothing and reads or writes no cache. `--version` and `--check-config` never check.
+- INUBIT 9.0 support (feature 017). INUBIT 9.0 support is derived from documentation and has not
+  yet been checked against a live INUBIT 9.0 node.
+  - A node running INUBIT 9.0.x (`versionLine: V9_0`, a 9.0 pin such as `"9.0.7"`, or `AUTO`
+    detected as 9.0) gets every capability of 8.1 — reads without the "not verified" warning, the
+    write tools and `deploy_release` (9.0 → 9.0 only) — when the StartCLI client check passes.
+    `V9_X`, INUBIT 9.1 and later keep reads unverified and writes refused.
+  - One StartCLI client per INUBIT version: `defaults.cliClients` maps a major.minor (`"8.1"`,
+    `"9.0"`) to a client `home` and optional `javaHome`. A node uses the entry of its pinned or
+    detected major.minor (precedence: `cli.home` of node and group, then the entry, then
+    `cliHome`); an `AUTO` node switches its client when it is found to run another version, and the
+    new client is checked before its first use. INUBIT 8.1 clients run on JDK 17, INUBIT 9.0
+    clients on JDK 21; `--check-config` warns about another JDK or none, a `home` or `javaHome`
+    that does not exist, a `home` without `bin/startcli.sh` (`bin\startcli.bat` on Windows), a
+    client range that excludes its key, an undeclared key such as `"9.1"` and `versionLine: V9_X`
+    ("does not select 9.0 support; use V9_0 (INUBIT 9.0.x) or AUTO").
+  - The default StartCLI address depends on the major version: INUBIT 9.x uses the base URL
+    without `/ibis/servlet/IBISSoapServlet`, which INUBIT 9.0.2 removed; 6.x, 8.x and unknown
+    versions keep the servlet path. An explicit `cli.url` with the servlet path on a 9.x node
+    gives a warning in `--check-config` and in the results of StartCLI-backed tools.
+  - `list_nodes` shows per node the StartCLI choice as `startCli` (`clientDirectory`, `source`,
+    `versionEntry`, `address`, `final`); `clientDirectory` shows the local client path on
+    purpose, a URL is never shown. `--check-config` names the chosen client and address on the
+    lines of nodes whose client depends on their version, and one line per checked client.
+  - `CLI_UNAVAILABLE` for a missing client names the version and, e.g. on a 9.0
+    node, the hint to add `defaults.cliClients."9.0"`; a call caught by a client change between
+    its admission and the start of StartCLI launches nothing and reports `CLI_UNAVAILABLE` with
+    the next step "Call the tool again". On INUBIT 9,
+    the `AUTH_FAILED` next step of a StartCLI login failure says that the user must exist in the
+    internal user management (OAuth-only users cannot use StartCLI).
+  - Migration 8.1 → 9.0 in [docs/setup.md](docs/setup.md#migration-from-inubit-81-to-90).
 
 ### Changed
 
@@ -100,7 +133,7 @@ Feature 012, read-only INUBIT 6.1 nodes reached through StartCLI only. The recor
   - The capability `diagnosis` is split into `process_diagnosis` (`find_processes`) and
     `log_diagnosis` (`query_logs`), with the same states as before on every version other than
     6.1. `list_nodes` (`capabilities`) and the 6.1 part of `--check-config` show the two names;
-    refusal and warning texts name them in words, e.g. "INUBIT 9.0.7 on dev/node1 is not
+    refusal and warning texts name them in words, e.g. "INUBIT 9.1.0 on dev/node1 is not
     verified for process diagnosis; results may be incomplete" (before: "… for diagnosis …").
   - When the `AUTO` detection request was answered with HTTP 404, the unknown-version warning
     adds a conditional hint: "the INUBIT version of dev/node1 is unknown (UNEXPECTED_RESPONSE at
@@ -117,10 +150,34 @@ Feature 012, read-only INUBIT 6.1 nodes reached through StartCLI only. The recor
   server (`--version`, `serverInfo.version`) takes its version from there. The JAR may be renamed,
   e.g. to `inubit-mcp-server.jar`, so the MCP registration stays the same across updates.
 
+- Feature 017:
+  - REST requests now send an `Accept` header per request that names the format the server
+    parses (`application/xml, */*;q=0.1` for `/system/info` and the model endpoints,
+    `application/json, */*;q=0.1` for the healthcheck, readiness, metrics and logs, `*/*` for the
+    model export) instead of the fixed `application/json, application/xml;q=0.9, */*;q=0.8` —
+    also on INUBIT 8.1, where the answers stay the same. A JSON error body with a `message` gives
+    that message as the scrubbed `excerpt`; the error codes stay status-based.
+  - INUBIT 9.0 is no longer refused for writes and no longer read with the "not verified"
+    warning; examples of an unsupported version now use INUBIT 9.1.
+  - The `versionLine` error message lists `V9_0` among the accepted values.
+  - `list_nodes.cliAvailable` refers to the client currently chosen for the node.
+
 ### Removed
 
 - The statement and the `CLI_UNAVAILABLE` "CLI tools are not supported on Windows in this
   version", and the matching warning of `--check-config`.
+
+### Fixed
+
+- A write is no longer sent after a parallel call found another INUBIT version: a write
+  (`restart_process`, `kill_process`, `import_artifacts`, `set_active`, `restore_backup`,
+  `tag_artifacts`, `run_e2e_test`, `deploy_release`) admitted for one INUBIT major.minor is refused
+  with `UNSUPPORTED_VERSION` ("INUBIT on test/node1 changed from 8.1.17 to 9.0.7 during this call;
+  the write was admitted for INUBIT 8.1; nothing was sent") when a parallel call finds another
+  major.minor — also for a change from 8.1 to 9.0, where both versions are supported — or, on an
+  `AUTO` node, marks the version as possibly changed. A patch change does not refuse. Steps of a multi-step write
+  that were already sent stay sent; a `deploy_release` rollback that cannot be sent says on which
+  INUBIT version its backup was taken.
 
 ## [0.7.1] - 2026-11-06
 

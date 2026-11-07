@@ -366,12 +366,12 @@ code-review phase 5.
 
 ## Phase 7: Polish (plan stage 9)
 
-- [ ] T037 [P] Docs (FR-016): `docs/setup.md` (`cliClients`, default address by major, JDK 17/21, migration
+- [X] T037 [P] Docs (FR-016): `docs/setup.md` (`cliClients`, default address by major, JDK 17/21, migration
   8.1 → 9.0, `V9_0` vs `V9_X`), `docs/tools.md` (`list_nodes.startCli`, 9.0 support, servlet
   warning, `CLI_UNAVAILABLE` "call again", write refused after a version change during the call
   (FR-018)), `README.md` (supported versions),
   `docs/research/inubit-interfaces.md` §4 (what 017 relies on, D-11/D-12)
-- [ ] T038 [P] `CHANGELOG.md` (FR-016): entries in the existing `[Unreleased]` section of the
+- [X] T038 [P] `CHANGELOG.md` (FR-016): entries in the existing `[Unreleased]` section of the
   `0.8.0` branch (017 ships in 0.8.0), with "INUBIT 9.0 not yet checked against a live node",
   incl. the fix "a write is no longer
   sent after a parallel call found another INUBIT version" (also 8.1 → 9.0); `pom.xml` version unchanged (D-23)

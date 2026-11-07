@@ -57,7 +57,7 @@ unchanged; outputs change only additively (`list_nodes.startCli`) and by the 9.0
 
 `import_artifacts`, `set_active`, `restore_backup`, `tag_artifacts`, `run_e2e_test`,
 `deploy_release`, `restart_process`, `kill_process`: when the node's known version changed to
-another major.minor (or was marked as possibly changed) after the call was admitted, the write is
+another major.minor (or, on an `AUTO` node, was marked as possibly changed) after the call was admitted, the write is
 not sent:
 
 ```json
