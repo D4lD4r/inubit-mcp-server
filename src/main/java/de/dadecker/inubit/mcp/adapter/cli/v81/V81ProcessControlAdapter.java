@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import java.util.Objects;
 
@@ -65,19 +66,22 @@ public final class V81ProcessControlAdapter implements ProcessControlPort {
     }
 
     @Override
-    public String restart(String processId) {
-        return run(CliCommand.processErrorStart(processId));
+    public String restart(String processId, WritePermit permit) {
+        permit.requireFor(server.id());
+        return run(CliCommand.processErrorStart(processId), permit);
     }
 
     @Override
-    public String kill(String processId) {
-        return run(CliCommand.kill(processId));
+    public String kill(String processId, WritePermit permit) {
+        permit.requireFor(server.id());
+        return run(CliCommand.kill(processId), permit);
     }
 
-    private String run(CliCommand command) {
+    private String run(CliCommand command, WritePermit permit) {
         checkAvailable();
         CliResult result = runner.run(server, credentials.username().orElseThrow().value(),
-            credentials.password().orElseThrow().value(), command, server.cliTimeout(), guard);
+            credentials.password().orElseThrow().value(), command, server.cliTimeout(), guard,
+            permit);
         CliOutcome outcome = classifier.classify(result);
         if (outcome instanceof CliOutcome.Failure failure) {
             ToolError error = failure.error();

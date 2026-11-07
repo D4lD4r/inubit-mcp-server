@@ -3,6 +3,9 @@ package de.dadecker.inubit.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
+import de.dadecker.inubit.mcp.adapter.os.NoJob;
+import de.dadecker.inubit.mcp.application.ReleaseSource;
+import de.dadecker.inubit.mcp.application.UpdateCache;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.CredentialStore;
@@ -15,6 +18,8 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -54,8 +59,7 @@ class MessageTerminologyTest {
 
     @BeforeEach
     void startCliScript() throws IOException {
-        Files.createDirectories(cliHome.resolve("bin"));
-        Files.writeString(cliHome.resolve("bin").resolve("startcli.sh"), "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
         env.put("INUBIT_ACME_TEST_USERNAME", "user");
         env.put("INUBIT_ACME_TEST_PASSWORD", "message-test-pw");
         env.put("INUBIT_ACME_PROD_USERNAME", "user");
@@ -124,7 +128,7 @@ class MessageTerminologyTest {
             SecretScrubber scrubber = new SecretScrubber();
             CredentialStore credentials = TestSecrets.store(env);
             wiring = new Wiring(loaded.config(), credentials, scrubber, ClockProvider.system(),
-                path -> true, false, new ConfigLocation(cliHome, loaded.source()));
+                path -> true, Platform.windows(), new ConfigLocation(cliHome, loaded.source()));
         }
         return wiring.toolHandlers().stream().filter(h -> h.name().equals(name)).findFirst()
             .orElseThrow();
@@ -293,7 +297,10 @@ class MessageTerminologyTest {
         Launcher.Context context = new Launcher.Context(env, Path.of("/home/test"), false,
             InputStream.nullInputStream(), new PrintStream(out, true, StandardCharsets.UTF_8),
             new PrintStream(err, true, StandardCharsets.UTF_8), new SecretScrubber(),
-            path -> true, FakeParameterStore::new, FakeCredentialStore::new);
+            path -> true, FakeParameterStore::new, FakeCredentialStore::new, NoJob::new,
+            () -> () -> {
+                throw new ReleaseSource.ReleaseCheckException("offline (test)");
+            }, () -> UpdateCache.NONE);
 
         int exit = new Launcher(context).run("--config", file.toString(), "--check-config");
 

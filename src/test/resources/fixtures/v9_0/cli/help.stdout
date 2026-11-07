@@ -1,0 +1,15 @@
+JAVA_HOME is set
+usage: startcli [options] [url]
+ -u <user>                              user name for the login
+ -p <password>                          password; prompted for if omitted
+ -h,--help                              print this help
+ -v                                     print the client version
+ -a                                     run every command of the script
+ -c,--check                             check whether the Process Engine is alive
+    --debug                             print debug output
+    --trustStoreFilePath <file>         trust store for TLS connections
+    --keyStoreFilePath <file>           key store for TLS client authentication
+    --keyStoreFilePwd <password>        password of the key store
+    --disableHostNameVerification       skip the host name check
+    --execCommand <command>             run one command and exit
+    --encryptString <string>            encrypt a string

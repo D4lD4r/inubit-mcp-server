@@ -36,7 +36,9 @@ import java.util.function.Function;
  *   <li>Feature 009 (research D-5): the {@link VersionGate} admits the operation's capability
  *       for writes on the node's INUBIT version and StartCLI client
  *       ({@code UNSUPPORTED_VERSION}); its warnings travel in
- *       {@link DevelopmentPolicy#warnings()}.
+ *       {@link DevelopmentPolicy#warnings()}; feature 017 (FR-018, research D-24): the policy
+ *       carries the {@link DevelopmentPolicy#permit() write permit} of the operation's
+ *       capability on the admitted version.
  *   <li>The other tools need a usable StartCLI installation and credentials, checked without
  *       launching anything ({@code CLI_UNAVAILABLE}, {@code AUTH_FAILED}).
  * </ol>
@@ -151,7 +153,8 @@ public final class DevelopmentGuard {
         DevelopmentPolicy policy = policies.apply(id);
         return new DevelopmentPolicy(id, policy != null && policy.production(), false,
             WritePolicy.Confirmation.SERVER, deployTtl, E2ePolicy.FORBIDDEN, Optional.empty(),
-            false, admission.warnings());
+            false, admission.warnings(), Optional.of(admission.permit(id,
+                Capability.DEPLOYMENT)));
     }
 
     /**
@@ -161,7 +164,7 @@ public final class DevelopmentGuard {
     public DevelopmentPolicy forDeploymentRestore(DevelopmentPolicy policy) {
         return new DevelopmentPolicy(policy.node(), policy.production(), policy.enabled(),
             WritePolicy.Confirmation.SERVER, deployTtl, policy.e2eTests(), policy.soapBaseUrl(),
-            policy.repositoryWrite(), policy.warnings());
+            policy.repositoryWrite(), policy.warnings(), policy.writePermit());
     }
 
     /**
@@ -171,7 +174,8 @@ public final class DevelopmentGuard {
     public DevelopmentPolicy forRepositoryWrite(DevelopmentPolicy policy) {
         return new DevelopmentPolicy(policy.node(), policy.production(), policy.enabled(),
             WritePolicy.Confirmation.SERVER, policy.confirmationTtl(), policy.e2eTests(),
-            policy.soapBaseUrl(), policy.repositoryWrite(), policy.warnings());
+            policy.soapBaseUrl(), policy.repositoryWrite(), policy.warnings(),
+            policy.writePermit());
     }
 
     /**
@@ -233,7 +237,8 @@ public final class DevelopmentGuard {
         }
         return new DevelopmentPolicy(policy.node(), policy.production(), policy.enabled(),
             policy.confirmation(), policy.confirmationTtl(), policy.e2eTests(),
-            policy.soapBaseUrl(), policy.repositoryWrite(), admission.warnings());
+            policy.soapBaseUrl(), policy.repositoryWrite(), admission.warnings(),
+            Optional.of(admission.permit(id, operation.capability())));
     }
 
     private static ToolErrorException refused(ErrorCode code, NodeId node, String message,

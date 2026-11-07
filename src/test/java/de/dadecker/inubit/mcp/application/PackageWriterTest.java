@@ -1,13 +1,19 @@
 package de.dadecker.inubit.mcp.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.WindowsAcl;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -18,6 +24,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -30,6 +38,10 @@ class PackageWriterTest {
 
     private static final NodeId PROD = NodeId.parse("prod/node1");
     private static final byte[] ZIP = {'P', 'K', 3, 4};
+    /** Owner-only permissions are checked on POSIX; the Windows access list below (T025). */
+    private static final boolean POSIX =
+        FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
+    private static final PrivateFileSystem FILES = PrivateFiles.forHost();
 
     @TempDir
     Path temp;
@@ -37,7 +49,7 @@ class PackageWriterTest {
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
 
     private PackageWriter writer() {
-        return new PackageWriter(temp.resolve("packages"), clock);
+        return new PackageWriter(temp.resolve("packages"), clock, FILES);
     }
 
     private static PackageWriter.Content content(UUID auditId, NodeId node) {
@@ -91,11 +103,13 @@ class PackageWriterTest {
         assertThat(Files.readString(dir.resolve("diff.txt"))).contains("Module-0003");
         assertThat(Files.readString(dir.resolve("warnings.txt"))).contains("SHARED_MODULE",
             "Workflow-0004 (excluded)");
-        assertThat(permissions(temp.resolve("packages"))).isEqualTo("rwx------");
-        assertThat(permissions(dir.getParent())).isEqualTo("rwx------");
-        assertThat(permissions(dir)).isEqualTo("rwx------");
-        for (String file : files) {
-            assertThat(permissions(dir.resolve(file))).as(file).isEqualTo("rw-------");
+        if (POSIX) {
+            assertThat(permissions(temp.resolve("packages"))).isEqualTo("rwx------");
+            assertThat(permissions(dir.getParent())).isEqualTo("rwx------");
+            assertThat(permissions(dir)).isEqualTo("rwx------");
+            for (String file : files) {
+                assertThat(permissions(dir.resolve(file))).as(file).isEqualTo("rw-------");
+            }
         }
     }
 
@@ -142,12 +156,12 @@ class PackageWriterTest {
         UUID auditId = UUID.randomUUID();
         java.util.concurrent.atomic.AtomicInteger written =
             new java.util.concurrent.atomic.AtomicInteger();
-        PackageWriter writer = new PackageWriter(temp.resolve("packages"), clock,
+        PackageWriter writer = new PackageWriter(temp.resolve("packages"), clock, FILES,
             (file, content) -> {
                 if (written.incrementAndGet() == 3) { // the marker, then the first archive
                     throw new IOException("disk full");
                 }
-                PackageWriter.writeOwnerOnly(file, content);
+                PackageWriter.writeOwnerOnly(FILES, file, content);
             });
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> writer.write(content(auditId,
@@ -164,5 +178,46 @@ class PackageWriterTest {
 
         assertThat(Files.readString(dir.resolve("README.md"))).contains(
             "as configured for this node", "trust store", "host name verification");
+    }
+
+    // --- feature 013 T025 (FR-007): created through the PrivateFileSystem port -------------
+
+    @Test
+    void aDirectoryThatCannotBeMadePrivateFailsThePackageAndIsNotCreated() {
+        Path packages = temp.resolve("packages");
+        PackageWriter writer = new PackageWriter(packages, clock, PrivateFiles.failing());
+
+        assertThatThrownBy(() -> writer.write(content(UUID.randomUUID(), PROD)))
+            .isInstanceOf(UncheckedIOException.class)
+            .hasMessage("The package of " + PROD + " cannot be written below " + packages);
+        assertThat(packages).doesNotExist();
+    }
+
+    @Test
+    void aFileThatCannotBeMadePrivateFailsThePackageAndNothingIsWritten() throws IOException {
+        Path packages = temp.resolve("packages");
+        PackageWriter writer = new PackageWriter(packages, clock, PrivateFiles.failingFiles());
+
+        assertThatThrownBy(() -> writer.write(content(UUID.randomUUID(), PROD)))
+            .isInstanceOf(UncheckedIOException.class)
+            .hasMessage("The package of " + PROD + " cannot be written below " + packages);
+        try (Stream<Path> walk = Files.walk(packages)) {
+            assertThat(walk.filter(Files::isRegularFile)).isEmpty();
+        }
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void onWindowsTheDirectoriesAndEveryFileArePrivate() throws Exception {
+        Path dir = writer().write(content(UUID.randomUUID(), PROD));
+
+        for (Path directory : List.of(temp.resolve("packages"), dir.getParent(), dir)) {
+            WindowsAcl.assertPrivate(directory, WindowsAcl.DIRECTORY_INHERITANCE);
+        }
+        try (Stream<Path> walk = Files.walk(dir.getParent())) {
+            for (Path file : walk.filter(Files::isRegularFile).toList()) {
+                WindowsAcl.assertPrivate(file, "None");
+            }
+        }
     }
 }

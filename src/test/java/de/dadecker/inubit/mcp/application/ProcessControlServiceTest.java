@@ -9,12 +9,15 @@ import de.dadecker.inubit.mcp.application.ProcessControlService.ControlRequest;
 import de.dadecker.inubit.mcp.application.ProcessControlService.Response;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ConfirmationChallenge;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ProcessAction;
 import de.dadecker.inubit.mcp.domain.model.ProcessControlResult;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
@@ -30,6 +33,7 @@ import de.dadecker.inubit.mcp.domain.port.AuditPort;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -89,15 +93,16 @@ class ProcessControlServiceTest {
     private Supplier<ClientVersion> probeOutcome = () -> {
         throw new AssertionError("no client probe scripted");
     };
-    private final ClientVersionPort clientProbe = (node, timeout) -> {
+    private final ClientVersionPort clientProbe = (node, version, timeout) -> {
         probes.add(node);
-        return probeOutcome.get();
+        return new ProbedClient(ClientKey.NONE, probeOutcome.get());
     };
 
     private final ProcessControlService service = new ProcessControlService(
         new WriteGuard(new TargetResolver(SERVERS), policies::get, ports,
             new VersionGate(versions, detection, CapabilityMatrix.production(), clientProbe,
-                withClient::contains, node -> Duration.ofSeconds(30), Terminology.DEFAULT)),
+                TestClientSelection.of(withClient::contains), node -> Duration.ofSeconds(30),
+                Terminology.DEFAULT)),
         policies::get, ports,
         confirmations, audit, clock,
         () -> UUID.fromString(String.format("00000000-0000-0000-0000-%012d",
@@ -623,6 +628,11 @@ class ProcessControlServiceTest {
         assertThat(result(kill("dev/node1", Optional.of(code))).outcome())
             .isEqualTo(ProcessControlResult.Outcome.EXECUTED);
         assertThat(ports.actions()).containsExactly("kill dev/node1 " + PID);
+        // feature 017 (T045, FR-018): the kill carries the permit of the call's admission
+        assertThat(ports.permits).singleElement().satisfies(permit -> {
+            assertThat(permit.node()).isEqualTo(DEV);
+            assertThat(permit.capability()).isEqualTo(Capability.PROCESS_CONTROL);
+        });
     }
 
     // --- Phase 6 review W3: unexpected failures before execution are audited ----------------
@@ -683,6 +693,10 @@ class ProcessControlServiceTest {
         assertThat(result.outcome()).isEqualTo(ProcessControlResult.Outcome.EXECUTED);
         assertThat(result.warnings()).isEmpty();
         assertThat(ports.actions()).containsExactly("kill staging/inubit01 " + PID);
+        assertThat(ports.permits).singleElement().satisfies(permit -> {
+            assertThat(permit.node()).isEqualTo(STAGING);
+            assertThat(permit.capability()).isEqualTo(Capability.PROCESS_CONTROL);
+        });
         assertThat(audit.records).extracting(AuditRecord::step)
             .containsExactly(AuditRecord.Step.EXECUTE, AuditRecord.Step.EXECUTE);
         assertThat(audit.outcomes()).containsExactly(AuditOutcome.PENDING,
@@ -693,9 +707,9 @@ class ProcessControlServiceTest {
 
     @ParameterizedTest
     @EnumSource(ProcessAction.class)
-    void onInubit90BothToolsAreRefusedAfterOnlyTheDetection(ProcessAction action) {
+    void onInubit91BothToolsAreRefusedAfterOnlyTheDetection(ProcessAction action) {
         versionLines.put(DEV, VersionSetting.AUTO);
-        detection.answer(DEV, "9.0.7");
+        detection.answer(DEV, "9.1.0");
 
         ToolError error = errorOf(() -> service.execute(request(action, "dev/node1", PID,
             Optional.empty())));
@@ -703,7 +717,7 @@ class ProcessControlServiceTest {
         assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
         assertThat(error.node()).contains(DEV);
         assertThat(error.message()).startsWith(action.capability() + ": ")
-            .contains("INUBIT 9.0.7 on dev/node1").contains("process control")
+            .contains("INUBIT 9.1.0 on dev/node1").contains("process control")
             .contains("nothing was sent");
         assertThat(detection.requests()).containsExactly(DEV);
         assertThat(ports.calls).as("no CLI check, no state read").isEmpty();
@@ -720,8 +734,9 @@ class ProcessControlServiceTest {
     void aClientPatchMismatchExecutesWithTheWarning(ProcessAction action) {
         versionLines.put(STAGING, VersionSetting.AUTO);
         detection.answer(STAGING, "8.1.18");
-        versions.clientProbed(STAGING, new ClientVersion(version("8.1.17"),
-            Optional.of(version("4.0.1")), Optional.of(version("8.1.17"))));
+        versions.clientProbed(STAGING, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(version("8.1.17"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.1.17")))));
         ports.reading(rows(errorRow(STAGING)), rows());
 
         ProcessControlResult result = result(request(action, "staging/inubit01", PID,

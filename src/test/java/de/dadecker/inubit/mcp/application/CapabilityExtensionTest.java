@@ -23,6 +23,7 @@ import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
@@ -30,6 +31,7 @@ import de.dadecker.inubit.mcp.domain.model.LogQuery;
 import de.dadecker.inubit.mcp.domain.model.LogType;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Page;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
@@ -39,6 +41,7 @@ import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
@@ -57,7 +60,10 @@ import de.dadecker.inubit.mcp.mcp.tools.ListInventoryTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -90,10 +96,11 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * T025 (US3, FR-013, FR-014, SC-004): a new INUBIT version needs only a matrix entry and a port
  * set. A test-only {@link CapabilityMatrix} (the production declaration plus a fictitious 7.9
- * range with {@code DIAGNOSIS} and {@code PROCESS_CONTROL} only) and a test-only {@link PortSet}
- * registered for 7.9 are wired with the unchanged production services and tools.
+ * range with {@code PROCESS_DIAGNOSIS}, {@code LOG_DIAGNOSIS} and {@code PROCESS_CONTROL} only)
+ * and a test-only {@link PortSet} registered for 7.9 are wired with the unchanged production
+ * services and tools.
  *
- * <p>{@code dev/node1} runs INUBIT 7.9.3, {@code qa/node1} 8.1.17 and {@code qa/node2} 9.0.2, each
+ * <p>{@code dev/node1} runs INUBIT 7.9.3, {@code qa/node1} 8.1.17 and {@code qa/node2} 9.1.0, each
  * on its own HTTPS WireMock server and detected ({@code versionLine: AUTO}). Every node allows
  * every capability by configuration (write enabled, client confirmation), so only the version
  * decides. No StartCLI is run: the launcher fails on every launch.
@@ -107,7 +114,7 @@ class CapabilityExtensionTest {
 
     private static final NodeId NODE_79 = NodeId.parse("dev/node1");
     private static final NodeId NODE_81 = NodeId.parse("qa/node1");
-    private static final NodeId NODE_90 = NodeId.parse("qa/node2");
+    private static final NodeId NODE_91 = NodeId.parse("qa/node2");
     private static final String SYSTEM_INFO = "/ibis/rest/system/info";
     private static final String QUEUE_LOG = "/ibis/rest/log/queueLog";
     private static final String PASSWORD = "capability-extension-test-pw";
@@ -119,13 +126,14 @@ class CapabilityExtensionTest {
     private static final CapabilityMatrix MATRIX = new CapabilityMatrix(List.of(
         new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1), production("8.1.17")),
         new CapabilityMatrix.Entry(new VersionRange(9, 0, 9, 0), production("9.0.2")),
-        new CapabilityMatrix.Entry(V7_9, Map.of(Capability.DIAGNOSIS, SupportState.SUPPORTED,
+        new CapabilityMatrix.Entry(V7_9, Map.of(Capability.PROCESS_DIAGNOSIS,
+            SupportState.SUPPORTED, Capability.LOG_DIAGNOSIS, SupportState.SUPPORTED,
             Capability.PROCESS_CONTROL, SupportState.SUPPORTED))),
         production(null));
 
     private static WireMockServer on79;
     private static WireMockServer on81;
-    private static WireMockServer on90;
+    private static WireMockServer on91;
 
     @TempDir
     Path temp;
@@ -154,23 +162,23 @@ class CapabilityExtensionTest {
     static void start() {
         on79 = TestCertificates.httpsWireMock(TestCertificates.get().localhostKeyStore());
         on81 = TestCertificates.httpsWireMock(TestCertificates.get().localhostKeyStore());
-        on90 = TestCertificates.httpsWireMock(TestCertificates.get().localhostKeyStore());
+        on91 = TestCertificates.httpsWireMock(TestCertificates.get().localhostKeyStore());
     }
 
     @AfterAll
     static void stop() {
         on79.stop();
         on81.stop();
-        on90.stop();
+        on91.stop();
     }
 
     @BeforeEach
     void setUp() {
         stubServer(on79, "7.9.3");
         stubServer(on81, "8.1.17");
-        stubServer(on90, "9.0.2");
+        stubServer(on91, "9.1.0");
         List<EffectiveNodeConfig> servers = List.of(server(NODE_79, on79),
-            server(NODE_81, on81), server(NODE_90, on90));
+            server(NODE_81, on81), server(NODE_91, on91));
         List<NodeId> ids = servers.stream().map(EffectiveNodeConfig::id).toList();
         Map<NodeId, EffectiveNodeConfig> byId = servers.stream().collect(Collectors.toMap(
             EffectiveNodeConfig::id, Function.identity()));
@@ -184,14 +192,15 @@ class CapabilityExtensionTest {
         gateways = new AdapterGatewayFactory(servers, TestSecrets.credentialStore(servers, Map.of(
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber), scrubber,
-            clock, new CliRunner(spec -> {
+            clock, TestCliRunners.forHost(spec -> {
                 throw new AssertionError("no StartCLI run expected: " + spec.command());
-            }, Map.of(), false, new CliResources("acme")), versions, portSets);
+            }, Map.of(), new CliResources("acme", PrivateFiles.forHost())), versions, portSets);
         VersionGate gate = gateWithoutClients(versions, gateways, MATRIX);
         TargetResolver targets = new TargetResolver(ids);
         Function<NodeId, Duration> timeouts = id -> byId.get(id).timeout();
         DiagnosisService diagnosis = new DiagnosisService(gateways, targets, new FanOut(),
-            ResultLimiter.withDefaults(), timeouts, id -> byId.get(id).hangingThreshold(), clock,
+            ResultLimiter.withDefaults(), timeouts, id -> byId.get(id).cliTimeout(),
+            id -> byId.get(id).hangingThreshold(), clock,
             ResultJson::size, gate, SecretTiming.NONE);
         InventoryService inventory = new InventoryService(gateways, targets, new FanOut(),
             ResultLimiter.withDefaults(), new InventoryCache(clock,
@@ -200,19 +209,21 @@ class CapabilityExtensionTest {
             CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, Terminology.DEFAULT, gate,
             SecretTiming.NONE);
         HealthService health = new HealthService(gateways, targets, new FanOut(), timeouts,
-            clock, gate, versions, (node, timeout) -> {
+            clock, gate, versions, (node, version, timeout) -> {
                 throw new AssertionError("no client probe expected for " + node);
-            }, node -> false);
+            }, TestClientSelection.none());
         Map<NodeId, WritePolicy> policies = new HashMap<>();
         ids.forEach(id -> policies.put(id, new WritePolicy(id, false, true, false,
             WritePolicy.Confirmation.CLIENT, Duration.ofMinutes(5), Optional.of("jdoe"))));
         ProcessControlService processControl = new ProcessControlService(
             new WriteGuard(targets, policies::get, gateways, gate), policies::get, gateways,
-            new ConfirmationRegistry(clock), new AuditLog(temp.resolve("audit"), scrubber), clock,
+            new ConfirmationRegistry(clock), new AuditLog(temp.resolve("audit"), scrubber,
+                PrivateFiles.forHost()), clock,
             UUID::randomUUID, "acme");
         NodeOverview overview = new NodeOverview(servers.stream()
             .map(server -> server.summary(path -> false, false)).toList(), versions, MATRIX,
-            id -> EnumSet.allOf(Capability.class));
+            (id, withClient) -> EnumSet.allOf(Capability.class),
+            TestClientSelection.of(id -> true));
         client = McpTestClient.start(List.of(
             new ListNodesTool(McpTestClient.TEST_PROFILE, overview::nodes),
             new GetHealthTool(health), new FindProcessesTool(diagnosis),
@@ -225,7 +236,7 @@ class CapabilityExtensionTest {
     void tearDown() {
         client.close();
         gateways.close();
-        for (WireMockServer server : List.of(on79, on81, on90)) {
+        for (WireMockServer server : List.of(on79, on81, on91)) {
             server.resetAll();
         }
     }
@@ -301,13 +312,13 @@ class CapabilityExtensionTest {
             }
 
             @Override
-            public String restart(String processId) {
+            public String restart(String processId, WritePermit permit) {
                 calls79.add("restart " + processId);
                 return "restarted by the 7.9 port set";
             }
 
             @Override
-            public String kill(String processId) {
+            public String kill(String processId, WritePermit permit) {
                 throw new AssertionError("kill is not part of this test");
             }
         };
@@ -451,7 +462,7 @@ class CapabilityExtensionTest {
         assertThat(version.path("server").path("version").asString()).isEqualTo("7.9.3");
         assertThat(version.path("status").asString()).isEqualTo("partially_supported");
         assertThat(texts(version.path("capabilities").path("usable")))
-            .containsExactly("diagnosis", "process_control");
+            .containsExactly("process_diagnosis", "log_diagnosis", "process_control");
         assertThat(notUsable(version)).containsExactly("monitoring", "inventory",
             "workspace_export", "development_writes", "deployment", "e2e_test");
     }
@@ -470,45 +481,46 @@ class CapabilityExtensionTest {
         JsonNode version = listVersions().get("qa/node1");
         assertThat(version.path("status").asString()).isEqualTo("supported");
         assertThat(texts(version.path("capabilities").path("usable"))).containsExactly(
-            "monitoring", "diagnosis", "inventory", "workspace_export", "development_writes",
-            "deployment", "e2e_test", "process_control");
+            "monitoring", "process_diagnosis", "log_diagnosis", "inventory", "workspace_export",
+            "development_writes", "deployment", "e2e_test", "process_control");
         assertThat(built79).isEmpty();
         assertThat(calls79).isEmpty();
     }
 
     @Test
-    void aNineZeroNodeBehavesAsInUs2() {
+    void aNineOneNodeBehavesAsInUs2() {
         // US3-1: REST reads run with a warning on the 8.1 adapters, writes are refused
-        String unverified = "INUBIT 9.0.2 on qa/node2 is not verified for diagnosis; results may"
-            + " be incomplete";
+        String unverified = "INUBIT 9.1.0 on qa/node2 is not verified for process diagnosis;"
+            + " results may be incomplete";
         JsonNode processes = structured(call("find_processes",
             Map.of("target", "qa/node2", "states", List.of("ERROR")))).path("results").get(0);
         assertThat(texts(processes.path("warnings"))).containsExactly(unverified);
-        on90.verify(1, postRequestedFor(urlPathEqualTo(QUEUE_LOG)));
+        on91.verify(1, postRequestedFor(urlPathEqualTo(QUEUE_LOG)));
 
         JsonNode refused = toolError(call("restart_process",
             Map.of("node", "qa/node2", "processId", PROCESS_ID)));
         assertThat(refused.path("code").asString()).isEqualTo("UNSUPPORTED_VERSION");
         assertThat(refused.path("message").asString())
-            .contains("INUBIT 9.0.2 on qa/node2 does not support process control yet");
+            .contains("INUBIT 9.1.0 on qa/node2 does not support process control yet");
 
         // US3-1: a StartCLI-backed read with an 8.1 client is refused (FR-011)
-        versions.clientProbed(NODE_90, new ClientVersion(InubitVersion.parse("8.1.17")
-            .orElseThrow(), InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17")));
+        versions.clientProbed(NODE_91, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(InubitVersion.parse("8.1.17")
+            .orElseThrow(), InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17"))));
         JsonNode modules = nodeError(call("list_inventory",
             Map.of("target", "qa/node2", "kind", "MODULE")));
         assertThat(modules.path("code").asString()).isEqualTo("UNSUPPORTED_VERSION");
         assertThat(modules.path("message").asString()).contains("StartCLI client 8.1.17 of"
-            + " qa/node2 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.2");
+            + " qa/node2 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.1.0");
 
         JsonNode version = listVersions().get("qa/node2");
         assertThat(version.path("status").asString()).isEqualTo("partially_supported");
         assertThat(texts(version.path("capabilities").path("usable")))
-            .containsExactly("monitoring", "diagnosis", "inventory");
+            .containsExactly("monitoring", "process_diagnosis", "log_diagnosis", "inventory");
         assertThat(notUsable(version)).containsExactly("inventory (StartCLI parts)",
             "workspace_export", "development_writes", "deployment", "e2e_test",
             "process_control");
-        assertThat(requests(on90)).as("only the detection and the REST read")
+        assertThat(requests(on91)).as("only the detection and the REST read")
             .containsExactly("GET " + SYSTEM_INFO, "POST " + QUEUE_LOG);
         assertThat(built79).isEmpty();
     }

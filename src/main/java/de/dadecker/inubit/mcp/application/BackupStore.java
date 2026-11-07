@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.application;
 
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -9,9 +10,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.FileAttribute;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.Duration;
@@ -25,8 +23,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -39,10 +37,14 @@ import java.util.stream.Stream;
  *       {@code <auditId>-<n>.zip} ({@code n} from 1), plus the manifest {@code <auditId>.json}
  *       with node, owner, scope, change-set names, created artifacts, the intended state (hashes
  *       per artifact), outcome and time — names and hashes only, never content or secrets. The
- *       ZIPs hold the server's raw values, secrets included, so the directory is
- *       {@code rwx------} (tightened if it exists) and every file {@code rw-------};
+ *       ZIPs hold the server's raw values, secrets included, so the directory (with its missing
+ *       parents) and every file are created private through the {@link PrivateFileSystem}
+ *       (feature 013, FR-007): {@code rwx------} and {@code rw-------} on POSIX, the directory
+ *       tightened if it exists; on Windows a protected access list for the current user and
+ *       {@code SYSTEM};
  *   <li>the ZIPs are written first and the manifest last, so a manifest names a complete backup;
- *       an audit id is written once; {@link #update} rewrites only the manifest (atomically);
+ *       an audit id is written once; {@link #update} rewrites only the manifest (atomically,
+ *       through a new private temporary file moved into place, which keeps its access);
  *   <li>{@link #sweep} removes backups taken more than {@link #RETENTION} ago, except the newest
  *       of each {@code (node, owner, scope)} (clarification 3), and returns what it removed for
  *       the audit log ({@code backup_retention}). A manifest that cannot be read is never
@@ -60,10 +62,6 @@ public final class BackupStore {
     private static final Pattern AUDIT_ID = Pattern.compile(
         "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
     private static final String MANIFEST = ".json";
-    private static final Set<PosixFilePermission> DIRECTORY_PERMISSIONS =
-        PosixFilePermissions.fromString("rwx------");
-    private static final Set<PosixFilePermission> FILE_PERMISSIONS =
-        PosixFilePermissions.fromString("rw-------");
 
     /**
      * The manifest of one backup (data-model.md → Backup).
@@ -156,14 +154,17 @@ public final class BackupStore {
 
     private final Path root;
     private final Clock clock;
+    private final PrivateFileSystem files;
 
     /**
      * @param root  the backup directory ({@link #defaultRoot} unless a test injects another)
      * @param clock the time of the retention sweep
+     * @param files creates the private directory and files
      */
-    public BackupStore(Path root, Clock clock) {
+    public BackupStore(Path root, Clock clock, PrivateFileSystem files) {
         this.root = Objects.requireNonNull(root, "root").toAbsolutePath().normalize();
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.files = Objects.requireNonNull(files, "files");
     }
 
     /** {@code <home>/.inubit-mcp/<profile>/backups}. */
@@ -255,7 +256,8 @@ public final class BackupStore {
         Manifest updated = manifest.withZips(existing.zips());
         Path target = manifestFile(id);
         try {
-            Path temporary = Files.createTempFile(root, "." + id, ".tmp", owner());
+            Path temporary = files.createFile(root.resolve("." + id + "-" + UUID.randomUUID()
+                + ".tmp"));
             try {
                 Files.writeString(temporary, ManifestJson.write(updated), StandardCharsets.UTF_8);
                 Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING,
@@ -378,24 +380,14 @@ public final class BackupStore {
 
     private void prepareDirectory() throws IOException {
         if (!Files.isDirectory(root)) {
-            Files.createDirectories(root, owner(DIRECTORY_PERMISSIONS));
+            files.createDirectories(root);
         }
-        Files.setPosixFilePermissions(root, DIRECTORY_PERMISSIONS);
+        files.tightenOnPosix(root);
     }
 
-    private static void writeNew(Path file, byte[] content) throws IOException {
-        Files.createFile(file, owner());
-        Files.setPosixFilePermissions(file, FILE_PERMISSIONS);
+    private void writeNew(Path file, byte[] content) throws IOException {
+        files.createFile(file);
         Files.write(file, content, StandardOpenOption.TRUNCATE_EXISTING);
-    }
-
-    private static FileAttribute<Set<PosixFilePermission>> owner() {
-        return owner(FILE_PERMISSIONS);
-    }
-
-    private static FileAttribute<Set<PosixFilePermission>> owner(
-        Set<PosixFilePermission> permissions) {
-        return PosixFilePermissions.asFileAttribute(permissions);
     }
 
     private Path manifestFile(String auditId) {

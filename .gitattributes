@@ -7,3 +7,7 @@
 
 # StartCLI recordings keep INUBIT's line ends byte for byte (import protocol and finger use CRLF)
 src/test/resources/fixtures/v8_1/cli/*.stdout -text
+src/test/resources/fixtures/v9_0/cli/*.stdout -text
+
+# Windows recordings (feature 013) keep CRLF and the code page byte for byte
+src/test/resources/fixtures/windows/** -text

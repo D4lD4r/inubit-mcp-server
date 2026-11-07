@@ -1,0 +1,13 @@
+Password: 
+cli> KNOTEN               BENUTZER        PID        PRIO       STATUS     DATUM                WORKFLOW             MODUL
+node1                jdoe            400101     normal     Fehler     30.10.2026 08:15:42  OrderImport          Mapping(10234)
+node2                jdoe            400102     normal     Wartend    28.10.2026 09:00:00  OrderApproval        TaskListEntry(10301)
+node1                jdoe            400103     high       Fehler     31.10.2026 14:02:10  OrderImport          Mapping(10234)
+node1                jdoe            400104     normal     Aktiv      01.11.2026 06:58:31  PartnerSync          HttpCall(10777)
+node2                jdoe            400105     normal     Wiederholt 01.11.2026 05:45:00  InvoiceExport        Sender(10511)
+node2                jdoe            400106     normal     Fehler     31.10.2026 21:47:05  InvoiceExport        Sender(10511)
+node1                jdoe            400107     low        Wartend    01.11.2026 06:30:12  PartnerSync          Timer(10790)
+node1                jdoe            400108     normal     Eingereiht 01.11.2026 07:01:44  OrderImport          Mapping(10234)
+node2                jdoe            400109     normal     Angehalten 29.10.2026 16:20:00  PartnerSync          HttpCall(10777)
+Gesamt: 9
+cli> 

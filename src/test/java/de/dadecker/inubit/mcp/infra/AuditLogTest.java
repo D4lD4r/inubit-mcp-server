@@ -6,7 +6,11 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.WindowsAcl;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
@@ -29,12 +33,16 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /** T100: the append-only audit log of the write tools (FR-023, research R-14). */
 class AuditLogTest {
+
+    private static final PrivateFileSystem FILES = PrivateFiles.forHost();
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final Instant OCTOBER = Instant.parse("2026-10-03T08:15:30Z");
@@ -80,7 +88,7 @@ class AuditLogTest {
 
     @Test
     void writesOneJsonLinePerRecordIntoTheMonthlyFile() throws IOException {
-        AuditLog log = new AuditLog(directory, scrubber);
+        AuditLog log = new AuditLog(directory, scrubber, FILES);
 
         log.append(record(AuditOutcome.PENDING));
         log.append(record(Instant.parse("2026-11-01T00:00:00Z"), Map.of("processId", "1"),
@@ -110,7 +118,7 @@ class AuditLogTest {
     @Test
     void thePartiallyCompletedOutcomeIsWrittenByName() throws IOException {
         // feature 015, research R-12
-        new AuditLog(directory, scrubber).append(record(AuditOutcome.PARTIALLY_COMPLETED));
+        new AuditLog(directory, scrubber, FILES).append(record(AuditOutcome.PARTIALLY_COMPLETED));
 
         assertThat(Files.readString(file(), StandardCharsets.UTF_8))
             .contains("\"outcome\":\"PARTIALLY_COMPLETED\"");
@@ -120,7 +128,7 @@ class AuditLogTest {
 
     @Test
     void theFieldsAreExactlyThoseOfTheDataModelInOrder() throws IOException {
-        new AuditLog(directory, scrubber).append(record(OCTOBER, Map.of("processId", "1"),
+        new AuditLog(directory, scrubber, FILES).append(record(OCTOBER, Map.of("processId", "1"),
             AuditOutcome.REFUSED, Optional.of("WRITE_DISABLED: disabled")));
 
         // 002 contracts/mcp-tools-delta.md → Audit record
@@ -153,7 +161,7 @@ class AuditLogTest {
 
     @Test
     void absentOptionalFieldsAreOmitted() throws IOException {
-        new AuditLog(directory, scrubber).append(new AuditRecord(UUID.randomUUID(), OCTOBER,
+        new AuditLog(directory, scrubber, FILES).append(new AuditRecord(UUID.randomUUID(), OCTOBER,
             "acme", "no such server", Optional.empty(), "kill_process", AuditRecord.Step.PREVIEW,
             Map.of(), Optional.empty(), AuditOutcome.REFUSED, Optional.of("INVALID_INPUT: x"),
             Optional.empty()));
@@ -166,7 +174,7 @@ class AuditLogTest {
     void theFileIsOwnerReadWriteOnly() throws IOException {
         assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"));
 
-        new AuditLog(directory, scrubber).append(record(AuditOutcome.PENDING));
+        new AuditLog(directory, scrubber, FILES).append(record(AuditOutcome.PENDING));
 
         assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(file())))
             .isEqualTo("rw-------");
@@ -177,7 +185,7 @@ class AuditLogTest {
         assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"));
         Path nested = directory.resolve("a/audit");
 
-        new AuditLog(nested, scrubber).append(record(AuditOutcome.PENDING));
+        new AuditLog(nested, scrubber, FILES).append(record(AuditOutcome.PENDING));
 
         assertThat(Files.isRegularFile(nested.resolve("audit-2026-10.jsonl"))).isTrue();
         assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(nested)))
@@ -190,7 +198,7 @@ class AuditLogTest {
         Path existing = Files.createDirectories(directory.resolve("shared"));
         Files.setPosixFilePermissions(existing, PosixFilePermissions.fromString("rwxr-xr-x"));
 
-        new AuditLog(existing, scrubber).append(record(AuditOutcome.PENDING));
+        new AuditLog(existing, scrubber, FILES).append(record(AuditOutcome.PENDING));
 
         assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(existing)))
             .isEqualTo("rwx------");
@@ -202,7 +210,7 @@ class AuditLogTest {
         Files.writeString(file(), "");
         Files.setPosixFilePermissions(file(), PosixFilePermissions.fromString("rw-r--r--"));
 
-        new AuditLog(directory, scrubber).append(record(AuditOutcome.PENDING));
+        new AuditLog(directory, scrubber, FILES).append(record(AuditOutcome.PENDING));
 
         assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(file())))
             .isEqualTo("rw-------");
@@ -215,7 +223,8 @@ class AuditLogTest {
         inputs.put(AuditRecord.CONFIRMATION_CODE, CODE);
         inputs.put(AuditRecord.ISSUED_CONFIRMATION_CODE, CODE);
 
-        new AuditLog(directory, scrubber).append(record(OCTOBER, inputs, AuditOutcome.PENDING,
+        new AuditLog(directory, scrubber, FILES).append(record(OCTOBER, inputs,
+            AuditOutcome.PENDING,
             Optional.empty()));
 
         String text = Files.readString(file());
@@ -239,7 +248,7 @@ class AuditLogTest {
             Optional.of("s3cr3t-audit-pw"), AuditOutcome.FAILED,
             Optional.of("AUTH_FAILED: s3cr3t-audit-pw"), Optional.of("client s3cr3t-audit-pw"));
 
-        new AuditLog(directory, scrubber).append(record);
+        new AuditLog(directory, scrubber, FILES).append(record);
 
         String text = Files.readString(file());
         assertThat(text).doesNotContain("s3cr3t-audit-pw").contains(SecretScrubber.MASK);
@@ -253,7 +262,7 @@ class AuditLogTest {
     @Test
     void forceTrueIsCalledAfterTheWriteAndBeforeAppendReturns() {
         List<String> events = new CopyOnWriteArrayList<>();
-        AuditLog log = new AuditLog(directory, scrubber, (file, options, attributes) ->
+        AuditLog log = new AuditLog(directory, scrubber, FILES, (file, options, attributes) ->
             new RecordingChannel(FileChannel.open(file, options, attributes), events));
 
         log.append(record(AuditOutcome.PENDING));
@@ -265,7 +274,7 @@ class AuditLogTest {
 
     @Test
     void aFailingOpenThrowsSoThatTheCallerCanFailClosed() {
-        AuditLog log = new AuditLog(directory, scrubber, (file, options, attributes) -> {
+        AuditLog log = new AuditLog(directory, scrubber, FILES, (file, options, attributes) -> {
             throw new IOException("disk full");
         });
 
@@ -275,7 +284,7 @@ class AuditLogTest {
 
     @Test
     void aFailingForceThrows() {
-        AuditLog log = new AuditLog(directory, scrubber, (file, options, attributes) ->
+        AuditLog log = new AuditLog(directory, scrubber, FILES, (file, options, attributes) ->
             new RecordingChannel(FileChannel.open(file, options, attributes),
                 new ArrayList<>()) {
                 @Override
@@ -288,20 +297,115 @@ class AuditLogTest {
             .isInstanceOf(RuntimeException.class);
     }
 
+    // --- feature 013 T024 (FR-007): created through the PrivateFileSystem port -------------
+
+    @Test
+    void aDirectoryThatCannotBeMadePrivateFailsTheAppendAndIsNotCreated() {
+        Path nested = directory.resolve("a/audit");
+
+        assertThatThrownBy(() -> new AuditLog(nested, scrubber, PrivateFiles.failing())
+            .append(record(AuditOutcome.PENDING))).isInstanceOf(UncheckedIOException.class)
+            .hasMessageContaining("The audit record could not be written");
+        assertThat(directory.resolve("a")).doesNotExist();
+    }
+
+    @Test
+    void aLogThatCannotBeMadePrivateFailsTheAppendAndIsNotCreated() {
+        Path nested = directory.resolve("a/audit");
+
+        assertThatThrownBy(() -> new AuditLog(nested, scrubber, PrivateFiles.failingFiles())
+            .append(record(AuditOutcome.PENDING))).isInstanceOf(UncheckedIOException.class)
+            .hasMessageContaining("audit-2026-10.jsonl");
+        assertThat(nested.resolve("audit-2026-10.jsonl")).doesNotExist();
+    }
+
+    @Test
+    void aFailedPrivateCreationThatLeftNoLogIsRetriedByTheNextAppend() throws IOException {
+        Path nested = directory.resolve("a/audit");
+        AuditLog log = new AuditLog(nested, scrubber, PrivateFiles.failingFiles(1));
+
+        assertThatThrownBy(() -> log.append(record(AuditOutcome.PENDING)))
+            .isInstanceOf(UncheckedIOException.class);
+        log.append(record(AuditOutcome.EXECUTED));
+
+        assertThat(lines(nested.resolve("audit-2026-10.jsonl"))).hasSize(1);
+    }
+
+    @Test
+    void aLogLeftBehindByAFailedPrivateCreationIsNeverWritten() throws IOException {
+        PrivateFileSystem leaving = new PrivateFileSystem() {
+            @Override
+            public Path createFile(Path file) throws IOException {
+                Files.createFile(file); // the access list fails and so does the clean-up
+                throw new IOException("access list not set");
+            }
+
+            @Override
+            public Path createDirectory(Path dir) throws IOException {
+                return FILES.createDirectory(dir);
+            }
+
+            @Override
+            public boolean createDirectories(Path dir) throws IOException {
+                return FILES.createDirectories(dir);
+            }
+
+            @Override
+            public Path createTempDirectory(Path parent, String prefix) throws IOException {
+                return FILES.createTempDirectory(parent, prefix);
+            }
+
+            @Override
+            public void tightenOnPosix(Path path) throws IOException {
+                FILES.tightenOnPosix(path);
+            }
+
+            @Override
+            public List<String> check(Path path) throws IOException {
+                return FILES.check(path);
+            }
+
+            @Override
+            public boolean ownedByCurrentUser(Path path) throws IOException {
+                return FILES.ownedByCurrentUser(path);
+            }
+        };
+        AuditLog log = new AuditLog(directory, scrubber, leaving);
+
+        assertThatThrownBy(() -> log.append(record(AuditOutcome.PENDING)))
+            .isInstanceOf(UncheckedIOException.class);
+        assertThatThrownBy(() -> log.append(record(AuditOutcome.EXECUTED)))
+            .isInstanceOf(UncheckedIOException.class);
+        assertThat(Files.readString(file())).isEmpty();
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void onWindowsTheNewDirectoryAndLogArePrivate() throws Exception {
+        Path nested = directory.resolve("a/audit");
+
+        new AuditLog(nested, scrubber, FILES).append(record(AuditOutcome.PENDING));
+        new AuditLog(nested, scrubber, FILES).append(record(AuditOutcome.EXECUTED));
+
+        WindowsAcl.assertPrivate(nested, WindowsAcl.DIRECTORY_INHERITANCE);
+        WindowsAcl.assertPrivate(nested.resolve("audit-2026-10.jsonl"), "None");
+        assertThat(lines(nested.resolve("audit-2026-10.jsonl"))).hasSize(2);
+    }
+
     @Test
     void anUnwritableDirectoryThrows() throws IOException {
         Path blocked = directory.resolve("blocked");
         Files.writeString(blocked, "a file, not a directory");
 
-        assertThatThrownBy(() -> new AuditLog(blocked, scrubber)
+        assertThatThrownBy(() -> new AuditLog(blocked, scrubber, FILES)
             .append(record(AuditOutcome.PENDING))).isInstanceOf(RuntimeException.class);
     }
 
     @Test
     void recordsSurviveAReopenAndAreAppended() throws IOException {
-        new AuditLog(directory, scrubber).append(record(AuditOutcome.CHALLENGE_ISSUED));
-        new AuditLog(directory, scrubber).append(record(AuditOutcome.PENDING));
-        new AuditLog(directory, scrubber).append(record(AuditOutcome.EXECUTED));
+        new AuditLog(directory, scrubber, FILES).append(record(AuditOutcome.CHALLENGE_ISSUED));
+        new AuditLog(directory, scrubber, FILES).append(record(AuditOutcome.PENDING));
+        new AuditLog(directory, scrubber, FILES).append(record(AuditOutcome.EXECUTED));
 
         assertThat(lines(file())).extracting(node -> node.path("outcome").asString())
             .containsExactly("CHALLENGE_ISSUED", "PENDING", "EXECUTED");
@@ -309,7 +413,7 @@ class AuditLogTest {
 
     @Test
     void concurrentAppendsDoNotInterleave() throws Exception {
-        AuditLog log = new AuditLog(directory, scrubber);
+        AuditLog log = new AuditLog(directory, scrubber, FILES);
         List<Thread> threads = new ArrayList<>();
         for (int i = 0; i < 8; i++) {
             threads.add(Thread.ofVirtual().start(() -> {
@@ -328,7 +432,7 @@ class AuditLogTest {
 
     @Test
     void lineBreaksInValuesStayInsideOneLine() throws IOException {
-        new AuditLog(directory, scrubber).append(record(OCTOBER,
+        new AuditLog(directory, scrubber, FILES).append(record(OCTOBER,
             Map.of("reason", "line one\nline two\r\n{\"forged\":true}"), AuditOutcome.REFUSED,
             Optional.of("a\nb")));
 

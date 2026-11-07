@@ -46,13 +46,10 @@ class CredentialStoresTest {
     }
 
     @Test
-    void buildingTheStoresLoadsNoNativeCode() {
-        for (String osName : new String[] {"Mac OS X", "Windows 11", "Linux", "FreeBSD"}) {
-            forOs(osName).kind();
-        }
-
+    void buildingTheStoresLoadsNoNativeCode() throws Exception {
         // JNA sets jna.loaded when its native library is loaded (com.sun.jna.Native's
-        // initializer); it is loaded on the first Windows read only (JnaCredApi.Holder)
-        assertThat(System.getProperty("jna.loaded")).isNotEqualTo("true");
+        // initializer); it is loaded on the first Windows read only (JnaCredApi.Holder). A fresh
+        // JVM, as another test may have loaded it in this one (feature 013)
+        assertThat(NativeCodeProbe.jnaLoadedAfter("stores")).isNotEqualTo("true");
     }
 }

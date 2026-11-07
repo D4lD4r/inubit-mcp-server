@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ImportPreview;
 import de.dadecker.inubit.mcp.domain.model.ImportScope;
@@ -81,6 +82,12 @@ class ImportTagTest {
         assertThat(records.get(1).inputs()).containsEntry("tagApplied", "true");
         assertThat(records.get(1).reason()).hasValueSatisfying(reason ->
             assertThat(reason).contains("REL-1"));
+        // feature 017 (T045, research D-24): the import and the tag carry the call's permit
+        assertThat(harness.writeLock.permits()).hasSize(2).allSatisfy(permit -> {
+            assertThat(permit.node()).isEqualTo(ImportHarness.DEV);
+            assertThat(permit.capability()).isEqualTo(Capability.DEVELOPMENT_WRITE);
+            assertThat(permit.admittedLine().text()).isEqualTo("8.1");
+        });
     }
 
     @Test

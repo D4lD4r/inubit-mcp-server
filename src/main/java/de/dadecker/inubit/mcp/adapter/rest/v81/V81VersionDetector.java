@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.adapter.rest.v81;
 
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
+import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.MediaRange;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.ResourceKind;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -24,14 +25,15 @@ public final class V81VersionDetector {
     }
 
     /**
-     * @throws ToolErrorException the client's error, or {@code UNEXPECTED_RESPONSE} if the
-     *     response has no version
+     * @throws ToolErrorException the client's error ({@link InubitHttpClient.EndpointMissing}
+     *     for an HTTP 404), or {@code UNEXPECTED_RESPONSE} if the response has no version
      */
     public static String detect(NodeId server, InubitHttpClient client) {
         Objects.requireNonNull(server, "server");
         byte[] body;
         try {
-            body = client.get(SYSTEM_INFO_PATH, Map.of(), ResourceKind.ENDPOINT).body();
+            body = client.get(SYSTEM_INFO_PATH, Map.of(), MediaRange.XML, ResourceKind.ENDPOINT)
+                .body();
         } catch (ToolErrorException e) {
             throw e.error().node().isPresent() ? e
                 : new ToolErrorException(e.error().withNode(server));

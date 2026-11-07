@@ -67,6 +67,9 @@ public final class CliOutputClassifier {
         "cli.process.option.filter.argument.expression.invalidFilterExpression";
     private static final Pattern NETWORK_FAILURE = Pattern.compile(
         "ConnectException|UnknownHostException|SocketTimeoutException|NoRouteToHostException");
+    /** Feature 017 (research D-16, FR-013): StartCLI cannot log in through OAuth. */
+    private static final String INTERNAL_USERS = ". On INUBIT 9 the user must exist in the"
+        + " internal user management; users that log in only through OAuth cannot use StartCLI";
     private static final Pattern TLS_FAILURE = Pattern.compile(
         "SSLHandshakeException|SSLException|CertificateException|PKIX path|"
             + "No subject alternative");
@@ -74,26 +77,50 @@ public final class CliOutputClassifier {
     private final SecretScrubber scrubber;
     /** The names of the node's secrets for the next step of {@code AUTH_FAILED}, if known. */
     private final Optional<SecretLabels> labels;
+    /** Whether next steps name {@code bin\startcli.bat} instead of {@code startcli.sh}. */
+    private final boolean windows;
 
-    /** A classifier whose {@code AUTH_FAILED} next step refers to {@code --check-config}. */
+    /**
+     * A classifier whose {@code AUTH_FAILED} next step refers to {@code --check-config}; next
+     * steps name {@code startcli.sh}.
+     */
     public CliOutputClassifier(SecretScrubber scrubber) {
         this.scrubber = scrubber;
         this.labels = Optional.empty();
+        this.windows = false;
     }
 
     /**
      * A classifier for one node: {@code AUTH_FAILED} names its secrets per source (002 research
-     * D-6, feature 010 research R-15).
+     * D-6, feature 010 research R-15); next steps name the client script of the node's StartCLI
+     * runner, {@code bin\startcli.bat} if {@code windows} (feature 013, FR-001).
      */
-    public CliOutputClassifier(SecretScrubber scrubber, SecretLabels labels) {
+    public CliOutputClassifier(SecretScrubber scrubber, SecretLabels labels, boolean windows) {
         this.scrubber = scrubber;
         this.labels = Optional.of(labels);
+        this.windows = windows;
     }
 
     /** True if StartCLI reported that the login was rejected ({@code @Start@LoginFailure}). */
     public static boolean isLoginFailure(CliResult result) {
         return LOGIN_FAILURE.matcher(result.stdout()).find()
             || LOGIN_FAILURE.matcher(result.stderr()).find();
+    }
+
+    /**
+     * True if the last non-blank line of {@code stdout} is the client's password prompt alone
+     * (feature 013, FR-005): the client prints it before it reads the password, so a call that
+     * stops there may wait at its console or for a slow server.
+     */
+    public static boolean endsAtThePasswordPrompt(String stdout) {
+        List<String> lines = lines(stdout);
+        for (int i = lines.size() - 1; i >= 0; i--) {
+            String line = lines.get(i).strip();
+            if (!line.isEmpty()) {
+                return line.equals(PASSWORD_PROMPT);
+            }
+        }
+        return false;
     }
 
     /** A classifier that scrubs with {@link SecretScrubber#global()}. */
@@ -130,7 +157,8 @@ public final class CliOutputClassifier {
         CliOutput output = parse(result);
         if (result.truncated()) {
             return new CliOutcome.Failure(error(ErrorCode.UNEXPECTED_RESPONSE,
-                "StartCLI output exceeded 1 MB and was cut (exit code " + result.exitCode() + ")",
+                "StartCLI output exceeded " + bound(result.outputBound())
+                    + " and was cut (exit code " + result.exitCode() + ")",
                 "The command printed far more than expected, so its result cannot be trusted",
                 "Check the INUBIT system log for the time of the call")
                 .withExcerpt(scrubber.scrub(String.join("\n", output.outputLines()))));
@@ -141,18 +169,24 @@ public final class CliOutputClassifier {
         }
         String all = String.join("\n", output.logLines()) + "\n"
             + String.join("\n", output.outputLines());
-        return new CliOutcome.Failure(byMarker(output, all)
+        boolean nine = result.clientMajor().isPresent() && result.clientMajor().getAsInt() >= 9;
+        return new CliOutcome.Failure(byMarker(output, all, nine)
             .or(() -> missingArtifact(output))
             .or(() -> missingRepositoryPath(all))
-            .or(() -> byText(all))
+            .or(() -> byText(all, nine))
             .orElseGet(() -> unexpected(result, output)));
     }
 
-    private Optional<ToolError> byMarker(CliOutput output, String all) {
+    /** {@code bytes} as whole MiB where it is one, else in bytes. */
+    private static String bound(int bytes) {
+        return bytes % (1 << 20) == 0 ? (bytes >> 20) + " MiB" : bytes + " bytes";
+    }
+
+    private Optional<ToolError> byMarker(CliOutput output, String all, boolean nine) {
         for (Marker marker : output.markers()) {
             String code = marker.code();
             if (code.equals("LoginFailure")) {
-                return Optional.of(authFailed(marker.text()));
+                return Optional.of(authFailed(marker.text(), nine));
             }
             if (code.equals("LoginFailed")) {
                 if (TLS_FAILURE.matcher(all).find()) {
@@ -209,9 +243,10 @@ public final class CliOutputClassifier {
             "Check the path below /Root/<owner> in the Workbench repository, then retry"));
     }
 
-    private Optional<ToolError> byText(String all) {
+    private Optional<ToolError> byText(String all, boolean nine) {
         if (all.contains("The user does not exist or password does not match.")) {
-            return Optional.of(authFailed("The user does not exist or password does not match."));
+            return Optional.of(authFailed("The user does not exist or password does not match.",
+                nine));
         }
         if (all.contains("Login to the server failed.") && TLS_FAILURE.matcher(all).find()) {
             return Optional.of(tlsError());
@@ -226,7 +261,8 @@ public final class CliOutputClassifier {
             return Optional.of(error(ErrorCode.INTERNAL,
                 "StartCLI does not know the command (Command not found.)",
                 "The INUBIT client version does not support an allow-listed command",
-                "Check that cliHome matches the INUBIT server version (startcli.sh -v) and report it"));
+                "Check that cliHome matches the INUBIT server version ("
+                    + (windows ? "bin\\startcli.bat" : "startcli.sh") + " -v) and report it"));
         }
         if (all.contains("Invalid filter expression!")) {
             return Optional.of(invalidFilter());
@@ -250,11 +286,13 @@ public final class CliOutputClassifier {
             .withExcerpt(scrubber.scrub(excerpt));
     }
 
-    private ToolError authFailed(String inubitText) {
+    /** @param nine whether the client was chosen for INUBIT 9 or later */
+    private ToolError authFailed(String inubitText, boolean nine) {
         return error(ErrorCode.AUTH_FAILED, "StartCLI login failed: " + inubitText,
             "Wrong username or password for this INUBIT server, or the account is locked",
             labels.map(SecretLabels::fixCredentials).orElse("Check the node's username and"
-                + " password with --check-config and correct them where they are stored"));
+                + " password with --check-config and correct them where they are stored")
+                + (nine ? INTERNAL_USERS : ""));
     }
 
     private ToolError unreachable() {

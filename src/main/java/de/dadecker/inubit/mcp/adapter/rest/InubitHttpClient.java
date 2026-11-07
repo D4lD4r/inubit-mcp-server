@@ -42,15 +42,19 @@ import java.util.concurrent.Flow;
 import java.util.regex.Pattern;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLException;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The REST client of one INUBIT server (research R-5): its own {@link HttpClient} with the
  * server's {@code SSLContext} ({@link SslContexts}), HTTP/1.1, no redirects.
  *
  * <ul>
- *   <li>Every request carries the {@link #ACCEPT} header and, if credentials are configured, an
- *       {@code Authorization: Basic} header that is built from the {@link Secret} for each
- *       request.
+ *   <li>Every request carries the {@code Accept} header of its {@link MediaRange} (feature 017,
+ *       research D-11; the overloads without a range send the 0.8.0 {@link #ACCEPT}) and, if
+ *       credentials are configured, an {@code Authorization: Basic} header that is built from the
+ *       {@link Secret} for each request.
  *   <li>The request timeout is the server's {@code timeout}.
  *   <li>Failures become {@link ToolErrorException}s with the server id: 401 → {@code AUTH_FAILED}
  *       (the body is not read), 403 → {@code FORBIDDEN}, 404 → {@code NOT_FOUND} (on an
@@ -58,17 +62,21 @@ import javax.net.ssl.SSLException;
  *       {@code MAINTENANCE_MODE} if the {@link MaintenanceProbe} reports maintenance, otherwise
  *       {@code UNREACHABLE} (the server answered but is not serving), a body above
  *       {@link #MAX_BODY_BYTES} → {@code UNEXPECTED_RESPONSE}, any other
- *       non-2xx status → {@code UNEXPECTED_RESPONSE} with a scrubbed excerpt; timeouts →
- *       {@code TIMEOUT}, refused connections and unknown hosts → {@code UNREACHABLE}, TLS
- *       failures → {@code TLS_ERROR}. Statuses passed as {@code acceptedStatuses} are returned
- *       instead (e.g. 503 of {@code /ready}).
+ *       non-2xx status → {@code UNEXPECTED_RESPONSE} with a scrubbed excerpt (the string
+ *       {@code message} of a JSON body, INUBIT 9.0, research D-12; otherwise the body);
+ *       timeouts → {@code TIMEOUT}, refused connections and unknown hosts →
+ *       {@code UNREACHABLE}, TLS failures → {@code TLS_ERROR}. Statuses passed as
+ *       {@code acceptedStatuses} are returned instead (e.g. 503 of {@code /ready}).
  *   <li>No message or excerpt contains a credential: the text is scrubbed, and exception
  *       messages are never forwarded (only their class names).
  * </ul>
  */
 public final class InubitHttpClient implements AutoCloseable {
 
-    /** The {@code Accept} header of every request (research R-5; required from 9.0 on). */
+    /**
+     * The {@code Accept} header of a request without a {@link MediaRange} (0.8.0, research R-5).
+     * The adapters pass the range of their parser instead (feature 017, research D-11).
+     */
     public static final String ACCEPT = "application/json, application/xml;q=0.9, */*;q=0.8";
 
     /** Upper bound of a response body; larger responses are {@code UNEXPECTED_RESPONSE}. */
@@ -81,6 +89,34 @@ public final class InubitHttpClient implements AutoCloseable {
         "INUBIT answered 503: starting up, overloaded, or behind a proxy that is not serving";
     private static final Pattern HTML_TAG = Pattern.compile("<[^>]*>");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+    /** A larger error body is not parsed as JSON; its raw prefix becomes the excerpt. */
+    private static final int MAX_JSON_ERROR_CHARS = 64 * 1024;
+
+    /**
+     * The format a request asks for (feature 017, research D-11): INUBIT 9.0 requires
+     * {@code Accept} and chooses JSON or XML from it; the {@code *}{@code /*;q=0.1} fallback keeps
+     * an endpoint that offers only the other format from answering 406.
+     */
+    public enum MediaRange {
+        /** XML parsers ({@code /system/info}, {@code /model/models}, {@code modelByName}). */
+        XML("application/xml, */*;q=0.1"),
+        /** JSON parsers ({@code /healthcheck}, {@code /ready}, {@code /metrics}, {@code /log}). */
+        JSON("application/json, */*;q=0.1"),
+        /** Archives ({@code /model/export}). */
+        ANY("*/*");
+
+        private final String header;
+
+        MediaRange(String header) {
+            this.header = header;
+        }
+
+        /** The value of the {@code Accept} header. */
+        public String header() {
+            return header;
+        }
+    }
 
     /** What an HTTP 404 of a request means (feature 009 research D-10). */
     public enum ResourceKind {
@@ -91,6 +127,20 @@ public final class InubitHttpClient implements AutoCloseable {
          * {@code UNEXPECTED_RESPONSE}, the node may run another INUBIT version.
          */
         ENDPOINT
+    }
+
+    /**
+     * The {@code UNEXPECTED_RESPONSE} of an HTTP 404 on a {@link ResourceKind#ENDPOINT} request.
+     * On the version detection's {@code /system/info} it gives the INUBIT 6.1 hint (feature 012
+     * FR-003, research D-11).
+     */
+    public static final class EndpointMissing extends ToolErrorException {
+
+        private static final long serialVersionUID = 1L;
+
+        EndpointMissing(ToolError error) {
+            super(error);
+        }
     }
 
     /** Username (not secret, FR-025) and password of the INUBIT account. */
@@ -190,7 +240,8 @@ public final class InubitHttpClient implements AutoCloseable {
             scrubber, guard);
     }
 
-    private static SSLContext sslContext(EffectiveNodeConfig server,
+    /** The server's context; {@code TLS_ERROR} with the server id if the settings are unusable. */
+    static SSLContext sslContext(EffectiveNodeConfig server,
         Optional<Secret> trustStorePassword) {
         try {
             return SslContexts.forServer(server.secretLabels(), server.tls(),
@@ -228,14 +279,34 @@ public final class InubitHttpClient implements AutoCloseable {
     public RestResponse get(String path, Map<String, String> query, ResourceKind kind,
         int... acceptedStatuses) {
         return send("GET", path, HttpRequest.newBuilder(uri(path, query)).GET(), true, kind,
-            acceptedStatuses);
+            ACCEPT, acceptedStatuses);
+    }
+
+    /** As {@link #get(String, Map, int...)}, asking for {@code range} (research D-11). */
+    public RestResponse get(String path, Map<String, String> query, MediaRange range,
+        int... acceptedStatuses) {
+        return get(path, query, range, ResourceKind.RESOURCE, acceptedStatuses);
+    }
+
+    /** As {@link #get(String, Map, ResourceKind, int...)}, asking for {@code range}. */
+    public RestResponse get(String path, Map<String, String> query, MediaRange range,
+        ResourceKind kind, int... acceptedStatuses) {
+        return send("GET", path, HttpRequest.newBuilder(uri(path, query)).GET(), true, kind,
+            range.header(), acceptedStatuses);
     }
 
     /** As {@link #get}, but never with the {@code Authorization} header (public endpoints). */
     public RestResponse getWithoutCredentials(String path, Map<String, String> query,
         int... acceptedStatuses) {
         return send("GET", path, HttpRequest.newBuilder(uri(path, query)).GET(), false,
-            ResourceKind.RESOURCE, acceptedStatuses);
+            ResourceKind.RESOURCE, ACCEPT, acceptedStatuses);
+    }
+
+    /** As {@link #getWithoutCredentials(String, Map, int...)}, asking for {@code range}. */
+    public RestResponse getWithoutCredentials(String path, Map<String, String> query,
+        MediaRange range, int... acceptedStatuses) {
+        return send("GET", path, HttpRequest.newBuilder(uri(path, query)).GET(), false,
+            ResourceKind.RESOURCE, range.header(), acceptedStatuses);
     }
 
     /** {@code POST} with a text body of the given content type; see {@link #get}. */
@@ -247,10 +318,31 @@ public final class InubitHttpClient implements AutoCloseable {
     /** As {@link #post(String, Map, String, String, int...)}, with the meaning of a 404. */
     public RestResponse post(String path, Map<String, String> query, String body,
         String contentType, ResourceKind kind, int... acceptedStatuses) {
+        return post(path, query, body, contentType, kind, ACCEPT, acceptedStatuses);
+    }
+
+    /** As {@link #post(String, Map, String, String, int...)}, asking for {@code range}. */
+    public RestResponse post(String path, Map<String, String> query, String body,
+        String contentType, MediaRange range, int... acceptedStatuses) {
+        return post(path, query, body, contentType, range, ResourceKind.RESOURCE,
+            acceptedStatuses);
+    }
+
+    /**
+     * As {@link #post(String, Map, String, String, ResourceKind, int...)}, asking for
+     * {@code range}.
+     */
+    public RestResponse post(String path, Map<String, String> query, String body,
+        String contentType, MediaRange range, ResourceKind kind, int... acceptedStatuses) {
+        return post(path, query, body, contentType, kind, range.header(), acceptedStatuses);
+    }
+
+    private RestResponse post(String path, Map<String, String> query, String body,
+        String contentType, ResourceKind kind, String accept, int[] acceptedStatuses) {
         return send("POST", path, HttpRequest.newBuilder(uri(path, query))
             .header("Content-Type", contentType)
             .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)), true,
-            kind, acceptedStatuses);
+            kind, accept, acceptedStatuses);
     }
 
     @Override
@@ -264,9 +356,9 @@ public final class InubitHttpClient implements AutoCloseable {
     }
 
     private RestResponse send(String method, String path, HttpRequest.Builder builder,
-        boolean authenticate, ResourceKind kind, int[] acceptedStatuses) {
+        boolean authenticate, ResourceKind kind, String accept, int[] acceptedStatuses) {
         Objects.requireNonNull(kind, "kind");
-        builder.timeout(timeout).header("Accept", ACCEPT);
+        builder.timeout(timeout).header("Accept", accept);
         if (!authenticate || credentials.isEmpty()) {
             return evaluate(method, path, exchange(method, path, builder), kind,
                 acceptedStatuses);
@@ -321,7 +413,9 @@ public final class InubitHttpClient implements AutoCloseable {
             || Arrays.stream(acceptedStatuses).anyMatch(accepted -> accepted == status)) {
             return result;
         }
-        throw new ToolErrorException(statusError(method, path, kind, result));
+        ToolError error = statusError(method, path, kind, result);
+        throw status == 404 && kind == ResourceKind.ENDPOINT ? new EndpointMissing(error)
+            : new ToolErrorException(error);
     }
 
     private static String basicAuth(Credentials credentials) {
@@ -401,7 +495,7 @@ public final class InubitHttpClient implements AutoCloseable {
         if (hasCause(e, SSLException.class) || hasCause(e, CertificateException.class)) {
             return error(ErrorCode.TLS_ERROR,
                 "The TLS connection to " + server + " failed for " + request + " ("
-                    + rootCause(e).getClass().getSimpleName() + ")",
+                    + TransportErrorTexts.causeName(e) + ")",
                 TransportErrorTexts.TLS_ERROR_LIKELY_CAUSE,
                 TransportErrorTexts.tlsErrorNextStep(server));
         }
@@ -410,17 +504,24 @@ public final class InubitHttpClient implements AutoCloseable {
                 "INUBIT did not answer " + request + " within " + Durations.human(timeout),
                 TransportErrorTexts.TIMEOUT_LIKELY_CAUSE, TransportErrorTexts.TIMEOUT_NEXT_STEP);
         }
-        boolean unreachable = hasCause(e, ConnectException.class)
-            || hasCause(e, UnresolvedAddressException.class)
-            || hasCause(e, UnknownHostException.class)
-            || hasCause(e, NoRouteToHostException.class);
         return error(ErrorCode.UNREACHABLE,
             "Cannot connect to " + server + " for " + request + " ("
-                + rootCause(e).getClass().getSimpleName() + ")",
-            unreachable
+                + TransportErrorTexts.causeName(e) + ")",
+            isUnreachable(e)
                 ? TransportErrorTexts.UNREACHABLE_LIKELY_CAUSE
                 : TransportErrorTexts.INTERRUPTED_LIKELY_CAUSE,
             "Check baseUrl, DNS and the VPN, then retry");
+    }
+
+    /**
+     * Whether no connection could be opened at all (down, unknown host, no route); shared with
+     * {@link TlsHandshakeCheck}.
+     */
+    static boolean isUnreachable(IOException e) {
+        return hasCause(e, ConnectException.class)
+            || hasCause(e, UnresolvedAddressException.class)
+            || hasCause(e, UnknownHostException.class)
+            || hasCause(e, NoRouteToHostException.class);
     }
 
     private ToolError error(ErrorCode code, String message, String likelyCause, String nextStep) {
@@ -434,7 +535,7 @@ public final class InubitHttpClient implements AutoCloseable {
      * secret crossing the cut is masked as a whole; ToolError cuts the result to 500 chars.
      */
     private String excerpt(RestResponse response) {
-        String raw = response.bodyText();
+        String raw = jsonMessage(response.bodyText()).orElse(response.bodyText());
         String window = scrubber.scrub(
             raw.substring(0, Math.min(raw.length(), EXCERPT_WINDOW + EXCERPT_OVERLAP)));
         String text = window.substring(0, Math.min(window.length(), EXCERPT_WINDOW));
@@ -448,21 +549,30 @@ public final class InubitHttpClient implements AutoCloseable {
         return scrubber.scrub(text);
     }
 
-    private static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
+    /**
+     * The string {@code message} of a JSON object body (INUBIT 9.0 error body
+     * {@code {statusCode, message, path, timestamp}}, research D-12), if it is not blank.
+     */
+    private static Optional<String> jsonMessage(String body) {
+        if (body.length() > MAX_JSON_ERROR_CHARS || !body.stripLeading().startsWith("{")) {
+            return Optional.empty();
+        }
+        try {
+            JsonNode message = JSON.readTree(body).get("message");
+            return message != null && message.isString() && !message.asString().isBlank()
+                ? Optional.of(message.asString()) : Optional.empty();
+        } catch (JacksonException e) {
+            return Optional.empty();
+        }
+    }
+
+    static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
         for (Throwable t = error; t != null; t = t.getCause()) {
             if (type.isInstance(t)) {
                 return true;
             }
         }
         return false;
-    }
-
-    private static Throwable rootCause(Throwable error) {
-        Throwable root = error;
-        while (root.getCause() != null) {
-            root = root.getCause();
-        }
-        return root;
     }
 
     /** Signals that a response body exceeded the limit. */

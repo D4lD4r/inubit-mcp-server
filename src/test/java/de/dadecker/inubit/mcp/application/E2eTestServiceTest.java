@@ -19,6 +19,7 @@ import de.dadecker.inubit.mcp.adapter.soap.SoapE2eClient;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
@@ -31,6 +32,7 @@ import de.dadecker.inubit.mcp.domain.model.LogQuery;
 import de.dadecker.inubit.mcp.domain.model.LogType;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Page;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
@@ -539,14 +541,14 @@ class E2eTestServiceTest {
     // --- feature 009 (T009): the version gate --------------------------------------------------
 
     @Test
-    void aNodeOnInubit90IsRefusedAfterOnlyTheDetection() {
+    void aNodeOnInubit91IsRefusedAfterOnlyTheDetection() {
         versionLines.put(DEV, VersionSetting.AUTO);
-        detection.answer(DEV, "9.0.7");
+        detection.answer(DEV, "9.1.0");
 
         ToolError error = refusal(service(), request());
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
-        assertThat(error.message()).isEqualTo("run_e2e_test: INUBIT 9.0.7 on dev/node1 does not"
+        assertThat(error.message()).isEqualTo("run_e2e_test: INUBIT 9.1.0 on dev/node1 does not"
             + " support end-to-end test yet; nothing was sent");
         assertThat(error.node()).contains(DEV);
         wireMock.verify(0, anyRequestedFor(anyUrl()));
@@ -574,8 +576,9 @@ class E2eTestServiceTest {
             .withBody("<ok/>")));
         versionLines.put(DEV, VersionSetting.AUTO);
         detection.answer(DEV, "8.1.18");
-        versions.clientProbed(DEV, new ClientVersion(version("8.0.9"),
-            Optional.of(version("4.0.1")), Optional.of(version("8.0.9"))));
+        versions.clientProbed(DEV, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(version("8.0.9"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.0.9")))));
 
         E2eRun run = completed(service().run(request()));
 

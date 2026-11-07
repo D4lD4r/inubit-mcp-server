@@ -5,6 +5,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionEntry;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -32,6 +33,8 @@ final class FakeTagPort implements TagPort {
     private final Map<String, Set<String>> used = new LinkedHashMap<>();
     /** The calls, e.g. {@code history GRP-01}, {@code tag REL GRP-01}. */
     final List<String> calls = new CopyOnWriteArrayList<>();
+    /** The write permits of the tag commands, in order (feature 017, research D-24). */
+    final List<WritePermit> permits = new CopyOnWriteArrayList<>();
     /** Artifacts (diagram or module names) the tag commands miss. */
     final Set<String> missed = java.util.concurrent.ConcurrentHashMap.newKeySet();
     /** A tag command for this diagram group fails. */
@@ -85,7 +88,9 @@ final class FakeTagPort implements TagPort {
     }
 
     @Override
-    public synchronized void tag(String tag, String diagramGroup, String owner) {
+    public synchronized void tag(String tag, String diagramGroup, String owner,
+        WritePermit permit) {
+        permits.add(java.util.Objects.requireNonNull(permit, "permit"));
         calls.add("tag " + tag + " " + diagramGroup);
         if (diagramGroup.equals(failOn)) {
             throw new ToolErrorException(ToolError.of(ErrorCode.IMPORT_FAILED,

@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.application.E2eTestService;
 import de.dadecker.inubit.mcp.application.ImportService;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
@@ -16,6 +17,7 @@ import de.dadecker.inubit.mcp.domain.model.Page;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.E2ePort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
@@ -60,6 +62,7 @@ class RunE2eTestToolTest {
 
     private final List<AutoCloseable> closeables = new ArrayList<>();
     private final List<E2ePort.Message> sent = new CopyOnWriteArrayList<>();
+    private final List<WritePermit> permits = new CopyOnWriteArrayList<>();
 
     @AfterEach
     void close() throws Exception {
@@ -81,8 +84,9 @@ class RunE2eTestToolTest {
             }
 
             @Override
-            public Exchange post(Message message) {
+            public Exchange post(Message message, WritePermit permit) {
                 sent.add(message);
+                permits.add(permit);
                 return new Exchange(endpoint(message.path()), Optional.of(200),
                     "<ok/>".getBytes(StandardCharsets.UTF_8), false, Duration.ofMillis(12),
                     false);
@@ -164,5 +168,11 @@ class RunE2eTestToolTest {
         assertThat(run.has("excerpt")).isFalse();
         assertThat(sent).singleElement().satisfies(message ->
             assertThat(message.timeout()).isEqualTo(Duration.ofSeconds(60)));
+        // feature 017 (FR-018): the message is handed off with the admission's permit
+        assertThat(permits).singleElement().satisfies(permit -> {
+            assertThat(permit.node()).isEqualTo(DEV);
+            assertThat(permit.capability()).isEqualTo(Capability.E2E_TEST);
+            assertThat(permit.admitted().raw()).isEqualTo("8.1");
+        });
     }
 }

@@ -133,6 +133,7 @@ class MainProcessTest {
         environment.put("AWS_EC2_METADATA_DISABLED", "true");
         environment.put("AWS_CONFIG_FILE", awsConfig.toString());
         environment.put("AWS_SHARED_CREDENTIALS_FILE", awsCredentials.toString());
+        environment.put("INUBIT_MCP_UPDATE_CHECK", "off"); // feature 016: no GitHub request
         Process process = builder.start();
         child = process;
         process.getOutputStream().close();
@@ -182,6 +183,7 @@ class MainProcessTest {
         environment.clear();
         environment.put("INUBIT_ACME_DEV_USERNAME", "process-test-user");
         environment.put("INUBIT_ACME_DEV_PASSWORD", PASSWORD);
+        environment.put("INUBIT_MCP_UPDATE_CHECK", "off"); // feature 016: no GitHub request
         Process process = builder.start();
         child = process;
         CompletableFuture<String> stderr = CompletableFuture.supplyAsync(

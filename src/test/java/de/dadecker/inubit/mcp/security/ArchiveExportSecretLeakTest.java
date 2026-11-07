@@ -97,24 +97,24 @@ class ArchiveExportSecretLeakTest {
         git("add", "README.md");
         git("-c", "user.name=jdoe", "-c", "user.email=jdoe@example.test", "commit", "-q", "-m",
             "seed");
-        Path cliHome = Files.createDirectories(temp.resolve("cli/bin")).getParent();
-        Files.writeString(cliHome.resolve("bin/startcli.sh"), "#!/bin/sh\n");
+        Path cliHome = temp.resolve("cli");
+        de.dadecker.inubit.mcp.testing.FakeStartCli.install(cliHome);
         exports.put("'GRP-01'", ArtifactFixtures.bytes("grp-a.zip"));
         exports.put("'GRP-02'", ArtifactFixtures.bytes("grp-b.zip"));
         String yaml = """
             profile:
               name: acme
-            workspace: %s
-            auditDirectory: %s
+            workspace: '%s'
+            auditDirectory: '%s'
             groups:
               - name: dev
                 cli:
-                  home: %s
-                  javaHome: %s
+                  home: '%s'
+                  javaHome: '%s'
                 inventory:
                   owner: OWNERS
                 tls:
-                  trustStore: "%s"
+                  trustStore: '%s'
                 nodes:
                   - name: node1
                     baseUrl: https://localhost:%d
@@ -128,7 +128,8 @@ class ArchiveExportSecretLeakTest {
             "INUBIT_ACME_DEV_PASSWORD", password);
         SecretScrubber scrubber = new SecretScrubber();
         wiring = TestWiring.of(config, TestSecrets.store(environment), scrubber, Files::exists,
-            false, startCli(), Map.of("PATH", "/usr/bin"));
+            de.dadecker.inubit.mcp.testing.Platform.windows(), startCli(),
+            Map.of("PATH", de.dadecker.inubit.mcp.testing.Platform.searchPath()));
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
     }
@@ -170,7 +171,7 @@ class ArchiveExportSecretLeakTest {
      */
     private ProcessLauncher startCli() {
         return spec -> {
-            List<String> command = spec.command();
+            List<String> command = spec.startCliArguments();
             if (!command.contains("--execCommand")) {
                 return FakeProcessLauncher.replaying("version").launch(spec);
             }

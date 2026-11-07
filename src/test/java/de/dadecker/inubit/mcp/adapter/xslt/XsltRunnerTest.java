@@ -467,8 +467,8 @@ class XsltRunnerTest {
         assertThat(output(read)).isEqualTo("false|false|false|true");
         try (Stream<Path> written = Files.walk(root)) {
             assertThat(written.filter(Files::isRegularFile).map(root::relativize)
-                .map(Path::toString).filter(p -> p.endsWith(".out")))
-                .allMatch(p -> p.startsWith(".tests/"));
+                .filter(p -> p.toString().endsWith(".out")))
+                .allMatch(p -> p.startsWith(Path.of(".tests")));
         }
     }
 }

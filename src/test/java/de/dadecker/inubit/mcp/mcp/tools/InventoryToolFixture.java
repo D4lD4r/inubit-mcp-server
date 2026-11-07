@@ -13,6 +13,8 @@ import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.application.FanOut;
@@ -31,6 +33,11 @@ import de.dadecker.inubit.mcp.infra.ResultJson;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import de.dadecker.inubit.mcp.testing.ArgvRecorder;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -91,18 +98,48 @@ final class InventoryToolFixture implements AutoCloseable {
     private InventoryToolFixture(WireMockServer dev, WireMockServer integration,
         Function<InventoryService, ToolHandler> tool, FakeProcessLauncher launcher,
         Duration exportTimeout, VersionSetting devVersionLine) {
+        this(dev, integration, tool, launcher, exportTimeout, devVersionLine, false);
+    }
+
+    /**
+     * Feature 013 (T021): the tools through the real launch of the host platform — on Windows
+     * {@code startcli.bat} through the command interpreter — with the substitute StartCLI writing
+     * the recorded export ZIPs and replaying the recorded output with CRLF line ends.
+     * {@link #launcher} is {@code null}.
+     */
+    static InventoryToolFixture throughTheLaunch(WireMockServer dev, WireMockServer integration,
+        Function<InventoryService, ToolHandler> tool) {
+        return new InventoryToolFixture(dev, integration, tool, null, Duration.ofSeconds(120),
+            VersionSetting.V8_1, true);
+    }
+
+    private InventoryToolFixture(WireMockServer dev, WireMockServer integration,
+        Function<InventoryService, ToolHandler> tool, FakeProcessLauncher launcher,
+        Duration exportTimeout, VersionSetting devVersionLine, boolean launched) {
         try {
             cliHome = Files.createTempDirectory("inventory-tool-cli");
-            Path script = Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh");
-            Files.writeString(script, "#!/bin/sh\n");
+            if (launched) {
+                FakeStartCli.install(cliHome, Map.of(
+                    ArgvRecorder.REPLAY, "export_history_sample",
+                    ArgvRecorder.EXPORT_FIXTURE, "export_history_sample.zip",
+                    ArgvRecorder.EXPORT_MODULE_FIXTURE, "export_modules_sample.zip",
+                    ArgvRecorder.CRLF, "true"));
+            } else {
+                FakeStartCli.install(cliHome);
+            }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
         this.launcher = launcher;
+        ProcessLauncher used = launched ? new SystemProcessLauncher() : launcher;
+        Map<String, String> environment = launched ? System.getenv()
+            : Map.of("PATH", Platform.searchPath());
+        Path javaHome = launched ? Path.of(System.getProperty("java.home"))
+            : Path.of("/opt/jdk-17");
         List<EffectiveNodeConfig> servers = List.of(
             server("dev/node1", "https://localhost:" + dev.httpsPort())
                 .versionLine(devVersionLine).cliHome(cliHome)
-                .cliJavaHome(Path.of("/opt/jdk-17")).cliExportTimeout(exportTimeout).build(),
+                .cliJavaHome(javaHome).cliExportTimeout(exportTimeout).build(),
             server("qa/node1", "https://localhost:" + integration.httpsPort()).build(),
             server("qa/node2", "https://127.0.0.1:9").build());
         List<NodeId> ids = servers.stream().map(EffectiveNodeConfig::id).toList();
@@ -114,7 +151,8 @@ final class InventoryToolFixture implements AutoCloseable {
             "INUBIT_DEV_USERNAME", "jdoe", "INUBIT_DEV_PASSWORD", PASSWORD,
             "INUBIT_QA_USERNAME", "jdoe", "INUBIT_QA_PASSWORD", PASSWORD), scrubber), scrubber,
             Clock.systemUTC(),
-            new CliRunner(launcher, Map.of("PATH", "/usr/bin"), false, new CliResources("acme")),
+            TestCliRunners.forHost(used, environment,
+                new CliResources("acme", PrivateFiles.forHost())),
             versions, PortSetRegistry.v81Default());
         InventoryService inventory = new InventoryService(gateways, new TargetResolver(ids),
             new FanOut(), ResultLimiter.withDefaults(),
@@ -140,7 +178,8 @@ final class InventoryToolFixture implements AutoCloseable {
         byte[] modules = FakeProcessLauncher.fixture("export_modules_sample.zip");
         byte[] history = FakeProcessLauncher.fixture("export_history_sample.zip");
         return FakeProcessLauncher.replaying("export_history_sample").onLaunch(spec -> {
-            String command = spec.command().get(spec.command().indexOf("--execCommand") + 1);
+            List<String> arguments = spec.startCliArguments();
+            String command = arguments.get(arguments.indexOf("--execCommand") + 1);
             Matcher matcher = EXPORT_FILE.matcher(command);
             if (matcher.find()) {
                 try {

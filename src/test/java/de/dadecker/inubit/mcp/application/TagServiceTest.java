@@ -7,13 +7,16 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.TagOutcome;
 import de.dadecker.inubit.mcp.domain.model.TagPreview;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -146,6 +149,17 @@ class TagServiceTest {
             .containsEntry("scope", "diagram groups GRP-01, GRP-02")
             .containsEntry("reason", "Tested state").containsEntry("owner", "jdoe")
             .doesNotContainKey("ownerKind").doesNotContainKey("removedAgain");
+    }
+
+    @Test
+    void everyTagIsSentWithTheDevelopmentPermitOfTheCall() {
+        // feature 017 (T045, FR-018, research D-24)
+        completed(service().tag(request(List.of("GRP-01", "GRP-02"))));
+
+        assertThat(port.permits).hasSize(2).allSatisfy(permit -> {
+            assertThat(permit.node()).isEqualTo(DEV);
+            assertThat(permit.capability()).isEqualTo(Capability.DEVELOPMENT_WRITE);
+        });
     }
 
     @Test
@@ -285,14 +299,14 @@ class TagServiceTest {
     // --- feature 009 (T009): the version gate --------------------------------------------------
 
     @Test
-    void aNodeOnInubit90IsRefusedAfterOnlyTheDetection() {
+    void aNodeOnInubit91IsRefusedAfterOnlyTheDetection() {
         versionLines.put(DEV, VersionSetting.AUTO);
-        detection.answer(DEV, "9.0.7");
+        detection.answer(DEV, "9.1.0");
 
         ToolError error = refusal(service(), request(List.of("GRP-01")));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
-        assertThat(error.message()).isEqualTo("tag_artifacts: INUBIT 9.0.7 on dev/node1 does not"
+        assertThat(error.message()).isEqualTo("tag_artifacts: INUBIT 9.1.0 on dev/node1 does not"
             + " support development writes yet; nothing was sent");
         assertThat(error.node()).contains(DEV);
         assertThat(port.calls).as("nothing read through StartCLI").isEmpty();
@@ -317,8 +331,9 @@ class TagServiceTest {
     void aClientPatchMismatchTagsWithTheWarning() {
         versionLines.put(DEV, VersionSetting.AUTO);
         detection.answer(DEV, "8.1.18");
-        versions.clientProbed(DEV, new ClientVersion(version("8.1.17"),
-            Optional.of(version("4.0.1")), Optional.of(version("8.1.17"))));
+        versions.clientProbed(DEV, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(version("8.1.17"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.1.17")))));
 
         TagOutcome outcome = run(service(), request(List.of("GRP-01")));
 

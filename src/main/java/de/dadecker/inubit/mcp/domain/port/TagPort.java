@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.domain.port;
 
 import de.dadecker.inubit.mcp.domain.model.VersionEntry;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -13,6 +14,11 @@ import java.util.Objects;
  * the check-in history of every workflow of the owner) and no tag removal (StartCLI removes a
  * tag only owner-wide). Failures are thrown as
  * {@link de.dadecker.inubit.mcp.domain.model.ToolErrorException} with the server id.
+ *
+ * <p>Feature 017 (FR-018, research D-24): every write takes the {@link WritePermit} of the call's
+ * admission for this port's node and is handed off under the node's {@link WriteLock}; after a
+ * version change since the admission it is refused with {@code UNSUPPORTED_VERSION} and nothing
+ * is sent. A permit for another node is an {@link IllegalArgumentException}; nothing is sent.
  */
 public interface TagPort {
 
@@ -59,5 +65,5 @@ public interface TagPort {
      *     blank group or a value StartCLI quoting cannot carry (nothing launched);
      *     {@code IMPORT_FAILED} or {@code TIMEOUT} if StartCLI ran
      */
-    void tag(String tag, String diagramGroup, String owner);
+    void tag(String tag, String diagramGroup, String owner, WritePermit permit);
 }

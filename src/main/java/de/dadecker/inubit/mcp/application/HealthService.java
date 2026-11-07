@@ -1,5 +1,8 @@
 package de.dadecker.inubit.mcp.application;
 
+import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.CliHealthSnapshot;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.Durations;
@@ -11,12 +14,15 @@ import de.dadecker.inubit.mcp.domain.model.LoadFigures;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeResult;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState.Timed;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
+import de.dadecker.inubit.mcp.domain.port.ClientSelectionPort;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
@@ -28,8 +34,10 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -42,7 +50,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,6 +60,12 @@ import org.slf4j.LoggerFactory;
  *   <li>The target is resolved first (unknown → {@code TARGET_UNKNOWN}); no target means all
  *       servers. Servers are checked in parallel ({@link FanOut}), reports come in config order,
  *       one per server, also for servers that failed.
+ *   <li>Access (feature 012, FR-001, research D-11): first, before any contact,
+ *       {@link VersionGate#monitoringAccess} decides how the server is reached. A node pinned to
+ *       a CLI-only version (INUBIT 6.1) whose monitoring the matrix does not support gets a
+ *       failed report with the {@code UNSUPPORTED_VERSION} refusal as its error: no credentials,
+ *       no request, no client probe. A node with CLI access is never read over REST but through
+ *       StartCLI (see the last item); every other node is read over REST as described below.
  *   <li>Per server, the monitoring port is taken without waiting for a version detection
  *       (Phase 3 review H1): the unauthenticated healthcheck and readiness check start at once
  *       and the healthcheck alone decides reachability. {@code /system/info} runs in parallel;
@@ -68,17 +81,22 @@ import org.slf4j.LoggerFactory;
  *       the version gate's {@code MONITORING} warning (feature 009): derived from the version
  *       this call's {@code /system/info} read returned, or for a failed read from the node's
  *       known version state (e.g. "the INUBIT version of &lt;node&gt; is unknown (&lt;code&gt; at
- *       &lt;time&gt;); results are unverified"). The gate never detects and never refuses here,
- *       so the call sends no extra request and keeps its time budget.
+ *       &lt;time&gt;); results are unverified"). The gate never detects and, after the access
+ *       above, never refuses here, so the call sends no extra request and keeps its time budget.
  *   <li>Observation (feature 009, FR-012): this service alone reports the version it read to
  *       {@link NodeVersions#observed} for every node, pinned ones too. A read whose major.minor
  *       differs from the pin sets the pin contradiction (writes refused until a matching read)
  *       and is warned about; a concrete pin that differs in the patch only is warned about.
- *   <li>Client probe (feature 009, FR-002, research D-7): on a node with a StartCLI
- *       installation the local client is probed in parallel with the REST calls and within the
- *       same deadline, unless {@link NodeVersions} already holds its result (kept for the process
- *       lifetime) or a failed probe is younger than 60 s. Successes and failures are recorded
- *       there. The report gives the client with the comparison against the server version
+ *   <li>Client probe (feature 009, FR-002, research D-7): the client {@link ClientSelectionPort}
+ *       chooses for the node's known version is probed, if it is installed, in parallel with the
+ *       REST calls and within the same deadline, unless {@link NodeVersions} already holds its
+ *       result (kept for the process lifetime, per client) or a failed probe of it is younger
+ *       than 60 s. Successes and failures are recorded there. The report gives the client chosen
+ *       for the version this call read (feature 017, FR-017, research D-6), not for the shared
+ *       state an overlapping call may have changed: when that is another client than the one
+ *       probed, it is probed within what is left of the budget, or with nothing left it "has
+ *       not been checked yet". The report gives the client with the comparison against the
+ *       version this call read
  *       and warns what it means for StartCLI-backed tools (FR-011): refused when the server
  *       lies outside the client's declared range, otherwise a mismatch still runs with a
  *       warning; a failed or timed-out probe is the part
@@ -89,6 +107,20 @@ import org.slf4j.LoggerFactory;
  *       or (feature 011) the credential store that is still running then gives a failed report
  *       with {@code TIMEOUT} and sends nothing to the server (its client needs the secrets); the
  *       read continues for the next call. A failed read gives a failed report with its error.
+ *   <li>StartCLI (feature 012, FR-008, FR-009, research D-6): a node with CLI access gets, after
+ *       its credentials as above, one {@link CliHealthPort#snapshot} (the session's connection
+ *       reads the client options and checks TLS first) in parallel with the client probe.
+ *       {@code reachable} means StartCLI connected and logged in; {@code status} is {@code OK}
+ *       when the alive check succeeded, {@code ERROR} when it answered negatively and
+ *       {@code UNKNOWN} when the session failed (its error is the report's, and version, load
+ *       and process counts are unavailable with it); maintenance mode and counts do not change
+ *       it. The version goes to {@link NodeVersions#observed} and the report only when the
+ *       snapshot marks it as the server's; otherwise a warning names it as the client's
+ *       (FR-006). Budget: a call for one node returns within
+ *       {@link #CLI_ONLY_SINGLE_NODE_BUDGET}, a call for several within
+ *       {@link #OVERVIEW_BUDGET}; the node's session and probe get that bound less
+ *       {@link #FAN_OUT_GRACE}, and a session still running then is {@code TIMEOUT} worded for
+ *       that budget. Other nodes keep their timeout + {@link #FAN_OUT_GRACE}.
  * </ul>
  */
 public final class HealthService {
@@ -97,6 +129,10 @@ public final class HealthService {
     static final Duration PART_GRACE = Duration.ofMillis(250);
     /** Grace after the server timeout for the whole server (backstop of the fan-out). */
     static final Duration FAN_OUT_GRACE = Duration.ofMillis(900);
+    /** FR-009: a call for one CLI-only node returns within this. */
+    static final Duration CLI_ONLY_SINGLE_NODE_BUDGET = Duration.ofSeconds(15);
+    /** FR-009 (SC-002 of feature 001): a call for several nodes returns within this. */
+    static final Duration OVERVIEW_BUDGET = Duration.ofSeconds(10);
 
     /** The client state of a probe that did not finish in time (FR-002). */
     private static final String NOT_YET_DETECTED = "not yet detected (timeout)";
@@ -111,14 +147,16 @@ public final class HealthService {
     private final VersionGate gate;
     private final NodeVersions versions;
     private final ClientVersionPort clients;
-    private final Predicate<NodeId> withClient;
+    private final ClientSelectionPort selection;
     private final Function<NodeId, Optional<String>> credentialStores;
+    private final Duration singleCliBudget;
+    private final Duration overviewBudget;
 
     /** As below; every node reads its secrets from AWS Parameter Store (feature 010 texts). */
     public HealthService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
         Function<NodeId, Duration> timeouts, Clock clock, VersionGate gate,
-        NodeVersions versions, ClientVersionPort clients, Predicate<NodeId> withClient) {
-        this(gateways, targets, fanOut, timeouts, clock, gate, versions, clients, withClient,
+        NodeVersions versions, ClientVersionPort clients, ClientSelectionPort selection) {
+        this(gateways, targets, fanOut, timeouts, clock, gate, versions, clients, selection,
             server -> Optional.empty());
     }
 
@@ -129,15 +167,26 @@ public final class HealthService {
      * @param versions receives the version each call read and holds the pin contradiction
      *                 and the client probe results
      * @param clients  the StartCLI client probe
-     * @param withClient whether a node has a StartCLI installation (only those are probed)
+     * @param selection which StartCLI client a node uses for a version and whether it is
+     *                 installed (only installed clients are probed; feature 017, D-6, D-7)
      * @param credentialStores the display name of the credential store a node reads its secrets
      *                 from (feature 011, e.g. {@code macOS Keychain}); empty for AWS Parameter
      *                 Store
      */
     public HealthService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
         Function<NodeId, Duration> timeouts, Clock clock, VersionGate gate,
-        NodeVersions versions, ClientVersionPort clients, Predicate<NodeId> withClient,
+        NodeVersions versions, ClientVersionPort clients, ClientSelectionPort selection,
         Function<NodeId, Optional<String>> credentialStores) {
+        this(gateways, targets, fanOut, timeouts, clock, gate, versions, clients, selection,
+            credentialStores, CLI_ONLY_SINGLE_NODE_BUDGET, OVERVIEW_BUDGET);
+    }
+
+    /** As above, with other budgets for CLI-only nodes (tests scale them down). */
+    HealthService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
+        Function<NodeId, Duration> timeouts, Clock clock, VersionGate gate,
+        NodeVersions versions, ClientVersionPort clients, ClientSelectionPort selection,
+        Function<NodeId, Optional<String>> credentialStores, Duration singleCliBudget,
+        Duration overviewBudget) {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.fanOut = Objects.requireNonNull(fanOut, "fanOut");
@@ -146,8 +195,10 @@ public final class HealthService {
         this.gate = Objects.requireNonNull(gate, "gate");
         this.versions = Objects.requireNonNull(versions, "versions");
         this.clients = Objects.requireNonNull(clients, "clients");
-        this.withClient = Objects.requireNonNull(withClient, "withClient");
+        this.selection = Objects.requireNonNull(selection, "selection");
         this.credentialStores = Objects.requireNonNull(credentialStores, "credentialStores");
+        this.singleCliBudget = Objects.requireNonNull(singleCliBudget, "singleCliBudget");
+        this.overviewBudget = Objects.requireNonNull(overviewBudget, "overviewBudget");
     }
 
     /**
@@ -159,17 +210,50 @@ public final class HealthService {
      */
     public List<HealthReport> check(Optional<String> target, boolean includeSystemInfo) {
         List<NodeId> servers = target.map(targets::resolve).orElseGet(targets::all);
+        // decided before any contact; a refusal is the report's error (FR-001, research D-11)
+        Map<NodeId, Outcome<Channel>> accesses = new HashMap<>();
+        servers.forEach(server -> accesses.put(server, access(server)));
+        boolean overview = servers.size() > 1;
+        Duration cliBudget = overview ? overviewBudget : singleCliBudget;
         List<NodeResult<HealthReport>> results = fanOut.run(servers,
-            server -> timeouts.apply(server).plus(FAN_OUT_GRACE),
-            server -> checkServer(server, includeSystemInfo));
+            server -> isCli(accesses.get(server)) ? cliBudget
+                : timeouts.apply(server).plus(FAN_OUT_GRACE),
+            server -> checkServer(server, accesses.get(server), includeSystemInfo, cliBudget,
+                overview));
         return results.stream()
             .map(result -> result.payload()
                 .orElseGet(() -> failed(result.node(), result.error().orElseThrow())))
             .toList();
     }
 
-    private HealthReport checkServer(NodeId server, boolean includeSystemInfo)
+    /** How {@code server} is reached, or its refusal ({@link VersionGate#monitoringAccess}). */
+    private Outcome<Channel> access(NodeId server) {
+        try {
+            return Outcome.of(gate.monitoringAccess(server));
+        } catch (ToolErrorException e) {
+            return Outcome.failure(e.error());
+        }
+    }
+
+    private static boolean isCli(Outcome<Channel> access) {
+        return !access.failed() && access.value() == Channel.CLI;
+    }
+
+    /**
+     * @param access    how the server is reached, or its refusal
+     * @param cliBudget the bound of the call for a CLI-only node
+     * @param overview  whether the call addresses several nodes
+     */
+    private HealthReport checkServer(NodeId server, Outcome<Channel> access,
+        boolean includeSystemInfo, Duration cliBudget, boolean overview)
         throws InterruptedException {
+        if (access.failed()) {
+            return failed(server, access.error());
+        }
+        if (access.value() == Channel.CLI) {
+            // never REST to a CLI-only node
+            return checkServerViaCli(server, cliBudget.minus(FAN_OUT_GRACE), overview);
+        }
         Duration timeout = timeouts.apply(server);
         long deadline = System.nanoTime() + timeout.plus(PART_GRACE).toNanos();
         long budgetEnd = deadline - PART_GRACE.toNanos();
@@ -201,10 +285,8 @@ public final class HealthService {
             Future<Readiness> ready = executor.submit(monitoring::ready);
             Future<SystemInfo> systemInfo = executor.submit(monitoring::systemInfo);
             // the local client probe, bounded by what is left of the budget (FR-002)
-            Future<ClientVersion> probe = withClient.test(server)
-                && versions.needsClientProbe(server)
-                ? executor.submit(() -> clients.probe(server, remaining(budgetEnd)))
-                : null;
+            StartedProbe probe = startProbe(executor, server, versions.effectiveVersion(server),
+                budgetEnd);
             // unconfirmed credentials: one login attempt at a time (Phase 3 review M2)
             boolean serialized = !monitoring.credentialsConfirmed();
             AtomicLong metricsStart = new AtomicLong();
@@ -241,7 +323,9 @@ public final class HealthService {
                 gate.admitMonitoring(server, read).warnings());
             read.flatMap(version -> pinWarning(server, versions.state(server).setting(), version))
                 .ifPresent(versionWarnings::add);
-            ClientPart client = client(server, probe, deadline, timeout);
+            Optional<InubitVersion> observed = read.or(() -> versions.effectiveVersion(server));
+            ClientPart client = client(server, observed, probe, executor, deadline, budgetEnd,
+                timeout);
             client.warning().ifPresent(versionWarnings::add);
             return assemble(server, gatewayWarnings(server), versionWarnings, health, readiness,
                 info, load, client, includeSystemInfo);
@@ -249,6 +333,92 @@ public final class HealthService {
             // never close(): it would wait for calls that ignore interrupts
             executor.shutdownNow();
         }
+    }
+
+    /**
+     * The StartCLI path (research D-6): credentials, then the session in parallel with the client
+     * probe, both within {@code budget}.
+     *
+     * @param budget   what the node's session and probe may take
+     * @param overview whether the call addresses several nodes
+     */
+    private HealthReport checkServerViaCli(NodeId server, Duration budget, boolean overview)
+        throws InterruptedException {
+        long deadline = System.nanoTime() + budget.plus(PART_GRACE).toNanos();
+        long budgetEnd = deadline - PART_GRACE.toNanos();
+        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        try {
+            // the session logs in with the credentials, so they come first (R-9, US1-6)
+            Duration bound = remaining(budgetEnd);
+            Outcome<CredentialState> credentials = await(executor.submit(() ->
+                gateways.prepareCredentials(server, bound)), deadline, server, budget,
+                "while preparing the connection");
+            if (credentials.failed()) {
+                return failed(server, credentials.error());
+            }
+            if (credentials.value() == CredentialState.PENDING) {
+                return failed(server, credentialsPending(server, budget));
+            }
+            Outcome<CliHealthPort> port = await(executor.submit(() ->
+                gateways.cliHealth(server).orElseThrow(() -> new IllegalStateException(
+                    "no StartCLI health port for " + server))), deadline, server, budget,
+                "while preparing the connection");
+            if (port.failed()) {
+                return failed(server, port.error());
+            }
+            CliHealthPort cli = port.value();
+            Future<CliHealthSnapshot> session = executor.submit(() ->
+                cli.snapshot(remaining(budgetEnd)));
+            StartedProbe probe = startProbe(executor, server, versions.effectiveVersion(server),
+                budgetEnd);
+            Outcome<CliHealthSnapshot> snapshot = await(session, deadline, server, budget,
+                "to the StartCLI health session");
+            if (snapshot.failed() && snapshot.error().code() == ErrorCode.TIMEOUT
+                && System.nanoTime() - budgetEnd >= 0) {
+                // the budget ran out, not the node's cliTimeout
+                snapshot = Outcome.failure(sessionTimeout(server, budget, overview));
+            }
+            List<String> versionWarnings = new ArrayList<>();
+            Optional<InubitVersion> serverRead = Optional.empty();
+            if (!snapshot.failed()) {
+                CliHealthSnapshot read = snapshot.value();
+                if (read.versionIsServer()) {
+                    serverRead = read.versionText().flatMap(InubitVersion::parse);
+                    serverRead.ifPresent(version -> {
+                        versions.observed(server, version);
+                        pinWarning(server, versions.state(server).setting(), version, true)
+                            .ifPresent(versionWarnings::add);
+                    });
+                } else {
+                    // FR-006: the client's version is neither reported nor observed
+                    read.versionText().ifPresent(text -> versionWarnings.add("the version "
+                        + text + " read on " + server + " is the StartCLI client's; the server"
+                        + " version cannot be read"));
+                }
+            }
+            Optional<InubitVersion> observed = serverRead.or(() ->
+                versions.effectiveVersion(server));
+            ClientPart client = client(server, observed, probe, executor, deadline, budgetEnd,
+                budget);
+            client.warning().ifPresent(versionWarnings::add);
+            return assembleCli(server, snapshot, client, versionWarnings);
+        } finally {
+            // never close(): it would wait for calls that ignore interrupts
+            executor.shutdownNow();
+        }
+    }
+
+    /** The TIMEOUT of a StartCLI health session that outlasted the node's budget (FR-009). */
+    private static ToolError sessionTimeout(NodeId server, Duration budget, boolean overview) {
+        return ToolError.of(ErrorCode.TIMEOUT, "The StartCLI health session of " + server
+                + " did not finish within the get_health budget of " + Durations.human(budget),
+            "StartCLI (a Java process) or the INUBIT server is slow or hanging"
+                + (overview ? "; a call for several nodes has the shorter overview budget" : ""),
+            overview
+                ? "Call get_health for " + server + " alone, which allows "
+                    + Durations.human(CLI_ONLY_SINGLE_NODE_BUDGET) + ", or retry later"
+                : "Retry later; if it persists, check the INUBIT server of " + server)
+            .withNode(server);
     }
 
     /** What is left until {@code budgetEnd} (nano time), never negative. */
@@ -321,65 +491,144 @@ public final class HealthService {
      */
     static Optional<String> pinWarning(NodeId server, VersionSetting setting,
         InubitVersion read) {
+        return pinWarning(server, setting, read, false);
+    }
+
+    /**
+     * As above; for a node read through StartCLI ({@code cliOnly}) a contradiction refuses every
+     * tool except {@code get_health} (feature 012, FR-006) and the node has no writes.
+     */
+    static Optional<String> pinWarning(NodeId server, VersionSetting setting,
+        InubitVersion read, boolean cliOnly) {
         if (NodeVersionState.contradicts(setting, read)) {
             return Optional.of("versionLine " + setting.text() + " of " + server
-                + " contradicts INUBIT " + read.raw() + " read by get_health; writes on " + server
-                + " are refused until get_health reads a matching version or versionLine is"
-                + " corrected and the server restarted");
+                + " contradicts INUBIT " + read.raw() + " read by get_health; "
+                + (cliOnly ? "every tool except get_health is refused on " + server
+                    : "writes on " + server + " are refused")
+                + " until get_health reads a matching version or versionLine is corrected and"
+                + " the server restarted");
         }
         if (setting instanceof VersionSetting.Pinned pinned && read.patch().isPresent()
             && !read.patch().equals(pinned.version().patch())) {
             return Optional.of("INUBIT " + read.raw() + " on " + server + " differs from its"
-                + " versionLine " + setting.text() + " in the patch only; writes stay allowed,"
-                + " but correct versionLine of " + server);
+                + " versionLine " + setting.text() + " in the patch only; "
+                + (cliOnly ? "its tools stay available" : "writes stay allowed")
+                + ", but correct versionLine of " + server);
         }
         return Optional.empty();
     }
 
+    /** A client probe this call started: the client it was chosen for and its outcome. */
+    private record StartedProbe(ClientKey key, Future<ProbedClient> outcome) {
+    }
+
     /**
-     * The client of the report, after this call's observation: from {@code probe} (recorded in
-     * {@link NodeVersions}) or the known result; a failed probe, or one in its back-off, is the
-     * part {@code client} in {@code unavailable}.
-     *
-     * @param probe the probe of this call, {@code null} if none was started
+     * The probe of the client chosen for {@code version}, bounded by what is left until
+     * {@code budgetEnd}; {@code null} if that client is not installed or needs no probe (its
+     * result is known or a failed probe of it is younger than 60 s).
      */
-    private ClientPart client(NodeId server, Future<ClientVersion> probe, long deadline,
+    private StartedProbe startProbe(ExecutorService executor, NodeId server,
+        Optional<InubitVersion> version, long budgetEnd) {
+        Optional<ClientKey> key = selection.current(server, version);
+        if (key.isEmpty() || !selection.available(server, version)
+            || !versions.needsClientProbe(server, key.get())) {
+            return null;
+        }
+        return new StartedProbe(key.get(), executor.submit(() -> clients.probe(server, version,
+            remaining(budgetEnd))));
+    }
+
+    /**
+     * Records the outcome of {@code probe} in {@link NodeVersions}; the part {@code client} in
+     * {@code unavailable} if it failed.
+     */
+    private Optional<UnavailablePart> record(NodeId server, StartedProbe probe, long deadline,
         Duration timeout) throws InterruptedException {
-        if (!withClient.test(server)) {
+        Outcome<ProbedClient> probed = await(probe.outcome(), deadline, server, timeout,
+            "to the client probe");
+        if (probed.failed()) {
+            ToolError error = probed.error();
+            versions.clientProbeFailed(server, probe.key(), error.code());
+            return Optional.of(error.code() == ErrorCode.TIMEOUT
+                ? clientTimeout(server, timeout)
+                : UnavailablePart.of(UnavailablePart.CLIENT, error));
+        }
+        versions.clientProbed(server, probed.value());
+        return Optional.empty();
+    }
+
+    /**
+     * The client of the report, after this call's observation (research D-6): the client chosen
+     * for {@code observed}, the version this call read (or, without a read, the node's known
+     * version), not for the shared state an overlapping call may have changed since. Its result
+     * comes from {@code probe} (recorded in {@link NodeVersions}), the known result, or one more
+     * probe within what is left until {@code budgetEnd} when {@code probe} was for another
+     * client; with nothing left that client "has not been checked yet". A failed probe, or one
+     * in its back-off, is the part {@code client} in {@code unavailable}.
+     *
+     * @param probe the probe this call started, {@code null} if none
+     */
+    private ClientPart client(NodeId server, Optional<InubitVersion> observed,
+        StartedProbe probe, ExecutorService executor, long deadline, long budgetEnd,
+        Duration timeout) throws InterruptedException {
+        Optional<UnavailablePart> started = probe == null ? Optional.empty()
+            : record(server, probe, deadline, timeout);
+        Optional<ClientKey> current = selection.current(server, observed);
+        if (current.isEmpty() || !selection.available(server, observed)) {
             return new ClientPart(Optional.of(HealthReport.Client.NOT_AVAILABLE),
                 Optional.empty(), Optional.empty());
         }
-        if (probe != null) {
-            Outcome<ClientVersion> probed = await(probe, deadline, server, timeout,
-                "to the client probe");
-            if (probed.failed()) {
-                ToolError error = probed.error();
-                versions.clientProbeFailed(server, error.code());
-                UnavailablePart part = error.code() == ErrorCode.TIMEOUT
-                    ? clientTimeout(server, timeout)
-                    : UnavailablePart.of(UnavailablePart.CLIENT, error);
-                return new ClientPart(Optional.empty(), Optional.of(part), Optional.empty());
+        ClientKey key = current.get();
+        boolean probedThis = probe != null && probe.key().equals(key);
+        if (probedThis && started.isPresent()) {
+            return unavailable(started.get());
+        }
+        if (!probedThis && versions.needsClientProbe(server, key)) {
+            // the version this call read chose another client (FR-017)
+            if (remaining(budgetEnd).isZero()) {
+                return unavailable(notCheckedYet(server, observed));
             }
-            versions.clientProbed(server, probed.value());
+            Optional<UnavailablePart> again = record(server, new StartedProbe(key,
+                executor.submit(() -> clients.probe(server, observed, remaining(budgetEnd)))),
+                deadline, timeout);
+            if (again.isPresent()) {
+                return unavailable(again.get());
+            }
         }
         NodeVersionState state = versions.state(server);
-        if (state.client().isEmpty()) {
+        Optional<Timed<ClientVersion>> result = state.clientFor(key);
+        if (result.isEmpty()) {
+            Optional<Timed<ErrorCode>> failed = state.clientFailureFor(key);
+            if (failed.isEmpty()) {
+                return unavailable(notCheckedYet(server, observed));
+            }
             // no probe within 60 s of a failed one
-            Timed<ErrorCode> failure = state.clientFailure().orElseThrow();
+            Timed<ErrorCode> failure = failed.get();
             Instant retry = failure.at().plus(NodeVersionState.RETRY_AFTER);
-            return new ClientPart(Optional.empty(), Optional.of(new UnavailablePart(
+            return unavailable(new UnavailablePart(
                 UnavailablePart.CLIENT, failure.value() + ": "
                     + (failure.value() == ErrorCode.TIMEOUT ? NOT_YET_DETECTED + "; " : "")
                     + "the StartCLI client probe of " + server + " failed at " + failure.at()
                     + "; it is retried from " + retry,
-                Optional.empty(), Optional.of("Call get_health again after " + retry))),
-                Optional.empty());
+                Optional.empty(), Optional.of("Call get_health again after " + retry)));
         }
-        ClientVersion known = state.client().get().value();
-        Optional<InubitVersion> serverVersion = versions.effectiveVersion(server);
-        ClientVersion.Comparison comparison = known.compare(serverVersion);
+        ClientVersion known = result.get().value();
+        ClientVersion.Comparison comparison = known.compare(observed);
         return new ClientPart(Optional.of(HealthReport.Client.of(known, comparison)),
-            Optional.empty(), clientWarning(server, known, serverVersion, comparison));
+            Optional.empty(), clientWarning(server, known, observed, comparison));
+    }
+
+    private static ClientPart unavailable(UnavailablePart part) {
+        return new ClientPart(Optional.empty(), Optional.of(part), Optional.empty());
+    }
+
+    /** The client chosen for {@code observed} whose probe did not fit into the budget. */
+    private static UnavailablePart notCheckedYet(NodeId server,
+        Optional<InubitVersion> observed) {
+        return new UnavailablePart(UnavailablePart.CLIENT, "the StartCLI client for "
+                + observed.map(version -> "INUBIT " + version.raw()).orElse("this version")
+                + " on " + server + " has not been checked yet",
+            Optional.empty(), Optional.of("Call get_health again"));
     }
 
     /**
@@ -503,23 +752,62 @@ public final class HealthService {
         client.unavailable().ifPresent(unavailable::add);
 
         if (maintenanceMode.orElse(false)) {
-            warnings.add(server + " is in maintenance mode and therefore not processing"
-                + " normally");
+            warnings.add(maintenanceWarning(server));
         }
         warnings.addAll(versionWarnings);
 
         return new HealthReport(server, server.group(), checkedAt, reachable, status, isReady,
-            readyMessage, maintenanceMode, version, info, load, client.client(), unavailable,
-            reachable ? Optional.empty() : Optional.of(healthcheck.error()),
+            readyMessage, maintenanceMode, version, info, load, Optional.empty(), client.client(),
+            unavailable, reachable ? Optional.empty() : Optional.of(healthcheck.error()),
             List.copyOf(warnings));
+    }
+
+    /**
+     * The report of a node read through StartCLI: from the snapshot, or with its error and the
+     * parts it would have read as unavailable.
+     */
+    private HealthReport assembleCli(NodeId server, Outcome<CliHealthSnapshot> snapshot,
+        ClientPart client, List<String> versionWarnings) {
+        List<UnavailablePart> unavailable = new ArrayList<>();
+        Set<String> warnings = new LinkedHashSet<>();
+        if (snapshot.failed()) {
+            for (String part : List.of(UnavailablePart.VERSION, UnavailablePart.LOAD,
+                UnavailablePart.PROCESS_COUNTS)) {
+                unavailable.add(UnavailablePart.of(part, snapshot.error()));
+            }
+            client.unavailable().ifPresent(unavailable::add);
+            warnings.addAll(versionWarnings);
+            return new HealthReport(server, server.group(), clock.instant(), false,
+                HealthStatus.UNKNOWN, Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                client.client(), unavailable, Optional.of(snapshot.error()),
+                List.copyOf(warnings));
+        }
+        CliHealthSnapshot read = snapshot.value();
+        unavailable.addAll(read.missing());
+        client.unavailable().ifPresent(unavailable::add);
+        if (read.maintenance().orElse(false)) {
+            warnings.add(maintenanceWarning(server));
+        }
+        warnings.addAll(versionWarnings);
+        return new HealthReport(server, server.group(), clock.instant(), true,
+            read.alive() ? HealthStatus.OK : HealthStatus.ERROR, Optional.empty(),
+            Optional.empty(), read.maintenance(),
+            read.versionIsServer() ? read.versionText() : Optional.empty(), Optional.empty(),
+            read.memory().map(LoadFigures::of), read.counts(), client.client(), unavailable,
+            Optional.empty(), List.copyOf(warnings));
+    }
+
+    private static String maintenanceWarning(NodeId server) {
+        return server + " is in maintenance mode and therefore not processing normally";
     }
 
     private HealthReport failed(NodeId server, ToolError error) {
         return new HealthReport(server, server.group(), clock.instant(), false,
             HealthStatus.UNKNOWN, Optional.empty(), Optional.empty(), Optional.empty(),
-            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), List.of(),
-            Optional.of(error.node().isPresent() ? error : error.withNode(server)),
-            List.of());
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+            Optional.empty(), List.of(),
+            Optional.of(error.node().isPresent() ? error : error.withNode(server)), List.of());
     }
 
     /** Waits for {@code future} until {@code deadline} (nano time); interrupts are passed on. */

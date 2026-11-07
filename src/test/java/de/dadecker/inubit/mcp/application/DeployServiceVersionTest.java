@@ -7,12 +7,14 @@ import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.DeploymentPreview;
 import de.dadecker.inubit.mcp.domain.model.DeploymentResult;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -120,14 +122,57 @@ class DeployServiceVersionTest extends DeployExecution {
     }
 
     @Test
-    void aDeploymentFrom81To90IsRefusedAfterOnlyTheDetections() {
+    void aDeploymentFrom90To90RunsWithoutVersionWarnings() {
+        // T032 (feature 017, US1): 9.0 on both sides deploys like 8.1
+        harness(false);
+        detected("9.0.7", "9.0.7");
+        DeploymentPreview preview = preview();
+        executeStart();
+        DeployHarness.TARGETS.forEach(this::deployed);
+
+        DeploymentResult result = execute(preview);
+
+        assertThat(preview.executable()).isTrue();
+        assertThat(preview.warnings()).isEmpty();
+        assertThat(result.outcome()).isEqualTo(DeploymentResult.Outcome.EXECUTED);
+        assertThat(result.warnings()).noneMatch(warning -> warning.contains("INUBIT"));
+        harness.verifyComplete();
+    }
+
+    @Test
+    void aDeploymentFromAPinned90SourceToADetected90TargetRuns() {
+        harness(false);
+        sources(VersionSetting.V9_0);
+        targets(VersionSetting.AUTO);
+        DeployHarness.TARGETS.forEach(node -> harness.detection.answer(node, "9.0.7"));
+        DeploymentPreview preview = preview();
+
+        assertThat(preview.executable()).isTrue();
+        assertThat(preview.warnings()).isEmpty();
+    }
+
+    @Test
+    void aDeploymentFrom81To90IsRefusedForDifferentMinorVersions() {
+        // T032: 8.1 and 9.0 are each supported, but a deployment needs one minor version
         harness(false);
         detected("8.1.17", "9.0.7");
 
         ToolError error = refusedPreview();
 
-        assertThat(error.message()).contains("INUBIT 9.0.7 on int/node1 does not support"
-            + " deployment yet", "different INUBIT minor versions (8.1, 9.0)");
+        assertThat(error.message()).contains("different INUBIT minor versions (8.1, 9.0)")
+            .doesNotContain("does not support deployment");
+        assertThat(error.nextStep()).contains("same INUBIT minor version");
+    }
+
+    @Test
+    void aDeploymentFrom81To91IsRefusedAfterOnlyTheDetections() {
+        harness(false);
+        detected("8.1.17", "9.1.0");
+
+        ToolError error = refusedPreview();
+
+        assertThat(error.message()).contains("INUBIT 9.1.0 on int/node1 does not support"
+            + " deployment yet", "different INUBIT minor versions (8.1, 9.1)");
         assertThat(error.nextStep()).contains("same INUBIT minor version");
         assertThat(harness.detection.requests()).containsExactlyInAnyOrderElementsOf(NODES);
     }
@@ -137,7 +182,7 @@ class DeployServiceVersionTest extends DeployExecution {
         harness(false);
         sources(pin("8.1.17"));
         harness.versionLines.put(DeployHarness.INT1, VersionSetting.AUTO);
-        harness.detection.answer(DeployHarness.INT1, "9.0.7");
+        harness.detection.answer(DeployHarness.INT1, "9.1.0");
         harness.versionLines.put(DeployHarness.INT2, VersionSetting.AUTO);
         harness.detection.fail(DeployHarness.INT2, ErrorCode.AUTH_FAILED);
         harness.versionLines.put(DeployHarness.INT3, VersionSetting.V9_X);
@@ -147,9 +192,9 @@ class DeployServiceVersionTest extends DeployExecution {
         assertThat(error.message()).isEqualTo("deploy_release: refused nodes: int/node1,"
             + " int/node2, int/node3; deployment from dev into int"
             + " refused (the version check refused int/node1, int/node2, int/node3; the nodes"
-            + " run different INUBIT minor versions (8.1, 9.0)). Sources: dev/node1 INUBIT"
-            + " 8.1.17, dev/node2 INUBIT 8.1.17. Targets: int/node1 INUBIT 9.0.7 (refused:"
-            + " INUBIT 9.0.7 on int/node1 does not support deployment yet), int/node2 INUBIT"
+            + " run different INUBIT minor versions (8.1, 9.1)). Sources: dev/node1 INUBIT"
+            + " 8.1.17, dev/node2 INUBIT 8.1.17. Targets: int/node1 INUBIT 9.1.0 (refused:"
+            + " INUBIT 9.1.0 on int/node1 does not support deployment yet), int/node2 INUBIT"
             + " version unknown (refused: Deployment refused: the INUBIT version of int/node2"
             + " is unknown (AUTH_FAILED at 2026-10-07T10:00:00Z)), int/node3 INUBIT 9.x"
             + " (versionLine V9_X) (refused: INUBIT 9.x (versionLine V9_X) on int/node3 does"
@@ -166,7 +211,7 @@ class DeployServiceVersionTest extends DeployExecution {
         // the audit keeps only the first 200 characters of the reason (Constitution VII)
         harness(false);
         sources(pin("8.1.17"));
-        harness.versionLines.put(DeployHarness.INT1, pin("9.0.7"));
+        harness.versionLines.put(DeployHarness.INT1, pin("9.1.0"));
         harness.versionLines.put(DeployHarness.INT3, VersionSetting.V9_X);
 
         refusedPreview();
@@ -240,13 +285,13 @@ class DeployServiceVersionTest extends DeployExecution {
         DeploymentPreview preview = preview();
         int launches = harness.launches().size();
         int restCalls = harness.restCalls.size();
-        harness.detection.answer(DeployHarness.INT2, "9.0.7");
+        harness.detection.answer(DeployHarness.INT2, "9.1.0");
         harness.clock.advance(Duration.ofMinutes(11)); // FR-010: older than the bound
 
         ToolError error = failure(preview).error();
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
-        assertThat(error.message()).contains("int/node2 INUBIT 9.0.7 (refused:");
+        assertThat(error.message()).contains("int/node2 INUBIT 9.1.0 (refused:");
         assertThat(audit()).last().satisfies(record -> {
             assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED);
             assertThat(record.step()).isEqualTo(AuditRecord.Step.EXECUTE);
@@ -262,8 +307,9 @@ class DeployServiceVersionTest extends DeployExecution {
         harness(false);
         sources(pin("8.1.17"));
         targets(pin("8.1.17"));
-        harness.versions.clientProbed(DeployHarness.INT1, new ClientVersion(version("8.0.5"),
-            Optional.of(version("4.0.1")), Optional.of(version("8.0.5"))));
+        harness.versions.clientProbed(DeployHarness.INT1, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(version("8.0.5"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.0.5")))));
 
         ToolError error = refusedPreview();
 
@@ -280,8 +326,9 @@ class DeployServiceVersionTest extends DeployExecution {
         harness(false);
         sources(pin("8.1.17"));
         targets(pin("8.1.18"));
-        harness.versions.clientProbed(DeployHarness.INT1, new ClientVersion(version("8.1.17"),
-            Optional.of(version("4.0.1")), Optional.of(version("8.1.17"))));
+        harness.versions.clientProbed(DeployHarness.INT1, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(version("8.1.17"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.1.17")))));
         DeploymentPreview preview = preview();
         executeStart();
         DeployHarness.TARGETS.forEach(this::deployed);

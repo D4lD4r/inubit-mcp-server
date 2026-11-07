@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.adapter.rest.v81;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.absent;
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
@@ -73,7 +74,8 @@ class V81MaintenanceProbeTest {
 
         assertThat(probe()).contains(true);
         wireMock.verify(1, getRequestedFor(urlEqualTo(HEALTHCHECK))
-            .withHeader("Authorization", absent()));
+            .withHeader("Authorization", absent())
+            .withHeader("Accept", equalTo("application/json, */*;q=0.1")));
     }
 
     @Test

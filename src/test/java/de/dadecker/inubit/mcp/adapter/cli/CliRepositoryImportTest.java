@@ -7,12 +7,19 @@ import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
+import de.dadecker.inubit.mcp.testing.TestPermits;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,6 +44,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 class CliRepositoryImportTest {
 
     private static final NodeId INT = NodeId.parse("int/node1");
+    private static final WritePermit PERMIT = TestPermits.of(INT, Capability.DEPLOYMENT);
     private static final byte[] ARCHIVE = {'P', 'K', 3, 4, 'r', 'e', 'p', 'o'};
 
     @TempDir
@@ -48,8 +56,7 @@ class CliRepositoryImportTest {
 
     @BeforeEach
     void installFakeCli() throws IOException {
-        Files.writeString(Files.createDirectories(cliHome.resolve("bin")).resolve("startcli.sh"),
-            "#!/bin/sh\n");
+        FakeStartCli.install(cliHome);
     }
 
     @AfterEach
@@ -58,8 +65,8 @@ class CliRepositoryImportTest {
     }
 
     private CliImportRunner imports() {
-        CliRunner runner = new CliRunner(cli, Map.of("PATH", "/usr/bin"), false,
-            new CliResources("acme"));
+        CliRunner runner = TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
+            new CliResources("acme", PrivateFiles.forHost()));
         NodeCredentials credentials = new NodeCredentials(INT,
             Optional.of(new SourcedValue<>("jdoe", "TARGET_USERNAME")),
             Optional.of(new SourcedValue<>(Secret.of("repo-import-pw"), "TARGET_PASSWORD")),
@@ -92,7 +99,7 @@ class CliRepositoryImportTest {
                 + " --importRepositoryPath '/Root/jdoe'$"))
             .capturingImportFile().replying("import_repository_ok");
 
-        imports().importRepository(ARCHIVE, "jdoe");
+        imports().importRepository(ARCHIVE, "jdoe", PERMIT);
 
         assertThat(cli.launches()).singleElement()
             .satisfies(launch -> assertThat(launch.importFile()).isEqualTo(ARCHIVE));
@@ -107,7 +114,7 @@ class CliRepositoryImportTest {
                 + " --importRepositoryPath '/Root/jdoe'$"))
             .replying("import_repository_new_files");
 
-        imports().importRepository(ARCHIVE, "jdoe");
+        imports().importRepository(ARCHIVE, "jdoe", PERMIT);
 
         assertTempRootEmpty();
     }
@@ -116,7 +123,7 @@ class CliRepositoryImportTest {
     void aRefusedImportIsImportFailed() throws IOException {
         cli.expect("import ").replying("import_nok");
 
-        ToolErrorException e = failure(() -> imports().importRepository(ARCHIVE, "OWNERS"));
+        ToolErrorException e = failure(() -> imports().importRepository(ARCHIVE, "OWNERS", PERMIT));
 
         assertThat(e.error().code()).isEqualTo(ErrorCode.IMPORT_FAILED);
         assertThat(e.error().node()).contains(INT);
@@ -132,7 +139,7 @@ class CliRepositoryImportTest {
             "", 0);
 
         for (int i = 0; i < 2; i++) {
-            assertThat(failure(() -> imports().importRepository(ARCHIVE, "jdoe")).error()
+            assertThat(failure(() -> imports().importRepository(ARCHIVE, "jdoe", PERMIT)).error()
                 .code()).isEqualTo(ErrorCode.IMPORT_FAILED);
         }
     }
@@ -140,7 +147,7 @@ class CliRepositoryImportTest {
     @ParameterizedTest
     @ValueSource(strings = {"", "it's", "a/b", "..", "-rf"})
     void anOwnerStartCliCannotTakeIsRefusedBeforeAnyLaunch(String owner) {
-        ToolErrorException e = failure(() -> imports().importRepository(ARCHIVE, owner));
+        ToolErrorException e = failure(() -> imports().importRepository(ARCHIVE, owner, PERMIT));
 
         assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT);
         assertThat(cli.launches()).isEmpty();

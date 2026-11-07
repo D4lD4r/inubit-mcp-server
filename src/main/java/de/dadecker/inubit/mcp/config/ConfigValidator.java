@@ -1,14 +1,21 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.MajorMinor;
+import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.net.URI;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -19,6 +26,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -46,8 +54,22 @@ public final class ConfigValidator {
     /** Upper bound of {@code confirmationTtl} (Phase 6 review W5). */
     static final Duration MAX_CONFIRMATION_TTL = Duration.ofHours(1);
 
+    /**
+     * The Java major each INUBIT version ships with (FR-006); other versions have no documented
+     * JDK and are not checked.
+     */
+    private static final Map<MajorMinor, Integer> SHIPPED_JAVA = Map.of(
+        new MajorMinor(8, 1), 17,
+        new MajorMinor(9, 0), 21);
+
     /** Upper bound of {@code defaults.deployConfirmationTtl} (feature 005, research D-2). */
     static final Duration MAX_DEPLOY_CONFIRMATION_TTL = Duration.ofHours(2);
+
+    /**
+     * The username length the Windows line-length check assumes (feature 013); the username is a
+     * credential, read on use, where the call checks the real one.
+     */
+    private static final int ASSUMED_USERNAME_LENGTH = 64;
 
     private final Predicate<Path> exists;
     private final Map<String, String> environment;
@@ -55,57 +77,58 @@ public final class ConfigValidator {
     private final Path tempDirectory;
     private final Function<Path, List<LoadedConfig>> otherProfiles;
     private final WorkspaceDirectory.Preparer workspaces;
+    private final StartCliHost host;
+    private final Function<Path, Optional<String>> releaseReader;
 
     /**
-     * @param exists      file-system check, injectable for tests
-     * @param environment the process environment (for the {@code JAVA_HOME} fallback and the
+     * @param exists        file-system check, injectable for tests
+     * @param environment   the process environment (for the {@code JAVA_HOME} fallback and the
      *     names of leftover credential variables; no credential value is read from it)
-     * @param windows     whether the server runs on Windows, where CLI tools are unsupported
-     */
-    public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
-        boolean windows) {
-        this(exists, environment, windows, Path.of(System.getProperty("java.io.tmpdir")));
-    }
-
-    /**
+     * @param windows       whether the server runs on Windows, where StartCLI receives its
+     *     values through the command interpreter (feature 013)
      * @param tempDirectory {@code java.io.tmpdir}, below which the inventory exports are written
      *     (its path is passed to StartCLI, review I9)
-     */
-    public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
-        boolean windows, Path tempDirectory) {
-        this(exists, environment, windows, tempDirectory, source -> List.of());
-    }
-
-    /**
      * @param otherProfiles the other profile files of the default configuration directory, given
      *     the file being checked ({@link ConfigLoader#otherProfiles}); compared best effort for a
      *     shared audit directory, credential prefix or profile name (002 T031)
-     */
-    public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
-        boolean windows, Path tempDirectory, Function<Path, List<LoadedConfig>> otherProfiles) {
-        this(exists, environment, windows, tempDirectory, otherProfiles,
-            WorkspaceDirectory::prepare);
-    }
-
-    /**
-     * @param workspaces creates and checks the workspace directory ({@link
-     *     WorkspaceDirectory#prepare} unless a test injects another)
+     * @param workspaces    creates and checks the workspace directory ({@link
+     *     WorkspaceDirectory#prepare} with the private files of the host, built by the launcher;
+     *     feature 013 T026)
      */
     public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
         boolean windows, Path tempDirectory, Function<Path, List<LoadedConfig>> otherProfiles,
         WorkspaceDirectory.Preparer workspaces) {
+        this(exists, environment, windows, tempDirectory, otherProfiles, workspaces,
+            StartCliHost.unchecked());
+    }
+
+    /**
+     * @param host what the Windows host reported before StartCLI can start ({@code
+     *     --check-config}; feature 013, contracts/configuration-delta.md); ignored off Windows
+     */
+    public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
+        boolean windows, Path tempDirectory, Function<Path, List<LoadedConfig>> otherProfiles,
+        WorkspaceDirectory.Preparer workspaces, StartCliHost host) {
+        this(exists, environment, windows, tempDirectory, otherProfiles, workspaces, host,
+            JdkRelease::read);
+    }
+
+    /**
+     * @param releaseReader reads a JDK's {@code release} file for its Java major ({@link
+     *     JdkRelease}, feature 017); empty when it cannot be read
+     */
+    public ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
+        boolean windows, Path tempDirectory, Function<Path, List<LoadedConfig>> otherProfiles,
+        WorkspaceDirectory.Preparer workspaces, StartCliHost host,
+        Function<Path, Optional<String>> releaseReader) {
+        this.releaseReader = Objects.requireNonNull(releaseReader, "releaseReader");
+        this.host = Objects.requireNonNull(host, "host");
         this.workspaces = Objects.requireNonNull(workspaces, "workspaces");
         this.tempDirectory = tempDirectory;
         this.exists = exists;
         this.environment = Map.copyOf(environment);
         this.windows = windows;
         this.otherProfiles = Objects.requireNonNull(otherProfiles, "otherProfiles");
-    }
-
-    /** A validator for the current process. */
-    public static ConfigValidator forSystem() {
-        return new ConfigValidator(Files::exists, System.getenv(),
-            System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows"));
     }
 
     /**
@@ -135,20 +158,26 @@ public final class ConfigValidator {
             checkServer(server, findings);
             checkDevelopment(server, findings);
             checkParameterNames(server, findings);
+            checkNodeJdk(server, config.defaults(), findings);
         }
+        checkCliClients(config.defaults(), findings);
         checkIgnoredParameterNames(config, findings);
         checkOneDevelopmentNodePerGroup(config, findings);
         checkRepositorySwitch(config, findings);
         checkArchivesOptIn(config, findings);
         checkE2eNodeNames(config, findings);
         checkChain(config, findings);
-        boolean cliConfigured = config.resolvableNodes().stream()
-            .anyMatch(EffectiveNodeConfig::cliConfigured);
-        if (!windows && cliConfigured && !CliPaths.exportRootUsable(tempDirectory)) {
-            findings.warning("java.io.tmpdir " + tempDirectory + " cannot be passed to StartCLI"
-                + " (it must match " + CliPaths.PATH_VALUE.pattern() + "); inventory exports"
+        boolean cliConfigured = !config.defaults().cliClients().isEmpty()
+            || config.resolvableNodes().stream().anyMatch(EffectiveNodeConfig::cliConfigured);
+        if (windows && cliConfigured) {
+            checkStartCliHost(findings);
+        }
+        Path exportRoot = CliPaths.forCommand(tempDirectory, windows);
+        if (cliConfigured && !CliPaths.exportRootUsable(exportRoot, windows)) {
+            findings.warning("java.io.tmpdir " + exportRoot + " cannot be passed to StartCLI"
+                + " (it must match " + CliPaths.rule(windows).pattern() + "); inventory exports"
                 + " report CLI_UNAVAILABLE. Start the MCP server with"
-                + " -Djava.io.tmpdir=<such a path>");
+                + " -Djava.io.tmpdir=<" + CliPaths.tmpdirHint(windows) + ">");
         }
         if (cliConfigured && config.resolvableNodes().stream()
             .allMatch(node -> node.inventory().owner().isEmpty())) {
@@ -591,12 +620,19 @@ public final class ConfigValidator {
         checkTls(server, findings);
         if (server.cliConfigured()) {
             checkCli(server, findings);
+        } else if (CapabilityMatrix.production().isCliOnly(
+            NodeVersionState.initial(server.versionLine()).effectiveVersion())) {
+            // feature 012 (FR-014): the server starts, the node answers CLI_UNAVAILABLE
+            findings.warning(id + ": INUBIT 6.1 is reached through StartCLI only, but no cliHome"
+                + " is configured; its capabilities report CLI_UNAVAILABLE");
         }
         if (server.versionLine().equals(VersionSetting.V9_X)) {
-            // feature 009 (research D-13)
-            findings.termWarning("%s: versionLine V9_X: write tools are refused on this {node}"
-                + " (INUBIT 9.x is not supported for writes yet); read tools run unverified", id);
+            // feature 017 (FR-011, research D-9); writes refused, reads unverified (009 D-13)
+            findings.warning("versionLine V9_X of " + id + " does not select 9.0 support; use"
+                + " V9_0 (INUBIT 9.0.x) or AUTO");
         }
+        // FR-010: the servlet address INUBIT 9.0.2 removed, for a pinned node only
+        server.cliForSetting().servletAddressWarning(server.id()).ifPresent(findings::warning);
         server.inventory().owner()
             .filter(owner -> !CLI_VALUE_PATTERN.matcher(owner).matches())
             .ifPresent(owner -> findings.error(id + ": inventory.owner must match "
@@ -1031,9 +1067,7 @@ public final class ConfigValidator {
     private void checkCli(EffectiveNodeConfig server, Findings findings) {
         String id = server.id().value();
         if (windows) {
-            findings.warning(id + ": CLI tools are not supported on Windows in this version;"
-                + " CLI-backed capabilities report CLI_UNAVAILABLE (REST tools work)");
-            return;
+            checkWindowsValues(server, findings);
         }
         server.startCliScript(windows)
             .filter(script -> !exists.test(script))
@@ -1045,13 +1079,263 @@ public final class ConfigValidator {
                 findings.warning(id + ": cli.javaHome " + javaHome + " not found; CLI-backed"
                     + " capabilities report CLI_UNAVAILABLE");
             }
-        } else {
-            String javaHome = environment.get("JAVA_HOME");
-            if (javaHome == null || javaHome.isBlank()) {
-                findings.warning(id + ": neither cliJavaHome / cli.javaHome nor JAVA_HOME is set;"
-                    + " CLI-backed capabilities report CLI_UNAVAILABLE");
-            }
+        } else if (serverJavaHome().isEmpty()) {
+            findings.warning(id + ": neither cliJavaHome / cli.javaHome nor JAVA_HOME is set;"
+                + " CLI-backed capabilities report CLI_UNAVAILABLE");
         }
+    }
+
+    /**
+     * Feature 017 (FR-006, research D-17): each {@code defaults.cliClients} entry, without
+     * starting it: a key the capability matrix does not declare, a missing {@code home} or
+     * {@code javaHome} directory, a {@code home} without StartCLI script, no JDK at all, the
+     * JDK major of an 8.1 or 9.0 entry, and on Windows the values
+     * StartCLI receives through the command interpreter (feature 013).
+     */
+    private void checkCliClients(Defaults defaults, Findings findings) {
+        defaults.cliClients().forEach((key, client) -> {
+            String subject = entrySubject(key);
+            if (!CapabilityMatrix.production().declares(key)) {
+                findings.warning(subject + ": INUBIT " + key.text() + " is not declared"
+                    + " supported; nodes detected as " + key.text() + " use this client with"
+                    + " unverified reads and refused writes");
+            }
+            // a home Windows refuses is named below, without naming its network host
+            boolean refusedHome = windows && (WindowsArguments.isUnc(client.home())
+                || WindowsArguments.refusal(client.home().toString()).isPresent());
+            if (!exists.test(client.home())) {
+                findings.warning(subject + ": home " + client.home() + " does not exist");
+            } else if (!refusedHome) {
+                // typically the INUBIT installation instead of its client directory
+                Path script = startCliScript(client.home());
+                if (!exists.test(script)) {
+                    findings.warning(subject + ": " + script + " not found; CLI-backed"
+                        + " capabilities report CLI_UNAVAILABLE on nodes using this entry");
+                }
+            }
+            client.javaHome().filter(javaHome -> !exists.test(javaHome))
+                .ifPresent(javaHome -> findings.warning(subject + ": javaHome " + javaHome
+                    + " does not exist"));
+            Optional<String> entryJdk = entryJavaHome(defaults, client);
+            entryJdk.ifPresent(javaHome -> checkJdk(subject, key, javaHome, findings));
+            if (entryJdk.isEmpty()) {
+                findings.warning(subject + ": neither its javaHome, defaults.cliJavaHome nor"
+                    + " JAVA_HOME is set; CLI-backed capabilities report CLI_UNAVAILABLE on nodes"
+                    + " using this entry without their own cli.javaHome");
+            }
+            if (windows) {
+                if (WindowsArguments.isUnc(client.home())) {
+                    findings.warning(subject + ": home is a network path (\\\\…); StartCLI needs"
+                        + " a local drive path on Windows");
+                }
+                refusedOnWindows(subject, "home", WindowsArguments.refusal(
+                    client.home().toString()), findings);
+                client.javaHome().map(Path::toString).ifPresent(javaHome ->
+                    refusedOnWindows(subject, "javaHome", javaRefusal(javaHome), findings));
+            }
+        });
+    }
+
+    /** {@code <home>/bin/startcli.sh} ({@code startcli.bat} on Windows). */
+    private Path startCliScript(Path home) {
+        return home.resolve("bin").resolve(windows ? "startcli.bat" : "startcli.sh");
+    }
+
+    /** {@code defaults.cliClients."<key>"}, the subject of an entry's warnings. */
+    public static String entrySubject(MajorMinor key) {
+        return "defaults.cliClients.\"" + key.text() + "\"";
+    }
+
+    /** The JDK of an entry as a node choosing it without own JDK gets it (research D-3). */
+    private Optional<String> entryJavaHome(Defaults defaults, CliClient client) {
+        return client.javaHome().or(defaults::cliJavaHome).map(Path::toString)
+            .or(this::serverJavaHome);
+    }
+
+    /**
+     * FR-006: the JDK of a node pinned to 8.1 or 9.0 (a pin or a line with minor), unless it is
+     * the JDK of the entry it chooses, already checked there. Only for a node whose client
+     * depends on its version, so that 0.8.0 profiles keep their output (FR-009).
+     */
+    private void checkNodeJdk(EffectiveNodeConfig server, Defaults defaults, Findings findings) {
+        Optional<InubitVersion> version =
+            NodeVersionState.initial(server.versionLine()).effectiveVersion();
+        if (version.isEmpty() || !server.choosesCliByVersion()) {
+            return;
+        }
+        CliChoice choice = server.cliForSetting();
+        if (choice.cli().home().isEmpty()) {
+            return;
+        }
+        Optional<String> javaHome = choice.cli().javaHome().map(Path::toString)
+            .or(this::serverJavaHome);
+        boolean entryJdk = choice.entry().map(defaults.cliClients()::get)
+            .flatMap(client -> entryJavaHome(defaults, client)).equals(javaHome);
+        if (!entryJdk) {
+            javaHome.ifPresent(home -> checkJdk(server.id().value(),
+                MajorMinor.of(version.get()), home, findings));
+        }
+    }
+
+    private void checkJdk(String subject, MajorMinor version, String javaHome,
+        Findings findings) {
+        Integer shipped = SHIPPED_JAVA.get(version);
+        if (shipped == null) {
+            return;
+        }
+        OptionalInt major;
+        try {
+            major = JdkRelease.major(Path.of(javaHome), releaseReader);
+        } catch (InvalidPathException e) {
+            return;
+        }
+        if (major.isPresent() && major.getAsInt() != shipped) {
+            findings.warning(subject + ": the JDK in " + javaHome + " is Java " + major.getAsInt()
+                + "; INUBIT " + version.text() + " ships with Java " + shipped);
+        }
+    }
+
+    private static Optional<String> javaRefusal(String value) {
+        return WindowsArguments.refusal(value)
+            .or(() -> value.indexOf(';') >= 0 ? Optional.of("semicolon") : Optional.empty());
+    }
+
+    /**
+     * Feature 017 (FR-006, contracts/configuration-delta.md → {@code --check-config}): the
+     * warning for a {@code defaults.cliClients} entry whose client's declared range excludes the
+     * entry's key; empty if the range includes it or cannot be evaluated.
+     */
+    public static Optional<String> clientRangeWarning(MajorMinor key, Path home,
+        ClientVersion client) {
+        if (client.compatibleWith(key.major(), OptionalInt.of(key.minor()))
+            != ClientVersion.Compatibility.INCOMPATIBLE) {
+            return Optional.empty();
+        }
+        return Optional.of(entrySubject(key) + ": the StartCLI client in " + home
+            + " supports INUBIT " + client.supportedFrom().orElseThrow().raw() + " to "
+            + client.supportedTo().orElseThrow().raw() + ", which excludes " + key.text());
+    }
+
+    /**
+     * Feature 012 (FR-012a, contracts/configuration-delta.md → Validation): the warnings for a
+     * node pinned to a CLI-only version (6.1) whose StartCLI client options were read by the local
+     * probe of {@code --check-config}; each names a refusal {@code V61Connection} makes at
+     * runtime. Not part of {@link #validate}, which runs no probes.
+     *
+     * @param terms          the profile's terminology (FR-007)
+     * @param options        the client options; an option that could not be read is absent
+     * @param trustStoreType the format of {@code tls.trustStore} ({@code JKS} or {@code PKCS12});
+     *                       ignored without a trust store
+     */
+    public static List<String> clientOptionWarnings(Terminology terms, EffectiveNodeConfig server,
+        CliClientOptions options, String trustStoreType) {
+        String id = server.id().value();
+        EffectiveNodeConfig.Tls tls = server.tls();
+        List<String> warnings = new ArrayList<>();
+        if (tls.disableHostnameVerification() && tls.pinnedCertificateSha256().isPresent()
+            && !options.disableHostNameVerification()) {
+            warnings.add(id + terms.render(": the StartCLI client offers no option to skip"
+                + " host-name verification; StartCLI-backed tools on this {node} are refused"
+                + " (TLS_ERROR)"));
+        }
+        if (tls.trustStore().isPresent() && trustStoreType.equals("PKCS12")
+            && options.javaFeatureVersion().filter(java -> java >= 8).isEmpty()) {
+            warnings.add(id + ": the StartCLI runtime (Java " + options.javaFeatureVersion()
+                .map(String::valueOf).orElse("unknown") + ") cannot read the PKCS12 trust store;"
+                + " convert it to JKS or set cliJavaHome");
+        }
+        if (!options.trustStoreFilePath() && tls.trustStore()
+            .filter(path -> path.toString().chars().anyMatch(Character::isWhitespace))
+            .isPresent()) {
+            warnings.add(id + ": the trust-store path contains spaces, which the StartCLI runtime"
+                + " settings cannot carry; use a path without spaces");
+        }
+        return warnings;
+    }
+
+    /**
+     * The server's {@code JAVA_HOME} as {@code CliRunner} resolves it: on Windows the name is
+     * matched ignoring case ({@link WindowsArguments#environmentValue}); blank counts as unset.
+     */
+    private Optional<String> serverJavaHome() {
+        return Optional.ofNullable(windows
+                ? WindowsArguments.environmentValue(environment, "JAVA_HOME")
+                : environment.get("JAVA_HOME"))
+            .filter(value -> !value.isBlank());
+    }
+
+    /**
+     * Feature 013 (FR-002, FR-011, contracts/configuration-delta.md): the configured values that
+     * StartCLI receives through the Windows command interpreter, checked as {@code CliRunner}
+     * checks them per call. The messages name the setting and the character class, never the
+     * value.
+     */
+    private void checkWindowsValues(EffectiveNodeConfig server, Findings findings) {
+        String id = server.id().value();
+        Path home = server.cli().home().orElseThrow();
+        if (WindowsArguments.isUnc(home)) {
+            findings.warning(id + ": cli.home is a network path (\\\\…); StartCLI needs a local"
+                + " drive path on Windows");
+        }
+        refusedOnWindows(id, "cli.home", WindowsArguments.refusal(home.toString()), findings);
+        Optional<String> javaHome = server.cli().javaHome().map(Path::toString)
+            .or(this::serverJavaHome);
+        javaHome.ifPresent(value -> refusedOnWindows(id,
+            server.cli().javaHome().isPresent() ? "cli.javaHome" : "JAVA_HOME",
+            javaRefusal(value), findings));
+        server.tls().trustStore().ifPresent(trustStore -> refusedOnWindows(id, "tls.trustStore",
+            WindowsArguments.refusal(trustStore.toString()), findings));
+        refusedOnWindows(id, "cli.url", WindowsArguments.refusal(server.cli().url().toString()),
+            findings);
+        checkWindowsLineLength(server, findings);
+    }
+
+    private static void refusedOnWindows(String id, String setting, Optional<String> refusal,
+        Findings findings) {
+        refusal.ifPresent(characterClass -> findings.warning(id + ": " + setting + " contains a"
+            + " character the Windows command interpreter interprets (" + characterClass + ");"
+            + " CLI-backed capabilities report CLI_UNAVAILABLE"));
+    }
+
+    /**
+     * The command line of a call with an empty command and a username of {@link
+     * #ASSUMED_USERNAME_LENGTH} characters, built as {@code CliRunner} builds it; too long, it
+     * names the longest configured value.
+     */
+    private static void checkWindowsLineLength(EffectiveNodeConfig server, Findings findings) {
+        List<String> arguments = new ArrayList<>(List.of("-u",
+            "u".repeat(ASSUMED_USERNAME_LENGTH)));
+        server.tls().trustStore().ifPresent(trustStore -> {
+            arguments.add("--trustStoreFilePath");
+            arguments.add(trustStore.toString());
+        });
+        if (server.tls().disableHostnameVerification()) {
+            arguments.add("--disableHostNameVerification");
+        }
+        arguments.addAll(List.of("--execCommand", "", server.cli().url().toString()));
+        String script = server.startCliScript(true).orElseThrow().toString();
+        if (WindowsArguments.lineLength(script, arguments) > WindowsArguments.MAX_LINE_LENGTH) {
+            Map<String, Integer> lengths = new LinkedHashMap<>();
+            lengths.put("cli.home", server.cli().home().orElseThrow().toString().length());
+            server.tls().trustStore().ifPresent(trustStore ->
+                lengths.put("tls.trustStore", trustStore.toString().length()));
+            lengths.put("cli.url", server.cli().url().toString().length());
+            String longest = lengths.entrySet().stream().max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey).orElseThrow();
+            findings.warning(server.id().value() + ": the StartCLI command line would exceed "
+                + WindowsArguments.MAX_LINE_LENGTH + " characters (" + longest + "); CLI-backed"
+                + " capabilities report CLI_UNAVAILABLE");
+        }
+    }
+
+    /** Once per profile: what the Windows host reported before StartCLI can start. */
+    private void checkStartCliHost(Findings findings) {
+        host.systemDirectoryProblem().ifPresent(reason -> findings.warning("StartCLI cannot be"
+            + " started: the Windows system directory could not be read (" + reason + ");"
+            + " CLI-backed capabilities report CLI_UNAVAILABLE"));
+        host.containmentProblem().ifPresent(reason -> findings.warning("StartCLI processes could"
+            + " not be bound to the server (" + reason + "); CLI-backed capabilities report"
+            + " CLI_UNAVAILABLE"));
     }
 
     private static void checkPositive(String id, String key, Duration value, Findings findings) {

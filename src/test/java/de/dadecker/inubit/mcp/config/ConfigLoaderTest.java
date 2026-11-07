@@ -866,13 +866,14 @@ class ConfigLoaderTest {
 
     /**
      * Feature 009 (T005, research D-2, contracts/configuration-delta.md): {@code versionLine}
-     * accepts {@code AUTO}, {@code V8_1}, {@code V9_X} or a full version as a string.
+     * accepts {@code AUTO}, {@code V8_1}, {@code V9_X} or a full version as a string; feature 012
+     * (T003, FR-002) adds {@code V6_1}; feature 017 (T003, research D-9) adds {@code V9_0}.
      */
     @Nested
     class VersionLineValues {
 
         private static final String EXPECTED =
-            "expected AUTO, V8_1, V9_X or a full version such as \"8.1.17\"";
+            "expected AUTO, V6_1, V8_1, V9_0, V9_X or a full version such as \"8.1.17\"";
 
         private VersionSetting nodeSetting(String value) {
             String yaml = MINIMAL.replace("baseUrl:",
@@ -891,6 +892,22 @@ class ConfigLoaderTest {
                 OptionalInt.empty()));
             assertThat(List.of(nodeSetting("AUTO"), nodeSetting("V8_1"), nodeSetting("V9_X"))
                 .stream().map(VersionSetting::text)).containsExactly("AUTO", "V8_1", "V9_X");
+        }
+
+        @Test
+        void sixOneIsALineAndAFourPartPin() {
+            assertThat(nodeSetting("V6_1")).isEqualTo(VersionSetting.V6_1);
+            assertThat(nodeSetting("V6_1").text()).isEqualTo("V6_1");
+            assertThat(nodeSetting("\"6.1.0.89-HF1\"")).isEqualTo(new VersionSetting.Pinned(
+                new InubitVersion(6, 1, OptionalInt.of(0), "6.1.0.89-HF1")));
+        }
+
+        @Test
+        void nineZeroIsALineBesideTheMajorOnlyLine() {
+            assertThat(nodeSetting("V9_0")).isEqualTo(VersionSetting.V9_0)
+                .isEqualTo(new VersionSetting.Line(9, OptionalInt.of(0)));
+            assertThat(nodeSetting("V9_0").text()).isEqualTo("V9_0");
+            assertThat(nodeSetting("V9_X")).isEqualTo(VersionSetting.V9_X);
         }
 
         @Test
@@ -923,7 +940,7 @@ class ConfigLoaderTest {
         }
 
         @ParameterizedTest
-        @ValueSource(strings = {"8.1", "\"8.1\"", "\"V10\"", "auto", "\"\"", "17", "true",
+        @ValueSource(strings = {"8.1", "\"8.1\"", "\"6.1\"", "\"V10\"", "auto", "\"\"", "17", "true",
             "\"x8.1.17\""})
         void anythingElseIsRefusedWithoutEcho(String value) {
             String yaml = MINIMAL.replace("baseUrl:",
@@ -1264,6 +1281,53 @@ class ConfigLoaderTest {
                 "    deploy:\n      source: dev\n    nodes:"), home.resolve("d.yaml")))
                 .isInstanceOf(ConfigException.class)
                 .hasMessageContaining("Unknown key 'source'");
+        }
+    }
+
+    /** Feature 016 (T012, contracts/configuration-delta.md). */
+    @Nested
+    class UpdateCheck {
+
+        private LoadedConfig parse(String yaml) {
+            return loader().parse(yaml, home.resolve("u.yaml"));
+        }
+
+        @Test
+        void theCheckIsOnUnlessTurnedOff() {
+            assertThat(parse(MINIMAL).config().updateCheck()).isEqualTo(UpdateCheckConfig.DEFAULT);
+            assertThat(UpdateCheckConfig.DEFAULT.on()).isTrue();
+            assertThat(parse(MINIMAL + "updateCheck:\n  enabled: false\n").config().updateCheck()
+                .on()).isFalse();
+            assertThat(parse(MINIMAL + "updateCheck:\n  enabled: true\n").config().updateCheck()
+                .on()).isTrue();
+            assertThat(parse(MINIMAL + "updateCheck: {}\n").config().updateCheck().on()).isTrue();
+            assertThat(parse(MINIMAL + "updateCheck:\n  enabled:\n").config().updateCheck())
+                .as("an empty value is the default").isEqualTo(UpdateCheckConfig.DEFAULT);
+        }
+
+        @Test
+        void anUnknownKeyBelowUpdateCheckIsRejected() {
+            assertThatThrownBy(() -> parse(MINIMAL + "updateCheck:\n  interval: 12h\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'interval' at updateCheck");
+        }
+
+        @Test
+        void updateCheckInTheDefaultsIsAnUnknownKey() {
+            assertThatThrownBy(() -> parse(MINIMAL + "defaults:\n  updateCheck:\n"
+                + "    enabled: false\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'updateCheck' at defaults");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"no", "off", "\"maybe\"", "0", "\"false\"", "[false]"})
+        void aNonBooleanValueIsRejectedNamingTheKey(String value) {
+            assertThatThrownBy(() -> parse(MINIMAL + "updateCheck:\n  enabled: " + value + "\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Invalid value at updateCheck.enabled")
+                .hasMessageContaining("expected true or false")
+                .hasMessageNotContaining("maybe");
         }
     }
 

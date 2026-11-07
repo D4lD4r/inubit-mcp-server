@@ -1,12 +1,18 @@
 package de.dadecker.inubit.mcp.domain.port;
 
 import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 
 /**
  * Imports into one INUBIT server (feature 004, research D-8; 8.1: StartCLI {@code import
  * --returnProtocol}). The archive holds secret values: an adapter keeps it only in a private
  * temporary directory that is deleted on every path. Failures are thrown as
  * {@link de.dadecker.inubit.mcp.domain.model.ToolErrorException} with the server id.
+ *
+ * <p>Feature 017 (FR-018, research D-24): every write takes the {@link WritePermit} of the call's
+ * admission for this port's node and is handed off under the node's {@link WriteLock}; after a
+ * version change since the admission it is refused with {@code UNSUPPORTED_VERSION} and nothing
+ * is sent. A permit for another node is an {@link IllegalArgumentException}; nothing is sent.
  */
 public interface ImportPort {
 
@@ -38,7 +44,7 @@ public interface ImportPort {
      *     before anything is launched; {@code IMPORT_FAILED} if StartCLI reports a failure or an
      *     unreadable protocol; {@code TIMEOUT} (the import may have happened)
      */
-    ImportProtocol importArchive(byte[] archive, Mode mode, String owner);
+    ImportProtocol importArchive(byte[] archive, Mode mode, String owner, WritePermit permit);
 
     /**
      * Imports the repository files of {@code archive} (entries relative to
@@ -50,5 +56,5 @@ public interface ImportPort {
      *     before anything is launched; {@code IMPORT_FAILED} if StartCLI does not confirm the
      *     import; {@code TIMEOUT} (the import may have happened)
      */
-    void importRepository(byte[] archive, String owner);
+    void importRepository(byte[] archive, String owner, WritePermit permit);
 }

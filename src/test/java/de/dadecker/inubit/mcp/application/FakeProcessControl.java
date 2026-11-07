@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.ProcessState;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
@@ -15,6 +16,7 @@ import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.domain.port.WriteLock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -33,6 +35,8 @@ final class FakeProcessControl implements GatewayFactory {
 
     /** Every call of the fakes, in order, e.g. {@code read 4711}, {@code restart 4711}. */
     final List<String> calls = new CopyOnWriteArrayList<>();
+    /** The write permits of restart/kill, in order (feature 017, research D-24). */
+    final List<WritePermit> permits = new CopyOnWriteArrayList<>();
     /** Answers of the successive state reads; the last one repeats. */
     final Deque<Supplier<ProcessRows>> reads = new ArrayDeque<>();
     /** Thrown by {@link ProcessControlPort#checkAvailable()} if set. */
@@ -43,6 +47,11 @@ final class FakeProcessControl implements GatewayFactory {
     volatile Supplier<String> action = () -> "Process restarted.";
     /** Runs inside restart/kill before it answers (e.g. to inspect the audit log). */
     volatile Runnable duringAction = () -> { };
+    /**
+     * If set, restart/kill are handed off under this lock like the StartCLI adapter does
+     * (feature 017, research D-24); a refused hand-off records the permit but no call.
+     */
+    volatile WriteLock lock;
 
     static ProcessInstance row(NodeId server, String processId, ProcessState state,
         String rawState, Instant since, String workflow, String module) {
@@ -115,19 +124,30 @@ final class FakeProcessControl implements GatewayFactory {
             }
 
             @Override
-            public String restart(String processId) {
-                calls.add("restart " + server + " " + processId);
-                duringAction.run();
-                return action.get();
+            public String restart(String processId, WritePermit permit) {
+                return act("restart " + server + " " + processId, permit.requireFor(server));
             }
 
             @Override
-            public String kill(String processId) {
-                calls.add("kill " + server + " " + processId);
-                duringAction.run();
-                return action.get();
+            public String kill(String processId, WritePermit permit) {
+                return act("kill " + server + " " + processId, permit.requireFor(server));
             }
         };
+    }
+
+    private String act(String call, WritePermit permit) {
+        permits.add(permit);
+        WriteLock current = lock;
+        if (current != null) {
+            return current.handOff(permit, version -> act(call));
+        }
+        return act(call);
+    }
+
+    private String act(String call) {
+        calls.add(call);
+        duringAction.run();
+        return action.get();
     }
 
     /** The calls that changed (or tried to change) state. */

@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.mcp.tools;
 
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyUrl;
@@ -14,27 +15,51 @@ import static de.dadecker.inubit.mcp.mcp.tools.DiagnosisToolFixture.toolError;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import de.dadecker.inubit.mcp.TestWiring;
+import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
+import de.dadecker.inubit.mcp.config.ConfigLoader;
+import de.dadecker.inubit.mcp.config.ConfigValidator;
+import de.dadecker.inubit.mcp.config.LoadedConfig;
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.SupportState;
+import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.testing.TestValidators;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.JsonNode;
 
 /**
  * T070: {@code find_processes} over MCP with the real adapters against WireMock
  * (contracts/mcp-tools.md §3, quickstart V4). Feature 009 (T012): the version warning of a node
  * is in its entry.
+ *
+ * <p>Feature 012 (T033, US2): {@code find_processes} on an INUBIT 6.1 node through the production
+ * wiring, see {@link #startWith61}.
  */
 @Timeout(60)
 class FindProcessesToolTest {
@@ -45,25 +70,37 @@ class FindProcessesToolTest {
     private static final String QUEUE_LOG = "/ibis/rest/log/queueLog";
     private static WireMockServer dev;
     private static WireMockServer integration;
+    /** The baseUrl of the 6.1 node: plain HTTP, without stubs, must never be asked. */
+    private static WireMockServer legacy;
 
     private DiagnosisToolFixture fixture;
+    /** Feature 012: the production wiring of {@link #startWith61} and its client, if started. */
+    private TestWiring wiring;
+    private McpTestClient client61;
+
+    @TempDir
+    Path temp;
 
     @BeforeAll
     static void start() {
         dev = TestCertificates.httpsWireMock(TestCertificates.get().localhostKeyStore());
         integration = TestCertificates.httpsWireMock(TestCertificates.get().localhostKeyStore());
+        legacy = new WireMockServer(WireMockConfiguration.options().dynamicPort());
+        legacy.start();
     }
 
     @AfterAll
     static void stop() {
         dev.stop();
         integration.stop();
+        legacy.stop();
     }
 
     @BeforeEach
     void setUp() {
         dev.resetAll();
         integration.resetAll();
+        legacy.resetAll();
         for (WireMockServer server : List.of(dev, integration)) {
             server.stubFor(post(urlPathEqualTo(QUEUE_LOG))
                 .withRequestBody(containing("<value>Error</value>"))
@@ -77,6 +114,10 @@ class FindProcessesToolTest {
     @AfterEach
     void tearDown() {
         fixture.close();
+        if (wiring != null) {
+            client61.close();
+            wiring.close();
+        }
     }
 
     private JsonNode call(Map<String, Object> arguments) {
@@ -163,7 +204,7 @@ class FindProcessesToolTest {
     }
 
     @Test
-    void onInubit90TheEntryOfTheNodeCarriesTheUnverifiedWarning() throws IOException {
+    void onInubit90TheEntryOfTheNodeCarriesNoVersionWarning() throws IOException {
         fixture.close();
         fixture = new DiagnosisToolFixture(dev, integration, FindProcessesTool::new,
             VersionSetting.AUTO);
@@ -178,9 +219,7 @@ class FindProcessesToolTest {
 
         assertMatchesOutputSchema("find_processes", result);
         JsonNode entry = result.path("structuredContent").path("results").get(0);
-        assertThat(entry.path("warnings")).extracting(JsonNode::asString).containsExactly(
-            "INUBIT 9.0.7 on dev/node1 is not verified for diagnosis; results may be"
-                + " incomplete");
+        assertThat(entry.has("warnings")).as("INUBIT 9.0 is declared: no warnings").isFalse();
         assertThat(entry.path("page").path("items")).hasSize(2);
         assertThat(dev.findAll(getRequestedFor(urlPathEqualTo("/ibis/rest/system/info"))))
             .as("one detection request").hasSize(1);
@@ -244,5 +283,153 @@ class FindProcessesToolTest {
 
         assertThat(result.toString()).doesNotContain(DiagnosisToolFixture.PASSWORD,
             "Authorization", "jdoe");
+    }
+
+    // --- feature 012, T033: find_processes on a 6.1 node end to end (US2) -------------------
+
+    private static final String LEGACY_81 = "legacy/node1";
+    private static final String LEGACY_61 = "legacy/node2";
+    private static final String PASSWORD_61 = "find-processes-61-pw";
+    private static final String LOG_NOTE = "logs of INUBIT 6.1 cannot be read with query_logs;"
+        + " read them in the Workbench";
+    /** 8.1 as in production, 6.1 CLI-only with process diagnosis supported (as after T040). */
+    private static final CapabilityMatrix WITH_61 = new CapabilityMatrix(List.of(
+        new CapabilityMatrix.Entry(new VersionRange(6, 1, 6, 1),
+            Map.of(Capability.PROCESS_DIAGNOSIS, SupportState.SUPPORTED),
+            Map.of(Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)), true),
+        new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1),
+            Arrays.stream(Capability.values()).collect(Collectors.toMap(
+                capability -> capability, capability -> SupportState.SUPPORTED)))),
+        Map.of());
+
+    private final FakeProcessLauncher help = FakeProcessLauncher.replaying("v6_1", "help");
+    private final FakeProcessLauncher clientVersion = FakeProcessLauncher.of("CLI 6.1.0\n"
+        + "Supported inubit Process Engine versions from 4.0.1 to 6.1.0.\n", "", 0);
+    /** Every StartCLI session of the 6.1 node. */
+    private FakeProcessLauncher session;
+
+    /**
+     * Replaces the server of {@link #setUp} by the production wiring with {@link #WITH_61}: the
+     * group {@code legacy} has the 8.1 node {@code legacy/node1} on the {@code dev} WireMock and
+     * the 6.1 node {@code legacy/node2} on {@link #legacy}, read through a fake StartCLI whose
+     * sessions are answered by {@code sessions}; {@code -h} replays the reconstructed help,
+     * {@code -v} answers as a 6.1.0 client. The credentials come from the environment, so they
+     * are held from the start.
+     */
+    private void startWith61(FakeProcessLauncher sessions) throws IOException {
+        session = sessions;
+        Path cliHome = Files.createDirectories(temp.resolve("cli/bin")).getParent();
+        Files.writeString(cliHome.resolve("bin/startcli.sh"), "#!/bin/sh\n");
+        Path javaHome = Files.createDirectories(temp.resolve("java"));
+        Files.writeString(javaHome.resolve("release"), "JAVA_VERSION=\"1.8.0_292\"\n");
+        String yaml = """
+            profile:
+              name: acme
+            groups:
+              - name: legacy
+                nodes:
+                  - name: node1
+                    versionLine: V8_1
+                    baseUrl: https://localhost:%1$d
+                    tls:
+                      trustStore: '%2$s'
+                  - name: node2
+                    versionLine: V6_1
+                    baseUrl: http://localhost:%3$d
+                    allowInsecureHttp: true
+                    cli:
+                      home: '%4$s'
+                      javaHome: '%5$s'
+            """.formatted(dev.httpsPort(), TestCertificates.get().trustStore(), legacy.port(),
+            cliHome, javaHome);
+        Map<String, String> environment = Map.of("INUBIT_ACME_LEGACY_USERNAME", "jdoe",
+            "INUBIT_ACME_LEGACY_PASSWORD", PASSWORD_61);
+        LoadedConfig loaded = new ConfigLoader(environment, temp, false)
+            .parse(yaml, temp.resolve("config.yaml"));
+        SecretScrubber scrubber = new SecretScrubber();
+        assertThat(TestValidators.ofSystem(false).validate(loaded).errors()).isEmpty();
+        ProcessLauncher launcher = spec -> switch (spec.startCliArguments().size() == 1
+            ? spec.startCliArguments().get(0) : "") {
+            case "-h" -> help.launch(spec);
+            case "-v" -> clientVersion.launch(spec);
+            default -> session.launch(spec);
+        };
+        wiring = TestWiring.of(loaded.config(), TestSecrets.store(environment), scrubber,
+            Files::exists, false, launcher, Map.of("PATH", "/usr/bin"), WITH_61);
+        client61 = McpTestClient.start(wiring.toolHandlers(), scrubber);
+        client61.initialize();
+    }
+
+    /** A 6.1 session whose Error listing has {@code rows} rows (header and total as in T029). */
+    private static String errorSession(int rows) {
+        StringBuilder lines = new StringBuilder("Password: \ncli> NODE                 UID"
+            + "             PID        PRIO       STATE      DATE                 WORKFLOW"
+            + "             MODULE");
+        for (int i = 0; i < rows; i++) {
+            lines.append('\n').append(("node1                jdoe            %d     normal     "
+                + "Error      2026-10-%02dT08:15:42  OrderImport          Mapping(10234)")
+                .formatted(400_000 + i, 1 + i % 30));
+        }
+        return lines.append("\nTotal: ").append(rows).append("\ncli> \n").toString();
+    }
+
+    @Test
+    void theFailedProcessesOfA61NodeAreListedFromOneSessionWithinFifteenSeconds()
+        throws IOException {
+        // SC-002: up to 100 instances within 15 s; US2-1 with the 6.1 note of FR-010
+        startWith61(FakeProcessLauncher.of(errorSession(100), "", 0));
+
+        long start = System.nanoTime();
+        JsonNode result = client61.callTool("find_processes", Map.of("target", LEGACY_61,
+            "states", List.of("ERROR"), "limit", 100));
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+        assertThat(elapsed).isLessThan(Duration.ofSeconds(15));
+        assertMatchesOutputSchema("find_processes", result);
+        JsonNode entry = result.path("structuredContent").path("results").get(0);
+        assertThat(entry.path("node").asString()).isEqualTo(LEGACY_61);
+        assertThat(entry.path("warnings")).extracting(JsonNode::asString)
+            .containsExactly(LOG_NOTE);
+        JsonNode page = entry.path("page");
+        assertThat(page.path("items")).hasSize(100);
+        assertThat(page.path("total").asLong()).isEqualTo(100);
+        assertThat(page.path("items").get(0).path("state").asString()).isEqualTo("ERROR");
+        assertThat(page.path("items").get(0).has("tag")).isFalse();
+        assertThat(session.launchCount()).as("one StartCLI session").isEqualTo(1);
+        assertThat(legacy.getAllServeEvents()).as("SC-004: no REST request to a 6.1 node")
+            .isEmpty();
+        assertThat(result.toString()).doesNotContain(PASSWORD_61);
+    }
+
+    @Test
+    void tagInAMixedGroupRefusesThe61NodeWithoutAnyLaunchAndListsThe81Node()
+        throws IOException {
+        // FR-007, FR-010: the held-credentials 6.1 node is refused per node before any contact
+        startWith61(FakeProcessLauncher.of(errorSession(1), "", 0));
+
+        JsonNode result = client61.callTool("find_processes", Map.of("target", "legacy",
+            "tag", "release-1", "limit", 2));
+
+        assertMatchesOutputSchema("find_processes", result);
+        JsonNode results = result.path("structuredContent").path("results");
+        assertThat(results).extracting(entry -> entry.path("node").asString())
+            .containsExactly(LEGACY_81, LEGACY_61);
+        assertThat(results.get(0).has("error")).as(results.get(0).toString()).isFalse();
+        assertThat(results.get(0).path("page").path("items")).hasSize(2);
+        assertThat(dev.findAll(postRequestedFor(urlPathEqualTo(QUEUE_LOG)))).singleElement()
+            .satisfies(request -> assertThat(request.getBodyAsString()).contains(
+                "<field>tag</field>", "release-1"));
+        JsonNode refused = results.get(1);
+        assertThat(refused.has("page")).isFalse();
+        assertThat(refused.path("error").path("code").asString())
+            .isEqualTo("UNSUPPORTED_VERSION");
+        assertThat(refused.path("error").path("node").asString()).isEqualTo(LEGACY_61);
+        assertThat(refused.path("error").path("message").asString()).isEqualTo(
+            "find_processes: INUBIT 6.1 does not support the input tag; nothing was sent");
+        assertThat(session.launchCount()).as("no StartCLI session").isZero();
+        assertThat(help.launchCount()).as("no option probe").isZero();
+        assertThat(clientVersion.launchCount()).as("no client probe").isZero();
+        assertThat(legacy.getAllServeEvents()).as("WireMock: 0 requests for the 6.1 node")
+            .isEmpty();
     }
 }

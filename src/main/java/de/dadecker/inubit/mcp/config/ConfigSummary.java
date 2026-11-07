@@ -1,8 +1,14 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
+import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
@@ -11,6 +17,7 @@ import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,7 +41,10 @@ import java.util.function.Predicate;
  * {@code secrets: credentialStore (<store>)} or {@code secrets: awsParameterStore (…)}; a
  * credential store node shows per kind the entry found (or both names) with the outcome of
  * {@link EntryCheck}, and the {@code Credential store entries:} line names the scheme once some
- * node reads entries under the profile prefix.
+ * node reads entries under the profile prefix. Feature 012 (FR-014, research D-13) follows the
+ * setting of a node pinned to a CLI-only version (6.1) with
+ * {@code (INUBIT 6.1, StartCLI only; available: …; refused: …)} and (FR-012a, research D-8)
+ * shows the client options of such a node inside its client part.
  * Feature 015 (research R-15): every group line ends with {@code archives: allowed},
  * {@code archives: refused (no archives.productionOptIn)} or
  * {@code archives: allowed (archives.productionOptIn)}.
@@ -47,23 +57,43 @@ public final class ConfigSummary {
 
     private final Predicate<Path> exists;
     private final boolean windows;
+    private final CapabilityMatrix matrix;
 
     public ConfigSummary(Predicate<Path> exists, boolean windows) {
+        this(exists, windows, CapabilityMatrix.production());
+    }
+
+    /** With a matrix other than {@link CapabilityMatrix#production()} (tests). */
+    ConfigSummary(Predicate<Path> exists, boolean windows, CapabilityMatrix matrix) {
         this.exists = exists;
         this.windows = windows;
+        this.matrix = matrix;
     }
 
     /**
      * @param clients the StartCLI client of each node whose probe succeeded (feature 009); a
      *                failed probe is among the warnings of {@code report}
+     * @param options the StartCLI client options of each node pinned to a CLI-only version
+     *                (feature 012); shown only for a node in {@code clients}
      * @param parameters the Parameter Store check of the AWS nodes (feature 010); its findings
      *                are among those of {@code report}
      * @param entries the credential store check (feature 011); its findings are among those of
      *                {@code report}
      */
     public String render(LoadedConfig loaded, ValidationReport report,
-        Map<NodeId, ClientVersion> clients, ParameterCheck.Result parameters,
-        EntryCheck.Result entries) {
+        Map<NodeId, ClientVersion> clients, Map<NodeId, CliClientOptions> options,
+        ParameterCheck.Result parameters, EntryCheck.Result entries) {
+        return render(loaded, report, clients, options, parameters, entries, List.of());
+    }
+
+    /**
+     * @param checked one entry per distinct StartCLI client (feature 017, T025), each shown as
+     *                {@link CheckedClient#line()} after the node lines
+     */
+    public String render(LoadedConfig loaded, ValidationReport report,
+        Map<NodeId, ClientVersion> clients, Map<NodeId, CliClientOptions> options,
+        ParameterCheck.Result parameters, EntryCheck.Result entries,
+        List<CheckedClient> checked) {
         ProfileConfig config = loaded.config();
         Terminology terms = config.terminology().effectiveOrDefault();
         StringBuilder out = new StringBuilder();
@@ -114,9 +144,12 @@ public final class ConfigSummary {
                 .append(writeFlag(server))
                 .append(development ? ", " + development(server) : "")
                 .append(", cli: ").append(cliAvailable(server) ? "available" : "unavailable")
-                .append(", inubit: ").append(server.versionLine().text());
+                .append(clientChoice(server, terms))
+                .append(", inubit: ").append(server.versionLine().text())
+                .append(cliOnly(server.versionLine()));
             Optional.ofNullable(clients.get(server.id()))
-                .ifPresent(client -> out.append(client(server.versionLine(), client)));
+                .ifPresent(client -> out.append(client(server.versionLine(), client,
+                    Optional.ofNullable(options.get(server.id())))));
             Optional.ofNullable(deploys.get(server.id().group().value())).ifPresent(deploy ->
                 out.append(", deploy: from ").append(deploy.from().strip()).append(" (")
                     .append(deploy.mode()).append(')'));
@@ -131,12 +164,43 @@ public final class ConfigSummary {
             }
             out.append('\n');
         }
+        checked.forEach(client -> out.append(client.line()).append('\n'));
         appendList(out, "Warnings:", report.warnings());
         appendList(out, "Errors:", report.errors());
         out.append(report.hasErrors()
             ? "Result: FAILED (" + report.errors().size() + " error(s))"
             : "Result: OK").append('\n');
         return out.toString();
+    }
+
+    /**
+     * Feature 017 (FR-015): {@code , client: <dir> (<source>), address: <kind>} for the version
+     * the node's {@code versionLine} gives; for {@code AUTO} the version-less choice followed by
+     * {@code ; chosen at runtime by the detected version}. Empty for a node whose client does
+     * not depend on its version, which keeps its 0.8.0 line (FR-009).
+     */
+    private static String clientChoice(EffectiveNodeConfig server, Terminology terms) {
+        if (!server.choosesCliByVersion()) {
+            return "";
+        }
+        CliChoice choice = server.cliForSetting();
+        String source = switch (choice.source()) {
+            case NODE -> terms.render("{node} cli.home");
+            case GROUP -> terms.render("{group} cli.home");
+            case VERSION_ENTRY -> "cliClients \"" + choice.entry().orElseThrow().text() + "\"";
+            case DEFAULTS -> "defaults.cliHome";
+            case NONE -> "";
+        };
+        String client = choice.cli().home().map(home -> home + " (" + source + ")")
+            .orElse("none");
+        String address = switch (choice.address()) {
+            case SERVLET_PATH -> "servlet path";
+            case BASE_URL -> "base URL";
+            case CONFIGURED -> "configured";
+        };
+        return ", client: " + client + ", address: " + address
+            + (server.versionLine() instanceof VersionSetting.Auto
+                ? "; chosen at runtime by the detected version" : "");
     }
 
     /**
@@ -223,11 +287,19 @@ public final class ConfigSummary {
      * Feature 009 (FR-011a): {@code , client: <version> (<from>–<to>)} (without range if the
      * client declares none), then {@code , client vs pin: match | mismatch | not comparable}
      * for a concrete pin, followed by {@code , pin outside client range} if the client's range
-     * excludes the pin (FR-011), else {@code , server version: determined at runtime}.
+     * excludes the pin (FR-011), else {@code , server version: determined at runtime}. Feature
+     * 012 (FR-012a): with client options, {@code ; options: [no ]trust-store option, [no
+     * ]host-name option} closes the parentheses ({@code (options: …)} without range).
      */
-    private static String client(VersionSetting setting, ClientVersion client) {
-        String range = client.supportedFrom().map(from -> " (" + from.raw() + "–"
-            + client.supportedTo().orElseThrow().raw() + ")").orElse("");
+    private static String client(VersionSetting setting, ClientVersion client,
+        Optional<CliClientOptions> options) {
+        List<String> details = new ArrayList<>();
+        client.supportedFrom().ifPresent(from -> details.add(from.raw() + "–"
+            + client.supportedTo().orElseThrow().raw()));
+        options.ifPresent(read -> details.add("options: "
+            + (read.trustStoreFilePath() ? "" : "no ") + "trust-store option, "
+            + (read.disableHostNameVerification() ? "" : "no ") + "host-name option"));
+        String range = details.isEmpty() ? "" : " (" + String.join("; ", details) + ")";
         String server = setting instanceof VersionSetting.Pinned pinned
             ? "client vs pin: " + switch (client.compare(Optional.of(pinned.version()))) {
                 case MATCH -> "match";
@@ -237,6 +309,32 @@ public final class ConfigSummary {
                 == ClientVersion.Compatibility.INCOMPATIBLE ? ", pin outside client range" : "")
             : "server version: determined at runtime";
         return ", client: " + client.version().raw() + range + ", " + server;
+    }
+
+    /**
+     * Feature 012 (FR-014, research D-13): {@code  (INUBIT 6.1, StartCLI only; available: <names>
+     * | none; refused: <names> | none)} for a setting pinned to a CLI-only version, else empty.
+     * Judged on the pin as the version gate and {@code list_nodes} do: on a CLI-only version a
+     * capability runs only if the matrix declares it {@code SUPPORTED}.
+     */
+    private String cliOnly(VersionSetting setting) {
+        Optional<InubitVersion> pin = NodeVersionState.initial(setting).effectiveVersion();
+        if (!matrix.isCliOnly(pin)) {
+            return "";
+        }
+        List<String> available = new ArrayList<>();
+        List<String> refused = new ArrayList<>();
+        for (Capability capability : Capability.values()) {
+            (matrix.state(pin, capability) == SupportState.SUPPORTED ? available : refused)
+                .add(capability.label());
+        }
+        InubitVersion version = pin.orElseThrow();
+        return " (INUBIT " + version.major() + "." + version.minor() + ", StartCLI only;"
+            + " available: " + names(available) + "; refused: " + names(refused) + ")";
+    }
+
+    private static String names(List<String> names) {
+        return names.isEmpty() ? "none" : String.join(", ", names);
     }
 
     /** CLI home configured and {@code startcli} found (data-model.md → NodeSummary). */

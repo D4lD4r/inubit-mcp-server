@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.DeploymentPreview;
 import de.dadecker.inubit.mcp.domain.model.DeploymentResult;
 import de.dadecker.inubit.mcp.domain.model.DeploymentResult.State;
@@ -79,6 +80,26 @@ class DeployExecuteTest extends DeployExecution {
             org.assertj.core.groups.Tuple.tuple("int", AuditOutcome.EXECUTED));
         assertThat(audit()).allMatch(r -> r.auditId().equals(result.auditId()));
         harness.verifyComplete();
+    }
+
+    @Test
+    void everyNodeWriteCarriesTheDeploymentPermitOfItsNode() {
+        // feature 017 (T045, FR-018, research D-24): imports and tag of each target node
+        harness(false);
+        DeploymentPreview preview = preview();
+        executeStart();
+        DeployHarness.TARGETS.forEach(this::deployed);
+
+        assertThat(execute(preview).outcome()).isEqualTo(DeploymentResult.Outcome.EXECUTED);
+
+        assertThat(harness.writeLock.permits()).allSatisfy(permit ->
+            assertThat(permit.capability()).isEqualTo(Capability.DEPLOYMENT));
+        assertThat(harness.writeLock.permits()).extracting(permit -> permit.node())
+            .containsOnlyElementsOf(DeployHarness.TARGETS)
+            .containsAll(DeployHarness.TARGETS);
+        DeployHarness.TARGETS.forEach(node -> assertThat(harness.writeLock.permits())
+            .filteredOn(permit -> permit.node().equals(node))
+            .as("repository, module and tag of " + node).hasSize(3));
     }
 
     @Test

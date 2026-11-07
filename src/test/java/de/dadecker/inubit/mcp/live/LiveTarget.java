@@ -254,7 +254,7 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
             .toList();
         return new ProfileConfig(config.profile(), config.terminology(), config.credentials(),
             groups, config.defaults(), config.auditDirectory(), config.logLevel(),
-            config.resultLimits(), config.workspace());
+            config.resultLimits(), config.workspace(), config.updateCheck());
     }
 
     private static NodeConfig readOnlyRepository(NodeConfig node) {
@@ -270,7 +270,7 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
     private TestWiring wiring(ProfileConfig config, Path workspace) {
         return wiring(new ProfileConfig(config.profile(), config.terminology(),
             config.credentials(), config.groups(), config.defaults(), config.auditDirectory(),
-            config.logLevel(), config.resultLimits(), workspace), store(),
+            config.logLevel(), config.resultLimits(), workspace, config.updateCheck()), store(),
             SsmParameterStore::new);
     }
 

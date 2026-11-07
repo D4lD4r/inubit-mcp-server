@@ -110,17 +110,32 @@ public final class EntryCheck {
 
     /** Reads and checks the entries of the credential store nodes among {@code nodes}. */
     public static Result run(List<EffectiveNodeConfig> nodes, CredentialStore store) {
-        return run(nodes, store, TIMEOUT);
+        return run(nodes, store, TIMEOUT, false);
+    }
+
+    /**
+     * As above; on {@code windows} a username StartCLI cannot receive through the command
+     * interpreter ({@link WindowsArguments#refusal}) is an invalid value on nodes with a StartCLI
+     * installation (feature 013, research R-9).
+     */
+    public static Result run(List<EffectiveNodeConfig> nodes, CredentialStore store,
+        boolean windows) {
+        return run(nodes, store, TIMEOUT, windows);
     }
 
     /** With {@code timeout} instead of {@link #TIMEOUT}, so tests need not wait 60 s. */
     static Result run(List<EffectiveNodeConfig> nodes, CredentialStore store, Duration timeout) {
+        return run(nodes, store, timeout, false);
+    }
+
+    static Result run(List<EffectiveNodeConfig> nodes, CredentialStore store, Duration timeout,
+        boolean windows) {
         List<EffectiveNodeConfig> checked = nodes.stream()
             .filter(node -> node.secretPlan().entries().isPresent()).toList();
         if (checked.isEmpty()) {
             return Result.none(store.kind());
         }
-        Run run = new Run(store, timeout);
+        Run run = new Run(store, timeout, windows);
         Map<NodeId, Map<String, Line>> lines = new LinkedHashMap<>();
         List<String> incomplete = new ArrayList<>();
         for (EffectiveNodeConfig node : checked) {
@@ -144,6 +159,7 @@ public final class EntryCheck {
 
         private final CredentialStore store;
         private final Duration timeout;
+        private final boolean windows;
         /** Each distinct account's value-free outcome, read once. */
         private final Map<String, Outcome> read = new HashMap<>();
         private final List<String> errors = new ArrayList<>();
@@ -153,9 +169,10 @@ public final class EntryCheck {
         /** Whether the node of the last {@link #node} call has a kind that was not checked. */
         private boolean nodeIncomplete;
 
-        Run(CredentialStore store, Duration timeout) {
+        Run(CredentialStore store, Duration timeout, boolean windows) {
             this.store = store;
             this.timeout = timeout;
+            this.windows = windows;
         }
 
         Map<String, Line> node(EffectiveNodeConfig node) {
@@ -171,7 +188,8 @@ public final class EntryCheck {
                     continue;
                 }
                 String kind = kind(key);
-                Line line = line(names, key, kind, deadline, found);
+                boolean startCli = windows && node.cliConfigured() && key.equals("username");
+                Line line = line(names, key, kind, deadline, found, startCli);
                 if (line.status() == Status.NOT_CHECKED) {
                     nodeIncomplete = true;
                 }
@@ -239,9 +257,12 @@ public final class EntryCheck {
             }
         }
 
-        /** One kind: the node entry, else the group entry if the node entry is missing or empty. */
+        /**
+         * One kind: the node entry, else the group entry if the node entry is missing or empty;
+         * with {@code startCli} a value StartCLI cannot receive on Windows is invalid.
+         */
         private Line line(CredentialNames names, String key, String kind, long deadline,
-            Map<String, String> found) {
+            Map<String, String> found, boolean startCli) {
             String both = names.nodeName(kind) + " | " + names.groupName(kind);
             for (String account : names.candidates(kind)) {
                 if (unavailable != null) {
@@ -260,6 +281,10 @@ public final class EntryCheck {
                         continue;
                     }
                     case OK -> {
+                        if (startCli && !outcome.windowsRefusal().isEmpty()) {
+                            found.put("rule:" + key, "Windows: " + outcome.windowsRefusal());
+                            return new Line(account, Status.INVALID_VALUE);
+                        }
                         return new Line(account, Status.OK);
                     }
                     case INVALID -> {
@@ -287,8 +312,16 @@ public final class EntryCheck {
     /** What a read gave, without the value. */
     private enum OutcomeKind { OK, EMPTY, NOT_FOUND, INVALID, DENIED, TIMEOUT, UNAVAILABLE }
 
-    /** @param rule why a value was refused (a fixed text, never the value); else empty */
-    private record Outcome(OutcomeKind kind, String rule) {
+    /**
+     * @param rule why a value was refused (a fixed text, never the value); else empty
+     * @param windowsRefusal of a username, the class of the character the Windows command
+     *     interpreter interprets ({@link WindowsArguments#refusal}); else empty
+     */
+    private record Outcome(OutcomeKind kind, String rule, String windowsRefusal) {
+
+        Outcome(OutcomeKind kind, String rule) {
+            this(kind, rule, "");
+        }
     }
 
     /** Classifies one read at once, so that no value outlives it. */
@@ -311,7 +344,8 @@ public final class EntryCheck {
                 yield CredentialRules.checkValue(CredentialRules.roleOf(key),
                         ParameterType.SECURE_STRING, text)
                     .map(refusal -> new Outcome(OutcomeKind.INVALID, refusal.rule()))
-                    .orElseGet(() -> new Outcome(OutcomeKind.OK, ""));
+                    .orElseGet(() -> new Outcome(OutcomeKind.OK, "", key.equals("username")
+                        ? WindowsArguments.refusal(text).orElse("") : ""));
             }
         };
     }

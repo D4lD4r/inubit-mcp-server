@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.adapter.rest.v81;
 
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
+import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.MediaRange;
 import de.dadecker.inubit.mcp.adapter.rest.MaintenanceProbe;
 import de.dadecker.inubit.mcp.adapter.rest.RestResponse;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
@@ -38,7 +39,7 @@ public final class V81MaintenanceProbe implements MaintenanceProbe, AutoCloseabl
     @Override
     public Optional<Boolean> maintenance() {
         try {
-            RestResponse response = client.get(HEALTHCHECK_PATH, Map.of(), 503);
+            RestResponse response = client.get(HEALTHCHECK_PATH, Map.of(), MediaRange.JSON, 503);
             JsonNode flag = JSON.readTree(response.body()).get("maintenancemode");
             if (flag == null || flag.isNull()) {
                 return Optional.empty();

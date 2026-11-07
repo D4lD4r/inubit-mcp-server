@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.adapter.rest;
 
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import java.security.cert.CertificateException;
 
 /**
  * Likely-cause and next-step texts of transport failures, shared by the REST client and the
@@ -21,6 +22,21 @@ public final class TransportErrorTexts {
     public static final String INTERRUPTED_LIKELY_CAUSE = "The connection was interrupted";
 
     private TransportErrorTexts() {
+    }
+
+    /**
+     * The simple class name of the innermost cause, as a message names it. A pin mismatch keeps
+     * the name {@code CertificateException} it had before the pin got its own exception type.
+     */
+    public static String causeName(Throwable error) {
+        Throwable root = error;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        if (root instanceof PinningTrustManager.PinMismatchException) {
+            return CertificateException.class.getSimpleName();
+        }
+        return root.getClass().getSimpleName();
     }
 
     public static String tlsErrorNextStep(NodeId server) {

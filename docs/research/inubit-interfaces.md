@@ -154,6 +154,35 @@ Offline scripts (engine stopped, not StartCLI): `backup.sh`, `restore.sh`,
 - OpenAPI (9.0.2+, opt-in via `-Dfeature.enable.openapi.support=true`, anonymous):
   `/ibis/swagger-ui/index.html`, `/ibis/v3/api-docs`.
 
+### 4.1 What feature 017 relies on (documentation-derived, not yet checked live)
+
+INUBIT 9.0 support (feature 017, see `specs/017-inubit-9-support/research.md`) rests on the
+documentation above and on reconstructed 9.0 fixtures, not on a live INUBIT 9.0 node. Each point
+below is still to be checked against a real 9.0 system.
+
+- **`Accept` per request (D-11).** The REST client sends the media range its parser expects
+  instead of the former fixed `application/json, application/xml;q=0.9, */*;q=0.8`: JSON
+  (`application/json, */*;q=0.1`) for `/healthcheck`, `/ready`, `/metrics?format=json` and the
+  log POST; XML (`application/xml, */*;q=0.1`) for `/system/info`, `/model/models` and
+  `/model/modelByName/{name}`; `*/*` for `/model/export/{name}`. The `*/*;q=0.1` fallback avoids
+  a 406 from an endpoint that offers only the other format. The header is the same on 8.1, where
+  each endpoint returns one format anyway.
+- **JSON error bodies (D-12).** The mapping to error codes stays status-based. A JSON error body
+  with a string `message` gives that message as the (scrubbed, length-capped) `excerpt` instead of
+  the raw body; a 401 body is still ignored.
+- **Servlet removal → base URL.** With the SOAP servlet removed in 9.0.2, StartCLI on a 9.x node
+  is addressed at the base URL `https://host:port` (no `/ibis/servlet/IBISSoapServlet`), unless
+  `cli.url` is set; an explicit `cli.url` with the servlet path on 9.x gives a warning.
+- **JDK 21.** INUBIT 9.0 ships with Java 21 (8.1: Java 17); the 9.0 client runs on a JDK 21,
+  configured per version with `defaults.cliClients`; `--check-config` warns about another JDK
+  major version.
+- **URL strictness (D-13).** No change needed: request paths never contain `//`, `/./` or `/../`.
+- **StartCLI version output (D-15).** The range line ("Supported inubit Process Engine versions
+  from … to …") is read case-insensitively.
+- **Login (D-16).** Unchanged mechanics (password on stdin, Basic for REST); on 9.x the
+  `AUTH_FAILED` next step says that the StartCLI user must exist in the internal user management,
+  since users that log in only through OAuth cannot use StartCLI.
+
 ## 5. Open points to verify against a real 8.1.17 system
 
 1. CLI exit codes per command (success, auth failure, unknown command, server unreachable).

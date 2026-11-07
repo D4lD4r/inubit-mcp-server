@@ -884,7 +884,7 @@ public final class ImportService {
                 .withNode(node)));
         UUID auditId = d.ids().get();
         NodeDeployer.RestorePlan plan = deployer.restorePlan(manifest,
-            d.backups().exports(manifest.auditId()), auditId);
+            d.backups().exports(manifest.auditId()), auditId, policy.permit());
         call.requested.put("changeSet", String.join(", ", plan.restored()));
         String inputs = "sha256:" + sha256((node.value() + "\n" + manifest.auditId() + "\n"
             + call.reason).getBytes(StandardCharsets.UTF_8));
@@ -1354,7 +1354,8 @@ public final class ImportService {
         call.step = "import";
         if (plan.repository().isPresent()) {
             try {
-                repository.send(d.imports().apply(node), call.owner, plan.repository().get());
+                repository.send(d.imports().apply(node), call.owner, plan.repository().get(),
+                    call.policy.permit());
             } catch (ToolErrorException e) {
                 // research D-8 step 4: a timed-out repository import may or may not have been
                 // applied; nothing more is sent, and the rollback re-imports what changed
@@ -1368,7 +1369,7 @@ public final class ImportService {
         if (failure == null && plan.archive() != null) {
             try {
                 ImportProtocol protocol = d.imports().apply(node).importArchive(
-                    plan.archive().zip(), plan.mode(), call.owner);
+                    plan.archive().zip(), plan.mode(), call.owner, call.policy.permit());
                 call.step = "protocol";
                 Optional<String> mismatch = protocolMismatch(changes, protocol);
                 if (mismatch.isPresent()) {
@@ -1532,7 +1533,7 @@ public final class ImportService {
         String group = changes.scope().diagramGroup().orElseThrow();
         try {
             return new DiagramGroupTagger(d.root()).tag(node, d.tags().apply(node), call.owner,
-                List.of(group), call.tag.get(), auditId);
+                List.of(group), call.tag.get(), auditId, call.policy.permit());
         } catch (ToolErrorException e) {
             return new DiagramGroupTagger.Result(false, 0, 0, Optional.of(
                 new WriteOutcome.Failure(ErrorCode.IMPORT_FAILED, "tag", e.error().code() + ": "
@@ -1649,7 +1650,8 @@ public final class ImportService {
         Optional<RepositoryStep.Rollback> files = plan.repository().map(state -> {
             try {
                 return repository.rollback(node, d.imports().apply(node), state,
-                    after.orElseThrow(), repositoryExports(auditId.toString()));
+                    after.orElseThrow(), repositoryExports(auditId.toString()),
+                    call.policy.permit());
             } catch (RuntimeException e) {
                 LOG.error("The repository rollback on {} failed", node, e);
                 return new RepositoryStep.Rollback(WriteOutcome.Rollback.FAILED,
@@ -1691,7 +1693,7 @@ public final class ImportService {
                 "Rollback of " + plan.verb() + " " + auditId, account, Set.of()));
             try {
                 d.imports().apply(node).importArchive(archive.zip(), plan.rollbackMode(),
-                    call.owner);
+                    call.owner, call.policy.permit());
             } catch (ToolErrorException e) {
                 LOG.warn("The rollback import on {} failed: {}", node, e.error().code());
             }

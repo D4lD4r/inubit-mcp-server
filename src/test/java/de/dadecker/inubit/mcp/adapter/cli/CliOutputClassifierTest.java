@@ -14,6 +14,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -38,11 +39,12 @@ class CliOutputClassifierTest {
             Integer.parseInt(FakeProcessLauncher.fixtureText(fixtureCase + ".exit").strip()),
             FakeProcessLauncher.fixtureText(fixtureCase + ".stdout"),
             FakeProcessLauncher.fixtureText(fixtureCase + ".stderr"),
-            Duration.ofSeconds(2), false);
+            Duration.ofSeconds(2), false, CliRunner.MAX_OUTPUT_BYTES);
     }
 
     private static CliResult result(int exitCode, String stdout) {
-        return new CliResult(exitCode, stdout, PICKED_UP, Duration.ofSeconds(1), false);
+        return new CliResult(exitCode, stdout, PICKED_UP, Duration.ofSeconds(1), false,
+            CliRunner.MAX_OUTPUT_BYTES);
     }
 
     private ToolError failure(CliResult result) {
@@ -69,6 +71,25 @@ class CliOutputClassifierTest {
         assertThat(output.outputLines()).containsExactly("1-OK: Module exported successfully.");
     }
 
+    /** T023 (feature 013, FR-005): the client's prompt as the last output of a call. */
+    @ParameterizedTest
+    @ValueSource(strings = {"Password: ", "Password:", "Password: \n", "Password: \r\n",
+        "JAVA_HOME is set\r\nPassword: ", "JAVA_HOME is set\nPassword: \n\n"})
+    void thePasswordPromptAsTheLastOutputIsRecognised(String escaped) {
+        assertThat(CliOutputClassifier.endsAtThePasswordPrompt(unescape(escaped))).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "\n", "Password: 1-OK: Module exported successfully.\n",
+        "Password: \nConnecting\n", "JAVA_HOME is set\n", "Enter Password: x"})
+    void otherOutputIsNotThePasswordPrompt(String escaped) {
+        assertThat(CliOutputClassifier.endsAtThePasswordPrompt(unescape(escaped))).isFalse();
+    }
+
+    private static String unescape(String escaped) {
+        return escaped.replace("\\r", "\r").replace("\\n", "\n");
+    }
+
     @Test
     void aMessageAfterAnImportsProgressTextOnTheSameLineIsRead() {
         CliOutput output = classifier.parse(fixture("import_repository_new_files"));
@@ -80,7 +101,7 @@ class CliOutputClassifierTest {
     @Test
     void thePickedUpLineIsPreambleOnStdoutToo() {
         CliOutput output = classifier.parse(new CliResult(0, PICKED_UP + PREAMBLE
-            + "1-OK: done.\n", "", Duration.ZERO, false));
+            + "1-OK: done.\n", "", Duration.ZERO, false, CliRunner.MAX_OUTPUT_BYTES));
 
         assertThat(output.outputLines()).containsExactly("1-OK: done.");
     }
@@ -190,7 +211,8 @@ class CliOutputClassifierTest {
     void aLoginFailureOfACredentialStoreNodeNamesItsEntriesAndNeedsNoRestart() {
         // feature 011 (T016, FR-010): the entries under the effective prefix, no restart
         CliOutputClassifier forNode = new CliOutputClassifier(scrubber, new SecretLabels.Store(
-            new CredentialNames("INUBIT_ACME", NodeId.parse("test/node1")), StoreKind.KEYCHAIN));
+            new CredentialNames("INUBIT_ACME", NodeId.parse("test/node1")), StoreKind.KEYCHAIN),
+            false);
 
         CliOutcome outcome = forNode.classify(fixture("login_failed"));
 
@@ -210,7 +232,7 @@ class CliOutputClassifierTest {
             NodeId.parse("test/node1"), new StoreLocation("eu-central-1", Optional.empty()),
             new ParameterNames(Optional.of("/inubit/test/node1/username"),
                 Optional.of("/inubit/test/node1/password"), Optional.empty(), Optional.empty(),
-                Optional.empty())));
+                Optional.empty())), false);
 
         CliOutcome outcome = forNode.classify(fixture("login_failed"));
 
@@ -220,6 +242,49 @@ class CliOutputClassifierTest {
                 + " /inubit/test/node1/username, /inubit/test/node1/password in Parameter Store"
                 + " (eu-central-1); no restart is needed");
         });
+    }
+
+    @Test
+    void aLoginFailureOfAClientChosenForNineNamesTheInternalUserManagement() {
+        // feature 017 (T012, research D-16, FR-013): whatever the address kind
+        CliOutputClassifier forNode = new CliOutputClassifier(scrubber, new SecretLabels.Store(
+            new CredentialNames("INUBIT_ACME", NodeId.parse("test/node1")), StoreKind.KEYCHAIN),
+            false);
+
+        ToolError byMarker = ((CliOutcome.Failure) forNode.classify(
+            fixture("login_failed").forClientMajor(OptionalInt.of(9)))).error();
+        ToolError byText = failure(result(1, PREAMBLE + "EXECUTION ERROR\nThe user does not"
+            + " exist or password does not match.\n").forClientMajor(OptionalInt.of(10)));
+
+        assertThat(byMarker.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(byMarker.nextStep()).isEqualTo("Correct the credential store entries"
+            + " INUBIT_ACME_TEST_NODE1_USERNAME (or INUBIT_ACME_TEST_USERNAME) and"
+            + " INUBIT_ACME_TEST_NODE1_PASSWORD (or INUBIT_ACME_TEST_PASSWORD) (service"
+            + " inubit-mcp) in the macOS Keychain; no restart is needed. On INUBIT 9 the user"
+            + " must exist in the internal user management; users that log in only through"
+            + " OAuth cannot use StartCLI");
+        assertThat(byText.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(byText.nextStep()).isEqualTo("Check the node's username and password with"
+            + " --check-config and correct them where they are stored. On INUBIT 9 the user must"
+            + " exist in the internal user management; users that log in only through OAuth"
+            + " cannot use StartCLI");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {-1, 6, 8})
+    void aLoginFailureBelowNineOrOfAnUnknownMajorKeepsTheText(int major) {
+        // feature 017 (T012, FR-009): the 0.8.0 text
+        CliResult login = fixture("login_failed").forClientMajor(
+            major < 0 ? OptionalInt.empty() : OptionalInt.of(major));
+
+        assertThat(failure(login).nextStep()).isEqualTo("Check the node's username and"
+            + " password with --check-config and correct them where they are stored");
+    }
+
+    @Test
+    void aResultWithoutClientMajorHasNone() {
+        assertThat(result(0, "").clientMajor()).isEmpty();
+        assertThat(result(0, "").forClientMajor(OptionalInt.of(9)).clientMajor()).hasValue(9);
     }
 
     @Test
@@ -239,6 +304,26 @@ class CliOutputClassifierTest {
             + "CONNECTION ERROR\nCommand not found.\n");
 
         assertThat(failure(result).code()).isEqualTo(ErrorCode.AUTH_FAILED);
+    }
+
+    /** Feature 013 T013: the next step names the client script of the platform (FR-001). */
+    @Test
+    void anUnknownCommandNamesTheClientScriptOfThePlatform() {
+        SecretLabels labels = new SecretLabels.Store(
+            new CredentialNames("INUBIT_ACME", NodeId.parse("test/node1")), StoreKind.KEYCHAIN);
+        CliResult result = fixture("unknown_command");
+
+        ToolError posix = ((CliOutcome.Failure) new CliOutputClassifier(scrubber, labels, false)
+            .classify(result)).error();
+        ToolError windows = ((CliOutcome.Failure) new CliOutputClassifier(scrubber, labels, true)
+            .classify(result)).error();
+
+        assertThat(posix.code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(posix.nextStep()).isEqualTo("Check that cliHome matches the INUBIT server"
+            + " version (startcli.sh -v) and report it");
+        assertThat(windows.code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(windows.nextStep()).isEqualTo("Check that cliHome matches the INUBIT server"
+            + " version (bin\\startcli.bat -v) and report it");
     }
 
     @ParameterizedTest
@@ -334,11 +419,18 @@ class CliOutputClassifierTest {
     @Test
     void truncatedOutputIsNeverASuccess() {
         CliResult truncated = new CliResult(0, PREAMBLE + "1-OK: done.\n", "", Duration.ZERO,
-            true);
+            true, CliRunner.MAX_OUTPUT_BYTES);
 
         ToolError error = failure(truncated);
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
-        assertThat(error.message()).contains("1 MB");
+        assertThat(error.message()).contains("exceeded 1 MiB");
+    }
+
+    @Test
+    void theCutMessageNamesTheBoundOfTheRun() {
+        CliResult cut = new CliResult(0, "", "", Duration.ZERO, true, 12 << 20);
+
+        assertThat(failure(cut).message()).contains("exceeded 12 MiB").doesNotContain("1 MB");
     }
 }

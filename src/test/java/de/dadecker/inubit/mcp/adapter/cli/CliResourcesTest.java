@@ -3,22 +3,34 @@ package de.dadecker.inubit.mcp.adapter.cli;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher.FakeProcess;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import java.io.FileInputStream;
 import java.io.IOException;
-import java.nio.file.FileSystems;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.attribute.UserPrincipal;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.LoggerFactory;
 
 /**
  * Review I1: running StartCLI processes and export directories are registered, so that a
@@ -46,26 +58,24 @@ class CliResourcesTest {
         return exportDir(CliResources.EXPORT_PREFIX + profile + "-" + pid + "-12345");
     }
 
+    /**
+     * Created as the server creates it (feature 013, R-8): on Windows its owner is then the token
+     * user, also on an elevated account whose new objects belong to the administrators otherwise.
+     */
     private Path exportDir(String name) throws IOException {
-        Path dir = Files.createDirectory(root.resolve(name));
+        Path dir = FILES.createDirectory(root.resolve(name));
         Files.writeString(dir.resolve("modules.zip"), "zip");
         return dir;
     }
 
     private static long deadPid() throws Exception {
-        Process process = new ProcessBuilder("/bin/sh", "-c", "exit 0").start();
-        process.waitFor();
-        long pid = process.pid();
+        long pid = Platform.deadPid();
         assertThat(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)).isFalse();
         return pid;
     }
 
-    /** The current user, looked up like production does (not the owner of java.io.tmpdir: on
-     * Linux that is the root-owned /tmp). */
-    private static UserPrincipal me() throws IOException {
-        return FileSystems.getDefault().getUserPrincipalLookupService()
-            .lookupPrincipalByName(System.getProperty("user.name"));
-    }
+    /** The private file system of the host, as production sweeps and creates with it. */
+    private static final PrivateFileSystem FILES = PrivateFiles.forHost();
 
     @Test
     void closeStopsRegisteredProcessTreesForciblyAfterGraceAndDeletesDirectories()
@@ -77,7 +87,7 @@ class CliResourcesTest {
         Files.writeString(outside.resolve("keep.txt"), "keep");
         Path dir = exportDir(ProcessHandle.current().pid());
         Files.createSymbolicLink(dir.resolve("link"), outside);
-        CliResources resources = new CliResources("acme");
+        CliResources resources = new CliResources("acme", PrivateFiles.forHost());
         resources.register(polite);
         resources.register(stubborn);
         resources.register(done).close();
@@ -97,7 +107,7 @@ class CliResourcesTest {
 
     @Test
     void afterCloseNewProcessesAndDirectoriesAreStoppedAtOnce() throws Exception {
-        CliResources resources = new CliResources("acme");
+        CliResources resources = new CliResources("acme", PrivateFiles.forHost());
         resources.close();
         FakeProcess late = launch(FakeProcessLauncher.of("", "", 0).hanging());
         Path dir = exportDir(ProcessHandle.current().pid());
@@ -117,7 +127,7 @@ class CliResourcesTest {
     void everyCloserWaitsUntilTheTreesAreStoppedAndTheDirectoriesDeleted() throws Exception {
         FakeProcess stubborn = launch(FakeProcessLauncher.of("", "", 0).ignoringDestroy());
         Path dir = exportDir(ProcessHandle.current().pid());
-        CliResources resources = new CliResources("acme");
+        CliResources resources = new CliResources("acme", PrivateFiles.forHost());
         resources.register(stubborn);
         resources.registerDirectory(dir);
         // first closer, e.g. the main thread on stdin EOF
@@ -139,7 +149,7 @@ class CliResourcesTest {
 
     @Test
     void closeWaitsForAnAnnouncedLaunchAndStopsIt() throws Exception {
-        CliResources resources = new CliResources("acme");
+        CliResources resources = new CliResources("acme", PrivateFiles.forHost());
         CliResources.Reservation reservation = resources.reserve();
         Thread closer = Thread.ofPlatform().start(resources::close);
 
@@ -157,7 +167,7 @@ class CliResourcesTest {
 
     @Test
     void closeWaitsForAnAnnouncedDirectoryAndDeletesIt() throws Exception {
-        CliResources resources = new CliResources("acme");
+        CliResources resources = new CliResources("acme", PrivateFiles.forHost());
         CliResources.Reservation reservation = resources.reserve();
         Thread closer = Thread.ofPlatform().start(resources::close);
         closer.join(300);
@@ -172,7 +182,7 @@ class CliResourcesTest {
 
     @Test
     void aCancelledReservationDoesNotBlockClose() throws Exception {
-        CliResources resources = new CliResources("acme");
+        CliResources resources = new CliResources("acme", PrivateFiles.forHost());
         CliResources.Reservation reservation = resources.reserve();
         Thread closer = Thread.ofPlatform().start(resources::close);
         closer.join(200);
@@ -187,7 +197,8 @@ class CliResourcesTest {
 
     @Test
     void aProcessRegisteredAfterTheCappedWaitIsStoppedAtOnceAndRefused() throws Exception {
-        CliResources resources = new CliResources("acme", Duration.ofMillis(100));
+        CliResources resources =
+            new CliResources("acme", Duration.ofMillis(100), PrivateFiles.forHost());
         CliResources.Reservation reservation = resources.reserve();
 
         resources.close(); // gives up waiting after the (short) cap
@@ -201,7 +212,8 @@ class CliResourcesTest {
 
     @Test
     void aDirectoryRegisteredAfterTheCappedWaitIsDeletedAtOnceAndRefused() throws Exception {
-        CliResources resources = new CliResources("acme", Duration.ofMillis(100));
+        CliResources resources =
+            new CliResources("acme", Duration.ofMillis(100), PrivateFiles.forHost());
         CliResources.Reservation reservation = resources.reserve();
 
         resources.close();
@@ -217,7 +229,7 @@ class CliResourcesTest {
     @Test
     void closingADirectoryRegistrationDeletesTheDirectoryAndThenDeregistersIt()
         throws Exception {
-        CliResources resources = new CliResources("acme");
+        CliResources resources = new CliResources("acme", PrivateFiles.forHost());
         Path dir = exportDir(ProcessHandle.current().pid());
         CliResources.Registration registration = resources.reserve().directory(dir);
         assertThat(resources.registeredDirectories()).containsExactly(dir);
@@ -235,11 +247,16 @@ class CliResourcesTest {
         // root ignores the missing write permission, so the directory could be deleted
         Assumptions.assumeFalse("root".equals(System.getProperty("user.name")),
             "running as root: a read-only directory cannot block the deletion");
-        CliResources resources = new CliResources("acme");
+        CliResources resources = new CliResources("acme", PrivateFiles.forHost());
         Path dir = exportDir(ProcessHandle.current().pid());
         Path locked = Files.createDirectory(dir.resolve("locked"));
-        Files.writeString(locked.resolve("history.zip"), "zip");
-        locked.toFile().setWritable(false);
+        Path file = Files.writeString(locked.resolve("history.zip"), "zip");
+        // Windows ignores a read-only directory when deleting its files; a file held open
+        // without delete sharing (as FileInputStream opens it) blocks the deletion instead
+        InputStream held = Platform.windows() ? new FileInputStream(file.toFile()) : null;
+        if (held == null) {
+            locked.toFile().setWritable(false);
+        }
         try {
             CliResources.Registration registration = resources.reserve().directory(dir);
 
@@ -249,6 +266,9 @@ class CliResourcesTest {
             assertThat(resources.registeredDirectories()).as("deregistered only after deletion")
                 .containsExactly(dir);
         } finally {
+            if (held != null) {
+                held.close();
+            }
             locked.toFile().setWritable(true);
         }
         resources.close();
@@ -262,7 +282,7 @@ class CliResourcesTest {
 
     @Test
     void afterCloseNothingCanBeReserved() {
-        CliResources resources = new CliResources("acme");
+        CliResources resources = new CliResources("acme", PrivateFiles.forHost());
         resources.close();
 
         assertThatThrownBy(resources::reserve).isInstanceOf(ToolErrorException.class)
@@ -271,9 +291,10 @@ class CliResourcesTest {
 
     @Test
     void theExportPrefixOfThisProcessCarriesItsProfileAndItsPid() {
-        assertThat(new CliResources("acme").exportPrefix()).isEqualTo(CliResources.EXPORT_PREFIX
+        assertThat(new CliResources("acme",
+            PrivateFiles.forHost()).exportPrefix()).isEqualTo(CliResources.EXPORT_PREFIX
             + "acme-" + ProcessHandle.current().pid() + "-");
-        assertThat(new CliResources("globex").exportPrefix()).isEqualTo(
+        assertThat(new CliResources("globex", PrivateFiles.forHost()).exportPrefix()).isEqualTo(
             "inubit-mcp-export-globex-" + ProcessHandle.current().pid() + "-");
     }
 
@@ -291,7 +312,7 @@ class CliResourcesTest {
         Path numericName = exportDir("123", dead);
         Path legacyRunning = exportDir(self);
 
-        int deleted = CliResources.sweepStale(root, "acme", me());
+        int deleted = CliResources.sweepStale(root, "acme", FILES);
 
         assertThat(deleted).isEqualTo(2);
         assertThat(own).doesNotExist();
@@ -306,9 +327,9 @@ class CliResourcesTest {
     @Test
     void onlyValidProfileNamesBecomePartOfExportDirectoryNames() {
         for (String name : List.of("", "../x", "a/b", "Acme", "acme*")) {
-            assertThatThrownBy(() -> new CliResources(name)).as(name)
+            assertThatThrownBy(() -> new CliResources(name, PrivateFiles.forHost())).as(name)
                 .isInstanceOf(IllegalArgumentException.class);
-            assertThatThrownBy(() -> CliResources.sweepStale(root, name, me())).as(name)
+            assertThatThrownBy(() -> CliResources.sweepStale(root, name, FILES)).as(name)
                 .isInstanceOf(IllegalArgumentException.class);
         }
     }
@@ -319,11 +340,11 @@ class CliResourcesTest {
         Path acme = exportDir("acme", dead);
         Path globex = exportDir("globex", dead);
 
-        assertThat(CliResources.sweepStale(root, "globex", me())).isEqualTo(1);
+        assertThat(CliResources.sweepStale(root, "globex", FILES)).isEqualTo(1);
 
         assertThat(globex).doesNotExist();
         assertThat(acme).exists();
-        assertThat(CliResources.sweepStale(root, "acme", me())).isEqualTo(1);
+        assertThat(CliResources.sweepStale(root, "acme", FILES)).isEqualTo(1);
         assertThat(acme).doesNotExist();
     }
 
@@ -343,7 +364,7 @@ class CliResourcesTest {
         Path file = Files.writeString(root.resolve(CliResources.EXPORT_PREFIX + dead + "-file"),
             "x");
 
-        int deleted = CliResources.sweepStale(root, "acme", me());
+        int deleted = CliResources.sweepStale(root, "acme", FILES);
 
         assertThat(deleted).isEqualTo(1);
         assertThat(stale).doesNotExist();
@@ -357,16 +378,160 @@ class CliResourcesTest {
 
     @Test
     void theSweepLeavesDirectoriesOfOtherOwnersAlone() throws Exception {
-        Path stale = exportDir(deadPid());
-        UserPrincipal someoneElse = root.getFileSystem().getUserPrincipalLookupService()
-            .lookupPrincipalByName("root");
+        // feature 013 (R-10): the owner is whatever the private file system says, on Windows the
+        // token user; simulated here, so that it also runs where no second account exists
+        long dead = deadPid();
+        Path mine = exportDir("acme", dead);
+        Path theirs = exportDir(CliResources.EXPORT_PREFIX + "acme-" + dead + "-67890");
+        List<Path> asked = new CopyOnWriteArrayList<>();
 
-        assertThat(CliResources.sweepStale(root, "acme", someoneElse)).isZero();
+        int deleted = CliResources.sweepStale(root, "acme", path -> {
+            asked.add(path);
+            return path.equals(mine);
+        });
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(mine).doesNotExist();
+        assertThat(theirs).exists();
+        assertThat(asked).containsExactlyInAnyOrder(mine, theirs);
+    }
+
+    @Test
+    void anOwnerThatCannotBeReadIsNotTheCurrentUsers() throws Exception {
+        Path stale = exportDir(deadPid());
+
+        assertThat(CliResources.sweepStale(root, "acme", path -> {
+            throw new java.nio.file.AccessDeniedException(path.toString());
+        })).isZero();
         assertThat(stale).exists();
     }
 
     @Test
     void aMissingRootIsNothingToSweep() throws IOException {
-        assertThat(CliResources.sweepStale(root.resolve("missing"), "acme", me())).isZero();
+        assertThat(CliResources.sweepStale(root.resolve("missing"), "acme", FILES)).isZero();
+    }
+
+    // --- feature 013 (FR-008, R-10): a file held open is retried, then the directory logged ---
+
+    /** Fails for {@code held} the first {@code failures} times, as Windows does for open files. */
+    private static CliResources.Deleter holding(Path held, int failures, List<Path> attempts) {
+        AtomicInteger left = new AtomicInteger(failures);
+        return path -> {
+            attempts.add(path);
+            if (path.equals(held) && left.getAndDecrement() > 0) {
+                throw new java.nio.file.FileSystemException(path.toString(), null,
+                    "The process cannot access the file because it is being used by another"
+                        + " process");
+            }
+            Files.deleteIfExists(path);
+        };
+    }
+
+    @Test
+    void aFileHeldForAWhileIsRetriedUntilTheDirectoryIsGone() throws Exception {
+        Path dir = exportDir(ProcessHandle.current().pid());
+        Path held = dir.resolve("modules.zip");
+        List<Path> attempts = new CopyOnWriteArrayList<>();
+        List<Duration> pauses = new CopyOnWriteArrayList<>();
+
+        boolean deleted = CliResources.deleteRecursively(dir, holding(held, 3, attempts),
+            pauses::add);
+
+        assertThat(deleted).isTrue();
+        assertThat(dir).doesNotExist();
+        assertThat(attempts.stream().filter(held::equals)).hasSize(4);
+        assertThat(pauses).hasSize(3);
+    }
+
+    @Test
+    void aFileHeldLongerIsTriedFiveTimesWithinTwoSecondsThenOnlyTheDirectoryIsLogged()
+        throws Exception {
+        Path dir = exportDir(ProcessHandle.current().pid());
+        Path held = dir.resolve("modules.zip");
+        List<Path> attempts = new CopyOnWriteArrayList<>();
+        List<Duration> pauses = new CopyOnWriteArrayList<>();
+        ListAppender<ILoggingEvent> logs = capture();
+        try {
+            boolean deleted = CliResources.deleteRecursively(dir,
+                holding(held, Integer.MAX_VALUE, attempts), pauses::add);
+
+            assertThat(deleted).isFalse();
+        } finally {
+            release(logs);
+        }
+
+        assertThat(held).exists();
+        assertThat(attempts.stream().filter(held::equals)).hasSize(5);
+        assertThat(pauses).hasSize(4);
+        assertThat(pauses.stream().reduce(Duration.ZERO, Duration::plus))
+            .isLessThanOrEqualTo(Duration.ofSeconds(2));
+        assertThat(logs.list).singleElement().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains(dir.getFileName().toString())
+                .doesNotContain("modules.zip");
+        });
+    }
+
+    @Test
+    void anInterruptedRetryStopsAndKeepsTheInterrupt() throws Exception {
+        Path dir = exportDir(ProcessHandle.current().pid());
+        Path held = dir.resolve("modules.zip");
+        List<Path> attempts = new CopyOnWriteArrayList<>();
+        try {
+            boolean deleted = CliResources.deleteRecursively(dir,
+                holding(held, Integer.MAX_VALUE, attempts), pause -> {
+                    throw new InterruptedException();
+                });
+
+            assertThat(deleted).isFalse();
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+        assertThat(attempts.stream().filter(held::equals)).hasSize(1);
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void aDirectoryJunctionIsRemovedWithoutDeletingItsTarget() throws Exception {
+        // Windows: a junction is a directory to walkFileTree, which would descend into it
+        Path dir = exportDir(ProcessHandle.current().pid());
+        Path outside = Files.createDirectory(root.resolve("outside"));
+        Files.writeString(outside.resolve("keep.txt"), "keep");
+        Process mklink = new ProcessBuilder("cmd.exe", "/d", "/c", "mklink", "/J",
+            dir.resolve("junction").toString(), outside.toString()).redirectErrorStream(true)
+            .start();
+        mklink.getOutputStream().close();
+        String output = new String(mklink.getInputStream().readAllBytes());
+        assertThat(mklink.waitFor()).as(output).isZero();
+
+        assertThat(CliResources.deleteRecursively(dir)).isTrue();
+
+        assertThat(dir).doesNotExist();
+        assertThat(outside.resolve("keep.txt")).exists();
+    }
+
+    @Test
+    void aSweptDirectoryWithAHeldFileIsNotCountedAndStaysForTheNextStart() throws Exception {
+        Path stale = exportDir(deadPid());
+        Path held = stale.resolve("modules.zip");
+
+        int deleted = CliResources.sweepStale(root, "acme", FILES::ownedByCurrentUser,
+            holding(held, Integer.MAX_VALUE, new CopyOnWriteArrayList<>()), pause -> { });
+
+        assertThat(deleted).isZero();
+        assertThat(held).exists();
+    }
+
+    private static ListAppender<ILoggingEvent> capture() {
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.start();
+        ((Logger) LoggerFactory.getLogger(CliResources.class)).addAppender(logs);
+        return logs;
+    }
+
+    private static void release(ListAppender<ILoggingEvent> logs) {
+        ((Logger) LoggerFactory.getLogger(CliResources.class)).detachAppender(logs);
+        logs.stop();
     }
 }
