@@ -122,6 +122,49 @@ class DeployServiceVersionTest extends DeployExecution {
     }
 
     @Test
+    void aDeploymentFrom90To90RunsWithoutVersionWarnings() {
+        // T032 (feature 017, US1): 9.0 on both sides deploys like 8.1
+        harness(false);
+        detected("9.0.7", "9.0.7");
+        DeploymentPreview preview = preview();
+        executeStart();
+        DeployHarness.TARGETS.forEach(this::deployed);
+
+        DeploymentResult result = execute(preview);
+
+        assertThat(preview.executable()).isTrue();
+        assertThat(preview.warnings()).isEmpty();
+        assertThat(result.outcome()).isEqualTo(DeploymentResult.Outcome.EXECUTED);
+        assertThat(result.warnings()).noneMatch(warning -> warning.contains("INUBIT"));
+        harness.verifyComplete();
+    }
+
+    @Test
+    void aDeploymentFromAPinned90SourceToADetected90TargetRuns() {
+        harness(false);
+        sources(VersionSetting.V9_0);
+        targets(VersionSetting.AUTO);
+        DeployHarness.TARGETS.forEach(node -> harness.detection.answer(node, "9.0.7"));
+        DeploymentPreview preview = preview();
+
+        assertThat(preview.executable()).isTrue();
+        assertThat(preview.warnings()).isEmpty();
+    }
+
+    @Test
+    void aDeploymentFrom81To90IsRefusedForDifferentMinorVersions() {
+        // T032: 8.1 and 9.0 are each supported, but a deployment needs one minor version
+        harness(false);
+        detected("8.1.17", "9.0.7");
+
+        ToolError error = refusedPreview();
+
+        assertThat(error.message()).contains("different INUBIT minor versions (8.1, 9.0)")
+            .doesNotContain("does not support deployment");
+        assertThat(error.nextStep()).contains("same INUBIT minor version");
+    }
+
+    @Test
     void aDeploymentFrom81To91IsRefusedAfterOnlyTheDetections() {
         harness(false);
         detected("8.1.17", "9.1.0");

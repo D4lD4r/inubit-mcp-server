@@ -244,7 +244,8 @@ public final class DeployHarness {
         return TestCliRunners.forHost(cli.get(node), launched ? System.getenv()
             : Map.of("PATH", Platform.searchPath()), new CliResources("acme",
                 PrivateFiles.forHost()),
-            TestCliRunners.UNKNOWN_VERSIONS,
+            // as Wiring: StartCLI is chosen by the effective version (feature 017, D-4)
+            versions::effectiveVersion,
             de.dadecker.inubit.mcp.domain.port.ClientCheckLookup.NONE, writeLock);
     }
 

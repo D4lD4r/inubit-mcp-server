@@ -268,3 +268,24 @@ output change for profiles without `cliClients` and without 9.x nodes (FR-009).
 
 No blocking finding open. Full build after the fixes: 5360 tests, 0 failures, 0 errors, 51
 skipped.
+
+## Implementation — phases 4–6, T027–T036 (code-review, 2026-11-07)
+
+Full build before the review: 5493 tests, 0 failures, 0 errors, 52 skipped (the extra skip is
+`V90RecordedFixturesTest`, listing the 21 not yet recorded 9.0 cases). The reviewer confirmed
+for FR-009/D-11:
+- every production caller of `InubitHttpClient` passes the range of its parser, and no caller
+  uses the range-less methods any more;
+- the 8.1 endpoints do not switch format on `Accept`, according to the 8.1 fixtures;
+- the status mapping is unchanged;
+- the excerpt changes only for JSON bodies with a string `message`, and all 8.1 error fixtures
+  are HTML.
+
+The `DeployHarness` version source mirrors production (`Wiring` uses one `NodeVersions` for
+selection and the write lock), so it masks no production bug. The Accept header on 8.1 is still
+a live-check item, because the adapters are shared.
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | SHOULD | In 9.0 mode `record-fixtures.sh` always used `defaults.cliHome`. With the recommended profile (8.1 client there) node-backed CLI cases would run the 8.1 client and be marked `recorded … 9.0.x`, so the provenance gap (D-10, SC-006) would close silently. `-v`/`-h` could not be recorded at all | Accepted | Verified (`config_value` reads only `cliHome`/`cliJavaHome`; `detect_inubit_version` checks only the node for non-local cases). 9.0 mode takes `defaults.cliClients."9.0"`, which the explicit `RECORD_CLI_HOME`/`RECORD_CLI_JAVA_HOME` override. Before every CLI case the client must report `CLI 9.0.*`. The 8.1 mode is unchanged. Script tests added |
+| 2 | NIT | SC-003 did not list the 0.8.0 test edits of this phase: added Accept assertions, `DeployHarness` wiring, helper visibility | Accepted | They only add conditions, and no assertion was loosened. SC-003 now names them |

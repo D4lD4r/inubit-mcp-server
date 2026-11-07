@@ -407,7 +407,8 @@ class V81ProcessQueryAdapterTest {
         assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
         assertThat(wireMock.findAll(postRequestedFor(urlPathEqualTo(PATH))
             .withHeader("Authorization",
-                com.github.tomakehurst.wiremock.client.WireMock.matching("Basic .+"))))
+                com.github.tomakehurst.wiremock.client.WireMock.matching("Basic .+"))
+            .withHeader("Accept", equalTo("application/json, */*;q=0.1"))))
             .hasSize(1);
     }
 

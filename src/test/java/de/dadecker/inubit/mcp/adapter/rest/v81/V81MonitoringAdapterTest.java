@@ -58,6 +58,9 @@ class V81MonitoringAdapterTest {
     private static final String READY = "/ibis/rest/ready";
     private static final String SYSTEM_INFO = "/ibis/rest/system/info";
     private static final String METRICS = "/ibis/rest/metrics";
+    /** Feature 017 T028 (research D-11): the {@code Accept} of the adapter's parsers. */
+    private static final String JSON_ACCEPT = "application/json, */*;q=0.1";
+    private static final String XML_ACCEPT = "application/xml, */*;q=0.1";
     private static WireMockServer wireMock;
 
     private final SecretScrubber scrubber = new SecretScrubber();
@@ -136,7 +139,8 @@ class V81MonitoringAdapterTest {
         assertThat(health.timestamp()).contains(Instant.parse("2026-10-01T13:58:45Z"));
         assertThat(health.problem()).isEmpty();
         wireMock.verify(getRequestedFor(urlEqualTo(HEALTHCHECK))
-            .withHeader("Authorization", absent()));
+            .withHeader("Authorization", absent())
+            .withHeader("Accept", equalTo(JSON_ACCEPT)));
     }
 
     @Test
@@ -232,7 +236,8 @@ class V81MonitoringAdapterTest {
 
         assertThat(ready.ready()).isTrue();
         assertThat(ready.message()).contains("Ready to serve.");
-        wireMock.verify(getRequestedFor(urlEqualTo(READY)).withHeader("Authorization", absent()));
+        wireMock.verify(getRequestedFor(urlEqualTo(READY)).withHeader("Authorization", absent())
+            .withHeader("Accept", equalTo(JSON_ACCEPT)));
     }
 
     @Test
@@ -286,7 +291,8 @@ class V81MonitoringAdapterTest {
                 "TracingIsActive", "NumberSchedulerThreads");
         assertThat(info.raw().keySet()).first().isEqualTo("FreeMemory");
         wireMock.verify(getRequestedFor(urlEqualTo(SYSTEM_INFO))
-            .withHeader("Authorization", matching("Basic .+")));
+            .withHeader("Authorization", matching("Basic .+"))
+            .withHeader("Accept", equalTo(XML_ACCEPT)));
     }
 
     @Test
@@ -361,7 +367,8 @@ class V81MonitoringAdapterTest {
             assertThat(load.blockingQueuePercent()).contains(0.0);
         });
         wireMock.verify(getRequestedFor(urlEqualTo(METRICS + "?format=json"))
-            .withHeader("Authorization", matching("Basic .+")));
+            .withHeader("Authorization", matching("Basic .+"))
+            .withHeader("Accept", equalTo(JSON_ACCEPT)));
     }
 
     @Test

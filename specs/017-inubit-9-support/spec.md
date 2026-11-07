@@ -320,7 +320,10 @@ pass unchanged.
 - **SC-003**: 100 % of the 0.8.0 test suite and every 0.8.0 configuration example pass (8.1 and
   6.1 behaviour preserved); the only permitted test changes are expectations of the additive
   `list_nodes` field (FR-015), tests that used 9.0 as an example of an undeclared version and now
-  use 9.1, and the 0.8.0 tests of the 9.0 matrix entry, which FR-001/FR-002 replace.
+  use 9.1, and the 0.8.0 tests of the 9.0 matrix entry, which FR-001/FR-002 replace. Also
+  permitted are additional assertions of the D-11 `Accept` header in the 8.1 adapter tests,
+  test-harness wiring that mirrors production (the version source of `DeployHarness`) and widened
+  visibility of test helpers; none of them changes an existing expectation of 8.1 or 6.1 behaviour.
 - **SC-004**: No StartCLI call on a 9.x node uses the removed servlet address unless the operator
   configured it explicitly, in which case a warning is shown.
 - **SC-005**: No credential appears in any new message, warning, excerpt, log line or the

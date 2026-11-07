@@ -69,6 +69,8 @@ class V81InventoryAdapterTest {
     private static final NodeId DEV = NodeId.parse("dev/node1");
     private static final String PASSWORD = "inventory-adapter-pw";
     private static final String SYSTEM_INFO = "/ibis/rest/system/info";
+    /** Feature 017 T028 (research D-11): the {@code Accept} of the XML parsers. */
+    private static final String XML_ACCEPT = "application/xml, */*;q=0.1";
     private static final Pattern EXPORT_FILE = Pattern.compile("--exportFile '([^']+)'");
     private static WireMockServer wireMock;
 
@@ -166,7 +168,8 @@ class V81InventoryAdapterTest {
         assertThat(diagrams).allSatisfy(item -> assertThat(item.node()).isEqualTo(DEV));
         assertThat(wireMock.findAll(getRequestedFor(urlPathEqualTo("/ibis/rest/model/models"))
             .withQueryParam("user", equalTo("OWNERS"))
-            .withHeader("Authorization", matching("Basic .+")))).hasSize(1);
+            .withHeader("Authorization", matching("Basic .+"))
+            .withHeader("Accept", equalTo(XML_ACCEPT)))).hasSize(1);
     }
 
     @Test
@@ -179,7 +182,8 @@ class V81InventoryAdapterTest {
         assertThat(detail.modules()).hasSize(3);
         assertThat(wireMock.findAll(getRequestedFor(urlPathEqualTo(
             "/ibis/rest/model/modelByName/Sample%20diagram%2001"))
-            .withQueryParam("user", equalTo("OWNERS")))).hasSize(1);
+            .withQueryParam("user", equalTo("OWNERS"))
+            .withHeader("Accept", equalTo(XML_ACCEPT)))).hasSize(1);
     }
 
     @Test
@@ -193,6 +197,10 @@ class V81InventoryAdapterTest {
         assertThat(metadata.active()).contains(true);
         assertThat(metadata.checkinComment()).contains("[message 107]");
         assertThat(metadata.owner()).contains("OWNERS");
+        // feature 017 T028 (research D-11): an archive is asked for with any media type
+        assertThat(wireMock.findAll(getRequestedFor(urlPathEqualTo(
+            "/ibis/rest/model/export/Workflow-0101")).withHeader("Accept", equalTo("*/*"))))
+            .hasSize(1);
     }
 
     @Test
@@ -277,7 +285,8 @@ class V81InventoryAdapterTest {
         assertThat(callsAtLaunch).containsExactly(1);
         assertThat(guard.confirmed()).isTrue();
         assertThat(wireMock.findAll(getRequestedFor(urlPathEqualTo(SYSTEM_INFO))
-            .withHeader("Authorization", matching("Basic .+")))).hasSize(1);
+            .withHeader("Authorization", matching("Basic .+"))
+            .withHeader("Accept", equalTo(XML_ACCEPT)))).hasSize(1);
     }
 
     @Test

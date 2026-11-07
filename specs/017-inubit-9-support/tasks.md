@@ -281,23 +281,23 @@ FR-014).
 and on an `AUTO` node detected as 9.0.7 runs without version warning and with the 8.1 result
 shape.
 
-- [ ] T027 [US1] `InubitHttpClient`: `enum MediaRange {XML, JSON, ANY}` (`XML` =
+- [X] T027 [US1] `InubitHttpClient`: `enum MediaRange {XML, JSON, ANY}` (`XML` =
   `application/xml, */*;q=0.1`, `JSON` = `application/json, */*;q=0.1`, `ANY` = `*/*`);
   `get`/`post`/`getWithoutCredentials` take it (overloads keep `RESOURCE`/`ENDPOINT`). Test: the
   header sent equals the range (existing `InubitHttpClientTest` stays green) — main
   `adapter/rest/InubitHttpClient.java`, test `adapter/rest/InubitHttpClientAcceptTest.java`
-- [ ] T028 [US1] Adapters pass the D-11 range: `/healthcheck`, `/ready`, `/metrics?format=json`,
+- [X] T028 [US1] Adapters pass the D-11 range: `/healthcheck`, `/ready`, `/metrics?format=json`,
   `/log/{name}` → JSON; `/system/info`, `/model/models`, `/model/modelByName/{name}` → XML;
   `/model/export/{name}` → ANY; the 8.1 contract tests additionally assert the header — main
   `adapter/rest/v81/{V81VersionDetector,V81MonitoringAdapter,V81MaintenanceProbe,LogEndpoint}.java`,
   `adapter/V81InventoryAdapter.java` (and the model-export caller), tests in their existing test
   classes (`V81VersionDetectorTest`, `V81MonitoringAdapterTest`, `V81MaintenanceProbeTest`,
   `adapter/V81InventoryAdapterTest`)
-- [ ] T029 [US1] JSON error bodies (D-12): a JSON body with a string `message` becomes the excerpt
+- [X] T029 [US1] JSON error bodies (D-12): a JSON body with a string `message` becomes the excerpt
   (scrubbed, length-capped as today; leak check with a JSON `message` containing the configured password);
   status mapping unchanged; 401 ignores the body — main
   `adapter/rest/InubitHttpClient.java`, test `adapter/rest/InubitHttpClientJsonErrorTest.java`
-- [ ] T030 [US1] Red: test-support registry `V90Cases` (the only way the new 9.0 contract tests
+- [X] T030 [US1] Red: test-support registry `V90Cases` (the only way the new 9.0 contract tests
   open a fixture; opening a case without its `<case>.origin` fails) and the 9.0 contract tests
   through it, written first and failing for the missing fixtures: REST adapters (detector,
   monitoring, inventory, logs, model export) parse the 9.0 fixtures; errors 401/403/404
@@ -306,7 +306,7 @@ shape.
   processErrorStart, kill, login_failed, unreachable, unknown_command, ps); `-h` via
   `CliClientProbe` — tests `testing/V90Cases.java`, `adapter/rest/V90RestContractTest.java`,
   `adapter/cli/V90CliContractTest.java`
-- [ ] T031 [US1] Green: documentation-derived 9.0 fixtures (D-10) under
+- [X] T031 [US1] Green: documentation-derived 9.0 fixtures (D-10) under
   `src/test/resources/fixtures/v9_0/rest/` (healthcheck, ready, system_info, metrics, log GET/POST,
   model_models, modelByName, model_export, errors 401/403/404/500/503) and `cli/` (`-v`, `-h`,
   processErrorStart, kill, unknown_command, login_failed, unreachable, ps, export, import, tag),
@@ -317,7 +317,7 @@ shape.
   `GetInventoryItemToolTest`) keep working; production fixes only where a T030 test shows a 9.0
   difference; no real customer names (acme, `*.example.test`) — `src/test/resources/fixtures/v9_0/`,
   `README.md` there; T030 tests turn green
-- [ ] T032 [US1] Tool level on 9.0: node pinned `V9_0` and `AUTO` node detected as 9.0.7: read
+- [X] T032 [US1] Tool level on 9.0: node pinned `V9_0` and `AUTO` node detected as 9.0.7: read
   tools without "not verified" warning; `restart_process`, `kill_process`, development writes,
   `run_e2e_test` admitted; `deploy_release` 9.0 ↔ 9.0 admitted, 8.1 ↔ 9.0 refused (same
   major.minor rule); StartCLI launched with `<baseUrl>` (SC-001 offline, SC-004) — tests
@@ -331,7 +331,7 @@ shape.
 **Independent test**: every 0.8.0 configuration example loads unchanged with identical effective
 StartCLI values; 8.1 and 6.1 suites pass.
 
-- [ ] T033 [US3] Compatibility test: every profile example of `docs/setup.md`, `README.md` and the
+- [X] T033 [US3] Compatibility test: every profile example of `docs/setup.md`, `README.md` and the
   existing config test resources loads; for 8.1, 6.1 and `AUTO` nodes `cli()` (home, javaHome,
   url) equals the 0.8.0 value (golden values computed with the 0.8.0 rule in the test); `V9_X`
   loads (FR-011); explicit `cli.url` on a 9.0-detected node kept (US3 scenario 2); SC-002: a profile with
@@ -345,19 +345,19 @@ code-review phase 5.
 
 ## Phase 6: Recording and not-yet-recorded listing (plan stage 8; US1, SC-006)
 
-- [ ] T034 [US1] `tools/record-fixtures.sh`: `RECORD_INUBIT_LINE=9.0` → output
+- [X] T034 [US1] `tools/record-fixtures.sh`: `RECORD_INUBIT_LINE=9.0` → output
   `fixtures/v9_0/rest|cli`, CLI URL `<baseUrl>`, each REST case with its D-11 `Accept`; new
   read-only cases `help` (`-h`), `rest_auth_failed` (GET `/system/info` with a dummy password),
   `rest_not_found` (modelByName of a non-existent name); `--list` prints the 9.0 catalogue; every
   recorded case writes `<case>.origin` = `recorded <date> <INUBIT version>`; 8.1 default
   unchanged — `tools/record-fixtures.sh`, tests `tools/RecordFixturesCatalogueTest.java` (and
   `tools/tests/` if the script's Python helpers change)
-- [ ] T035 [US1] `fixtures/v9_0/NOT_RECORDABLE.txt` (write successes import, tag,
+- [X] T035 [US1] `fixtures/v9_0/NOT_RECORDABLE.txt` (write successes import, tag,
   processErrorStart, kill; REST 403, 500, 503; each with its reason) and
   `V90FixtureCatalogueTest`: catalogue (`record-fixtures.sh --list` for 9.0) ∪ NOT_RECORDABLE =
   fixture/`.origin` files = `V90Cases` cases (both directions); a missing `.origin` fails; the
   NOT_RECORDABLE set is asserted exactly — test `tools/V90FixtureCatalogueTest.java`
-- [ ] T036 [US1] `V90RecordedFixturesTest`: every catalogue case whose `.origin` is not
+- [X] T036 [US1] `V90RecordedFixturesTest`: every catalogue case whose `.origin` is not
   `recorded` → skipped with a message naming the cases; never fails, also not for release builds
   (no release gate: the person releases 0.8.0 without the live check and accepted the risk) —
   test `tools/V90RecordedFixturesTest.java`

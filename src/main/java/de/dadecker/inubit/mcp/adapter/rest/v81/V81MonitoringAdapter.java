@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.adapter.rest.v81;
 
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
+import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.MediaRange;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.ResourceKind;
 import de.dadecker.inubit.mcp.adapter.rest.RestResponse;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -88,13 +89,14 @@ public final class V81MonitoringAdapter implements MonitoringPort {
     @Override
     public Healthcheck healthcheck() {
         return HealthcheckParser.parse(withServer(() ->
-            client.getWithoutCredentials(HEALTHCHECK_PATH, Map.of(), ANY_STATUS)));
+            client.getWithoutCredentials(HEALTHCHECK_PATH, Map.of(), MediaRange.JSON,
+                ANY_STATUS)));
     }
 
     @Override
     public Readiness ready() {
         RestResponse response = withServer(() ->
-            client.getWithoutCredentials(READY_PATH, Map.of(), 503));
+            client.getWithoutCredentials(READY_PATH, Map.of(), MediaRange.JSON, 503));
         return new Readiness(response.status() != 503, message(response));
     }
 
@@ -103,7 +105,8 @@ public final class V81MonitoringAdapter implements MonitoringPort {
         SystemInfo info;
         try {
             RestResponse response = withServer(() ->
-                client.get(SYSTEM_INFO_PATH, Map.of(), ResourceKind.ENDPOINT));
+                client.get(SYSTEM_INFO_PATH, Map.of(), MediaRange.XML,
+                    ResourceKind.ENDPOINT));
             info = SystemInfoXmlParser.parse(server, response.body());
         } catch (ToolErrorException e) {
             listener.failed(e);
@@ -116,7 +119,8 @@ public final class V81MonitoringAdapter implements MonitoringPort {
     @Override
     public Metrics metrics() {
         RestResponse response = withServer(() ->
-            client.get(METRICS_PATH, Map.of("format", "json"), METRICS_ACCEPTED));
+            client.get(METRICS_PATH, Map.of("format", "json"), MediaRange.JSON,
+                METRICS_ACCEPTED));
         if (response.status() < 200 || response.status() >= 300) {
             return new Metrics.NotLicensed("GET " + METRICS_PATH + " answered HTTP "
                 + response.status());

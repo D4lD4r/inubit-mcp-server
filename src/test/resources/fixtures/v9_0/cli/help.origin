@@ -1,0 +1,2 @@
+reconstructed docs/research/inubit-interfaces.md §2.1 (the documented options) and §4 (9.0 shows the help only with an explicit -h/--help); layout modelled on fixtures/v6_1/cli/help.stdout.
+Not verified against a 9.0 client: the real help text and option layout may differ.
