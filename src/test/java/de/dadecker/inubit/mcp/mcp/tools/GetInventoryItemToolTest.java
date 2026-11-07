@@ -107,7 +107,7 @@ class GetInventoryItemToolTest {
     }
 
     @Test
-    void onInubit90TheEntryOfTheNodeCarriesTheUnverifiedWarning() throws IOException {
+    void onInubit90TheEntryOfTheNodeCarriesNoVersionWarning() throws IOException {
         fixture.close();
         fixture = new InventoryToolFixture(dev, integration, GetInventoryItemTool::new,
             VersionSetting.AUTO);
@@ -123,9 +123,7 @@ class GetInventoryItemToolTest {
 
         assertMatchesOutputSchema("get_inventory_item", result);
         JsonNode entry = entry(result, 0);
-        assertThat(entry.path("warnings")).extracting(JsonNode::asString).containsExactly(
-            "INUBIT 9.0.7 on dev/node1 is not verified for inventory; results may be"
-                + " incomplete");
+        assertThat(entry.has("warnings")).as("INUBIT 9.0 is declared: no warnings").isFalse();
         assertThat(entry.path("item").path("versions")).isNotEmpty();
     }
 

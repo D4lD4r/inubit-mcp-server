@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.domain.model.MajorMinor;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.infra.AuditLog;
@@ -95,6 +96,8 @@ public final class ConfigLoader {
     /** The source type of feature 010 removed in 0.7.0 (feature 011, research R-6). */
     private static final String ENVIRONMENT = "environment";
     private static final String AWS_PARAMETER_STORE = "awsParameterStore";
+    /** Feature 017 (research D-1): the client per INUBIT major.minor. */
+    private static final String CLI_CLIENTS_PATH = "defaults.cliClients";
 
     private final Map<String, String> environment;
     private final Path userHome;
@@ -310,6 +313,12 @@ public final class ConfigLoader {
         JsonNode root;
         try {
             root = new YamlTreeReader(mapper).read(yaml);
+        } catch (YamlTreeReader.DuplicateKeyException e) {
+            if (CLI_CLIENTS_PATH.equals(e.path())) {
+                throw new ConfigException("Duplicate cliClients key \"" + e.key() + "\" at "
+                    + CLI_CLIENTS_PATH + " in " + source);
+            }
+            throw new ConfigException("Invalid YAML in " + source + ": " + e.getMessage());
         } catch (YamlTreeReader.YamlStructureException e) {
             throw new ConfigException("Invalid YAML in " + source + ": " + e.getMessage());
         } catch (StreamReadException e) {
@@ -351,7 +360,9 @@ public final class ConfigLoader {
                 + (at.isEmpty() ? " at the top level" : " at " + at) + " in " + source);
         } catch (DatabindException e) {
             // the offending value is never echoed: it could be a URL or text with secrets
-            String what = targetType(e) == VersionSetting.class ? "versionLine" : "value";
+            Class<?> target = targetType(e);
+            String what = target == VersionSetting.class ? "versionLine"
+                : target == MajorMinor.class ? "cliClients key" : "value";
             throw new ConfigException("Invalid " + what + " at " + pathOf(e.getPath()) + " in "
                 + source + ": expected " + expected(e));
         } catch (JacksonException e) {
@@ -737,7 +748,13 @@ public final class ConfigLoader {
             return "an ISO-8601 duration such as PT5S";
         }
         if (type == VersionSetting.class) {
-            return "AUTO, V6_1, V8_1, V9_X or a full version such as \"8.1.17\"";
+            return "AUTO, V6_1, V8_1, V9_0, V9_X or a full version such as \"8.1.17\"";
+        }
+        if (type == MajorMinor.class) {
+            return "major.minor, e.g. \"9.0\"";
+        }
+        if (type == CliClient.class) {
+            return "a mapping with home (the client directory) and optional javaHome";
         }
         if (type.isEnum()) {
             return "one of " + String.join(", ", Arrays.stream(type.getEnumConstants())

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -102,6 +103,20 @@ class SetActiveTest {
         assertThat(harness.audit("set_active").get(1).inputs())
             .containsEntry("workflow", "Workflow-0001").containsEntry("active", "true")
             .containsEntry("scope", "diagram group GRP-01");
+    }
+
+    @Test
+    void theWorkflowIsSentWithThePermitOfTheCall() throws IOException {
+        // feature 017 (T045, FR-018, research D-24)
+        ImportHarness harness = ImportHarness.grpA(temp);
+        harness.exportGroup().importApplied(ACTIVE).exportGroup();
+
+        completed(harness.service().setActive(request("Workflow-0001", true)));
+
+        assertThat(harness.writeLock.permits()).singleElement().satisfies(permit -> {
+            assertThat(permit.node()).isEqualTo(ImportHarness.DEV);
+            assertThat(permit.capability()).isEqualTo(Capability.DEVELOPMENT_WRITE);
+        });
     }
 
     @Test

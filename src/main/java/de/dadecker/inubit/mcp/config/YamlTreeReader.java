@@ -37,7 +37,7 @@ final class YamlTreeReader {
             if (token == null) {
                 return null;
             }
-            JsonNode root = new Session((YAMLParser) parser).value(token);
+            JsonNode root = new Session((YAMLParser) parser).value(token, "");
             if (parser.nextToken() != null) {
                 throw new YamlStructureException("Only one YAML document is allowed (found '---')");
             }
@@ -55,13 +55,13 @@ final class YamlTreeReader {
             this.parser = parser;
         }
 
-        JsonNode value(JsonToken token) {
+        JsonNode value(JsonToken token, String path) {
             String anchor = token == JsonToken.VALUE_STRING && parser.isCurrentAlias()
                 ? null
                 : parser.getObjectId();
             JsonNode node = switch (token) {
-                case START_OBJECT -> object();
-                case START_ARRAY -> array();
+                case START_OBJECT -> object(path);
+                case START_ARRAY -> array(path);
                 case VALUE_STRING -> parser.isCurrentAlias() ? alias(parser.getString()) : count(
                     nodes.stringNode(parser.getString()));
                 case VALUE_NUMBER_INT -> count(switch (parser.getNumberType()) {
@@ -81,7 +81,7 @@ final class YamlTreeReader {
             return node;
         }
 
-        private ObjectNode object() {
+        private ObjectNode object(String path) {
             ObjectNode object = count(nodes.objectNode());
             JsonToken token;
             while ((token = parser.nextToken()) == JsonToken.PROPERTY_NAME) {
@@ -91,22 +91,26 @@ final class YamlTreeReader {
                         + " mapping instead (e.g. tls: *shared)");
                 }
                 if (object.has(key)) {
-                    throw error("Duplicate key '" + key + "'");
+                    TokenStreamLocation location = parser.currentTokenLocation();
+                    throw new DuplicateKeyException(path, key, "Duplicate key '" + key
+                        + "' at line " + location.getLineNr() + ", column "
+                        + location.getColumnNr());
                 }
-                object.set(key, value(parser.nextToken()));
+                String child = path.isEmpty() ? key : path + "." + key;
+                object.set(key, value(parser.nextToken(), child));
             }
             expect(token, JsonToken.END_OBJECT);
             return object;
         }
 
-        private ArrayNode array() {
+        private ArrayNode array(String path) {
             ArrayNode array = count(nodes.arrayNode());
             JsonToken token;
             while ((token = parser.nextToken()) != JsonToken.END_ARRAY) {
                 if (token == null) {
                     throw error("Unexpected end of YAML");
                 }
-                array.add(value(token));
+                array.add(value(token, path + "[" + array.size() + "]"));
             }
             return array;
         }
@@ -157,12 +161,38 @@ final class YamlTreeReader {
     }
 
     /** A structural problem found while building the tree; the message holds no values. */
-    static final class YamlStructureException extends RuntimeException {
+    static class YamlStructureException extends RuntimeException {
 
         private static final long serialVersionUID = 1L;
 
         YamlStructureException(String message) {
             super(message);
+        }
+    }
+
+    /**
+     * A key that appears twice in one mapping; {@code path} is the mapping's key path (e.g.
+     * {@code defaults.cliClients}), so that the loader can name it (feature 017, research D-1).
+     */
+    static final class DuplicateKeyException extends YamlStructureException {
+
+        private static final long serialVersionUID = 1L;
+
+        private final String path;
+        private final String key;
+
+        DuplicateKeyException(String path, String key, String message) {
+            super(message);
+            this.path = path;
+            this.key = key;
+        }
+
+        String path() {
+            return path;
+        }
+
+        String key() {
+            return key;
         }
     }
 }

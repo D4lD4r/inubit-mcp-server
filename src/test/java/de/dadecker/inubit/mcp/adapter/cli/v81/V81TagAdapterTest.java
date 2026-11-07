@@ -15,7 +15,9 @@ import de.dadecker.inubit.mcp.adapter.cli.ScriptedProcessLauncher;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -24,6 +26,7 @@ import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
+import de.dadecker.inubit.mcp.testing.TestPermits;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -49,6 +52,7 @@ import org.junit.jupiter.api.io.TempDir;
 class V81TagAdapterTest {
 
     private static final NodeId DEV = NodeId.parse("dev/node1");
+    private static final WritePermit PERMIT = TestPermits.of(DEV, Capability.DEVELOPMENT_WRITE);
     private static final String OK = "JAVA_HOME is set\nPassword: \n"
         + "1-OK: Workflow group exported successfully.\n";
     private static final String HISTORY = "<VersionInformation><Workflows>"
@@ -128,7 +132,7 @@ class V81TagAdapterTest {
         TagPort adapter = adapter();
 
         adapter.checkAvailable();
-        adapter.tag("REL-2", "GRP-01", "jdoe");
+        adapter.tag("REL-2", "GRP-01", "jdoe", PERMIT);
 
         cli.verifyComplete();
         assertThat(confirmed).hasValue(1);

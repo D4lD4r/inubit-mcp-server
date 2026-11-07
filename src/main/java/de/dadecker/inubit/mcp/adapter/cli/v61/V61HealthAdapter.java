@@ -56,11 +56,12 @@ public final class V61HealthAdapter implements CliHealthPort {
 
     /**
      * Runs the session bounded by the shorter of {@code budget} and the node's cliTimeout, with
-     * the output bound of {@code --execCommand} runs (research D-10).
+     * the output bound of {@code --execCommand} runs (research D-10); without the launch guard,
+     * as {@code get_health} reports the client in its own part (feature 017, research D-4).
      */
     @Override
     public CliHealthSnapshot snapshot(Duration budget) {
-        CliResult result = connection.session(V61HealthParser.COMMANDS, budget,
+        CliResult result = connection.healthSession(V61HealthParser.COMMANDS, budget,
             CliRunner.MAX_OUTPUT_BYTES);
         if (result.exitCode() != 0 || result.truncated()
             || CliOutputClassifier.isLoginFailure(result)) {

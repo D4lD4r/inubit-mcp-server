@@ -102,6 +102,19 @@ public final class ImportHarness {
         node -> Duration.ofMinutes(10));
     /** Feature 009: the detections of the gate (none for pinned nodes). */
     public final FakeVersionDetection detection = new FakeVersionDetection(versions);
+    /**
+     * Feature 017 (research D-24): the write lock of every StartCLI runner, the real lock of
+     * {@link #versions} as in production; records the permits and can inject a version change.
+     */
+    public final de.dadecker.inubit.mcp.testing.RecordingWriteLock writeLock =
+        new de.dadecker.inubit.mcp.testing.RecordingWriteLock(versions);
+    /**
+     * Feature 017 (review of stage 5): the import and tag ports of {@link #service()} report an
+     * unexpected response to {@link #versions} through the real stale wrapper, as in production;
+     * below it, an import protocol without Total line is reported as {@code UNEXPECTED_RESPONSE}
+     * ({@link de.dadecker.inubit.mcp.testing.UnreadableProtocolImports}).
+     */
+    public boolean staleReporting;
     /** Feature 009: the capability matrix of the version gate of {@link #service()}. */
     public CapabilityMatrix matrix = CapabilityMatrix.production();
     /** The nodes whose effective {@code development.repository} is {@code WRITE} (feature 008). */
@@ -200,9 +213,16 @@ public final class ImportHarness {
         CliOutputClassifier classifier = new CliOutputClassifier(new SecretScrubber());
         ArtifactPort artifacts = new V81ArtifactAdapter(new CliExportRunner(server, credentials,
             guard, runner, classifier), () -> { });
-        ImportPort imports = new V81ImportAdapter(new CliImportRunner(server, credentials,
+        ImportPort cliImports = new V81ImportAdapter(new CliImportRunner(server, credentials,
             guard, runner, classifier), () -> { });
-        de.dadecker.inubit.mcp.domain.port.TagPort tags = tags(guard, runner, classifier);
+        de.dadecker.inubit.mcp.domain.port.TagPort cliTags = tags(guard, runner, classifier);
+        ImportPort imports = staleReporting ? de.dadecker.inubit.mcp.adapter
+            .StaleReportingTestPorts.imports(DEV, versions,
+                new de.dadecker.inubit.mcp.testing.UnreadableProtocolImports(cliImports))
+            : cliImports;
+        de.dadecker.inubit.mcp.domain.port.TagPort tags = staleReporting
+            ? de.dadecker.inubit.mcp.adapter.StaleReportingTestPorts.tags(DEV, versions, cliTags)
+            : cliTags;
         DevelopmentPolicy policy = new DevelopmentPolicy(DEV, false, true, confirmation,
             Duration.ofMinutes(5), E2ePolicy.FORBIDDEN, Optional.empty(),
             repositoryWrite.contains(DEV));
@@ -256,7 +276,9 @@ public final class ImportHarness {
     private CliRunner runner() {
         return TestCliRunners.forHost(cli, launched ? System.getenv()
             : Map.of("PATH", Platform.searchPath()), new CliResources("acme",
-                PrivateFiles.forHost()));
+                PrivateFiles.forHost()),
+            TestCliRunners.UNKNOWN_VERSIONS,
+            de.dadecker.inubit.mcp.domain.port.ClientCheckLookup.NONE, writeLock);
     }
 
     /**

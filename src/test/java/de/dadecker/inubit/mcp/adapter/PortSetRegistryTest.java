@@ -37,7 +37,8 @@ import org.junit.jupiter.api.Test;
 /**
  * Feature 012 T025: the 6.1 registration (research D-4). The registry is built as {@code Wiring}
  * builds it: the 8.1 port set as default, the 6.1 port set and its StartCLI health port for
- * {@link V61PortSet#RANGE}, CLI-only.
+ * {@link V61PortSet#RANGE}, CLI-only; feature 017 (T006, research D-14): the 8.1 port set also
+ * registered for {@link PortSetRegistry#V90_RANGE}.
  */
 class PortSetRegistryTest {
 
@@ -47,7 +48,7 @@ class PortSetRegistryTest {
     private static final CliConcurrencyLimiter LIMITER =
         new CliConcurrencyLimiter(CapabilityMatrix.production());
 
-    private final PortSetRegistry registry = PortSetRegistry.v81Default()
+    private final PortSetRegistry registry = PortSetRegistry.v81Default().withV90()
         .register(V61PortSet.RANGE, V61PortSet.factory(PROBE, LIMITER), V61QueryRules.INSTANCE,
             V61PortSet.cliHealth(PROBE, LIMITER));
 
@@ -70,7 +71,7 @@ class PortSetRegistryTest {
     @Test
     void every81And9xAndUnknownVersionKeepsTheDefaultWithRestAndCli() {
         PortSetRegistry.Factory defaultFactory = registry.select(Optional.empty()).factory();
-        for (String version : List.of("6.0.4", "6.2", "8.1.17", "9.0.7", "10.2")) {
+        for (String version : List.of("6.0.4", "6.2", "8.1.17", "9.1.0", "10.2")) {
             PortSetRegistry.Selection selection = registry.select(InubitVersion.parse(version));
 
             assertThat(selection.range()).as(version).isEmpty();
@@ -79,6 +80,25 @@ class PortSetRegistryTest {
             assertThat(selection.cliHealth()).as(version).isEmpty();
         }
         assertThat(registry.select(Optional.empty()).access()).isEqualTo(NodeAccess.REST_AND_CLI);
+    }
+
+    @Test
+    void nineZeroSelectsItsOwnRangeServedByThe81PortSetWithRestAndCli() {
+        PortSetRegistry.Selection fallback = registry.select(Optional.empty());
+        for (VersionSetting setting : List.of(VersionSetting.V9_0,
+            VersionSetting.parse("9.0.7").orElseThrow(),
+            VersionSetting.parse("9.0.0-HF1").orElseThrow())) {
+            PortSetRegistry.Selection selection = registry.select(effective(setting));
+
+            assertThat(selection.range()).as(setting.text()).contains(PortSetRegistry.V90_RANGE);
+            assertThat(selection.factory()).as(setting.text()).isSameAs(fallback.factory());
+            assertThat(selection.rules()).as(setting.text()).isSameAs(V81QueryRules.INSTANCE);
+            assertThat(selection.access()).as(setting.text()).isEqualTo(NodeAccess.REST_AND_CLI);
+            assertThat(selection.cliHealth()).as(setting.text()).isEmpty();
+        }
+        assertThat(PortSetRegistry.V90_RANGE).isEqualTo(new VersionRange(9, 0, 9, 0));
+        assertThat(registry.select(effective(VersionSetting.V9_X)).range())
+            .as("V9_X gives no major.minor").isEmpty();
     }
 
     @Test

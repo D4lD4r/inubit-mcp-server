@@ -1,0 +1,2 @@
+reconstructed docs/research/inubit-interfaces.md §1.2 and §4 (the 8.1 endpoint is unchanged in 9.0); body and status copied from fixtures/v8_1/rest/log_systemLog.* (recorded 8.1.17).
+Not verified against a 9.0 node: the 9.0 body may carry other fields or values.

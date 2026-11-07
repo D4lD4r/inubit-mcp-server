@@ -2,6 +2,8 @@ package de.dadecker.inubit.mcp.domain.model;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -19,9 +21,15 @@ import java.util.OptionalInt;
  * @param observed          the last version read by {@code get_health}
  * @param stale             a response indicated another version (D-10); cleared by a detection or
  *                          an observation
+ * @param staleOwner        feature 017 (FR-018, research D-24): the write permit whose own
+ *                          response alone caused the {@code stale} mark, while every mark since
+ *                          the last clearing came from this very permit object; empty for a
+ *                          foreign mark (a read, another permit) and without mark
  * @param pinContradiction  the last observation's major.minor differs from the pin (FR-012)
- * @param client            the StartCLI client probe result, kept for the process lifetime
- * @param clientFailure     the last failed or timed-out probe while no result is known
+ * @param clients           the StartCLI client probe results per client (feature 017, FR-017,
+ *                          research D-5), each kept for the process lifetime
+ * @param clientFailures    per client, the last failed or timed-out probe while no result of
+ *                          that client is known
  */
 public record NodeVersionState(
     VersionSetting setting,
@@ -29,9 +37,10 @@ public record NodeVersionState(
     Optional<Timed<DetectionFailure>> detectionFailure,
     Optional<Timed<InubitVersion>> observed,
     boolean stale,
+    Optional<WritePermit> staleOwner,
     boolean pinContradiction,
-    Optional<Timed<ClientVersion>> client,
-    Optional<Timed<ErrorCode>> clientFailure) {
+    Map<ClientKey, Timed<ClientVersion>> clients,
+    Map<ClientKey, Timed<ErrorCode>> clientFailures) {
 
     /** How long a failed detection or client probe is not repeated (FR-002, FR-010). */
     public static final Duration RETRY_AFTER = Duration.ofSeconds(60);
@@ -59,26 +68,31 @@ public record NodeVersionState(
         Objects.requireNonNull(detected, "detected");
         Objects.requireNonNull(detectionFailure, "detectionFailure");
         Objects.requireNonNull(observed, "observed");
-        Objects.requireNonNull(client, "client");
-        Objects.requireNonNull(clientFailure, "clientFailure");
+        Objects.requireNonNull(staleOwner, "staleOwner");
+        if (staleOwner.isPresent() && !stale) {
+            throw new IllegalArgumentException("A stale owner without stale mark");
+        }
+        clients = Map.copyOf(clients);
+        clientFailures = Map.copyOf(clientFailures);
     }
 
     /** Nothing detected, observed or probed yet. */
     public static NodeVersionState initial(VersionSetting setting) {
         return new NodeVersionState(setting, Optional.empty(), Optional.empty(), Optional.empty(),
-            false, false, Optional.empty(), Optional.empty());
+            false, Optional.empty(), false, Map.of(), Map.of());
     }
 
     /** A successful detection: clears {@code stale} and the last failure. */
     public NodeVersionState withDetected(InubitVersion version, Instant at) {
         return new NodeVersionState(setting, Optional.of(new Timed<>(version, at)),
-            Optional.empty(), observed, false, pinContradiction, client, clientFailure);
+            Optional.empty(), observed, false, Optional.empty(), pinContradiction, clients,
+            clientFailures);
     }
 
     /** A failed detection; the last detected version stays for reads. */
     public NodeVersionState withDetectionFailure(DetectionFailure failure, Instant at) {
         return new NodeVersionState(setting, detected, Optional.of(new Timed<>(failure, at)),
-            observed, stale, pinContradiction, client, clientFailure);
+            observed, stale, staleOwner, pinContradiction, clients, clientFailures);
     }
 
     /**
@@ -87,29 +101,77 @@ public record NodeVersionState(
      */
     public NodeVersionState withObserved(InubitVersion version, Instant at) {
         return new NodeVersionState(setting, detected, Optional.empty(),
-            Optional.of(new Timed<>(version, at)), false, contradicts(setting, version), client,
-            clientFailure);
+            Optional.of(new Timed<>(version, at)), false, Optional.empty(),
+            contradicts(setting, version), clients, clientFailures);
     }
 
-    /** A response indicated that the node may run another version (D-10). */
+    /**
+     * A response indicated that the node may run another version (D-10); the mark is foreign to
+     * every permit and wins over an own one.
+     */
     public NodeVersionState withStale() {
         return new NodeVersionState(setting, detected, detectionFailure, observed, true,
-            pinContradiction, client, clientFailure);
+            Optional.empty(), pinContradiction, clients, clientFailures);
     }
 
-    /** A successful client probe (a version without range is a success with an empty range). */
-    public NodeVersionState withClient(ClientVersion version, Instant at) {
+    /**
+     * The response of a write handed off with {@code permit} indicated that the node may run
+     * another version (feature 017, research D-24). The mark belongs to {@code permit} if the
+     * node was not stale or every mark so far came from this very permit object; otherwise it
+     * stays foreign.
+     */
+    public NodeVersionState withStaleAfterWrite(WritePermit permit) {
+        Objects.requireNonNull(permit, "permit");
+        Optional<WritePermit> owner = !stale || staleOnlyBy(permit) ? Optional.of(permit)
+            : Optional.empty();
+        return new NodeVersionState(setting, detected, detectionFailure, observed, true, owner,
+            pinContradiction, clients, clientFailures);
+    }
+
+    /**
+     * Whether the node is stale only because of responses to writes handed off with this very
+     * {@code permit} object (compared by identity, not by value).
+     */
+    public boolean staleOnlyBy(WritePermit permit) {
+        return stale && staleOwner.isPresent() && staleOwner.get() == permit;
+    }
+
+    /**
+     * A successful probe of the client {@code probed.key()} (a version without range is a success
+     * with an empty range); clears that client's failure and touches no other client's.
+     */
+    public NodeVersionState withClient(ProbedClient probed, Instant at) {
+        Map<ClientKey, Timed<ClientVersion>> results = new HashMap<>(clients);
+        results.put(probed.key(), new Timed<>(probed.version(), at));
+        Map<ClientKey, Timed<ErrorCode>> failures = new HashMap<>(clientFailures);
+        failures.remove(probed.key());
         return new NodeVersionState(setting, detected, detectionFailure, observed, stale,
-            pinContradiction, Optional.of(new Timed<>(version, at)), Optional.empty());
+            staleOwner, pinContradiction, results, failures);
     }
 
-    /** A failed or timed-out client probe; ignored once a result is known. */
-    public NodeVersionState withClientFailure(ErrorCode code, Instant at) {
-        if (client.isPresent()) {
+    /**
+     * A failed or timed-out probe of the client {@code key}; ignored once a result of that client
+     * is known, and touches no other client's.
+     */
+    public NodeVersionState withClientFailure(ClientKey key, ErrorCode code, Instant at) {
+        Objects.requireNonNull(key, "key");
+        if (clients.containsKey(key)) {
             return this;
         }
+        Map<ClientKey, Timed<ErrorCode>> failures = new HashMap<>(clientFailures);
+        failures.put(key, new Timed<>(code, at));
         return new NodeVersionState(setting, detected, detectionFailure, observed, stale,
-            pinContradiction, client, Optional.of(new Timed<>(code, at)));
+            staleOwner, pinContradiction, clients, failures);
+    }
+
+    /** The probe result of the client {@code key}, if one is known. */
+    public Optional<Timed<ClientVersion>> clientFor(ClientKey key) {
+        return Optional.ofNullable(clients.get(key));
+    }
+
+    /** The last failed probe of the client {@code key} while no result of it is known. */
+    public Optional<Timed<ErrorCode>> clientFailureFor(ClientKey key) {
+        return Optional.ofNullable(clientFailures.get(key));
     }
 
     /**
@@ -164,9 +226,12 @@ public record NodeVersionState(
         return latest().filter(version -> !outdated(version, now, bound)).map(Timed::value);
     }
 
-    /** Whether the client should be probed: no result yet and no failure within 60 s. */
-    public boolean needsClientProbe(Instant now) {
-        return client.isEmpty() && !inBackOff(clientFailure, now);
+    /**
+     * Whether the client {@code key} should be probed: no result of it yet and no failure of it
+     * within 60 s; another client's result or back-off does not count (research D-5).
+     */
+    public boolean needsClientProbe(Instant now, ClientKey key) {
+        return !clients.containsKey(key) && !inBackOff(clientFailureFor(key), now);
     }
 
     /**

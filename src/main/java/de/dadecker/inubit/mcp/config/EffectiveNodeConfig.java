@@ -1,16 +1,23 @@
 package de.dadecker.inubit.mcp.config;
 
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
+import de.dadecker.inubit.mcp.config.CliChoice.AddressKind;
+import de.dadecker.inubit.mcp.config.CliChoice.HomeSource;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.MajorMinor;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
+import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.function.Predicate;
 
 /**
@@ -24,6 +31,9 @@ import java.util.function.Predicate;
  * @param archivesProductionOptIn the group's {@code archives.productionOptIn} (feature 015,
  *     research R-15), built-in {@code false}; it matters only on a production group, where
  *     {@code export_archives} needs it, and is independent of {@link #write()}
+ * @param cli the StartCLI settings in use: {@link #cliFor} of the pinned version (version-less
+ *     for {@code AUTO} and {@code V9_X}), or the choice a launch selected ({@link #withCli})
+ * @param cliSources the layers {@link #cliFor} chooses from (feature 017, research D-2)
  */
 public record EffectiveNodeConfig(
     NodeId id,
@@ -43,7 +53,8 @@ public record EffectiveNodeConfig(
     String credentialPrefix,
     Development development,
     SecretPlan secretPlan,
-    boolean archivesProductionOptIn) {
+    boolean archivesProductionOptIn,
+    CliSources cliSources) {
 
     /** Path of the StartCLI SOAP endpoint relative to the base URL (8.1). */
     public static final String DEFAULT_CLI_PATH = "/ibis/servlet/IBISSoapServlet";
@@ -71,6 +82,23 @@ public record EffectiveNodeConfig(
             throw new IllegalArgumentException("The secret plan of " + secretPlan.node()
                 + " does not belong to " + id);
         }
+        Objects.requireNonNull(cliSources, "cliSources");
+    }
+
+    /**
+     * A server built without {@link CliSources}: its StartCLI settings count as node settings
+     * ({@link CliSources#of}), so every version chooses the same client and only an address that
+     * is not the default one is explicit.
+     */
+    public EffectiveNodeConfig(NodeId id, boolean production, URI baseUrl,
+        boolean allowInsecureHttp, VersionSetting versionLine, Write write, Tls tls, Cli cli,
+        Inventory inventory, Duration timeout, Duration cliTimeout, Duration cliExportTimeout,
+        Duration hangingThreshold, Duration confirmationTtl, String credentialPrefix,
+        Development development, SecretPlan secretPlan, boolean archivesProductionOptIn) {
+        this(id, production, baseUrl, allowInsecureHttp, versionLine, write, tls, cli, inventory,
+            timeout, cliTimeout, cliExportTimeout, hangingThreshold, confirmationTtl,
+            credentialPrefix, development, secretPlan, archivesProductionOptIn,
+            baseUrl == null || cli == null ? null : CliSources.of(baseUrl, cli));
     }
 
     public record Write(boolean enabled, boolean productionOptIn, ConfirmationMode confirmation) {
@@ -112,6 +140,62 @@ public record EffectiveNodeConfig(
             }
             Objects.requireNonNull(home, "home");
             Objects.requireNonNull(javaHome, "javaHome");
+        }
+    }
+
+    /**
+     * A node or group value with its level (feature 017, data-model.md → CliSources).
+     *
+     * @param level {@link HomeSource#NODE} or {@link HomeSource#GROUP}
+     */
+    public record Layered<T>(T value, HomeSource level) {
+        public Layered {
+            Objects.requireNonNull(value, "value");
+            if (level != HomeSource.NODE && level != HomeSource.GROUP) {
+                throw new IllegalArgumentException("A layered value is a node or group value, not "
+                    + level);
+            }
+        }
+
+        static <T> Optional<Layered<T>> of(Optional<T> node, Optional<T> group) {
+            return node.map(value -> new Layered<>(value, HomeSource.NODE))
+                .or(() -> group.map(value -> new Layered<>(value, HomeSource.GROUP)));
+        }
+    }
+
+    /**
+     * The StartCLI settings of a node before the version is known (feature 017, research D-2,
+     * D-3).
+     *
+     * @param url             the explicit {@code cli.url} (node → group)
+     * @param home            {@code cli.home} of the node or group
+     * @param javaHome        {@code cli.javaHome} of the node or group
+     * @param clients         {@code defaults.cliClients}
+     * @param defaultHome     {@code defaults.cliHome}
+     * @param defaultJavaHome {@code defaults.cliJavaHome}
+     */
+    public record CliSources(Optional<URI> url, Optional<Layered<Path>> home,
+        Optional<Layered<Path>> javaHome, Map<MajorMinor, CliClient> clients,
+        Optional<Path> defaultHome, Optional<Path> defaultJavaHome) {
+        public CliSources {
+            Objects.requireNonNull(url, "url");
+            Objects.requireNonNull(home, "home");
+            Objects.requireNonNull(javaHome, "javaHome");
+            clients = Map.copyOf(clients);
+            Objects.requireNonNull(defaultHome, "defaultHome");
+            Objects.requireNonNull(defaultJavaHome, "defaultJavaHome");
+        }
+
+        /**
+         * {@code cli} as node settings of a server at {@code baseUrl}; its address is explicit
+         * unless it is the default servlet address.
+         */
+        public static CliSources of(URI baseUrl, Cli cli) {
+            Optional<URI> url = Optional.of(cli.url())
+                .filter(explicit -> !explicit.equals(URI.create(baseUrl + DEFAULT_CLI_PATH)));
+            return new CliSources(url, Layered.of(cli.home(), Optional.empty()),
+                Layered.of(cli.javaHome(), Optional.empty()), Map.of(), Optional.empty(),
+                Optional.empty());
         }
     }
 
@@ -164,7 +248,122 @@ public record EffectiveNodeConfig(
         return new EffectiveNodeConfig(id, production, baseUrl, allowInsecureHttp, versionLine,
             write, tls, cli, inventory, newTimeout, cliTimeout, cliExportTimeout, hangingThreshold,
             confirmationTtl, credentialPrefix, development, secretPlan,
-            archivesProductionOptIn);
+            archivesProductionOptIn, cliSources);
+    }
+
+    /**
+     * The same settings with {@code chosen} as StartCLI settings; {@link #cliSources()} stays, so
+     * choosing again gives the same result (feature 017, research D-4).
+     */
+    public EffectiveNodeConfig withCli(Cli chosen) {
+        return new EffectiveNodeConfig(id, production, baseUrl, allowInsecureHttp, versionLine,
+            write, tls, chosen, inventory, timeout, cliTimeout, cliExportTimeout,
+            hangingThreshold, confirmationTtl, credentialPrefix, development, secretPlan,
+            archivesProductionOptIn, cliSources);
+    }
+
+    /**
+     * The StartCLI address of {@link #entryProbe}: {@code startcli -v} does not use it, and it
+     * holds no character the Windows command interpreter interprets.
+     */
+    public static final URI ENTRY_PROBE_URL = URI.create("https://localhost");
+
+    /**
+     * A neutral copy of this node with {@code home} and {@code javaHome} as its sole StartCLI
+     * client, chosen for every version: no trust store, host-name or pin setting and
+     * {@link #ENTRY_PROBE_URL} as address, so that none of this node's own settings can refuse
+     * the run. {@code --check-config} probes a {@code defaults.cliClients} entry with
+     * {@code -v} this way (feature 017, T025).
+     */
+    public EffectiveNodeConfig entryProbe(Path home, Optional<Path> javaHome) {
+        Cli only = new Cli(ENTRY_PROBE_URL, Optional.of(home), javaHome);
+        return new EffectiveNodeConfig(id, production, baseUrl, allowInsecureHttp, versionLine,
+            write, new Tls(Optional.empty(), false, Optional.empty()), only, inventory, timeout,
+            cliTimeout, cliExportTimeout, hangingThreshold, confirmationTtl, credentialPrefix,
+            development, secretPlan, archivesProductionOptIn, CliSources.of(baseUrl, only));
+    }
+
+    /**
+     * The StartCLI client, JDK and address for {@code version}, the node's effective version
+     * (feature 017, research D-3): node or group {@code cli.home}, else the
+     * {@code defaults.cliClients} entry of the version's major.minor (never for a line without
+     * minor such as {@code V9_X}), else {@code defaults.cliHome}. JDK: node → group
+     * {@code cli.javaHome} → the entry's {@code javaHome} (only with the entry's home) →
+     * {@code defaults.cliJavaHome}. Address: explicit {@code cli.url}, else the servlet address
+     * for a major below 9 or unknown, else {@code <baseUrl>}; the major is the version's, else the
+     * line pin's.
+     */
+    public CliChoice cliFor(Optional<InubitVersion> version) {
+        return choose(cliSources, baseUrl, versionLine, version);
+    }
+
+    /**
+     * The choice for the version the {@code versionLine} alone gives: a pin or a line with minor;
+     * {@code AUTO} and a line without minor give the version-less choice (as {@link #cli()}).
+     */
+    public CliChoice cliForSetting() {
+        return cliFor(NodeVersionState.initial(versionLine).effectiveVersion());
+    }
+
+    /**
+     * Whether this node's StartCLI client depends on its version (feature 017):
+     * {@code defaults.cliClients} is configured or the {@code versionLine} has major 9 or later.
+     * Otherwise the node shows exactly the 0.8.0 output (FR-009).
+     */
+    public boolean choosesCliByVersion() {
+        OptionalInt major = cliForSetting().major();
+        return !cliSources.clients().isEmpty() || major.isPresent() && major.getAsInt() >= 9;
+    }
+
+    private static CliChoice choose(CliSources sources, URI baseUrl, VersionSetting line,
+        Optional<InubitVersion> version) {
+        Objects.requireNonNull(version, "version");
+        boolean wholeMajorLine = line instanceof VersionSetting.Line l && l.minor().isEmpty();
+        Optional<MajorMinor> entryKey = version.filter(v -> !wholeMajorLine).map(MajorMinor::of)
+            .filter(sources.clients()::containsKey);
+        Optional<Path> home;
+        HomeSource source;
+        Optional<Path> entryJavaHome = Optional.empty();
+        if (sources.home().isPresent()) {
+            home = Optional.of(sources.home().get().value());
+            source = sources.home().get().level();
+            entryKey = Optional.empty();
+        } else if (entryKey.isPresent()) {
+            CliClient client = sources.clients().get(entryKey.get());
+            home = Optional.of(client.home());
+            source = HomeSource.VERSION_ENTRY;
+            entryJavaHome = client.javaHome();
+        } else {
+            home = sources.defaultHome();
+            source = home.isPresent() ? HomeSource.DEFAULTS : HomeSource.NONE;
+        }
+        Optional<Path> fromEntry = entryJavaHome;
+        Optional<Path> javaHome = sources.javaHome().map(Layered::value).or(() -> fromEntry)
+            .or(sources::defaultJavaHome);
+        OptionalInt major = version.map(v -> OptionalInt.of(v.major()))
+            .orElseGet(() -> lineMajor(line));
+        AddressKind address;
+        URI url;
+        if (sources.url().isPresent()) {
+            address = AddressKind.CONFIGURED;
+            url = sources.url().get();
+        } else if (major.isPresent() && major.getAsInt() >= 9) {
+            address = AddressKind.BASE_URL;
+            url = baseUrl;
+        } else {
+            address = AddressKind.SERVLET_PATH;
+            url = URI.create(baseUrl + DEFAULT_CLI_PATH);
+        }
+        return new CliChoice(new Cli(url, home, javaHome), source, entryKey, address, major,
+            version.isPresent());
+    }
+
+    private static OptionalInt lineMajor(VersionSetting line) {
+        return switch (line) {
+            case VersionSetting.Auto auto -> OptionalInt.empty();
+            case VersionSetting.Line l -> OptionalInt.of(l.major());
+            case VersionSetting.Pinned pinned -> OptionalInt.of(pinned.version().major());
+        };
     }
 
     /**
@@ -206,7 +405,7 @@ public record EffectiveNodeConfig(
         return new NodeSummary(id, id.group(), id.name(), production, effectiveWriteEnabled(),
             development.enabled() && !production, write.confirmation().name(),
             development.repositoryWrite(), versionLine.text(), cliAvailable(exists, windows),
-            Optional.empty());
+            Optional.empty(), Optional.empty());
     }
 
     /** StartCLI below the CLI home: {@code bin/startcli.sh}, {@code .bat} on Windows. */
@@ -239,11 +438,17 @@ public record EffectiveNodeConfig(
                 .orElse(false),
             node.tls().pinnedCertificateSha256().or(group.tls()::pinnedCertificateSha256),
             group.tls().marksStage());
-        Cli cli = new Cli(
-            node.cli().url().or(group.cli()::url)
-                .orElseGet(() -> URI.create(baseUrl + DEFAULT_CLI_PATH)),
-            node.cli().home().or(group.cli()::home).or(defaults::cliHome),
-            node.cli().javaHome().or(group.cli()::javaHome).or(defaults::cliJavaHome));
+        VersionSetting versionLine = node.versionLine().or(group::versionLine)
+            .orElse(Defaults.BUILTIN_VERSION_LINE);
+        CliSources cliSources = new CliSources(
+            node.cli().url().or(group.cli()::url),
+            Layered.of(node.cli().home(), group.cli().home()),
+            Layered.of(node.cli().javaHome(), group.cli().javaHome()),
+            defaults.cliClients(),
+            defaults.cliHome(),
+            defaults.cliJavaHome());
+        Cli cli = choose(cliSources, baseUrl, versionLine,
+            NodeVersionState.initial(versionLine).effectiveVersion()).cli();
         Inventory inventory = new Inventory(
             node.inventory().owner().or(group.inventory()::owner)
                 .or(defaults.inventory()::owner),
@@ -260,7 +465,7 @@ public record EffectiveNodeConfig(
             group.production(),
             baseUrl,
             node.allowInsecureHttp(),
-            node.versionLine().or(group::versionLine).orElse(Defaults.BUILTIN_VERSION_LINE),
+            versionLine,
             write,
             tls,
             cli,
@@ -289,6 +494,7 @@ public record EffectiveNodeConfig(
                     && !group.production()),
             secretPlan,
             group.archives().productionOptIn()
-                .orElse(Defaults.BUILTIN_ARCHIVES_PRODUCTION_OPT_IN));
+                .orElse(Defaults.BUILTIN_ARCHIVES_PRODUCTION_OPT_IN),
+            cliSources);
     }
 }

@@ -33,6 +33,7 @@ import de.dadecker.inubit.mcp.config.ParameterNames;
 import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.SecretSourceConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -64,6 +65,7 @@ import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
+import de.dadecker.inubit.mcp.testing.TestPermits;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.InputStream;
@@ -507,7 +509,8 @@ class AdapterGatewayFactoryTest {
                 new CliResources("acme", PrivateFiles.forHost())),
             versions, PortSetRegistry.v81Default())) {
 
-            assertThatThrownBy(() -> factory.processControl(DEV).kill("1"))
+            assertThatThrownBy(() -> factory.processControl(DEV).kill("1",
+                TestPermits.of(DEV, Capability.PROCESS_CONTROL)))
                 .isInstanceOfSatisfying(ToolErrorException.class, e -> {
                     assertThat(e.error().code()).isEqualTo(ErrorCode.INTERNAL);
                     assertThat(e.error().nextStep()).contains("(bin\\startcli.bat -v)");
@@ -562,14 +565,14 @@ class AdapterGatewayFactoryTest {
 
     @Test
     void anUnsupportedVersionFromTheMonitoringIsReportedWithoutAWarning() {
-        systemInfo(200, systemInfoWithVersion("9.0.2"));
+        systemInfo(200, systemInfoWithVersion("9.1.0"));
         try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.AUTO))) {
             factory.monitoring(DEV).systemInfo();
 
             Gateway known = factory.knownGateway(DEV).orElseThrow();
-            assertThat(known.detectedVersion()).contains("9.0.2");
+            assertThat(known.detectedVersion()).contains("9.1.0");
             assertThat(known.warnings()).as("no version warning (T013)").isEmpty();
-            assertThat(versions.events()).containsExactly("detected dev/node1 9.0.2");
+            assertThat(versions.events()).containsExactly("detected dev/node1 9.1.0");
         }
     }
 
@@ -1027,18 +1030,18 @@ class AdapterGatewayFactoryTest {
     }
 
     @Test
-    void productionRegistersOnlyThe81PortSetAsTheDefaultForEveryVersion() {
-        PortSetRegistry production = PortSetRegistry.v81Default();
-        for (String version : List.of("7.9.1", "8.1.17", "9.0.7", "10.2")) {
+    void v81DefaultRegistersOnlyThe81PortSetAsTheDefaultForEveryVersion() {
+        PortSetRegistry v81Default = PortSetRegistry.v81Default();
+        for (String version : List.of("7.9.1", "8.1.17", "9.1.0", "10.2")) {
             PortSetRegistry.Selection selection =
-                production.select(InubitVersion.parse(version));
+                v81Default.select(InubitVersion.parse(version));
             assertThat(selection.range()).as(version).isEmpty();
-            assertThat(selection.factory()).as(version).isSameAs(production.select(
+            assertThat(selection.factory()).as(version).isSameAs(v81Default.select(
                 Optional.empty()).factory());
         }
         modelList(404, "<html>not found</html>");
-        EffectiveNodeConfig on90 = server(DEV, VersionSetting.parse("9.0.7").orElseThrow());
-        try (AdapterGatewayFactory factory = factory(production, nodeVersions(on90), on90)) {
+        EffectiveNodeConfig on91 = server(DEV, VersionSetting.parse("9.1.0").orElseThrow());
+        try (AdapterGatewayFactory factory = factory(v81Default, nodeVersions(on91), on91)) {
             assertThat(codeOf(() -> factory.inventory(DEV).listDiagrams("OWNERS")))
                 .as("the 8.1 model list endpoint").isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
             wireMock.verify(1, getRequestedFor(urlPathEqualTo("/ibis/rest/model/models")));
@@ -1094,6 +1097,29 @@ class AdapterGatewayFactoryTest {
 
             assertThat(built).containsExactly("7.9 dev/node1", "9.0 dev/node1",
                 "default dev/node1");
+        }
+    }
+
+    /** Feature 017 (T006, research D-14): the 9.0 range of the production registry. */
+    @Test
+    void anAutoNodeMovingFrom81To90RebuildsItsPortsWithoutFurtherRequests() {
+        systemInfo(200, fixture("system_info.xml"));
+        EffectiveNodeConfig node = server(DEV, VersionSetting.AUTO);
+        PortSetRegistry portSets = PortSetRegistry.v81Default().withV90();
+        try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(node), node)) {
+            factory.detect(DEV);
+            LogPort on81 = factory.logs(DEV);
+            assertThat(factory.logs(DEV)).as("kept within 8.1").isSameAs(on81);
+
+            systemInfo(200, systemInfoWithVersion("9.0.7"));
+            factory.detect(DEV);
+            LogPort on90 = factory.logs(DEV);
+
+            assertThat(on90).as("rebuilt for the 9.0 range").isNotSameAs(on81);
+            assertThat(factory.logs(DEV)).as("kept within 9.0").isSameAs(on90);
+            assertThat(wireMock.getAllServeEvents()).as("only the two detections").hasSize(2)
+                .allSatisfy(event -> assertThat(event.getRequest().getUrl())
+                    .startsWith(SYSTEM_INFO));
         }
     }
 

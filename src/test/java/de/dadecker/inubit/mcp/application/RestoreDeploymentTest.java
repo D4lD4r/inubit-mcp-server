@@ -5,12 +5,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.DeploymentPreview;
 import de.dadecker.inubit.mcp.domain.model.DeploymentResult;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
@@ -153,6 +156,32 @@ class RestoreDeploymentTest extends DeployExecution {
         assertThat(restoreAudit()).allMatch(r -> r.node().equals("int/node1"));
         assertThat(harness.backups.find(outcome.backupRef().get())).get().satisfies(own ->
             assertThat(own.outcome()).isEqualTo("EXECUTED"));
+        harness.verifyComplete();
+    }
+
+    @Test
+    void theRestoreOfADeploymentIsHandedOffWithTheDeploymentPermitOfItsNode() {
+        // feature 017 (T045, FR-018, research D-24): restore_backup of a deployment backup
+        harness(false);
+        String backupRef = deploy(true).nodes().get(0).backupRef().orElseThrow();
+        int deployed = harness.writeLock.permits().size();
+        nodeExports(DeployHarness.INT1);
+        WritePreview preview = ((ImportService.Response.WriteChallenge) harness.importService()
+            .restore(restore(backupRef, Optional.empty()))).preview();
+        nodeExports(DeployHarness.INT1);
+        harness.importRepositoryApplied(DeployHarness.INT1)
+            .importApplied(DeployHarness.INT1, MODULE_IMPORT)
+            .importApplied(DeployHarness.INT1, WORKFLOW);
+        nodeExports(DeployHarness.INT1);
+
+        harness.importService().restore(restore(backupRef,
+            Optional.of(preview.confirmationCode())));
+
+        assertThat(harness.writeLock.permits().subList(deployed,
+            harness.writeLock.permits().size())).hasSize(3).allSatisfy(permit -> {
+                assertThat(permit.node()).isEqualTo(DeployHarness.INT1);
+                assertThat(permit.capability()).isEqualTo(Capability.DEPLOYMENT);
+            });
         harness.verifyComplete();
     }
 
@@ -321,11 +350,11 @@ class RestoreDeploymentTest extends DeployExecution {
     // --- feature 009, T011: the version gate (DEPLOYMENT, WRITE, StartCLI and REST) ----------
 
     @Test
-    void aTargetNodeOnInubit90IsRefusedAfterOnlyTheDetection() {
+    void aTargetNodeOnInubit91IsRefusedAfterOnlyTheDetection() {
         harness(false);
         String backupRef = deploy(false).nodes().get(0).backupRef().orElseThrow();
         harness.versionLines.put(DeployHarness.INT1, VersionSetting.AUTO);
-        harness.detection.answer(DeployHarness.INT1, "9.0.7");
+        harness.detection.answer(DeployHarness.INT1, "9.1.0");
         int launches = harness.launches().size();
         int restCalls = harness.restCalls.size();
 
@@ -338,7 +367,7 @@ class RestoreDeploymentTest extends DeployExecution {
         assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
         assertThat(error.node()).contains(DeployHarness.INT1);
         assertThat(error.message()).startsWith("restore_backup: ").contains("deployment")
-            .contains("INUBIT 9.0.7 on int/node1").contains("nothing was sent");
+            .contains("INUBIT 9.1.0 on int/node1").contains("nothing was sent");
         assertThat(restoreAudit()).singleElement().satisfies(record ->
             assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED));
         assertThat(harness.detection.requests()).containsExactly(DeployHarness.INT1);
@@ -353,8 +382,9 @@ class RestoreDeploymentTest extends DeployExecution {
         String backupRef = deploy(false).nodes().get(0).backupRef().orElseThrow();
         harness.versionLines.put(DeployHarness.INT1, VersionSetting.AUTO);
         harness.detection.answer(DeployHarness.INT1, "8.1.18");
-        harness.versions.clientProbed(DeployHarness.INT1, new ClientVersion(version("8.1.17"),
-            Optional.of(version("4.0.1")), Optional.of(version("8.1.17"))));
+        harness.versions.clientProbed(DeployHarness.INT1, new ProbedClient(ClientKey.NONE,
+            new ClientVersion(version("8.1.17"),
+            Optional.of(version("4.0.1")), Optional.of(version("8.1.17")))));
         harness.exportGroup(DeployHarness.INT1);
         WritePreview preview = ((ImportService.Response.WriteChallenge) harness.importService()
             .restore(restore(backupRef, Optional.empty()))).preview();

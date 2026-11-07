@@ -14,16 +14,20 @@ import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.Capability.Kind;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.NodeSummary;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.ClientSelectionPort;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
@@ -33,6 +37,7 @@ import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -42,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
@@ -64,6 +70,8 @@ class VersionGateTest {
     /** Feature 012: a node on the 6.1 line and one pinned to a concrete 6.1 version. */
     private static final NodeId V6_1 = NodeId.parse("old/node1");
     private static final NodeId V6_1_PINNED = NodeId.parse("old/node2");
+    /** Feature 017: a node on the 9.0 line. */
+    private static final NodeId V9_0 = NodeId.parse("prod/node4");
     private static final Instant T0 = Instant.parse("2026-10-18T08:00:00Z");
     private static final Duration TTL = Duration.ofMinutes(10);
     private static final Duration CLI_TIMEOUT = Duration.ofSeconds(45);
@@ -83,12 +91,15 @@ class VersionGateTest {
             PINNED, VersionSetting.parse("8.1.17").orElseThrow(),
             V9_X, VersionSetting.V9_X,
             V6_1, VersionSetting.V6_1,
-            V6_1_PINNED, VersionSetting.parse("6.1.0.89").orElseThrow())::get,
+            V6_1_PINNED, VersionSetting.parse("6.1.0.89").orElseThrow(),
+            V9_0, VersionSetting.V9_0)::get,
         node -> TTL);
     private final ScriptedDetection detection = new ScriptedDetection();
     private final ScriptedProbe probe = new ScriptedProbe();
     /** The nodes with a StartCLI installation; only they are probed (none by default). */
     private final Set<NodeId> withClient = new HashSet<>();
+    /** Feature 017: the client choice; by default one client per node with a StartCLI. */
+    private ClientSelectionPort selection = TestClientSelection.of(withClient::contains);
 
     private final Logger logger = (Logger) LoggerFactory.getLogger(VersionGate.class);
     private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
@@ -119,7 +130,7 @@ class VersionGateTest {
     }
 
     private VersionGate gate(CapabilityMatrix matrix, Terminology terms) {
-        return new VersionGate(versions, detection, matrix, probe, withClient::contains,
+        return new VersionGate(versions, detection, matrix, probe, selection,
             node -> CLI_TIMEOUT, terms);
     }
 
@@ -185,51 +196,93 @@ class VersionGateTest {
     }
 
     @Test
-    void aReadOn90IsAdmittedWithTheUnverifiedWarning() {
-        detection.answer("9.0.7");
+    void anAdmittedWriteCarriesTheVersionItWasJudgedOn() {
+        // feature 017 (T040, FR-018, research D-24): the write permit's admitted version
+        detection.answer("8.1.17");
+
+        Admission auto = gate().admit(AUTO, Capability.DEVELOPMENT_WRITE, Kind.WRITE,
+            CLI_REST);
+        Admission pinned = gate().admit("restart_process", PINNED, Capability.PROCESS_CONTROL,
+            Kind.WRITE, CLI_REST);
+        Admission line = gate().admit(V9_0, Capability.E2E_TEST, Kind.WRITE, REST);
+
+        assertThat(auto.version()).contains(version("8.1.17"));
+        assertThat(pinned.version()).contains(version("8.1.17"));
+        assertThat(line.version()).map(InubitVersion::raw).contains("9.0");
+    }
+
+    @Test
+    void anAdmittedWriteCarriesTheVersionOfTheRedetectionNotTheOutdatedOne() {
+        detection.answer("8.1.17");
+        gate().admit(AUTO, Capability.DEVELOPMENT_WRITE, Kind.WRITE, CLI_REST);
+        clock.advance(TTL.plusSeconds(1));
+        detection.answer("8.1.18");
+
+        Admission admission = gate().admit(AUTO, Capability.DEVELOPMENT_WRITE, Kind.WRITE,
+            CLI_REST);
+
+        assertThat(admission.version()).contains(version("8.1.18"));
+    }
+
+    @Test
+    void aReadAdmissionCarriesItsVersionAndAnUnknownOneIsEmpty() {
+        detection.answer("9.1.0");
+        Admission known = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+        Admission line = gate().admit(V9_X, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+        Admission monitoring = gate().admitMonitoring(PINNED, Optional.of(version("8.1.20")));
+
+        assertThat(known.version()).contains(version("9.1.0"));
+        assertThat(line.version()).isEmpty();
+        assertThat(monitoring.version()).contains(version("8.1.20"));
+        assertThat(new Admission(List.of(), List.of()).version()).isEmpty();
+    }
+
+    @Test
+    void aReadOn91IsAdmittedWithTheUnverifiedWarning() {
+        detection.answer("9.1.0");
 
         Admission processes = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
         Admission logs = gate().admit(AUTO, Capability.LOG_DIAGNOSIS, Kind.READ, REST);
 
         // feature 012 (FR-004): the former "diagnosis" is named per tool
-        assertThat(processes.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not"
+        assertThat(processes.warnings()).containsExactly("INUBIT 9.1.0 on dev/node1 is not"
             + " verified for process diagnosis; results may be incomplete");
-        assertThat(logs.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not verified"
+        assertThat(logs.warnings()).containsExactly("INUBIT 9.1.0 on dev/node1 is not verified"
             + " for log diagnosis; results may be incomplete");
     }
 
     @Test
-    void aWriteOn90IsRefusedAfterOnlyTheDetectionRequest() {
-        detection.answer("9.0.7");
+    void aWriteOn91IsRefusedAfterOnlyTheDetectionRequest() {
+        detection.answer("9.1.0");
 
         ToolError error = refusal(() -> gate().admit(AUTO, Capability.DEVELOPMENT_WRITE,
             Kind.WRITE, CLI_REST));
 
-        assertThat(error.message()).isEqualTo("INUBIT 9.0.7 on dev/node1 does not support"
+        assertThat(error.message()).isEqualTo("INUBIT 9.1.0 on dev/node1 does not support"
             + " development writes yet; nothing was sent");
         assertThat(error.node()).contains(AUTO);
         assertThat(error.nextStep()).startsWith("Use another node").doesNotContain("versionLine");
         assertThat(detection.calls).isEqualTo(1);
         assertThat(appender.list).singleElement().satisfies(event -> assertThat(
             event.getFormattedMessage()).contains("dev/node1", "DEVELOPMENT_WRITE", "REFUSED",
-            "UNSUPPORTED_VERSION", "INUBIT 9.0.7"));
+            "UNSUPPORTED_VERSION", "INUBIT 9.1.0"));
     }
 
     @Test
     void withTheToolNameTheRefusalNamesTheToolAndAnAdmissionIsUnchanged() {
         // T009 (contracts/mcp-tools-delta.md): the message of a refusal names the tool
-        detection.answer("9.0.7");
+        detection.answer("9.1.0");
 
         ToolError error = refusal(() -> gate().admit("import_artifacts", AUTO,
             Capability.DEVELOPMENT_WRITE, Kind.WRITE, CLI_REST));
         Admission read = gate().admit("find_processes", AUTO, Capability.PROCESS_DIAGNOSIS,
             Kind.READ, REST);
 
-        assertThat(error.message()).isEqualTo("import_artifacts: INUBIT 9.0.7 on dev/node1 does"
+        assertThat(error.message()).isEqualTo("import_artifacts: INUBIT 9.1.0 on dev/node1 does"
             + " not support development writes yet; nothing was sent");
         assertThat(error.node()).contains(AUTO);
         assertThat(error.nextStep()).startsWith("Use another node");
-        assertThat(read.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not verified"
+        assertThat(read.warnings()).containsExactly("INUBIT 9.1.0 on dev/node1 is not verified"
             + " for process diagnosis; results may be incomplete");
     }
 
@@ -349,25 +402,29 @@ class VersionGateTest {
 
     @Test
     void anIncompatibleClientRefusesOnlyTheCliChannel() {
-        detection.answer("9.0.7");
-        versions.clientProbed(AUTO, client("8.1.17", "4.0.1", "8.1.17"));
+        detection.answer("9.1.0");
+        versions.clientProbed(AUTO, new ProbedClient(ClientKey.NONE,
+            client("8.1.17", "4.0.1", "8.1.17")));
 
         Admission rest = gate().admit(AUTO, Capability.INVENTORY, Kind.READ, REST);
         ToolError cli = refusal(() -> gate().admit(AUTO, Capability.INVENTORY, Kind.READ, CLI));
 
         assertThat(rest.warnings()).containsExactly(
-            "INUBIT 9.0.7 on dev/node1 is not verified for inventory; results may be incomplete");
-        assertThat(cli.message()).contains("8.1.17", "4.0.1 to 8.1.17", "INUBIT 9.0.7",
+            "INUBIT 9.1.0 on dev/node1 is not verified for inventory; results may be incomplete");
+        assertThat(cli.message()).contains("8.1.17", "4.0.1 to 8.1.17", "INUBIT 9.1.0",
             "dev/node1", "inventory");
+        // feature 017 (T011, research D-8): on INUBIT 9 the next step names the version entry
         assertThat(cli.nextStep()).isEqualTo(
-            "Install a StartCLI client on the host of this server that supports INUBIT 9.0");
+            "Install a StartCLI client on the host of this server that supports INUBIT 9.1, or"
+                + " add defaults.cliClients.\"9.1\"");
         assertThat(detection.calls).isEqualTo(1);
     }
 
     @Test
     void aClientWithAnotherPatchGivesAMismatchWarning() {
         detection.answer("8.1.18");
-        versions.clientProbed(AUTO, client("8.1.17", "4.0.1", "8.1.17"));
+        versions.clientProbed(AUTO, new ProbedClient(ClientKey.NONE,
+            client("8.1.17", "4.0.1", "8.1.17")));
 
         Admission cli = gate().admit(AUTO, Capability.DEVELOPMENT_WRITE, Kind.WRITE, CLI_REST);
         Admission rest = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
@@ -381,7 +438,7 @@ class VersionGateTest {
     @Test
     void aClientRangeThatCannotBeEvaluatedGivesAWarningNamingTheCause() {
         detection.answer("8.1.17");
-        versions.clientProbeFailed(AUTO, ErrorCode.TIMEOUT);
+        versions.clientProbeFailed(AUTO, ClientKey.NONE, ErrorCode.TIMEOUT);
 
         Admission admission = gate().admit(AUTO, Capability.WORKSPACE_EXPORT, Kind.READ, CLI);
 
@@ -496,7 +553,7 @@ class VersionGateTest {
         assertThat(second.warnings()).containsExactly(mismatch);
         assertThat(probe.calls).as("one probe bounded by cliTimeout, kept afterwards")
             .containsExactly(CLI_TIMEOUT);
-        assertThat(versions.state(AUTO).client()).hasValueSatisfying(known ->
+        assertThat(versions.state(AUTO).clientFor(ClientKey.NONE)).hasValueSatisfying(known ->
             assertThat(known.value().version().raw()).isEqualTo("8.1.17"));
     }
 
@@ -512,10 +569,72 @@ class VersionGateTest {
         assertThat(error.message()).isEqualTo("list_inventory: StartCLI client 8.1.17 of"
             + " dev/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7;"
             + " inventory via StartCLI refused; nothing was sent");
+        // feature 017 (T011, research D-8): on INUBIT 9 the next step names the version entry
         assertThat(error.nextStep()).isEqualTo(
-            "Install a StartCLI client on the host of this server that supports INUBIT 9.0");
+            "Install a StartCLI client on the host of this server that supports INUBIT 9.0, or"
+                + " add defaults.cliClients.\"9.0\"");
         assertThat(probe.calls).hasSize(1);
         assertThat(detection.calls).isEqualTo(1);
+    }
+
+    @Test
+    void withCliClientsConfiguredTheNextStepNamesTheEntryOfTheVersion() {
+        // feature 017 (T011, research D-8)
+        detection.answer("8.1.17");
+        versions.clientProbed(AUTO, new ProbedClient(ClientKey.NONE,
+            client("9.0.7", "9.0.0", "9.0.99")));
+        VersionGate gate = new VersionGate(versions, detection, CapabilityMatrix.production(),
+            probe, selection, node -> CLI_TIMEOUT, Terminology.DEFAULT, true);
+
+        ToolError error = refusal(() -> gate.admit(AUTO, Capability.INVENTORY, Kind.READ, CLI));
+
+        assertThat(error.nextStep()).isEqualTo("Install a StartCLI client on the host of this"
+            + " server that supports INUBIT 8.1, or add defaults.cliClients.\"8.1\"");
+        // leak check
+        assertThat(error.toString()).doesNotContain(PASSWORD, USERNAME, BASE_URL);
+    }
+
+    @Test
+    void withoutCliClientsBelowNineTheNextStepIsUnchanged() {
+        // feature 017 (T011, FR-009): the 0.8.0 text
+        detection.answer("8.1.17");
+        versions.clientProbed(AUTO, new ProbedClient(ClientKey.NONE,
+            client("9.0.7", "9.0.0", "9.0.99")));
+
+        ToolError error = refusal(() -> gate().admit(AUTO, Capability.INVENTORY, Kind.READ,
+            CLI));
+
+        assertThat(error.nextStep()).isEqualTo(
+            "Install a StartCLI client on the host of this server that supports INUBIT 8.1");
+    }
+
+    @Test
+    void aLineWithoutMinorNamesNoEntryEvenWithCliClients() {
+        // feature 017 (T011, research D-8): an entry needs major.minor
+        withClient.add(V9_X);
+        probe.answer(client("8.1.17", "4.0.1", "8.1.17"));
+        VersionGate gate = new VersionGate(versions, detection, CapabilityMatrix.production(),
+            probe, selection, node -> CLI_TIMEOUT, Terminology.DEFAULT, true);
+
+        ToolError error = refusal(() -> gate.admit(V9_X, Capability.INVENTORY, Kind.READ, CLI));
+
+        assertThat(error.nextStep()).isEqualTo(
+            "Install a StartCLI client on the host of this server that supports INUBIT 9.x");
+    }
+
+    @Test
+    void aLineWithoutMinorNamesNoEntryEvenAfterAnObservation() {
+        // feature 017 (research D-3, FR-011): V9_X never chooses an entry, so none is named
+        withClient.add(V9_X);
+        versions.observed(V9_X, version("9.1.3"));
+        probe.answer(client("8.1.17", "4.0.1", "8.1.17"));
+        VersionGate gate = new VersionGate(versions, detection, CapabilityMatrix.production(),
+            probe, selection, node -> CLI_TIMEOUT, Terminology.DEFAULT, true);
+
+        ToolError error = refusal(() -> gate.admit(V9_X, Capability.INVENTORY, Kind.READ, CLI));
+
+        assertThat(error.nextStep()).isEqualTo(
+            "Install a StartCLI client on the host of this server that supports INUBIT 9.1");
     }
 
     @Test
@@ -557,7 +676,7 @@ class VersionGateTest {
 
         assertThat(probe.calls).hasSize(2);
         assertThat(retried.warnings()).isEmpty();
-        assertThat(versions.state(AUTO).clientFailure()).isEmpty();
+        assertThat(versions.state(AUTO).clientFailureFor(ClientKey.NONE)).isEmpty();
     }
 
     @Test
@@ -567,7 +686,7 @@ class VersionGateTest {
 
         assertThat(admission.warnings()).isEmpty();
         assertThat(probe.calls).isEmpty();
-        assertThat(versions.state(PINNED).clientFailure()).isEmpty();
+        assertThat(versions.state(PINNED).clientFailureFor(ClientKey.NONE)).isEmpty();
     }
 
     @Test
@@ -589,7 +708,127 @@ class VersionGateTest {
         }
 
         assertThat(thrown).isSameAs(cancelled);
-        assertThat(versions.state(PINNED).clientFailure()).as("no back-off").isEmpty();
+        assertThat(versions.state(PINNED).clientFailureFor(ClientKey.NONE)).as("no back-off")
+            .isEmpty();
+    }
+
+    // --- feature 017, T020: the client check per client (FR-017, research D-6, D-7, D-19) ----
+
+    private static final String SERVLET_WARNING = "cli.url of prod/node4 uses"
+        + " /ibis/servlet/IBISSoapServlet, which INUBIT 9.0.2 and later removed; remove cli.url"
+        + " or set it to the base URL";
+
+    /** One client per major.minor, as {@code defaults.cliClients} chooses it. */
+    private static ClientKey keyOf(Optional<InubitVersion> version) {
+        return new ClientKey(version.map(v -> "/opt/acme/startcli-" + v.major() + "." + v.minor())
+            .orElse("/opt/acme/startcli"), "/opt/jdk-21");
+    }
+
+    /** Every client exists; a servlet {@code cli.url} on {@link #V9_0} from major 9 on. */
+    private void clientPerVersion() {
+        probe.keys = VersionGateTest::keyOf;
+        selection = new ClientSelectionPort() {
+            @Override
+            public Optional<ClientKey> current(NodeId node, Optional<InubitVersion> version) {
+                return Optional.of(keyOf(version));
+            }
+
+            @Override
+            public boolean available(NodeId node, Optional<InubitVersion> version) {
+                return true;
+            }
+
+            @Override
+            public boolean anyCandidate(NodeId node) {
+                return true;
+            }
+
+            @Override
+            public Optional<String> warning(NodeId node, Optional<InubitVersion> version) {
+                return node.equals(V9_0) && version.map(v -> v.major() >= 9).orElse(false)
+                    ? Optional.of(SERVLET_WARNING) : Optional.empty();
+            }
+
+            @Override
+            public NodeSummary.StartCli startCli(NodeId node, Optional<InubitVersion> version) {
+                return NodeSummary.StartCli.none(version.isPresent());
+            }
+        };
+    }
+
+    @Test
+    void anAutoNodeThatMovesFrom81To90ProbesThe90ClientAndDoesNotReuseThe81Result() {
+        clientPerVersion();
+        detection.answer("8.1.17");
+        probe.answer(client("8.1.17", "4.0.1", "8.1.17"));
+        Admission on81 = gate().admit(AUTO, Capability.WORKSPACE_EXPORT, Kind.READ, CLI);
+
+        versions.observed(AUTO, version("9.0.7"));
+        probe.answer(client("9.0.7", "9.0.0", "9.0.7"));
+        Admission on90 = gate().admit(AUTO, Capability.WORKSPACE_EXPORT, Kind.READ, CLI);
+
+        assertThat(on81.warnings()).isEmpty();
+        assertThat(on90.warnings()).noneMatch(warning -> warning.contains("StartCLI"));
+        assertThat(probe.probedVersions).as("each probe chose its client by the gate's version")
+            .containsExactly(Optional.of(version("8.1.17")), Optional.of(version("9.0.7")));
+        assertThat(versions.state(AUTO).clientFor(keyOf(Optional.of(version("8.1.17")))))
+            .hasValueSatisfying(known ->
+                assertThat(known.value().version().raw()).isEqualTo("8.1.17"));
+        assertThat(versions.state(AUTO).clientFor(keyOf(Optional.of(version("9.0.7")))))
+            .hasValueSatisfying(known ->
+                assertThat(known.value().version().raw()).isEqualTo("9.0.7"));
+
+        gate().admit(AUTO, Capability.WORKSPACE_EXPORT, Kind.READ, CLI);
+        assertThat(probe.calls).as("the 9.0 result is kept").hasSize(2);
+    }
+
+    @Test
+    void theResultOfAnotherClientIsNotJudged() {
+        clientPerVersion();
+        detection.answer("9.0.7");
+        versions.clientProbed(AUTO, new ProbedClient(keyOf(Optional.of(version("8.1.17"))),
+            client("8.1.17", "4.0.1", "8.1.17")));
+        probe.answer(client("9.0.7", "9.0.0", "9.0.7"));
+
+        Admission admission = gate().admit(AUTO, Capability.WORKSPACE_EXPORT, Kind.READ, CLI);
+
+        assertThat(admission.warnings()).noneMatch(warning -> warning.contains("StartCLI"));
+        assertThat(probe.calls).hasSize(1);
+    }
+
+    @Test
+    void theProbeBackOffHoldsPerClient() {
+        clientPerVersion();
+        detection.answer("8.1.17");
+        probe.fail(ErrorCode.TIMEOUT);
+        Admission failed81 = gate().admit(AUTO, Capability.WORKSPACE_EXPORT, Kind.READ, CLI);
+
+        clock.advance(Duration.ofSeconds(10));
+        versions.observed(AUTO, version("9.0.7"));
+        probe.answer(client("9.0.7", "9.0.0", "9.0.7"));
+        Admission on90 = gate().admit(AUTO, Capability.WORKSPACE_EXPORT, Kind.READ, CLI);
+
+        assertThat(failed81.warnings()).containsExactly("The StartCLI client probe of dev/node1"
+            + " failed (TIMEOUT at 2026-10-18T08:00:00Z); the INUBIT range of the client cannot"
+            + " be checked, StartCLI results may be unreliable");
+        assertThat(probe.calls).as("the 8.1 back-off does not delay the 9.0 client").hasSize(2);
+        assertThat(on90.warnings()).noneMatch(warning -> warning.contains("StartCLI"));
+        assertThat(versions.state(AUTO).clientFailureFor(keyOf(Optional.of(version("8.1.17")))))
+            .as("the 8.1 failure stays for its client").isPresent();
+        assertThat(versions.needsClientProbe(AUTO, keyOf(Optional.of(version("8.1.17")))))
+            .isFalse();
+    }
+
+    @Test
+    void anExplicitServletAddressOnANineNodeWarnsOnStartCliCalls() {
+        clientPerVersion();
+        probe.answer(client("9.0.7", "9.0.0", "9.0.99"));
+
+        Admission cli = gate().admit(V9_0, Capability.WORKSPACE_EXPORT, Kind.READ, CLI_REST);
+        Admission rest = gate().admit(V9_0, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+
+        assertThat(cli.warnings()).contains(SERVLET_WARNING);
+        assertThat(rest.warnings()).doesNotContain(SERVLET_WARNING);
     }
 
     // --- feature 012, T006: CLI-only versions (FR-005 to FR-007, FR-013, FR-019) -----------
@@ -664,7 +903,7 @@ class VersionGateTest {
             "Install a StartCLI client on the host of this server that supports INUBIT 6.1");
         assertThat(compatible.warnings()).isEmpty();
         assertThat(probe.calls).hasSize(2);
-        assertThat(versions.state(V6_1_PINNED).client()).isPresent();
+        assertThat(versions.state(V6_1_PINNED).clientFor(ClientKey.NONE)).isPresent();
         assertThat(detection.calls).isZero();
         assertThat(appender.list).singleElement().satisfies(event -> assertThat(
             event.getFormattedMessage()).contains("PROCESS_DIAGNOSIS", "old/node1", "REFUSED",
@@ -896,13 +1135,13 @@ class VersionGateTest {
 
     @Test
     void evaluateReturnsTheRefusalAdmitWouldThrowWithTheVersionAndTheCause() {
-        detection.answer("9.0.7");
+        detection.answer("9.1.0");
 
         Evaluation evaluation = gate().evaluate(AUTO, Capability.DEPLOYMENT, Kind.WRITE,
             CLI_REST);
 
-        assertThat(evaluation.version()).contains(version("9.0.7"));
-        assertThat(evaluation.versionName()).isEqualTo("INUBIT 9.0.7");
+        assertThat(evaluation.version()).contains(version("9.1.0"));
+        assertThat(evaluation.versionName()).isEqualTo("INUBIT 9.1.0");
         assertThat(evaluation.warnings()).isEmpty();
         assertThat(evaluation.refusal()).get().satisfies(error -> {
             assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
@@ -910,7 +1149,7 @@ class VersionGateTest {
                 Capability.DEPLOYMENT, Kind.WRITE, CLI_REST)).message());
         });
         assertThat(evaluation.cause()).contains(
-            "INUBIT 9.0.7 on dev/node1 does not support deployment yet");
+            "INUBIT 9.1.0 on dev/node1 does not support deployment yet");
         assertThat(detection.calls).isEqualTo(1);
         assertThat(appender.list).hasSize(2).allSatisfy(event -> assertThat(
             event.getFormattedMessage()).contains("REFUSED", "UNSUPPORTED_VERSION"));
@@ -918,7 +1157,8 @@ class VersionGateTest {
 
     @Test
     void evaluateAdmitsWithTheWarningsOfTheClientCheck() {
-        versions.clientProbed(PINNED, client("8.1.16", "4.0.1", "8.1.16"));
+        versions.clientProbed(PINNED, new ProbedClient(ClientKey.NONE,
+            client("8.1.16", "4.0.1", "8.1.16")));
 
         Evaluation evaluation = gate().evaluate(PINNED, Capability.DEPLOYMENT, Kind.WRITE,
             CLI_REST);
@@ -971,11 +1211,12 @@ class VersionGateTest {
         ToolError unknown = refusal(() -> gate().admit(AUTO, Capability.DEVELOPMENT_WRITE,
             Kind.WRITE, CLI_REST));
         Admission unknownRead = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
-        versions.clientProbeFailed(AUTO, ErrorCode.CLI_UNAVAILABLE);
+        versions.clientProbeFailed(AUTO, ClientKey.NONE, ErrorCode.CLI_UNAVAILABLE);
         Admission unknownCli = gate().admit(AUTO, Capability.INVENTORY, Kind.READ, CLI);
         clock.advance(Duration.ofMinutes(2));
-        detection.answer("9.0.7");
-        versions.clientProbed(AUTO, client("8.1.17", "4.0.1", "8.1.17"));
+        detection.answer("9.1.0");
+        versions.clientProbed(AUTO, new ProbedClient(ClientKey.NONE,
+            client("8.1.17", "4.0.1", "8.1.17")));
         ToolError unsupported = refusal(() -> gate().admit(AUTO, Capability.DEVELOPMENT_WRITE,
             Kind.WRITE, CLI_REST));
         ToolError incompatible = refusal(() -> gate().admit(AUTO, Capability.INVENTORY,
@@ -1007,11 +1248,12 @@ class VersionGateTest {
         ToolError unknown = refusal(() -> gate.admit(AUTO, Capability.PROCESS_CONTROL,
             Kind.WRITE, CLI_REST));
         Admission unknownRead = gate.admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
-        versions.clientProbeFailed(AUTO, ErrorCode.CLI_UNAVAILABLE);
+        versions.clientProbeFailed(AUTO, ClientKey.NONE, ErrorCode.CLI_UNAVAILABLE);
         Admission unknownCli = gate.admit(AUTO, Capability.INVENTORY, Kind.READ, CLI);
         clock.advance(Duration.ofMinutes(2));
-        detection.answer("9.0.7");
-        versions.clientProbed(AUTO, client("8.1.17", "4.0.1", "8.1.17"));
+        detection.answer("9.1.0");
+        versions.clientProbed(AUTO, new ProbedClient(ClientKey.NONE,
+            client("8.1.17", "4.0.1", "8.1.17")));
         ToolError unsupported = refusal(() -> gate.admit(AUTO, Capability.DEVELOPMENT_WRITE,
             Kind.WRITE, CLI_REST));
         ToolError incompatible = refusal(() -> gate.admit(AUTO, Capability.INVENTORY,
@@ -1051,6 +1293,9 @@ class VersionGateTest {
             throw new AssertionError("no client probe scripted");
         };
         private final List<Duration> calls = new ArrayList<>();
+        /** Feature 017: the version each call chose its client by, and that client's key. */
+        private final List<Optional<InubitVersion>> probedVersions = new ArrayList<>();
+        private Function<Optional<InubitVersion>, ClientKey> keys = version -> ClientKey.NONE;
 
         void answer(ClientVersion client) {
             outcome = () -> client;
@@ -1063,9 +1308,11 @@ class VersionGateTest {
         }
 
         @Override
-        public ClientVersion probe(NodeId node, Duration timeout) {
+        public ProbedClient probe(NodeId node, Optional<InubitVersion> version,
+            Duration timeout) {
             calls.add(timeout);
-            return outcome.get();
+            probedVersions.add(version);
+            return new ProbedClient(keys.apply(version), outcome.get());
         }
     }
 

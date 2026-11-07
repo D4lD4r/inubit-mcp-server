@@ -173,6 +173,47 @@ class CliClientProbeTest {
         assertThat(launcher.launchCount()).isEqualTo(1);
     }
 
+    /** Feature 017 (T018, research D-5): a client's options belong to that client. */
+    @Test
+    void readOptionsAreCachedPerNodeAndClient(@TempDir Path otherHome) throws IOException {
+        Path bin = Files.createDirectories(otherHome.resolve("bin"));
+        Files.writeString(bin.resolve("startcli.sh"), "#!/bin/sh\n");
+        Files.writeString(bin.resolve("startcli.bat"), "@echo off\r\n");
+        EffectiveNodeConfig first = server;
+        EffectiveNodeConfig other = TestNodeConfig.node().id(ID.toString())
+            .versionLine(VersionSetting.V6_1).cliHome(otherHome).cliJavaHome(javaHome).build();
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(HELP_WITH_OPTIONS, "", 0);
+        CliClientProbe probe = probe(launcher);
+
+        probe.optionsFor(ID, TIMEOUT);
+        server = other;
+        probe.optionsFor(ID, TIMEOUT);
+        assertThat(launcher.launchCount()).as("the other client is probed").isEqualTo(2);
+        assertThat(launcher.last().spec().workingDirectory()).isEqualTo(otherHome);
+
+        server = first;
+        probe.optionsFor(ID, TIMEOUT);
+        server = other;
+        probe.optionsFor(ID, TIMEOUT);
+        assertThat(launcher.launchCount()).as("both results are kept").isEqualTo(2);
+    }
+
+    @Test
+    void aFailedRunDelaysOnlyItsOwnClient(@TempDir Path otherHome) throws IOException {
+        Path bin = Files.createDirectories(otherHome.resolve("bin"));
+        Files.writeString(bin.resolve("startcli.sh"), "#!/bin/sh\n");
+        Files.writeString(bin.resolve("startcli.bat"), "@echo off\r\n");
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("not a help text\n", "", 0);
+        CliClientProbe probe = probe(launcher);
+
+        probe.optionsFor(ID, TIMEOUT);
+        server = TestNodeConfig.node().id(ID.toString()).versionLine(VersionSetting.V6_1)
+            .cliHome(otherHome).cliJavaHome(javaHome).build();
+        probe.optionsFor(ID, TIMEOUT);
+
+        assertThat(launcher.launchCount()).isEqualTo(2);
+    }
+
     @Test
     void aFailedRunIsNotCachedAndRetriedAtMostOncePer60Seconds() {
         FakeProcessLauncher launcher = FakeProcessLauncher.of("not a help text\n", "", 0);

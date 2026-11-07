@@ -272,8 +272,9 @@ public final class ProcessControlService {
         String message;
         try {
             message = request.action() == ProcessAction.RESTART
-                ? gateways.processControl(node).restart(request.processId())
-                : gateways.processControl(node).kill(request.processId());
+                ? gateways.processControl(node).restart(request.processId(),
+                    call.policy.permit())
+                : gateways.processControl(node).kill(request.processId(), call.policy.permit());
             outcome = ProcessControlResult.Outcome.EXECUTED;
         } catch (ToolErrorException e) {
             outcome = ProcessControlResult.Outcome.FAILED;

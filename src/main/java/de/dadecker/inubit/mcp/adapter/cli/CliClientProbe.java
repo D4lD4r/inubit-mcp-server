@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.adapter.cli;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -30,8 +31,9 @@ import java.util.regex.Pattern;
  * ({@link CliVersionProbe}).
  *
  * <p>A help output that is not readable (failed run, exit code other than 0, no login option
- * listed) means every option absent (fail closed). Read options are cached per node; a failed run
- * is not cached and is repeated at most once per {@link NodeVersionState#RETRY_AFTER}.
+ * listed) means every option absent (fail closed). Read options are cached per node and client
+ * (feature 017 T018); a failed run is not cached and is repeated at most once per
+ * {@link NodeVersionState#RETRY_AFTER} for that client.
  */
 public final class CliClientProbe {
 
@@ -49,8 +51,12 @@ public final class CliClientProbe {
     private final CapabilityMatrix matrix;
     private final Clock clock;
     private final CliOutputClassifier classifier = CliOutputClassifier.withGlobalScrubber();
-    private final Map<NodeId, CliClientOptions> cache = new ConcurrentHashMap<>();
-    private final Map<NodeId, Instant> failures = new ConcurrentHashMap<>();
+    private final Map<Probed, CliClientOptions> cache = new ConcurrentHashMap<>();
+    private final Map<Probed, Instant> failures = new ConcurrentHashMap<>();
+
+    /** A node's client: options belong to the client they were read from (feature 017 T018). */
+    private record Probed(NodeId node, ClientKey key) {
+    }
 
     /** @param nodes the configuration of every node the probe may be asked about */
     public CliClientProbe(CliRunner runner, Function<NodeId, EffectiveNodeConfig> nodes,
@@ -71,31 +77,33 @@ public final class CliClientProbe {
         if (!matrix.isCliOnly(NodeVersionState.initial(server.versionLine()).effectiveVersion())) {
             return Optional.empty();
         }
-        CliClientOptions cached = cache.get(node);
+        CliRunner.Selection selection = runner.select(server);
+        Probed probed = new Probed(node, selection.key());
+        CliClientOptions cached = cache.get(probed);
         if (cached != null) {
             return Optional.of(cached);
         }
-        Optional<Integer> java = javaFeatureVersion(server);
-        Instant failed = failures.get(node);
+        Optional<Integer> java = javaFeatureVersion(selection.server());
+        Instant failed = failures.get(probed);
         Instant now = clock.instant();
         if (failed == null || !now.isBefore(failed.plus(NodeVersionState.RETRY_AFTER))) {
-            Optional<CliClientOptions> read = help(server, timeout, java);
+            Optional<CliClientOptions> read = help(selection, timeout, java);
             if (read.isPresent()) {
-                cache.put(node, read.get());
-                failures.remove(node);
+                cache.put(probed, read.get());
+                failures.remove(probed);
                 return read;
             }
-            failures.put(node, clock.instant());
+            failures.put(probed, clock.instant());
         }
         return Optional.of(new CliClientOptions(false, false, false, java));
     }
 
     /** The options of the help output, or empty if it is not readable. */
-    private Optional<CliClientOptions> help(EffectiveNodeConfig server, Duration timeout,
+    private Optional<CliClientOptions> help(CliRunner.Selection selection, Duration timeout,
         Optional<Integer> java) {
         CliResult result;
         try {
-            result = runner.execute(server, List.of("-h"), Optional.empty(), timeout);
+            result = runner.execute(selection, List.of("-h"), Optional.empty(), timeout);
         } catch (ToolErrorException e) {
             // no client, not startable or timed out: nothing is known about its options
             return Optional.empty();

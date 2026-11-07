@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliSystem;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
+import de.dadecker.inubit.mcp.adapter.cli.HandshakeStartCliPinProbe;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.github.GitHubReleaseSource;
@@ -18,6 +19,8 @@ import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
 import de.dadecker.inubit.mcp.application.ReleaseSource;
 import de.dadecker.inubit.mcp.application.UpdateCache;
 import de.dadecker.inubit.mcp.application.UpdateCheck;
+import de.dadecker.inubit.mcp.config.CheckedClient;
+import de.dadecker.inubit.mcp.config.CliClient;
 import de.dadecker.inubit.mcp.config.ConfigException;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
@@ -27,6 +30,7 @@ import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.EntryCheck;
 import de.dadecker.inubit.mcp.config.GroupConfig;
+import de.dadecker.inubit.mcp.config.JdkRelease;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.ParameterCheck;
 import de.dadecker.inubit.mcp.config.ParameterStore;
@@ -36,11 +40,16 @@ import de.dadecker.inubit.mcp.config.StartCliHost;
 import de.dadecker.inubit.mcp.config.StoreKind;
 import de.dadecker.inubit.mcp.config.UpdateCheckSetting;
 import de.dadecker.inubit.mcp.config.ValidationReport;
+import de.dadecker.inubit.mcp.config.WindowsArguments;
 import de.dadecker.inubit.mcp.config.WorkspaceDirectory;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.MajorMinor;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.SemVer;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -57,16 +66,21 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -241,9 +255,10 @@ final class Launcher {
                 .validate(loaded);
             Map<NodeId, ClientVersion> clients = new HashMap<>();
             Map<NodeId, CliClientOptions> options = new HashMap<>();
+            List<CheckedClient> checkedClients = new ArrayList<>();
             ValidationReport withProbes = probeClients(loaded.config(),
-                withPrivateObjects(loaded.config(), report), clients, options, system,
-                containment);
+                withPrivateObjects(loaded.config(), report), clients, options, checkedClients,
+                system, containment);
             // feature 010 (research R-12): the Parameter Store client only for AWS nodes
             Collection<SecretPlan> plans = loaded.config().secretPlans().values();
             ParameterCheck.Result parameters = plans.stream().anyMatch(SecretPlan::aws)
@@ -256,7 +271,8 @@ final class Launcher {
                 : EntryCheck.Result.none(StoreKind.forOs(System.getProperty("os.name")));
             ValidationReport checked = entries.addTo(parameters.addTo(withProbes));
             context.out().print(new ConfigSummary(context.exists(), context.windows())
-                .render(loaded, checked, clients, options, parameters, entries));
+                .render(loaded, checked, clients, options, parameters, entries,
+                    checkedClients));
             context.out().flush();
             return checked.hasErrors() ? EXIT_ERROR : EXIT_OK;
         }
@@ -327,34 +343,52 @@ final class Launcher {
      * CliClientProbe}); its options go into {@code options}, and what its client cannot do
      * becomes the warnings of {@link ConfigValidator#clientOptionWarnings}. Feature 013
      * (research R-7): {@code containment} is set up before, so that on Windows the probe's
-     * processes end with this process too; while it is unavailable no probe starts.
+     * processes end with this process too; while it is unavailable no probe starts. Feature 017
+     * (T025): a client (home, JDK) is probed once; when the profile chooses StartCLI by version,
+     * {@code checked} gets each distinct client ({@link #checkedClients}).
      *
      * @return {@code report} with a warning per failed probe and per client option warning
      */
     private ValidationReport probeClients(ProfileConfig config, ValidationReport report,
         Map<NodeId, ClientVersion> clients, Map<NodeId, CliClientOptions> options,
-        CliSystem system, ProcessContainment containment) {
-        List<EffectiveNodeConfig> withClient = config.resolvableNodes().stream()
+        List<CheckedClient> checked, CliSystem system, ProcessContainment containment) {
+        List<EffectiveNodeConfig> nodes = config.resolvableNodes();
+        Map<MajorMinor, CliClient> entries = config.defaults().cliClients();
+        List<EffectiveNodeConfig> withClient = nodes.stream()
             .filter(server -> server.cliAvailable(context.exists(), context.windows())).toList();
-        if (withClient.isEmpty()) {
+        if (withClient.isEmpty() && (entries.isEmpty() || nodes.isEmpty())) {
             return report;
         }
         Map<NodeId, EffectiveNodeConfig> byId = new HashMap<>();
-        withClient.forEach(server -> byId.put(server.id(), server));
+        nodes.forEach(server -> byId.put(server.id(), server));
         List<String> warnings = new ArrayList<>(report.warnings());
+        // feature 017 (T025): one probe per distinct client; a failure is not kept, so that the
+        // next node of that client reports its own
+        Map<ClientKey, ClientVersion> probed = new HashMap<>();
+        Set<ClientKey> failed = new HashSet<>();
         // the profile name may be invalid here (an error of the report); it only names export
         // directories, which the probe never creates
         try (CliResources resources = new CliResources("check-config",
             context.privateFiles())) {
+            // no version is detected here: the line's own version chooses StartCLI (017, D-4)
             CliRunner runner = new CliRunner(new SystemProcessLauncher(), context.environment(),
-                context.windows(), system, containment, resources);
+                context.windows(), system, containment, resources,
+                new HandshakeStartCliPinProbe(),
+                id -> NodeVersionState.initial(byId.get(id).versionLine()).effectiveVersion());
             CliVersionProbe probe = new CliVersionProbe(runner, byId::get);
             CliClientProbe optionProbe = new CliClientProbe(runner, byId::get,
                 CapabilityMatrix.production(), Clock.systemUTC());
             for (EffectiveNodeConfig server : withClient) {
+                Optional<InubitVersion> version =
+                    NodeVersionState.initial(server.versionLine()).effectiveVersion();
+                ClientKey key = runner.select(server, version).key();
                 try {
-                    clients.put(server.id(), probe.probe(server.id(), server.cliTimeout()));
+                    ClientVersion client = probed.containsKey(key) ? probed.get(key)
+                        : probe.probe(server.id(), version, server.cliTimeout()).version();
+                    probed.put(key, client);
+                    clients.put(server.id(), client);
                 } catch (ToolErrorException e) {
+                    failed.add(key);
                     warnings.add(server.id() + ": StartCLI client probe failed: "
                         + e.error().message());
                 }
@@ -365,8 +399,84 @@ final class Launcher {
                         server.tls().trustStore().map(CliRunner::trustStoreType).orElse("")));
                 });
             }
+            if (!entries.isEmpty() || nodes.stream()
+                .anyMatch(EffectiveNodeConfig::choosesCliByVersion)) {
+                checked.addAll(checkedClients(config, nodes, runner, probed, failed, warnings));
+            }
         }
         return new ValidationReport(report.errors(), warnings, report.workspace());
+    }
+
+    /**
+     * Feature 017 (T025, FR-015): each distinct StartCLI client (home, JDK) of the profile with
+     * its {@code -v} result and Java major: the {@code defaults.cliClients} entries, then the
+     * clients the nodes' {@code versionLine}s choose. An entry no node probed is probed with
+     * the neutral {@link EffectiveNodeConfig#entryProbe} copy of the first node, if its StartCLI
+     * and a JDK exist (else {@code ConfigValidator} has warned about the entry); a failure and a
+     * range that excludes the entry's key become {@code warnings}.
+     */
+    private List<CheckedClient> checkedClients(ProfileConfig config,
+        List<EffectiveNodeConfig> nodes, CliRunner runner, Map<ClientKey, ClientVersion> probed,
+        Set<ClientKey> failed, List<String> warnings) {
+        Map<ClientKey, Path> distinct = new LinkedHashMap<>();
+        Optional<Path> defaultJavaHome = config.defaults().cliJavaHome();
+        config.defaults().cliClients().forEach((entry, client) -> {
+            Optional<Path> javaHome = client.javaHome().or(() -> defaultJavaHome);
+            ClientKey key = new ClientKey(client.home().toString(),
+                javaHome.map(Path::toString).orElse(""));
+            distinct.putIfAbsent(key, client.home());
+            // without StartCLI script or JDK ConfigValidator has warned about the entry
+            if (!probed.containsKey(key) && !failed.contains(key) && !nodes.isEmpty()
+                && (javaHome.isPresent() || serverJavaHome().isPresent())) {
+                EffectiveNodeConfig sole = nodes.getFirst().entryProbe(client.home(), javaHome);
+                if (sole.cliAvailable(context.exists(), context.windows())) {
+                    try {
+                        probed.put(key, new CliVersionProbe(runner, id -> sole)
+                            .probe(sole.id(), Optional.empty(), sole.cliTimeout()).version());
+                    } catch (ToolErrorException e) {
+                        failed.add(key);
+                        warnings.add(ConfigValidator.entrySubject(entry)
+                            + ": StartCLI client probe failed: " + e.error().message());
+                    }
+                }
+            }
+            Optional.ofNullable(probed.get(key)).flatMap(version ->
+                ConfigValidator.clientRangeWarning(entry, client.home(), version))
+                .ifPresent(warnings::add);
+        });
+        for (EffectiveNodeConfig server : nodes) {
+            EffectiveNodeConfig.Cli cli = server.cli();
+            cli.home().ifPresent(home -> distinct.putIfAbsent(new ClientKey(home.toString(),
+                cli.javaHome().map(Path::toString).orElse("")), home));
+        }
+        List<CheckedClient> checked = new ArrayList<>();
+        distinct.forEach((key, home) -> checked.add(new CheckedClient(home,
+            javaMajor(key.javaHome()), Optional.ofNullable(probed.get(key)))));
+        return checked;
+    }
+
+    /**
+     * The Java major of {@code javaHome}, else of the server's {@code JAVA_HOME} (on Windows in
+     * any spelling), from its {@code release} file; empty if unknown.
+     */
+    private OptionalInt javaMajor(String javaHome) {
+        String effective = !javaHome.isEmpty() ? javaHome : serverJavaHome().orElse("");
+        if (effective.isBlank()) {
+            return OptionalInt.empty();
+        }
+        try {
+            return JdkRelease.major(Path.of(effective), JdkRelease::read);
+        } catch (InvalidPathException e) {
+            return OptionalInt.empty();
+        }
+    }
+
+    /** The server's non-blank {@code JAVA_HOME} (on Windows in any spelling). */
+    private Optional<String> serverJavaHome() {
+        return Optional.ofNullable(context.windows()
+                ? WindowsArguments.environmentValue(context.environment(), "JAVA_HOME")
+                : context.environment().get("JAVA_HOME"))
+            .filter(value -> !value.isBlank());
     }
 
     private int serve(ProfileConfig config, ConfigLocation location, List<String> warnings) {

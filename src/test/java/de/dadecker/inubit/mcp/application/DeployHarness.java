@@ -120,6 +120,19 @@ public final class DeployHarness {
      * {@link #deployService} (none if pinned).
      */
     public final FakeVersionDetection detection = new FakeVersionDetection(versions);
+    /**
+     * Feature 017 (research D-24): the write lock of every StartCLI runner, the real lock of
+     * {@link #versions} as in production; records the permits and can inject a version change.
+     */
+    public final de.dadecker.inubit.mcp.testing.RecordingWriteLock writeLock =
+        new de.dadecker.inubit.mcp.testing.RecordingWriteLock(versions);
+    /**
+     * Feature 017 (review of stage 5): the import and tag ports of the target nodes report an
+     * unexpected response to {@link #versions} through the real stale wrapper, as in production;
+     * below it, an import protocol without Total line is reported as {@code UNEXPECTED_RESPONSE}
+     * ({@link de.dadecker.inubit.mcp.testing.UnreadableProtocolImports}).
+     */
+    public boolean staleReporting;
     /** Feature 009: the capability matrix of the gate of {@link #deployService}. */
     public CapabilityMatrix matrix = CapabilityMatrix.production();
     public final BackupStore backups;
@@ -230,7 +243,10 @@ public final class DeployHarness {
     private CliRunner runner(NodeId node) {
         return TestCliRunners.forHost(cli.get(node), launched ? System.getenv()
             : Map.of("PATH", Platform.searchPath()), new CliResources("acme",
-                PrivateFiles.forHost()));
+                PrivateFiles.forHost()),
+            // as Wiring: StartCLI is chosen by the effective version (feature 017, D-4)
+            versions::effectiveVersion,
+            de.dadecker.inubit.mcp.domain.port.ClientCheckLookup.NONE, writeLock);
     }
 
     private CredentialGuard guard(NodeId node) {
@@ -249,15 +265,21 @@ public final class DeployHarness {
 
     /** The import port of {@code node}. */
     public ImportPort imports(NodeId node) {
-        return new V81ImportAdapter(new CliImportRunner(server(node), credentials(node),
-            guard(node), runner(node), new CliOutputClassifier(new SecretScrubber())), () -> { });
+        ImportPort port = new V81ImportAdapter(new CliImportRunner(server(node),
+            credentials(node), guard(node), runner(node),
+            new CliOutputClassifier(new SecretScrubber())), () -> { });
+        return staleReporting ? de.dadecker.inubit.mcp.adapter.StaleReportingTestPorts.imports(
+            node, versions, new de.dadecker.inubit.mcp.testing.UnreadableProtocolImports(port))
+            : port;
     }
 
     /** The tag port of {@code node}. */
     public TagPort tags(NodeId node) {
-        return new V81TagAdapter(node, exports(node), new CliTagRunner(server(node),
+        TagPort port = new V81TagAdapter(node, exports(node), new CliTagRunner(server(node),
             credentials(node), guard(node), runner(node),
             new CliOutputClassifier(new SecretScrubber())), () -> { });
+        return staleReporting ? de.dadecker.inubit.mcp.adapter.StaleReportingTestPorts.tags(node,
+            versions, port) : port;
     }
 
     /**

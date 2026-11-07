@@ -1,0 +1,2 @@
+reconstructed docs/research/inubit-interfaces.md §2 and §4 (StartCLI commands and texts unchanged in 9.0); copied from fixtures/v8_1/cli/kill_unknown.* (recorded 8.1.17) with the 9.0 changes: ibis.jar:9.0.7 in stack frames, no lines of the SOAP client (removed in 9.0).
+Not verified against a 9.0 client.

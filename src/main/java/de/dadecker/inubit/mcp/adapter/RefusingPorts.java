@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
@@ -107,12 +108,12 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
     }
 
     @Override
-    public String restart(String processId) {
+    public String restart(String processId, WritePermit permit) {
         throw refusal();
     }
 
     @Override
-    public String kill(String processId) {
+    public String kill(String processId, WritePermit permit) {
         throw refusal();
     }
 
@@ -137,12 +138,13 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
     }
 
     @Override
-    public ImportProtocol importArchive(byte[] archive, Mode mode, String owner) {
+    public ImportProtocol importArchive(byte[] archive, Mode mode, String owner,
+        WritePermit permit) {
         throw refusal();
     }
 
     @Override
-    public void importRepository(byte[] archive, String owner) {
+    public void importRepository(byte[] archive, String owner, WritePermit permit) {
         throw refusal();
     }
 
@@ -152,7 +154,7 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
     }
 
     @Override
-    public void tag(String tag, String diagramGroup, String owner) {
+    public void tag(String tag, String diagramGroup, String owner, WritePermit permit) {
         throw refusal();
     }
 }

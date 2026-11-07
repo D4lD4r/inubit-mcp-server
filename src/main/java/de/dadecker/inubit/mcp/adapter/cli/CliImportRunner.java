@@ -9,6 +9,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ImportPort.Mode;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -108,12 +109,14 @@ public final class CliImportRunner {
      *     {@code AUTH_FAILED} before anything is written; {@code IMPORT_FAILED},
      *     {@code TIMEOUT} after StartCLI ran
      */
-    public ImportProtocol importArchive(byte[] archive, Mode mode, String owner) {
+    public ImportProtocol importArchive(byte[] archive, Mode mode, String owner,
+        WritePermit permit) {
         Objects.requireNonNull(archive, "archive");
         Objects.requireNonNull(mode, "mode");
+        permit.requireFor(server.id());
         checkOwner(owner);
         checkAvailable();
-        return protocol(run(archive, file -> command(file, mode, owner)));
+        return protocol(run(archive, file -> command(file, mode, owner), permit));
     }
 
     /**
@@ -128,13 +131,14 @@ public final class CliImportRunner {
      *     {@code AUTH_FAILED} before anything is written; {@code IMPORT_FAILED},
      *     {@code TIMEOUT} after StartCLI ran
      */
-    public void importRepository(byte[] archive, String owner) {
+    public void importRepository(byte[] archive, String owner, WritePermit permit) {
         Objects.requireNonNull(archive, "archive");
+        permit.requireFor(server.id());
         checkRepositoryImport(owner);
         String root = "/Root/" + owner;
         CliResult result = run(archive, file -> CliCommand.command("import")
             .path("--importFile", file, runner.windows())
-            .repositoryPath("--importRepositoryPath", root).build());
+            .repositoryPath("--importRepositoryPath", root).build(), permit);
         CliOutput output = classifier.parse(result);
         if (result.exitCode() != 0 || !output.nokMessages().isEmpty() || result.truncated()
             || output.okMessages().stream().noneMatch(REPOSITORY_SUCCESS::equals)) {
@@ -173,9 +177,11 @@ public final class CliImportRunner {
 
     /**
      * Writes {@code archive} into a fresh private temporary directory, runs the command for it
-     * and deletes the directory on every path.
+     * and deletes the directory on every path; StartCLI is started under the write lock with
+     * {@code permit} (feature 017, research D-24).
      */
-    private CliResult run(byte[] archive, Function<Path, CliCommand> command) {
+    private CliResult run(byte[] archive, Function<Path, CliCommand> command,
+        WritePermit permit) {
         CliResources.Reservation reservation;
         try {
             reservation = runner.resources().reserve();
@@ -221,7 +227,7 @@ public final class CliImportRunner {
             }
             return runner.run(server, credentials.username().orElseThrow().value(),
                 credentials.password().orElseThrow().value(), command.apply(file),
-                server.cliExportTimeout(), "cliExportTimeout", guard);
+                server.cliExportTimeout(), "cliExportTimeout", guard, permit);
         }
     }
 

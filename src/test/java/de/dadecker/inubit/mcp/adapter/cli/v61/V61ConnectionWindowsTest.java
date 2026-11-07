@@ -42,7 +42,8 @@ class V61ConnectionWindowsTest extends V61ConnectionTest {
     @Override
     CliRunner runner(ProcessLauncher launcher) {
         return TestCliRunners.simulatedWindows(launcher, parentEnvironment,
-            new ProcessContainment.Bound(), new CliResources("acme", PrivateFiles.forHost()));
+            new ProcessContainment.Bound(), new CliResources("acme", PrivateFiles.forHost()),
+            versions);
     }
 
     @Test

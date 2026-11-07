@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -112,6 +113,21 @@ class RestoreServiceTest {
         assertThat(harness.audit("restore_backup").get(1).inputs())
             .containsEntry("backupRef", ref).containsEntry("reason", "Undo the move")
             .containsEntry("changeSet", "Workflow-0001");
+    }
+
+    @Test
+    void theRestoreIsSentWithTheDevelopmentPermitOfTheRestoreCall() throws IOException {
+        // feature 017 (T045, FR-018, research D-24): the import and the restore, one permit each
+        ImportHarness harness = ImportHarness.grpA(temp);
+        String ref = imported(harness);
+        harness.exportGroup().importRestored().exportGroup();
+
+        completed(harness.service().restore(restore(ref)));
+
+        assertThat(harness.writeLock.permits()).hasSize(2).allSatisfy(permit -> {
+            assertThat(permit.node()).isEqualTo(ImportHarness.DEV);
+            assertThat(permit.capability()).isEqualTo(Capability.DEVELOPMENT_WRITE);
+        });
     }
 
     @Test

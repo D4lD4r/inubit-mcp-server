@@ -29,11 +29,45 @@ class CapabilityMatrixTest {
             .isEqualTo(SupportState.SUPPORTED);
     }
 
+    /** Feature 017 (T004, research D-9): 9.0 is declared like 8.1, REST and CLI. */
     @ParameterizedTest
     @EnumSource(Capability.class)
-    void readsAreUnverifiedAndWritesUnsupportedOn90(Capability capability) {
+    void everyCapabilityIsSupportedOn90LikeOn81(Capability capability) {
         assertThat(production.state(version("9.0.7"), capability))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.state(version("9.0"), capability))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.stateOfLine(9, OptionalInt.of(0), capability))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.channels(version("9.0.7"), capability))
+            .isEqualTo(production.channels(version("8.1.17"), capability))
+            .isEqualTo(capability.channels());
+        assertThat(production.isCliOnly(version("9.0.7"))).isFalse();
+    }
+
+    /** Feature 017 (T004, research D-9): {@code V9_X} still selects no 9.0 support. */
+    @ParameterizedTest
+    @EnumSource(Capability.class)
+    void theMajorOnlyNineLineAndNineOneStayUnverified(Capability capability) {
+        assertThat(production.stateOfLine(9, OptionalInt.empty(), capability))
             .isEqualTo(notBaseline(capability));
+        assertThat(production.state(version("9.1.0"), capability))
+            .isEqualTo(notBaseline(capability));
+    }
+
+    /** Feature 017 (T004): which major.minor values have an entry of their own. */
+    @Test
+    void declaresExactlyTheVersionsWithAnEntry() {
+        assertThat(production.declares(new MajorMinor(6, 1))).isTrue();
+        assertThat(production.declares(new MajorMinor(8, 1))).isTrue();
+        assertThat(production.declares(new MajorMinor(9, 0))).isTrue();
+        assertThat(production.declares(new MajorMinor(9, 1))).isFalse();
+        assertThat(production.declares(new MajorMinor(7, 0))).isFalse();
+        assertThat(production.declares(new MajorMinor(8, 0))).isFalse();
+        assertThat(new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+                new VersionRange(7, 8, 7, 9), Map.of())), Map.of())
+            .declares(new MajorMinor(7, 9)))
+            .as("a range declares every major.minor within its bounds").isTrue();
     }
 
     @ParameterizedTest
@@ -59,7 +93,7 @@ class CapabilityMatrixTest {
     void aMajorOnlyLineIsLookedUpAsUnknown(Capability capability) {
         assertThat(production.stateOfLine(9, OptionalInt.empty(), capability))
             .isEqualTo(production.state(Optional.empty(), capability))
-            .isEqualTo(production.state(version("9.0.7"), capability));
+            .isEqualTo(production.state(version("9.1.0"), capability));
         assertThat(production.stateOfLine(8, OptionalInt.empty(), capability))
             .as("a major-only line is unknown even if a minor of that major is supported")
             .isEqualTo(notBaseline(capability));
@@ -81,7 +115,7 @@ class CapabilityMatrixTest {
     void bothDiagnosisCapabilitiesKeepTheFormerDiagnosisState(Capability capability) {
         assertThat(production.state(version("8.1.17"), capability))
             .isEqualTo(SupportState.SUPPORTED);
-        assertThat(production.state(version("9.0.7"), capability))
+        assertThat(production.state(version("9.1.0"), capability))
             .isEqualTo(SupportState.UNVERIFIED);
         assertThat(production.state(Optional.empty(), capability))
             .isEqualTo(SupportState.UNVERIFIED);

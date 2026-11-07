@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.adapter.cli.v81;
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliTagRunner;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import java.util.Objects;
 
@@ -44,10 +45,10 @@ public final class V81TagAdapter implements TagPort {
     }
 
     @Override
-    public void tag(String tag, String diagramGroup, String owner) {
+    public void tag(String tag, String diagramGroup, String owner, WritePermit permit) {
         tags.checkAvailable();
         confirmCredentials.run();
-        tags.tag(tag, diagramGroup, owner);
+        tags.tag(tag, diagramGroup, owner, permit);
     }
 
     @Override

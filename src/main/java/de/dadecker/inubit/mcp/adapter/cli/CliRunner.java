@@ -6,20 +6,32 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchedProcess;
 import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Built;
 import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Cause;
 import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.TooLong;
+import de.dadecker.inubit.mcp.config.CliChoice;
 import de.dadecker.inubit.mcp.config.CredentialNames;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.SecretLabels;
 import de.dadecker.inubit.mcp.config.WindowsArguments;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
+import de.dadecker.inubit.mcp.domain.model.ClientCheck;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.MajorMinor;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
+import de.dadecker.inubit.mcp.domain.port.ClientCheckLookup;
+import de.dadecker.inubit.mcp.domain.port.WriteLock;
 import de.dadecker.inubit.mcp.infra.Secret;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,10 +40,14 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Runs StartCLI for one server (research R-6, R-12; Constitution I, II, V).
@@ -74,12 +90,24 @@ import java.util.function.Supplier;
  *   <li>stdout and stderr are drained completely but kept only up to
  *       {@link #MAX_OUTPUT_BYTES} each ({@code --execCommand} runs), or up to the bound a
  *       session is given, then decoded by {@link OutputDecoder}.
+ *   <li>Feature 017 (research D-3, D-4): every call reads the node's effective version once and
+ *       chooses the client, JDK and address for it ({@link #select}); everything above sees the
+ *       chosen {@code cli} settings.
+ *   <li>Feature 017 (FR-017, research D-4): before {@link #run} and {@link #runSession} launch,
+ *       the launch guard ({@link #checkLaunch}) compares the chosen client with its recorded
+ *       check; the {@code -v}/{@code -h} probes and {@link #checkAvailable} are not guarded.
+ *   <li>Feature 017 (FR-018, research D-24): {@link #run} with a {@link WritePermit} (a write)
+ *       starts StartCLI inside {@link WriteLock#handOff}: under the node's lock it selects the
+ *       client again with the locked version ({@code CLI_UNAVAILABLE} if the client or address
+ *       differs from the one chosen before), runs the launch guard with it and starts the
+ *       process; the lock is left right after the start, before the output is awaited.
  * </ul>
  */
 public final class CliRunner {
 
     public static final int MAX_OUTPUT_BYTES = 1 << 20;
     public static final Duration KILL_GRACE = Duration.ofSeconds(2);
+    private static final Logger LOG = LoggerFactory.getLogger(CliRunner.class);
     private static final Duration POLL = Duration.ofMillis(20);
     private static final byte[] JKS_MAGIC =
         {(byte) 0xfe, (byte) 0xed, (byte) 0xfe, (byte) 0xed};
@@ -96,6 +124,51 @@ public final class CliRunner {
     /** Created on the first decoded output: building a runner never loads native code. */
     private volatile OutputDecoder decoder;
     private final StartCliPinProbe pinProbe;
+    private final Function<NodeId, Optional<InubitVersion>> versions;
+    private final ClientCheckLookup checks;
+    private final WriteLock writeLock;
+
+    /**
+     * Hands a write off without a check: for runners that never run a write (the probes of the
+     * launcher, tests). The production runner gets the node versions as its lock.
+     */
+    private static final WriteLock UNCHECKED = new WriteLock() {
+        @Override
+        public <T> T handOff(WritePermit permit,
+            Function<Optional<InubitVersion>, T> action) {
+            return action.apply(Optional.of(permit.admitted()));
+        }
+    };
+
+    /** Starts the launched process; a write starts it inside its hand-off (research D-24). */
+    @FunctionalInterface
+    private interface StartHook {
+        StartHook DIRECT = Launch::launch;
+
+        LaunchedProcess start(Launch launch) throws IOException;
+    }
+
+    @FunctionalInterface
+    private interface Launch {
+        LaunchedProcess launch() throws IOException;
+    }
+
+    /** Carries the launch's {@link IOException} out of the hand-off. */
+    private static final class LaunchFailure extends UncheckedIOException {
+        private static final long serialVersionUID = 1L;
+
+        LaunchFailure(IOException cause) {
+            super(cause);
+        }
+    }
+
+    /** A runner for which every node's version is unknown. */
+    CliRunner(ProcessLauncher launcher, Map<String, String> parentEnvironment,
+        boolean windows, CliSystem system, ProcessContainment containment,
+        CliResources resources) {
+        this(launcher, parentEnvironment, windows, system, containment, resources,
+            new HandshakeStartCliPinProbe(), id -> Optional.empty());
+    }
 
     /**
      * @param windows whether StartCLI runs on Windows ({@code bin\startcli.bat} through the
@@ -103,23 +176,45 @@ public final class CliRunner {
      * @param system the system directory and OEM code page (Windows)
      * @param containment whether StartCLI's processes end with the server; read on each call
      * @param resources registry of the running StartCLI processes, stopped on shutdown
+     * @param pinProbe checks the StartCLI address of a server of a stage with
+     *     {@code tls.pinPerServer} before StartCLI is started (feature 014, research R-15)
+     * @param versions the effective version of a node, read once per call to choose its
+     *     StartCLI client (feature 017, research D-4)
      */
     public CliRunner(ProcessLauncher launcher, Map<String, String> parentEnvironment,
         boolean windows, CliSystem system, ProcessContainment containment,
-        CliResources resources) {
-        this(launcher, parentEnvironment, windows, system, containment, resources,
-            new HandshakeStartCliPinProbe());
+        CliResources resources, StartCliPinProbe pinProbe,
+        Function<NodeId, Optional<InubitVersion>> versions) {
+        this(launcher, parentEnvironment, windows, system, containment, resources, pinProbe,
+            versions, ClientCheckLookup.NONE);
     }
 
     /**
-     * @param pinProbe checks the StartCLI address of a server of a stage with
-     *     {@code tls.pinPerServer} before StartCLI is started (feature 014, research R-15)
+     * As above, with the recorded client checks the launch guard reads (feature 017, research
+     * D-4).
      */
     public CliRunner(ProcessLauncher launcher, Map<String, String> parentEnvironment,
         boolean windows, CliSystem system, ProcessContainment containment,
-        CliResources resources, StartCliPinProbe pinProbe) {
+        CliResources resources, StartCliPinProbe pinProbe,
+        Function<NodeId, Optional<InubitVersion>> versions, ClientCheckLookup checks) {
+        this(launcher, parentEnvironment, windows, system, containment, resources, pinProbe,
+            versions, checks, UNCHECKED);
+    }
+
+    /**
+     * As above, with the write lock a write's process is started under (feature 017, FR-018,
+     * research D-24).
+     */
+    public CliRunner(ProcessLauncher launcher, Map<String, String> parentEnvironment,
+        boolean windows, CliSystem system, ProcessContainment containment,
+        CliResources resources, StartCliPinProbe pinProbe,
+        Function<NodeId, Optional<InubitVersion>> versions, ClientCheckLookup checks,
+        WriteLock writeLock) {
+        this.writeLock = Objects.requireNonNull(writeLock, "writeLock");
+        this.checks = Objects.requireNonNull(checks, "checks");
         this.resources = Objects.requireNonNull(resources, "resources");
         this.pinProbe = Objects.requireNonNull(pinProbe, "pinProbe");
+        this.versions = Objects.requireNonNull(versions, "versions");
         this.launcher = launcher;
         this.parentEnvironment = Map.copyOf(parentEnvironment);
         this.windows = windows;
@@ -143,12 +238,71 @@ public final class CliRunner {
     }
 
     /**
+     * The StartCLI choice for one call (feature 017, research D-4, D-5, D-19).
+     *
+     * @param server         the node with the chosen {@code cli} settings
+     * @param key            the chosen client directory and configured JDK
+     * @param addressWarning set when an explicit {@code cli.url} names the servlet address on
+     *     INUBIT 9 or later
+     * @param version        the version the client was chosen for
+     */
+    public record Selection(EffectiveNodeConfig server, CliChoice choice, ClientKey key,
+        Optional<String> addressWarning, Optional<InubitVersion> version) {
+
+        public Selection {
+            Objects.requireNonNull(server, "server");
+            Objects.requireNonNull(choice, "choice");
+            Objects.requireNonNull(key, "key");
+            Objects.requireNonNull(addressWarning, "addressWarning");
+            Objects.requireNonNull(version, "version");
+        }
+
+        /**
+         * The {@code defaults.cliClients} key the messages name for a missing client (research
+         * D-8): the version's major.minor, if known, when {@code cliClients} is configured or
+         * the major is 9 or later; else empty, and the 0.8.0 texts apply. A line without minor
+         * never chooses an entry (research D-3), so it names none either.
+         */
+        public Optional<MajorMinor> entryHint() {
+            if (server.versionLine() instanceof VersionSetting.Line line
+                && line.minor().isEmpty()) {
+                return Optional.empty();
+            }
+            return version.filter(known -> !server.cliSources().clients().isEmpty()
+                || known.major() >= 9).map(MajorMinor::of);
+        }
+    }
+
+    /**
+     * Chooses StartCLI for {@code server} at {@code version} without reading the version source;
+     * idempotent: selecting the selected server again gives the same selection.
+     */
+    public Selection select(EffectiveNodeConfig server, Optional<InubitVersion> version) {
+        CliChoice choice = server.cliFor(version);
+        EffectiveNodeConfig.Cli cli = choice.cli();
+        ClientKey key = new ClientKey(cli.home().map(Path::toString).orElse(""),
+            cli.javaHome().map(Path::toString).orElse(""));
+        Optional<String> warning = choice.servletAddressWarning(server.id());
+        return new Selection(server.withCli(cli), choice, key, warning, version);
+    }
+
+    /**
+     * Chooses StartCLI for {@code server} with one read of its effective version; for callers
+     * that check before the launch what it uses (the 6.1 connection, feature 017 T013).
+     */
+    public Selection select(EffectiveNodeConfig server) {
+        return select(server, versions.apply(server.id()));
+    }
+
+    /**
      * Logs in as {@code username} and executes {@code command}, without the credential guard;
      * private so that every caller goes through the guarded {@link #run(EffectiveNodeConfig,
      * String, Secret, CliCommand, Duration, CredentialGuard)} (Phase 3 re-review N1).
      */
-    private CliResult runUnguarded(EffectiveNodeConfig server, String username,
-        Secret password, CliCommand command, Duration timeout, String timeoutSetting) {
+    private CliResult runUnguarded(Selection selection, String username,
+        Secret password, CliCommand command, Duration timeout, String timeoutSetting,
+        StartHook hook) {
+        EffectiveNodeConfig server = selection.server();
         List<String> arguments = new ArrayList<>(List.of("-u", username));
         server.tls().trustStore().ifPresent(trustStore -> {
             arguments.add("--trustStoreFilePath");
@@ -160,8 +314,8 @@ public final class CliRunner {
         arguments.add("--execCommand");
         arguments.add(command.commandLine());
         arguments.add(server.cli().url().toString());
-        return execute(server, arguments, Optional.of(password), List.of(), timeout,
-            timeoutSetting, "", MAX_OUTPUT_BYTES);
+        return execute(selection, arguments, Optional.of(password), List.of(), timeout,
+            timeoutSetting, "", MAX_OUTPUT_BYTES, hook);
     }
 
     /**
@@ -190,15 +344,77 @@ public final class CliRunner {
      */
     public CliResult run(EffectiveNodeConfig server, String username, Secret password,
         CliCommand command, Duration timeout, String timeoutSetting, CredentialGuard guard) {
+        return run(server, username, password, command, timeout, timeoutSetting, guard,
+            Optional.empty());
+    }
+
+    /**
+     * A write (feature 017, FR-018, research D-24): as {@link #run(EffectiveNodeConfig, String,
+     * Secret, CliCommand, Duration, CredentialGuard)}, but StartCLI is started inside
+     * {@link WriteLock#handOff} with {@code permit}: refused there if the node's version changed
+     * since the call was admitted ({@code UNSUPPORTED_VERSION}), if the client or address chosen
+     * for the locked version differs from the one chosen before ({@code CLI_UNAVAILABLE}) or by
+     * the launch guard for the locked version; nothing is started then. The lock is left once
+     * the process has started; its output is awaited outside.
+     *
+     * @throws IllegalArgumentException if {@code permit} is for another node; nothing is started
+     */
+    public CliResult run(EffectiveNodeConfig server, String username, Secret password,
+        CliCommand command, Duration timeout, CredentialGuard guard, WritePermit permit) {
+        return run(server, username, password, command, timeout, "cliTimeout", guard, permit);
+    }
+
+    /** As above; {@code timeoutSetting} names the setting {@code timeout} comes from. */
+    public CliResult run(EffectiveNodeConfig server, String username, Secret password,
+        CliCommand command, Duration timeout, String timeoutSetting, CredentialGuard guard,
+        WritePermit permit) {
+        return run(server, username, password, command, timeout, timeoutSetting, guard,
+            Optional.of(permit));
+    }
+
+    private CliResult run(EffectiveNodeConfig server, String username, Secret password,
+        CliCommand command, Duration timeout, String timeoutSetting, CredentialGuard guard,
+        Optional<WritePermit> permit) {
+        permit.ifPresent(write -> write.requireFor(server.id()));
         if (windows) {
             refuseWindowsCredentials(server, username, password);
         }
+        Selection selection = select(server);
+        checkLaunch(selection);
         // before the guard: a refused address must neither wait for nor count as a login
         if (server.tls().pinPerServer()) {
-            pinProbe.check(server);
+            pinProbe.check(selection.server());
         }
-        return guarded(guard, () -> runUnguarded(server, username, password, command, timeout,
-            timeoutSetting));
+        StartHook hook = permit.map(write -> handedOff(selection, write))
+            .orElse(StartHook.DIRECT);
+        return guarded(guard, () -> runUnguarded(selection, username, password, command,
+            timeout, timeoutSetting, hook));
+    }
+
+    /**
+     * Starts the process inside the hand-off of {@code permit}: selects again with the locked
+     * version, refuses another client or address, runs the launch guard and starts (D-24).
+     */
+    private StartHook handedOff(Selection selection, WritePermit permit) {
+        return launch -> {
+            try {
+                return writeLock.handOff(permit, locked -> {
+                    Selection current = select(selection.server(), locked);
+                    if (!current.key().equals(selection.key())
+                        || !current.server().cli().url().equals(selection.server().cli().url())) {
+                        throw clientChanged(current);
+                    }
+                    checkLaunch(current);
+                    try {
+                        return launch.launch();
+                    } catch (IOException e) {
+                        throw new LaunchFailure(e);
+                    }
+                });
+            } catch (LaunchFailure e) {
+                throw e.getCause();
+            }
+        };
     }
 
     /**
@@ -224,8 +440,41 @@ public final class CliRunner {
     public CliResult runSession(EffectiveNodeConfig server, String username, Secret password,
         CliClientOptions options, List<CliSessionCommand> commands, Duration timeout,
         int maxOutputBytes, CredentialGuard guard) {
+        return runSession(select(server), username, password, options, commands, timeout,
+            maxOutputBytes, guard);
+    }
+
+    /** As above, with the client the caller chose at the start of its call (feature 017 T013). */
+    public CliResult runSession(Selection selection, String username, Secret password,
+        CliClientOptions options, List<CliSessionCommand> commands, Duration timeout,
+        int maxOutputBytes, CredentialGuard guard) {
+        return runSession(selection, true, username, password, options, commands, timeout,
+            maxOutputBytes, guard);
+    }
+
+    /**
+     * {@code get_health}'s session ({@code CliHealthPort} on 6.1): as
+     * {@link #runSession(Selection, String, Secret, CliClientOptions, List, Duration, int,
+     * CredentialGuard)}, but without the launch guard (feature 017, FR-009, research D-4). The
+     * call is admitted without a client check ({@code VersionGate.monitoringAccess}) and reports
+     * the client in its own part, so an excluding client never refuses it, as in 0.8.0.
+     */
+    public CliResult runHealthSession(Selection selection, String username, Secret password,
+        CliClientOptions options, List<CliSessionCommand> commands, Duration timeout,
+        int maxOutputBytes, CredentialGuard guard) {
+        return runSession(selection, false, username, password, options, commands, timeout,
+            maxOutputBytes, guard);
+    }
+
+    private CliResult runSession(Selection selection, boolean launchGuard, String username,
+        Secret password, CliClientOptions options, List<CliSessionCommand> commands,
+        Duration timeout, int maxOutputBytes, CredentialGuard guard) {
+        EffectiveNodeConfig server = selection.server();
         if (windows) {
             refuseWindowsCredentials(server, username, password);
+        }
+        if (launchGuard) {
+            checkLaunch(selection);
         }
         Optional<Path> trustStore = server.tls().trustStore();
         String extraJavaToolOptions = options.trustStoreFilePath() ? ""
@@ -244,8 +493,102 @@ public final class CliRunner {
         arguments.add(server.cli().url().toString());
         List<CliSessionCommand> lines = new ArrayList<>(commands);
         lines.add(CliSessionCommand.EXIT);
-        return guarded(guard, () -> execute(server, arguments, Optional.of(password), lines,
-            timeout, "cliTimeout", extraJavaToolOptions, maxOutputBytes));
+        return guarded(guard, () -> execute(selection, arguments, Optional.of(password), lines,
+            timeout, "cliTimeout", extraJavaToolOptions, maxOutputBytes, StartHook.DIRECT));
+    }
+
+    /**
+     * The launch guard (feature 017, FR-017, research D-4): whether the client of
+     * {@code selection} may be launched for a tool call, judged on the checks recorded so far;
+     * it never probes and launches nothing. Called by {@link #run} and {@link #runSession} right
+     * before the launch; a caller that re-selects later (e.g. under a write lock) calls it again
+     * with its final selection. It judges only launches of calls the version gate admitted with
+     * its client check (every tool call whose channels include StartCLI); {@code get_health}'s
+     * 6.1 session is admitted without one and runs unguarded ({@link #runHealthSession}), as in
+     * 0.8.0. The {@code -v} and {@code -h} probes ({@code execute}) are never guarded.
+     *
+     * <ul>
+     *   <li>a result for the chosen client whose range excludes the version it was chosen for:
+     *       {@code UNSUPPORTED_VERSION}, as the gate's refusal;
+     *   <li>a result whose range cannot be evaluated, or a recorded failure: launch, as the gate
+     *       allows it;
+     *   <li>no check for the chosen client, but one for another client of the node (the client
+     *       changed since the call was admitted): {@code CLI_UNAVAILABLE};
+     *   <li>no check for the node at all: launch, as in 0.8.0.
+     * </ul>
+     *
+     * @throws ToolErrorException {@code UNSUPPORTED_VERSION} or {@code CLI_UNAVAILABLE} as above
+     */
+    public void checkLaunch(Selection selection) {
+        NodeId node = selection.server().id();
+        // one snapshot: a probe recording in between cannot fake a change (research D-4)
+        ClientCheckLookup.Recorded recorded = checks.recorded(node, selection.key());
+        if (recorded instanceof ClientCheckLookup.Recorded.ForClient forClient) {
+            if (forClient.check() instanceof ClientCheck.Checked checked) {
+                refuseExcluded(selection, checked.version());
+            }
+            return;
+        }
+        if (recorded == ClientCheckLookup.Recorded.Absent.OTHER_CLIENTS_ONLY) {
+            throw clientChanged(selection);
+        }
+    }
+
+    /** The client chosen now differs from the one chosen before in this call (research D-4). */
+    private static ToolErrorException clientChanged(Selection selection) {
+        NodeId node = selection.server().id();
+        String release = release(selection).map(text -> " to the client for INUBIT " + text)
+            .orElse("");
+        return unavailable(selection.server(), "The StartCLI client for " + node + " changed"
+                + release + " during this call; the new client has not been checked yet",
+            "INUBIT on " + node + " was found to run a different version while the call was"
+                + " waiting",
+            "Call the tool again");
+    }
+
+    /** The 009 refusal of a client whose checked range excludes the selected version. */
+    private static void refuseExcluded(Selection selection, ClientVersion client) {
+        EffectiveNodeConfig server = selection.server();
+        Optional<InubitVersion> version = selection.version();
+        ClientVersion.Compatibility compatibility =
+            version.isEmpty() && server.versionLine() instanceof VersionSetting.Line line
+                ? client.compatibleWith(line.major(), line.minor())
+                : client.compatibleWith(version);
+        if (compatibility != ClientVersion.Compatibility.INCOMPATIBLE) {
+            return;
+        }
+        String name = version.map(known -> "INUBIT " + known.raw())
+            .orElseGet(() -> "INUBIT " + release(selection).orElseThrow() + " (versionLine "
+                + server.versionLine().text() + ")");
+        String message = "StartCLI client " + client.version().raw() + " of " + server.id()
+            + " supports INUBIT " + client.supportedFrom().orElseThrow().raw() + " to "
+            + client.supportedTo().orElseThrow().raw() + ", which excludes " + name
+            + "; StartCLI refused; nothing was sent";
+        LOG.info("{}: StartCLI REFUSED ({}): {}", server.id(), ErrorCode.UNSUPPORTED_VERSION,
+            message);
+        throw new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION, message,
+                "The local StartCLI client does not support the INUBIT version of "
+                    + server.id(),
+                "Install a StartCLI client on the host of this server that supports INUBIT "
+                    + release(selection).orElseThrow()
+                    + selection.entryHint().map(entry -> ", or add defaults.cliClients.\""
+                        + entry.text() + "\"").orElse(""))
+            .withNode(server.id()));
+    }
+
+    /**
+     * The major.minor the client was chosen for ("9.0"), "9.x" for a line without minor, or empty
+     * for an unknown version.
+     */
+    private static Optional<String> release(Selection selection) {
+        if (selection.version().isPresent()) {
+            return selection.version().map(known -> MajorMinor.of(known).text());
+        }
+        if (selection.server().versionLine() instanceof VersionSetting.Line line) {
+            return Optional.of(line.major() + "." + (line.minor().isPresent()
+                ? String.valueOf(line.minor().getAsInt()) : "x"));
+        }
+        return Optional.empty();
     }
 
     /**
@@ -347,22 +690,33 @@ public final class CliRunner {
      */
     CliResult execute(EffectiveNodeConfig server, List<String> arguments,
         Optional<Secret> stdinSecret, Duration timeout) {
-        return execute(server, arguments, stdinSecret, List.of(), timeout, "cliTimeout", "",
-            MAX_OUTPUT_BYTES);
+        return execute(select(server), arguments, stdinSecret, timeout);
+    }
+
+    /** As above, with the client chosen by the caller (the probes, feature 017 research D-5). */
+    CliResult execute(Selection selection, List<String> arguments,
+        Optional<Secret> stdinSecret, Duration timeout) {
+        return execute(selection, arguments, stdinSecret, List.of(), timeout, "cliTimeout", "",
+            MAX_OUTPUT_BYTES, StartHook.DIRECT);
     }
 
     /**
      * @param extraJavaToolOptions appended to the platform's {@code JAVA_TOOL_OPTIONS} (empty,
      *     or the trust-store properties of a 6.1 session, each with a leading space)
      */
-    private CliResult execute(EffectiveNodeConfig server, List<String> arguments,
+    private CliResult execute(Selection selection, List<String> arguments,
         Optional<Secret> stdinSecret, List<CliSessionCommand> stdinCommands, Duration timeout,
-        String timeoutSetting, String extraJavaToolOptions, int maxOutputBytes) {
-        LaunchTarget target = launchTarget(server);
+        String timeoutSetting, String extraJavaToolOptions, int maxOutputBytes, StartHook hook) {
+        EffectiveNodeConfig server = selection.server();
+        LaunchTarget target = launchTarget(selection);
+        CliChoice choice = selection.choice();
+        LOG.debug("{}: StartCLI client {} ({}), address {}", server.id(), target.home(),
+            choice.source().name().toLowerCase(Locale.ROOT),
+            choice.address().name().toLowerCase(Locale.ROOT));
         LaunchSpec spec = windows ? windowsSpec(server, target, arguments, extraJavaToolOptions)
             : posixSpec(target, arguments, extraJavaToolOptions);
         return launchAndWait(server, spec, stdinSecret, stdinCommands, timeout, timeoutSetting,
-            maxOutputBytes);
+            maxOutputBytes, hook).forClientMajor(choice.major());
     }
 
     private LaunchSpec posixSpec(LaunchTarget target, List<String> arguments,
@@ -433,7 +787,12 @@ public final class CliRunner {
      *     except the line length, which needs the call
      */
     public void checkAvailable(EffectiveNodeConfig server) {
-        launchTarget(server);
+        checkAvailable(select(server));
+    }
+
+    /** As above, for the client chosen by the caller. */
+    public void checkAvailable(Selection selection) {
+        launchTarget(selection);
     }
 
     /**
@@ -444,10 +803,9 @@ public final class CliRunner {
         Optional<String> systemDirectory) {
     }
 
-    private LaunchTarget launchTarget(EffectiveNodeConfig server) {
-        Path home = server.cli().home().orElseThrow(() -> unavailable(server,
-            "No CLI home is configured for " + server.id(),
-            "cliHome / cli.home is not set", "Set cliHome to the INUBIT client directory"));
+    private LaunchTarget launchTarget(Selection selection) {
+        EffectiveNodeConfig server = selection.server();
+        Path home = server.cli().home().orElseThrow(() -> noHome(selection));
         if (windows) {
             if (WindowsArguments.isUnc(home)) {
                 throw unavailable(server, "StartCLI cannot be used for " + server.id()
@@ -468,7 +826,8 @@ public final class CliRunner {
         String javaHome = javaHome(server)
             .orElseThrow(() -> unavailable(server, "No JDK for StartCLI on " + server.id(),
                 "Neither cli.javaHome (cliJavaHome) nor JAVA_HOME is set",
-                "Set cli.javaHome to the JDK the INUBIT client needs (8.1: JDK 17)"));
+                "Set cli.javaHome to the JDK the INUBIT client needs (8.1: JDK 17, 9.0:"
+                    + " JDK 21)"));
         // type patterns, not record patterns: javac 21 emits an invalid stack map for the record
         // patterns of this method (VerifyError at class load on JDK 21.0.13)
         if (containment.state() instanceof ProcessContainment.Unavailable refused) {
@@ -500,6 +859,22 @@ public final class CliRunner {
                 "The command interpreter cannot be located",
                 "Restart the MCP server; the REST tools work meanwhile");
         };
+    }
+
+    /** No client from any source (FR-005, research D-8). */
+    private static ToolErrorException noHome(Selection selection) {
+        EffectiveNodeConfig server = selection.server();
+        Optional<MajorMinor> entry = selection.entryHint();
+        if (entry.isEmpty()) {
+            return unavailable(server, "No CLI home is configured for " + server.id(),
+                "cliHome / cli.home is not set", "Set cliHome to the INUBIT client directory");
+        }
+        String line = entry.get().text();
+        return unavailable(server, "No CLI home is configured for " + server.id()
+                + " (INUBIT " + selection.version().orElseThrow().raw() + ")",
+            "Neither cli.home, defaults.cliClients.\"" + line + "\" nor cliHome is set",
+            "Add defaults.cliClients.\"" + line + "\".home (the INUBIT " + line
+                + " client directory) or set cliHome");
     }
 
     /**
@@ -541,7 +916,7 @@ public final class CliRunner {
 
     private CliResult launchAndWait(EffectiveNodeConfig server, LaunchSpec spec,
         Optional<Secret> stdinSecret, List<CliSessionCommand> stdinCommands, Duration timeout,
-        String timeoutSetting, int maxOutputBytes) {
+        String timeoutSetting, int maxOutputBytes, StartHook hook) {
         long start = System.nanoTime();
         LaunchedProcess process;
         // announced before the launch, so that a concurrent shutdown waits for and stops it;
@@ -553,7 +928,7 @@ public final class CliRunner {
             throw new ToolErrorException(e.error().withNode(server.id()));
         }
         try {
-            process = launcher.launch(spec);
+            process = hook.start(() -> launcher.launch(spec));
         } catch (IOException e) {
             reservation.close();
             throw unavailable(server, "StartCLI could not be started ("

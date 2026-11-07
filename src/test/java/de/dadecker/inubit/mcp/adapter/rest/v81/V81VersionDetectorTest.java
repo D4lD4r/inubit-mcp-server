@@ -1,7 +1,9 @@
 package de.dadecker.inubit.mcp.adapter.rest.v81;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
@@ -86,6 +88,9 @@ class V81VersionDetectorTest {
             .willReturn(RestFixtures.response("system_info", "xml")));
 
         assertThat(V81VersionDetector.detect(ID, client)).isEqualTo("8.1.17");
+        // feature 017 T028 (research D-11): the XML parser asks for XML
+        wireMock.verify(getRequestedFor(urlPathEqualTo(V81VersionDetector.SYSTEM_INFO_PATH))
+            .withHeader("Accept", equalTo("application/xml, */*;q=0.1")));
     }
 
     @Test

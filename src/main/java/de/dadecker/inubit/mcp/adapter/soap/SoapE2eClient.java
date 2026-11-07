@@ -4,10 +4,13 @@ import de.dadecker.inubit.mcp.adapter.rest.SslContexts;
 import de.dadecker.inubit.mcp.adapter.rest.TransportErrorTexts;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.E2ePort;
+import de.dadecker.inubit.mcp.domain.port.WriteLock;
 import de.dadecker.inubit.mcp.infra.Secret;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -25,6 +28,11 @@ import java.util.Base64;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLException;
@@ -48,6 +56,10 @@ import javax.net.ssl.SSLException;
  *       body is kept up to {@link E2ePort#MAX_BODY_BYTES}. A timeout is an exchange marked
  *       timed out; TLS failures are {@code TLS_ERROR}, other transport failures
  *       {@code UNREACHABLE} — messages name the node and the path, never credentials.
+ *   <li>Feature 017 (FR-018, research D-24): the request is built outside the node's
+ *       {@link WriteLock}, handed to the HTTP client ({@code sendAsync}) inside
+ *       {@link WriteLock#handOff} and its answer awaited outside; a refused hand-off sends
+ *       nothing.
  * </ul>
  */
 public final class SoapE2eClient implements E2ePort, AutoCloseable {
@@ -71,6 +83,19 @@ public final class SoapE2eClient implements E2ePort, AutoCloseable {
     private final URI baseUrl;
     private final Optional<BasicAuth> auth;
     private final HttpClient client;
+    private final WriteLock writeLock;
+
+    /**
+     * Hands a message off without a check: for clients outside the server's wiring (tests); the
+     * server's clients get the node versions as their lock.
+     */
+    private static final WriteLock UNCHECKED = new WriteLock() {
+        @Override
+        public <T> T handOff(WritePermit permit,
+            Function<Optional<InubitVersion>, T> action) {
+            return action.apply(Optional.of(permit.admitted()));
+        }
+    };
 
     /**
      * @param server             the node (TLS settings, secret labels, id)
@@ -81,6 +106,16 @@ public final class SoapE2eClient implements E2ePort, AutoCloseable {
      */
     public SoapE2eClient(EffectiveNodeConfig server, URI baseUrl,
         Optional<Secret> trustStorePassword, Optional<BasicAuth> auth) {
+        this(server, baseUrl, trustStorePassword, auth, UNCHECKED);
+    }
+
+    /**
+     * As above, with the write lock a message is handed off under (feature 017, FR-018,
+     * research D-24).
+     */
+    public SoapE2eClient(EffectiveNodeConfig server, URI baseUrl,
+        Optional<Secret> trustStorePassword, Optional<BasicAuth> auth, WriteLock writeLock) {
+        this.writeLock = Objects.requireNonNull(writeLock, "writeLock");
         this.node = server.id();
         this.baseUrl = Objects.requireNonNull(baseUrl, "baseUrl");
         this.auth = Objects.requireNonNull(auth, "auth");
@@ -105,7 +140,8 @@ public final class SoapE2eClient implements E2ePort, AutoCloseable {
     }
 
     @Override
-    public Exchange post(Message message) {
+    public Exchange post(Message message, WritePermit permit) {
+        permit.requireFor(node);
         URI endpoint = resolve(message.path());
         HttpRequest.Builder request = HttpRequest.newBuilder(endpoint)
             .timeout(message.timeout())
@@ -116,10 +152,12 @@ public final class SoapE2eClient implements E2ePort, AutoCloseable {
         auth.ifPresent(basic -> request.header("Authorization", "Basic " + Base64.getEncoder()
             .encodeToString((basic.username() + ":" + basic.password().reveal())
                 .getBytes(StandardCharsets.UTF_8))));
+        HttpRequest built = request.build();
         long start = System.nanoTime();
+        CompletableFuture<HttpResponse<InputStream>> pending = writeLock.handOff(permit,
+            version -> client.sendAsync(built, HttpResponse.BodyHandlers.ofInputStream()));
         try {
-            HttpResponse<InputStream> response = client.send(request.build(),
-                HttpResponse.BodyHandlers.ofInputStream());
+            HttpResponse<InputStream> response = awaited(pending);
             try (InputStream body = response.body()) {
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
                 byte[] buffer = new byte[8192];
@@ -146,10 +184,40 @@ public final class SoapE2eClient implements E2ePort, AutoCloseable {
             }
             throw transportError(message.path(), e);
         } catch (InterruptedException e) {
+            pending.cancel(true);
             Thread.currentThread().interrupt();
             throw new ToolErrorException(ToolError.of(ErrorCode.UNREACHABLE,
                 "The SOAP test on " + node + " was interrupted", "The MCP server is stopping",
                 "Retry").withNode(node));
+        }
+    }
+
+    /**
+     * The response of {@code pending}; its failure is thrown as the {@link IOException} (or
+     * unchecked exception) {@code HttpClient.send} would throw.
+     */
+    private static HttpResponse<InputStream> awaited(
+        CompletableFuture<HttpResponse<InputStream>> pending)
+        throws IOException, InterruptedException {
+        try {
+            return pending.get();
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            while (cause instanceof CompletionException && cause.getCause() != null) {
+                cause = cause.getCause();
+            }
+            if (cause instanceof IOException io) {
+                throw io;
+            }
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IOException(cause);
+        } catch (CancellationException e) {
+            throw new InterruptedException("cancelled");
         }
     }
 

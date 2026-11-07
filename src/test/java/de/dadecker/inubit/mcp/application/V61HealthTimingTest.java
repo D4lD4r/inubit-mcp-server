@@ -7,12 +7,14 @@ import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.HealthReport;
 import de.dadecker.inubit.mcp.domain.model.HealthStatus;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
@@ -26,6 +28,7 @@ import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -75,8 +78,9 @@ class V61HealthTimingTest {
         HealthService service = new HealthService(gateways, new TargetResolver(List.of(LEGACY)),
             new FanOut(), id -> Duration.ofSeconds(5), clock,
             gateWithoutClients(versions, gateways, WITH_61), versions,
-            (id, timeout) -> CLIENT_610, id -> true, id -> Optional.empty(), SINGLE,
-            Duration.ofSeconds(1));
+            (id, version, timeout) -> new ProbedClient(ClientKey.NONE, CLIENT_610),
+            TestClientSelection.of(id -> true),
+            id -> Optional.empty(), SINGLE, Duration.ofSeconds(1));
         List<HealthReport> reports = service.check(Optional.of(LEGACY.value()), false);
         assertThat(reports).hasSize(1);
         return reports.get(0);

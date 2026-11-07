@@ -67,6 +67,9 @@ public final class CliOutputClassifier {
         "cli.process.option.filter.argument.expression.invalidFilterExpression";
     private static final Pattern NETWORK_FAILURE = Pattern.compile(
         "ConnectException|UnknownHostException|SocketTimeoutException|NoRouteToHostException");
+    /** Feature 017 (research D-16, FR-013): StartCLI cannot log in through OAuth. */
+    private static final String INTERNAL_USERS = ". On INUBIT 9 the user must exist in the"
+        + " internal user management; users that log in only through OAuth cannot use StartCLI";
     private static final Pattern TLS_FAILURE = Pattern.compile(
         "SSLHandshakeException|SSLException|CertificateException|PKIX path|"
             + "No subject alternative");
@@ -166,10 +169,11 @@ public final class CliOutputClassifier {
         }
         String all = String.join("\n", output.logLines()) + "\n"
             + String.join("\n", output.outputLines());
-        return new CliOutcome.Failure(byMarker(output, all)
+        boolean nine = result.clientMajor().isPresent() && result.clientMajor().getAsInt() >= 9;
+        return new CliOutcome.Failure(byMarker(output, all, nine)
             .or(() -> missingArtifact(output))
             .or(() -> missingRepositoryPath(all))
-            .or(() -> byText(all))
+            .or(() -> byText(all, nine))
             .orElseGet(() -> unexpected(result, output)));
     }
 
@@ -178,11 +182,11 @@ public final class CliOutputClassifier {
         return bytes % (1 << 20) == 0 ? (bytes >> 20) + " MiB" : bytes + " bytes";
     }
 
-    private Optional<ToolError> byMarker(CliOutput output, String all) {
+    private Optional<ToolError> byMarker(CliOutput output, String all, boolean nine) {
         for (Marker marker : output.markers()) {
             String code = marker.code();
             if (code.equals("LoginFailure")) {
-                return Optional.of(authFailed(marker.text()));
+                return Optional.of(authFailed(marker.text(), nine));
             }
             if (code.equals("LoginFailed")) {
                 if (TLS_FAILURE.matcher(all).find()) {
@@ -239,9 +243,10 @@ public final class CliOutputClassifier {
             "Check the path below /Root/<owner> in the Workbench repository, then retry"));
     }
 
-    private Optional<ToolError> byText(String all) {
+    private Optional<ToolError> byText(String all, boolean nine) {
         if (all.contains("The user does not exist or password does not match.")) {
-            return Optional.of(authFailed("The user does not exist or password does not match."));
+            return Optional.of(authFailed("The user does not exist or password does not match.",
+                nine));
         }
         if (all.contains("Login to the server failed.") && TLS_FAILURE.matcher(all).find()) {
             return Optional.of(tlsError());
@@ -281,11 +286,13 @@ public final class CliOutputClassifier {
             .withExcerpt(scrubber.scrub(excerpt));
     }
 
-    private ToolError authFailed(String inubitText) {
+    /** @param nine whether the client was chosen for INUBIT 9 or later */
+    private ToolError authFailed(String inubitText, boolean nine) {
         return error(ErrorCode.AUTH_FAILED, "StartCLI login failed: " + inubitText,
             "Wrong username or password for this INUBIT server, or the account is locked",
             labels.map(SecretLabels::fixCredentials).orElse("Check the node's username and"
-                + " password with --check-config and correct them where they are stored"));
+                + " password with --check-config and correct them where they are stored")
+                + (nine ? INTERNAL_USERS : ""));
     }
 
     private ToolError unreachable() {

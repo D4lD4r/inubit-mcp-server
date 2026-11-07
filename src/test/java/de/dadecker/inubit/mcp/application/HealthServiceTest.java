@@ -9,6 +9,7 @@ import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.CliHealthSnapshot;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -18,6 +19,7 @@ import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LoadFigures;
 import de.dadecker.inubit.mcp.domain.model.MemoryFigures;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ProcessCounts;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
@@ -37,6 +39,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -205,19 +208,20 @@ class HealthServiceTest {
     private HealthService service(CapabilityMatrix matrix, Duration singleCliBudget,
         Duration overviewBudget) {
         GatewayFactory gateways = gatewaysForTest();
-        ClientVersionPort probe = (server, timeout) -> {
+        ClientVersionPort probe = (server, version, timeout) -> {
             probeTimeouts.add(timeout);
-            return clients.getOrDefault(server, () -> CLIENT_8117).get();
+            return new ProbedClient(ClientKey.NONE,
+                clients.getOrDefault(server, () -> CLIENT_8117).get());
         };
         VersionGate gate = gateWithoutClients(versions, gateways, matrix);
         return singleCliBudget == null
             ? new HealthService(gateways, new TargetResolver(SERVERS), new FanOut(),
                 server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC), gate, versions, probe,
-                withClient::contains)
+                TestClientSelection.of(withClient::contains))
             : new HealthService(gateways, new TargetResolver(SERVERS), new FanOut(),
                 server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC), gate, versions, probe,
-                withClient::contains, server -> Optional.empty(), singleCliBudget,
-                overviewBudget);
+                TestClientSelection.of(withClient::contains), server -> Optional.empty(),
+                singleCliBudget, overviewBudget);
     }
 
     private HealthReport checkOne(NodeId server, boolean includeSystemInfo) {
@@ -530,7 +534,7 @@ class HealthServiceTest {
 
     // --- feature 009: the version warning comes from the version gate (T013) ----------------
 
-    private static final String UNVERIFIED_902 = "INUBIT 9.0.2 on dev/node1 is not verified for"
+    private static final String UNVERIFIED_910 = "INUBIT 9.1.0 on dev/node1 is not verified for"
         + " monitoring; results may be incomplete";
 
     private static InubitVersion version(String raw) {
@@ -549,14 +553,14 @@ class HealthServiceTest {
     @Test
     void aVersionOtherThan81AddsTheUnverifiedWarningDerivedFromThisRead() {
         // dev/node1 is pinned to V8_1: the warning follows what get_health read, not the pin
-        monitoring(DEV).systemInfo = () -> systemInfoOf("9.0.2");
+        monitoring(DEV).systemInfo = () -> systemInfoOf("9.1.0");
 
         HealthReport report = checkOne(DEV, false);
 
-        assertThat(report.version()).contains("9.0.2");
+        assertThat(report.version()).contains("9.1.0");
         // T016: the read also contradicts the pin
-        assertThat(report.warnings()).containsExactly(UNVERIFIED_902,
-            contradiction("9.0.2"));
+        assertThat(report.warnings()).containsExactly(UNVERIFIED_910,
+            contradiction("9.1.0"));
         assertThat(gateDetections).hasValue(0);
     }
 
@@ -565,8 +569,8 @@ class HealthServiceTest {
         versionLines.put(DEV, VersionSetting.AUTO);
         monitoring(DEV).systemInfo = () -> {
             // as the gateway factory's slot does for the first read of an AUTO node
-            versions.detected(DEV, InubitVersion.parse("9.0.2").orElseThrow());
-            return systemInfoOf("9.0.2");
+            versions.detected(DEV, InubitVersion.parse("9.1.0").orElseThrow());
+            return systemInfoOf("9.1.0");
         };
 
         HealthReport first = checkOne(DEV, false);
@@ -577,8 +581,8 @@ class HealthServiceTest {
         assertThat(gateDetections).as("the gate never detects for get_health").hasValue(0);
         assertThat(detections).hasValue(0);
         assertThat(first.warnings()).as("no duplicate version warning")
-            .containsExactly(UNVERIFIED_902);
-        assertThat(second.warnings()).containsExactly(UNVERIFIED_902);
+            .containsExactly(UNVERIFIED_910);
+        assertThat(second.warnings()).containsExactly(UNVERIFIED_910);
     }
 
     @Test
@@ -1072,15 +1076,15 @@ class HealthServiceTest {
     @Test
     void aPinnedNodeObservingAnotherMajorMinorIsContradictedUntilAMatchingRead() {
         // dev/node1 is pinned to V8_1
-        monitoring(DEV).systemInfo = () -> systemInfoOf("9.0.7");
+        monitoring(DEV).systemInfo = () -> systemInfoOf("9.1.0");
 
         HealthReport contradicted = checkOne(DEV, false);
 
-        assertThat(contradicted.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not"
-            + " verified for monitoring; results may be incomplete", contradiction("9.0.7"));
+        assertThat(contradicted.warnings()).containsExactly("INUBIT 9.1.0 on dev/node1 is not"
+            + " verified for monitoring; results may be incomplete", contradiction("9.1.0"));
         assertThat(versions.state(DEV).pinContradiction()).isTrue();
         assertThat(versions.state(DEV).observed().orElseThrow().value().raw())
-            .isEqualTo("9.0.7");
+            .isEqualTo("9.1.0");
 
         monitoring(DEV).systemInfo = () -> SYSTEM_INFO;
         HealthReport matching = checkOne(DEV, false);
@@ -1175,7 +1179,8 @@ class HealthServiceTest {
         assertThat(probeTimeouts).as("the second get_health reuses the result").singleElement()
             .satisfies(timeout -> assertThat(timeout).isPositive()
                 .isLessThanOrEqualTo(TIMEOUT));
-        assertThat(versions.state(DEV).client().orElseThrow().value()).isEqualTo(CLIENT_8117);
+        assertThat(versions.state(DEV).clientFor(ClientKey.NONE).orElseThrow().value())
+            .isEqualTo(CLIENT_8117);
     }
 
     @Test
@@ -1233,8 +1238,8 @@ class HealthServiceTest {
         assertThat(report.client().orElseThrow().state()).contains("not_available");
         assertThat(report.unavailable()).isEmpty();
         assertThat(probeTimeouts).isEmpty();
-        assertThat(versions.state(DEV).client()).isEmpty();
-        assertThat(versions.state(DEV).clientFailure()).isEmpty();
+        assertThat(versions.state(DEV).clientFor(ClientKey.NONE)).isEmpty();
+        assertThat(versions.state(DEV).clientFailureFor(ClientKey.NONE)).isEmpty();
     }
 
     @Test
@@ -1255,7 +1260,7 @@ class HealthServiceTest {
                 + " version (exit code 1)");
             assertThat(part.nextStep()).contains("next step");
         });
-        assertThat(versions.state(DEV).clientFailure().orElseThrow().value())
+        assertThat(versions.state(DEV).clientFailureFor(ClientKey.NONE).orElseThrow().value())
             .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
 
         clock.advance(Duration.ofSeconds(30));
@@ -1277,7 +1282,7 @@ class HealthServiceTest {
         assertThat(retried.unavailable()).isEmpty();
         assertThat(retried.client()).get().extracting(HealthReport.Client::version)
             .isEqualTo(Optional.of("8.1.17"));
-        assertThat(versions.state(DEV).clientFailure()).isEmpty();
+        assertThat(versions.state(DEV).clientFailureFor(ClientKey.NONE)).isEmpty();
     }
 
     @Test
@@ -1304,7 +1309,7 @@ class HealthServiceTest {
                 + " StartCLI client of dev/node1 did not report its version within 1 s");
             assertThat(part.nextStep()).isPresent();
         });
-        assertThat(versions.state(DEV).clientFailure().orElseThrow().value())
+        assertThat(versions.state(DEV).clientFailureFor(ClientKey.NONE).orElseThrow().value())
             .isEqualTo(ErrorCode.TIMEOUT);
     }
 
@@ -1554,7 +1559,8 @@ class HealthServiceTest {
         HealthService service = new HealthService(gatewaysForTest(), new TargetResolver(SERVERS),
             new FanOut(), server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC),
             gateWithoutClients(versions, gatewaysForTest(), CapabilityMatrix.production()),
-            versions, (server, timeout) -> CLIENT_8117, withClient::contains,
+            versions, (server, version, timeout) -> new ProbedClient(ClientKey.NONE, CLIENT_8117),
+            TestClientSelection.of(withClient::contains),
             server -> server.equals(QA1) ? Optional.of("macOS Keychain") : Optional.empty());
 
         HealthReport pending = service.check(Optional.of(QA1.value()), false).get(0);

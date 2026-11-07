@@ -8,8 +8,10 @@ import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ImportPort.Mode;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -17,6 +19,7 @@ import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
+import de.dadecker.inubit.mcp.testing.TestPermits;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -59,6 +62,7 @@ abstract class SecretInspectionCases {
     /** A credential in the server's own environment that must not reach StartCLI. */
     static final String TOKEN = "ghp_inspect-canary-token";
     private static final NodeId DEV = NodeId.parse("dev/node1");
+    private static final WritePermit PERMIT = TestPermits.of(DEV, Capability.DEVELOPMENT_WRITE);
     private static final byte[] ARCHIVE = {'P', 'K', 3, 4, 'i', 'm', 'p'};
 
     @TempDir
@@ -116,7 +120,7 @@ abstract class SecretInspectionCases {
     void theImportPassesNoCredentialOutsideStandardInput() throws IOException {
         FakeStartCli cli = FakeStartCli.replaying(cliHome, "import_created");
 
-        ImportProtocol protocol = imports().importArchive(ARCHIVE, Mode.WORKFLOW, "jdoe");
+        ImportProtocol protocol = imports().importArchive(ARCHIVE, Mode.WORKFLOW, "jdoe", PERMIT);
 
         assertThat(protocol.total()).isEqualTo(5);
         inspect(cli);

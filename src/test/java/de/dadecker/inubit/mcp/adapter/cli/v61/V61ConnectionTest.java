@@ -21,6 +21,7 @@ import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -43,12 +44,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -97,6 +101,8 @@ class V61ConnectionTest {
     private final CliConcurrencyLimiter limiter =
         new CliConcurrencyLimiter(CapabilityMatrix.production());
     TlsTestServer inubit;
+    /** The runner's version source (feature 017, T013). */
+    Function<NodeId, Optional<InubitVersion>> versions = TestCliRunners.UNKNOWN_VERSIONS;
 
     @BeforeEach
     void start() throws IOException, GeneralSecurityException {
@@ -137,7 +143,7 @@ class V61ConnectionTest {
     /** The runner of the tests: the host's (overridden by {@link V61ConnectionWindowsTest}). */
     CliRunner runner(ProcessLauncher launcher) {
         return TestCliRunners.forHost(launcher, parentEnvironment,
-            new CliResources("acme", PrivateFiles.forHost()));
+            new CliResources("acme", PrivateFiles.forHost()), versions);
     }
 
     V61Connection connection(EffectiveNodeConfig server, Launchers launchers) {
@@ -315,6 +321,36 @@ class V61ConnectionTest {
         assertThat(error.likelyCause()).contains("pinned SHA-256 fingerprint");
         assertThat(inubit.connections()).isEqualTo(1);
         assertThat(launchers.sessions()).isZero();
+    }
+
+    @Test
+    void theClientChosenAtTheStartRunsTheSession(@TempDir Path clients) throws IOException {
+        // feature 017 (T013, research D-4): a version change during the call changes nothing
+        Path entryHome = clients.resolve("client-6.1");
+        Path otherHome = clients.resolve("client-9.0");
+        for (Path home : List.of(entryHome, otherHome)) {
+            Path bin = Files.createDirectories(home.resolve("bin"));
+            Files.writeString(bin.resolve("startcli.sh"), "#!/bin/sh\n");
+            Files.writeString(bin.resolve("startcli.bat"), "@echo off\r\n");
+        }
+        AtomicInteger reads = new AtomicInteger();
+        versions = id -> Optional.of(reads.getAndIncrement() == 0
+            ? new InubitVersion(6, 1, OptionalInt.of(4), "6.1.4")
+            : new InubitVersion(9, 0, OptionalInt.of(7), "9.0.7"));
+        EffectiveNodeConfig server = TestNodeConfig.node().id(ID.toString())
+            .versionLine(VersionSetting.V6_1).baseUrl("https://localhost:" + inubit.port())
+            .cliJavaHome(javaHome)
+            .cliClient("6.1", entryHome, Optional.empty())
+            .cliClient("9.0", otherHome, Optional.empty())
+            .trustStore(CERTS.trustStore()).cliTimeout(Duration.ofSeconds(10)).build();
+        Launchers launchers = Launchers.withOptions();
+
+        connection(server, launchers).session(COMMANDS, BOUND);
+
+        assertThat(launchers.session.last().spec().workingDirectory()).isEqualTo(entryHome);
+        assertThat(launchers.sessionCommand())
+            .endsWith("https://localhost:" + inubit.port() + EffectiveNodeConfig.DEFAULT_CLI_PATH);
+        assertThat(inubit.connections()).isEqualTo(1);
     }
 
     @Test

@@ -22,9 +22,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -353,9 +355,8 @@ class ConfigSummaryTest {
         """);
 
         assertThat(summary).contains("Errors:", "dev/inubit01: baseUrl uses http://");
-        assertThat(summary).contains("Warnings:", "dev/inubit01: versionLine V9_X: write tools are"
-            + " refused on this node (INUBIT 9.x is not supported for writes yet); read tools run"
-            + " unverified");
+        assertThat(summary).contains("Warnings:", "versionLine V9_X of dev/inubit01 does not select"
+            + " 9.0 support; use V9_0 (INUBIT 9.0.x) or AUTO");
         assertThat(summary).contains("Result: FAILED (");
     }
 
@@ -534,7 +535,9 @@ class ConfigSummaryTest {
             NodeId.parse("test/node1"), client("8.1.17", "4.0.1", "8.1.17"),
             NodeId.parse("test/node2"), client("8.1.18", "4.0.1", "8.1.18")));
 
-        assertThat(summary).contains("test/node1: read-only, cli: available, inubit: 9.0.7,"
+        // feature 017 (FR-015): a node pinned to 9.x also shows its client and address
+        assertThat(summary).contains("test/node1: read-only, cli: available, client: "
+            + Path.of("/opt/client") + " (group cli.home), address: base URL, inubit: 9.0.7,"
             + " client: 8.1.17 (4.0.1–8.1.17), client vs pin: mismatch, pin outside client"
             + " range, secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).as("a patch mismatch inside the range")
@@ -1093,5 +1096,176 @@ class ConfigSummaryTest {
             "Credential store entries: service inubit-mcp, account INUBIT_ACME_<GROUP>[_<NODE>]"
                 + "_<KIND> (none on this system)",
             "No supported credential store on this system for dev/node1, dev/node2");
+    }
+
+    /**
+     * Feature 017 (T025, FR-015, contracts/configuration-delta.md → Node line): the client and
+     * address of each node whose client depends on its version, and one line per client.
+     */
+    @Nested
+    class ClientChoice {
+
+        private static final String PROFILE = """
+            profile:
+              name: acme
+            defaults:
+              cliHome: /opt/client
+              cliClients:
+                "8.1": { home: /opt/c81, javaHome: /opt/jdk-17 }
+                "9.0": { home: /opt/c90, javaHome: /opt/jdk-21 }
+            groups:
+              - name: test
+                versionLine: V9_0
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit-test.example.test:8443
+                  - name: node2
+                    baseUrl: https://inubit-test2.example.test:8443
+                    versionLine: V9_X
+              - name: prod
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit-prod.example.test:8443
+                  - name: node2
+                    baseUrl: https://inubit-prod2.example.test:8443
+                    versionLine: V8_1
+                    cli:
+                      home: /opt/own
+                      url: https://inubit-prod2.example.test:9443/custom/cli
+              - name: qa
+                versionLine: 8.1.12
+                cli:
+                  home: /opt/qa-client
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit-qa.example.test:8443
+            """;
+
+        private String render(String yaml, List<CheckedClient> checked) {
+            LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, false).parse(yaml, SOURCE);
+            ValidationReport report = new ConfigValidator(exists, env, false,
+                Path.of(System.getProperty("java.io.tmpdir")), source -> List.of(), NO_DISK,
+                StartCliHost.unchecked(), path -> Optional.empty()).validate(loaded);
+            EntryCheck.Result entries = EntryCheck.run(loaded.config().resolvableNodes(),
+                TestSecrets.store(storeEntries), Duration.ofSeconds(5));
+            String summary = new ConfigSummary(exists, windows).render(loaded,
+                entries.addTo(report), Map.of(), Map.of(), ParameterCheck.Result.NONE, entries,
+                checked);
+            // leak check: no URL, host or credential in the whole output
+            assertThat(summary).doesNotContain("://", "example.test", "store-user",
+                "store-Pw-1");
+            return summary;
+        }
+
+        private static String node(String id, String rest) {
+            return node(id, false, rest);
+        }
+
+        private static String node(String id, boolean available, String rest) {
+            return "  Node " + id + ": read-only, cli: " + (available ? "available" : "unavailable")
+                + ", " + rest + ", inubit: ";
+        }
+
+        @Test
+        void eachNodeShowsTheClientAndAddressOfItsSetting() {
+            String summary = render(PROFILE, List.of());
+
+            assertThat(summary).contains(
+                node("test/node1", "client: " + Path.of("/opt/c90")
+                    + " (cliClients \"9.0\"), address: base URL") + "V9_0,",
+                node("test/node2", true, "client: " + Path.of("/opt/client")
+                    + " (defaults.cliHome), address: base URL") + "V9_X,",
+                node("prod/node1", true, "client: " + Path.of("/opt/client")
+                    + " (defaults.cliHome), address: servlet path; chosen at runtime by the"
+                    + " detected version")
+                    + "AUTO,",
+                node("prod/node2", "client: " + Path.of("/opt/own") + " (node cli.home),"
+                    + " address: configured") + "V8_1,",
+                node("qa/node1", "client: " + Path.of("/opt/qa-client") + " (group cli.home),"
+                    + " address: servlet path") + "8.1.12,");
+        }
+
+        @Test
+        void aNodeWithoutAnyClientSaysSo() {
+            String summary = render("""
+                profile:
+                  name: acme
+                defaults:
+                  cliClients:
+                    "9.0": { home: /opt/c90 }
+                groups:
+                  - name: test
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-test.example.test:8443
+                """, List.of());
+
+            assertThat(summary).contains(node("test/node1", "client: none, address: servlet"
+                + " path; chosen at runtime by the detected version") + "AUTO,");
+        }
+
+        @Test
+        void aNineXNodeWithoutVersionEntriesShowsItsChoice() {
+            String summary = render("""
+                profile:
+                  name: acme
+                defaults:
+                  cliHome: /opt/client
+                groups:
+                  - name: test
+                    versionLine: V9_0
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-test.example.test:8443
+                  - name: prod
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-prod.example.test:8443
+                """, List.of());
+
+            assertThat(summary).contains(node("test/node1", true, "client: "
+                + Path.of("/opt/client") + " (defaults.cliHome), address: base URL") + "V9_0,");
+            // FR-009: the AUTO node of a profile without cliClients keeps its 0.8.0 line
+            assertThat(summary).contains("  Node prod/node1: read-only, cli: available,"
+                + " inubit: AUTO,");
+        }
+
+        @Test
+        void a081ProfileKeepsItsNodeLines() {
+            String summary = render("""
+                profile:
+                  name: acme
+                defaults:
+                  cliHome: /opt/client
+                groups:
+                  - name: dev
+                    versionLine: V8_1
+                    nodes:
+                      - name: node1
+                        baseUrl: https://inubit-dev.example.test:8443
+                """, List.of());
+
+            assertThat(summary).contains("  Node dev/node1: read-only, cli: available,"
+                + " inubit: V8_1,").doesNotContain("address:", "client ");
+        }
+
+        @Test
+        void eachCheckedClientHasOneLineWithItsVersionAndJdk() {
+            ClientVersion nine = new ClientVersion(InubitVersion.parse("9.0.7").orElseThrow(),
+                InubitVersion.parse("9.0.0"), InubitVersion.parse("9.0.10"));
+            ClientVersion eight = new ClientVersion(InubitVersion.parse("8.1.12").orElseThrow(),
+                Optional.empty(), Optional.empty());
+
+            String summary = render(PROFILE, List.of(
+                new CheckedClient(Path.of("/opt/c90"), OptionalInt.of(21), Optional.of(nine)),
+                new CheckedClient(Path.of("/opt/c81"), OptionalInt.empty(), Optional.of(eight)),
+                new CheckedClient(Path.of("/opt/client"), OptionalInt.of(17),
+                    Optional.empty())));
+
+            assertThat(summary).contains("\nclient " + Path.of("/opt/c90")
+                + " (Java 21): CLI 9.0.7 (9.0.0–9.0.10)\nclient " + Path.of("/opt/c81")
+                + " (Java unknown): CLI 8.1.12\nclient " + Path.of("/opt/client")
+                + " (Java 17): CLI version unknown\nWarnings:");
+        }
     }
 }

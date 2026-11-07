@@ -104,7 +104,8 @@ public final class WriteGuard {
         VersionGate.Admission admission = gate.admit(action.capability(), id,
             Capability.PROCESS_CONTROL, Capability.Kind.WRITE, Set.of(Channel.CLI, Channel.REST));
         gateways.processControl(id).checkAvailable();
-        return policy.withWarnings(admission.warnings());
+        return policy.withWarnings(admission.warnings())
+            .withPermit(admission.permit(id, Capability.PROCESS_CONTROL));
     }
 
     private static ToolErrorException refused(ErrorCode code, NodeId server, String message,

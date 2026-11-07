@@ -157,7 +157,7 @@ class DevelopmentWiringTest {
 
     @Test
     void aConcretePinIsJudgedByTheMatrixToo() {
-        assertThat(toolNames(DEVELOPMENT, "", devNode("node1", "\"9.0.7\"", 1)))
+        assertThat(toolNames(DEVELOPMENT, "", devNode("node1", "\"9.1.0\"", 1)))
             .doesNotContain("import_artifacts", "run_e2e_test");
         assertThat(toolNames(DEVELOPMENT, "", devNode("node1", "\"8.1.17\"", 1)))
             .contains("import_artifacts", "run_e2e_test");

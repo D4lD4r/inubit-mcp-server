@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.application.DiagnosisService.ProcessRequest;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
@@ -17,6 +18,7 @@ import de.dadecker.inubit.mcp.domain.model.LogType;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeResult;
 import de.dadecker.inubit.mcp.domain.model.Page;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
@@ -38,6 +40,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueryRules;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -193,10 +196,11 @@ class DiagnosisServiceTest {
         return new DiagnosisService(gateways, new TargetResolver(SERVERS), new FanOut(),
             limiter, server -> TIMEOUT, server -> cliTimeout, thresholds::get, clock,
             item -> sizes.apply(item), new VersionGate(versions, detection, matrix,
-                (node, timeout) -> {
+                (node, version, timeout) -> {
                     probes.add(node);
-                    return CLIENT_610;
-                }, withClient::contains, node -> cliTimeout, Terminology.DEFAULT),
+                    return new ProbedClient(ClientKey.NONE, CLIENT_610);
+                }, TestClientSelection.of(withClient::contains), node -> cliTimeout,
+                Terminology.DEFAULT),
             secretTiming);
     }
 
@@ -726,9 +730,9 @@ class DiagnosisServiceTest {
     // --- feature 009: version gate (T012) ------------------------------------------------------
 
     @Test
-    void onInubit90BothToolsRunWithTheUnverifiedWarningAfterOneDetection() {
+    void onInubit91BothToolsRunWithTheUnverifiedWarningAfterOneDetection() {
         versionLines.put(DEV, VersionSetting.AUTO);
-        detection.answer(DEV, "9.0.7");
+        detection.answer(DEV, "9.1.0");
         processes(DEV).answer = query -> page(List.of(
             instance(DEV, "1", ProcessState.ERROR, NOW)), 0, 50, 1, false);
         logs(DEV).answer = query -> page(List.of(entry(DEV, 5)), 0, 50, 1, false);
@@ -739,10 +743,10 @@ class DiagnosisServiceTest {
         NodePage<LogEntry> logPage = service.queryLogs(logRequest("dev/node1",
             LogType.SYSTEM_LOG)).get(0).payload().orElseThrow();
 
-        assertThat(processPage.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not"
+        assertThat(processPage.warnings()).containsExactly("INUBIT 9.1.0 on dev/node1 is not"
             + " verified for process diagnosis; results may be incomplete");
         assertThat(processPage.page().items()).hasSize(1);
-        assertThat(logPage.warnings()).containsExactly("INUBIT 9.0.7 on dev/node1 is not"
+        assertThat(logPage.warnings()).containsExactly("INUBIT 9.1.0 on dev/node1 is not"
             + " verified for log diagnosis; results may be incomplete");
         assertThat(logPage.page().items()).hasSize(1);
         assertThat(detection.requests()).as("the second call uses the cached version")

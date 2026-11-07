@@ -2,8 +2,8 @@
 # Record an anonymized INUBIT fixture from a NON-PRODUCTION server (research R-18, tasks.md T005).
 #
 # Usage:
-#   tools/record-fixtures.sh <group> <node> <case>
-#   tools/record-fixtures.sh --list
+#   [RECORD_INUBIT_LINE=9.0] tools/record-fixtures.sh <group> <node> <case>
+#   [RECORD_INUBIT_LINE=9.0] tools/record-fixtures.sh --list
 #
 #   <group>   group (stage) name from the config; it must be listed in RECORD_ALLOWED_GROUPS
 #             (any other group is refused)
@@ -18,9 +18,23 @@
 # interactive session per case (research D-5) whose commands come from the allowlist of
 # CliSessionCommand.
 #
+# RECORD_INUBIT_LINE (feature 017, research D-10, D-11): "8.1" (default, unchanged) or "9.0". With
+# 9.0 only the 9.0 catalogue (V90_CASES, --list prints it) can be recorded: REST and POSIX StartCLI,
+# all read-only, plus the 9.0 cases help (-h), rest_auth_failed (GET /system/info with the dummy
+# password, 401 body) and rest_not_found (modelByName of a name that does not exist, 404 body).
+# StartCLI connects to <baseUrl> (9.0 has no SOAP servlet), every REST case sends the Accept
+# header of its production adapter (D-11). The 9.0 client (research D-1, D-3): RECORD_CLI_HOME,
+# else the home of the defaults.cliClients "9.0" entry, else defaults.cliHome; its JDK:
+# RECORD_CLI_JAVA_HOME, else the entry's javaHome (only with the entry's home), else
+# defaults.cliJavaHome. Before anything is recorded, every CLI case asks that client for its
+# version (startcli -v, "CLI 9.0.x") and every case with a node asks the node (/system/info);
+# both must report 9.0, else the case is refused. The .origin names the node's version, for -h
+# and -v the client's. 8.1 ignores cliClients and both overrides.
+#
 # Inputs:
 #   config      ${INUBIT_MCP_CONFIG:-~/.config/inubit-mcp/config.yaml}: baseUrl of the node,
-#               defaults.cliHome, defaults.cliJavaHome, tls.trustStore (format of feature 002
+#               defaults.cliHome, defaults.cliJavaHome, defaults.cliClients (9.0 only: the
+#               "9.0" entry, flow or block form), tls.trustStore (format of feature 002
 #               with groups/nodes, or of feature 001 with stages/servers)
 #   required    RECORD_ALLOWED_GROUPS space-separated NON-PRODUCTION groups that may be recorded
 #               RECORD_PINNED_PUBKEY  curl --pinnedpubkey value of the node's certificate
@@ -38,12 +52,20 @@
 #                                     JAVA_TOOL_OPTIONS; "default" keeps the JVM default locale
 #               RECORD_ANON_STATE     anonymizer mapping file shared between runs (holds the
 #                                     original values; refused inside the repository)
+#               RECORD_INUBIT_LINE    "8.1" (default) or "9.0" (see above); any other value is
+#                                     refused
+#               RECORD_CLI_HOME       9.0 only: the StartCLI client home; wins over
+#                                     defaults.cliClients "9.0" and defaults.cliHome
+#               RECORD_CLI_JAVA_HOME  9.0 only: its JDK; wins over the entry's javaHome and
+#                                     defaults.cliJavaHome
 #
 # Output (anonymized with tools/anonymize.py, checked for leftovers):
 #   REST  src/test/resources/fixtures/v8_1/rest/<case>.{json|xml|html|txt}, <case>.http
 #         (status and content type), <case>.request.xml for POST requests
 #   CLI   src/test/resources/fixtures/v8_1/cli/<case>.stdout, <case>.stderr, <case>.exit
 #         (v61_* cases: src/test/resources/fixtures/v6_1/cli/)
+#   9.0   RECORD_INUBIT_LINE=9.0: the same files under src/test/resources/fixtures/v9_0/rest|cli
+#         and <case>.origin = "recorded <date> <INUBIT version>" (research D-10)
 #   ZIP   <case>.zip (REST download or CLI export) with only the allow-listed entries, trimmed
 #         to a few elements
 #   sample objects (no defaults; required by the cases that use them, see --list):
@@ -59,13 +81,21 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly FIXTURE_DIR="${PROJECT_DIR}/src/test/resources/fixtures/v8_1"
 readonly V61_FIXTURE_DIR="${PROJECT_DIR}/src/test/resources/fixtures/v6_1"
+readonly V90_FIXTURE_DIR="${PROJECT_DIR}/src/test/resources/fixtures/v9_0"
+readonly INUBIT_LINE="${RECORD_INUBIT_LINE:-8.1}"
 readonly ANONYMIZE="${SCRIPT_DIR}/anonymize.py"
 readonly CONFIG_FILE="${INUBIT_MCP_CONFIG:-${HOME}/.config/inubit-mcp/config.yaml}"
 readonly PINNED_PUBKEY="${RECORD_PINNED_PUBKEY:-}"
 readonly ENV_PREFIX="${RECORD_ENV_PREFIX:-INUBIT}"
 readonly ACCEPT_HEADER='Accept: application/json, application/xml;q=0.9, */*;q=0.8'
+# 9.0: the media ranges of InubitHttpClient.MediaRange (research D-11).
+readonly ACCEPT_XML='application/xml, */*;q=0.1'
+readonly ACCEPT_JSON='application/json, */*;q=0.1'
+readonly ACCEPT_ANY='*/*'
 readonly UNKNOWN_PID=999999999
 readonly UNREACHABLE_CLI_URL='https://127.0.0.1:9/ibis/servlet/IBISSoapServlet'
+readonly UNREACHABLE_V90_CLI_URL='https://127.0.0.1:9'
+readonly MISSING_DIAGRAM='NoSuchDiagram017'
 readonly DUMMY_PASSWORD='dummy-wrong-password'
 readonly LOG_TYPES=(processLog systemLog queueLog connectionLog schedulerLog auditLog
                     keyManagerLog webserviceManager)
@@ -87,7 +117,56 @@ readonly SAMPLE_DIAGRAM="${RECORD_SAMPLE_DIAGRAM:-}"
 readonly SAMPLE_GROUP="${RECORD_SAMPLE_GROUP:-}"
 readonly EXPORT_FILE_TOKEN='@EXPORT_FILE@'
 
+# The INUBIT 9.0 catalogue (RECORD_INUBIT_LINE=9.0; research D-10): REST and POSIX StartCLI, all
+# read-only. NOT_RECORDABLE.txt of fixtures/v9_0 lists the 9.0 cases the recorder cannot produce.
+readonly V90_CASES=(healthcheck ready system_info metrics log_systemLog log_systemLog_filtered
+    model_models_owner modelByName_sample model_export_sample rest_auth_failed rest_not_found
+    version help processErrorStart_unknown kill_unknown unknown_command login_failed unreachable
+    ps_all export_history_sample export_modules_sample)
+# Cases of the 9.0 catalogue only; the 8.1 default refuses them.
+readonly V90_ONLY_CASES=(help rest_auth_failed rest_not_found)
+
+# The 9.0 catalogue in the order of V90_CASES, with the Accept header of each REST case (D-11).
+list_v90_cases() {
+    local owner="${OWNER:-<RECORD_OWNER>}" diagram="${SAMPLE_DIAGRAM:-<RECORD_SAMPLE_DIAGRAM>}"
+    local group="${SAMPLE_GROUP:-<RECORD_SAMPLE_GROUP>}"
+    printf '%-42s REST GET  /ibis/rest/healthcheck (no authentication; JSON)\n' healthcheck
+    printf '%-42s REST GET  /ibis/rest/ready (no authentication; JSON)\n' ready
+    printf '%-42s REST GET  /ibis/rest/system/info (XML)\n' system_info
+    printf '%-42s REST GET  /ibis/rest/metrics?format=json (JSON)\n' metrics
+    printf '%-42s REST GET  /ibis/rest/log/systemLog?format=json&noOfItems=5 (JSON)\n' \
+        log_systemLog
+    printf '%-42s REST POST /ibis/rest/log/systemLog (BETWEEN last 7 days, LIKE message; JSON)\n' \
+        log_systemLog_filtered
+    printf '%-42s REST GET  /ibis/rest/model/models?user=%s (XML)\n' model_models_owner \
+        "${owner}"
+    printf '%-42s REST GET  /ibis/rest/model/modelByName/%s?user=%s (XML)\n' \
+        modelByName_sample "${diagram}" "${owner}"
+    printf '%-42s REST GET  /ibis/rest/model/export/%s (any; workflow.xml, archive.properties)\n' \
+        model_export_sample "${diagram}"
+    printf '%-42s REST GET  /ibis/rest/system/info with the password "%s" (401 body; XML)\n' \
+        rest_auth_failed "${DUMMY_PASSWORD}"
+    printf '%-42s REST GET  /ibis/rest/model/modelByName/%s?user=%s (404 body; XML)\n' \
+        rest_not_found "${MISSING_DIAGRAM}" "${owner}"
+    printf '%-42s CLI  startcli.sh -v (no server, no credentials)\n' version
+    printf '%-42s CLI  startcli.sh -h (no server, no credentials)\n' help
+    printf '%-42s CLI  processErrorStart %s\n' processErrorStart_unknown "${UNKNOWN_PID}"
+    printf '%-42s CLI  kill %s\n' kill_unknown "${UNKNOWN_PID}"
+    printf '%-42s CLI  noSuchCommand\n' unknown_command
+    printf '%-42s CLI  uptime with the password "%s"\n' login_failed "${DUMMY_PASSWORD}"
+    printf '%-42s CLI  uptime against %s\n' unreachable "${UNREACHABLE_V90_CLI_URL}"
+    printf '%-42s CLI  ps -csv -a -l 5\n' ps_all
+    printf '%-42s CLI  export group %s --includeHistory (versionHistory.xml, 3 workflows)\n' \
+        export_history_sample "${group}"
+    printf '%-42s CLI  export of all modules of %s (module/module.xml, 20 modules)\n' \
+        export_modules_sample "${owner}"
+}
+
 list_cases() {
+    if [[ "${INUBIT_LINE}" == 9.0 ]]; then
+        list_v90_cases
+        return
+    fi
     local type sel
     # Unset sample objects are shown as the variable that has to be set.
     local owner="${OWNER:-<RECORD_OWNER>}" workflow="${SAMPLE_WORKFLOW:-<RECORD_SAMPLE_WORKFLOW>}"
@@ -193,7 +272,7 @@ define_case() {
     kind='' method='GET' path='' body='' command='' cli_url='' password_mode='real'
     local_option='' session=() fixture_dir="${FIXTURE_DIR}"
     locale="${RECORD_CLI_LOCALE:-en}"
-    zip_entries=() anon_extra=() auth=basic preflight_unknown_pid=no
+    zip_entries=() anon_extra=() auth=basic preflight_unknown_pid=no accept="${ACCEPT_HEADER}"
     local sel
     case "${case_name}" in
         log_systemLog_filtered)
@@ -216,6 +295,13 @@ define_case() {
             kind=rest path='/ibis/rest/system/info' ;;
         version)
             kind=cli_local local_option=-v ;;
+        help)
+            kind=cli_local local_option=-h ;;
+        rest_auth_failed)
+            kind=rest path='/ibis/rest/system/info' auth=dummy ;;
+        rest_not_found)
+            require_sample RECORD_OWNER "${OWNER}"
+            kind=rest path="/ibis/rest/model/modelByName/${MISSING_DIAGRAM}?user=${OWNER}" ;;
         model_models_owner)
             require_sample RECORD_OWNER "${OWNER}"
             kind=rest path="/ibis/rest/model/models?user=${OWNER}" ;;
@@ -286,7 +372,21 @@ define_case() {
         *)
             die "unknown case '${case_name}' (see --list)" ;;
     esac
-    if [[ "${case_name}" == v61_* ]]; then
+    if [[ "${INUBIT_LINE}" == 9.0 ]]; then
+        [[ " ${V90_CASES[*]} " == *" ${case_name} "* ]] \
+            || die "case '${case_name}' is not in the 9.0 catalogue (RECORD_INUBIT_LINE=9.0 --list)"
+        fixture_dir="${V90_FIXTURE_DIR}"
+        case "${case_name}" in
+            healthcheck|ready|metrics|log_*) accept="Accept: ${ACCEPT_JSON}" ;;
+            model_export_sample) accept="Accept: ${ACCEPT_ANY}" ;;
+            *) accept="Accept: ${ACCEPT_XML}" ;;
+        esac
+        if [[ "${case_name}" == unreachable ]]; then
+            cli_url="${UNREACHABLE_V90_CLI_URL}"
+        fi
+    elif [[ " ${V90_ONLY_CASES[*]} " == *" ${case_name} "* ]]; then
+        die "case '${case_name}' needs RECORD_INUBIT_LINE=9.0"
+    elif [[ "${case_name}" == v61_* ]]; then
         fixture_dir="${V61_FIXTURE_DIR}"
     fi
 }
@@ -302,6 +402,14 @@ path, what, *args = sys.argv[1:]
 stage = server = None
 values, trust_stores, hostname_flags = {}, set(), set()
 section = None
+# defaults.cliClients (feature 017, research D-1): "<major>.<minor>" -> {home, javaHome}, as flow
+# entries ("9.0": { home: ..., javaHome: ... }) or block entries (9.0: then home:/javaHome: lines)
+clients, clients_indent, entry = {}, None, None
+entry_pattern = r"""(['"]?)([0-9]+\.[0-9]+)\1:\s*(\{[^}]*\})?"""
+def flow_entries(text):
+    for _, key, body in re.findall(entry_pattern, text):
+        clients[key] = dict((k, v.strip().strip("'\"")) for k, v in
+                            re.findall(r"(\w+):\s*([^,}]*)", body))
 for raw in open(path, encoding="utf-8"):
     line = raw.split(" #", 1)[0].rstrip()
     if not line.strip() or line.lstrip().startswith("#"):
@@ -310,10 +418,24 @@ for raw in open(path, encoding="utf-8"):
     if indent == 0:
         section = line.split(":", 1)[0]
     text = line.strip()
+    if clients_indent is not None and (indent <= clients_indent or section != "defaults"):
+        clients_indent = entry = None
+    if clients_indent is not None:
+        head = re.match(entry_pattern, text)
+        if head:
+            entry = head.group(2)
+            flow_entries(text) if head.group(3) else clients.setdefault(entry, {})
+        elif entry and (m := re.match(r"(\w+):\s*(.*)$", text)):
+            clients[entry][m.group(1)] = m.group(2).strip().strip("'\"")
+        continue
     m = re.match(r"-?\s*(\w+):\s*(.*)$", text)
     if not m:
         continue
     key, value = m.group(1), m.group(2).strip().strip("'\"")
+    if section == "defaults" and key == "cliClients" and indent > 0:
+        clients_indent = indent
+        flow_entries(value)
+        continue
     if key == "trustStore":
         trust_stores.add(value)
     if key == "disableHostnameVerification":
@@ -334,6 +456,10 @@ elif what == "cli_home":
     print(expand(values.get("cliHome")))
 elif what == "cli_java_home":
     print(expand(values.get("cliJavaHome")))
+elif what == "cli_client_home":
+    print(expand(clients.get(args[0], {}).get("home")))
+elif what == "cli_client_java_home":
+    print(expand(clients.get(args[0], {}).get("javaHome")))
 elif what == "trust_store":
     print(expand(next(iter(trust_stores))) if len(trust_stores) == 1 else "")
 elif what == "disable_hostname_verification":
@@ -383,27 +509,35 @@ anonymize_case_output() {
     anonymize ${options[@]+"${options[@]}"} "$@"
 }
 
-# rest_call <basic|none> <url> <curl options...>: credentials only through stdin (-K -).
+# rest_call <basic|dummy|none> <url> <curl options...>: credentials only through stdin (-K -);
+# dummy sends the username with DUMMY_PASSWORD (rest_auth_failed).
 rest_call() {
-    local mode="$1" url="$2"
+    local mode="$1" url="$2" secret
     shift 2
     if [[ "${mode}" == none ]]; then
         curl "$@" "${url}" < /dev/null
     else
+        secret="${password}"
+        if [[ "${mode}" == dummy ]]; then
+            secret="${DUMMY_PASSWORD}"
+        fi
         printf 'user = "%s:%s"\n' "$(curl_config_escape "${username}")" \
-            "$(curl_config_escape "${password}")" | curl --config - "$@" "${url}"
+            "$(curl_config_escape "${secret}")" | curl --config - "$@" "${url}"
     fi
 }
 
 # Refuses to run a write command on 999999999 unless the Queue Manager has no such entry.
 require_unknown_pid_absent() {
-    local base_url response
+    local base_url response accept_header="${ACCEPT_HEADER}"
+    if [[ "${INUBIT_LINE}" == 9.0 ]]; then
+        accept_header="Accept: ${ACCEPT_JSON}"
+    fi
     base_url="$(config_value base_url "${stage}" "${server}")"
     printf '%s\n' "<logRequest><startIndex>0</startIndex><noOfItems>1</noOfItems><filtering><field>workflowId</field><value>${UNKNOWN_PID}</value><comparison>EQUAL</comparison></filtering></logRequest>" \
         > "${work_dir}/preflight.xml"
     response="$(rest_call basic "${base_url%/}/ibis/rest/log/queueLog?format=json" \
         --silent --show-error --insecure --pinnedpubkey "${PINNED_PUBKEY}" --request POST \
-        --header "${ACCEPT_HEADER}" --header 'Content-Type: application/xml' --max-time 30 \
+        --header "${accept_header}" --header 'Content-Type: application/xml' --max-time 30 \
         --data-binary "@${work_dir}/preflight.xml")" || die "preflight request failed"
     [[ "${response}" =~ \"total\":0[,}] ]] \
         || die "process id ${UNKNOWN_PID} exists in the Queue Manager (or unexpected response); refused"
@@ -428,11 +562,30 @@ build_cli_env() {
     fi
 }
 
+# Sets cli_home and java_home of the caller. 8.1 (unchanged): defaults.cliHome and
+# defaults.cliJavaHome. 9.0 (research D-1, D-3): RECORD_CLI_HOME, else the home of the
+# defaults.cliClients "9.0" entry, else defaults.cliHome; the JDK: RECORD_CLI_JAVA_HOME, else the
+# entry's javaHome (only with the entry's home, as in the server), else defaults.cliJavaHome.
+choose_cli() {
+    cli_home="$(config_value cli_home)"
+    java_home="$(config_value cli_java_home)"
+    if [[ "${INUBIT_LINE}" == 9.0 ]]; then
+        local entry_home entry_java_home=''
+        entry_home="$(config_value cli_client_home 9.0)"
+        if [[ -n "${RECORD_CLI_HOME:-}" ]]; then
+            cli_home="${RECORD_CLI_HOME}"
+        elif [[ -n "${entry_home}" ]]; then
+            cli_home="${entry_home}"
+            entry_java_home="$(config_value cli_client_java_home 9.0)"
+        fi
+        java_home="${RECORD_CLI_JAVA_HOME:-${entry_java_home:-${java_home}}}"
+    fi
+}
+
 # A local StartCLI run with one option (-h, -v): no server, no credentials, no stdin.
 record_cli_local() {
     local cli_home java_home exit_code
-    cli_home="$(config_value cli_home)"
-    java_home="$(config_value cli_java_home)"
+    choose_cli
     [[ -x "${cli_home}/bin/startcli.sh" ]] || die "no bin/startcli.sh under cliHome '${cli_home}'"
     build_cli_env "${java_home}"
     set +e
@@ -457,7 +610,7 @@ record_rest() {
     raw_body="${work_dir}/body"
 
     local -a curl_args=(--silent --show-error --insecure --pinnedpubkey "${PINNED_PUBKEY}"
-        --request "${method}" --header "${ACCEPT_HEADER}" --max-time 120
+        --request "${method}" --header "${accept}" --max-time 120
         --output "${raw_body}" --write-out '%{http_code} %{content_type}')
     if [[ -n "${body}" ]]; then
         printf '%s\n' "${body}" > "${work_dir}/request.xml"
@@ -498,15 +651,22 @@ record_rest() {
 
 record_cli() {
     local cli_home java_home trust_store url cli_password exit_code
-    cli_home="$(config_value cli_home)"
-    java_home="$(config_value cli_java_home)"
+    choose_cli
     trust_store="${RECORD_TRUSTSTORE:-$(config_value trust_store)}"
     [[ -x "${cli_home}/bin/startcli.sh" ]] || die "no bin/startcli.sh under cliHome '${cli_home}'"
     [[ -d "${java_home}" ]] || die "cliJavaHome '${java_home}' not found"
     if [[ -n "${trust_store}" && ! -f "${trust_store}" ]]; then
         die "trust store '${trust_store}' not found (set RECORD_TRUSTSTORE)"
     fi
-    url="${cli_url:-$(config_value base_url "${stage}" "${server}")/ibis/servlet/IBISSoapServlet}"
+    if [[ -n "${cli_url}" ]]; then
+        url="${cli_url}"
+    elif [[ "${INUBIT_LINE}" == 9.0 ]]; then
+        # 9.0 has no SOAP servlet: StartCLI connects to the base URL (research D-3).
+        url="$(config_value base_url "${stage}" "${server}")"
+        url="${url%/}"
+    else
+        url="$(config_value base_url "${stage}" "${server}")/ibis/servlet/IBISSoapServlet"
+    fi
     local export_file="${work_dir}/export.zip"
     [[ "${export_file}" =~ ^[A-Za-z0-9_./-]+$ ]] || die "temporary path not usable in --execCommand"
     command="${command//${EXPORT_FILE_TOKEN}/${export_file}}"
@@ -565,8 +725,7 @@ trust_store_type() {
 # commands and exit; no --execCommand, no REST step. The client options come from a local -h run.
 record_cli_session() {
     local cli_home java_home trust_store base_url url help exit_code tool_options=''
-    cli_home="$(config_value cli_home)"
-    java_home="$(config_value cli_java_home)"
+    choose_cli
     trust_store="${RECORD_TRUSTSTORE:-$(config_value trust_store)}"
     [[ -x "${cli_home}/bin/startcli.sh" ]] || die "no bin/startcli.sh under cliHome '${cli_home}'"
     [[ -d "${java_home}" ]] || die "cliJavaHome '${java_home}' not found"
@@ -623,7 +782,58 @@ check_outputs() {
     fi
 }
 
+# 9.0 only (research D-10): sets inubit_version for the .origin file and refuses another line before
+# anything is recorded. Every CLI case first asks the chosen client (choose_cli) for its
+# "CLI <version>"; every case with a node then asks the node's /system/info for its Version, which
+# the .origin names. The local runs (-h, -v) name the client's version.
+detect_inubit_version() {
+    local reply
+    if [[ "${kind}" != rest ]]; then
+        local cli_home java_home
+        choose_cli
+        [[ -x "${cli_home}/bin/startcli.sh" ]] \
+            || die "no bin/startcli.sh under cliHome '${cli_home}'"
+        build_cli_env "${java_home}"
+        reply="$(cd "${cli_home}" && "${child_env[@]}" ./bin/startcli.sh -v < /dev/null 2>&1)" \
+            || true
+        require_v90 client 'CLI ([0-9]+(\.[0-9]+)+)' "${reply}"
+    fi
+    if [[ "${kind}" != cli_local ]]; then
+        local base_url
+        base_url="$(config_value base_url "${stage}" "${server}")"
+        [[ -n "${base_url}" ]] || die "no baseUrl for ${stage}/${server} in ${CONFIG_FILE}"
+        reply="$(rest_call basic "${base_url%/}/ibis/rest/system/info" --silent --show-error \
+            --insecure --pinnedpubkey "${PINNED_PUBKEY}" --header "Accept: ${ACCEPT_XML}" \
+            --max-time 30)" || die "version request (GET /ibis/rest/system/info) failed"
+        require_v90 node 'name="Version" value="([0-9]+(\.[0-9]+)+)"' "${reply}"
+    fi
+}
+
+# Sets inubit_version from the reply of the reporter (client or node); refuses another line.
+require_v90() {
+    local reporter="$1" pattern="$2" reply="$3"
+    [[ "${reply}" =~ ${pattern} ]] || die "the ${reporter} reports no INUBIT version"
+    inubit_version="${BASH_REMATCH[1]}"
+    [[ "${inubit_version}" == 9.0.* ]] \
+        || die "the ${reporter} reports INUBIT ${inubit_version}, not 9.0 (RECORD_INUBIT_LINE=9.0)"
+}
+
+# 9.0 only: the provenance of the recorded case next to its fixture files (research D-10).
+write_origin() {
+    local directory=cli
+    if [[ "${kind}" == rest ]]; then
+        directory=rest
+    fi
+    printf 'recorded %s %s\n' "$(date -u +%Y-%m-%d)" "${inubit_version}" \
+        > "${fixture_dir}/${directory}/${case_name}.origin"
+    outputs+=("${fixture_dir}/${directory}/${case_name}.origin")
+}
+
 main() {
+    case "${INUBIT_LINE}" in
+        8.1|9.0) ;;
+        *) die "RECORD_INUBIT_LINE must be 8.1 (default) or 9.0, not '${INUBIT_LINE}'" ;;
+    esac
     if [[ "${1:-}" == --list ]]; then
         list_cases
         exit 0
@@ -637,7 +847,8 @@ main() {
     [[ "${ENV_PREFIX}" =~ ^[A-Z][A-Z0-9_]*$ ]] || die "RECORD_ENV_PREFIX must match ^[A-Z][A-Z0-9_]*\$"
     [[ -f "${CONFIG_FILE}" ]] || die "config not found: ${CONFIG_FILE}"
     define_case "${case_name}"
-    if [[ "${kind}" == rest || "${preflight_unknown_pid}" == yes ]]; then
+    if [[ "${kind}" == rest || "${preflight_unknown_pid}" == yes \
+        || ( "${INUBIT_LINE}" == 9.0 && "${kind}" != cli_local ) ]]; then
         [[ -n "${PINNED_PUBKEY}" ]] \
             || die "set RECORD_PINNED_PUBKEY (sha256//<base64> of the node's public key)"
     fi
@@ -678,9 +889,15 @@ main() {
         anon_args+=(--host "${host}")
     fi
 
+    if [[ "${INUBIT_LINE}" == 9.0 ]]; then
+        detect_inubit_version
+    fi
     outputs=()
     "record_${kind}"
     check_outputs
+    if [[ "${INUBIT_LINE}" == 9.0 ]]; then
+        write_origin
+    fi
     info "${case_name}: written ${outputs[*]#"${PROJECT_DIR}/"}"
 }
 

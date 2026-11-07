@@ -805,10 +805,9 @@ class ConfigValidatorTest {
             ValidationReport report = validate(server("versionLine: V9_X\n"));
 
             assertThat(report.errors()).isEmpty();
-            // feature 009 (research D-13)
-            assertThat(report.warnings()).containsExactly("dev/node1: versionLine V9_X: write tools"
-                + " are refused on this node (INUBIT 9.x is not supported for writes yet); read"
-                + " tools run unverified");
+            // feature 017 (FR-011): the warning suggests V9_0 or AUTO
+            assertThat(report.warnings()).containsExactly("versionLine V9_X of dev/node1 does not"
+                + " select 9.0 support; use V9_0 (INUBIT 9.0.x) or AUTO");
         }
 
         @Test

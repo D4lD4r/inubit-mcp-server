@@ -34,9 +34,11 @@ import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.SemVer;
@@ -51,6 +53,7 @@ import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import de.dadecker.inubit.mcp.testing.TestValidators;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import java.io.IOException;
@@ -106,7 +109,7 @@ class GetHealthToolTest {
     private SecretScrubber scrubber;
     /** Feature 009: nodes with a StartCLI installation (none by default) and their probe. */
     private Set<NodeId> withClient = Set.of();
-    private ClientVersionPort probe = (node, timeout) -> {
+    private ClientVersionPort probe = (node, version, timeout) -> {
         throw new AssertionError("no node has a StartCLI installation");
     };
     private AdapterGatewayFactory gateways;
@@ -197,7 +200,7 @@ class GetHealthToolTest {
         HealthService health = new HealthService(gateways, new TargetResolver(ids),
             new FanOut(), timeouts::get, Clock.systemUTC(),
             gateWithoutClients(versions, gateways, CapabilityMatrix.production()), versions, probe,
-            withClient::contains);
+            TestClientSelection.of(withClient::contains));
         client = McpTestClient.start(List.of(new GetHealthTool(health, () -> serverUpdate)),
             scrubber);
         client.initialize();
@@ -490,7 +493,7 @@ class GetHealthToolTest {
     void aHangingClientProbeIsNotYetDetectedWithinTimeoutPlusOneSecond() {
         CountDownLatch never = new CountDownLatch(1);
         withClient = Set.of(NodeId.parse("dev/node1"));
-        probe = (node, timeout) -> {
+        probe = (node, version, timeout) -> {
             try {
                 never.await();
             } catch (InterruptedException e) {
@@ -526,8 +529,9 @@ class GetHealthToolTest {
     @Test
     void aProbedClientIsReportedWithItsRangeAndComparison() {
         withClient = Set.of(NodeId.parse("dev/node1"));
-        probe = (node, timeout) -> new ClientVersion(InubitVersion.parse("8.1.17").orElseThrow(),
-            InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17"));
+        probe = (node, version, timeout) -> new ProbedClient(ClientKey.NONE,
+            new ClientVersion(InubitVersion.parse("8.1.17").orElseThrow(),
+                InubitVersion.parse("4.0.1"), InubitVersion.parse("8.1.17")));
         start(List.of(
             server("dev/node1", "https://localhost:" + dev.httpsPort(), VersionSetting.AUTO)));
 

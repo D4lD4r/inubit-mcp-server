@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
+import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.MaintenanceProbe;
@@ -11,20 +12,33 @@ import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.rest.TlsTestServer;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Feature 014 T011: the certificate check at the StartCLI address of a server of a marked stage
@@ -161,6 +175,46 @@ class StartCliPinProbeTest {
 
         assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
         assertThat(error.message()).contains("StartCLI was not started");
+    }
+
+    @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "the POSIX script is installed")
+    void aRunChecksTheAddressChosenForTheVersion(@TempDir Path client) throws IOException {
+        // feature 017 (T013, research D-4): INUBIT 9 is reached at the base URL
+        FakeStartCli.install(client);
+        int closedPort;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            closedPort = socket.getLocalPort();
+        }
+        EffectiveNodeConfig built = TestNodeConfig.node().id("int/a")
+            .baseUrl("https://localhost:" + closedPort).versionLine(VersionSetting.AUTO)
+            .cliClient("9.0", client, Optional.of(client))
+            .trustStore(CERTS.trustStore()).pin(PIN_A).build();
+        EffectiveNodeConfig.Tls tls = built.tls();
+        EffectiveNodeConfig server = new EffectiveNodeConfig(built.id(), built.production(),
+            built.baseUrl(), built.allowInsecureHttp(), built.versionLine(), built.write(),
+            new EffectiveNodeConfig.Tls(tls.trustStore(), tls.disableHostnameVerification(),
+                tls.pinnedCertificateSha256(), true),
+            built.cli(), built.inventory(), built.timeout(), built.cliTimeout(),
+            built.cliExportTimeout(), built.hangingThreshold(), built.confirmationTtl(),
+            built.credentialPrefix(), built.development(), built.secretPlan(),
+            built.archivesProductionOptIn(), built.cliSources());
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("", "", 0);
+        CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", "/usr/bin"),
+            new CliResources("acme", PrivateFiles.forHost()), probe,
+            id -> Optional.of(new InubitVersion(9, 0, OptionalInt.of(7), "9.0.7")));
+
+        ToolErrorException thrown = catchThrowableOfType(ToolErrorException.class,
+            () -> runner.run(server, "jdoe", Secret.of("S3cr3t-017-pin"),
+                CliCommand.processErrorStart("110190387"), Duration.ofSeconds(5),
+                new CredentialGuard(server.secretLabels(),
+                    new MutableClock(Instant.parse("2026-10-01T08:00:00Z")))));
+
+        assertThat(thrown).isNotNull();
+        assertThat(thrown.error().code()).isEqualTo(ErrorCode.UNREACHABLE);
+        assertThat(thrown.error().nextStep()).isEqualTo("Check cli.url (https://localhost:"
+            + closedPort + "), DNS and the VPN, then retry");
+        assertThat(launcher.launchCount()).isZero();
     }
 
     private ToolError errorOf(EffectiveNodeConfig server) {

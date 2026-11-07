@@ -1,20 +1,25 @@
 package de.dadecker.inubit.mcp.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -95,6 +100,25 @@ class DeployGuardTest {
     }
 
     @Test
+    void everyJudgedNodeGetsADeploymentPermitOfItsAdmittedVersion() {
+        // feature 017, T042 (FR-018, research D-24)
+        DeployGuard.Admitted admitted = guard().admit(new DeployGuard.Request("int", "REL-1",
+            Optional.empty(), Optional.empty(), Optional.empty()));
+
+        InubitVersion line = InubitVersion.parse("8.1").orElseThrow();
+        assertThat(admitted.permits()).containsOnlyKeys(NodeId.parse("dev/node1"),
+            NodeId.parse("dev/node2"), NodeId.parse("int/node1"), NodeId.parse("int/node2"));
+        assertThat(admitted.permit(NodeId.parse("int/node2"))).isEqualTo(new WritePermit(
+            NodeId.parse("int/node2"), Capability.DEPLOYMENT, line));
+        assertThat(admitted.permits().values()).allSatisfy(permit -> {
+            assertThat(permit.capability()).isEqualTo(Capability.DEPLOYMENT);
+            assertThat(permit.admitted()).isEqualTo(line);
+        });
+        assertThatThrownBy(() -> admitted.permit(NodeId.parse("prod/node1")))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void aGroupWithoutDeployIsAChainViolationNamingTheChain() {
         ToolErrorException e = refused(guard(), "dev", "REL-1", Optional.empty());
 
@@ -169,15 +193,15 @@ class DeployGuardTest {
         Map<NodeId, VersionSetting> settings = Map.of(
             NodeId.parse("dev/node1"), VersionSetting.parse("8.1.17").orElseThrow(),
             NodeId.parse("dev/node2"), VersionSetting.parse("8.1.17").orElseThrow(),
-            NodeId.parse("int/node1"), VersionSetting.parse("9.0.7").orElseThrow(),
+            NodeId.parse("int/node1"), VersionSetting.parse("9.1.0").orElseThrow(),
             NodeId.parse("int/node2"), VersionSetting.V9_X);
         MutableClock clock = new MutableClock(Instant.parse("2026-10-07T10:00:00Z"));
         NodeVersions versions = new NodeVersions(clock, settings::get,
             node -> Duration.ofMinutes(10));
         VersionGate gate = new VersionGate(versions, new FakeVersionDetection(versions),
-            CapabilityMatrix.production(), (node, timeout) -> {
+            CapabilityMatrix.production(), (node, version, timeout) -> {
                 throw new AssertionError("no client probe expected for " + node);
-            }, node -> false, node -> Duration.ZERO, terms);
+            }, TestClientSelection.none(), node -> Duration.ZERO, terms);
         List<NodeId> nodes = List.of(NodeId.parse("dev/node1"), NodeId.parse("dev/node2"),
             NodeId.parse("int/node1"), NodeId.parse("int/node2"));
         DeployGuard guard = new DeployGuard(chain(), new TargetResolver(nodes, terms),
@@ -189,7 +213,7 @@ class DeployGuardTest {
         assertThat(e.error().message()).startsWith("deploy_release: refused Knoten: int/node1,"
             + " int/node2; deployment from dev into int refused (the version check refused"
             + " int/node1, int/node2; the Knoten run different INUBIT minor versions (8.1,"
-            + " 9.0)). Sources: ");
+            + " 9.1)). Sources: ");
         assertThat(e.error().likelyCause()).isEqualTo("deploy_release deploys only between"
             + " Knoten whose INUBIT versions are known, supported for deployments and of the"
             + " same minor version");
