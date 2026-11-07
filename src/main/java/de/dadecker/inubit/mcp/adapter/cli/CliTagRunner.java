@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import java.util.Objects;
 
 /**
@@ -65,9 +66,12 @@ public final class CliTagRunner {
      * of {@code owner} and their modules.
      *
      * @throws ToolErrorException {@code INVALID_INPUT} before anything is launched;
-     *     {@code IMPORT_FAILED} or {@code TIMEOUT} after StartCLI ran
+     *     {@code IMPORT_FAILED} or {@code TIMEOUT} after StartCLI ran; {@code UNSUPPORTED_VERSION}
+     *     if the node's version changed since {@code permit} was handed out (nothing launched)
+     * @throws IllegalArgumentException if {@code permit} is for another node (nothing launched)
      */
-    public void tag(String tag, String diagramGroup, String owner) {
+    public void tag(String tag, String diagramGroup, String owner, WritePermit permit) {
+        permit.requireFor(server.id());
         if (diagramGroup == null || diagramGroup.isBlank()) {
             throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
                 "The diagram group of a tag must not be empty; nothing was sent",
@@ -77,14 +81,14 @@ public final class CliTagRunner {
         run(CliCommand.command("tag").quoted("--tagMove", tag)
             .quoted("--tagWorkflowGroup", diagramGroup)
             .quoted("--tagWorkflowType", "technical")
-            .quoted("--tagUser", owner).build());
+            .quoted("--tagUser", owner).build(), permit);
     }
 
-    private void run(CliCommand command) {
+    private void run(CliCommand command, WritePermit permit) {
         checkAvailable();
         CliResult result = runner.run(server, credentials.username().orElseThrow().value(),
             credentials.password().orElseThrow().value(), command, server.cliExportTimeout(),
-            "cliExportTimeout", guard);
+            "cliExportTimeout", guard, permit);
         CliOutput output = classifier.parse(result);
         if (result.exitCode() != 0 || !output.nokMessages().isEmpty() || result.truncated()) {
             String reason = output.nokMessages().isEmpty()

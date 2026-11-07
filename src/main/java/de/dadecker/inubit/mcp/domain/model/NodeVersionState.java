@@ -21,6 +21,10 @@ import java.util.OptionalInt;
  * @param observed          the last version read by {@code get_health}
  * @param stale             a response indicated another version (D-10); cleared by a detection or
  *                          an observation
+ * @param staleOwner        feature 017 (FR-018, research D-24): the write permit whose own
+ *                          response alone caused the {@code stale} mark, while every mark since
+ *                          the last clearing came from this very permit object; empty for a
+ *                          foreign mark (a read, another permit) and without mark
  * @param pinContradiction  the last observation's major.minor differs from the pin (FR-012)
  * @param clients           the StartCLI client probe results per client (feature 017, FR-017,
  *                          research D-5), each kept for the process lifetime
@@ -33,6 +37,7 @@ public record NodeVersionState(
     Optional<Timed<DetectionFailure>> detectionFailure,
     Optional<Timed<InubitVersion>> observed,
     boolean stale,
+    Optional<WritePermit> staleOwner,
     boolean pinContradiction,
     Map<ClientKey, Timed<ClientVersion>> clients,
     Map<ClientKey, Timed<ErrorCode>> clientFailures) {
@@ -63,6 +68,10 @@ public record NodeVersionState(
         Objects.requireNonNull(detected, "detected");
         Objects.requireNonNull(detectionFailure, "detectionFailure");
         Objects.requireNonNull(observed, "observed");
+        Objects.requireNonNull(staleOwner, "staleOwner");
+        if (staleOwner.isPresent() && !stale) {
+            throw new IllegalArgumentException("A stale owner without stale mark");
+        }
         clients = Map.copyOf(clients);
         clientFailures = Map.copyOf(clientFailures);
     }
@@ -70,19 +79,20 @@ public record NodeVersionState(
     /** Nothing detected, observed or probed yet. */
     public static NodeVersionState initial(VersionSetting setting) {
         return new NodeVersionState(setting, Optional.empty(), Optional.empty(), Optional.empty(),
-            false, false, Map.of(), Map.of());
+            false, Optional.empty(), false, Map.of(), Map.of());
     }
 
     /** A successful detection: clears {@code stale} and the last failure. */
     public NodeVersionState withDetected(InubitVersion version, Instant at) {
         return new NodeVersionState(setting, Optional.of(new Timed<>(version, at)),
-            Optional.empty(), observed, false, pinContradiction, clients, clientFailures);
+            Optional.empty(), observed, false, Optional.empty(), pinContradiction, clients,
+            clientFailures);
     }
 
     /** A failed detection; the last detected version stays for reads. */
     public NodeVersionState withDetectionFailure(DetectionFailure failure, Instant at) {
         return new NodeVersionState(setting, detected, Optional.of(new Timed<>(failure, at)),
-            observed, stale, pinContradiction, clients, clientFailures);
+            observed, stale, staleOwner, pinContradiction, clients, clientFailures);
     }
 
     /**
@@ -91,14 +101,39 @@ public record NodeVersionState(
      */
     public NodeVersionState withObserved(InubitVersion version, Instant at) {
         return new NodeVersionState(setting, detected, Optional.empty(),
-            Optional.of(new Timed<>(version, at)), false, contradicts(setting, version), clients,
-            clientFailures);
+            Optional.of(new Timed<>(version, at)), false, Optional.empty(),
+            contradicts(setting, version), clients, clientFailures);
     }
 
-    /** A response indicated that the node may run another version (D-10). */
+    /**
+     * A response indicated that the node may run another version (D-10); the mark is foreign to
+     * every permit and wins over an own one.
+     */
     public NodeVersionState withStale() {
         return new NodeVersionState(setting, detected, detectionFailure, observed, true,
+            Optional.empty(), pinContradiction, clients, clientFailures);
+    }
+
+    /**
+     * The response of a write handed off with {@code permit} indicated that the node may run
+     * another version (feature 017, research D-24). The mark belongs to {@code permit} if the
+     * node was not stale or every mark so far came from this very permit object; otherwise it
+     * stays foreign.
+     */
+    public NodeVersionState withStaleAfterWrite(WritePermit permit) {
+        Objects.requireNonNull(permit, "permit");
+        Optional<WritePermit> owner = !stale || staleOnlyBy(permit) ? Optional.of(permit)
+            : Optional.empty();
+        return new NodeVersionState(setting, detected, detectionFailure, observed, true, owner,
             pinContradiction, clients, clientFailures);
+    }
+
+    /**
+     * Whether the node is stale only because of responses to writes handed off with this very
+     * {@code permit} object (compared by identity, not by value).
+     */
+    public boolean staleOnlyBy(WritePermit permit) {
+        return stale && staleOwner.isPresent() && staleOwner.get() == permit;
     }
 
     /**
@@ -111,7 +146,7 @@ public record NodeVersionState(
         Map<ClientKey, Timed<ErrorCode>> failures = new HashMap<>(clientFailures);
         failures.remove(probed.key());
         return new NodeVersionState(setting, detected, detectionFailure, observed, stale,
-            pinContradiction, results, failures);
+            staleOwner, pinContradiction, results, failures);
     }
 
     /**
@@ -126,7 +161,7 @@ public record NodeVersionState(
         Map<ClientKey, Timed<ErrorCode>> failures = new HashMap<>(clientFailures);
         failures.put(key, new Timed<>(code, at));
         return new NodeVersionState(setting, detected, detectionFailure, observed, stale,
-            pinContradiction, clients, failures);
+            staleOwner, pinContradiction, clients, failures);
     }
 
     /** The probe result of the client {@code key}, if one is known. */

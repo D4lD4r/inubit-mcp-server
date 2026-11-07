@@ -195,6 +195,48 @@ class VersionGateTest {
     }
 
     @Test
+    void anAdmittedWriteCarriesTheVersionItWasJudgedOn() {
+        // feature 017 (T040, FR-018, research D-24): the write permit's admitted version
+        detection.answer("8.1.17");
+
+        Admission auto = gate().admit(AUTO, Capability.DEVELOPMENT_WRITE, Kind.WRITE,
+            CLI_REST);
+        Admission pinned = gate().admit("restart_process", PINNED, Capability.PROCESS_CONTROL,
+            Kind.WRITE, CLI_REST);
+        Admission line = gate().admit(V9_0, Capability.E2E_TEST, Kind.WRITE, REST);
+
+        assertThat(auto.version()).contains(version("8.1.17"));
+        assertThat(pinned.version()).contains(version("8.1.17"));
+        assertThat(line.version()).map(InubitVersion::raw).contains("9.0");
+    }
+
+    @Test
+    void anAdmittedWriteCarriesTheVersionOfTheRedetectionNotTheOutdatedOne() {
+        detection.answer("8.1.17");
+        gate().admit(AUTO, Capability.DEVELOPMENT_WRITE, Kind.WRITE, CLI_REST);
+        clock.advance(TTL.plusSeconds(1));
+        detection.answer("8.1.18");
+
+        Admission admission = gate().admit(AUTO, Capability.DEVELOPMENT_WRITE, Kind.WRITE,
+            CLI_REST);
+
+        assertThat(admission.version()).contains(version("8.1.18"));
+    }
+
+    @Test
+    void aReadAdmissionCarriesItsVersionAndAnUnknownOneIsEmpty() {
+        detection.answer("9.1.0");
+        Admission known = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+        Admission line = gate().admit(V9_X, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+        Admission monitoring = gate().admitMonitoring(PINNED, Optional.of(version("8.1.20")));
+
+        assertThat(known.version()).contains(version("9.1.0"));
+        assertThat(line.version()).isEmpty();
+        assertThat(monitoring.version()).contains(version("8.1.20"));
+        assertThat(new Admission(List.of(), List.of()).version()).isEmpty();
+    }
+
+    @Test
     void aReadOn91IsAdmittedWithTheUnverifiedWarning() {
         detection.answer("9.1.0");
 

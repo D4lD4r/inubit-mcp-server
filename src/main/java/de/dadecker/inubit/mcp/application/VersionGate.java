@@ -17,6 +17,7 @@ import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ClientSelectionPort;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
@@ -80,11 +81,34 @@ public final class VersionGate {
      * version notes of the node's version (feature 012, FR-010: what the version lacks next to the
      * admitted capability, e.g. "logs of INUBIT 6.1 cannot be read with query_logs; read them in
      * the Workbench"), which the caller adds to its result.
+     *
+     * @param version feature 017 (FR-018, research D-24): the version the call was judged on;
+     *     present for every admitted write of a known version, the version of its
+     *     {@link WritePermit}
      */
-    public record Admission(List<String> warnings, List<String> notes) {
+    public record Admission(List<String> warnings, List<String> notes,
+        Optional<InubitVersion> version) {
         public Admission {
             warnings = List.copyOf(warnings);
             notes = List.copyOf(notes);
+            Objects.requireNonNull(version, "version");
+        }
+
+        /** An admission without a known version. */
+        public Admission(List<String> warnings, List<String> notes) {
+            this(warnings, notes, Optional.empty());
+        }
+
+        /**
+         * The permit of this admitted write on {@code node} for {@code capability}.
+         *
+         * @throws IllegalStateException without a version: a write is admitted only on a known
+         *     version, so this is a programming error (fail closed)
+         */
+        public WritePermit permit(NodeId node, Capability capability) {
+            return new WritePermit(node, capability, version.orElseThrow(() ->
+                new IllegalStateException("A write on " + node + " was admitted without a"
+                    + " version")));
         }
     }
 
@@ -177,7 +201,8 @@ public final class VersionGate {
         if (evaluation.refusal().isPresent()) {
             throw new ToolErrorException(evaluation.refusal().get());
         }
-        return new Admission(evaluation.warnings(), notes(capability, evaluation.version()));
+        return new Admission(evaluation.warnings(), notes(capability, evaluation.version()),
+            evaluation.version());
     }
 
     /**
@@ -262,8 +287,9 @@ public final class VersionGate {
         Objects.requireNonNull(node, "node");
         Objects.requireNonNull(read, "read");
         NodeVersionState state = versions.state(node);
+        Optional<InubitVersion> version = read.or(state::effectiveVersion);
         return new Admission(judge(node, Capability.MONITORING, Capability.Kind.READ,
-            Set.of(Channel.REST), state, read.or(state::effectiveVersion)), List.of());
+            Set.of(Channel.REST), state, version), List.of(), version);
     }
 
     /** @return the warnings of the admission */

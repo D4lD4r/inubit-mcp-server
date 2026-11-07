@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.VersionEntry;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
@@ -73,7 +74,7 @@ class TagArtifactsToolTest {
         }
 
         @Override
-        public void tag(String tag, String group, String owner) {
+        public void tag(String tag, String group, String owner, WritePermit permit) {
             tagged.add(tag);
         }
     };

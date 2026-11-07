@@ -9,6 +9,7 @@ import de.dadecker.inubit.mcp.application.ProcessControlService.ControlRequest;
 import de.dadecker.inubit.mcp.application.ProcessControlService.Response;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
@@ -627,6 +628,11 @@ class ProcessControlServiceTest {
         assertThat(result(kill("dev/node1", Optional.of(code))).outcome())
             .isEqualTo(ProcessControlResult.Outcome.EXECUTED);
         assertThat(ports.actions()).containsExactly("kill dev/node1 " + PID);
+        // feature 017 (T045, FR-018): the kill carries the permit of the call's admission
+        assertThat(ports.permits).singleElement().satisfies(permit -> {
+            assertThat(permit.node()).isEqualTo(DEV);
+            assertThat(permit.capability()).isEqualTo(Capability.PROCESS_CONTROL);
+        });
     }
 
     // --- Phase 6 review W3: unexpected failures before execution are audited ----------------
@@ -687,6 +693,10 @@ class ProcessControlServiceTest {
         assertThat(result.outcome()).isEqualTo(ProcessControlResult.Outcome.EXECUTED);
         assertThat(result.warnings()).isEmpty();
         assertThat(ports.actions()).containsExactly("kill staging/inubit01 " + PID);
+        assertThat(ports.permits).singleElement().satisfies(permit -> {
+            assertThat(permit.node()).isEqualTo(STAGING);
+            assertThat(permit.capability()).isEqualTo(Capability.PROCESS_CONTROL);
+        });
         assertThat(audit.records).extracting(AuditRecord::step)
             .containsExactly(AuditRecord.Step.EXECUTE, AuditRecord.Step.EXECUTE);
         assertThat(audit.outcomes()).containsExactly(AuditOutcome.PENDING,

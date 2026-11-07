@@ -2,9 +2,11 @@ package de.dadecker.inubit.mcp.application;
 
 import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutClients;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.application.DevelopmentGuard.Operation;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
@@ -19,6 +21,7 @@ import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy.Confirmation;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
@@ -245,6 +248,45 @@ class DevelopmentGuardTest {
         assertThat(refusal("test", Operation.RESTORE_BACKUP).code())
             .isEqualTo(ErrorCode.INVALID_INPUT);
         assertThat(cliChecks).isEmpty();
+    }
+
+    // --- feature 017, T042: the guard hands out the write permit (FR-018, research D-24) ------
+
+    @ParameterizedTest
+    @EnumSource(Operation.class)
+    void everyOperationGetsThePermitOfItsCapabilityAndAdmittedVersion(Operation operation) {
+        policies = Map.of(DEV, policy(DEV, false, true, E2ePolicy.CONFIRM));
+        detection.answer(DEV, "8.1.18");
+        versionLines.put(DEV, VersionSetting.AUTO);
+
+        WritePermit permit = guard().admit("dev/node1", operation).permit();
+
+        assertThat(permit).isEqualTo(new WritePermit(DEV, operation == Operation.RUN_E2E_TEST
+            ? Capability.E2E_TEST : Capability.DEVELOPMENT_WRITE, version("8.1.18")));
+    }
+
+    @Test
+    void aDeploymentRestoreGetsADeploymentPermit() {
+        WritePermit permit = guard().admitDeploymentRestore("test/node1").permit();
+
+        assertThat(permit).isEqualTo(new WritePermit(TEST, Capability.DEPLOYMENT,
+            version("8.1")));
+    }
+
+    @Test
+    void thePermitSurvivesARepositoryWriteAndADeploymentRestore() {
+        DevelopmentPolicy admitted = guard().admit("dev/node1", Operation.RESTORE_BACKUP);
+
+        assertThat(guard().forRepositoryWrite(admitted).permit()).isEqualTo(admitted.permit());
+        assertThat(guard().forDeploymentRestore(admitted).permit()).isEqualTo(admitted.permit());
+        assertThat(admitted.permit()).isEqualTo(new WritePermit(DEV, Capability.DEVELOPMENT_WRITE,
+            version("8.1")));
+    }
+
+    @Test
+    void aConfiguredPolicyHasNoPermit() {
+        assertThatThrownBy(() -> policy(DEV, false, true, E2ePolicy.FORBIDDEN).permit())
+            .isInstanceOf(IllegalStateException.class);
     }
 
     // --- feature 008, T013: a write of repository files is always confirmed on the server ------

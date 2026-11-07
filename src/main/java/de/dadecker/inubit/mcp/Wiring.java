@@ -319,10 +319,11 @@ final class Wiring implements AutoCloseable {
         // feature 009 (research D-4): the per-node version state, fed by the adapters
         NodeVersions versions = new NodeVersions(clock.clock(),
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
-        // feature 017 (research D-4): StartCLI is chosen per call by the effective version
+        // feature 017 (research D-4): StartCLI is chosen per call by the effective version; a
+        // write's process is started under the node's write lock (FR-018, research D-24)
         CliRunner cliRunner = new CliRunner(launcher, environment, windows,
             windows ? new WindowsSystem() : new PosixSystem(), containment, cliResources,
-            new HandshakeStartCliPinProbe(), versions::effectiveVersion, versions);
+            new HandshakeStartCliPinProbe(), versions::effectiveVersion, versions, versions);
         // feature 009 (research D-16): the 8.1 port set, as default for every version; feature
         // 017 (research D-14): explicitly for 9.0 too; feature 012 (research D-4): the 6.1 port
         // set and health port, CLI-only (no REST client)
@@ -448,7 +449,8 @@ final class Wiring implements AutoCloseable {
                 .map(e2e -> new SoapE2eClient.BasicAuth(e2e.username().value(),
                     e2e.password().value()));
             return e2eClients.computeIfAbsent(id, node -> new SoapE2eClient(byId.get(node),
-                development.get(node).soapBaseUrl().orElseThrow(), trustStorePassword, auth));
+                development.get(node).soapBaseUrl().orElseThrow(), trustStorePassword, auth,
+                versions));
         };
         this.runE2eTest = new RunE2eTestTool(new E2eTestService(new E2eTestService.Dependencies(
             workspace, backups, profile.name(), developmentGuard, e2ePorts,

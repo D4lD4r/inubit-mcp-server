@@ -425,7 +425,9 @@ the gap in 017, for every transition including 8.1 ↔ 9.0.
   A permit for another node is refused (`IllegalArgumentException`, programming error).
 - New domain port `WriteLock` (implemented by `NodeVersions`): `<T> T handOff(WritePermit permit,
   Function<Optional<InubitVersion>, T> action)` takes the node's lock, reads the current
-  effective version and the `stale` flag, refuses unless the state is not stale and the effective
+  effective version and the `stale` flag, refuses unless the state is not stale (on an `AUTO`
+  node; on a pinned or line node `stale` is ignored as by the version gate, only an observation
+  changes its effective version) and the effective
   version has the permit's major.minor, and otherwise runs `action` with that version while
   holding the lock. Every `NodeVersions` state change of that node (`update`) takes the same lock,
   so the node's known version cannot change between the check and the end of `action`. One fair
@@ -435,6 +437,19 @@ the gap in 017, for every transition including 8.1 ↔ 9.0.
   other (a hand-off takes milliseconds). `action` must neither change the node's version state
   nor hand off again: `update` or `handOff` from inside a hand-off on the same thread throws
   `IllegalStateException` (a nested hand-off would keep the lock across the inner wait).
+- Own stale mark (stage 5 review): `StaleReportingPorts` reports an `UNEXPECTED_RESPONSE` of a
+  write port (import, repository import, tag, restart, kill) as
+  `VersionObserver.staleAfterWrite(node, permit)` with the permit of that write; every other
+  `UNEXPECTED_RESPONSE` stays `stale(node)`. `NodeVersionState` records the owner of the mark
+  (`staleOwner`): a mark from `stale(node)` is foreign; a mark from `staleAfterWrite` belongs to
+  that permit object (identity, not equality) while every mark since the last detection or
+  observation came from it; a foreign mark or one of another permit makes it foreign until then;
+  detection and observation clear it as before. `handOff` treats a stale `AUTO` node whose mark
+  belongs only to this permit as not stale (the major.minor comparison still applies), so the
+  further steps and the rollback of the call whose own response was unreadable are sent as in
+  0.8.0; outside `handOff` the mark acts as before (the next write re-detects). One call uses one
+  permit object per node for its forward steps and its rollback (`DevelopmentPolicy.permit()`,
+  `DeployGuard.Admitted.permit(node)`).
 - Refusal: `UNSUPPORTED_VERSION` "INUBIT on <node> changed from <admitted> to <current> during this
   call; the write was admitted for INUBIT <M.m>; nothing was sent" (stale or unknown current
   version: "INUBIT on <node> may run another version than <admitted> since this call was
@@ -455,7 +470,9 @@ the gap in 017, for every transition including 8.1 ↔ 9.0.
   StartCLI error); a rollback is a write with the same permit and is refused as well after a
   version change (`ROLLBACK_FAILED` as today; importing the pre-deploy exports of the admitted
   version into another version is what `deploy_release` refuses in general). Its warning names
-  both versions and says to restore the backup only on the admitted version (contracts). The
+  both versions and says to restore the backup only on the admitted version (contracts); if a
+  re-import of the rollback was sent before the refusal, it says "was not completed" and names
+  what was re-imported instead of "was not sent". The
   backup manifest records no INUBIT version, so `restore_backup` itself cannot check this; that
   holds in 0.8.0 for any upgrade between deploy and restore and is outside 017 (design review 1
   #4).

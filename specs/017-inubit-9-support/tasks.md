@@ -182,13 +182,13 @@ FR-017).
 
 ### Write permit and lock (plan stage 5, FR-018, D-24)
 
-- [ ] T040 [US2] `WritePermit(NodeId, Capability, InubitVersion admitted)` with `admittedLine()`
+- [X] T040 [US2] `WritePermit(NodeId, Capability, InubitVersion admitted)` with `admittedLine()`
   (every capability of kind `WRITE` accepted, `READ` refused) and
   `VersionGate.Admission` `+ Optional<InubitVersion> version` (the version the call was judged on;
   present for every admitted write) — main `domain/model/WritePermit.java`,
   `application/VersionGate.java`, tests `domain/model/WritePermitTest.java`,
   `application/VersionGateTest.java`
-- [ ] T041 [US2] Port `WriteLock.handOff(WritePermit, Function<Optional<InubitVersion>, T>)`;
+- [X] T041 [US2] Port `WriteLock.handOff(WritePermit, Function<Optional<InubitVersion>, T>)`;
   `NodeVersions` implements it with one `ReentrantLock` per node, `update` takes the same lock,
   fair lock (`ReentrantLock(true)`, blocking `lock()` only); `update` or `handOff` from inside a
   hand-off on the same thread → `IllegalStateException` (lock released afterwards); refusal texts of
@@ -200,14 +200,14 @@ FR-017).
   hand-offs on different nodes run in parallel —
   main `domain/port/WriteLock.java`, `application/NodeVersions.java`, test
   `application/WriteLockTest.java`
-- [ ] T042 [US2] Guards hand out permits from the admission's version and capability:
+- [X] T042 [US2] Guards hand out permits from the admission's version and capability:
   `DevelopmentGuard` → `DevelopmentPolicy.permit()` (the operation's capability: `E2E_TEST` for
   `run_e2e_test`, `DEPLOYMENT` for the deployment-backup restore, else `DEVELOPMENT_WRITE`;
   kept by `forDeploymentRestore`/`forRepositoryWrite`; a test per operation), `WriteGuard` → `WritePolicy.permit()`
   (`PROCESS_CONTROL`), `DeployGuard` → `Admitted.permits()` per written node (`DEPLOYMENT`) —
   main `application/DevelopmentGuard.java`, `application/WriteGuard.java`,
   `application/DeployGuard.java`, tests `DevelopmentGuardTest`, `WriteGuardTest`, `DeployGuardTest`
-- [ ] T043 [US2] `CliRunner.run(…, WritePermit)` (D-24): select and pin probe unlocked; inside
+- [X] T043 [US2] `CliRunner.run(…, WritePermit)` (D-24): select and pin probe unlocked; inside
   `WriteLock.handOff` re-select with the locked version (key or address differ → D-4 "changed
   during this call" text), launch guard with that version, `launch`; `execute` gets a start hook
   so the lock is left right after the process started and before waiting for its output; the
@@ -215,14 +215,14 @@ FR-017).
   nothing launched; version change requested while the process runs is not blocked after the
   start; key changed under the lock → `CLI_UNAVAILABLE`; reads (`run` without permit) unchanged —
   main `adapter/cli/CliRunner.java`, test `adapter/cli/CliRunnerWriteLockTest.java`
-- [ ] T044 [US2] `E2ePort.post(Message, WritePermit)` with `SoapE2eClient` and every E2E fake
+- [X] T044 [US2] `E2ePort.post(Message, WritePermit)` with `SoapE2eClient` and every E2E fake
   (`RunE2eTestToolTest`, `E2eTestServiceTest`, …) in the same red/green step; `E2eTestService`
   passes its policy's permit; `SoapE2eClient.post(message, permit)`: request built outside, handed to the
   HTTP client with `sendAsync` inside `handOff`, response awaited outside (timeout as today);
   refused → no request (WireMock: zero requests) — main `domain/port/E2ePort.java`,
   `adapter/soap/SoapE2eClient.java`, `application/E2eTestService.java`, test
   `adapter/soap/SoapE2eClientWriteLockTest.java`
-- [ ] T045 [US2] Port signatures `+ WritePermit` on `ImportPort.importArchive/importRepository`,
+- [X] T045 [US2] Port signatures `+ WritePermit` on `ImportPort.importArchive/importRepository`,
   `TagPort.tag`, `ProcessControlPort.restart/kill` (E2E in T044); every implementation in the
   same step (`RefusingPorts`, `StaleReportingPorts`, test fakes); adapters (`V81ImportAdapter`,
   `CliImportRunner`, `V81TagAdapter`, `CliTagRunner`, `V81ProcessControlAdapter`) call
@@ -233,7 +233,7 @@ FR-017).
   `CliRunner` and `SoapE2eClient` the `NodeVersions` lock; test fakes record the permit and the
   service tests assert node and capability — main `domain/port/*Port.java`, adapters, services,
   `Wiring.java`, tests `StaleReportingPortsTest`, the service and adapter tests
-- [ ] T046 [US2] Multi-step writes (contracts "Every write tool"): `deploy_release` with a version
+- [X] T046 [US2] Multi-step writes (contracts "Every write tool"): `deploy_release` with a version
   change between two node imports → that step fails with the refusal in its report, rollback
   refused → `ROLLBACK_FAILED` with the contract's warning (both versions, restore only on the
   admitted one), backup kept; `import_artifacts` with tag: tag refused after a version change →

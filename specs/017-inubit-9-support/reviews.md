@@ -232,3 +232,20 @@ installed client) — confirmed by the reviewer as not weakened.
 
 No blocking finding open. Full build after the fixes: 5190 tests, 0 failures, 0 errors, 51
 skipped.
+
+## Implementation — stage 5, T040–T046 (code-review, 2026-11-07)
+
+Implemented test-first. Full build before the review: 5275 tests, 0 failures, 0 errors, 51
+skipped. Deviations: `stale` refuses a hand-off only on `AUTO` nodes (pinned and line nodes
+ignore it, as the gate does; D-24 and data-model updated); the contract got the stale variant of
+the rollback warning; other rollback failures keep the 0.8.0 text. Existing tests changed only
+for the new permit parameters or gained permit assertions; harnesses run with the real lock.
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | SHOULD (near BLOCKING) | A call's own write failing with `UNEXPECTED_RESPONSE` marks the node stale through `StaleReportingPorts`; on `AUTO` the hand-off then refuses the same call's rollback without any version change (FR-009) | Accepted (own design) | Verified (`StaleReportingPorts.call` → `observer.stale`; `NodeVersions.handOff` treats stale `AUTO` as unknown). No blanket rollback exemption: a mark raised by a write port carries that write's permit (`staleAfterWrite`); `handOff` ignores a mark owned only by its own permit (identity), a foreign or mixed mark still refuses. Today's 8.1 import/tag adapters map protocol trouble to `IMPORT_FAILED`, so the case is reachable only for restart/kill (no rollback) — the fix is protective; covered by `OwnStaleMarkTest` (test wrapper below the real `StaleReportingPorts`), `NodeVersionStateStaleMarkTest`, new `WriteLockTest` cases; mutation check done |
+| 2 | NIT | A rollback refused partway said "was not sent" although earlier parts were re-imported | Accepted | `NodeDeployer.reimport` records sent parts; warning "was not completed …; it re-imported X before" vs. "was not sent"; both tested |
+
+Contract wording "in the step's report" corrected to the failure message (in `deploy_release` the
+node's failure message). No blocking finding open. Full build after the fixes: 5296 tests, 0
+failures, 0 errors, 51 skipped.

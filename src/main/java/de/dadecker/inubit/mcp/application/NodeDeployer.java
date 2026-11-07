@@ -15,6 +15,8 @@ import de.dadecker.inubit.mcp.domain.model.NodePlan.PlannedArtifact;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
+import de.dadecker.inubit.mcp.domain.model.WriteRefusedException;
 import de.dadecker.inubit.mcp.domain.port.ArchiveCodecPort;
 import de.dadecker.inubit.mcp.domain.port.AuditPort;
 import de.dadecker.inubit.mcp.domain.port.ImportArchivePort;
@@ -264,11 +266,20 @@ public final class NodeDeployer {
             return success(call, deployed, manifest, after.orElseThrow(), names, created,
                 inputs, warnings);
         }
-        State state = rollback(call, deployed, before, after, reports);
+        Reimported rolledBack = rollback(call, deployed, before, after, reports);
+        State state = rolledBack.state();
         updateManifest(manifest.with(state.name(), Map.of()), warnings);
         if (state == State.ROLLBACK_FAILED) {
-            warnings.add("The rollback of " + node + " failed; its state before the deployment"
-                + " is in the backup " + backupRef + " (restore_backup)");
+            warnings.add(rolledBack.refusal().map(refused -> "The rollback of " + node
+                + (rolledBack.reimported().isEmpty() ? " was not sent because INUBIT "
+                    + refused.change() : " was not completed because INUBIT " + refused.change()
+                    + "; it re-imported " + String.join(", ", rolledBack.reimported())
+                    + " before") + "; its state before the"
+                + " deployment is in the backup " + backupRef + ", taken on"
+                + " INUBIT " + refused.permit().admittedLine().text() + "; restore it with"
+                + " restore_backup only on INUBIT " + refused.permit().admittedLine().text())
+                .orElse("The rollback of " + node + " failed; its state before the deployment"
+                    + " is in the backup " + backupRef + " (restore_backup)"));
         }
         audit(call, withRollback(inputs, state), AuditOutcome.FAILED, failure.code() + " at "
             + failure.step() + ": " + failure.message() + "; " + state);
@@ -372,10 +383,11 @@ public final class NodeDeployer {
         ReleasePlanner.NodeState before) throws Failed {
         String owner = call.admitted().owner();
         ImportPort port = d.imports().apply(call.node());
+        WritePermit permit = call.admitted().permit(call.node());
         for (Step step : steps(call, deployed, before)) {
             if (step.archive().mode().isEmpty()) {
                 try {
-                    port.importRepository(step.archive().zip(), owner);
+                    port.importRepository(step.archive().zip(), owner, permit);
                 } catch (ToolErrorException e) {
                     throw new Failed(ErrorCode.IMPORT_FAILED, "import", "The repository import"
                         + " failed: " + e.error().code() + ": " + e.error().message());
@@ -385,7 +397,7 @@ public final class NodeDeployer {
             ImportProtocol protocol;
             try {
                 protocol = port.importArchive(step.archive().zip(), step.archive().mode().get(),
-                    owner);
+                    owner, permit);
             } catch (ToolErrorException e) {
                 throw new Failed(ErrorCode.IMPORT_FAILED, "import", e.error().code() + ": "
                     + e.error().message());
@@ -574,16 +586,29 @@ public final class NodeDeployer {
      * Re-imports the node's changed artifacts and repository files from the backup (the state
      * of the re-check) where they differ now, and verifies them.
      */
-    private State rollback(Call call, List<PlannedArtifact> deployed,
+    private Reimported rollback(Call call, List<PlannedArtifact> deployed,
         ReleasePlanner.NodeState before, Optional<ReleasePlanner.NodeState> afterImport,
         List<String> reports) {
         return reimport(call, deployed, before, afterImport, reports, "rollback",
             "rollback of deploy " + call.admitted().tag() + " " + call.auditId(), "Rollback of "
-                + call.node() + " from the backup of the re-check:").state();
+                + call.node() + " from the backup of the re-check:");
     }
 
-    /** The outcome of {@link #reimport} and the state its verification saw, if it ran. */
-    private record Reimported(State state, Optional<ReleasePlanner.NodeState> verified) {
+    /**
+     * The outcome of {@link #reimport}, the state its verification saw, if it ran, and the
+     * refusal of the write lock (feature 017, FR-018), if a re-import was not sent, with the
+     * names the re-imports sent before the refusal re-imported.
+     */
+    private record Reimported(State state, Optional<ReleasePlanner.NodeState> verified,
+        Optional<WriteRefusedException> refusal, List<String> reimported) {
+
+        Reimported {
+            reimported = List.copyOf(reimported);
+        }
+
+        Reimported(State state, Optional<ReleasePlanner.NodeState> verified) {
+            this(state, verified, Optional.empty(), List.of());
+        }
     }
 
     /**
@@ -595,6 +620,7 @@ public final class NodeDeployer {
         ReleasePlanner.NodeState before, Optional<ReleasePlanner.NodeState> afterImport,
         List<String> reports, String kind, String reason, String heading) {
         NodeId node = call.node();
+        List<String> reimported = new ArrayList<>();
         try {
             ReleasePlanner.NodeState now = afterImport.isPresent() ? afterImport.get()
                 : d.planner().nodeState(call.admitted(), call.release(), node);
@@ -604,12 +630,14 @@ public final class NodeDeployer {
                 return new Reimported(State.ROLLED_BACK, Optional.of(now));
             }
             ImportPort port = d.imports().apply(node);
+            WritePermit permit = call.admitted().permit(node);
             List<String> repository = changed.stream().filter(a -> a.kind()
                 == Kind.REPOSITORY_FILE).map(PlannedArtifact::name).toList();
             if (!repository.isEmpty()) {
                 port.importRepository(d.releases().repositoryArchive(List.copyOf(
                     before.repositoryExports().values()), call.admitted().owner(), repository),
-                    call.admitted().owner());
+                    call.admitted().owner(), permit);
+                reimported.addAll(repository);
             }
             SortedMap<String, byte[]> backup = new TreeMap<>(before.rendered());
             List<PlannedArtifact> modules = changed.stream().filter(a -> a.kind()
@@ -621,12 +649,14 @@ public final class NodeDeployer {
             if (!modules.isEmpty()) {
                 port.importArchive(d.archives().assemble(build(call, backup, now.raws(),
                     Optional.empty(), List.of(), modules, reason, false)).zip(),
-                    ImportPort.Mode.MODULE, call.admitted().owner());
+                    ImportPort.Mode.MODULE, call.admitted().owner(), permit);
+                modules.forEach(module -> reimported.add(module.name()));
             }
             for (Map.Entry<String, List<PlannedArtifact>> group : workflows.entrySet()) {
                 port.importArchive(d.archives().assemble(build(call, backup, now.raws(),
                     Optional.of(group.getKey()), group.getValue(), List.of(), reason, false))
-                    .zip(), ImportPort.Mode.WORKFLOW, call.admitted().owner());
+                    .zip(), ImportPort.Mode.WORKFLOW, call.admitted().owner(), permit);
+                group.getValue().forEach(workflow -> reimported.add(workflow.name()));
             }
             ReleasePlanner.NodeState restored = d.planner().nodeState(call.admitted(),
                 call.release(), node);
@@ -640,6 +670,10 @@ public final class NodeDeployer {
             reports.add(report(call, kind, lines));
             return new Reimported(differences.isEmpty() ? State.ROLLED_BACK
                 : State.ROLLBACK_FAILED, Optional.of(restored));
+        } catch (WriteRefusedException e) {
+            LOG.warn("The {} on {} was refused: INUBIT {}", kind, node, e.change());
+            return new Reimported(State.ROLLBACK_FAILED, Optional.empty(), Optional.of(e),
+                reimported);
         } catch (ToolErrorException e) {
             LOG.warn("The {} on {} failed: {}", kind, node, e.error().code());
             return new Reimported(State.ROLLBACK_FAILED, Optional.empty());
@@ -719,23 +753,27 @@ public final class NodeDeployer {
      * {@code exports}) on its node: the node is read like a deployment reads it (the backup's
      * diagram groups, modules and repository files); every artifact to re-import must still be
      * in the state the deployment left ({@code CONFLICT} otherwise, also for a workflow in edit
-     * mode; {@code PRECONDITION_FAILED} if that state is not recorded).
+     * mode; {@code PRECONDITION_FAILED} if that state is not recorded). The re-imports of the
+     * restore are handed off with {@code permit}, the restore call's permit for the backup's
+     * node (feature 017, research D-24).
      *
      * @throws ToolErrorException the refusals above and the export failures of the node
+     * @throws IllegalArgumentException if {@code permit} is for another node
      */
     public RestorePlan restorePlan(BackupStore.Manifest manifest, List<byte[]> exports,
-        UUID auditId) {
+        UUID auditId, WritePermit permit) {
         if (manifest.kind() != BackupStore.Manifest.Kind.DEPLOYMENT) {
             throw new IllegalArgumentException("Not a deployment backup");
         }
         NodeId node = manifest.node();
+        permit.requireFor(node);
         GroupId group = node.group();
         String owner = manifest.owner();
         String tag = manifest.tag().orElse("");
         DeployGuard.Admitted admitted = new DeployGuard.Admitted(group, new GroupId(
             manifest.source().orElse(group.value())),
             de.dadecker.inubit.mcp.domain.model.DeployMode.EXECUTE, List.of(), List.of(node),
-            List.of(), owner, tag, List.of());
+            List.of(), owner, tag, List.of(), Map.of(node, permit));
         List<byte[]> artifactExports = new ArrayList<>();
         List<byte[]> repositoryExports = new ArrayList<>();
         exports.forEach(zip -> (d.releases().repositoryExport(zip) ? repositoryExports
@@ -1018,7 +1056,8 @@ public final class NodeDeployer {
         DiagramGroupTagger.Result result;
         try {
             result = d.tagger().tag(node, d.tags().apply(node),
-                call.admitted().owner(), List.copyOf(groups), tag, call.auditId());
+                call.admitted().owner(), List.copyOf(groups), tag, call.auditId(),
+                call.admitted().permit(node));
         } catch (RuntimeException e) {
             LOG.error("The tag on {} failed unexpectedly", node, e);
             result = new DiagramGroupTagger.Result(false, 0, 0, Optional.of(

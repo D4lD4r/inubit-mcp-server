@@ -75,11 +75,23 @@ Stale or unknown current version: message `INUBIT on test/node1 may run another 
   guard (above) checks the client's range for the new version.
 - Multi-step writes: in `deploy_release`, `import_artifacts` with tag and `restore_backup`, a
   refused step fails like a StartCLI error of that step (existing step failure, with this error in
-  the step's report); steps already sent stay sent. `deploy_release`'s rollback is refused as well
+  the failure message of the call; in `deploy_release` in the node's failure message); steps
+  already sent stay sent. `deploy_release`'s rollback is refused as well
   (`ROLLBACK_FAILED` as today); instead of the 0.8.0 warning "… is in the backup <ref>
   (restore_backup)" its warning reads `The rollback of test/node1 was not sent because INUBIT
   changed from 8.1.17 to 9.0.7 during this call; its state before the deployment is in the backup
-  <ref>, taken on INUBIT 8.1; restore it with restore_backup only on INUBIT 8.1`.
+  <ref>, taken on INUBIT 8.1; restore it with restore_backup only on INUBIT 8.1` (stale or
+  unknown current version: `… was not sent because INUBIT may run another version than 8.1.17
+  since this call was admitted; its state …`). If a re-import of the rollback was sent before the
+  refusal, it reads `The rollback of test/node1 was not completed because INUBIT changed from
+  8.1.17 to 9.0.7 during this call; it re-imported /Root/jdoe/xsd/release.xsl, Module-A before;
+  its state …` (the names of the repository files, modules and workflows re-imported). Other
+  rollback failures keep the 0.8.0 warning.
+- A write's own unexpected response (`UNEXPECTED_RESPONSE` of an import, tag, restart or kill
+  handed off with this call's permit) marks the node as possibly changed for every other call, but
+  does not refuse the further steps and the rollback of the same call on an `AUTO` node: they are
+  judged on the version known before the mark. A mark from any other source (a read, another
+  call) refuses as above; the next write call re-detects as in 0.8.0.
 - Reads are not affected.
 
 ## `get_health`

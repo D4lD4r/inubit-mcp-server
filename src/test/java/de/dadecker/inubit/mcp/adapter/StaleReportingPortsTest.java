@@ -2,10 +2,12 @@ package de.dadecker.inubit.mcp.adapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
@@ -15,6 +17,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
+import de.dadecker.inubit.mcp.testing.TestPermits;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -26,11 +29,13 @@ import org.junit.jupiter.api.Test;
 /**
  * Feature 009 T007 (research D-10): every method of every port the factory hands out reports
  * {@code stale(node)} for an {@code UNEXPECTED_RESPONSE} and rethrows the same exception; other
- * failures and results pass through unreported.
+ * failures and results pass through unreported. Feature 017 (research D-24): a write method
+ * reports {@code staleAfterWrite(node, permit)} with its own permit instead.
  */
 class StaleReportingPortsTest {
 
     private static final NodeId NODE = NodeId.parse("dev/node1");
+    private static final WritePermit PERMIT = TestPermits.of(NODE, Capability.DEVELOPMENT_WRITE);
 
     private final RecordingVersionObserver versions = new RecordingVersionObserver();
     private final StaleReportingPorts stale = new StaleReportingPorts(NODE, versions);
@@ -80,7 +85,8 @@ class StaleReportingPortsTest {
         Object[] args = new Object[method.getParameterCount()];
         Class<?>[] types = method.getParameterTypes();
         for (int i = 0; i < args.length; i++) {
-            args[i] = types[i] == int.class ? 0 : types[i] == boolean.class ? false : null;
+            args[i] = types[i] == int.class ? 0 : types[i] == boolean.class ? false
+                : types[i] == WritePermit.class ? PERMIT : null;
         }
         try {
             method.invoke(port, args);
@@ -99,6 +105,7 @@ class StaleReportingPortsTest {
     void everyPortMethodReportsAnUnexpectedResponseAsStaleAndRethrowsIt() throws Exception {
         ToolErrorException unexpected = failure(ErrorCode.UNEXPECTED_RESPONSE);
         int methods = 0;
+        int writes = 0;
         for (Object[] entry : wrapped(unexpected)) {
             for (Method method : ((Class<?>) entry[0]).getMethods()) {
                 if (method.isDefault() || Modifier.isStatic(
@@ -107,11 +114,18 @@ class StaleReportingPortsTest {
                 }
                 assertThat(thrownBy(method, entry[1])).as(method.toString()).isSameAs(unexpected);
                 methods++;
+                boolean write = List.of(method.getParameterTypes()).contains(WritePermit.class);
+                writes += write ? 1 : 0;
                 assertThat(versions.events()).as(method.toString()).hasSize(methods)
-                    .allMatch("stale dev/node1"::equals);
+                    .last().isEqualTo(write ? "staleAfterWrite dev/node1" : "stale dev/node1");
             }
         }
         assertThat(methods).isGreaterThan(20);
+        // feature 017 (review of stage 5, research D-24): the mark of a write's own response
+        // carries that write's permit object
+        assertThat(writes).as("restart, kill, importArchive, importRepository, tag").isEqualTo(5);
+        assertThat(versions.staleWritePermits()).hasSize(5).allSatisfy(permit ->
+            assertThat(permit).isSameAs(PERMIT));
     }
 
     @Test
@@ -128,5 +142,58 @@ class StaleReportingPortsTest {
             }
         }
         assertThat(versions.events()).isEmpty();
+    }
+
+    @Test
+    void everyWriteMethodHandsTheSamePermitToThePort() throws Exception {
+        // feature 017 (T045, FR-018, research D-24): the wrapper passes the permit unchanged
+        WritePermit permit = TestPermits.of(NODE, Capability.DEVELOPMENT_WRITE);
+        List<Object> received = new ArrayList<>();
+        ToolErrorException done = failure(ErrorCode.NOT_FOUND);
+        int writes = 0;
+        for (Class<?> type : List.of(ProcessControlPort.class, ImportPort.class, TagPort.class)) {
+            PortSet ports = stale.ports(recording(type, received, done));
+            Object port = type == ProcessControlPort.class ? ports.processControl()
+                : type == ImportPort.class ? ports.imports() : ports.tags();
+            for (Method method : type.getMethods()) {
+                int index = List.of(method.getParameterTypes()).indexOf(WritePermit.class);
+                if (index < 0) {
+                    continue;
+                }
+                Object[] args = new Object[method.getParameterCount()];
+                args[index] = permit;
+                received.clear();
+                try {
+                    method.invoke(port, args);
+                } catch (InvocationTargetException e) {
+                    assertThat(e.getCause()).isSameAs(done);
+                }
+                assertThat(received).as(method.toString()).containsExactly(permit);
+                writes++;
+            }
+        }
+        assertThat(writes).as("restart, kill, importArchive, importRepository, tag").isEqualTo(5);
+        assertThat(versions.events()).isEmpty();
+    }
+
+    /** A port set whose {@code type} port records every write permit it gets and throws. */
+    private static <T> PortSet recording(Class<T> type, List<Object> received,
+        RuntimeException failure) {
+        T port = type.cast(Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type},
+            (proxy, method, args) -> {
+                for (Object arg : args == null ? new Object[0] : args) {
+                    if (arg instanceof WritePermit) {
+                        received.add(arg);
+                    }
+                }
+                throw failure;
+            }));
+        PortSet others = throwingPorts(failure);
+        return new PortSet(others.processes(), others.logs(), others.inventory(),
+            type == ProcessControlPort.class ? (ProcessControlPort) port
+                : others.processControl(),
+            others.artifacts(),
+            type == ImportPort.class ? (ImportPort) port : others.imports(),
+            type == TagPort.class ? (TagPort) port : others.tags());
     }
 }

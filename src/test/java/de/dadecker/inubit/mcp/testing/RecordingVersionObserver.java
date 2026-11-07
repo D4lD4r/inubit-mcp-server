@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.testing;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import java.util.List;
 import java.util.Optional;
@@ -11,11 +12,12 @@ import java.util.concurrent.CopyOnWriteArrayList;
 /**
  * Records every report in order, e.g. {@code detected dev/node1 8.1.17},
  * {@code detectionFailed dev/node1 AUTH_FAILED} (with {@code endpointMissing} after an HTTP 404),
- * {@code stale dev/node1}; knows no version.
+ * {@code stale dev/node1}, {@code staleAfterWrite dev/node1}; knows no version.
  */
 public final class RecordingVersionObserver implements VersionObserver {
 
     private final List<String> events = new CopyOnWriteArrayList<>();
+    private final List<WritePermit> staleWritePermits = new CopyOnWriteArrayList<>();
 
     public List<String> events() {
         return List.copyOf(events);
@@ -40,6 +42,21 @@ public final class RecordingVersionObserver implements VersionObserver {
     @Override
     public void stale(NodeId node) {
         events.add("stale " + node);
+    }
+
+    /**
+     * Records {@code staleAfterWrite dev/node1}; the permit itself is kept in
+     * {@link #staleWritePermits()}.
+     */
+    @Override
+    public void staleAfterWrite(NodeId node, WritePermit permit) {
+        events.add("staleAfterWrite " + node);
+        staleWritePermits.add(permit);
+    }
+
+    /** The permits of every {@code staleAfterWrite}, in order. */
+    public List<WritePermit> staleWritePermits() {
+        return List.copyOf(staleWritePermits);
     }
 
     @Override

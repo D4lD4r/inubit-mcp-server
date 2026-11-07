@@ -33,6 +33,7 @@ import de.dadecker.inubit.mcp.config.ParameterNames;
 import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.SecretSourceConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -64,6 +65,7 @@ import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
+import de.dadecker.inubit.mcp.testing.TestPermits;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.InputStream;
@@ -507,7 +509,8 @@ class AdapterGatewayFactoryTest {
                 new CliResources("acme", PrivateFiles.forHost())),
             versions, PortSetRegistry.v81Default())) {
 
-            assertThatThrownBy(() -> factory.processControl(DEV).kill("1"))
+            assertThatThrownBy(() -> factory.processControl(DEV).kill("1",
+                TestPermits.of(DEV, Capability.PROCESS_CONTROL)))
                 .isInstanceOfSatisfying(ToolErrorException.class, e -> {
                     assertThat(e.error().code()).isEqualTo(ErrorCode.INTERNAL);
                     assertThat(e.error().nextStep()).contains("(bin\\startcli.bat -v)");

@@ -1,18 +1,22 @@
 package de.dadecker.inubit.mcp.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.TestClientSelection;
@@ -93,6 +97,25 @@ class DeployGuardTest {
         assertThat(guard().admit(new DeployGuard.Request("prod", "REL-1", Optional.of("OWNERS"),
             Optional.empty(), Optional.empty())).owner()).isEqualTo("OWNERS");
         assertThat(audit).isEmpty();
+    }
+
+    @Test
+    void everyJudgedNodeGetsADeploymentPermitOfItsAdmittedVersion() {
+        // feature 017, T042 (FR-018, research D-24)
+        DeployGuard.Admitted admitted = guard().admit(new DeployGuard.Request("int", "REL-1",
+            Optional.empty(), Optional.empty(), Optional.empty()));
+
+        InubitVersion line = InubitVersion.parse("8.1").orElseThrow();
+        assertThat(admitted.permits()).containsOnlyKeys(NodeId.parse("dev/node1"),
+            NodeId.parse("dev/node2"), NodeId.parse("int/node1"), NodeId.parse("int/node2"));
+        assertThat(admitted.permit(NodeId.parse("int/node2"))).isEqualTo(new WritePermit(
+            NodeId.parse("int/node2"), Capability.DEPLOYMENT, line));
+        assertThat(admitted.permits().values()).allSatisfy(permit -> {
+            assertThat(permit.capability()).isEqualTo(Capability.DEPLOYMENT);
+            assertThat(permit.admitted()).isEqualTo(line);
+        });
+        assertThatThrownBy(() -> admitted.permit(NodeId.parse("prod/node1")))
+            .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

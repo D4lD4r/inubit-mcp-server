@@ -273,7 +273,8 @@ public final class E2eTestService {
         E2ePort.Exchange exchange;
         try {
             exchange = port.post(new E2ePort.Message(request.path(), payload,
-                request.soapAction(), testId, Duration.ofSeconds(request.timeoutSeconds())));
+                request.soapAction(), testId, Duration.ofSeconds(request.timeoutSeconds())),
+                call.policy.permit());
         } catch (ToolErrorException e) {
             // review m-f: a connection can break after the request reached the endpoint
             ToolError error = e.error();

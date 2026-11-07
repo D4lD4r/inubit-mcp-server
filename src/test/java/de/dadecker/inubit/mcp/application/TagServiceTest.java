@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
@@ -148,6 +149,17 @@ class TagServiceTest {
             .containsEntry("scope", "diagram groups GRP-01, GRP-02")
             .containsEntry("reason", "Tested state").containsEntry("owner", "jdoe")
             .doesNotContainKey("ownerKind").doesNotContainKey("removedAgain");
+    }
+
+    @Test
+    void everyTagIsSentWithTheDevelopmentPermitOfTheCall() {
+        // feature 017 (T045, FR-018, research D-24)
+        completed(service().tag(request(List.of("GRP-01", "GRP-02"))));
+
+        assertThat(port.permits).hasSize(2).allSatisfy(permit -> {
+            assertThat(permit.node()).isEqualTo(DEV);
+            assertThat(permit.capability()).isEqualTo(Capability.DEVELOPMENT_WRITE);
+        });
     }
 
     @Test

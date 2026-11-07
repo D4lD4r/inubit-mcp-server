@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.port.ClientCheckLookup;
+import de.dadecker.inubit.mcp.domain.port.WriteLock;
 import java.nio.charset.Charset;
 import java.util.Map;
 import java.util.Optional;
@@ -63,6 +64,17 @@ public final class TestCliRunners {
         return new CliRunner(launcher, parentEnvironment, windows,
             windows ? new WindowsSystem() : new PosixSystem(), ProcessContainment.Bound::new,
             resources, new HandshakeStartCliPinProbe(), versions, checks);
+    }
+
+    /** Feature 017: with the write lock writes are handed off under (research D-24). */
+    public static CliRunner forHost(ProcessLauncher launcher,
+        Map<String, String> parentEnvironment, CliResources resources,
+        Function<NodeId, Optional<InubitVersion>> versions, ClientCheckLookup checks,
+        WriteLock writeLock) {
+        boolean windows = Platform.windows();
+        return new CliRunner(launcher, parentEnvironment, windows,
+            windows ? new WindowsSystem() : new PosixSystem(), ProcessContainment.Bound::new,
+            resources, new HandshakeStartCliPinProbe(), versions, checks, writeLock);
     }
 
     /** As above, with the StartCLI pin probe of feature 014 (research R-15). */

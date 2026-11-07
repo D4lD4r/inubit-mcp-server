@@ -14,6 +14,7 @@ import de.dadecker.inubit.mcp.domain.model.Target;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.AuditPort;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -89,10 +90,12 @@ public final class DeployGuard {
      * An admitted call: the target, its link of the chain, the nodes of both groups.
      *
      * @param warnings the version gate's admission warnings of the nodes (feature 009)
+     * @param permits  feature 017 (FR-018, research D-24): the {@code DEPLOYMENT} permit of every
+     *                 judged node, source and target, on its admitted version
      */
     public record Admitted(GroupId target, GroupId source, DeployMode mode,
         List<StageChain.Exclusion> exclude, List<NodeId> targetNodes, List<NodeId> sourceNodes,
-        String owner, String tag, List<String> warnings) {
+        String owner, String tag, List<String> warnings, Map<NodeId, WritePermit> permits) {
         public Admitted {
             Objects.requireNonNull(target, "target");
             Objects.requireNonNull(source, "source");
@@ -103,7 +106,35 @@ public final class DeployGuard {
             Objects.requireNonNull(owner, "owner");
             Objects.requireNonNull(tag, "tag");
             warnings = List.copyOf(warnings);
+            permits = Map.copyOf(permits);
         }
+
+        /** An admitted call without permits. */
+        public Admitted(GroupId target, GroupId source, DeployMode mode,
+            List<StageChain.Exclusion> exclude, List<NodeId> targetNodes,
+            List<NodeId> sourceNodes, String owner, String tag, List<String> warnings) {
+            this(target, source, mode, exclude, targetNodes, sourceNodes, owner, tag, warnings,
+                Map.of());
+        }
+
+        /**
+         * The permit of {@code node}.
+         *
+         * @throws IllegalArgumentException for a node this call was not admitted on
+         *     (programming error)
+         */
+        public WritePermit permit(NodeId node) {
+            WritePermit permit = permits.get(node);
+            if (permit == null) {
+                throw new IllegalArgumentException("No write permit for " + node + " in the"
+                    + " deployment into " + target);
+            }
+            return permit;
+        }
+    }
+
+    /** The judgement of the nodes: the warnings and the permits. */
+    private record Judged(List<String> warnings, Map<NodeId, WritePermit> permits) {
     }
 
     private final StageChain chain;
@@ -184,8 +215,9 @@ public final class DeployGuard {
         }
         List<NodeId> targetNodes = nodes.resolve(target.value());
         List<NodeId> sourceNodes = nodes.resolve(link.source().value());
+        Judged judged = versions(link.source(), sourceNodes, target, targetNodes);
         return new Admitted(target, link.source(), link.mode(), link.exclude(), targetNodes,
-            sourceNodes, owner, tag, versions(link.source(), sourceNodes, target, targetNodes));
+            sourceNodes, owner, tag, judged.warnings(), judged.permits());
     }
 
     /**
@@ -193,9 +225,9 @@ public final class DeployGuard {
      * gate refused a node, a node's version is unknown ({@code V9_X} included) or the nodes
      * differ in major.minor.
      *
-     * @return the admission warnings of every node
+     * @return the admission warnings and the permits of every node
      */
-    private List<String> versions(GroupId source, List<NodeId> sourceNodes, GroupId target,
+    private Judged versions(GroupId source, List<NodeId> sourceNodes, GroupId target,
         List<NodeId> targetNodes) {
         Map<NodeId, VersionGate.Evaluation> evaluations = new LinkedHashMap<>();
         for (List<NodeId> group : List.of(sourceNodes, targetNodes)) {
@@ -221,7 +253,10 @@ public final class DeployGuard {
             warnings.addAll(evaluation.warnings());
         });
         if (refused.isEmpty() && unknown.isEmpty() && minors.size() <= 1) {
-            return warnings;
+            Map<NodeId, WritePermit> permits = new LinkedHashMap<>();
+            evaluations.forEach((node, evaluation) -> permits.put(node, new WritePermit(node,
+                Capability.DEPLOYMENT, evaluation.version().orElseThrow())));
+            return new Judged(warnings, permits);
         }
         Terminology terms = nodes.terms();
         List<String> problems = new ArrayList<>();

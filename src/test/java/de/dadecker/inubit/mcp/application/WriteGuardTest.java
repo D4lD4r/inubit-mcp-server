@@ -1,13 +1,17 @@
 package de.dadecker.inubit.mcp.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProcessAction;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy.Confirmation;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
@@ -16,6 +20,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /** T101: one test per branch of the write decision flow (contracts/mcp-tools.md §7–8). */
 class WriteGuardTest {
@@ -56,6 +62,20 @@ class WriteGuardTest {
 
         assertThat(admitted.node()).isEqualTo(DEV);
         assertThat(gateways.calls).containsExactly("check dev/node1");
+    }
+
+    @ParameterizedTest
+    @EnumSource(ProcessAction.class)
+    void theAdmittedPolicyCarriesAProcessControlPermitOfTheAdmittedVersion(
+        ProcessAction action) {
+        // feature 017, T042 (FR-018, research D-24)
+        WritePolicy admitted = guard().admit("dev/node1", action);
+
+        assertThat(admitted.permit()).isEqualTo(new WritePermit(DEV, Capability.PROCESS_CONTROL,
+            InubitVersion.parse("8.1").orElseThrow()));
+        assertThat(admitted.withWarnings(List.of("w")).permit()).isEqualTo(admitted.permit());
+        assertThatThrownBy(() -> policy(DEV, false, true, false).permit())
+            .isInstanceOf(IllegalStateException.class);
     }
 
     @Test

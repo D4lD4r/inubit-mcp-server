@@ -41,6 +41,7 @@ import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
@@ -311,13 +312,13 @@ class CapabilityExtensionTest {
             }
 
             @Override
-            public String restart(String processId) {
+            public String restart(String processId, WritePermit permit) {
                 calls79.add("restart " + processId);
                 return "restarted by the 7.9 port set";
             }
 
             @Override
-            public String kill(String processId) {
+            public String kill(String processId, WritePermit permit) {
                 throw new AssertionError("kill is not part of this test");
             }
         };

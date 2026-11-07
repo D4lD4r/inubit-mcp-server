@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.DeploymentPreview;
@@ -155,6 +156,32 @@ class RestoreDeploymentTest extends DeployExecution {
         assertThat(restoreAudit()).allMatch(r -> r.node().equals("int/node1"));
         assertThat(harness.backups.find(outcome.backupRef().get())).get().satisfies(own ->
             assertThat(own.outcome()).isEqualTo("EXECUTED"));
+        harness.verifyComplete();
+    }
+
+    @Test
+    void theRestoreOfADeploymentIsHandedOffWithTheDeploymentPermitOfItsNode() {
+        // feature 017 (T045, FR-018, research D-24): restore_backup of a deployment backup
+        harness(false);
+        String backupRef = deploy(true).nodes().get(0).backupRef().orElseThrow();
+        int deployed = harness.writeLock.permits().size();
+        nodeExports(DeployHarness.INT1);
+        WritePreview preview = ((ImportService.Response.WriteChallenge) harness.importService()
+            .restore(restore(backupRef, Optional.empty()))).preview();
+        nodeExports(DeployHarness.INT1);
+        harness.importRepositoryApplied(DeployHarness.INT1)
+            .importApplied(DeployHarness.INT1, MODULE_IMPORT)
+            .importApplied(DeployHarness.INT1, WORKFLOW);
+        nodeExports(DeployHarness.INT1);
+
+        harness.importService().restore(restore(backupRef,
+            Optional.of(preview.confirmationCode())));
+
+        assertThat(harness.writeLock.permits().subList(deployed,
+            harness.writeLock.permits().size())).hasSize(3).allSatisfy(permit -> {
+                assertThat(permit.node()).isEqualTo(DeployHarness.INT1);
+                assertThat(permit.capability()).isEqualTo(Capability.DEPLOYMENT);
+            });
         harness.verifyComplete();
     }
 
