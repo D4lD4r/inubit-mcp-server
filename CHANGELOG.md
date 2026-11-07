@@ -161,6 +161,9 @@ documentation and has not yet been checked against a live INUBIT 9.0 node.
     warning; examples of an unsupported version now use INUBIT 9.1.
   - The `versionLine` error message lists `V9_0` among the accepted values.
   - `list_nodes.cliAvailable` refers to the client currently chosen for the node.
+  - The next step of the `CLI_UNAVAILABLE` refusal "No JDK for StartCLI on <node>" names both
+    JDKs on every node: "Set cli.javaHome to the JDK the INUBIT client needs (8.1: JDK 17, 9.0:
+    JDK 21)".
 
 ### Removed
 

@@ -307,3 +307,22 @@ The reviewer checked the open points against the code:
 | 3 | SHOULD | CHANGELOG: `CLI_UNAVAILABLE` "for a missing or unsuitable client" names the version and the `cliClients` hint; only the missing-client text does (`CliRunner.noHome`), other causes keep their texts | Accepted | Verified (`entryHint()` used only in `noHome` and the range refusal); "missing client" |
 | 4 | NIT | The new FR-018 row sat in the table headed "`message` after `<tool>: `" | Accepted | Row notes "no `<tool>: ` prefix" |
 | 5 | NIT | "marks the version as possibly changed" refuses only on `AUTO` nodes (`NodeVersions.handOff`); pinned nodes ignore the mark | Accepted | Verified; "on an `AUTO` node" added in setup.md, tools.md (2×) and CHANGELOG. The contract (`mcp-tools-delta.md`) now also says "on an `AUTO` node" |
+
+## Final review — `git diff origin/0.8.0...HEAD` (code-review, 2026-11-07)
+
+Full build before the review: 5497 tests, 0 failures, 0 errors, 52 skipped; Python tool tests
+411 OK. The reviewer focused on how the stages fit together and confirmed:
+- every write, rollbacks included, carries a `WritePermit`, and no permit-less write overload is
+  left;
+- no `update` and no nested `handOff` is called under the lock;
+- the lock covers only the process start or `sendAsync` and is released on every exception path;
+- there is no credential in any new text, in `list_nodes.startCli`, in `--check-config` or in a
+  fixture;
+- Windows `.bat`/UNC paths are handled for `cliClients` entries;
+- the docs match the code.
+
+| # | Severity | Finding | Decision | Reason |
+|---|----------|---------|----------|--------|
+| 1 | NIT | The next step of the no-JDK `CLI_UNAVAILABLE` now names "8.1: JDK 17, 9.0: JDK 21" on every node, also 8.1 without `cliClients` (decided in T011, stages 2–3), but `[Unreleased]` did not list it (FR-009) | Accepted | Verified (`CliRunner.launchTarget`); CHANGELOG entry added |
+
+No blocking finding open.

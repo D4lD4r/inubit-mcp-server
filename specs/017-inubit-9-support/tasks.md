@@ -375,7 +375,7 @@ code-review phase 5.
   `0.8.0` branch (017 ships in 0.8.0), with "INUBIT 9.0 not yet checked against a live node",
   incl. the fix "a write is no longer
   sent after a parallel call found another INUBIT version" (also 8.1 → 9.0); `pom.xml` version unchanged (D-23)
-- [ ] T039 Full verification (mvn + Python), quickstart offline table checked row by row and the
+- [X] T039 Full verification (mvn + Python), quickstart offline table checked row by row and the
   validation record filled in `specs/017-inubit-9-support/quickstart.md`; final code-review over
   `git diff origin/0.8.0...HEAD`; findings in `reviews.md`
 
