@@ -20,3 +20,4 @@ and is not a baseline failure. It is recorded here in case it comes back.
 ## Carried over to later tasks
 
 - From T006 review: a present but blank partner `Id` (`Shown("")`) currently yields a key; T025 (`PartnerComparison`) must decide explicitly whether a blank `Id` counts as absent (FR-013 fallback) or matches.
+- From T007 review: `PartnerQuery` does not apply defaults; T022 must test that the tool applies offset 0, limit 20 (`PartnerQuery.DEFAULT_LIMIT`) and refresh false when they are omitted.

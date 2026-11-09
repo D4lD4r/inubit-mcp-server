@@ -72,7 +72,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
   (empty when `Id` is absent or masked; the both-sides fallback belongs to `PartnerComparison`),
   `SystemDiagramPartners(DiagramRef diagram, List<CommunicationCloud> clouds)` — main
   `domain/model/partner/*.java`, test `domain/model/partner/CommunicationCloudTest.java`
-- [ ] T007 [P] `PartnerQuery` with validation (FR-002): `target` required; `compareWith` equal to
+- [X] T007 [P] `PartnerQuery` with validation (FR-002): `target` required; `compareWith` equal to
   or overlapping `target` (same id, or a stage and one of its servers) → `INVALID_INPUT`; `owner`
   `^[A-Za-z0-9_.][A-Za-z0-9_.\- ]{0,199}$` (as `export_archives`); `search` 1–200 code points, no
   ISO control characters, letters with diacritics, `&`, `/` allowed; `systemDiagram`, `workflow`
