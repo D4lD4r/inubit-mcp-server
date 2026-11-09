@@ -11,11 +11,11 @@ Prerequisites: a non-production stage listed in `RECORD_ALLOWED_GROUPS`, a syste
 configured owner that has a Partner Management, and the diagram group it lives in.
 
 ```bash
-tools/record-fixtures.sh <stage> node1 rest_model_export_systemdiagram
+tools/record-fixtures.sh <stage> node1 model_export_systemdiagram
 ```
 
 ```bash
-tools/record-fixtures.sh <stage> node1 cli_export_systemdiagram
+tools/record-fixtures.sh <stage> node1 export_systemdiagram
 ```
 
 Expected: two neutralized fixtures under `src/test/resources/fixtures/v8_1/{rest,cli}/`; no real

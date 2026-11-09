@@ -164,7 +164,7 @@ src/test/java/de/dadecker/inubit/mcp/
 └── security/PartnerSecretLeakTest.java
 
 src/test/resources/fixtures/v8_1/{rest,cli}/…systemdiagram…   # T-record, neutralized
-tools/record-fixtures.sh, tools/record-fixtures.ps1           # + the two cases
+tools/record-fixtures.sh, tools/anonymize.py                 # + the two cases, partner neutralization (.ps1 has no REST cases)
 
 docs/tools.md (new section, capability table, "eighteen"), README.md, SECURITY.md, CHANGELOG.md,
 docs/live-tests.md (neutralized live check), docs/backlog.md (REST/CLI fallback if relevant)

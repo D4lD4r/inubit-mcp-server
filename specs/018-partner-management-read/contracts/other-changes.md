@@ -47,10 +47,13 @@ No new key. `inventory.owner` and `inventory.cacheTtl` are reused; `resultLimits
 
 ## Record scripts
 
-`tools/record-fixtures.sh` / `.ps1` gain two read-only cases (D-1):
-`rest_model_export_systemdiagram <name>` and `cli_export_systemdiagram <owner> <diagram group>`;
-the anonymizer replaces owner, diagram, group, workflow, partner and host names with the synthetic
-lists before anything is written to `src/test/resources`, and replaces every secret value
+`tools/record-fixtures.sh` gains two read-only 8.1 cases (D-1; `.ps1` has no REST cases and stays):
+`model_export_systemdiagram` (`RECORD_SAMPLE_SYSTEMDIAGRAM`) and `export_systemdiagram` (`RECORD_OWNER`, `RECORD_SAMPLE_SYSTEMDIAGRAM_GROUP`); `tools/anonymize.py` neutralizes every `PartnerManagementSettings` subtree (always on, `--partner-limit 5`): partner Ids and names, hosts, logins, workflow
+references and every other non-harmless value become synthetic placeholders, and every secret value
 (`type="Password"`, `encrypted="true"`, key material, secret-named settings) with a synthetic
 value of the same form (`AES-` + synthetic base64 for AES values), keeping which values were
-equal. No recorded ciphertext enters the repository.
+equal. No recorded ciphertext enters the repository. Diagram, group and workflow names outside that
+subtree are replaced afterwards like for every fixture (`synthesize_names.py`, `neutralize.py` with
+the local maps); because `synthesize_names.py` treats `Workflow-\d{4}` as already synthetic, the
+workflow references inside and outside the subtree are checked by hand before the fixtures are
+committed.

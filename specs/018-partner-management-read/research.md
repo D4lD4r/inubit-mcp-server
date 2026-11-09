@@ -48,8 +48,8 @@ use ACME, `*.example.test` and `Workflow-0001`.
 - **Decision**: The channel is decided by a recording made in the first implementation step
   (T-record, see [quickstart.md](quickstart.md) §1), not by assumption. Both responses are
   recorded from a non-production stage with `tools/record-fixtures.sh` and neutralized:
-  - `rest_model_export_systemdiagram`: `GET /ibis/rest/model/export/<system diagram>`;
-  - `cli_export_systemdiagram`: StartCLI `export --exportWorkflowType systemdiagram` of the
+  - `model_export_systemdiagram`: `GET /ibis/rest/model/export/<system diagram>`;
+  - `export_systemdiagram`: StartCLI `export --exportWorkflowType systemdiagram` of the
     diagram group of that system diagram.
   Rule (mechanical, recorded in this file when applied): if the REST ZIP's `workflow/workflow.xml`
   carries `PartnerManagementSettings` and the masked model parsed from it equals the masked model
