@@ -48,7 +48,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
 
 ### Domain types (data-model.md)
 
-- [ ] T004 [P] `DiagramRef(name, diagramGroup)` ("two refs are equal only if both fields are
+- [X] T004 [P] `DiagramRef(name, diagramGroup)` ("two refs are equal only if both fields are
   equal") and `WorkflowRef(Optional<String> name)` ("empty if the id does not resolve (shown as
   unresolved, with a warning)") with tests; `domain/model/partner/package-info.java` — main
   `domain/model/partner/DiagramRef.java`,
