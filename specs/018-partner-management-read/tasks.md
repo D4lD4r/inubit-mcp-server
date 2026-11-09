@@ -128,7 +128,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
 
 ### Port and REST adapter (D-1, D-4)
 
-- [ ] T012 (after T011) `PartnerManagementPort.read(String owner, List<DiagramRef> systemDiagrams)`
+- [X] T012 (after T011) `PartnerManagementPort.read(String owner, List<DiagramRef> systemDiagrams)`
   → `List<SystemDiagramPartners>` (masked only, with warnings) and `V81PartnerManagementAdapter`:
   one `GET /ibis/rest/model/export/<name>` per system diagram (as
   `V81InventoryAdapter.diagramMetadata`, in memory, bounded by `InubitHttpClient.MAX_BODY_BYTES`,

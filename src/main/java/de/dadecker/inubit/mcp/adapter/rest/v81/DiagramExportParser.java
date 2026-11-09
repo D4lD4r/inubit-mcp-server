@@ -51,11 +51,7 @@ public final class DiagramExportParser {
     }
 
     static DiagramMetadata parse(NodeId server, byte[] body, long maxEntryBytes) {
-        if (!isZip(body)) {
-            throw InventoryXml.unexpected(server, "The diagram export of " + server
-                + " is not a ZIP archive");
-        }
-        Optional<byte[]> workflow = readEntry(server, body, maxEntryBytes);
+        Optional<byte[]> workflow = workflowEntry(server, body, maxEntryBytes);
         if (workflow.isEmpty()) {
             return DiagramMetadata.EMPTY;
         }
@@ -82,6 +78,26 @@ public final class DiagramExportParser {
             case "false" -> Optional.of(false);
             default -> Optional.empty();
         };
+    }
+
+    /**
+     * The {@link #WORKFLOW_ENTRY} of the export ZIP {@code body} (at most {@link #MAX_ENTRY_BYTES},
+     * in memory), or empty if the export has none; also read by
+     * {@link V81PartnerManagementAdapter}.
+     *
+     * @throws ToolErrorException {@code UNEXPECTED_RESPONSE} (with the server id) if the body is
+     *     no ZIP, the ZIP is corrupt, or the workflow entry is too large
+     */
+    static Optional<byte[]> workflowEntry(NodeId server, byte[] body) {
+        return workflowEntry(server, body, MAX_ENTRY_BYTES);
+    }
+
+    private static Optional<byte[]> workflowEntry(NodeId server, byte[] body, long maxEntryBytes) {
+        if (!isZip(body)) {
+            throw InventoryXml.unexpected(server, "The diagram export of " + server
+                + " is not a ZIP archive");
+        }
+        return readEntry(server, body, maxEntryBytes);
     }
 
     private static boolean isZip(byte[] body) {
