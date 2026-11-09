@@ -236,10 +236,60 @@ use ACME, `*.example.test` and `Workflow-0001`.
   the new service in the same package) over the non-masked `Id` and `Name` values for a search
   without hits, and over the system diagram names for an unknown `systemDiagram` filter.
 
+## T-record results (2026-11-09)
+
+Recorded by the operator on a non-production stage (INUBIT 8.1, one server) with
+`model_export_systemdiagram` and `export_systemdiagram` (same anonymizer state), then neutralized:
+partner subtree by `anonymize.py`, diagram, group, module and owner names by a local, deleted map
+(`SystemDiagram-01`/`-02`, `GRP-PM`, `Module-0901`/`-0902`, `OWNERS`). `--verify`,
+`check-identifiers.py --all` and the fixture catalogue tests pass. Fixtures:
+`fixtures/v8_1/rest/model_export_systemdiagram.{http,zip}`,
+`fixtures/v8_1/cli/export_systemdiagram.{exit,stdout,stderr,zip}`.
+
+### D-1 outcome: REST
+
+The REST ZIP's `workflow/workflow.xml` carries `PartnerManagementSettings`. Both Partner
+Managements of the recorded system diagram are identical (canonical XML of the masked subtree) to
+the corresponding ones in the StartCLI archive. By the D-1 rule the channel is **REST**: the
+tool is offered where `INVENTORY` is possibly capable, no export trace is left in INUBIT, and
+`CliExportRunner` stays unchanged. The StartCLI recording stays as evidence and as a contract
+fixture for the parser.
+
+### D-2 facts
+
+- **Several Partner Managements per system diagram.** `PartnerManagementSettings` is a property of
+  a `WorkflowModule moduleType="sdCommunicationCloud"` (with `ModuleId`, `ModuleName`), not of the
+  system diagram itself. The recorded system diagram has two such modules, each with its own
+  partners and referencable workflows; the StartCLI group export held two system diagrams with
+  three in all. **This contradicts the spec** (Key Entities: "carries at most one Partner
+  Management"; FR-004, FR-007, FR-013 identify partners by system diagram and `Id`): the module
+  (communication cloud, by `ModuleName`) must become part of the result and of the match key.
+  The spec needs an amendment before the tasks (see below).
+- **Encoding.** Nested `<Property name="…" type="Map|List">`; leaf values are element text.
+  `PartnerFields` lists the configured fields (`Id`, `Name`) with attributes `fieldType`,
+  `showInTable`. A partner is `Property name="Partner" type="Map"` with `Fields` (Map) and
+  `ReferencedTWFs` (List of `ReferencedTWF` Maps).
+- **Workflow identity.** `ReferencableTWFs` entries are `<Property name="<workflow name>" id="<n>"
+  moduleId="<n>">`; a `ReferencedTWF` points to one through the attribute `referencableTWFId`
+  (local to its Partner Management), not by name. No diagram group is given: workflows are
+  identified by name only (the documentation says so). The entry key of FR-013 becomes
+  `(protocol, referenced workflow name)` resolved through that id.
+- **Further `ReferencedTWF` attributes.** `protocol`, `referencableTWFId`, `type="Map"` and
+  `format`. `format` has the same value on every recorded entry; the anonymizer treated it as a
+  workflow reference (`Workflow-0008` in the fixtures), so its meaning is unknown; the tool shows
+  it as an entry attribute, the parser does not interpret it. The anonymizer should classify it as
+  a generic value (follow-up in tasks).
+- **Summary keys.** WebService entries also use `ServerName` (holding a URL) and `Login`;
+  WS-Security credentials are additional parameters (`WSSecurityUsername`,
+  `WSSecurityPassword`). `PartnerSummaryKeys` is therefore `ServerName`, `Login` for every
+  protocol.
+- **Secrets.** `Password` and `WSSecurityPassword` are `encrypted="true" type="Password"` with AES
+  values; one recorded value is a non-AES form. `SSLKeyStore` has `type="HTTPConnectorTrustStore"`
+  and no value (masked by name, shown as "not set"). `Auth` is `type="Boolean"`.
+- **Story 4 variable form.** Not covered by these recordings (system diagrams only); the scan of
+  D-2 stays independent of the exact place and is tested against a synthetic technical workflow.
+
 ## Open after research
 
-- D-1 and D-2 are resolved by T-record before the adapter tasks; until then the parser is
-  developed against a synthetic fixture whose structure follows the operator's description and is
-  replaced (same content, recorded structure) once the recording exists. The recording is made
-  by the operator on a non-production stage; real values never enter the repository (FR-023,
-  `tools/check-identifiers.py`).
+- Spec amendment for the communication-cloud level (FR-004, FR-005a filter, FR-007, FR-013,
+  Key Entities, contract and data model), then `/speckit-tasks`.
