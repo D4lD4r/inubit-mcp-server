@@ -309,7 +309,8 @@ operator can reach the same data with story 2's workflow filter.
   second stage or server to compare with (`compareWith`), an optional `owner`, an optional search
   term, optional filters (system diagram name, protocol, referenced technical workflow), paging
   (`offset`, `limit`) and a `refresh` flag. Every input MUST be validated before INUBIT is
-  contacted: names as for the existing diagram names; the search term 1–200 characters, any
+  contacted: `systemDiagram` and `workflow` as the existing diagram names; `protocol` 1–64
+  characters of letters, digits, `-` and `_`; the search term 1–200 characters, any
   printable character (letters with diacritics, `&`, `/` included), no control characters.
   `compareWith` equal to or overlapping `target` MUST be refused with `INVALID_INPUT`.
 - **FR-002a**: Without `owner`, the owner MUST be resolved per server from that server's
@@ -350,8 +351,10 @@ operator can reach the same data with story 2's workflow filter.
   communication cloud (module name), partner fields, and per entry the protocol, the workflow and,
   if present, the protocol settings `ServerName` and `Login` (absent ones are omitted); these
   summary keys hold for every protocol (research D-2).
-- **FR-007**: The result MUST also report the `ReferencableTWFs` of every communication cloud that
-  contributed a partner, and which system diagrams were read without any Partner Management.
+- **FR-007**: The result MUST name every system diagram read per server (name and diagram group)
+  and mark those without any Partner Management; a communication cloud whose Partner Management
+  has no partners is named with a partner count of 0. It MUST also report the `ReferencableTWFs`
+  of every communication cloud that contributed a partner.
 
 **Secrets (Principle II)**
 
@@ -412,6 +415,8 @@ operator can reach the same data with story 2's workflow filter.
   fields on at least one server; it is then shown with its entries from all compared servers.
   With a search term the comparison shows all settings grouped (FR-012); without one it shows the
   summary fields of FR-006 plus only the settings that differ or are present only on some servers.
+  Summary fields are grouped like settings (FR-012): shown once when equal, per server when they
+  differ.
 - **FR-013**: Partners MUST be matched across servers by system diagram (name and diagram group),
   communication cloud (module name) and partner `Id` (or, without `Id`, the first configured non-masked partner field present on both
   sides; masked fields are never a match key); entries by protocol and referenced workflow (its name,
@@ -433,8 +438,8 @@ operator can reach the same data with story 2's workflow filter.
   `ReferencableTWFs` contain it. It MUST NOT read system diagrams for a workflow without partner variables and without a
   `PartnerManagement` node. The system diagrams it reads MUST come from the cache of FR-018 (or
   fill it). It returns names only (no partner data), so it is not audited, like the rest of
-  `get_inventory_item`. If the plan finds that this needs more than new fields in
-  `get_inventory_item`'s result, story 4 moves to a later feature with a backlog entry. If the
+  `get_inventory_item`. It is the new field `partnerUsage` of `get_inventory_item`
+  (research D-11). If the
   partner management capability is not available on the node (no channel, refused version), the
   result still lists the partner variables and the `PartnerManagement` node and states why the
   system diagrams were not read (error kind and next step).
@@ -597,6 +602,7 @@ operator can reach the same data with story 2's workflow filter.
 - A system diagram contains communication clouds, each with at most one Partner Management;
   results, filters' scope and the match key include the cloud (FR-004, FR-007, FR-013).
 - Workflows in the Partner Management are identified by name only (Assumptions).
+- Story 4 stays in scope as the new field `partnerUsage` of `get_inventory_item` (research D-11).
 
 ### Review round 4 decisions
 

@@ -45,3 +45,4 @@
   written in their terms.
 - Spec review (2026-11-09): 3 rounds, APPROVED in round 3; reviews in ../reviews/spec-r1.md to spec-r3.md. The five round-3 minors were worked in as well.
 - Spec review round 4 (2026-11-09, after the plan research amended the spec for communication clouds and the REST channel): CHANGES_REQUESTED with 2 major (cloud in the list summary, fieldType-based masking of partner fields) and 9 minor findings; all worked in, not re-reviewed. Review in ../reviews/spec-r4.md.
+- Spec review round 5 (2026-11-09): APPROVED; the five minors (FR-002, FR-007, FR-012c, FR-015, plan research decisions) were worked in as well. Review in ../reviews/spec-r5.md.

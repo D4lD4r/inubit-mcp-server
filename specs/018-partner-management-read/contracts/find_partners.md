@@ -13,7 +13,7 @@ Offered when at least one server is possibly capable of `PARTNER_MANAGEMENT`; th
 | `owner` | string | no | default: each server's `inventory.owner`; applies to all servers when given |
 | `search` | string | no | 1–200 characters, no control characters; substring of non-masked partner fields, case-insensitive |
 | `systemDiagram` | string | no | system diagram name, exact, case-insensitive, any diagram group |
-| `protocol` | string | no | `ReferencedTWF` attribute `protocol`, exact, case-insensitive |
+| `protocol` | string | no | 1–64 characters `[A-Za-z0-9_-]`; `ReferencedTWF` attribute `protocol`, exact, case-insensitive |
 | `workflow` | string | no | referenced workflow name, exact, case-insensitive (the export has no diagram group, D-2) |
 | `offset` | integer | no | ≥ 0, default 0 |
 | `limit` | integer | no | 1–100, default 20 |
