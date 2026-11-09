@@ -50,7 +50,8 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
 
 - [ ] T004 [P] `DiagramRef(name, diagramGroup)` ("two refs are equal only if both fields are
   equal") and `WorkflowRef(Optional<String> name)` ("empty if the id does not resolve (shown as
-  unresolved, with a warning)") with tests — main `domain/model/partner/DiagramRef.java`,
+  unresolved, with a warning)") with tests; `domain/model/partner/package-info.java` — main
+  `domain/model/partner/DiagramRef.java`,
   `domain/model/partner/WorkflowRef.java`, test `domain/model/partner/DiagramRefTest.java`
 - [ ] T005 [P] `SettingValue` sealed: `Shown(String value)` ("cut at 200 characters with
   `…[truncated]` when rendered (not when compared)") and `Masked(boolean set,
@@ -292,7 +293,8 @@ secret equality by server groups (8.1 only), report failed servers.
   `application/PartnerService.java`, test `application/PartnerServiceCompareTest.java` (US3-AS7,
   FR-005a comparison rules)
 - [ ] T027 [US3] Comparison output and bounds (after T026): output shape `ComparedPartner` of the
-  contract in the tool and schema (incl. `maskedCount`); the comparison result within `resultLimits.maxChars` with the
+  contract in the tool and schema (incl. `maskedCount`, separate `protocolSettings` and
+  `additionalParameters`, `format` grouped like a setting); the comparison result within `resultLimits.maxChars` with the
   cut order of T024 (additional parameters, then settings to the summary keys, then entries),
   `truncated` reported. **Done when** a 1,000-partner comparison of two stages keeps every page
   within the bound (SC-004) and the tool test shows the shape — main

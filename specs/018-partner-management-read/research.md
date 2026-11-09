@@ -204,7 +204,7 @@ use ACME, `*.example.test` and `Workflow-0001`.
   Partner Management", true, true)`. `limit` 1–100, default 20 (full details are large); text
   values cut at `ItemBounds.MAX_FIELD_CHARS` (200) with `…[truncated]`; the whole result through
   `ResultLimiter` (`resultLimits.maxChars`), cutting detail before entries: first additional
-  parameters of non-matching entries, then settings to the summary keys, then entries, reporting
+  parameters, then settings to the summary keys, then entries, reporting
   `truncated`. Search term: 1–200 code points, `Character.isISOControl` refused. Names validated
   with the existing diagram name rule.
 - **Rationale**: matches the existing paging helpers and bounds; 20 detailed partners fit the
@@ -296,7 +296,7 @@ fixture for the parser.
   a generic value (follow-up in tasks).
 - **Summary keys.** WebService entries also use `ServerName` (holding a URL) and `Login`;
   WS-Security credentials are additional parameters (`WSSecurityUsername`,
-  `WSSecurityPassword`). `PartnerSummaryKeys` is therefore `ServerName`, `Login` for every
+  `WSSecurityPassword`). `PartnerService.SUMMARY_KEYS` is therefore `ServerName`, `Login` for every
   protocol.
 - **Secrets.** `Password` and `WSSecurityPassword` are `encrypted="true" type="Password"` with AES
   values; one recorded value is a non-AES form. `SSLKeyStore` has `type="HTTPConnectorTrustStore"`

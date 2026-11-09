@@ -76,12 +76,14 @@ In `list` mode an entry carries only `protocol`, `workflow` and the summary keys
   "fields": [{"name": "Name", "equal": "ACME Corp"}],
   "entries": [
     { "protocol": "FTP", "workflow": {"name": "Workflow-0001"}, "position": 0, "onlyOn": null,
-      "settings": [
+      "format": {"equal": "…"},       // entry attributes other than protocol/workflow, grouped like settings
+      "protocolSettings": [
         {"name": "ServerName", "differs": {"qa/node1": "a.example.test", "prod/node1": "b.example.test"}},
         {"name": "Login", "equal": "acme"},
         {"name": "Password", "masked": true, "set": {"qa/node1": true, "prod/node1": true},
          "sameOn": [["qa/node1"], ["prod/node1"]]}           // or "equality": "not verified on 9.0.3"
-      ] } ],
+      ],
+      "additionalParameters": [{"name": "FTPProtocol", "equal": "SFTP"}] } ],
   "maskedCount": {"equal": 3},       // or {"differs": {"qa/node1": 3, "prod/node1": 2}} (FR-009)
   "ambiguous": [] }
 ```

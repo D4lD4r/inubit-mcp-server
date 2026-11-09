@@ -125,9 +125,9 @@ src/main/java/de/dadecker/inubit/mcp/
 │   │   ├── CapabilityMatrix.java            # 6.1 UNSUPPORTED, 9.0 UNVERIFIED for it
 │   │   ├── AuditRecord.java                 # + callId, details (additive)
 │   │   ├── InventoryDetail.java             # + partnerUsage
-│   │   └── partner/                         # new: SystemDiagramPartners, CommunicationCloud, Partner, ProtocolEntry,
-│   │                                        #      SettingValue, SecretFingerprint, WorkflowRef,
-│   │                                        #      DiagramRef, PartnerUsage, PartnerQuery
+│   │   └── partner/                         # new: the 14 domain types of Scale/Scope
+│   │                                        #      (SystemDiagramPartners … PartnerUsage) and
+│   │                                        #      package-info.java
 │   └── port/PartnerManagementPort.java      # new
 ├── adapter/
 │   ├── archive/v81/
@@ -174,7 +174,7 @@ docs/live-tests.md (neutralized live check), docs/backlog.md
 
 **Structure Decision**: the existing single module and its layering (domain ← application ←
 adapter/mcp) are kept; partner types get their own `domain/model/partner` package because there
-are nine of them.
+are fourteen of them.
 
 ## Implementation order
 
@@ -185,11 +185,11 @@ are nine of them.
    `SecretFingerprint`; `PartnerSecretRules`, `SecretFingerprinter`,
    `PartnerManagementReader` against synthetic and recorded fixtures (secret tests first).
 3. Port and the REST adapter with contract tests; capability and matrix entries.
-4. `InventoryCache.peek`, `PartnerSnapshot`, `PartnerService` (single server: search, list,
-   filters, similar values, paging, bounds).
-5. `PartnerComparison` and its integration (stage targets, `compareWith`).
-6. `AuditRecord`/`AuditLog` fields, `PartnerAudit`, INFO log line.
-7. `FindPartnersTool`, schemas, wiring, `list_nodes`, `--check-config`.
+4. `InventoryCache.peek`, `PartnerSnapshot`, `AuditRecord`/`AuditLog` fields, `PartnerAudit`.
+5. `PartnerService` on one server (read path, search, similar values, audit and INFO log line),
+   `FindPartnersTool`, schemas, wiring; then list, filters, paging, bounds.
+6. `PartnerComparison` and its integration (stage targets, `compareWith`), comparison bounds.
+7. `list_nodes`, `--check-config` (with the capability in step 3).
 8. Story 4 (`DiagramExportParser`, `partnerUsage`).
 9. Docs, `PartnerSecretLeakTest` over the whole tool, identifier check, live check (neutralized
    entry in `docs/live-tests.md`).
