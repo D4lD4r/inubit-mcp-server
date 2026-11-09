@@ -19,7 +19,8 @@ import java.util.Map;
  *       for two workflows and the AES password {@link #AES_PASSWORD}, {@code ACME-0002} with an
  *       SFTP-via-FTP entry ({@code FTPProtocol=SFTP}) holding the clear-text legacy password
  *       {@link #LEGACY_PASSWORD} and an {@code AS4} entry with the unknown setting
- *       {@link #UNKNOWN_SETTING}, {@code ACME-0003} with a WebService entry with WS-Security
+ *       {@link #UNKNOWN_SETTING} and the encrypted {@code Password} {@link #AES_PASSWORD},
+ *       {@code ACME-0003} with a WebService entry with WS-Security
  *       credentials ({@code WSSecurityPassword} without type: {@link #WS_SECURITY_PASSWORD}) and
  *       a WebService entry whose {@code referencableTWFId} ({@link #UNRESOLVED_TWF_ID}) does not
  *       resolve. {@code ACME-0001} has the secret custom field {@link #SECRET_FIELD},
@@ -152,7 +153,8 @@ public final class PartnerFixtures {
                     Leaf.typed("Password", "Password", LEGACY_PASSWORD), "SFTP"),
                 new EntryXml("AS4", "3", List.of(
                     Leaf.plain("ServerName", "https://as4.example.test/msh"),
-                    Leaf.plain(UNKNOWN_SETTING, "profile-1")), List.of())));
+                    Leaf.plain(UNKNOWN_SETTING, "profile-1"),
+                    Leaf.encrypted("Password", AES_PASSWORD)), List.of())));
         PartnerXml webService = new PartnerXml(
             List.of(Leaf.plain("Id", "ACME-0003"), Leaf.plain("Name", "ACME Retail")),
             List.of(webService("3", "http://host3.example.test/path1", "login3",

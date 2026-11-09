@@ -107,7 +107,11 @@ class PartnerFixturesTest {
         assertThat(keyField.text()).isEqualTo(PartnerFixtures.KEY_MATERIAL);
         assertThat(fieldTypes.get(PartnerFixtures.KEY_MATERIAL_FIELD)).isEqualTo("String");
 
-        assertThat(List.of(aes, legacy, wsSecurity)).allSatisfy(
+        Element as4Password = leaf(entries(partners.get(1)).get(1), "Password");
+        assertThat(as4Password.text()).as("a secret on the unknown protocol")
+            .isEqualTo(PartnerFixtures.AES_PASSWORD);
+
+        assertThat(List.of(aes, legacy, wsSecurity, as4Password)).allSatisfy(
             setting -> assertThat(PartnerSecretRules.masked(setting)).isTrue());
         assertThat(PartnerSecretRules.maskedField(secretField,
             fieldTypes.get(PartnerFixtures.SECRET_FIELD))).isTrue();

@@ -76,10 +76,39 @@ class PartnerSecretRulesTest {
             .isTrue();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"Password", "password", "PASSWORD", "WSSPassword"})
+    void aPasswordTypeInAnyCaseIsMaskedWhateverItsName(String type) {
+        assertThat(PartnerSecretRules.masked(property(
+            "<Property name=\"Reference\" type=\"" + type + "\">harmless-0001</Property>")))
+            .isTrue();
+    }
+
     @Test
     void anEncryptedValueIsMaskedWhateverItsType() {
         assertThat(PartnerSecretRules.masked(property(
             "<Property name=\"Login\" encrypted=\"true\">AES-c3ludGhldGlj</Property>"))).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"TRUE", "True", " true ", "true\n"})
+    void theEncryptedFlagIsReadInAnyCaseAndWithoutSurroundingWhiteSpace(String flag) {
+        assertThat(PartnerSecretRules.masked(property(
+            "<Property name=\"Login\" encrypted=\"" + flag + "\">AES-c3ludGhldGlj</Property>")))
+            .isTrue();
+        assertThat(PartnerSecretRules.masked(property(
+            "<Property name=\"Login\" encrypted=\"false\">login1</Property>"))).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"KeyStore", "HTTPConnectorTrustStore", "TRUSTSTORE", "PrivateKeyEntry",
+        "X509", "x509Chain", "ClientCertificate", "SecretKey", "SSHKey", "key"})
+    void aKeyOrCertificateTypeIsMaskedWhateverItsNameAndValue(String type) {
+        assertThat(PartnerSecretRules.masked(property(
+            "<Property name=\"Reference\" type=\"" + type + "\">harmless-0001</Property>")))
+            .isTrue();
+        assertThat(PartnerSecretRules.masked(property(
+            "<Property name=\"Reference\" type=\"Boolean\">true</Property>"))).isFalse();
     }
 
     @Test
@@ -133,6 +162,7 @@ class PartnerSecretRulesTest {
         assertThat(PartnerSecretRules.maskedField(id, "Integer")).isTrue();
         assertThat(PartnerSecretRules.maskedField(id, "string")).as("case-sensitive").isTrue();
         assertThat(PartnerSecretRules.maskedField(id, "")).as("not declared").isTrue();
+        assertThat(PartnerSecretRules.maskedField(id, null)).as("not declared, null").isTrue();
     }
 
     @Test

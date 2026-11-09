@@ -112,7 +112,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
   partners, two clouds in one diagram sharing `ACME-0001`, one entry with an unresolvable
   `referencableTWFId`, two stages × two servers with known differences (US3 independent test) —
   test `adapter/archive/v81/PartnerFixtures.java`
-- [ ] T011 (after T008, T009, T010) `PartnerManagementReader.read(DiagramRef, XmlTree.Element
+- [X] T011 (after T008, T009, T010) `PartnerManagementReader.read(DiagramRef, XmlTree.Element
   workflowRoot)` → `SystemDiagramPartners` plus warnings: one `CommunicationCloud` per
   `sdCommunicationCloud` module with `PartnerManagementSettings`; values masked inside the method
   that reads them (FR-010); entries resolve `referencableTWFId` (unresolved → empty name and a

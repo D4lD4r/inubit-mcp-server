@@ -10,10 +10,14 @@ import java.util.regex.Pattern;
  * <ol>
  * <li>the workspace export's redaction sees a secret in it ({@link SecretPaths#kind}), so the
  * masking is at least as strict as feature 003's, or</li>
- * <li>its property has {@code type="Password"} or {@code encrypted="true"}, or</li>
+ * <li>its property has {@code encrypted="true"} (any case, surrounding white space ignored),
+ * or</li>
+ * <li>its {@code type} contains a password, key or certificate type pattern (case-insensitive),
+ * or</li>
  * <li>its name contains a secret name pattern (case-insensitive), whatever its value, or</li>
  * <li>its value is key material ({@link SecretPaths#isKeyMaterial}), or</li>
- * <li>it is a partner field whose {@code fieldType} is not on {@link #PLAIN_FIELD_TYPES}.</li>
+ * <li>it is a partner field whose {@code fieldType} is missing or not on
+ * {@link #PLAIN_FIELD_TYPES}.</li>
  * </ol>
  * The answer is a yes or no only; which rule matched is not exposed.
  */
@@ -25,6 +29,9 @@ final class PartnerSecretRules {
     private static final Pattern SECRET_NAME = Pattern.compile("password|passwd|pwd|secret|token"
         + "|keystore|privatekey|passphrase|credential|apikey|accesskey", Pattern.CASE_INSENSITIVE);
 
+    private static final Pattern SECRET_TYPE = Pattern.compile(
+        "password|key|truststore|x509|certificate", Pattern.CASE_INSENSITIVE);
+
     private PartnerSecretRules() {
     }
 
@@ -32,10 +39,12 @@ final class PartnerSecretRules {
     static boolean masked(Element property) {
         String name = property.attribute("name").orElse("");
         String type = property.attribute("type").orElse("");
-        boolean encrypted = property.attribute("encrypted").filter("true"::equals).isPresent();
+        boolean encrypted = property.attribute("encrypted").map(String::strip)
+            .filter("true"::equalsIgnoreCase).isPresent();
         String value = property.text();
         return SecretPaths.kind(name, type, encrypted, value) != null
-            || type.equals("Password") || encrypted
+            || encrypted
+            || SECRET_TYPE.matcher(type).find()
             || SECRET_NAME.matcher(name).find()
             || SecretPaths.isKeyMaterial(property, type, value);
     }
@@ -44,9 +53,9 @@ final class PartnerSecretRules {
      * True if the value of the partner field {@code property} must be masked.
      *
      * @param fieldType the {@code fieldType} declared for the field in {@code PartnerFields}, or
-     *                  {@code ""} if the field is not declared there (masked)
+     *                  {@code null} or {@code ""} if the field is not declared there (masked)
      */
     static boolean maskedField(Element property, String fieldType) {
-        return !PLAIN_FIELD_TYPES.contains(fieldType) || masked(property);
+        return fieldType == null || !PLAIN_FIELD_TYPES.contains(fieldType) || masked(property);
     }
 }
