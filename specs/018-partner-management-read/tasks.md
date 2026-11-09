@@ -29,7 +29,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
 
 ## Phase 1: Setup
 
-- [ ] T001 Baseline: the build above is green on branch `018-partner-management-read`; note the test
+- [X] T001 Baseline: the build above is green on branch `018-partner-management-read`; note the test
   count in `specs/018-partner-management-read/reviews.md` ("Implementation — baseline")
 - [ ] T002 `tools/anonymize.py`: inside a `PartnerManagementSettings` subtree keep the attribute
   `fieldType` (a type, not data) and classify the attribute `format` as a generic value
