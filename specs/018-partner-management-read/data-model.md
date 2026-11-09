@@ -29,9 +29,10 @@ case-insensitively and exactly.
 
 ### `SecretFingerprint`
 Final class (not a record). Holds the HMAC bytes privately. `equals`/`hashCode` over the bytes;
-`toString()` = `SecretFingerprint[redacted]`; no getter and no properties, so the
-`ResultJson` mapper refuses to serialize it (`FAIL_ON_EMPTY_BEANS`; a test serializes it with that
-mapper and expects an exception); no Jackson annotation in `domain` (`PackageBoundaryTest`). Created only by
+`toString()` = `SecretFingerprint[redacted]`; no getter and no properties; the
+`ResultJson` mapper refuses to serialize it (a refusing serializer registered for
+`SecretFingerprint` in `ResultJson`, message without the value; a test serializes it with that
+mapper, alone and inside a record, and expects an exception); no Jackson annotation in `domain` (`PackageBoundaryTest`). Created only by
 `SecretFingerprinter` (adapter) through a package-crossing factory that takes the raw bytes and
 keeps no reference to the input.
 

@@ -45,3 +45,15 @@ After T017 (d75367a): `mvn -o -q clean verify` green with 5700 unit tests (suref
 6. Exports per diagram run sequentially (SC-005 budget on many diagrams).
 7. XML helpers and workflow selection duplicated between adapter and reader.
 8. A null `details` value is written as text "null".
+
+Fix round (uncommitted on 4fb823b), one line per finding:
+1. Fixed: `PartnerAudit` accepts a null or blank `target`; a refusal writes its REFUSED record with `node` = the target as given (null → empty text and no `target` input, blank kept, cut to 500 chars) and `group` only if it parses, so the tool can answer INVALID_INPUT; tests for null and blank.
+2. Fixed: the adapter accepts HTTP 404 on the export request and reports that diagram as `UnreadableDiagram` with `NOT_FOUND` naming group/name and server (no body); other diagrams are still read, every other status still propagates from `InubitHttpClient`; WireMock test.
+3. Fixed: the collision check counts the workflows of the requested name; more than one (also all of the requested group and owner) is per-diagram `UNEXPECTED_RESPONSE` instead of a server failure (`NOT_UNIQUE` if one lies in another group or owner, else the new `NOT_SINGLE` "holds several diagrams of this name in this group"); test. Docs (data-model, research D-4, tasks T005/T012, find_partners contract) updated for 2, 3 and 5.
+4. Fixed: `PartnerAudit.bounded` backs off one char when the cut would split a surrogate pair; test with an emoji at positions 500/501.
+5. Fixed: `ResultJson` no longer enables `FAIL_ON_EMPTY_BEANS` (back to the mapper default as before 018); a serializer registered for `SecretFingerprint` refuses it with a message without the value; tests for a fingerprint alone and inside a record.
+6. Not changed: exports per diagram stay sequential. SC-005 measures the time beyond the read of the owner's system diagrams, servers are already read in parallel by FanOut, and one export at a time keeps the load on the INUBIT server low.
+7. Fixed: `XmlTree.Element.elements(name)` and `childText(name)` replace the copies in adapter and reader; `PartnerManagementReader.workflowsNamed(root, name)` (with `GroupedWorkflow`) is the one workflow selection, used by the reader and the adapter's collision check; reader test for it.
+8. Fixed: `AuditRecord` rejects a null `details` key or value with NullPointerException at construction; `AuditLog` no longer has a `null` case; test.
+
+Review of the fix round: reviews/phase2-cr-fix-r1.md (APPROVED, 3 minors fixed afterwards: `NOT_SINGLE` message, docs on the refusing serializer and on per-diagram NOT_FOUND). Full build `mvn -o -q clean verify` green: 5707 unit tests (52 skipped) + 2 integration tests.

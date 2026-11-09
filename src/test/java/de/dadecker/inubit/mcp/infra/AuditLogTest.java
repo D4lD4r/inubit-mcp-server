@@ -306,6 +306,26 @@ class AuditLogTest {
     }
 
     @Test
+    void aNullDetailKeyOrValueIsRejectedWhenTheRecordIsBuilt() {
+        Map<String, Object> nullValue = new LinkedHashMap<>();
+        nullValue.put("fromCache", null);
+        Map<String, Object> nullKey = new LinkedHashMap<>();
+        nullKey.put(null, 1);
+
+        assertThatThrownBy(() -> recordWithDetails(nullValue))
+            .isInstanceOf(NullPointerException.class).hasMessageContaining("fromCache");
+        assertThatThrownBy(() -> recordWithDetails(nullKey))
+            .isInstanceOf(NullPointerException.class).hasMessageContaining("details key");
+    }
+
+    private static AuditRecord recordWithDetails(Map<String, Object> details) {
+        return new AuditRecord(UUID.randomUUID(), OCTOBER, "acme", "qa/node1", Optional.empty(),
+            "find_partners", AuditRecord.Step.EXECUTE, Map.of(), Optional.empty(),
+            AuditOutcome.EXECUTED, Optional.empty(), Optional.empty(),
+            Optional.of(UUID.randomUUID()), details);
+    }
+
+    @Test
     void detailKeysAndTextValuesAreScrubbed() throws IOException {
         scrubber.register("s3cr3t-audit-pw");
         Map<String, Object> details = new LinkedHashMap<>();

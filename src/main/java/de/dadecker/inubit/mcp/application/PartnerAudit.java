@@ -34,8 +34,9 @@ import org.slf4j.LoggerFactory;
  *
  * <p>A refusal names no server: like {@link ArchiveExportAudit#refused}, its {@code node} is the
  * {@code target} as requested (a stage id, a server id, or malformed text, cut to
- * {@value #MAX_AUDITED_INPUT} chars), and {@code group} is set only if the target parses. This
- * keeps {@link AuditRecord#node()} required and existing audit readers unchanged.
+ * {@value #MAX_AUDITED_INPUT} chars; a missing target is the empty text and no {@code target}
+ * input), and {@code group} is set only if the target parses. This keeps
+ * {@link AuditRecord#node()} required and existing audit readers unchanged.
  *
  * <p>The inputs are the request only (target, compareWith, owner, search, systemDiagram,
  * protocol, workflow), each cut to {@value #MAX_AUDITED_INPUT} chars; never results, partner
@@ -83,7 +84,8 @@ public final class PartnerAudit {
     /**
      * Starts the audit of one call with its inputs as requested (also when they are invalid).
      *
-     * @param target    the stage or server id as requested (also when unknown or malformed)
+     * @param target    the stage or server id as requested (also when unknown, malformed,
+     *                  blank, or {@code null} when missing)
      * @param mcpClient the MCP client's {@code name/version}, if sent
      */
     public PartnerAudit(Dependencies dependencies, String target, Optional<String> compareWith,
@@ -91,9 +93,11 @@ public final class PartnerAudit {
         Optional<String> protocol, Optional<String> workflow, Optional<String> mcpClient) {
         this.d = Objects.requireNonNull(dependencies, "dependencies");
         this.callId = Objects.requireNonNull(d.ids().get(), "callId");
-        this.target = Objects.requireNonNull(target, "target");
+        this.target = target == null ? "" : target;
         Map<String, String> requested = new LinkedHashMap<>();
-        requested.put("target", bounded(target));
+        if (target != null) {
+            requested.put("target", bounded(target));
+        }
         compareWith.ifPresent(value -> requested.put("compareWith", bounded(value)));
         owner.ifPresent(value -> requested.put("owner", bounded(value)));
         search.ifPresent(value -> requested.put("search", bounded(value)));
@@ -186,8 +190,14 @@ public final class PartnerAudit {
         }
     }
 
+    /** {@code value} cut to {@value #MAX_AUDITED_INPUT} chars, never inside a surrogate pair. */
     private static String bounded(String value) {
-        return value.length() <= MAX_AUDITED_INPUT ? value
-            : value.substring(0, MAX_AUDITED_INPUT);
+        if (value.length() <= MAX_AUDITED_INPUT) {
+            return value;
+        }
+        int end = Character.isLowSurrogate(value.charAt(MAX_AUDITED_INPUT))
+            && Character.isHighSurrogate(value.charAt(MAX_AUDITED_INPUT - 1))
+            ? MAX_AUDITED_INPUT - 1 : MAX_AUDITED_INPUT;
+        return value.substring(0, end);
     }
 }

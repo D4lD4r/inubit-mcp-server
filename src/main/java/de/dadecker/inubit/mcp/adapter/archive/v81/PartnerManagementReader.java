@@ -16,7 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Stream;
 
 /**
  * Reads the Partner Managements of one system diagram from the {@code workflow.xml} of its export
@@ -52,6 +51,38 @@ public final class PartnerManagementReader {
     }
 
     /**
+     * A {@code Workflow} of a {@code workflow.xml} and the {@code WorkflowGroupName} of the
+     * {@code WorkflowGroup} it lies in (empty if it has none).
+     */
+    public record GroupedWorkflow(String groupName, Element workflow) {
+
+        public GroupedWorkflow {
+            Objects.requireNonNull(groupName, "groupName");
+            Objects.requireNonNull(workflow, "workflow");
+        }
+    }
+
+    /**
+     * Every {@code Workflow} whose {@code WorkflowName} is {@code name} (exactly, case-sensitive)
+     * in the {@code workflow.xml} whose root element is {@code workflowRoot}, in document order
+     * and of any group.
+     */
+    public static List<GroupedWorkflow> workflowsNamed(Element workflowRoot, String name) {
+        List<GroupedWorkflow> found = new ArrayList<>();
+        for (Element workflows : workflowRoot.elements("Workflows")) {
+            for (Element group : workflows.elements("WorkflowGroup")) {
+                for (Element workflow : group.elements("Workflow")) {
+                    if (workflow.childText("WorkflowName").equals(name)) {
+                        found.add(new GroupedWorkflow(group.childText("WorkflowGroupName"),
+                            workflow));
+                    }
+                }
+            }
+        }
+        return found;
+    }
+
+    /**
      * Reads {@code diagram} from the {@code workflow.xml} whose root element is
      * {@code workflowRoot}.
      *
@@ -63,7 +94,7 @@ public final class PartnerManagementReader {
         Element workflow = workflow(diagram, workflowRoot);
         List<CommunicationCloud> clouds = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
-        for (Element module : children(workflow, "WorkflowModule").toList()) {
+        for (Element module : workflow.elements("WorkflowModule")) {
             if (module.attribute("moduleType").filter("sdCommunicationCloud"::equals).isPresent()) {
                 module.child("Properties")
                     .flatMap(properties -> property(properties, "PartnerManagementSettings"))
@@ -79,11 +110,9 @@ public final class PartnerManagementReader {
     }
 
     private static Element workflow(DiagramRef diagram, Element root) {
-        List<Element> found = children(root, "Workflows")
-            .flatMap(workflows -> children(workflows, "WorkflowGroup"))
-            .filter(group -> childText(group, "WorkflowGroupName").equals(diagram.diagramGroup()))
-            .flatMap(group -> children(group, "Workflow"))
-            .filter(workflow -> childText(workflow, "WorkflowName").equals(diagram.name()))
+        List<Element> found = workflowsNamed(root, diagram.name()).stream()
+            .filter(workflow -> workflow.groupName().equals(diagram.diagramGroup()))
+            .map(GroupedWorkflow::workflow)
             .toList();
         if (found.size() != 1) {
             throw new IllegalArgumentException("The export holds " + found.size()
@@ -217,16 +246,8 @@ public final class PartnerManagementReader {
     }
 
     private static Optional<Element> property(Element parent, String name) {
-        return children(parent, "Property")
+        return parent.elements("Property").stream()
             .filter(property -> name(property).equals(name)).findFirst();
-    }
-
-    private static Stream<Element> children(Element parent, String localName) {
-        return parent.elements().stream().filter(e -> e.localName().equals(localName));
-    }
-
-    private static String childText(Element parent, String name) {
-        return parent.child(name).map(Element::text).orElse("");
     }
 
     private static String required(Element module, String name) {

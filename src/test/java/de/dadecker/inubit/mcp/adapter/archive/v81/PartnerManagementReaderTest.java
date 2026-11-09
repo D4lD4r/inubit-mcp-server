@@ -298,6 +298,19 @@ class PartnerManagementReaderTest {
     }
 
     @Test
+    void workflowsNamedFindsEveryWorkflowOfTheNameWithItsGroup() {
+        DiagramXml sameNameOtherGroup = new DiagramXml("GRP-OTHER", "SystemDiagram-01",
+            PartnerFixtures.OWNER, List.of());
+        Element root = root(PartnerFixtures.workflowXml(sameNameOtherGroup,
+            PartnerFixtures.detail(), PartnerFixtures.list(3)));
+
+        assertThat(PartnerManagementReader.workflowsNamed(root, "SystemDiagram-01"))
+            .extracting(PartnerManagementReader.GroupedWorkflow::groupName)
+            .containsExactly("GRP-OTHER", PartnerFixtures.GROUP);
+        assertThat(PartnerManagementReader.workflowsNamed(root, "systemdiagram-01")).isEmpty();
+    }
+
+    @Test
     void aDiagramWithoutPartnerManagementHasNoClouds() {
         DiagramXml empty = new DiagramXml(PartnerFixtures.GROUP, "SystemDiagram-01",
             PartnerFixtures.OWNER, List.of());

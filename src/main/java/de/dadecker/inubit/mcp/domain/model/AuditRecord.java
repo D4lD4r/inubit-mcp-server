@@ -26,8 +26,8 @@ import java.util.UUID;
  * @param callId     links the records of one call that writes several (feature 018,
  *                   {@code find_partners}: one record per server); empty for other tools
  * @param details    per-record counts and flags in insertion order (feature 018, research D-8;
- *                   {@code Boolean}, {@code Integer}, {@code Long} or text); empty for other
- *                   tools, never results
+ *                   {@code Boolean}, {@code Integer}, {@code Long} or text, no {@code null}
+ *                   key or value); empty for other tools, never results
  */
 public record AuditRecord(
     UUID auditId,
@@ -70,6 +70,10 @@ public record AuditRecord(
         reason = reason == null ? Optional.empty() : reason;
         mcpClient = mcpClient == null ? Optional.empty() : mcpClient;
         callId = callId == null ? Optional.empty() : callId;
+        details.forEach((key, value) -> {
+            Objects.requireNonNull(key, "details key");
+            Objects.requireNonNull(value, () -> "details value of " + key);
+        });
         details = Collections.unmodifiableMap(new LinkedHashMap<>(details));
     }
 

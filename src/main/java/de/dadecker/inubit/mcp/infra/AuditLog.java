@@ -209,8 +209,7 @@ public final class AuditLog implements AuditPort {
                     case Boolean flag -> details.put(key, flag);
                     case Integer count -> details.put(key, count);
                     case Long count -> details.put(key, count);
-                    case null, default ->
-                        details.put(key, scrubber.scrub(String.valueOf(detail.getValue())));
+                    default -> details.put(key, scrubber.scrub(String.valueOf(detail.getValue())));
                 }
             }
         }

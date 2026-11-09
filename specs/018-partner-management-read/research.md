@@ -116,7 +116,11 @@ use ACME, `*.example.test` and `Workflow-0001`.
     diagram (`unreadableDiagrams`, code `UNEXPECTED_RESPONSE`: "the export of this name returned a
     diagram of another group or owner; the name is not unique") without throwing, so the other
     diagrams are answered, the node is not marked stale, and another group's or owner's Partner
-    Management is never attributed to the requested diagram.
+    Management is never attributed to the requested diagram. Several diagrams of the name in the
+    requested group and owner are reported the same way (`UNEXPECTED_RESPONSE`: "the export of this
+    name holds several diagrams of this name in this group; the name is not unique"); an export
+    answered with HTTP 404 (deleted or renamed since it was listed) is a per-diagram entry with code
+    `NOT_FOUND` naming group/name and server.
   - **Gateway.** Services get the port through `GatewayFactory.partners(NodeId)` (default,
     delegating to `forServer(server).partners()`). `Gateway.partners()` is a default method that
     refuses with `UNSUPPORTED_VERSION` ("partner management is not available for this INUBIT

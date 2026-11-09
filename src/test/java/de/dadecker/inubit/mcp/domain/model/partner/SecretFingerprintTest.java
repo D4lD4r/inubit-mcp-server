@@ -68,4 +68,17 @@ class SecretFingerprintTest {
             .isInstanceOf(InvalidDefinitionException.class)
             .hasMessageContaining("SecretFingerprint");
     }
+
+    @Test
+    void theResultMapperRefusesItAlsoInsideAResult() {
+        assertThatThrownBy(() -> ResultJson.mapper()
+            .writeValueAsString(new Holder("x", SecretFingerprint.of(new byte[] {1, 2, 3}))))
+            .isInstanceOf(InvalidDefinitionException.class)
+            .hasMessageContaining("SecretFingerprint")
+            .hasMessageNotContaining("[1, 2, 3]")
+            .hasMessageNotContaining("AQID");
+    }
+
+    private record Holder(String name, SecretFingerprint fingerprint) {
+    }
 }

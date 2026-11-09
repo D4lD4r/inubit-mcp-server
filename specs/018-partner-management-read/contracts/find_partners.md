@@ -30,7 +30,9 @@ Offered when at least one server is possibly capable of `PARTNER_MANAGEMENT`; th
     { "node": "qa/node1", "group": "qa", "owner": "…", "collectedAt": "…", "fromCache": true,
       "systemDiagramsRead": [{"name": "…", "diagramGroup": "…"}],
       "withoutPartnerManagement": [{"name": "…", "diagramGroup": "…"}],
-      "unreadableDiagrams": [         // per diagram, the server is still answered (D-4)
+      "unreadableDiagrams": [         // per diagram, the server is still answered (D-4); also
+                                      // UNEXPECTED_RESPONSE "…holds several diagrams of this name
+                                      // in this group…", and NOT_FOUND for an export with HTTP 404
         { "systemDiagram": {"name": "…", "diagramGroup": "…"}, "code": "UNEXPECTED_RESPONSE",
           "message": "the export of this name returned a diagram of another group or owner" } ],
       "warnings": ["9.0.3 on qa/node1 is not verified for partner management; …",

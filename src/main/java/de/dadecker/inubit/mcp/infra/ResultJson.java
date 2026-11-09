@@ -6,8 +6,11 @@ import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.LogType;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
+import de.dadecker.inubit.mcp.domain.model.partner.SecretFingerprint;
+import tools.jackson.core.JsonGenerator;
 import tools.jackson.databind.MapperFeature;
-import tools.jackson.databind.SerializationFeature;
+import tools.jackson.databind.SerializationContext;
+import tools.jackson.databind.ValueSerializer;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.module.SimpleModule;
 import tools.jackson.databind.ser.std.ToStringSerializer;
@@ -15,22 +18,22 @@ import tools.jackson.databind.ser.std.ToStringSerializer;
 /**
  * The JSON form of tool results (contracts/mcp-tools.md): record components in declaration order,
  * empty {@code Optional}s and {@code null}s omitted, ids and log types as strings (e.g.
- * {@code systemLog}), {@code java.time} values as ISO-8601. A type without properties is refused
- * rather than written as {@code {}} (feature 018: a {@code SecretFingerprint} never reaches a
- * result). Shared by the MCP result mapping and by the mappers that bound an item's serialized
- * size ({@code ItemBounds.MAX_ITEM_CHARS}), so that both measure the same text.
+ * {@code systemLog}), {@code java.time} values as ISO-8601. A {@link SecretFingerprint} is
+ * refused (feature 018: it never reaches a result). Shared by the MCP result mapping and by the
+ * mappers that bound an item's serialized size ({@code ItemBounds.MAX_ITEM_CHARS}), so that both
+ * measure the same text.
  */
 public final class ResultJson {
 
     private static final JsonMapper MAPPER = JsonMapper.builder()
         .disable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
-        .enable(SerializationFeature.FAIL_ON_EMPTY_BEANS)
         .changeDefaultPropertyInclusion(inclusion ->
             inclusion.withValueInclusion(JsonInclude.Include.NON_ABSENT))
         .addModule(new SimpleModule("inubit-mcp-results")
             .addSerializer(NodeId.class, new ToStringSerializer(NodeId.class))
             .addSerializer(GroupId.class, new ToStringSerializer(GroupId.class))
-            .addSerializer(LogType.class, new ToStringSerializer(LogType.class)))
+            .addSerializer(LogType.class, new ToStringSerializer(LogType.class))
+            .addSerializer(SecretFingerprint.class, new RefusingFingerprintSerializer()))
         .addMixIn(NodeSummary.StartCli.class, StartCliJson.class)
         .build();
 
@@ -41,6 +44,18 @@ public final class ResultJson {
     private abstract static class StartCliJson {
         @JsonProperty("final")
         abstract boolean finalChoice();
+    }
+
+    /** Refuses every {@link SecretFingerprint}; the message names the type, never the value. */
+    private static final class RefusingFingerprintSerializer
+        extends ValueSerializer<SecretFingerprint> {
+
+        @Override
+        public void serialize(SecretFingerprint value, JsonGenerator generator,
+            SerializationContext context) {
+            context.reportBadDefinition(SecretFingerprint.class,
+                "A SecretFingerprint is never serialized into a result", null);
+        }
     }
 
     private ResultJson() {

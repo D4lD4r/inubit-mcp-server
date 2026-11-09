@@ -59,7 +59,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
   `SecretFingerprint` (final class, not a record; bytes private; `equals`/`hashCode` over the bytes;
   `toString()` = `SecretFingerprint[redacted]`; no getter, no properties, no Jackson annotation —
   test serializes it with the `infra/ResultJson` mapper and expects an exception
-  (`FAIL_ON_EMPTY_BEANS`)) — main
+  (a refusing serializer registered for `SecretFingerprint` in `ResultJson`)) — main
   `domain/model/partner/SettingValue.java`, `domain/model/partner/SecretFingerprint.java`, tests
   `domain/model/partner/SettingValueTest.java`, `domain/model/partner/SecretFingerprintTest.java`
 - [X] T006 (after T004, T005) `Setting(name, SettingValue)`, `ProtocolEntry(protocol, WorkflowRef
@@ -136,7 +136,10 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
   archive's `WorkflowGroupName` and `UserOrUserGroupName` must equal the requested group and owner,
   else no data for that diagram and a per-diagram entry in the port's result (`unreadableDiagrams`,
   code `UNEXPECTED_RESPONSE`, "the export of this name returned a diagram of another group or
-  owner; the name is not unique"), **without throwing** (other diagrams answered, node not stale); unreadable archive →
+  owner; the name is not unique"; several diagrams of the name in the requested group and owner:
+  `UNEXPECTED_RESPONSE`, "the export of this name holds several diagrams of this name in this group;
+  the name is not unique"; an export answered with HTTP 404: code `NOT_FOUND`, naming group/name and
+  server), **without throwing** (other diagrams answered, node not stale); unreadable archive →
   `UNEXPECTED_RESPONSE` naming the part, never content. Contract test with WireMock serving
   `model_export_systemdiagram.{http,zip}`, a variant whose group differs and one whose owner
   differs; 401/403/404/503/timeout map to the existing error kinds; `PartnerNoWriteTest`: `src/main`

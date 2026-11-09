@@ -189,6 +189,55 @@ class PartnerAuditTest {
     }
 
     @Test
+    void cuttingTo500CharsNeverSplitsASurrogatePair() {
+        String emoji = "😀";
+        String straddling = "x".repeat(499) + emoji + "y";
+        PartnerAudit audit = new PartnerAudit(dependencies(), straddling, Optional.empty(),
+            Optional.empty(), Optional.of(straddling), Optional.empty(), Optional.empty(),
+            Optional.empty(), Optional.empty());
+
+        audit.refused(INVALID);
+
+        AuditRecord record = port.records.getFirst();
+        assertThat(record.node()).isEqualTo("x".repeat(499));
+        assertThat(record.inputs()).containsEntry("target", "x".repeat(499))
+            .containsEntry("search", "x".repeat(499));
+    }
+
+    @Test
+    void aMissingTargetIsRefusedWithAnEmptyNodeAndNoTargetInput() {
+        PartnerAudit audit = new PartnerAudit(dependencies(), null, Optional.empty(),
+            Optional.empty(), Optional.of("acme"), Optional.empty(), Optional.empty(),
+            Optional.empty(), Optional.empty());
+
+        ToolErrorException refused = audit.refused(INVALID);
+
+        assertThat(refused.error()).isEqualTo(INVALID);
+        AuditRecord record = port.records.getFirst();
+        assertThat(port.records).hasSize(1);
+        assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED);
+        assertThat(record.node()).isEmpty();
+        assertThat(record.group()).isEmpty();
+        assertThat(record.inputs()).containsExactly(Map.entry("search", "acme"));
+    }
+
+    @Test
+    void aBlankTargetIsRefusedWithTheTargetAsGiven() {
+        PartnerAudit audit = new PartnerAudit(dependencies(), "   ", Optional.empty(),
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+            Optional.empty(), Optional.empty());
+
+        ToolErrorException refused = audit.refused(INVALID);
+
+        assertThat(refused.error()).isEqualTo(INVALID);
+        AuditRecord record = port.records.getFirst();
+        assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED);
+        assertThat(record.node()).isEqualTo("   ");
+        assertThat(record.group()).isEmpty();
+        assertThat(record.inputs()).containsExactly(Map.entry("target", "   "));
+    }
+
+    @Test
     void refusedReturnsInternalNamingTheCallIdWhenTheRecordCannotBeWritten() {
         PartnerAudit audit = audit("qa");
         port.failing = true;

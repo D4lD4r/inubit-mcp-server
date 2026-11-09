@@ -228,6 +228,22 @@ class V81PartnerManagementAdapterContractTest {
     }
 
     @Test
+    void twoWorkflowsOfTheRequestedNameGroupAndOwnerGiveNoDataAndAreReportedPerDiagram() {
+        DiagramXml twice = new DiagramXml(SYNTHETIC.diagramGroup(), SYNTHETIC.name(),
+            PartnerFixtures.OWNER, PartnerFixtures.detail().clouds());
+        stubExport(SYNTHETIC.name(), withWorkflowXml(PartnerFixtures.workflowXml(twice, twice)));
+        stubExport(RECORDED.name(), recordedZip());
+
+        Result result = adapter().read(OWNER, List.of(SYNTHETIC, RECORDED));
+
+        assertThat(result.diagrams()).extracting(d -> d.diagram()).containsExactly(RECORDED);
+        assertThat(result.unreadableDiagrams()).containsExactly(new UnreadableDiagram(SYNTHETIC,
+            ErrorCode.UNEXPECTED_RESPONSE, "the export of this name holds several diagrams of this"
+                + " name in this group; the name is not unique"));
+        assertThat(result.warnings()).isEmpty();
+    }
+
+    @Test
     void theOwnerOfTheRequestDecidesNotTheRecordedOne() {
         stubExport(RECORDED.name(), recordedZip());
 
@@ -293,8 +309,24 @@ class V81PartnerManagementAdapterContractTest {
 
     // --- REST failures map to the existing error kinds -------------------------------------
 
+    @Test
+    void a404ForOneDiagramGivesNoDataForItAndIsReportedPerDiagram() {
+        stub(RECORDED.name(), aResponse().withStatus(404).withBody("<html>gone</html>"));
+        stubExport(SYNTHETIC.name(), syntheticExport());
+
+        Result result = adapter().read(OWNER, List.of(RECORDED, SYNTHETIC));
+
+        assertThat(result.diagrams()).extracting(d -> d.diagram()).containsExactly(SYNTHETIC);
+        assertThat(result.unreadableDiagrams()).singleElement().satisfies(unreadable -> {
+            assertThat(unreadable.systemDiagram()).isEqualTo(RECORDED);
+            assertThat(unreadable.code()).isEqualTo(ErrorCode.NOT_FOUND);
+            assertThat(unreadable.message()).contains("GRP-PM/SystemDiagram-01 on dev/node1",
+                "HTTP 404").doesNotContain("gone");
+        });
+    }
+
     @ParameterizedTest(name = "HTTP {0} → {1}")
-    @CsvSource({"401, AUTH_FAILED", "403, FORBIDDEN", "404, NOT_FOUND", "503, UNREACHABLE"})
+    @CsvSource({"401, AUTH_FAILED", "403, FORBIDDEN", "503, UNREACHABLE"})
     void restFailuresAreToolErrorsOfTheServer(int status, ErrorCode expected) {
         stub(RECORDED.name(), aResponse().withStatus(status));
 
