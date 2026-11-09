@@ -33,3 +33,15 @@ and is not a baseline failure. It is recorded here in case it comes back.
 ## Implementation — phase 2 build
 
 After T017 (d75367a): `mvn -o -q clean verify` green with 5700 unit tests (surefire, 376 suites), 0 failures, 0 errors, 52 skipped, plus 2 failsafe tests (baseline T001: 5495 + 2).
+
+## Implementation — phase 2 code review (2bdb193..cc06fad)
+
+8 findings, none fixed yet:
+1. `PartnerAudit` assumes a non-null, non-blank target; an input error on a missing/blank target becomes INTERNAL instead of INVALID_INPUT (relevant for T022).
+2. A 404 for one system diagram fails the whole server read (adapter loop); could be a per-diagram `UnreadableDiagram`.
+3. Two workflows of the same name in one group pass the collision check, then the reader throws for the whole server (node stale).
+4. `PartnerAudit.bounded` can split a surrogate pair.
+5. `FAIL_ON_EMPTY_BEANS` on the shared mapper is broader than needed; a refusing serializer for `SecretFingerprint` would be local.
+6. Exports per diagram run sequentially (SC-005 budget on many diagrams).
+7. XML helpers and workflow selection duplicated between adapter and reader.
+8. A null `details` value is written as text "null".
